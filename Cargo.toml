@@ -4,3 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+bytemuck = "1.16.0"
+wgpu = "0.19.4"
+ahash = "0.8.11"
+lyon = "1.0.1"
+glyphon = "0.5.0"
+easy-tree = { version = "0.1.0", features = ["rayon"] }
