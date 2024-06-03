@@ -7,6 +7,9 @@ mod debug_tools;
 mod util;
 mod stroke;
 
+pub use wgpu_state::{Renderer, Color, Shape, TextLayout, TextAlignment};
+pub use stroke::Stroke;
+
 pub fn add(left: usize, right: usize) -> usize {
     left + right
 }

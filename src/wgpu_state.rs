@@ -273,7 +273,7 @@ impl ShapeDrawData {
         device: &wgpu::Device,
         depth: f32,
     ) -> (wgpu::Buffer, wgpu::Buffer, u32) {
-        let mut vertex_buffers = State::tessellate_shape(&self.shape, depth);
+        let mut vertex_buffers = Renderer::tessellate_shape(&self.shape, depth);
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
@@ -345,7 +345,7 @@ pub struct TextLayout {
     pub vertical_alignment: TextAlignment,
 }
 
-pub(crate) struct State<'a> {
+pub struct Renderer<'a> {
     // Window information
     /// Size of the window
     pub(crate) physical_size: (u32, u32),
@@ -402,8 +402,8 @@ pub(crate) struct State<'a> {
     depth_stencil_texture_viewer: DepthStencilTextureViewer,
 }
 
-impl State<'_> {
-    pub(crate) async fn new(
+impl Renderer<'_> {
+    pub async fn new(
         window: impl Into<SurfaceTarget<'static>>,
         physical_size: (u32, u32),
         scale_factor: f64,
@@ -565,7 +565,11 @@ impl State<'_> {
         }
     }
 
-    pub(crate) fn resize(&mut self, new_physical_size: (u32, u32)) {
+    pub fn size(&self) -> (u32, u32) {
+        self.physical_size
+    }
+
+    pub fn resize(&mut self, new_physical_size: (u32, u32)) {
         self.physical_size = new_physical_size;
         self.config.width = new_physical_size.0;
         self.config.height = new_physical_size.1;
@@ -629,9 +633,9 @@ impl State<'_> {
         self.decrementing_pipeline = Arc::new(always_decrement_pipeline);
     }
 
-    pub(crate) fn update(&mut self) {}
+    pub fn update(&mut self) {}
 
-    pub(crate) fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         println!("===============");
         let first_timer = Instant::now();
         let draw_tree_size = self.draw_tree.len();
@@ -916,7 +920,7 @@ impl State<'_> {
 }
 
 /// Implementation of the methods related to shape rendering
-impl State<'_> {
+impl Renderer<'_> {
     pub fn clear_draw_queue(&mut self) {
         // self.draw_queue.clear();
         self.flat_draw_queue.clear();
@@ -1241,21 +1245,23 @@ impl State<'_> {
 
     pub fn add_shape_to_rendering_queue(
         &mut self,
-        path: Shape,
+        path: impl Into<Shape>,
         clip_to_shape: Option<usize>,
     ) -> usize {
-        self.convert_shape_to_vertex_and_add_schedule_for_rendering(path, clip_to_shape)
+        self.convert_shape_to_vertex_and_add_schedule_for_rendering(path.into(), clip_to_shape)
     }
 }
 
 /// Implementation of text rendering methods
-impl State<'_> {
+impl Renderer<'_> {
     pub fn add_text_instance(
         &mut self,
         text: &str,
-        layout: TextLayout,
+        layout: impl Into<TextLayout>,
         clip_to_shape: Option<usize>,
     ) {
+        let layout = layout.into();
+
         let mut buffer = TextBuffer::new(
             &mut self.text_renderer_wrapper.font_system,
             Metrics::new(layout.font_size, layout.line_height),
