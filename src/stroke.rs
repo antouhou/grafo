@@ -1,4 +1,4 @@
-use crate::wgpu_state::Color;
+use crate::Color;
 
 #[derive(Clone, Debug, Copy, PartialEq, Default)]
 pub struct Stroke {

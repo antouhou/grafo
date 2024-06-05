@@ -518,10 +518,6 @@ pub fn render_buffer_to_texture2<'a>(
 ) {
     incrementing_pass.set_stencil_reference(parent_stencil_reference);
 
-    // TODO: This should be done beforehand
-    // incrementing_pass.set_pipeline(pipeline);
-    // incrementing_pass.set_bind_group(0, bind_group, &[]);
-
     incrementing_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
     incrementing_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
     incrementing_pass.draw_indexed(0..num_indices, 0, 0..1);

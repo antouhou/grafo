@@ -1,11 +1,15 @@
 pub use wgpu;
 
-mod vertex;
-mod wgpu_state;
-mod pipeline;
+mod color;
 mod debug_tools;
-mod util;
+mod pipeline;
+mod shape;
 mod stroke;
+mod util;
+mod vertex;
+mod renderer;
 
-pub use wgpu_state::{Renderer, Color, Shape, TextLayout, TextAlignment};
+pub use color::Color;
+pub use shape::{PathShape, RectShape, Shape};
 pub use stroke::Stroke;
+pub use renderer::{Renderer, TextAlignment, TextLayout};

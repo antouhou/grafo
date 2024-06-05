@@ -73,15 +73,17 @@ impl DepthStencilTextureViewer {
         let read_buffer_2 = read_buffer.clone();
         let texture_data = self.texture_data.clone();
 
-        read_buffer_2.slice(..).map_async(wgpu::MapMode::Read, move |result| {
-            if let Ok(()) = result {
-                let data = read_buffer.slice(..).get_mapped_range();
-                let mut data_guard = texture_data.write().unwrap();
-                data.chunks(4).enumerate().for_each(|(i, chunk)| {
-                    data_guard[i] = [chunk[0], chunk[1], chunk[2], chunk[3]];
-                });
-            }
-        });
+        read_buffer_2
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                if let Ok(()) = result {
+                    let data = read_buffer.slice(..).get_mapped_range();
+                    let mut data_guard = texture_data.write().unwrap();
+                    data.chunks(4).enumerate().for_each(|(i, chunk)| {
+                        data_guard[i] = [chunk[0], chunk[1], chunk[2], chunk[3]];
+                    });
+                }
+            });
     }
 
     pub fn print_texture_data_at_pixel(&self, x: u32, y: u32) {
@@ -89,7 +91,8 @@ impl DepthStencilTextureViewer {
         let index = (y * self.texture_size.0 + x) as usize;
 
         let pixel_data = data[index];
-        let depth_bits = u32::from_le_bytes([pixel_data[0], pixel_data[1], pixel_data[2], pixel_data[3]]);
+        let depth_bits =
+            u32::from_le_bytes([pixel_data[0], pixel_data[1], pixel_data[2], pixel_data[3]]);
         let depth_value = f32::from_bits(depth_bits);
 
         println!("{:?}", depth_value);
