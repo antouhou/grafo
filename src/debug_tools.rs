@@ -42,13 +42,13 @@ impl DepthStencilTextureViewer {
 
         encoder.copy_texture_to_buffer(
             wgpu::ImageCopyTexture {
-                texture: &depth_stencil_texture,
+                texture: depth_stencil_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::DepthOnly,
             },
             wgpu::ImageCopyBuffer {
-                buffer: &buffer,
+                buffer,
                 layout: wgpu::ImageDataLayout {
                     offset: 0,
                     bytes_per_row: Some(self.texture_size.0 * 4),

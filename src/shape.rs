@@ -108,7 +108,7 @@ impl ShapeDrawData {
     ) -> (wgpu::Buffer, wgpu::Buffer, u32) {
         match &self.shape {
             Shape::Path(path_shape) => {
-                let mut vertex_buffers = path_shape.tessellate(depth);
+                let vertex_buffers = path_shape.tessellate(depth);
 
                 let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: None,

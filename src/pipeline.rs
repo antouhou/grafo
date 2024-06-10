@@ -309,7 +309,7 @@ pub fn create_and_pass<'a, 'b: 'a>(
     output_texture_view: &'b TextureView,
     depth_texture_view: &'b TextureView,
 ) -> RenderPass<'a> {
-    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+    let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("Render Pass"),
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
             view: output_texture_view,
@@ -319,31 +319,6 @@ pub fn create_and_pass<'a, 'b: 'a>(
                 store: StoreOp::Store,
             },
         })],
-        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-            view: depth_texture_view,
-            depth_ops: Some(wgpu::Operations {
-                load: wgpu::LoadOp::Clear(1.0), // Clear to maximum depth
-                store: StoreOp::Store,
-            }),
-            stencil_ops: Some(wgpu::Operations {
-                load: wgpu::LoadOp::Clear(0), // Clear to 0
-                store: StoreOp::Store,
-            }),
-        }),
-        timestamp_writes: None,
-        occlusion_query_set: None,
-    });
-
-    render_pass
-}
-
-pub fn create_stencil_decrementing_pass<'a, 'b: 'a>(
-    encoder: &'a mut wgpu::CommandEncoder,
-    depth_texture_view: &'b TextureView,
-) -> RenderPass<'a> {
-    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("Stencil Decrementing Render Pass"),
-        color_attachments: &[None],
         depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
             view: depth_texture_view,
             depth_ops: Some(wgpu::Operations {
@@ -383,137 +358,12 @@ pub fn create_and_depth_texture(device: &Device, size: (u32, u32)) -> Texture {
     })
 }
 
-pub fn create_and_depth_texture_view(depth_texture: &Texture) -> wgpu::TextureView {
-    depth_texture.create_view(&wgpu::TextureViewDescriptor::default())
-}
-
-pub fn create_and_output_texture(device: &Device, size: (u32, u32)) -> Texture {
-    let size = wgpu::Extent3d {
-        width: size.0,
-        height: size.1,
-        depth_or_array_layers: 1,
-    };
-
-    device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("Output Texture"),
-        size,
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    })
-}
-
-pub fn create_and_output_texture_view(output_texture: &Texture) -> wgpu::TextureView {
-    output_texture.create_view(&wgpu::TextureViewDescriptor::default())
-}
-
-pub struct AndResult {
-    // pub output_texture: Texture,
-    // pub output_texture_view: TextureView,
-    pub depth_texture: Texture,
-    pub depth_texture_view: TextureView,
-}
-
-pub fn render_buffer_to_texture(
-    pipeline: &RenderPipeline,
-    bind_group: &BindGroup,
-    device: &Device,
-    canvas_size: (u32, u32),
-    vertex_buffer: &wgpu::Buffer,
-    index_buffer: &wgpu::Buffer,
-    num_indices: u32,
-    queue: &wgpu::Queue,
-    parent_depth_texture: Option<&Texture>,
-    output_texture_view: &TextureView,
-    always_decrement_pipeline: &RenderPipeline,
-    always_decrement_bind_group: &BindGroup,
-    canvas_sized_quad: &wgpu::Buffer,
-    mut encoder: &mut wgpu::CommandEncoder,
-) -> AndResult {
-    // let output_texture = create_and_output_texture(device, canvas_size);
-    // let output_texture_view = create_and_output_texture_view(&output_texture);
-    let depth_texture = create_and_depth_texture(device, canvas_size);
-
-    if let Some(parent_depth_texture) = parent_depth_texture {
-        // Copy parent texture to current texture
-        encoder.copy_texture_to_texture(
-            wgpu::ImageCopyTexture {
-                texture: parent_depth_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::ImageCopyTexture {
-                texture: &depth_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::Extent3d {
-                width: canvas_size.0,
-                height: canvas_size.1,
-                depth_or_array_layers: 1,
-            },
-        );
-    }
-
-    let depth_texture_view = create_and_depth_texture_view(&depth_texture);
-
-    {
-        let mut render_pass =
-            create_and_pass(&mut encoder, &output_texture_view, &depth_texture_view);
-        // Since parent texture is filled with 1s only where the parent has been drawn and that
-        //  the stencil test is logical AND, the resulting depth texture would be filled with 1s
-        //  only on the intersection between the parent and the current shape.
-        render_pass.set_stencil_reference(1);
-
-        render_pass.set_pipeline(pipeline);
-        render_pass.set_bind_group(0, bind_group, &[]);
-        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-        render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..num_indices, 0, 0..1);
-    }
-
-    // If there's a parent texture, that means that intersection will be all 2's. We need
-    //  to decrement the stencil value across the whole texture to make it 1's and 0's again
-    //  for the next shape to be drawn.
-    if parent_depth_texture.is_some() {
-        {
-            let indices: [u16; 6] = [0, 1, 2, 2, 1, 3];
-            let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Index Buffer"),
-                contents: bytemuck::cast_slice(&indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
-            let mut render_pass =
-                create_stencil_decrementing_pass(&mut encoder, &depth_texture_view);
-
-            render_pass.set_pipeline(always_decrement_pipeline);
-            render_pass.set_bind_group(0, always_decrement_bind_group, &[]);
-
-            render_pass.set_vertex_buffer(0, canvas_sized_quad.slice(..));
-            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..6, 0, 0..1);
-        }
-    }
-
-    AndResult {
-        // output_texture,
-        // output_texture_view,
-        depth_texture,
-        depth_texture_view,
-    }
-}
-
 // Renders buffer to texture and increments stencil value where the buffer is drawn.
 pub fn render_buffer_to_texture2<'a>(
     vertex_buffer: &'a wgpu::Buffer,
     index_buffer: &'a wgpu::Buffer,
     num_indices: u32,
-    mut incrementing_pass: &mut RenderPass<'a>,
+    incrementing_pass: &mut RenderPass<'a>,
     parent_stencil_reference: u32,
 ) {
     incrementing_pass.set_stencil_reference(parent_stencil_reference);
@@ -521,18 +371,4 @@ pub fn render_buffer_to_texture2<'a>(
     incrementing_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
     incrementing_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
     incrementing_pass.draw_indexed(0..num_indices, 0, 0..1);
-}
-
-pub unsafe fn erase_stencil<'a>(
-    vertex_buffer: &'a wgpu::Buffer,
-    index_buffer: &'a wgpu::Buffer,
-    num_indices: u32,
-    mut decrementing_pass: &mut RenderPass<'a>,
-    stencil_reference: u32,
-) {
-    decrementing_pass.set_stencil_reference(stencil_reference);
-
-    decrementing_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-    decrementing_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-    decrementing_pass.draw_indexed(0..num_indices, 0, 0..1);
 }

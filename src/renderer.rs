@@ -50,8 +50,8 @@ impl TextRendererWrapper {
         swapchain_format: wgpu::TextureFormat,
         depth_stencil_state: Option<wgpu::DepthStencilState>,
     ) -> Self {
-        let mut font_system = FontSystem::new();
-        let mut swash_cache = SwashCache::new();
+        let font_system = FontSystem::new();
+        let swash_cache = SwashCache::new();
         let mut atlas = TextAtlas::new(device, queue, swapchain_format);
         let text_renderer = TextRenderer::new(
             &mut atlas,
@@ -349,12 +349,12 @@ impl Renderer<'_> {
             let depth_texture_view =
                 depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-            let mut incrementing_pass =
+            let incrementing_pass =
                 create_and_pass(&mut encoder, &output_texture_view, &depth_texture_view);
 
             println!("Creating pass took: {:?}", first_timer.elapsed());
 
-            let mut shape_ids_to_stencil_references = HashMap::<usize, u32>::new();
+            let shape_ids_to_stencil_references = HashMap::<usize, u32>::new();
 
             let mut data = (incrementing_pass, shape_ids_to_stencil_references);
 
@@ -471,9 +471,9 @@ impl Renderer<'_> {
                     &mut self.text_renderer_wrapper.swash_cache,
                     |index| {
                         // println!("Index: {}", index);
-                        let text_depth = depth(index, draw_tree_size);
+                        
                         // println!("Text depth: {}", text_depth);
-                        text_depth
+                        depth(index, draw_tree_size)
                         // let index = index as f32 / draw_commands_len as f32;
                         // (1.0 - index).clamp(0.0000001, 0.9999999)
                     },
@@ -565,17 +565,15 @@ impl Renderer<'_> {
             shape,
         });
 
-        let shape_id = if self.draw_tree.is_empty() {
-            self.draw_tree.add_node(draw_command)
-        } else {
-            if let Some(clip_to_shape) = clip_to_shape {
-                self.draw_tree.add_child(clip_to_shape, draw_command)
-            } else {
-                self.draw_tree.add_child_to_root(draw_command)
-            }
-        };
+        
 
-        shape_id
+        if self.draw_tree.is_empty() {
+            self.draw_tree.add_node(draw_command)
+        } else if let Some(clip_to_shape) = clip_to_shape {
+            self.draw_tree.add_child(clip_to_shape, draw_command)
+        } else {
+            self.draw_tree.add_child_to_root(draw_command)
+        }
     }
 }
 
