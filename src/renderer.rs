@@ -401,7 +401,7 @@ impl Renderer<'_> {
                                     data.1.insert(shape_id, 1);
                                 }
                             } else {
-                                // println!("Missing vertex or index buffer for shape with stencil reference {}", stencil_reference);
+                                println!("Missing vertex or index buffer for shape {}", shape_id);
                             }
                         }
                     }
@@ -425,6 +425,7 @@ impl Renderer<'_> {
                                     this_shape_stencil,
                                 );
                             } else {
+                                println!("No vertex or index buffer found for shape {}", shape_id);
                                 // TODO: no vertex or index buffer found - it is an error,
                                 //  so probably should panic
                             }
