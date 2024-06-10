@@ -4,6 +4,7 @@ use crate::{Color, Stroke};
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, VertexBuffers,
 };
+use lyon::tessellation::FillVertexConstructor;
 use wgpu::util::DeviceExt;
 
 #[derive(Debug, Clone)]
@@ -44,6 +45,27 @@ pub struct PathShape {
     pub stroke: Stroke,
 }
 
+struct VertexConverter {
+    depth: f32,
+    color: [f32; 4],
+}
+
+impl VertexConverter {
+    fn new(depth: f32, color: [f32; 4]) -> Self {
+        Self { depth, color }
+    }
+}
+
+impl FillVertexConstructor<CustomVertex> for VertexConverter {
+    fn new_vertex(&mut self, vertex: FillVertex) -> CustomVertex {
+        CustomVertex {
+            position: vertex.position().to_array(),
+            depth: self.depth,
+            color: self.color,
+        }
+    }
+}
+
 impl PathShape {
     pub fn new(path: lyon::path::Path, fill: Color, stroke: Stroke) -> Self {
         Self { path, fill, stroke }
@@ -55,16 +77,13 @@ impl PathShape {
         let options = FillOptions::default().with_tolerance(0.01);
 
         let color = self.fill.normalize();
+        let vertex_converter = VertexConverter::new(depth, color);
 
         tessellator
             .tessellate_path(
                 &self.path,
                 &options,
-                &mut BuffersBuilder::new(&mut buffers, |vertex: FillVertex| CustomVertex {
-                    position: vertex.position().to_array(),
-                    depth,
-                    color,
-                }),
+                &mut BuffersBuilder::new(&mut buffers, vertex_converter),
             )
             .unwrap();
 
