@@ -1,5 +1,5 @@
-use crate::vertex::CustomVertex;
 use crate::renderer::depth;
+use crate::vertex::CustomVertex;
 use crate::{Color, Stroke};
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, VertexBuffers,
@@ -187,8 +187,7 @@ impl ShapeDrawData {
     }
     pub fn prepare_buffers(&mut self, device: &wgpu::Device, shape_id: usize, max_shape_id: usize) {
         let depth = depth(shape_id, max_shape_id);
-        let (vertex_buffer, index_buffer, num_indices) =
-            self.shape_data_to_buffers(device, depth);
+        let (vertex_buffer, index_buffer, num_indices) = self.shape_data_to_buffers(device, depth);
 
         self.vertex_buffer = Some(vertex_buffer);
         self.index_buffer = Some(index_buffer);

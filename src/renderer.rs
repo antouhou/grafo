@@ -295,11 +295,9 @@ impl Renderer<'_> {
         let draw_tree_size = self.draw_tree.len();
         let iter = self.draw_tree.par_iter_mut();
 
-        iter.for_each(|draw_command| {
-            match draw_command.1 {
-                DrawCommand::Shape(ref mut shape) => {
-                    shape.prepare_buffers(&self.device, draw_command.0, draw_tree_size);
-                }
+        iter.for_each(|draw_command| match draw_command.1 {
+            DrawCommand::Shape(ref mut shape) => {
+                shape.prepare_buffers(&self.device, draw_command.0, draw_tree_size);
             }
         });
 
