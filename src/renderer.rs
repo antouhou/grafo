@@ -471,7 +471,7 @@ impl Renderer<'_> {
                     &mut self.text_renderer_wrapper.swash_cache,
                     |index| {
                         // println!("Index: {}", index);
-                        
+
                         // println!("Text depth: {}", text_depth);
                         depth(index, draw_tree_size)
                         // let index = index as f32 / draw_commands_len as f32;
@@ -564,8 +564,6 @@ impl Renderer<'_> {
             clip_to_shape,
             shape,
         });
-
-        
 
         if self.draw_tree.is_empty() {
             self.draw_tree.add_node(draw_command)
