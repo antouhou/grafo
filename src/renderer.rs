@@ -6,8 +6,8 @@ use easy_tree::rayon::iter::ParallelIterator;
 type Rect = lyon::math::Box2D;
 
 use crate::pipeline::{
-    create_and_depth_texture, create_and_pass, create_depth_stencil_state_for_text,
-    create_pipeline, render_buffer_to_texture2, PipelineType, Uniforms,
+    create_and_depth_texture, create_render_pass, create_depth_stencil_state_for_text,
+    create_pipeline, create_texture_pipeline, render_buffer_to_texture2, PipelineType, Uniforms,
 };
 use crate::util::to_logical;
 use ahash::{HashMap, HashMapExt};
@@ -18,11 +18,10 @@ use glyphon::{
 };
 
 use crate::debug_tools::DepthStencilTextureViewer;
+use crate::id::TextureId;
 use crate::shape::ShapeDrawData;
 use crate::{Color, Shape};
-use wgpu::{
-    BindGroup, CompositeAlphaMode, Device, InstanceDescriptor, MultisampleState, SurfaceTarget,
-};
+use wgpu::{BindGroup, BindGroupLayout, CompositeAlphaMode, Device, InstanceDescriptor, MultisampleState, SurfaceTarget};
 
 #[inline(always)]
 pub fn depth(draw_command_id: usize, draw_commands_total: usize) -> f32 {
@@ -80,8 +79,125 @@ struct TextDrawData {
     clip_to_shape: Option<usize>,
 }
 
+struct ImageDrawData {
+    image: Vec<u8>,
+    rect: Rect,
+    clip_to_shape: Option<usize>,
+    texture: Option<wgpu::Texture>,
+    bind_group: Option<BindGroup>,
+}
+
+impl ImageDrawData {
+    fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        bind_group_layout: &BindGroupLayout
+    ) {
+        let texture_dimensions = (self.rect.width() as u32, self.rect.height() as u32);
+        let texture_extent = wgpu::Extent3d {
+            width: texture_dimensions.0,
+            height: texture_dimensions.1,
+            depth_or_array_layers: 1,
+        };
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: texture_dimensions.0,
+                height: texture_dimensions.1,
+                // 2D texture depth
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            // sRGBA, as we're going to work with RGBA images
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            // TEXTURE_BINDING to use texture in the shader, COPY_DST to copy data to the texture
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        queue.write_texture(
+            // Tells wgpu where to copy the pixel data
+            wgpu::ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            // The actual pixel data
+            &self.image,
+            // The layout of the texture
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * texture_dimensions.0),
+                rows_per_image: Some(texture_dimensions.1),
+            },
+            texture_extent,
+        );
+
+        self.texture = Some(texture);
+
+        let view = self.create_texture_view().expect("Texture to be prepared for rendering");
+        let sampler = ImageDrawData::create_sampler(&device);
+        let bind_group = ImageDrawData::create_bind_group(
+            &device,
+            &bind_group_layout,
+            &view,
+            &sampler,
+        );
+
+        self.bind_group = Some(bind_group);
+    }
+
+    fn create_sampler(device: &wgpu::Device) -> wgpu::Sampler {
+        device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        })
+    }
+
+    fn create_texture_view(&self) -> Option<wgpu::TextureView> {
+        Some(
+            self.texture
+                .as_ref()?
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+        )
+    }
+
+    fn create_bind_group(
+        device: &wgpu::Device,
+        texture_bind_group_layout: &wgpu::BindGroupLayout,
+        texture_view: &wgpu::TextureView,
+        sampler: &wgpu::Sampler,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+            label: Some("diffuse_bind_group"),
+        })
+    }
+}
+
 enum DrawCommand {
     Shape(ShapeDrawData),
+    Image(ImageDrawData),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -130,6 +246,11 @@ pub struct Renderer<'a> {
 
     // TODO: remove later
     depth_stencil_texture_viewer: DepthStencilTextureViewer,
+
+    texture_cache: HashMap<TextureId, wgpu::Texture>,
+
+    texture_render_pipeline: Arc<wgpu::RenderPipeline>,
+    texture_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl Renderer<'_> {
@@ -221,6 +342,11 @@ impl Renderer<'_> {
 
         let depth_stencil_texture_viewer = DepthStencilTextureViewer::new(&device, size);
 
+        let (
+            texture_bind_group_layout,
+            texture_render_pipeline
+        ) = create_texture_pipeline(&device, &config);
+
         Self {
             surface,
             device,
@@ -249,6 +375,10 @@ impl Renderer<'_> {
             adapter,
 
             depth_stencil_texture_viewer,
+
+            texture_cache: HashMap::new(),
+            texture_render_pipeline: Arc::new(texture_render_pipeline),
+            texture_bind_group_layout,
         }
     }
 
@@ -287,8 +417,6 @@ impl Renderer<'_> {
         self.decrementing_pipeline = Arc::new(decrementing_pipeline);
     }
 
-    pub fn update(&mut self) {}
-
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         println!("===============");
         let first_timer = Instant::now();
@@ -298,6 +426,9 @@ impl Renderer<'_> {
         iter.for_each(|draw_command| match draw_command.1 {
             DrawCommand::Shape(ref mut shape) => {
                 shape.prepare_buffers(&self.device, draw_command.0, draw_tree_size);
+            }
+            DrawCommand::Image(ref mut image) => {
+                image.prepare(&self.device, &self.queue, &self.texture_bind_group_layout);
             }
         });
 
@@ -349,14 +480,14 @@ impl Renderer<'_> {
             let depth_texture_view =
                 depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-            let incrementing_pass =
-                create_and_pass(&mut encoder, &output_texture_view, &depth_texture_view);
+            let render_pass =
+                create_render_pass(&mut encoder, &output_texture_view, &depth_texture_view);
 
             println!("Creating pass took: {:?}", first_timer.elapsed());
 
             let shape_ids_to_stencil_references = HashMap::<usize, u32>::new();
 
-            let mut data = (incrementing_pass, shape_ids_to_stencil_references);
+            let mut data = (render_pass, shape_ids_to_stencil_references);
 
             let walk_timer = Instant::now();
             self.draw_tree.traverse(
@@ -402,6 +533,17 @@ impl Renderer<'_> {
                                 println!("Missing vertex or index buffer for shape {}", shape_id);
                             }
                         }
+                        DrawCommand::Image(image) => {
+                            data.0.set_pipeline(&self.texture_render_pipeline);
+                            data.0.set_bind_group(0, image.bind_group.as_ref().expect("Image bind group to be prepared"), &[]);
+
+                            // TODO:
+                            // data.0.set_stencil_reference();
+
+                            // data.0.set_vertex_buffer(0, vertex_buffer.slice(..));
+                            // data.0.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                            // data.0.draw_indexed(0..num_indices, 0, 0..1);
+                        }
                     }
                 },
                 |shape_id, draw_command, data| {
@@ -427,6 +569,10 @@ impl Renderer<'_> {
                                 // TODO: no vertex or index buffer found - it is an error,
                                 //  so probably should panic
                             }
+                        }
+                        DrawCommand::Image(image) => {
+                            // panic!("Image rendering is not implemented yet");
+                            // TODO: nothing to do here
                         }
                     }
                 },
@@ -565,6 +711,30 @@ impl Renderer<'_> {
             shape,
         });
 
+        self.add_draw_command(draw_command, clip_to_shape)
+    }
+
+    pub fn add_image(&mut self, image: &[u8], rect: Rect, clip_to_shape: Option<usize>) {
+        // TODO: cache image data
+        let texture_id = TextureId::new(image);
+        let image_data = image.to_vec();
+
+        let draw_command = DrawCommand::Image(ImageDrawData {
+            image: image_data,
+            rect,
+            clip_to_shape,
+            texture: None,
+            bind_group: None,
+        });
+
+        self.add_draw_command(draw_command, clip_to_shape);
+    }
+
+    fn add_draw_command(
+        &mut self,
+        draw_command: DrawCommand,
+        clip_to_shape: Option<usize>,
+    ) -> usize {
         if self.draw_tree.is_empty() {
             self.draw_tree.add_node(draw_command)
         } else if let Some(clip_to_shape) = clip_to_shape {

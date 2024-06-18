@@ -9,37 +9,37 @@ use wgpu::util::DeviceExt;
 
 #[derive(Debug, Clone)]
 pub enum Shape {
-    Path(PathShape),
-    Rect(RectShape),
+    Path(Path),
+    Rect(Rect),
 }
 
-impl From<PathShape> for Shape {
-    fn from(value: PathShape) -> Self {
+impl From<Path> for Shape {
+    fn from(value: Path) -> Self {
         Shape::Path(value)
     }
 }
 
-impl From<RectShape> for Shape {
-    fn from(value: RectShape) -> Self {
+impl From<Rect> for Shape {
+    fn from(value: Rect) -> Self {
         Shape::Rect(value)
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct RectShape {
+pub struct Rect {
     pub rect: [(f32, f32); 2],
     pub fill: Color,
     pub stroke: Stroke,
 }
 
-impl RectShape {
+impl Rect {
     pub fn new(rect: [(f32, f32); 2], fill: Color, stroke: Stroke) -> Self {
         Self { rect, fill, stroke }
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct PathShape {
+pub struct Path {
     pub path: lyon::path::Path,
     pub fill: Color,
     pub stroke: Stroke,
@@ -66,7 +66,7 @@ impl FillVertexConstructor<CustomVertex> for VertexConverter {
     }
 }
 
-impl PathShape {
+impl Path {
     pub fn new(path: lyon::path::Path, fill: Color, stroke: Stroke) -> Self {
         Self { path, fill, stroke }
     }
