@@ -1,4 +1,7 @@
 pub use wgpu;
+pub use lyon;
+pub use lyon::math;
+pub use lyon::path;
 
 mod color;
 mod debug_tools;
@@ -13,5 +16,5 @@ mod image_draw_data;
 
 pub use color::Color;
 pub use renderer::{Renderer, TextAlignment, TextLayout};
-pub use shape::{Path, Rect, Shape};
+pub use shape::{PathShape, RectShape, Shape};
 pub use stroke::Stroke;

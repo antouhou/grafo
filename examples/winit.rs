@@ -1,12 +1,22 @@
 use futures::executor::block_on;
 use std::sync::Arc;
 use std::time::Instant;
-use lyon::geom::Size;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
+use grafo::math::Box2D;
+use grafo::path::builder::BorderRadii;
+use grafo::{Color, Shape, Stroke};
+
+use image::io::Reader as ImageReader;
 
 pub fn main() {
+    let rust_logo_png_bytes = include_bytes!("./rust-logo-256x256-blk.png");
+    let rust_logo_png = ImageReader::new(std::io::Cursor::new(rust_logo_png_bytes)).with_guessed_format().unwrap().decode().unwrap();
+    let rust_logo_rgba = rust_logo_png.as_rgba8().unwrap();
+    let rust_logo_png_dimensions = rust_logo_rgba.dimensions();
+    let rust_logo_png_bytes = rust_logo_rgba.to_vec();
+
     env_logger::init();
     let event_loop = EventLoop::new().expect("To create the event loop");
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
@@ -67,61 +77,68 @@ pub fn main() {
                         window.request_redraw();
                     }
                     WindowEvent::RedrawRequested => {
-                        // {
-                        //     let timer = Instant::now();
-                        //     let mut_ref = &mut state;
-                        //     app_runner.run_frame(mut_ref);
-                        //     println!("Frame time: {:?}", timer.elapsed());
-                        // }
+                        let background = Shape::rect(
+                            [(0.0, 0.0), (window_size.width as f32, window_size.height as f32)].into(),
+                            Color::rgb(255, 255, 255),
+                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                        );
 
-                        // let red = Shape::rounded_rect(
-                        //     Rect::new((0.0, 0.0).into(), (200.0, 200.0).into()),
-                        //     BorderRadii::new(0.0),
-                        //     Color32::from_rgb(255, 0, 0),
-                        //     Stroke::new(1.0, Color32::from_rgb(0, 0, 0)),
-                        // );
-                        //
-                        // let green = Shape::rounded_rect(
-                        //     Rect::new((100.0, 100.0).into(), (300.0, 300.0).into()),
-                        //     BorderRadii::new(0.0),
-                        //     Color32::from_rgb(0, 255, 0),
-                        //     Stroke::new(1.0, Color32::from_rgb(0, 0, 0)),
-                        // );
-                        //
-                        // let blue = Shape::rounded_rect(
-                        //     Rect::new((150.0, 150.0).into(), (350.0, 350.0).into()),
-                        //     BorderRadii::new(10.0),
-                        //     Color32::from_rgb(0, 0, 255),
-                        //     Stroke::new(1.0, Color32::from_rgb(0, 0, 0)),
-                        // );
-                        //
-                        // let yellow = Shape::rounded_rect(
-                        //     Rect::new((0.0, 0.0).into(), (150.0, 150.0).into()),
-                        //     BorderRadii::new(0.0),
-                        //     Color32::from_rgb(255, 255, 0),
-                        //     Stroke::new(1.0, Color32::from_rgb(0, 0, 0)),
-                        // );
-                        //
-                        // let white = Shape::rounded_rect(
-                        //     Rect::new((0.0, 0.0).into(), (20.0, 20.0).into()),
-                        //     BorderRadii::new(0.0),
-                        //     Color32::from_rgb(255, 255, 255),
-                        //     Stroke::new(1.0, Color32::from_rgb(0, 0, 0)),
-                        // );
-                        //
-                        // let shape_that_doesnt_fit = Shape::rounded_rect(
-                        //     Rect::new((0.0, 0.0).into(), (20.0, 20.0).into()),
-                        //     BorderRadii::new(0.0),
-                        //     Color32::from_rgb(255, 255, 255),
-                        //     Stroke::new(1.0, Color32::from_rgb(0, 0, 0)),
-                        // );
-                        //
-                        // let red_id = state.add_shape(&red, None);
-                        // let green_id = state.add_shape(&green, Some(red_id));
-                        // let blue_id = state.add_shape(&blue, Some(green_id));
-                        // state.add_shape(&yellow, Some(green_id));
-                        // state.add_shape(&white, Some(red_id));
-                        // state.add_shape(&shape_that_doesnt_fit, Some(blue_id));
+                        let red = Shape::rounded_rect(
+                            &Box2D::new((0.0, 0.0).into(), (200.0, 200.0).into()),
+                            &BorderRadii::new(0.0),
+                            Color::rgb(255, 0, 0),
+                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                        );
+
+                        let green = Shape::rounded_rect(
+                            &Box2D::new((100.0, 100.0).into(), (300.0, 300.0).into()),
+                            &BorderRadii::new(0.0),
+                            Color::rgb(0, 255, 0),
+                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                        );
+
+                        let blue = Shape::rounded_rect(
+                            &Box2D::new((150.0, 150.0).into(), (350.0, 350.0).into()),
+                            &BorderRadii::new(10.0),
+                            Color::rgb(0, 0, 255),
+                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                        );
+
+                        let yellow = Shape::rounded_rect(
+                            &Box2D::new((0.0, 0.0).into(), (150.0, 150.0).into()),
+                            &BorderRadii::new(0.0),
+                            Color::rgb(255, 255, 0),
+                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                        );
+
+                        let white = Shape::rounded_rect(
+                            &Box2D::new((0.0, 0.0).into(), (20.0, 20.0).into()),
+                            &BorderRadii::new(0.0),
+                            Color::rgb(255, 255, 255),
+                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                        );
+
+                        let shape_that_doesnt_fit = Shape::rounded_rect(
+                            &Box2D::new((0.0, 0.0).into(), (20.0, 20.0).into()),
+                            &BorderRadii::new(0.0),
+                            Color::rgb(255, 255, 255),
+                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                        );
+
+                        let background_id = state.add_shape(background, None);
+                        let red_id = state.add_shape(red, Some(background_id));
+                        let green_id = state.add_shape(green, Some(red_id));
+                        let blue_id = state.add_shape(blue, Some(green_id));
+                        state.add_shape(yellow, Some(green_id));
+                        state.add_shape(white, Some(red_id));
+                        state.add_shape(shape_that_doesnt_fit, Some(blue_id));
+
+                        state.add_image(
+                            &rust_logo_png_bytes,
+                            rust_logo_png_dimensions,
+                            Box2D::new((400.0, 400.0).into(), (rust_logo_png_dimensions.0 as f32, rust_logo_png_dimensions.1 as f32).into()),
+                            Some(background_id),
+                        );
 
                         // state.update();
                         let timer = Instant::now();

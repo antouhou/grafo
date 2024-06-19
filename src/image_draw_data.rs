@@ -3,7 +3,7 @@ use wgpu::{BindGroup, BindGroupLayout, Device};
 use wgpu::util::DeviceExt;
 use crate::renderer::MathRect;
 use crate::util::normalize_rect;
-use crate::vertex::TexturedVertex;
+use crate::vertex::{CustomVertex, TexturedVertex};
 
 pub(crate) struct ImageDrawData {
     pub(crate) image_data: Vec<u8>,
@@ -31,6 +31,8 @@ impl ImageDrawData {
         if (texture_dimensions.0 * texture_dimensions.1) != (self.image_data.len() / 4) as u32 {
             panic!("Image size and data size mismatch");
         }
+
+        println!("texture_dimensions: {:?}", texture_dimensions);
 
         let texture_extent = wgpu::Extent3d {
             width: texture_dimensions.0,
@@ -86,88 +88,45 @@ impl ImageDrawData {
     }
 
     fn prepare_vertices(&mut self, device: &Device, canvas_physical_size: (u32, u32), scale_factor: f32) {
-        // let normalized_rect = normalize_rect(&self.logical_rect, canvas_physical_size, scale_factor);
-        // let min_x = normalized_rect.min.x;
-        // let min_y = normalized_rect.min.y;
-        // let max_x = normalized_rect.max.x;
-        // let max_y = normalized_rect.max.y;
-
-        let min_x = -0.5;
-        let min_y = -0.5;
-        let max_x = 0.5;
-        let max_y = 0.5;
+        let normalized_rect = normalize_rect(&self.logical_rect, canvas_physical_size, scale_factor);
+        let min_x = normalized_rect.min.x;
+        let min_y = normalized_rect.min.y;
+        let max_x = normalized_rect.max.x;
+        let max_y = normalized_rect.max.y;
 
         println!("min_x: {}, min_y: {}, max_x: {}, max_y: {}", min_x, min_y, max_x, max_y);
-        // let quad = [
-        //     TexturedVertex {
-        //         position: [min_x, min_y],
-        //         tex_coords: [0.0, 0.0],
-        //     },
-        //     TexturedVertex {
-        //         position: [max_x, min_y],
-        //         tex_coords: [1.0, 0.0],
-        //     },
-        //     TexturedVertex {
-        //         position: [min_x, max_y],
-        //         tex_coords: [0.0, 1.0],
-        //     },
-        //     TexturedVertex {
-        //         position: [min_x, max_y],
-        //         tex_coords: [0.0, 1.0],
-        //     },
-        //     TexturedVertex {
-        //         position: [max_x, min_y],
-        //         tex_coords: [1.0, 0.0],
-        //     },
-        //     TexturedVertex {
-        //         position: [max_x, max_y],
-        //         tex_coords: [1.0, 1.0],
-        //     },
-        // ];
 
-        // let quad = [
-        //     TexturedVertex {
-        //         position: [min_x, min_y],
-        //         tex_coords: [min_x, min_y],
-        //     },
-        //     TexturedVertex {
-        //         position: [max_x, min_y],
-        //         tex_coords: [max_x, min_y],
-        //     },
-        //     TexturedVertex {
-        //         position: [min_x, max_y],
-        //         tex_coords: [min_x, max_y],
-        //     },
-        //     TexturedVertex {
-        //         position: [min_x, max_y],
-        //         tex_coords: [min_x, max_y],
-        //     },
-        //     TexturedVertex {
-        //         position: [max_x, min_y],
-        //         tex_coords: [max_x, min_y],
-        //     },
-        //     TexturedVertex {
-        //         position: [max_x, max_y],
-        //         tex_coords: [max_x, max_y],
-        //     },
-        // ];
+        // let top_left = [-1.0, 1.0];
+        // let top_right = [1.0, 1.0];
+        // let bottom_right = [1.0, -1.0];
+        // let bottom_left = [-1.0, -1.0];
+
+        let top_left = [max_x, max_y];
+        let top_right = [min_x, max_y];
+        let bottom_right = [min_x, min_y];
+        let bottom_left = [max_x, min_y];
+
+        let top_left_tex = [0.0, 0.0];
+        let top_right_tex = [1.0, 0.0];
+        let bottom_right_tex = [1.0, 1.0];
+        let bottom_left_tex = [0.0, 1.0];
 
         let quad = [
             TexturedVertex {
-                position: [min_x, min_y],
-                tex_coords: [0.0, 0.0],
+                position: top_left,
+                tex_coords: top_left_tex,
             },
             TexturedVertex {
-                position: [max_x, min_y],
-                tex_coords: [1.0, 0.0],
+                position: top_right,
+                tex_coords: top_right_tex,
             },
             TexturedVertex {
-                position: [max_x, max_y],
-                tex_coords: [1.0, 1.0],
+                position: bottom_right,
+                tex_coords: bottom_right_tex,
             },
             TexturedVertex {
-                position: [min_x, max_y],
-                tex_coords: [0.0, 1.0],
+                position: bottom_left,
+                tex_coords: bottom_left_tex,
             },
         ];
 
@@ -176,19 +135,6 @@ impl ImageDrawData {
             contents: bytemuck::cast_slice(&quad),
             usage: wgpu::BufferUsages::VERTEX,
         });
-
-        // let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        //     label: None,
-        //     contents: bytemuck::cast_slice(&[0u16, 1, 2, 3, 4, 5]),
-        //     usage: wgpu::BufferUsages::INDEX,
-        // });
-
-        // let vertices = [
-        //     Vertex { position: [x1, y1, 0.0], tex_coords: [0.0, 0.0] }, // top-left
-        //     Vertex { position: [x2, y1, 0.0], tex_coords: [1.0, 0.0] }, // top-right
-        //     Vertex { position: [x2, y2, 0.0], tex_coords: [1.0, 1.0] }, // bottom-right
-        //     Vertex { position: [x1, y2, 0.0], tex_coords: [0.0, 1.0] }, // bottom-left
-        // ];
 
         let indices: &[u16] = &[
             0, 1, 2, // first triangle
@@ -203,8 +149,7 @@ impl ImageDrawData {
 
         self.vertex_buffer = Some(vertex_buffer);
         self.index_buffer = Some(index_buffer);
-        // self.num_indices = Some(6);
-        self.num_indices = Some(6);
+        self.num_indices = Some(indices.len() as u32);
     }
 
     fn create_sampler(device: &wgpu::Device) -> wgpu::Sampler {

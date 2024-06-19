@@ -6,40 +6,61 @@ use lyon::lyon_tessellation::{
 };
 use lyon::tessellation::FillVertexConstructor;
 use wgpu::util::DeviceExt;
+use crate::path::Winding;
 
 #[derive(Debug, Clone)]
 pub enum Shape {
-    Path(Path),
-    Rect(Rect),
+    Path(PathShape),
+    Rect(RectShape),
 }
 
-impl From<Path> for Shape {
-    fn from(value: Path) -> Self {
+impl Shape {
+    pub fn rect(rect: [(f32, f32); 2], fill_color: Color, stroke: Stroke) -> Shape {
+        let rect_shape = RectShape::new(rect, fill_color, stroke);
+        Shape::Rect(rect_shape)
+    }
+    pub fn rounded_rect(rect: &crate::math::Box2D, border_radii: &crate::path::builder::BorderRadii, fill_color: Color, stroke: Stroke) -> Shape {
+        let mut path_builder = lyon::path::Path::builder();
+
+        path_builder.add_rounded_rectangle(&rect, &border_radii, Winding::Positive);
+        let path = path_builder.build();
+
+        let path_shape = PathShape {
+            path,
+            fill: fill_color,
+            stroke,
+        };
+        Shape::Path(path_shape)
+    }
+}
+
+impl From<PathShape> for Shape {
+    fn from(value: PathShape) -> Self {
         Shape::Path(value)
     }
 }
 
-impl From<Rect> for Shape {
-    fn from(value: Rect) -> Self {
+impl From<RectShape> for Shape {
+    fn from(value: RectShape) -> Self {
         Shape::Rect(value)
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct Rect {
+pub struct RectShape {
     pub rect: [(f32, f32); 2],
     pub fill: Color,
     pub stroke: Stroke,
 }
 
-impl Rect {
+impl RectShape {
     pub fn new(rect: [(f32, f32); 2], fill: Color, stroke: Stroke) -> Self {
         Self { rect, fill, stroke }
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct Path {
+pub struct PathShape {
     pub path: lyon::path::Path,
     pub fill: Color,
     pub stroke: Stroke,
@@ -66,7 +87,7 @@ impl FillVertexConstructor<CustomVertex> for VertexConverter {
     }
 }
 
-impl Path {
+impl PathShape {
     pub fn new(path: lyon::path::Path, fill: Color, stroke: Stroke) -> Self {
         Self { path, fill, stroke }
     }
