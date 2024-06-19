@@ -162,6 +162,31 @@ pub fn create_always_replace_depth_stencil_state() -> wgpu::DepthStencilState {
     }
 }
 
+pub fn write_on_equal_depth_stencil_state() -> wgpu::DepthStencilState {
+    let face_state = wgpu::StencilFaceState {
+        compare: wgpu::CompareFunction::Always,
+        fail_op: wgpu::StencilOperation::Replace,
+        depth_fail_op: wgpu::StencilOperation::Replace,
+        pass_op: wgpu::StencilOperation::Replace,
+    };
+
+    let stencil = wgpu::StencilState {
+        front: face_state,
+        back: face_state,
+        read_mask: 0xff,
+        write_mask: 0xff,
+    };
+
+    wgpu::DepthStencilState {
+        format: wgpu::TextureFormat::Depth24PlusStencil8,
+        depth_write_enabled: false,
+        depth_compare: wgpu::CompareFunction::Always,
+        stencil,
+        bias: wgpu::DepthBiasState::default(),
+    }
+
+}
+
 pub fn create_always_decrement_depth_stencil_state() -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format: wgpu::TextureFormat::Depth24PlusStencil8,
@@ -445,7 +470,7 @@ pub fn create_texture_pipeline(
         }),
         primitive: wgpu::PrimitiveState::default(),
         // TODO: add stencil test
-        depth_stencil: None,
+        depth_stencil: Some(write_on_equal_depth_stencil_state()),
         multisample: wgpu::MultisampleState::default(),
         multiview: None,
     });

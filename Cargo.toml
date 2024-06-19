@@ -9,4 +9,9 @@ wgpu = "0.19.4"
 ahash = "0.8.11"
 lyon = "1.0.1"
 glyphon = "0.5.0"
-easy-tree = { version = "0.1.0", features = ["rayon"] }
+easy-tree = { version = "0.1.2", features = ["rayon"] }
+
+[dev-dependencies]
+winit = "0.29.15"
+env_logger = "0.11.3"
+futures = "0.3.30"

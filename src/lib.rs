@@ -9,6 +9,7 @@ mod shape;
 mod stroke;
 mod util;
 mod vertex;
+mod image_draw_data;
 
 pub use color::Color;
 pub use renderer::{Renderer, TextAlignment, TextLayout};

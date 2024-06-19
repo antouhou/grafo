@@ -40,8 +40,8 @@ impl CustomVertex {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct TexturedVertex {
-    position: [f32; 3],
-    tex_coords: [f32; 2],
+    pub(crate) position: [f32; 2],
+    pub(crate) tex_coords: [f32; 2],
 }
 
 impl TexturedVertex {
@@ -52,7 +52,7 @@ impl TexturedVertex {
             attributes: &[
                 // Position
                 wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x3,
+                    format: wgpu::VertexFormat::Float32x2,
                     offset: 0,
                     shader_location: 0,
                 },
