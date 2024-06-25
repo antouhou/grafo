@@ -26,7 +26,7 @@ pub fn main() {
     let scale_factor = window.scale_factor();
     let physical_size = (window_size.width, window_size.height);
 
-    let mut state = block_on(grafo::Renderer::new(
+    let mut renderer = block_on(grafo::Renderer::new(
         window.clone(),
         physical_size,
         scale_factor,
@@ -70,7 +70,7 @@ pub fn main() {
                     }
                     WindowEvent::Resized(physical_size) => {
                         let new_size = (physical_size.width, physical_size.height);
-                        state.resize(new_size);
+                        renderer.resize(new_size);
 
                         let logical_size = physical_size.to_logical::<f32>(window.scale_factor());
 
@@ -125,28 +125,34 @@ pub fn main() {
                             Stroke::new(1.0, Color::rgb(0, 0, 0)),
                         );
 
-                        let background_id = state.add_shape(background, None);
-                        let red_id = state.add_shape(red, Some(background_id));
-                        let green_id = state.add_shape(green, Some(red_id));
-                        let blue_id = state.add_shape(blue, Some(green_id));
-                        state.add_shape(yellow, Some(green_id));
-                        state.add_shape(white, Some(red_id));
-                        state.add_shape(shape_that_doesnt_fit, Some(blue_id));
+                        let background_id = renderer.add_shape(background, None);
+                        let red_id = renderer.add_shape(red, Some(background_id));
+                        let green_id = renderer.add_shape(green, Some(red_id));
+                        let blue_id = renderer.add_shape(blue, Some(green_id));
+                        renderer.add_shape(yellow, Some(green_id));
+                        renderer.add_shape(white, Some(red_id));
+                        renderer.add_shape(shape_that_doesnt_fit, Some(blue_id));
 
-                        state.add_image(
+                        renderer.add_image(
                             &rust_logo_png_bytes,
                             rust_logo_png_dimensions,
-                            Box2D::new((400.0, 400.0).into(), (rust_logo_png_dimensions.0 as f32, rust_logo_png_dimensions.1 as f32).into()),
+                            Box2D::from_origin_and_size((100.0, 100.0).into(), (rust_logo_png_dimensions.0 as f32, rust_logo_png_dimensions.1 as f32).into()),
+                            Some(red_id),
+                        );
+
+                        renderer.add_image(
+                            &rust_logo_png_bytes,
+                            rust_logo_png_dimensions,
+                            Box2D::from_origin_and_size((200.0, 200.0).into(), (rust_logo_png_dimensions.0 as f32, rust_logo_png_dimensions.1 as f32).into()),
                             Some(background_id),
                         );
 
-                        // state.update();
                         let timer = Instant::now();
-                        match state.render() {
+                        match renderer.render() {
                             Ok(_) => {
-                                state.clear_draw_queue();
+                                renderer.clear_draw_queue();
                             }
-                            Err(wgpu::SurfaceError::Lost) => state.resize(state.size()),
+                            Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size()),
                             Err(wgpu::SurfaceError::OutOfMemory) => event_loop_window_target.exit(),
                             Err(e) => eprintln!("{:?}", e),
                         }

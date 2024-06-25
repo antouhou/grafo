@@ -164,9 +164,9 @@ pub fn create_always_replace_depth_stencil_state() -> wgpu::DepthStencilState {
 
 pub fn write_on_equal_depth_stencil_state() -> wgpu::DepthStencilState {
     let face_state = wgpu::StencilFaceState {
-        compare: wgpu::CompareFunction::Always,
-        fail_op: wgpu::StencilOperation::Replace,
-        depth_fail_op: wgpu::StencilOperation::Replace,
+        compare: wgpu::CompareFunction::Equal,
+        fail_op: wgpu::StencilOperation::Keep,
+        depth_fail_op: wgpu::StencilOperation::Keep,
         pass_op: wgpu::StencilOperation::Replace,
     };
 
