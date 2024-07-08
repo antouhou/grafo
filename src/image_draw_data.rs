@@ -1,9 +1,9 @@
-use std::cmp::max;
-use wgpu::{BindGroup, BindGroupLayout, Device};
-use wgpu::util::DeviceExt;
 use crate::renderer::MathRect;
 use crate::util::normalize_rect;
-use crate::vertex::{CustomVertex, TexturedVertex};
+use crate::vertex::TexturedVertex;
+use std::cmp::max;
+use wgpu::util::DeviceExt;
+use wgpu::{BindGroup, BindGroupLayout, Device};
 
 pub(crate) struct ImageDrawData {
     pub(crate) image_data: Vec<u8>,
@@ -31,8 +31,6 @@ impl ImageDrawData {
         if (texture_dimensions.0 * texture_dimensions.1) != (self.image_data.len() / 4) as u32 {
             panic!("Image size and data size mismatch");
         }
-
-        println!("texture_dimensions: {:?}", texture_dimensions);
 
         let texture_extent = wgpu::Extent3d {
             width: texture_dimensions.0,
@@ -74,27 +72,29 @@ impl ImageDrawData {
 
         self.texture = Some(texture);
 
-        let view = self.create_texture_view().expect("Texture to be prepared for rendering");
+        let view = self
+            .create_texture_view()
+            .expect("Texture to be prepared for rendering");
         let sampler = ImageDrawData::create_sampler(&device);
-        let bind_group = ImageDrawData::create_bind_group(
-            &device,
-            &bind_group_layout,
-            &view,
-            &sampler,
-        );
+        let bind_group =
+            ImageDrawData::create_bind_group(&device, &bind_group_layout, &view, &sampler);
 
         self.bind_group = Some(bind_group);
         self.prepare_vertices(device, canvas_physical_size, scale_factor);
     }
 
-    fn prepare_vertices(&mut self, device: &Device, canvas_physical_size: (u32, u32), scale_factor: f32) {
-        let normalized_rect = normalize_rect(&self.logical_rect, canvas_physical_size, scale_factor);
+    fn prepare_vertices(
+        &mut self,
+        device: &Device,
+        canvas_physical_size: (u32, u32),
+        scale_factor: f32,
+    ) {
+        let normalized_rect =
+            normalize_rect(&self.logical_rect, canvas_physical_size, scale_factor);
         let min_x = normalized_rect.min.x;
         let min_y = normalized_rect.min.y;
         let max_x = normalized_rect.max.x;
         let max_y = normalized_rect.max.y;
-
-        println!("min_x: {}, min_y: {}, max_x: {}, max_y: {}", min_x, min_y, max_x, max_y);
 
         let top_left = [max_x, max_y];
         let top_right = [min_x, max_y];

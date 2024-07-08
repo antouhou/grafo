@@ -1,21 +1,28 @@
 use futures::executor::block_on;
+use grafo::math::Box2D;
+use grafo::path::builder::BorderRadii;
+use grafo::{Color, Shape, Stroke};
 use std::sync::Arc;
 use std::time::Instant;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
-use grafo::math::Box2D;
-use grafo::path::builder::BorderRadii;
-use grafo::{Color, Shape, Stroke};
 
 use image::io::Reader as ImageReader;
 
 pub fn main() {
     let rust_logo_png_bytes = include_bytes!("./rust-logo-256x256-blk.png");
-    let rust_logo_png = ImageReader::new(std::io::Cursor::new(rust_logo_png_bytes)).with_guessed_format().unwrap().decode().unwrap();
+    let rust_logo_png = ImageReader::new(std::io::Cursor::new(rust_logo_png_bytes))
+        .with_guessed_format()
+        .unwrap()
+        .decode()
+        .unwrap();
     let rust_logo_rgba = rust_logo_png.as_rgba8().unwrap();
     let rust_logo_png_dimensions = rust_logo_rgba.dimensions();
-    let rust_logo_png_dimensions_f32 = (rust_logo_png_dimensions.0 as f32, rust_logo_png_dimensions.1 as f32);
+    let rust_logo_png_dimensions_f32 = (
+        rust_logo_png_dimensions.0 as f32,
+        rust_logo_png_dimensions.1 as f32,
+    );
     let rust_logo_png_bytes = rust_logo_rgba.to_vec();
 
     env_logger::init();
@@ -50,30 +57,22 @@ pub fn main() {
                         device_id,
                         event,
                         is_synthetic,
-                    } => {
-
-                    }
+                    } => {}
                     WindowEvent::MouseInput {
                         device_id,
                         state,
                         button,
-                    } => {
-
-                    }
+                    } => {}
                     WindowEvent::CursorMoved {
                         device_id,
                         position,
-                    } => {
-
-                    }
+                    } => {}
                     WindowEvent::MouseWheel {
                         device_id,
                         delta,
                         phase,
                         ..
-                    } => {
-
-                    }
+                    } => {}
                     WindowEvent::Resized(physical_size) => {
                         let new_size = (physical_size.width, physical_size.height);
                         renderer.resize(new_size);
@@ -84,7 +83,11 @@ pub fn main() {
                     }
                     WindowEvent::RedrawRequested => {
                         let background = Shape::rect(
-                            [(0.0, 0.0), (window_size.width as f32, window_size.height as f32)].into(),
+                            [
+                                (0.0, 0.0),
+                                (window_size.width as f32, window_size.height as f32),
+                            ]
+                            .into(),
                             Color::rgb(255, 255, 255),
                             Stroke::new(1.0, Color::rgb(0, 0, 0)),
                         );
@@ -142,14 +145,20 @@ pub fn main() {
                         renderer.add_image(
                             &rust_logo_png_bytes,
                             rust_logo_png_dimensions,
-                            Box2D::from_origin_and_size((100.0, 100.0).into(), rust_logo_png_dimensions_f32.into()),
+                            Box2D::from_origin_and_size(
+                                (100.0, 100.0).into(),
+                                rust_logo_png_dimensions_f32.into(),
+                            ),
                             Some(red_id),
                         );
 
                         renderer.add_image(
                             &rust_logo_png_bytes,
                             rust_logo_png_dimensions,
-                            Box2D::from_origin_and_size((200.0, 200.0).into(), rust_logo_png_dimensions_f32.into()),
+                            Box2D::from_origin_and_size(
+                                (200.0, 200.0).into(),
+                                rust_logo_png_dimensions_f32.into(),
+                            ),
                             Some(background_id),
                         );
 

@@ -184,7 +184,6 @@ pub fn write_on_equal_depth_stencil_state() -> wgpu::DepthStencilState {
         stencil,
         bias: wgpu::DepthBiasState::default(),
     }
-
 }
 
 pub fn create_always_decrement_depth_stencil_state() -> wgpu::DepthStencilState {

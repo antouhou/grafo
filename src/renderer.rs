@@ -6,8 +6,8 @@ use easy_tree::rayon::iter::ParallelIterator;
 pub(crate) type MathRect = lyon::math::Box2D;
 
 use crate::pipeline::{
-    create_and_depth_texture, create_render_pass, create_depth_stencil_state_for_text,
-    create_pipeline, create_texture_pipeline, render_buffer_to_texture2, PipelineType, Uniforms,
+    create_and_depth_texture, create_depth_stencil_state_for_text, create_pipeline,
+    create_render_pass, create_texture_pipeline, render_buffer_to_texture2, PipelineType, Uniforms,
 };
 use crate::util::to_logical;
 use ahash::{HashMap, HashMapExt};
@@ -19,10 +19,13 @@ use glyphon::{
 
 use crate::debug_tools::DepthStencilTextureViewer;
 use crate::id::TextureId;
+use crate::image_draw_data::ImageDrawData;
 use crate::shape::ShapeDrawData;
 use crate::{Color, Shape};
-use wgpu::{BindGroup, BindGroupLayout, CompositeAlphaMode, Device, InstanceDescriptor, MultisampleState, SurfaceTarget};
-use crate::image_draw_data::ImageDrawData;
+use wgpu::{
+    BindGroup, BindGroupLayout, CompositeAlphaMode, Device, InstanceDescriptor, MultisampleState,
+    SurfaceTarget,
+};
 
 #[inline(always)]
 pub fn depth(draw_command_id: usize, draw_commands_total: usize) -> f32 {
@@ -227,10 +230,8 @@ impl Renderer<'_> {
 
         let depth_stencil_texture_viewer = DepthStencilTextureViewer::new(&device, size);
 
-        let (
-            texture_bind_group_layout,
-            texture_render_pipeline
-        ) = create_texture_pipeline(&device, &config);
+        let (texture_bind_group_layout, texture_render_pipeline) =
+            create_texture_pipeline(&device, &config);
 
         Self {
             surface,
@@ -301,7 +302,8 @@ impl Renderer<'_> {
         self.decrementing_bind_group = decrementing_bind_group;
         self.decrementing_pipeline = Arc::new(decrementing_pipeline);
 
-        let (texture_bind_group_layout, texture_render_pipeline) = create_texture_pipeline(&self.device, &self.config);
+        let (texture_bind_group_layout, texture_render_pipeline) =
+            create_texture_pipeline(&self.device, &self.config);
         self.texture_bind_group_layout = texture_bind_group_layout;
         self.texture_render_pipeline = Arc::new(texture_render_pipeline);
     }
@@ -438,15 +440,36 @@ impl Renderer<'_> {
                             };
                             data.0.set_stencil_reference(parent_stencil);
 
-                            println!("!!!!!!!Drawing image");
                             data.0.set_pipeline(&self.texture_render_pipeline);
 
-                            data.0.set_vertex_buffer(0, image.vertex_buffer.as_ref().expect("Image buffers to be prepared").slice(..));
-                            data.0.set_index_buffer(image.index_buffer.as_ref().expect("Image buffers to be prepared").slice(..), wgpu::IndexFormat::Uint16);
+                            data.0.set_vertex_buffer(
+                                0,
+                                image
+                                    .vertex_buffer
+                                    .as_ref()
+                                    .expect("Image buffers to be prepared")
+                                    .slice(..),
+                            );
+                            data.0.set_index_buffer(
+                                image
+                                    .index_buffer
+                                    .as_ref()
+                                    .expect("Image buffers to be prepared")
+                                    .slice(..),
+                                wgpu::IndexFormat::Uint16,
+                            );
 
-                            data.0.set_bind_group(0, image.bind_group.as_ref().expect("Image bind group to be prepared"), &[]);
+                            data.0.set_bind_group(
+                                0,
+                                image
+                                    .bind_group
+                                    .as_ref()
+                                    .expect("Image bind group to be prepared"),
+                                &[],
+                            );
 
-                            let num_indices = image.num_indices.expect("Image vertices to be prepared");;
+                            let num_indices =
+                                image.num_indices.expect("Image vertices to be prepared");
                             data.0.draw_indexed(0..num_indices, 0, 0..1);
                         }
                     }
@@ -520,14 +543,7 @@ impl Renderer<'_> {
                     },
                     text_areas,
                     &mut self.text_renderer_wrapper.swash_cache,
-                    |index| {
-                        // println!("Index: {}", index);
-
-                        // println!("Text depth: {}", text_depth);
-                        depth(index, draw_tree_size)
-                        // let index = index as f32 / draw_commands_len as f32;
-                        // (1.0 - index).clamp(0.0000001, 0.9999999)
-                    },
+                    |index| depth(index, draw_tree_size),
                 )
                 .unwrap();
 
@@ -624,7 +640,7 @@ impl Renderer<'_> {
         image: &[u8],
         physical_image_dimensions: (u32, u32),
         rect: MathRect,
-        clip_to_shape: Option<usize>
+        clip_to_shape: Option<usize>,
     ) {
         // TODO: cache image data
         let texture_id = TextureId::new(image);

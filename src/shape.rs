@@ -1,3 +1,4 @@
+use crate::path::Winding;
 use crate::renderer::depth;
 use crate::vertex::CustomVertex;
 use crate::{Color, Stroke};
@@ -6,7 +7,6 @@ use lyon::lyon_tessellation::{
 };
 use lyon::tessellation::FillVertexConstructor;
 use wgpu::util::DeviceExt;
-use crate::path::Winding;
 
 #[derive(Debug, Clone)]
 pub enum Shape {
@@ -19,7 +19,12 @@ impl Shape {
         let rect_shape = RectShape::new(rect, fill_color, stroke);
         Shape::Rect(rect_shape)
     }
-    pub fn rounded_rect(rect: &crate::math::Box2D, border_radii: &crate::path::builder::BorderRadii, fill_color: Color, stroke: Stroke) -> Shape {
+    pub fn rounded_rect(
+        rect: &crate::math::Box2D,
+        border_radii: &crate::path::builder::BorderRadii,
+        fill_color: Color,
+        stroke: Stroke,
+    ) -> Shape {
         let mut path_builder = lyon::path::Path::builder();
 
         path_builder.add_rounded_rectangle(&rect, &border_radii, Winding::Positive);
