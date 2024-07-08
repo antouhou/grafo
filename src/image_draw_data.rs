@@ -96,37 +96,32 @@ impl ImageDrawData {
 
         println!("min_x: {}, min_y: {}, max_x: {}, max_y: {}", min_x, min_y, max_x, max_y);
 
-        // let top_left = [-1.0, 1.0];
-        // let top_right = [1.0, 1.0];
-        // let bottom_right = [1.0, -1.0];
-        // let bottom_left = [-1.0, -1.0];
-
         let top_left = [max_x, max_y];
         let top_right = [min_x, max_y];
         let bottom_right = [min_x, min_y];
         let bottom_left = [max_x, min_y];
 
-        let top_left_tex = [0.0, 0.0];
-        let top_right_tex = [1.0, 0.0];
-        let bottom_right_tex = [1.0, 1.0];
-        let bottom_left_tex = [0.0, 1.0];
+        let top_left_tex_coords = [1.0, 1.0];
+        let top_right_tex_coords = [0.0, 1.0];
+        let bottom_right_text_coords = [0.0, 0.0];
+        let bottom_left_tex_coords = [1.0, 0.0];
 
         let quad = [
             TexturedVertex {
                 position: top_left,
-                tex_coords: top_left_tex,
+                tex_coords: top_left_tex_coords,
             },
             TexturedVertex {
                 position: top_right,
-                tex_coords: top_right_tex,
+                tex_coords: top_right_tex_coords,
             },
             TexturedVertex {
                 position: bottom_right,
-                tex_coords: bottom_right_tex,
+                tex_coords: bottom_right_text_coords,
             },
             TexturedVertex {
                 position: bottom_left,
-                tex_coords: bottom_left_tex,
+                tex_coords: bottom_left_tex_coords,
             },
         ];
 

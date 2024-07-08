@@ -622,7 +622,7 @@ impl Renderer<'_> {
     pub fn add_image(
         &mut self,
         image: &[u8],
-        image_size: (u32, u32),
+        physical_image_dimensions: (u32, u32),
         rect: MathRect,
         clip_to_shape: Option<usize>
     ) {
@@ -632,7 +632,7 @@ impl Renderer<'_> {
 
         let draw_command = DrawCommand::Image(ImageDrawData {
             image_data,
-            image_size,
+            image_size: physical_image_dimensions,
             logical_rect: rect,
             clip_to_shape,
             texture: None,

@@ -15,6 +15,7 @@ pub fn main() {
     let rust_logo_png = ImageReader::new(std::io::Cursor::new(rust_logo_png_bytes)).with_guessed_format().unwrap().decode().unwrap();
     let rust_logo_rgba = rust_logo_png.as_rgba8().unwrap();
     let rust_logo_png_dimensions = rust_logo_rgba.dimensions();
+    let rust_logo_png_dimensions_f32 = (rust_logo_png_dimensions.0 as f32, rust_logo_png_dimensions.1 as f32);
     let rust_logo_png_bytes = rust_logo_rgba.to_vec();
 
     env_logger::init();
@@ -25,6 +26,11 @@ pub fn main() {
     let window_size = window.inner_size();
     let scale_factor = window.scale_factor();
     let physical_size = (window_size.width, window_size.height);
+
+    // let rust_png_logo__dimensions_adjusted_for_scale_factor = (
+    //     (rust_logo_png_dimensions.0 as f64 / scale_factor) as f32,
+    //     (rust_logo_png_dimensions.1 as f64 / scale_factor) as f32,
+    // );
 
     let mut renderer = block_on(grafo::Renderer::new(
         window.clone(),
@@ -136,14 +142,14 @@ pub fn main() {
                         renderer.add_image(
                             &rust_logo_png_bytes,
                             rust_logo_png_dimensions,
-                            Box2D::from_origin_and_size((100.0, 100.0).into(), (rust_logo_png_dimensions.0 as f32, rust_logo_png_dimensions.1 as f32).into()),
+                            Box2D::from_origin_and_size((100.0, 100.0).into(), rust_logo_png_dimensions_f32.into()),
                             Some(red_id),
                         );
 
                         renderer.add_image(
                             &rust_logo_png_bytes,
                             rust_logo_png_dimensions,
-                            Box2D::from_origin_and_size((200.0, 200.0).into(), (rust_logo_png_dimensions.0 as f32, rust_logo_png_dimensions.1 as f32).into()),
+                            Box2D::from_origin_and_size((200.0, 200.0).into(), rust_logo_png_dimensions_f32.into()),
                             Some(background_id),
                         );
 
