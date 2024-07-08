@@ -202,7 +202,9 @@ pub enum PipelineType {
     EqualIncrementStencil,
     /// Always replaces the stencil value with the reference value.
     AlwaysReplaceStencil,
+    /// Always decrements the stencil value.
     AlwaysDecrementStencil,
+    /// Decrements the stencil value where the stencil is equal to the reference value.
     EqualDecrementStencil,
 }
 

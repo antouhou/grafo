@@ -1,7 +1,6 @@
 use crate::renderer::MathRect;
 use crate::util::normalize_rect;
 use crate::vertex::TexturedVertex;
-use std::cmp::max;
 use wgpu::util::DeviceExt;
 use wgpu::{BindGroup, BindGroupLayout, Device};
 
@@ -75,9 +74,9 @@ impl ImageDrawData {
         let view = self
             .create_texture_view()
             .expect("Texture to be prepared for rendering");
-        let sampler = ImageDrawData::create_sampler(&device);
+        let sampler = ImageDrawData::create_sampler(device);
         let bind_group =
-            ImageDrawData::create_bind_group(&device, &bind_group_layout, &view, &sampler);
+            ImageDrawData::create_bind_group(device, bind_group_layout, &view, &sampler);
 
         self.bind_group = Some(bind_group);
         self.prepare_vertices(device, canvas_physical_size, scale_factor);
@@ -138,7 +137,7 @@ impl ImageDrawData {
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: bytemuck::cast_slice(&indices),
+            contents: bytemuck::cast_slice(indices),
             usage: wgpu::BufferUsages::INDEX,
         });
 
@@ -174,15 +173,15 @@ impl ImageDrawData {
         sampler: &wgpu::Sampler,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &texture_bind_group_layout,
+            layout: texture_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                    resource: wgpu::BindingResource::TextureView(texture_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
+                    resource: wgpu::BindingResource::Sampler(sampler),
                 },
             ],
             label: Some("diffuse_bind_group"),

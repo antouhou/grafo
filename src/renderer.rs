@@ -17,13 +17,12 @@ use glyphon::{
     Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer,
 };
 
-use crate::debug_tools::DepthStencilTextureViewer;
-use crate::id::TextureId;
+// use crate::debug_tools::DepthStencilTextureViewer;
 use crate::image_draw_data::ImageDrawData;
 use crate::shape::ShapeDrawData;
 use crate::{Color, Shape};
 use wgpu::{
-    BindGroup, BindGroupLayout, CompositeAlphaMode, Device, InstanceDescriptor, MultisampleState,
+    BindGroup, CompositeAlphaMode, Device, InstanceDescriptor, MultisampleState,
     SurfaceTarget,
 };
 
@@ -132,11 +131,6 @@ pub struct Renderer<'a> {
     #[cfg(feature = "performance_measurement")]
     adapter: wgpu::Adapter,
 
-    // TODO: remove later
-    depth_stencil_texture_viewer: DepthStencilTextureViewer,
-
-    texture_cache: HashMap<TextureId, wgpu::Texture>,
-
     texture_render_pipeline: Arc<wgpu::RenderPipeline>,
     texture_bind_group_layout: wgpu::BindGroupLayout,
 }
@@ -228,8 +222,6 @@ impl Renderer<'_> {
             Some(create_depth_stencil_state_for_text()),
         );
 
-        let depth_stencil_texture_viewer = DepthStencilTextureViewer::new(&device, size);
-
         let (texture_bind_group_layout, texture_render_pipeline) =
             create_texture_pipeline(&device, &config);
 
@@ -260,9 +252,6 @@ impl Renderer<'_> {
             #[cfg(feature = "performance_measurement")]
             adapter,
 
-            depth_stencil_texture_viewer,
-
-            texture_cache: HashMap::new(),
             texture_render_pipeline: Arc::new(texture_render_pipeline),
             texture_bind_group_layout,
         }
@@ -270,6 +259,11 @@ impl Renderer<'_> {
 
     pub fn size(&self) -> (u32, u32) {
         self.physical_size
+    }
+
+    pub fn change_scale_factor(&mut self, new_scale_factor: f64) {
+        self.scale_factor = new_scale_factor;
+        self.resize(self.physical_size)
     }
 
     pub fn resize(&mut self, new_physical_size: (u32, u32)) {
@@ -335,22 +329,24 @@ impl Renderer<'_> {
             first_timer.elapsed()
         );
 
-        let query_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Query Buffer"),
-            size: 16,
-            usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-
-        let read_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Read Buffer"),
-            size: 16,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        // TODO: this is for debugging purposes
+        // let query_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+        //     label: Some("Query Buffer"),
+        //     size: 16,
+        //     usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+        //     mapped_at_creation: false,
+        // });
+        //
+        // let read_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+        //     label: Some("Read Buffer"),
+        //     size: 16,
+        //     usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        //     mapped_at_creation: false,
+        // });
         println!("Creating buffers took: {:?}", first_timer.elapsed());
 
-        let encoder_timer = Instant::now();
+        // TODO: this is for debugging purposes
+        // let encoder_timer = Instant::now();
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -373,7 +369,8 @@ impl Renderer<'_> {
         // let iter_timer = Instant::now();
 
         {
-            let pass_timer = Instant::now();
+            // TODO: this is for debugging purposes
+            // let pass_timer = Instant::now();
             let depth_texture_view =
                 depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -386,7 +383,6 @@ impl Renderer<'_> {
 
             let mut data = (render_pass, shape_ids_to_stencil_references);
 
-            let walk_timer = Instant::now();
             self.draw_tree.traverse(
                 |shape_id, draw_command, data| {
                     match draw_command {
@@ -498,9 +494,8 @@ impl Renderer<'_> {
                                 //  so probably should panic
                             }
                         }
-                        DrawCommand::Image(image) => {
-                            // panic!("Image rendering is not implemented yet");
-                            // TODO: nothing to do here
+                        DrawCommand::Image(_) => {
+                            // nothing to do here
                         }
                     }
                 },
@@ -565,7 +560,6 @@ impl Renderer<'_> {
             encoder.copy_buffer_to_buffer(&query_buffer, 0, &read_buffer, 0, 16);
         };
 
-        let queue_timer = Instant::now();
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
         println!("Queue submit took: {:?}", first_timer.elapsed());
@@ -643,7 +637,7 @@ impl Renderer<'_> {
         clip_to_shape: Option<usize>,
     ) {
         // TODO: cache image data
-        let texture_id = TextureId::new(image);
+        // let texture_id = TextureId::new(image);
         let image_data = image.to_vec();
 
         let draw_command = DrawCommand::Image(ImageDrawData {

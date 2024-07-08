@@ -27,7 +27,7 @@ impl Shape {
     ) -> Shape {
         let mut path_builder = lyon::path::Path::builder();
 
-        path_builder.add_rounded_rectangle(&rect, &border_radii, Winding::Positive);
+        path_builder.add_rounded_rectangle(rect, border_radii, Winding::Positive);
         let path = path_builder.build();
 
         let path_shape = PathShape {

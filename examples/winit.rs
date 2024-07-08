@@ -28,16 +28,10 @@ pub fn main() {
     env_logger::init();
     let event_loop = EventLoop::new().expect("To create the event loop");
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    let inner_logical_size = window.inner_size().to_logical::<f32>(window.scale_factor());
 
     let window_size = window.inner_size();
     let scale_factor = window.scale_factor();
     let physical_size = (window_size.width, window_size.height);
-
-    // let rust_png_logo__dimensions_adjusted_for_scale_factor = (
-    //     (rust_logo_png_dimensions.0 as f64 / scale_factor) as f32,
-    //     (rust_logo_png_dimensions.1 as f64 / scale_factor) as f32,
-    // );
 
     let mut renderer = block_on(grafo::Renderer::new(
         window.clone(),
@@ -53,31 +47,9 @@ pub fn main() {
             } if window_id == window.id() => {
                 match event {
                     WindowEvent::CloseRequested => event_loop_window_target.exit(),
-                    WindowEvent::KeyboardInput {
-                        device_id,
-                        event,
-                        is_synthetic,
-                    } => {}
-                    WindowEvent::MouseInput {
-                        device_id,
-                        state,
-                        button,
-                    } => {}
-                    WindowEvent::CursorMoved {
-                        device_id,
-                        position,
-                    } => {}
-                    WindowEvent::MouseWheel {
-                        device_id,
-                        delta,
-                        phase,
-                        ..
-                    } => {}
                     WindowEvent::Resized(physical_size) => {
                         let new_size = (physical_size.width, physical_size.height);
                         renderer.resize(new_size);
-
-                        let logical_size = physical_size.to_logical::<f32>(window.scale_factor());
 
                         window.request_redraw();
                     }
@@ -86,8 +58,7 @@ pub fn main() {
                             [
                                 (0.0, 0.0),
                                 (window_size.width as f32, window_size.height as f32),
-                            ]
-                            .into(),
+                            ],
                             Color::rgb(255, 255, 255),
                             Stroke::new(1.0, Color::rgb(0, 0, 0)),
                         );
@@ -174,10 +145,9 @@ pub fn main() {
                         println!("Render time: {:?}", timer.elapsed());
                     }
                     WindowEvent::ScaleFactorChanged {
-                        scale_factor,
-                        inner_size_writer,
+                        scale_factor, ..
                     } => {
-                        // state.resize(PhysicalSize::new());
+                        renderer.change_scale_factor(*scale_factor);
                     }
                     _ => {}
                 }
