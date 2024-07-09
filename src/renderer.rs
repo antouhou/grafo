@@ -22,8 +22,7 @@ use crate::image_draw_data::ImageDrawData;
 use crate::shape::ShapeDrawData;
 use crate::{Color, Shape};
 use wgpu::{
-    BindGroup, CompositeAlphaMode, Device, InstanceDescriptor, MultisampleState,
-    SurfaceTarget,
+    BindGroup, CompositeAlphaMode, Device, InstanceDescriptor, MultisampleState, SurfaceTarget,
 };
 
 #[inline(always)]
@@ -131,7 +130,8 @@ pub struct Renderer<'a> {
     #[cfg(feature = "performance_measurement")]
     adapter: wgpu::Adapter,
 
-    texture_render_pipeline: Arc<wgpu::RenderPipeline>,
+    texture_crop_render_pipeline: Arc<wgpu::RenderPipeline>,
+    texture_always_render_pipeline: Arc<wgpu::RenderPipeline>,
     texture_bind_group_layout: wgpu::BindGroupLayout,
 }
 
@@ -222,7 +222,7 @@ impl Renderer<'_> {
             Some(create_depth_stencil_state_for_text()),
         );
 
-        let (texture_bind_group_layout, texture_render_pipeline) =
+        let (texture_bind_group_layout, texture_crop_render_pipeline, texture_always_render_pipeline) =
             create_texture_pipeline(&device, &config);
 
         Self {
@@ -252,7 +252,8 @@ impl Renderer<'_> {
             #[cfg(feature = "performance_measurement")]
             adapter,
 
-            texture_render_pipeline: Arc::new(texture_render_pipeline),
+            texture_crop_render_pipeline: Arc::new(texture_crop_render_pipeline),
+            texture_always_render_pipeline: Arc::new(texture_always_render_pipeline),
             texture_bind_group_layout,
         }
     }
@@ -296,10 +297,11 @@ impl Renderer<'_> {
         self.decrementing_bind_group = decrementing_bind_group;
         self.decrementing_pipeline = Arc::new(decrementing_pipeline);
 
-        let (texture_bind_group_layout, texture_render_pipeline) =
+        let (texture_bind_group_layout, texture_crop_render_pipeline, texture_always_render_pipeline) =
             create_texture_pipeline(&self.device, &self.config);
         self.texture_bind_group_layout = texture_bind_group_layout;
-        self.texture_render_pipeline = Arc::new(texture_render_pipeline);
+        self.texture_crop_render_pipeline = Arc::new(texture_crop_render_pipeline);
+        self.texture_always_render_pipeline = Arc::new(texture_always_render_pipeline);
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -427,46 +429,25 @@ impl Renderer<'_> {
                             }
                         }
                         DrawCommand::Image(image) => {
-                            let clip_to_shape = image.clip_to_shape;
-                            // TODO: need to handle this differently
-                            let parent_stencil = if let Some(clip_to_shape) = clip_to_shape {
-                                *data.1.get(&clip_to_shape).unwrap_or(&0)
+                            if let Some(clip_to_shape) = image.clip_to_shape {
+                                let parent_stencil = *data.1.get(&clip_to_shape).unwrap_or(&0);
+                                // If the image is clipped to a shape, we set up the pipeline
+                                // to crop the image to the shape using the stencil texture
+                                data.0.set_pipeline(&self.texture_crop_render_pipeline);
+                                data.0.set_stencil_reference(parent_stencil);
                             } else {
-                                0
+                                // If the image is not clipped to a shape, we set up the pipeline
+                                // to always render the image
+                                data.0.set_pipeline(&self.texture_always_render_pipeline);
                             };
-                            data.0.set_stencil_reference(parent_stencil);
 
-                            data.0.set_pipeline(&self.texture_render_pipeline);
-
-                            data.0.set_vertex_buffer(
-                                0,
-                                image
-                                    .vertex_buffer
-                                    .as_ref()
-                                    .expect("Image buffers to be prepared")
-                                    .slice(..),
-                            );
+                            data.0.set_vertex_buffer(0, image.vertex_buffer());
                             data.0.set_index_buffer(
-                                image
-                                    .index_buffer
-                                    .as_ref()
-                                    .expect("Image buffers to be prepared")
-                                    .slice(..),
-                                wgpu::IndexFormat::Uint16,
+                                image.index_buffer(),
+                                wgpu::IndexFormat::Uint16
                             );
-
-                            data.0.set_bind_group(
-                                0,
-                                image
-                                    .bind_group
-                                    .as_ref()
-                                    .expect("Image bind group to be prepared"),
-                                &[],
-                            );
-
-                            let num_indices =
-                                image.num_indices.expect("Image vertices to be prepared");
-                            data.0.draw_indexed(0..num_indices, 0, 0..1);
+                            data.0.set_bind_group(0, image.bind_group(), &[]);
+                            data.0.draw_indexed(0..image.num_indices(), 0, 0..1);
                         }
                     }
                 },

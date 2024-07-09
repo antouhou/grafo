@@ -186,6 +186,30 @@ pub fn write_on_equal_depth_stencil_state() -> wgpu::DepthStencilState {
     }
 }
 
+pub fn always_pass_and_keep_stencil_state() -> wgpu::DepthStencilState {
+    let face_state = wgpu::StencilFaceState {
+        compare: wgpu::CompareFunction::Always,
+        fail_op: wgpu::StencilOperation::Keep,
+        depth_fail_op: wgpu::StencilOperation::Keep,
+        pass_op: wgpu::StencilOperation::Keep,
+    };
+
+    let stencil = wgpu::StencilState {
+        front: face_state,
+        back: face_state,
+        read_mask: 0xff,
+        write_mask: 0xff,
+    };
+
+    wgpu::DepthStencilState {
+        format: wgpu::TextureFormat::Depth24PlusStencil8,
+        depth_write_enabled: false,
+        depth_compare: wgpu::CompareFunction::Always,
+        stencil,
+        bias: wgpu::DepthBiasState::default(),
+    }
+}
+
 pub fn create_always_decrement_depth_stencil_state() -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format: wgpu::TextureFormat::Depth24PlusStencil8,
@@ -402,7 +426,7 @@ pub fn render_buffer_to_texture2<'a>(
 pub fn create_texture_pipeline(
     device: &wgpu::Device,
     config: &wgpu::SurfaceConfiguration,
-) -> (BindGroupLayout, RenderPipeline) {
+) -> (BindGroupLayout, RenderPipeline, RenderPipeline) {
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[
             wgpu::BindGroupLayoutEntry {
@@ -476,5 +500,25 @@ pub fn create_texture_pipeline(
         multiview: None,
     });
 
-    (bind_group_layout, render_pipeline)
+    let always_render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: None,
+        layout: Some(&render_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: "vs_main",
+            buffers: &[TexturedVertex::desc()],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fs_main",
+            targets: &targets,
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        // TODO: add stencil test
+        depth_stencil: Some(always_pass_and_keep_stencil_state()),
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+    });
+
+    (bind_group_layout, render_pipeline, always_render_pipeline)
 }

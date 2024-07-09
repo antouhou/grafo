@@ -39,120 +39,124 @@ pub fn main() {
         scale_factor,
     ));
 
-    let _ = event_loop.run(move |event, event_loop_window_target| {
-        match event {
-            Event::WindowEvent {
-                ref event,
-                window_id,
-            } if window_id == window.id() => {
-                match event {
-                    WindowEvent::CloseRequested => event_loop_window_target.exit(),
-                    WindowEvent::Resized(physical_size) => {
-                        let new_size = (physical_size.width, physical_size.height);
-                        renderer.resize(new_size);
+    let _ = event_loop.run(move |event, event_loop_window_target| match event {
+        Event::WindowEvent {
+            ref event,
+            window_id,
+        } if window_id == window.id() => match event {
+            WindowEvent::CloseRequested => event_loop_window_target.exit(),
+            WindowEvent::Resized(physical_size) => {
+                let new_size = (physical_size.width, physical_size.height);
+                renderer.resize(new_size);
 
-                        window.request_redraw();
+                window.request_redraw();
+            }
+            WindowEvent::RedrawRequested => {
+                let background = Shape::rect(
+                    [
+                        (0.0, 0.0),
+                        (window_size.width as f32, window_size.height as f32),
+                    ],
+                    Color::rgb(255, 255, 255),
+                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                );
+
+                let red = Shape::rounded_rect(
+                    &Box2D::new((0.0, 0.0).into(), (200.0, 200.0).into()),
+                    &BorderRadii::new(0.0),
+                    Color::rgb(255, 0, 0),
+                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                );
+
+                let green = Shape::rounded_rect(
+                    &Box2D::new((100.0, 100.0).into(), (300.0, 300.0).into()),
+                    &BorderRadii::new(0.0),
+                    Color::rgb(0, 255, 0),
+                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                );
+
+                let blue = Shape::rounded_rect(
+                    &Box2D::new((150.0, 150.0).into(), (350.0, 350.0).into()),
+                    &BorderRadii::new(10.0),
+                    Color::rgb(0, 0, 255),
+                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                );
+
+                let yellow = Shape::rounded_rect(
+                    &Box2D::new((0.0, 0.0).into(), (150.0, 150.0).into()),
+                    &BorderRadii::new(0.0),
+                    Color::rgb(255, 255, 0),
+                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                );
+
+                let white = Shape::rounded_rect(
+                    &Box2D::new((0.0, 0.0).into(), (20.0, 20.0).into()),
+                    &BorderRadii::new(0.0),
+                    Color::rgb(255, 255, 255),
+                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                );
+
+                let shape_that_doesnt_fit = Shape::rounded_rect(
+                    &Box2D::new((0.0, 0.0).into(), (20.0, 20.0).into()),
+                    &BorderRadii::new(0.0),
+                    Color::rgb(255, 255, 255),
+                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                );
+
+                let background_id = renderer.add_shape(background, None);
+                let red_id = renderer.add_shape(red, Some(background_id));
+                let green_id = renderer.add_shape(green, Some(red_id));
+                let blue_id = renderer.add_shape(blue, Some(green_id));
+                renderer.add_shape(yellow, Some(green_id));
+                renderer.add_shape(white, Some(red_id));
+                renderer.add_shape(shape_that_doesnt_fit, Some(blue_id));
+
+                renderer.add_image(
+                    &rust_logo_png_bytes,
+                    rust_logo_png_dimensions,
+                    Box2D::from_origin_and_size(
+                        (100.0, 100.0).into(),
+                        rust_logo_png_dimensions_f32.into(),
+                    ),
+                    Some(red_id),
+                );
+
+                renderer.add_image(
+                    &rust_logo_png_bytes,
+                    rust_logo_png_dimensions,
+                    Box2D::from_origin_and_size(
+                        (200.0, 200.0).into(),
+                        rust_logo_png_dimensions_f32.into(),
+                    ),
+                    Some(background_id),
+                );
+
+                renderer.add_image(
+                    &rust_logo_png_bytes,
+                    rust_logo_png_dimensions,
+                    Box2D::from_origin_and_size(
+                        (400.0, 400.0).into(),
+                        rust_logo_png_dimensions_f32.into(),
+                    ),
+                    None,
+                );
+
+                let timer = Instant::now();
+                match renderer.render() {
+                    Ok(_) => {
+                        renderer.clear_draw_queue();
                     }
-                    WindowEvent::RedrawRequested => {
-                        let background = Shape::rect(
-                            [
-                                (0.0, 0.0),
-                                (window_size.width as f32, window_size.height as f32),
-                            ],
-                            Color::rgb(255, 255, 255),
-                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
-                        );
-
-                        let red = Shape::rounded_rect(
-                            &Box2D::new((0.0, 0.0).into(), (200.0, 200.0).into()),
-                            &BorderRadii::new(0.0),
-                            Color::rgb(255, 0, 0),
-                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
-                        );
-
-                        let green = Shape::rounded_rect(
-                            &Box2D::new((100.0, 100.0).into(), (300.0, 300.0).into()),
-                            &BorderRadii::new(0.0),
-                            Color::rgb(0, 255, 0),
-                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
-                        );
-
-                        let blue = Shape::rounded_rect(
-                            &Box2D::new((150.0, 150.0).into(), (350.0, 350.0).into()),
-                            &BorderRadii::new(10.0),
-                            Color::rgb(0, 0, 255),
-                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
-                        );
-
-                        let yellow = Shape::rounded_rect(
-                            &Box2D::new((0.0, 0.0).into(), (150.0, 150.0).into()),
-                            &BorderRadii::new(0.0),
-                            Color::rgb(255, 255, 0),
-                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
-                        );
-
-                        let white = Shape::rounded_rect(
-                            &Box2D::new((0.0, 0.0).into(), (20.0, 20.0).into()),
-                            &BorderRadii::new(0.0),
-                            Color::rgb(255, 255, 255),
-                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
-                        );
-
-                        let shape_that_doesnt_fit = Shape::rounded_rect(
-                            &Box2D::new((0.0, 0.0).into(), (20.0, 20.0).into()),
-                            &BorderRadii::new(0.0),
-                            Color::rgb(255, 255, 255),
-                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
-                        );
-
-                        let background_id = renderer.add_shape(background, None);
-                        let red_id = renderer.add_shape(red, Some(background_id));
-                        let green_id = renderer.add_shape(green, Some(red_id));
-                        let blue_id = renderer.add_shape(blue, Some(green_id));
-                        renderer.add_shape(yellow, Some(green_id));
-                        renderer.add_shape(white, Some(red_id));
-                        renderer.add_shape(shape_that_doesnt_fit, Some(blue_id));
-
-                        renderer.add_image(
-                            &rust_logo_png_bytes,
-                            rust_logo_png_dimensions,
-                            Box2D::from_origin_and_size(
-                                (100.0, 100.0).into(),
-                                rust_logo_png_dimensions_f32.into(),
-                            ),
-                            Some(red_id),
-                        );
-
-                        renderer.add_image(
-                            &rust_logo_png_bytes,
-                            rust_logo_png_dimensions,
-                            Box2D::from_origin_and_size(
-                                (200.0, 200.0).into(),
-                                rust_logo_png_dimensions_f32.into(),
-                            ),
-                            Some(background_id),
-                        );
-
-                        let timer = Instant::now();
-                        match renderer.render() {
-                            Ok(_) => {
-                                renderer.clear_draw_queue();
-                            }
-                            Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size()),
-                            Err(wgpu::SurfaceError::OutOfMemory) => event_loop_window_target.exit(),
-                            Err(e) => eprintln!("{:?}", e),
-                        }
-                        println!("Render time: {:?}", timer.elapsed());
-                    }
-                    WindowEvent::ScaleFactorChanged {
-                        scale_factor, ..
-                    } => {
-                        renderer.change_scale_factor(*scale_factor);
-                    }
-                    _ => {}
+                    Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size()),
+                    Err(wgpu::SurfaceError::OutOfMemory) => event_loop_window_target.exit(),
+                    Err(e) => eprintln!("{:?}", e),
                 }
+                println!("Render time: {:?}", timer.elapsed());
+            }
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                renderer.change_scale_factor(*scale_factor);
             }
             _ => {}
-        }
+        },
+        _ => {}
     });
 }

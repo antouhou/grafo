@@ -2,7 +2,7 @@ use crate::renderer::MathRect;
 use crate::util::normalize_rect;
 use crate::vertex::TexturedVertex;
 use wgpu::util::DeviceExt;
-use wgpu::{BindGroup, BindGroupLayout, Device};
+use wgpu::{BindGroup, BindGroupLayout, BufferSlice, Device};
 
 pub(crate) struct ImageDrawData {
     pub(crate) image_data: Vec<u8>,
@@ -186,5 +186,29 @@ impl ImageDrawData {
             ],
             label: Some("diffuse_bind_group"),
         })
+    }
+
+    pub(crate) fn vertex_buffer(&self) -> BufferSlice<'_> {
+        self.vertex_buffer
+            .as_ref()
+            .expect("Image buffers to be prepared")
+            .slice(..)
+    }
+
+    pub(crate) fn index_buffer(&self) -> BufferSlice<'_> {
+        self.index_buffer
+            .as_ref()
+            .expect("Image buffers to be prepared")
+            .slice(..)
+    }
+
+    pub(crate) fn bind_group(&self) -> &BindGroup {
+        self.bind_group
+            .as_ref()
+            .expect("Image buffers to be prepared")
+    }
+
+    pub(crate) fn num_indices(&self) -> u32 {
+        self.num_indices.expect("Image buffers to be prepared")
     }
 }
