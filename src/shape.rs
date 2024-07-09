@@ -1,3 +1,4 @@
+use crate::path::Winding;
 use crate::renderer::depth;
 use crate::vertex::CustomVertex;
 use crate::{Color, Stroke};
@@ -11,6 +12,31 @@ use wgpu::util::DeviceExt;
 pub enum Shape {
     Path(PathShape),
     Rect(RectShape),
+}
+
+impl Shape {
+    pub fn rect(rect: [(f32, f32); 2], fill_color: Color, stroke: Stroke) -> Shape {
+        let rect_shape = RectShape::new(rect, fill_color, stroke);
+        Shape::Rect(rect_shape)
+    }
+    pub fn rounded_rect(
+        rect: &crate::math::Box2D,
+        border_radii: &crate::path::builder::BorderRadii,
+        fill_color: Color,
+        stroke: Stroke,
+    ) -> Shape {
+        let mut path_builder = lyon::path::Path::builder();
+
+        path_builder.add_rounded_rectangle(rect, border_radii, Winding::Positive);
+        let path = path_builder.build();
+
+        let path_shape = PathShape {
+            path,
+            fill: fill_color,
+            stroke,
+        };
+        Shape::Path(path_shape)
+    }
 }
 
 impl From<PathShape> for Shape {

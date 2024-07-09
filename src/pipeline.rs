@@ -1,4 +1,4 @@
-use crate::vertex::CustomVertex;
+use crate::vertex::{CustomVertex, TexturedVertex};
 use wgpu::util::DeviceExt;
 use wgpu::{
     BindGroup, BindGroupLayout, Device, RenderPass, RenderPipeline, StencilFaceState, StoreOp,
@@ -98,7 +98,7 @@ fn create_always_decrement_stencil_state() -> wgpu::StencilState {
 /// Creates a bind group so uniforms can be processed. Look at Uniforms struct for more info.
 pub fn create_uniform_bind_group_layout(device: &Device) -> BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("uniform_bind_group_layout"),
+        label: None,
         entries: &[wgpu::BindGroupLayoutEntry {
             binding: 0,
             visibility: wgpu::ShaderStages::VERTEX,
@@ -162,6 +162,54 @@ pub fn create_always_replace_depth_stencil_state() -> wgpu::DepthStencilState {
     }
 }
 
+pub fn write_on_equal_depth_stencil_state() -> wgpu::DepthStencilState {
+    let face_state = wgpu::StencilFaceState {
+        compare: wgpu::CompareFunction::Equal,
+        fail_op: wgpu::StencilOperation::Keep,
+        depth_fail_op: wgpu::StencilOperation::Keep,
+        pass_op: wgpu::StencilOperation::Replace,
+    };
+
+    let stencil = wgpu::StencilState {
+        front: face_state,
+        back: face_state,
+        read_mask: 0xff,
+        write_mask: 0xff,
+    };
+
+    wgpu::DepthStencilState {
+        format: wgpu::TextureFormat::Depth24PlusStencil8,
+        depth_write_enabled: false,
+        depth_compare: wgpu::CompareFunction::Always,
+        stencil,
+        bias: wgpu::DepthBiasState::default(),
+    }
+}
+
+pub fn always_pass_and_keep_stencil_state() -> wgpu::DepthStencilState {
+    let face_state = wgpu::StencilFaceState {
+        compare: wgpu::CompareFunction::Always,
+        fail_op: wgpu::StencilOperation::Keep,
+        depth_fail_op: wgpu::StencilOperation::Keep,
+        pass_op: wgpu::StencilOperation::Keep,
+    };
+
+    let stencil = wgpu::StencilState {
+        front: face_state,
+        back: face_state,
+        read_mask: 0xff,
+        write_mask: 0xff,
+    };
+
+    wgpu::DepthStencilState {
+        format: wgpu::TextureFormat::Depth24PlusStencil8,
+        depth_write_enabled: false,
+        depth_compare: wgpu::CompareFunction::Always,
+        stencil,
+        bias: wgpu::DepthBiasState::default(),
+    }
+}
+
 pub fn create_always_decrement_depth_stencil_state() -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format: wgpu::TextureFormat::Depth24PlusStencil8,
@@ -178,7 +226,9 @@ pub enum PipelineType {
     EqualIncrementStencil,
     /// Always replaces the stencil value with the reference value.
     AlwaysReplaceStencil,
+    /// Always decrements the stencil value.
     AlwaysDecrementStencil,
+    /// Decrements the stencil value where the stencil is equal to the reference value.
     EqualDecrementStencil,
 }
 
@@ -253,7 +303,7 @@ pub fn create_pipeline(
     let uniforms = Uniforms::new(canvas_logical_size.0, canvas_logical_size.1);
 
     let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Uniform Buffer"),
+        label: None,
         contents: bytemuck::cast_slice(&[uniforms]),
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     });
@@ -267,23 +317,23 @@ pub fn create_pipeline(
             binding: 0,
             resource: uniform_buffer.as_entire_binding(),
         }],
-        label: Some("uniform_bind_group"),
+        label: None,
     });
 
     // Create the render pipeline
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("Shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("./shader.wgsl").into()),
+        label: None,
+        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
     });
 
     let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("Render Pipeline Layout"),
+        label: None,
         bind_group_layouts: &[&bind_group_layout],
         push_constant_ranges: &[],
     });
 
     let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("Render Pipeline"),
+        label: None,
         layout: Some(&render_pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
@@ -304,13 +354,13 @@ pub fn create_pipeline(
     (uniforms, bind_group, render_pipeline)
 }
 
-pub fn create_and_pass<'a, 'b: 'a>(
+pub fn create_render_pass<'a, 'b: 'a>(
     encoder: &'a mut wgpu::CommandEncoder,
     output_texture_view: &'b TextureView,
     depth_texture_view: &'b TextureView,
 ) -> RenderPass<'a> {
     let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("Render Pass"),
+        label: None,
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
             view: output_texture_view,
             resolve_target: None,
@@ -345,7 +395,7 @@ pub fn create_and_depth_texture(device: &Device, size: (u32, u32)) -> Texture {
     };
 
     device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("Depth Texture"),
+        label: None,
         size,
         mip_level_count: 1,
         sample_count: 1,
@@ -371,4 +421,104 @@ pub fn render_buffer_to_texture2<'a>(
     incrementing_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
     incrementing_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
     incrementing_pass.draw_indexed(0..num_indices, 0, 0..1);
+}
+
+pub fn create_texture_pipeline(
+    device: &wgpu::Device,
+    config: &wgpu::SurfaceConfiguration,
+) -> (BindGroupLayout, RenderPipeline, RenderPipeline) {
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    multisampled: false,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                // This should match the filterable field of the
+                // corresponding Texture entry above.
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+        label: Some("texture_bind_group_layout"),
+    });
+
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: None,
+        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/texture_shader.wgsl").into()),
+    });
+
+    let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Render Pipeline Layout"),
+        bind_group_layouts: &[&bind_group_layout],
+        push_constant_ranges: &[],
+    });
+
+    // TODO
+    let targets = [Some(wgpu::ColorTargetState {
+        format: config.format,
+        blend: Some(wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::SrcAlpha,
+                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                operation: wgpu::BlendOperation::Add,
+            },
+        }),
+        write_mask: wgpu::ColorWrites::ALL,
+    })];
+
+    let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: None,
+        layout: Some(&render_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: "vs_main",
+            buffers: &[TexturedVertex::desc()],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fs_main",
+            targets: &targets,
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        // TODO: add stencil test
+        depth_stencil: Some(write_on_equal_depth_stencil_state()),
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+    });
+
+    let always_render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: None,
+        layout: Some(&render_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: "vs_main",
+            buffers: &[TexturedVertex::desc()],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fs_main",
+            targets: &targets,
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        // TODO: add stencil test
+        depth_stencil: Some(always_pass_and_keep_stencil_state()),
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+    });
+
+    (bind_group_layout, render_pipeline, always_render_pipeline)
 }

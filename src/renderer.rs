@@ -3,11 +3,11 @@ use std::time::Instant;
 
 use easy_tree::rayon::iter::ParallelIterator;
 
-type Rect = lyon::math::Box2D;
+pub(crate) type MathRect = lyon::math::Box2D;
 
 use crate::pipeline::{
-    create_and_depth_texture, create_and_pass, create_depth_stencil_state_for_text,
-    create_pipeline, render_buffer_to_texture2, PipelineType, Uniforms,
+    create_and_depth_texture, create_depth_stencil_state_for_text, create_pipeline,
+    create_render_pass, create_texture_pipeline, render_buffer_to_texture2, PipelineType, Uniforms,
 };
 use crate::util::to_logical;
 use ahash::{HashMap, HashMapExt};
@@ -17,7 +17,8 @@ use glyphon::{
     Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer,
 };
 
-use crate::debug_tools::DepthStencilTextureViewer;
+// use crate::debug_tools::DepthStencilTextureViewer;
+use crate::image_draw_data::ImageDrawData;
 use crate::shape::ShapeDrawData;
 use crate::{Color, Shape};
 use wgpu::{
@@ -72,7 +73,7 @@ impl TextRendererWrapper {
 #[derive(Debug)]
 struct TextDrawData {
     text_buffer: TextBuffer,
-    area: Rect,
+    area: MathRect,
     vertical_alignment: TextAlignment,
     data: String,
     font_size: f32,
@@ -82,6 +83,7 @@ struct TextDrawData {
 
 enum DrawCommand {
     Shape(ShapeDrawData),
+    Image(ImageDrawData),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -89,7 +91,7 @@ pub struct TextLayout {
     pub font_size: f32,
     pub line_height: f32,
     pub color: Color,
-    pub area: Rect,
+    pub area: MathRect,
     pub horizontal_alignment: TextAlignment,
     pub vertical_alignment: TextAlignment,
 }
@@ -128,8 +130,9 @@ pub struct Renderer<'a> {
     #[cfg(feature = "performance_measurement")]
     adapter: wgpu::Adapter,
 
-    // TODO: remove later
-    depth_stencil_texture_viewer: DepthStencilTextureViewer,
+    texture_crop_render_pipeline: Arc<wgpu::RenderPipeline>,
+    texture_always_render_pipeline: Arc<wgpu::RenderPipeline>,
+    texture_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl Renderer<'_> {
@@ -219,7 +222,8 @@ impl Renderer<'_> {
             Some(create_depth_stencil_state_for_text()),
         );
 
-        let depth_stencil_texture_viewer = DepthStencilTextureViewer::new(&device, size);
+        let (texture_bind_group_layout, texture_crop_render_pipeline, texture_always_render_pipeline) =
+            create_texture_pipeline(&device, &config);
 
         Self {
             surface,
@@ -248,12 +252,19 @@ impl Renderer<'_> {
             #[cfg(feature = "performance_measurement")]
             adapter,
 
-            depth_stencil_texture_viewer,
+            texture_crop_render_pipeline: Arc::new(texture_crop_render_pipeline),
+            texture_always_render_pipeline: Arc::new(texture_always_render_pipeline),
+            texture_bind_group_layout,
         }
     }
 
     pub fn size(&self) -> (u32, u32) {
         self.physical_size
+    }
+
+    pub fn change_scale_factor(&mut self, new_scale_factor: f64) {
+        self.scale_factor = new_scale_factor;
+        self.resize(self.physical_size)
     }
 
     pub fn resize(&mut self, new_physical_size: (u32, u32)) {
@@ -285,9 +296,13 @@ impl Renderer<'_> {
         self.decrementing_uniforms = decrementing_uniforms;
         self.decrementing_bind_group = decrementing_bind_group;
         self.decrementing_pipeline = Arc::new(decrementing_pipeline);
-    }
 
-    pub fn update(&mut self) {}
+        let (texture_bind_group_layout, texture_crop_render_pipeline, texture_always_render_pipeline) =
+            create_texture_pipeline(&self.device, &self.config);
+        self.texture_bind_group_layout = texture_bind_group_layout;
+        self.texture_crop_render_pipeline = Arc::new(texture_crop_render_pipeline);
+        self.texture_always_render_pipeline = Arc::new(texture_always_render_pipeline);
+    }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         println!("===============");
@@ -299,6 +314,15 @@ impl Renderer<'_> {
             DrawCommand::Shape(ref mut shape) => {
                 shape.prepare_buffers(&self.device, draw_command.0, draw_tree_size);
             }
+            DrawCommand::Image(ref mut image) => {
+                image.prepare(
+                    &self.device,
+                    &self.queue,
+                    &self.texture_bind_group_layout,
+                    self.physical_size,
+                    self.scale_factor as f32,
+                );
+            }
         });
 
         println!(
@@ -307,22 +331,24 @@ impl Renderer<'_> {
             first_timer.elapsed()
         );
 
-        let query_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Query Buffer"),
-            size: 16,
-            usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-
-        let read_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Read Buffer"),
-            size: 16,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        // TODO: this is for debugging purposes
+        // let query_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+        //     label: Some("Query Buffer"),
+        //     size: 16,
+        //     usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+        //     mapped_at_creation: false,
+        // });
+        //
+        // let read_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+        //     label: Some("Read Buffer"),
+        //     size: 16,
+        //     usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        //     mapped_at_creation: false,
+        // });
         println!("Creating buffers took: {:?}", first_timer.elapsed());
 
-        let encoder_timer = Instant::now();
+        // TODO: this is for debugging purposes
+        // let encoder_timer = Instant::now();
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -345,20 +371,20 @@ impl Renderer<'_> {
         // let iter_timer = Instant::now();
 
         {
-            let pass_timer = Instant::now();
+            // TODO: this is for debugging purposes
+            // let pass_timer = Instant::now();
             let depth_texture_view =
                 depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-            let incrementing_pass =
-                create_and_pass(&mut encoder, &output_texture_view, &depth_texture_view);
+            let render_pass =
+                create_render_pass(&mut encoder, &output_texture_view, &depth_texture_view);
 
             println!("Creating pass took: {:?}", first_timer.elapsed());
 
             let shape_ids_to_stencil_references = HashMap::<usize, u32>::new();
 
-            let mut data = (incrementing_pass, shape_ids_to_stencil_references);
+            let mut data = (render_pass, shape_ids_to_stencil_references);
 
-            let walk_timer = Instant::now();
             self.draw_tree.traverse(
                 |shape_id, draw_command, data| {
                     match draw_command {
@@ -402,6 +428,27 @@ impl Renderer<'_> {
                                 println!("Missing vertex or index buffer for shape {}", shape_id);
                             }
                         }
+                        DrawCommand::Image(image) => {
+                            if let Some(clip_to_shape) = image.clip_to_shape {
+                                let parent_stencil = *data.1.get(&clip_to_shape).unwrap_or(&0);
+                                // If the image is clipped to a shape, we set up the pipeline
+                                // to crop the image to the shape using the stencil texture
+                                data.0.set_pipeline(&self.texture_crop_render_pipeline);
+                                data.0.set_stencil_reference(parent_stencil);
+                            } else {
+                                // If the image is not clipped to a shape, we set up the pipeline
+                                // to always render the image
+                                data.0.set_pipeline(&self.texture_always_render_pipeline);
+                            };
+
+                            data.0.set_vertex_buffer(0, image.vertex_buffer());
+                            data.0.set_index_buffer(
+                                image.index_buffer(),
+                                wgpu::IndexFormat::Uint16
+                            );
+                            data.0.set_bind_group(0, image.bind_group(), &[]);
+                            data.0.draw_indexed(0..image.num_indices(), 0, 0..1);
+                        }
                     }
                 },
                 |shape_id, draw_command, data| {
@@ -427,6 +474,9 @@ impl Renderer<'_> {
                                 // TODO: no vertex or index buffer found - it is an error,
                                 //  so probably should panic
                             }
+                        }
+                        DrawCommand::Image(_) => {
+                            // nothing to do here
                         }
                     }
                 },
@@ -469,14 +519,7 @@ impl Renderer<'_> {
                     },
                     text_areas,
                     &mut self.text_renderer_wrapper.swash_cache,
-                    |index| {
-                        // println!("Index: {}", index);
-
-                        // println!("Text depth: {}", text_depth);
-                        depth(index, draw_tree_size)
-                        // let index = index as f32 / draw_commands_len as f32;
-                        // (1.0 - index).clamp(0.0000001, 0.9999999)
-                    },
+                    |index| depth(index, draw_tree_size),
                 )
                 .unwrap();
 
@@ -498,7 +541,6 @@ impl Renderer<'_> {
             encoder.copy_buffer_to_buffer(&query_buffer, 0, &read_buffer, 0, 16);
         };
 
-        let queue_timer = Instant::now();
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
         println!("Queue submit took: {:?}", first_timer.elapsed());
@@ -565,6 +607,40 @@ impl Renderer<'_> {
             shape,
         });
 
+        self.add_draw_command(draw_command, clip_to_shape)
+    }
+
+    pub fn add_image(
+        &mut self,
+        image: &[u8],
+        physical_image_dimensions: (u32, u32),
+        rect: MathRect,
+        clip_to_shape: Option<usize>,
+    ) {
+        // TODO: cache image data
+        // let texture_id = TextureId::new(image);
+        let image_data = image.to_vec();
+
+        let draw_command = DrawCommand::Image(ImageDrawData {
+            image_data,
+            image_size: physical_image_dimensions,
+            logical_rect: rect,
+            clip_to_shape,
+            texture: None,
+            bind_group: None,
+            vertex_buffer: None,
+            index_buffer: None,
+            num_indices: None,
+        });
+
+        self.add_draw_command(draw_command, clip_to_shape);
+    }
+
+    fn add_draw_command(
+        &mut self,
+        draw_command: DrawCommand,
+        clip_to_shape: Option<usize>,
+    ) -> usize {
         if self.draw_tree.is_empty() {
             self.draw_tree.add_node(draw_command)
         } else if let Some(clip_to_shape) = clip_to_shape {
