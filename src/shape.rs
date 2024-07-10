@@ -62,9 +62,9 @@ impl From<RectShape> for Shape {
 
 #[derive(Debug, Clone)]
 pub struct RectShape {
-    pub rect: [(f32, f32); 2],
-    pub fill: Color,
-    pub stroke: Stroke,
+    pub(crate) rect: [(f32, f32); 2],
+    pub(crate) fill: Color,
+    pub(crate) stroke: Stroke,
 }
 
 impl RectShape {
@@ -75,9 +75,9 @@ impl RectShape {
 
 #[derive(Clone, Debug)]
 pub struct PathShape {
-    pub path: lyon::path::Path,
-    pub fill: Color,
-    pub stroke: Stroke,
+    pub(crate) path: lyon::path::Path,
+    pub(crate) fill: Color,
+    pub(crate) stroke: Stroke,
 }
 
 struct VertexConverter {
