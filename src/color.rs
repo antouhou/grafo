@@ -5,6 +5,7 @@ pub struct Color(pub [u8; 4]);
 
 impl Color {
     pub const TRANSPARENT: Self = Self([0, 0, 0, 0]);
+    pub const BLACK: Self = Self([0, 0, 0, 255]);
 
     pub fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self([r, g, b, 255])

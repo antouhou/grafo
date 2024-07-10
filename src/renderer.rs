@@ -11,89 +11,22 @@ use crate::pipeline::{
 };
 use crate::util::to_logical;
 use ahash::{HashMap, HashMapExt};
-use glyphon::cosmic_text::Align;
-use glyphon::{
-    Attrs, Buffer as TextBuffer, Color as TextColor, Family, FontSystem, Metrics, Resolution,
-    Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer,
-};
+use glyphon::Resolution;
 
-// use crate::debug_tools::DepthStencilTextureViewer;
 use crate::image_draw_data::ImageDrawData;
-use crate::shape::ShapeDrawData;
-use crate::{Color, Shape};
-use wgpu::{
-    BindGroup, CompositeAlphaMode, Device, InstanceDescriptor, MultisampleState, SurfaceTarget,
-};
+use crate::shape::{Shape, ShapeDrawData};
+
+use crate::text::{TextAlignment, TextDrawData, TextLayout, TextRendererWrapper};
+use wgpu::{BindGroup, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
 
 #[inline(always)]
 pub fn depth(draw_command_id: usize, draw_commands_total: usize) -> f32 {
     (1.0 - (draw_command_id as f32 / draw_commands_total as f32)).clamp(0.0000000001, 0.9999999999)
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum TextAlignment {
-    Start,
-    End,
-    Center,
-}
-
-pub struct TextRendererWrapper {
-    text_renderer: TextRenderer,
-    atlas: TextAtlas,
-    font_system: FontSystem,
-    swash_cache: SwashCache,
-}
-
-impl TextRendererWrapper {
-    pub fn new(
-        device: &Device,
-        queue: &wgpu::Queue,
-        swapchain_format: wgpu::TextureFormat,
-        depth_stencil_state: Option<wgpu::DepthStencilState>,
-    ) -> Self {
-        let font_system = FontSystem::new();
-        let swash_cache = SwashCache::new();
-        let mut atlas = TextAtlas::new(device, queue, swapchain_format);
-        let text_renderer = TextRenderer::new(
-            &mut atlas,
-            device,
-            MultisampleState::default(),
-            depth_stencil_state,
-        );
-
-        Self {
-            text_renderer,
-            atlas,
-            font_system,
-            swash_cache,
-        }
-    }
-}
-
-#[derive(Debug)]
-struct TextDrawData {
-    text_buffer: TextBuffer,
-    area: MathRect,
-    vertical_alignment: TextAlignment,
-    data: String,
-    font_size: f32,
-    top: f32,
-    clip_to_shape: Option<usize>,
-}
-
 enum DrawCommand {
     Shape(ShapeDrawData),
     Image(ImageDrawData),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TextLayout {
-    pub font_size: f32,
-    pub line_height: f32,
-    pub color: Color,
-    pub area: MathRect,
-    pub horizontal_alignment: TextAlignment,
-    pub vertical_alignment: TextAlignment,
 }
 
 pub struct Renderer<'a> {
@@ -222,8 +155,11 @@ impl Renderer<'_> {
             Some(create_depth_stencil_state_for_text()),
         );
 
-        let (texture_bind_group_layout, texture_crop_render_pipeline, texture_always_render_pipeline) =
-            create_texture_pipeline(&device, &config);
+        let (
+            texture_bind_group_layout,
+            texture_crop_render_pipeline,
+            texture_always_render_pipeline,
+        ) = create_texture_pipeline(&device, &config);
 
         Self {
             surface,
@@ -258,52 +194,53 @@ impl Renderer<'_> {
         }
     }
 
-    pub fn size(&self) -> (u32, u32) {
-        self.physical_size
+    /// Adds a shape to the draw queue
+    pub fn add_shape(&mut self, shape: impl Into<Shape>, clip_to_shape: Option<usize>) -> usize {
+        self.add_draw_command(
+            DrawCommand::Shape(ShapeDrawData::new(shape, clip_to_shape)),
+            clip_to_shape,
+        )
     }
 
-    pub fn change_scale_factor(&mut self, new_scale_factor: f64) {
-        self.scale_factor = new_scale_factor;
-        self.resize(self.physical_size)
+    /// Adds an image to the draw queue
+    pub fn add_image(
+        &mut self,
+        image: &[u8],
+        physical_image_dimensions: (u32, u32),
+        rect: [(f32, f32); 2],
+        clip_to_shape: Option<usize>,
+    ) {
+        // TODO: cache image data
+        // let texture_id = TextureId::new(image);
+        let image_data = image.to_vec();
+
+        let draw_command = DrawCommand::Image(ImageDrawData::new(
+            image_data,
+            physical_image_dimensions,
+            rect,
+            clip_to_shape,
+        ));
+
+        self.add_draw_command(draw_command, clip_to_shape);
     }
 
-    pub fn resize(&mut self, new_physical_size: (u32, u32)) {
-        self.physical_size = new_physical_size;
-        self.config.width = new_physical_size.0;
-        self.config.height = new_physical_size.1;
-        self.surface.configure(&self.device, &self.config);
-        // Update the render pipeline to match the new size with new uniforms. Uniforms are
-        // needed to normalize the coordinates of the shapes
-
-        let (and_uniforms, and_bind_group, and_pipeline) = create_pipeline(
-            to_logical(new_physical_size, self.scale_factor),
-            &self.device,
-            &self.config,
-            PipelineType::EqualIncrementStencil,
-        );
-        self.and_uniforms = and_uniforms;
-        self.and_bind_group = and_bind_group;
-        self.and_pipeline = Arc::new(and_pipeline);
-
-        // Update the always decrement pipeline
-        let (decrementing_uniforms, decrementing_bind_group, decrementing_pipeline) =
-            create_pipeline(
-                to_logical(new_physical_size, self.scale_factor),
-                &self.device,
-                &self.config,
-                PipelineType::EqualDecrementStencil,
-            );
-        self.decrementing_uniforms = decrementing_uniforms;
-        self.decrementing_bind_group = decrementing_bind_group;
-        self.decrementing_pipeline = Arc::new(decrementing_pipeline);
-
-        let (texture_bind_group_layout, texture_crop_render_pipeline, texture_always_render_pipeline) =
-            create_texture_pipeline(&self.device, &self.config);
-        self.texture_bind_group_layout = texture_bind_group_layout;
-        self.texture_crop_render_pipeline = Arc::new(texture_crop_render_pipeline);
-        self.texture_always_render_pipeline = Arc::new(texture_always_render_pipeline);
+    /// Adds text to the draw queue
+    pub fn add_text(
+        &mut self,
+        text: &str,
+        layout: impl Into<TextLayout>,
+        clip_to_shape: Option<usize>,
+    ) {
+        self.text_instances.push(TextDrawData::new(
+            text,
+            layout,
+            clip_to_shape,
+            self.scale_factor as f32,
+            &mut self.text_renderer_wrapper.font_system,
+        ));
     }
 
+    /// Renders everything that has been added to the draw queue
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         println!("===============");
         let first_timer = Instant::now();
@@ -442,10 +379,8 @@ impl Renderer<'_> {
                             };
 
                             data.0.set_vertex_buffer(0, image.vertex_buffer());
-                            data.0.set_index_buffer(
-                                image.index_buffer(),
-                                wgpu::IndexFormat::Uint16
-                            );
+                            data.0
+                                .set_index_buffer(image.index_buffer(), wgpu::IndexFormat::Uint16);
                             data.0.set_bind_group(0, image.bind_group(), &[]);
                             data.0.draw_indexed(0..image.num_indices(), 0, 0..1);
                         }
@@ -487,24 +422,9 @@ impl Renderer<'_> {
             // println!("{}", self.text_instances.len());
             // TODO: cache the text rendering
             let text_instances = std::mem::take(&mut self.text_instances);
-            let text_areas = text_instances.iter().map(|text_instance| {
-                let area = text_instance.area;
-                let top = text_instance.top;
-
-                TextArea {
-                    buffer: &text_instance.text_buffer,
-                    left: area.min.x * self.scale_factor as f32,
-                    top: top * self.scale_factor as f32,
-                    scale: self.scale_factor as f32,
-                    bounds: TextBounds {
-                        left: area.min.x as i32 * self.scale_factor as i32,
-                        top: area.min.y as i32 * self.scale_factor as i32,
-                        right: area.max.x as i32 * self.scale_factor as i32,
-                        bottom: area.max.y as i32 * self.scale_factor as i32,
-                    },
-                    default_color: TextColor::rgb(255, 255, 255),
-                }
-            });
+            let text_areas = text_instances
+                .iter()
+                .map(|text_instance| text_instance.to_text_area(self.scale_factor as f32));
 
             self.text_renderer_wrapper
                 .text_renderer
@@ -587,53 +507,11 @@ impl Renderer<'_> {
 
         Ok(())
     }
-}
 
-/// Implementation of the methods related to shape rendering
-impl Renderer<'_> {
+    /// Clears everything that has been added to the draw queue
     pub fn clear_draw_queue(&mut self) {
         self.draw_tree.clear();
         self.text_instances.clear();
-    }
-
-    pub fn add_shape(&mut self, shape: impl Into<Shape>, clip_to_shape: Option<usize>) -> usize {
-        let shape = shape.into();
-
-        let draw_command = DrawCommand::Shape(ShapeDrawData {
-            vertex_buffer: None,
-            index_buffer: None,
-            num_indices: None,
-            clip_to_shape,
-            shape,
-        });
-
-        self.add_draw_command(draw_command, clip_to_shape)
-    }
-
-    pub fn add_image(
-        &mut self,
-        image: &[u8],
-        physical_image_dimensions: (u32, u32),
-        rect: MathRect,
-        clip_to_shape: Option<usize>,
-    ) {
-        // TODO: cache image data
-        // let texture_id = TextureId::new(image);
-        let image_data = image.to_vec();
-
-        let draw_command = DrawCommand::Image(ImageDrawData {
-            image_data,
-            image_size: physical_image_dimensions,
-            logical_rect: rect,
-            clip_to_shape,
-            texture: None,
-            bind_group: None,
-            vertex_buffer: None,
-            index_buffer: None,
-            num_indices: None,
-        });
-
-        self.add_draw_command(draw_command, clip_to_shape);
     }
 
     fn add_draw_command(
@@ -649,90 +527,53 @@ impl Renderer<'_> {
             self.draw_tree.add_child_to_root(draw_command)
         }
     }
-}
 
-/// Implementation of text rendering methods
-impl Renderer<'_> {
-    pub fn add_text(
-        &mut self,
-        text: &str,
-        layout: impl Into<TextLayout>,
-        clip_to_shape: Option<usize>,
-    ) {
-        let layout = layout.into();
+    pub fn size(&self) -> (u32, u32) {
+        self.physical_size
+    }
 
-        let mut buffer = TextBuffer::new(
-            &mut self.text_renderer_wrapper.font_system,
-            Metrics::new(layout.font_size, layout.line_height),
+    pub fn change_scale_factor(&mut self, new_scale_factor: f64) {
+        self.scale_factor = new_scale_factor;
+        self.resize(self.physical_size)
+    }
+
+    pub fn resize(&mut self, new_physical_size: (u32, u32)) {
+        self.physical_size = new_physical_size;
+        self.config.width = new_physical_size.0;
+        self.config.height = new_physical_size.1;
+        self.surface.configure(&self.device, &self.config);
+        // Update the render pipeline to match the new size with new uniforms. Uniforms are
+        // needed to normalize the coordinates of the shapes
+
+        let (and_uniforms, and_bind_group, and_pipeline) = create_pipeline(
+            to_logical(new_physical_size, self.scale_factor),
+            &self.device,
+            &self.config,
+            PipelineType::EqualIncrementStencil,
         );
+        self.and_uniforms = and_uniforms;
+        self.and_bind_group = and_bind_group;
+        self.and_pipeline = Arc::new(and_pipeline);
 
-        let text_area_size = layout.area.size();
+        // Update the always decrement pipeline
+        let (decrementing_uniforms, decrementing_bind_group, decrementing_pipeline) =
+            create_pipeline(
+                to_logical(new_physical_size, self.scale_factor),
+                &self.device,
+                &self.config,
+                PipelineType::EqualDecrementStencil,
+            );
+        self.decrementing_uniforms = decrementing_uniforms;
+        self.decrementing_bind_group = decrementing_bind_group;
+        self.decrementing_pipeline = Arc::new(decrementing_pipeline);
 
-        buffer.set_size(
-            &mut self.text_renderer_wrapper.font_system,
-            text_area_size.width,
-            text_area_size.height,
-        );
-
-        // TODO: it's set text that causes performance issues
-        buffer.set_text(
-            &mut self.text_renderer_wrapper.font_system,
-            text,
-            Attrs::new()
-                .family(Family::SansSerif)
-                .metadata(clip_to_shape.unwrap()),
-            Shaping::Advanced,
-        );
-
-        let align = match layout.horizontal_alignment {
-            // None is equal to start of the line - left or right, depending on the language
-            TextAlignment::Start => None,
-            TextAlignment::End => Some(Align::End),
-            TextAlignment::Center => Some(Align::Center),
-        };
-
-        for line in buffer.lines.iter_mut() {
-            line.set_align(align);
-        }
-
-        let area = layout.area;
-
-        let mut min_y = f32::INFINITY;
-        let mut max_y = f32::NEG_INFINITY;
-
-        buffer.shape_until_scroll(&mut self.text_renderer_wrapper.font_system);
-
-        for layout_run in buffer.layout_runs() {
-            for glyph in layout_run.glyphs.iter() {
-                let physical_glyph = glyph.physical((0.0, 0.0), self.scale_factor as f32);
-                min_y = min_y.min(physical_glyph.y as f32 + layout_run.line_y);
-                max_y = max_y.max(physical_glyph.y as f32 + layout_run.line_y);
-            }
-        }
-
-        // TODO: that should be a line height
-        let buffer_height = if max_y > min_y {
-            max_y - min_y + layout.font_size
-        } else {
-            layout.font_size // for a single line
-        };
-
-        let top = match layout.vertical_alignment {
-            TextAlignment::Start => area.min.y,
-            TextAlignment::End => area.max.y - buffer_height,
-            TextAlignment::Center => area.min.y + (area.height() - buffer_height) / 2.0,
-        };
-
-        // println!("Text {} is clipped to shape {}", text, clip_to_shape.unwrap_or(0));
-
-        self.text_instances.push(TextDrawData {
-            top,
-            text_buffer: buffer,
-            area: layout.area,
-            vertical_alignment: layout.vertical_alignment,
-            data: text.to_string(),
-            font_size: layout.font_size,
-            clip_to_shape,
-        });
+        let (
+            texture_bind_group_layout,
+            texture_crop_render_pipeline,
+            texture_always_render_pipeline,
+        ) = create_texture_pipeline(&self.device, &self.config);
+        self.texture_bind_group_layout = texture_bind_group_layout;
+        self.texture_crop_render_pipeline = Arc::new(texture_crop_render_pipeline);
+        self.texture_always_render_pipeline = Arc::new(texture_always_render_pipeline);
     }
 }
