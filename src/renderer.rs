@@ -16,7 +16,7 @@ use glyphon::Resolution;
 use crate::image_draw_data::ImageDrawData;
 use crate::shape::{Shape, ShapeDrawData};
 
-use crate::text::{TextAlignment, TextDrawData, TextLayout, TextRendererWrapper};
+use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
 use wgpu::{BindGroup, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
 
 #[inline(always)]

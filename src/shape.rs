@@ -250,6 +250,12 @@ pub struct ShapeBuilder {
     path_builder: lyon::path::Builder,
 }
 
+impl Default for ShapeBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ShapeBuilder {
     /// Create a new shape builder
     pub fn new() -> Self {
@@ -347,13 +353,13 @@ impl core::fmt::Display for BorderRadii {
     }
 }
 
-impl Into<lyon::path::builder::BorderRadii> for BorderRadii {
-    fn into(self) -> lyon::path::builder::BorderRadii {
+impl From<BorderRadii> for lyon::path::builder::BorderRadii {
+    fn from(val: BorderRadii) -> Self {
         lyon::path::builder::BorderRadii {
-            top_left: self.top_left,
-            top_right: self.top_right,
-            bottom_left: self.bottom_left,
-            bottom_right: self.bottom_right,
+            top_left: val.top_left,
+            top_right: val.top_right,
+            bottom_left: val.bottom_left,
+            bottom_right: val.bottom_right,
         }
     }
 }
