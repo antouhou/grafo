@@ -19,6 +19,15 @@ use crate::shape::{Shape, ShapeDrawData};
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
 use wgpu::{BindGroup, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
 
+#[derive(Debug, Clone, Copy)]
+pub enum Pipeline {
+    None,
+    StencilIncrement,
+    StencilDecrement,
+    TextureCrop,
+    TextureAlways,
+}
+
 #[inline(always)]
 pub fn depth(draw_command_id: usize, draw_commands_total: usize) -> f32 {
     (1.0 - (draw_command_id as f32 / draw_commands_total as f32)).clamp(0.0000000001, 0.9999999999)
@@ -240,7 +249,7 @@ impl Renderer<'_> {
         ));
     }
 
-    /// Renders everything that has been added to the draw queue
+    /// Renders everything that is currently in the draw queue
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         println!("===============");
         let first_timer = Instant::now();
@@ -319,47 +328,58 @@ impl Renderer<'_> {
             println!("Creating pass took: {:?}", first_timer.elapsed());
 
             let shape_ids_to_stencil_references = HashMap::<usize, u32>::new();
+            let current_pipeline = Pipeline::None;
 
-            let mut data = (render_pass, shape_ids_to_stencil_references);
+            let mut data = (
+                render_pass,
+                shape_ids_to_stencil_references,
+                current_pipeline,
+            );
 
             self.draw_tree.traverse(
                 |shape_id, draw_command, data| {
+                    // NOTE: this is destructured here and not above because we need to pass the
+                    //  data to the closure below
+                    let (render_pass, stencil_references, currently_set_pipeline) = data;
+
                     match draw_command {
                         DrawCommand::Shape(shape) => {
                             if let (Some(vertex_buffer), Some(index_buffer)) =
                                 (shape.vertex_buffer.as_ref(), shape.index_buffer.as_ref())
                             {
-                                if let Some(clip_to_shape) = shape.clip_to_shape {
-                                    data.0.set_pipeline(&self.and_pipeline);
-                                    data.0.set_bind_group(0, &self.and_bind_group, &[]);
+                                if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
+                                    render_pass.set_pipeline(&self.and_pipeline);
+                                    render_pass.set_bind_group(0, &self.and_bind_group, &[]);
+                                    *currently_set_pipeline = Pipeline::StencilIncrement;
+                                }
 
-                                    let parent_stencil = *data.1.get(&clip_to_shape).unwrap_or(&0);
+                                if let Some(clip_to_shape) = shape.clip_to_shape {
+                                    let parent_stencil =
+                                        *stencil_references.get(&clip_to_shape).unwrap_or(&0);
 
                                     render_buffer_to_texture2(
                                         vertex_buffer,
                                         index_buffer,
                                         shape.num_indices.unwrap(),
-                                        &mut data.0,
+                                        render_pass,
                                         parent_stencil,
                                     );
 
-                                    data.1.insert(shape_id, parent_stencil + 1);
+                                    stencil_references.insert(shape_id, parent_stencil + 1);
                                 } else {
                                     // TODO: every no clip should have its own tree, and before
                                     //  rendering them we need to reset stencil texture, and
                                     //  they should be rendered in a separate step
-                                    data.0.set_pipeline(&self.and_pipeline);
-                                    data.0.set_bind_group(0, &self.and_bind_group, &[]);
 
                                     render_buffer_to_texture2(
                                         vertex_buffer,
                                         index_buffer,
                                         shape.num_indices.unwrap(),
-                                        &mut data.0,
+                                        render_pass,
                                         0,
                                     );
 
-                                    data.1.insert(shape_id, 1);
+                                    stencil_references.insert(shape_id, 1);
                                 }
                             } else {
                                 println!("Missing vertex or index buffer for shape {}", shape_id);
@@ -367,33 +387,45 @@ impl Renderer<'_> {
                         }
                         DrawCommand::Image(image) => {
                             if let Some(clip_to_shape) = image.clip_to_shape {
-                                let parent_stencil = *data.1.get(&clip_to_shape).unwrap_or(&0);
+                                let parent_stencil =
+                                    *stencil_references.get(&clip_to_shape).unwrap_or(&0);
                                 // If the image is clipped to a shape, we set up the pipeline
                                 // to crop the image to the shape using the stencil texture
-                                data.0.set_pipeline(&self.texture_crop_render_pipeline);
-                                data.0.set_stencil_reference(parent_stencil);
+                                render_pass.set_pipeline(&self.texture_crop_render_pipeline);
+                                render_pass.set_stencil_reference(parent_stencil);
+                                *currently_set_pipeline = Pipeline::TextureCrop;
                             } else {
                                 // If the image is not clipped to a shape, we set up the pipeline
                                 // to always render the image
-                                data.0.set_pipeline(&self.texture_always_render_pipeline);
+                                render_pass.set_pipeline(&self.texture_always_render_pipeline);
+                                *currently_set_pipeline = Pipeline::TextureAlways;
                             };
 
-                            data.0.set_vertex_buffer(0, image.vertex_buffer());
-                            data.0
+                            render_pass.set_vertex_buffer(0, image.vertex_buffer());
+                            render_pass
                                 .set_index_buffer(image.index_buffer(), wgpu::IndexFormat::Uint16);
-                            data.0.set_bind_group(0, image.bind_group(), &[]);
-                            data.0.draw_indexed(0..image.num_indices(), 0, 0..1);
+                            render_pass.set_bind_group(0, image.bind_group(), &[]);
+                            render_pass.draw_indexed(0..image.num_indices(), 0, 0..1);
                         }
                     }
                 },
                 |shape_id, draw_command, data| {
+                    let (render_pass, stencil_references, currently_set_pipeline) = data;
+
                     match draw_command {
                         DrawCommand::Shape(shape) => {
                             if let (Some(vertex_buffer), Some(index_buffer)) =
                                 (shape.vertex_buffer.as_ref(), shape.index_buffer.as_ref())
                             {
-                                data.0.set_pipeline(&self.decrementing_pipeline);
-                                data.0.set_bind_group(0, &self.decrementing_bind_group, &[]);
+                                if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
+                                    render_pass.set_pipeline(&self.decrementing_pipeline);
+                                    render_pass.set_bind_group(
+                                        0,
+                                        &self.decrementing_bind_group,
+                                        &[],
+                                    );
+                                    *currently_set_pipeline = Pipeline::StencilDecrement;
+                                }
 
                                 let this_shape_stencil = { *data.1.get(&shape_id).unwrap_or(&0) };
 
@@ -401,7 +433,7 @@ impl Renderer<'_> {
                                     vertex_buffer,
                                     index_buffer,
                                     shape.num_indices.unwrap(),
-                                    &mut data.0,
+                                    render_pass,
                                     this_shape_stencil,
                                 );
                             } else {
