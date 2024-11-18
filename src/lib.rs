@@ -1,5 +1,5 @@
-pub use wgpu;
 pub use lyon;
+pub use wgpu;
 
 mod color;
 mod debug_tools;
