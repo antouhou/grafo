@@ -226,7 +226,6 @@ pub struct Renderer<'a> {
     // performance_query_set: wgpu::QuerySet,
     // #[cfg(feature = "performance_measurement")]
     // adapter: wgpu::Adapter,
-
     /// Render pipeline for cropping textures based on stencil.
     texture_crop_render_pipeline: Arc<wgpu::RenderPipeline>,
     /// Render pipeline for always rendering textures without clipping.
@@ -382,7 +381,6 @@ impl Renderer<'_> {
             // performance_query_set: frametime_query_set,
             // #[cfg(feature = "performance_measurement")]
             // adapter,
-
             texture_crop_render_pipeline: Arc::new(texture_crop_render_pipeline),
             texture_always_render_pipeline: Arc::new(texture_always_render_pipeline),
             texture_bind_group_layout,
