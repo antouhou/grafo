@@ -5,6 +5,11 @@ edition = "2021"
 description = "A GPU-accelerated rendering library for Rust"
 keywords = ["rendering", "vector_graphics", "gui", "graphics", "image"]
 categories = ["rendering::graphics-api", "gui"]
+authors = ["Anton Suprunchuk <anton.suprunchuk@gmail.com>"]
+license = "Apache-2.0/MIT"
+repository = "https://github.com/antouhou/grafo"
+documentation = "https://docs.rs/grafo/"
+readme = "README.md"
 
 [dependencies]
 bytemuck = "1.16.0"
