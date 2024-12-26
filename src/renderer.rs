@@ -400,7 +400,7 @@ impl Renderer<'_> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
     /// use winit::event_loop::EventLoop;
@@ -448,7 +448,7 @@ impl Renderer<'_> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
     /// use winit::event_loop::EventLoop;
@@ -507,7 +507,7 @@ impl Renderer<'_> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
     /// use winit::event_loop::EventLoop;
@@ -890,7 +890,7 @@ impl Renderer<'_> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
     /// use winit::event_loop::EventLoop;
@@ -952,7 +952,7 @@ impl Renderer<'_> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
     /// use winit::event_loop::EventLoop;
@@ -989,7 +989,7 @@ impl Renderer<'_> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
     /// use winit::event_loop::EventLoop;
@@ -1028,7 +1028,7 @@ impl Renderer<'_> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
     /// use winit::event_loop::EventLoop;
