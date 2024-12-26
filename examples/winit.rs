@@ -1,5 +1,5 @@
 use futures::executor::block_on;
-use grafo::shape::{BorderRadii, Shape};
+use grafo::{BorderRadii, Shape};
 use grafo::{Color, Stroke};
 use std::sync::Arc;
 use std::time::Instant;

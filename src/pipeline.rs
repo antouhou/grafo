@@ -1,3 +1,7 @@
+//! Pipeline creation and management for the Grafo library.
+//!
+//! This module provides functions to create and manage rendering pipelines.
+
 use crate::vertex::{CustomVertex, TexturedVertex};
 use wgpu::util::DeviceExt;
 use wgpu::{

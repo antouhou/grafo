@@ -1,3 +1,33 @@
+//! Text rendering for the Grafo library.
+//!
+//! This module provides functionality to render text using the `glyphon` crate.
+//!
+//! # Examples
+//!
+//! Rendering text with specific layout:
+//!
+//! ```rust
+//! use grafo::{TextAlignment, TextLayout};
+//! use grafo::Color;
+//! use grafo::MathRect;
+//!
+//! // Define the text layout
+//! let layout = TextLayout {
+//!     font_size: 16.0,
+//!     line_height: 20.0,
+//!     color: Color::rgb(255, 255, 255), // White text
+//!     area: MathRect {
+//!         min: (0.0, 0.0).into(),
+//!         max: (200.0, 50.0).into(),
+//!     },
+//!     horizontal_alignment: TextAlignment::Center,
+//!     vertical_alignment: TextAlignment::Center,
+//! };
+//!
+//! // Usage of layout in rendering functions (pseudo-code)
+//! // renderer.render_text("Hello, World!", layout);
+//! ```
+
 use crate::renderer::MathRect;
 use crate::Color;
 use glyphon::cosmic_text::Align;
@@ -5,23 +35,82 @@ use glyphon::{Attrs, Family, FontSystem, Metrics, Shaping, SwashCache, TextAtlas
 use glyphon::{Buffer as TextBuffer, Color as TextColor, TextArea, TextBounds};
 use wgpu::{Device, MultisampleState};
 
+/// Specifies the alignment of text within its layout area.
+///
+/// # Variants
+///
+/// - `Start`: Align text to the start (left or right, depending on language).
+/// - `End`: Align text to the end.
+/// - `Center`: Center-align the text.
+///
+/// # Examples
+///
+/// ```rust
+/// use grafo::TextAlignment;
+///
+/// let align_start = TextAlignment::Start;
+/// let align_end = TextAlignment::End;
+/// let align_center = TextAlignment::Center;
+/// ```
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum TextAlignment {
+    /// Align text to the start (left or right, depending on language).
     Start,
+    /// Align text to the end.
     End,
+    /// Center-align the text.
     Center,
 }
 
+/// Defines the layout parameters for rendering text.
+///
+/// # Fields
+///
+/// - `font_size`: The size of the font in pixels.
+/// - `line_height`: The height of each line of text.
+/// - `color`: The color of the text.
+/// - `area`: The rectangular area within which the text is rendered.
+/// - `horizontal_alignment`: The horizontal alignment of the text.
+/// - `vertical_alignment`: The vertical alignment of the text.
+///
+/// # Examples
+///
+/// ```rust
+/// use grafo::{TextAlignment, TextLayout};
+/// use grafo::Color;
+/// use grafo::MathRect;
+///
+/// let layout = TextLayout {
+///     font_size: 16.0,
+///     line_height: 20.0,
+///     color: Color::rgb(255, 255, 255), // White text
+///     area: MathRect {
+///         min: (0.0, 0.0).into(),
+///         max: (200.0, 50.0).into(),
+///     },
+///     horizontal_alignment: TextAlignment::Center,
+///     vertical_alignment: TextAlignment::Center,
+/// };
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TextLayout {
+    /// The size of the font in pixels.
     pub font_size: f32,
+    /// The height of each line of text.
     pub line_height: f32,
+    /// The color of the text.
     pub color: Color,
+    /// The rectangular area within which the text is rendered.
     pub area: MathRect,
+    /// The horizontal alignment of the text.
     pub horizontal_alignment: TextAlignment,
+    /// The vertical alignment of the text.
     pub vertical_alignment: TextAlignment,
 }
 
+/// Internal wrapper for `glyphon::TextRenderer` and related components.
+///
+/// This struct manages the text renderer, atlas, font system, and swash cache.
 pub(crate) struct TextRendererWrapper {
     pub(crate) text_renderer: TextRenderer,
     pub(crate) atlas: TextAtlas,
@@ -30,6 +119,14 @@ pub(crate) struct TextRendererWrapper {
 }
 
 impl TextRendererWrapper {
+    /// Creates a new `TextRendererWrapper`.
+    ///
+    /// # Parameters
+    ///
+    /// - `device`: The WGPU device.
+    /// - `queue`: The WGPU queue.
+    /// - `swapchain_format`: The format of the swapchain texture.
+    /// - `depth_stencil_state`: Optional depth stencil state.
     pub fn new(
         device: &Device,
         queue: &wgpu::Queue,
@@ -57,12 +154,19 @@ impl TextRendererWrapper {
 
 #[derive(Debug)]
 pub(crate) struct TextDrawData {
+    /// The text buffer containing glyph information.
     pub(crate) text_buffer: TextBuffer,
+    /// The area within which the text is rendered.
     pub(crate) area: MathRect,
+    /// The vertical alignment of the text.
     pub(crate) vertical_alignment: TextAlignment,
+    /// The actual text data as a string.
     pub(crate) data: String,
+    /// The font size used for the text.
     pub(crate) font_size: f32,
+    /// The top position of the text within the layout area.
     pub(crate) top: f32,
+    /// Optional index of a shape to clip the text to.
     pub(crate) clip_to_shape: Option<usize>,
 }
 

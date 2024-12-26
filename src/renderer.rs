@@ -1,9 +1,75 @@
+//! Renderer for the Grafo library.
+//!
+//! This module provides the [`Renderer`] struct, which is responsible for rendering shapes,
+//! images, and text. It leverages the `wgpu` crate for GPU-accelerated rendering and integrates
+//! with other modules like `shape`, `text`, and `image_draw_data` to manage various rendering
+//! components.
+//!
+//! # Examples
+//!
+//! Initializing and using the `Renderer`:
+//!
+//! ```rust,no_run
+//! use std::sync::Arc;
+//! use grafo::Renderer;
+//! use grafo::Shape;
+//! use grafo::Color;
+//! use grafo::Stroke;
+//! use grafo::{TextAlignment, TextLayout};
+//! use grafo::MathRect;
+//! use wgpu::Surface;
+//! use winit::event_loop::EventLoop;
+//! use winit::window::WindowBuilder;
+//! use futures::executor::block_on;
+//!
+//! // This is for demonstration purposes only. If you want a working example with winit, please
+//! // refer to the example in the "examples" folder.
+//! let event_loop = EventLoop::new().expect("To create the event loop");
+//! let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+//! let physical_size = (800, 600);
+//! let scale_factor = 1.0;
+//!
+//! // Initialize the renderer
+//! let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+//!
+//! // Add a rectangle shape
+//! let rect = Shape::rect(
+//!     [(100.0, 100.0), (300.0, 200.0)],
+//!     Color::rgb(0, 128, 255), // Blue fill
+//!     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+//! );
+//! renderer.add_shape(rect, None);
+//!
+//! // Add some text
+//! let layout = TextLayout {
+//!     font_size: 24.0,
+//!     line_height: 30.0,
+//!     color: Color::rgb(255, 255, 255), // White text
+//!     area: MathRect {
+//!         min: (50.0, 50.0).into(),
+//!         max: (400.0, 100.0).into(),
+//!     },
+//!     horizontal_alignment: TextAlignment::Center,
+//!     vertical_alignment: TextAlignment::Center,
+//! };
+//! renderer.add_text("Hello, Grafo!", layout, None);
+//!
+//! // Render the frame
+//! match renderer.render() {
+//!     Ok(_) => println!("Frame rendered successfully."),
+//!     Err(e) => eprintln!("Rendering error: {:?}", e),
+//! }
+//!
+//! // Clear the draw queue after rendering
+//! renderer.clear_draw_queue();
+//! ```
+
 use std::sync::Arc;
 use std::time::Instant;
 
 use easy_tree::rayon::iter::ParallelIterator;
 
-pub(crate) type MathRect = lyon::math::Box2D;
+pub type MathRect = lyon::math::Box2D;
 
 use crate::pipeline::{
     create_and_depth_texture, create_depth_stencil_state_for_text, create_pipeline,
@@ -19,30 +85,113 @@ use crate::shape::{Shape, ShapeDrawData};
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
 use wgpu::{BindGroup, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
 
+/// Represents different rendering pipelines used by the `Renderer`.
+///
+/// Each variant corresponds to a specific rendering pipeline configuration.
 #[derive(Debug, Clone, Copy)]
 pub enum Pipeline {
+    /// No specific pipeline.
     None,
+    /// Pipeline for incrementing stencil values.
     StencilIncrement,
+    /// Pipeline for decrementing stencil values.
     StencilDecrement,
+    /// Pipeline for cropping textures based on stencil.
     TextureCrop,
+    /// Pipeline for always rendering textures without clipping.
     TextureAlways,
 }
 
+/// Calculates the depth value based on the draw command's ID and the total number of draw commands.
+///
+/// Depth values are clamped between `0.0000000001` and `0.9999999999` to avoid precision issues.
+///
+/// # Parameters
+///
+/// - `draw_command_id`: The identifier of the current draw command.
+/// - `draw_commands_total`: The total number of draw commands.
+///
+/// # Returns
+///
+/// A `f32` representing the normalized depth value.
 #[inline(always)]
 pub fn depth(draw_command_id: usize, draw_commands_total: usize) -> f32 {
     (1.0 - (draw_command_id as f32 / draw_commands_total as f32)).clamp(0.0000000001, 0.9999999999)
 }
 
+/// Represents a draw command, which can be either a shape or an image.
+///
+/// This enum is used internally by the `Renderer` to manage different types of draw operations.
 enum DrawCommand {
     Shape(ShapeDrawData),
     Image(ImageDrawData),
 }
 
+/// The renderer for the Grafo library. This is the main struct that is used to render shapes,
+/// images, and text.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use grafo::Renderer;
+/// use grafo::Shape;
+/// use grafo::Color;
+/// use grafo::Stroke;
+/// use grafo::{TextAlignment, TextLayout};
+/// use grafo::MathRect;
+/// use wgpu::Surface;
+/// use winit::event_loop::EventLoop;
+/// use winit::window::WindowBuilder;
+/// use std::sync::Arc;
+/// use futures::executor::block_on;
+///
+/// // This is for demonstration purposes only. If you want a working example with winit, please
+/// // refer to the example in the "examples" folder.
+/// let event_loop = EventLoop::new().expect("To create the event loop");
+/// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+/// let physical_size = (800, 600);
+/// let scale_factor = 1.0;
+///
+///
+/// // Initialize the renderer
+/// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+///
+/// // Add a rectangle shape
+/// let rect = Shape::rect(
+///     [(100.0, 100.0), (300.0, 200.0)],
+///     Color::rgb(0, 128, 255), // Blue fill
+///     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+/// );
+/// renderer.add_shape(rect, None);
+///
+/// // Add some text
+/// let layout = TextLayout {
+///     font_size: 24.0,
+///     line_height: 30.0,
+///     color: Color::rgb(255, 255, 255), // White text
+///     area: MathRect {
+///         min: (50.0, 50.0).into(),
+///         max: (400.0, 100.0).into(),
+///     },
+///     horizontal_alignment: TextAlignment::Center,
+///     vertical_alignment: TextAlignment::Center,
+/// };
+/// renderer.add_text("Hello, Grafo!", layout, None);
+///
+/// // Render the frame
+/// match renderer.render() {
+///     Ok(_) => println!("Frame rendered successfully."),
+///     Err(e) => eprintln!("Rendering error: {:?}", e),
+/// }
+///
+/// // Clear the draw queue after rendering
+/// renderer.clear_draw_queue();
+/// ```
 pub struct Renderer<'a> {
     // Window information
-    /// Size of the window
+    /// Size of the window in pixels.
     pub(crate) physical_size: (u32, u32),
-    /// Scale factor of the window
+    /// Scale factor of the window (e.g., for high-DPI displays).
     scale_factor: f64,
 
     // WGPU components
@@ -53,18 +202,24 @@ pub struct Renderer<'a> {
 
     /// Text instances to be rendered
     text_instances: Vec<TextDrawData>,
-
+    /// Internal wrapper for text rendering components.
     text_renderer_wrapper: TextRendererWrapper,
 
-    /// Shapes to be rendered
+    /// Tree structure holding shapes and images to be rendered.
     draw_tree: easy_tree::Tree<DrawCommand>,
 
+    /// Uniforms for the "And" rendering pipeline.
     and_uniforms: Uniforms,
+    /// Bind group for the "And" rendering pipeline.
     and_bind_group: BindGroup,
+    /// Render pipeline for the "And" operations.
     and_pipeline: Arc<wgpu::RenderPipeline>,
 
+    /// Render pipeline for decrementing stencil values.
     decrementing_pipeline: Arc<wgpu::RenderPipeline>,
+    /// Uniforms for the decrementing pipeline.
     decrementing_uniforms: Uniforms,
+    /// Bind group for the decrementing pipeline.
     decrementing_bind_group: BindGroup,
 
     #[cfg(feature = "performance_measurement")]
@@ -72,12 +227,43 @@ pub struct Renderer<'a> {
     #[cfg(feature = "performance_measurement")]
     adapter: wgpu::Adapter,
 
+    /// Render pipeline for cropping textures based on stencil.
     texture_crop_render_pipeline: Arc<wgpu::RenderPipeline>,
+    /// Render pipeline for always rendering textures without clipping.
     texture_always_render_pipeline: Arc<wgpu::RenderPipeline>,
+    /// Bind group layout for texture rendering pipelines.
     texture_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl Renderer<'_> {
+    /// Creates a new `Renderer` instance.
+    ///
+    /// # Parameters
+    ///
+    /// - `window`: The surface target (e.g., window) where rendering will occur.
+    /// - `physical_size`: The physical size of the window in pixels.
+    /// - `scale_factor`: The scale factor for high-DPI displays.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use futures::executor::block_on;
+    /// use grafo::Renderer;
+    /// use wgpu::Surface;
+    /// use winit::event_loop::EventLoop;
+    /// use winit::window::WindowBuilder;
+    ///
+    /// // This is for demonstration purposes only. If you want a working example with winit, please
+    /// // refer to the example in the "examples" folder.
+    /// let event_loop = EventLoop::new().expect("To create the event loop");
+    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    /// let physical_size = (800, 600);
+    /// let scale_factor = 1.0;
+    ///
+    /// // Initialize the renderer
+    /// let renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// ```
     pub async fn new(
         window: impl Into<SurfaceTarget<'static>>,
         physical_size: (u32, u32),
@@ -203,7 +389,48 @@ impl Renderer<'_> {
         }
     }
 
-    /// Adds a shape to the draw queue
+    /// Adds a shape to the draw queue.
+    ///
+    /// # Parameters
+    ///
+    /// - `shape`: The shape to be rendered. It can be any type that implements `Into<Shape>`.
+    /// - `clip_to_shape`: Optional index of another shape to which this shape should be clipped.
+    ///
+    /// # Returns
+    ///
+    /// The unique identifier (`usize`) assigned to the added shape.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::sync::Arc;
+    /// use futures::executor::block_on;
+    /// use winit::event_loop::EventLoop;
+    /// use winit::window::WindowBuilder;
+    /// use grafo::Renderer;
+    /// use grafo::Shape;
+    /// use grafo::Color;
+    /// use grafo::Stroke;
+    ///
+    /// // This is for demonstration purposes only. If you want a working example with winit, please
+    /// // refer to the example in the "examples" folder.
+    /// let event_loop = EventLoop::new().expect("To create the event loop");
+    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    /// let physical_size = (800, 600);
+    /// let scale_factor = 1.0;
+    ///
+    /// // Initialize the renderer
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    ///
+    /// let shape_id = renderer.add_shape(
+    ///     Shape::rect(
+    ///         [(100.0, 100.0), (300.0, 200.0)],
+    ///         Color::rgb(0, 128, 255), // Blue fill
+    ///         Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+    ///     ),
+    ///     None,
+    /// );
+    /// ```
     pub fn add_shape(&mut self, shape: impl Into<Shape>, clip_to_shape: Option<usize>) -> usize {
         self.add_draw_command(
             DrawCommand::Shape(ShapeDrawData::new(shape, clip_to_shape)),
@@ -211,7 +438,46 @@ impl Renderer<'_> {
         )
     }
 
-    /// Adds an image to the draw queue
+    /// Adds an image to the draw queue.
+    ///
+    /// # Parameters
+    ///
+    /// - `image`: A byte slice representing the image data.
+    /// - `physical_image_dimensions`: A tuple representing the image's width and height in pixels.
+    /// - `rect`: An array containing two tuples representing the top-left and bottom-right
+    ///   coordinates where the image should be rendered.
+    /// - `clip_to_shape`: Optional index of a shape to which this image should be clipped.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::sync::Arc;
+    /// use futures::executor::block_on;
+    /// use winit::event_loop::EventLoop;
+    /// use winit::window::WindowBuilder;
+    /// use grafo::Renderer;
+    /// use grafo::Shape;
+    /// use grafo::Color;
+    /// use grafo::Stroke;
+    ///
+    /// // This is for demonstration purposes only. If you want a working example with winit, please
+    /// // refer to the example in the "examples" folder.
+    /// let event_loop = EventLoop::new().expect("To create the event loop");
+    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    /// let physical_size = (800, 600);
+    /// let scale_factor = 1.0;
+    ///
+    /// // Initialize the renderer
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    ///
+    /// let image_data = include_bytes!("path/to/image.png");
+    /// renderer.add_image(
+    ///     image_data,
+    ///     (100, 100), // Image dimensions
+    ///     [(50.0, 50.0), (150.0, 150.0)], // Rendering rectangle
+    ///     Some(0), // Clip to shape with ID 0
+    /// );
+    /// ```
     pub fn add_image(
         &mut self,
         image: &[u8],
@@ -233,7 +499,49 @@ impl Renderer<'_> {
         self.add_draw_command(draw_command, clip_to_shape);
     }
 
-    /// Adds text to the draw queue
+    /// Adds text to the draw queue.
+    ///
+    /// # Parameters
+    ///
+    /// - `text`: The string of text to be rendered.
+    /// - `layout`: The layout configuration for the text.
+    /// - `clip_to_shape`: Optional index of a shape to which this text should be clipped.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::sync::Arc;
+    /// use futures::executor::block_on;
+    /// use winit::event_loop::EventLoop;
+    /// use winit::window::WindowBuilder;
+    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
+    /// use grafo::Shape;
+    /// use grafo::Color;
+    /// use grafo::Stroke;
+    ///
+    /// // This is for demonstration purposes only. If you want a working example with winit, please
+    /// // refer to the example in the "examples" folder.
+    /// let event_loop = EventLoop::new().expect("To create the event loop");
+    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    /// let physical_size = (800, 600);
+    /// let scale_factor = 1.0;
+    ///
+    /// // Initialize the renderer
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    ///
+    /// let layout = TextLayout {
+    ///     font_size: 24.0,
+    ///     line_height: 30.0,
+    ///     color: Color::rgb(255, 255, 255), // White text
+    ///     area: MathRect {
+    ///         min: (50.0, 50.0).into(),
+    ///         max: (400.0, 100.0).into(),
+    ///     },
+    ///     horizontal_alignment: TextAlignment::Center,
+    ///     vertical_alignment: TextAlignment::Center,
+    /// };
+    /// renderer.add_text("Hello, Grafo!", layout, None);
+    /// ```
     pub fn add_text(
         &mut self,
         text: &str,
@@ -249,7 +557,45 @@ impl Renderer<'_> {
         ));
     }
 
-    /// Renders everything that is currently in the draw queue
+
+    /// Renders all items currently in the draw queue.
+    ///
+    /// This method processes the draw commands for shapes and images, tessellates them,
+    /// prepares GPU buffers, and executes the rendering pipelines to produce the final frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`wgpu::SurfaceError`] if acquiring the next frame fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use futures::executor::block_on;
+    /// use winit::event_loop::EventLoop;
+    /// use winit::window::WindowBuilder;
+    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
+    /// use grafo::Shape;
+    /// use grafo::Color;
+    /// use grafo::Stroke;
+    ///
+    /// // This is for demonstration purposes only. If you want a working example with winit, please
+    /// // refer to the example in the "examples" folder.
+    /// let event_loop = EventLoop::new().expect("To create the event loop");
+    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    /// let physical_size = (800, 600);
+    /// let scale_factor = 1.0;
+    ///
+    /// // Initialize the renderer
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    ///
+    /// // Add shapes, images, and text...
+    ///
+    /// // Render the frame
+    /// if let Err(e) = renderer.render() {
+    ///     eprintln!("Rendering error: {:?}", e);
+    /// }
+    /// ```
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         println!("===============");
         let first_timer = Instant::now();
@@ -540,12 +886,53 @@ impl Renderer<'_> {
         Ok(())
     }
 
-    /// Clears everything that has been added to the draw queue
+    /// Clears all items currently in the draw queue.
+    ///
+    /// This method removes all shapes, images, and text instances from the draw queue,
+    /// preparing the renderer for the next frame.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::sync::Arc;
+    /// use futures::executor::block_on;
+    /// use winit::event_loop::EventLoop;
+    /// use winit::window::WindowBuilder;
+    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
+    /// use grafo::Shape;
+    /// use grafo::Color;
+    /// use grafo::Stroke;
+    ///
+    /// // This is for demonstration purposes only. If you want a working example with winit, please
+    /// // refer to the example in the "examples" folder.
+    /// let event_loop = EventLoop::new().expect("To create the event loop");
+    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    /// let physical_size = (800, 600);
+    /// let scale_factor = 1.0;
+    ///
+    /// // Initialize the renderer
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    ///
+    /// // Add shapes, images, and text...
+    ///
+    /// // Clear the draw queue
+    /// renderer.clear_draw_queue();
+    /// ```
     pub fn clear_draw_queue(&mut self) {
         self.draw_tree.clear();
         self.text_instances.clear();
     }
 
+    /// Adds a generic draw command to the draw tree.
+    ///
+    /// # Parameters
+    ///
+    /// - `draw_command`: The draw command to be added (`ShapeDrawData` or `ImageDrawData`).
+    /// - `clip_to_shape`: Optional index of a shape to which this draw command should be clipped.
+    ///
+    /// # Returns
+    ///
+    /// The unique identifier (`usize`) assigned to the added draw command.
     fn add_draw_command(
         &mut self,
         draw_command: DrawCommand,
@@ -560,15 +947,114 @@ impl Renderer<'_> {
         }
     }
 
+
+    /// Retrieves the current size of the rendering surface.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(u32, u32)` representing the width and height of the window in pixels.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::sync::Arc;
+    /// use futures::executor::block_on;
+    /// use winit::event_loop::EventLoop;
+    /// use winit::window::WindowBuilder;
+    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
+    /// use grafo::Shape;
+    /// use grafo::Color;
+    /// use grafo::Stroke;
+    ///
+    /// // This is for demonstration purposes only. If you want a working example with winit, please
+    /// // refer to the example in the "examples" folder.
+    /// let event_loop = EventLoop::new().expect("To create the event loop");
+    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    /// let physical_size = (800, 600);
+    /// let scale_factor = 1.0;
+    ///
+    /// // Initialize the renderer
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    ///
+    /// let size = renderer.size();
+    /// println!("Rendering surface size: {}x{}", size.0, size.1);
+    /// ```
     pub fn size(&self) -> (u32, u32) {
         self.physical_size
     }
 
+    /// Changes the scale factor of the renderer (e.g., for DPI scaling).
+    ///
+    /// This method updates the scale factor and resizes the renderer accordingly.
+    ///
+    /// # Parameters
+    ///
+    /// - `new_scale_factor`: The new scale factor to apply.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::sync::Arc;
+    /// use futures::executor::block_on;
+    /// use winit::event_loop::EventLoop;
+    /// use winit::window::WindowBuilder;
+    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
+    /// use grafo::Shape;
+    /// use grafo::Color;
+    /// use grafo::Stroke;
+    ///
+    /// // This is for demonstration purposes only. If you want a working example with winit, please
+    /// // refer to the example in the "examples" folder.
+    /// let event_loop = EventLoop::new().expect("To create the event loop");
+    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    /// let physical_size = (800, 600);
+    /// let scale_factor = 1.0;
+    ///
+    /// // Initialize the renderer
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    ///
+    /// // Change the scale factor to 2.0 for high-DPI rendering
+    /// renderer.change_scale_factor(2.0);
+    /// ```
     pub fn change_scale_factor(&mut self, new_scale_factor: f64) {
         self.scale_factor = new_scale_factor;
         self.resize(self.physical_size)
     }
 
+    /// Resizes the renderer to the specified physical size.
+    ///
+    /// This method updates the renderer's configuration to match the new window size,
+    /// reconfigures the surface, and updates all relevant pipelines and bind groups.
+    ///
+    /// # Parameters
+    ///
+    /// - `new_physical_size`: A tuple `(u32, u32)` representing the new width and height in pixels.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::sync::Arc;
+    /// use futures::executor::block_on;
+    /// use winit::event_loop::EventLoop;
+    /// use winit::window::WindowBuilder;
+    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
+    /// use grafo::Shape;
+    /// use grafo::Color;
+    /// use grafo::Stroke;
+    ///
+    /// // This is for demonstration purposes only. If you want a working example with winit, please
+    /// // refer to the example in the "examples" folder.
+    /// let event_loop = EventLoop::new().expect("To create the event loop");
+    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    /// let physical_size = (800, 600);
+    /// let scale_factor = 1.0;
+    ///
+    /// // Initialize the renderer
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    ///
+    /// // Resize the renderer to 1024x768 pixels
+    /// renderer.resize((1024, 768));
+    /// ```
     pub fn resize(&mut self, new_physical_size: (u32, u32)) {
         self.physical_size = new_physical_size;
         self.config.width = new_physical_size.0;
