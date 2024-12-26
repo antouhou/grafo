@@ -214,6 +214,7 @@ pub struct RectShape {
     /// The fill color of the rectangle.
     pub(crate) fill: Color,
     /// The stroke properties of the rectangle.
+    #[allow(unused)]
     pub(crate) stroke: Stroke,
 }
 
@@ -244,7 +245,6 @@ impl RectShape {
         Self { rect, fill, stroke }
     }
 }
-
 
 /// Represents a custom path shape with a fill color and stroke.
 ///
@@ -282,6 +282,7 @@ pub struct PathShape {
     /// The fill color of the shape.
     pub(crate) fill: Color,
     /// The stroke properties of the shape.
+    #[allow(unused)]
     pub(crate) stroke: Stroke,
 }
 
@@ -499,7 +500,6 @@ impl ShapeDrawData {
         self.num_indices = Some(num_indices);
     }
 }
-
 
 /// A builder for creating complex shapes using a fluent interface.
 ///

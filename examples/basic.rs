@@ -1,5 +1,5 @@
 use futures::executor::block_on;
-use grafo::{BorderRadii, Shape};
+use grafo::Shape;
 use grafo::{Color, Stroke};
 use std::sync::Arc;
 use winit::event::{Event, WindowEvent};
@@ -25,7 +25,7 @@ pub fn main() {
     // Define a simple rectangle shape
     let rect = Shape::rect(
         [(100.0, 100.0), (300.0, 200.0)],
-        Color::rgb(0, 128, 255), // Blue fill
+        Color::rgb(0, 128, 255),        // Blue fill
         Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
     );
     renderer.add_shape(rect, None);
@@ -42,16 +42,14 @@ pub fn main() {
                 renderer.resize(new_size);
                 window.request_redraw();
             }
-            WindowEvent::RedrawRequested => {
-                match renderer.render() {
-                    Ok(_) => {
-                        renderer.clear_draw_queue();
-                    }
-                    Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size()),
-                    Err(wgpu::SurfaceError::OutOfMemory) => event_loop_window_target.exit(),
-                    Err(e) => eprintln!("{:?}", e),
+            WindowEvent::RedrawRequested => match renderer.render() {
+                Ok(_) => {
+                    renderer.clear_draw_queue();
                 }
-            }
+                Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size()),
+                Err(wgpu::SurfaceError::OutOfMemory) => event_loop_window_target.exit(),
+                Err(e) => eprintln!("{:?}", e),
+            },
             _ => {}
         },
         _ => {}

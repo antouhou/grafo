@@ -20,7 +20,6 @@
 /// assert!(!red_stroke.is_empty());
 /// assert!(transparent_stroke.is_empty());
 /// ```
-
 use crate::Color;
 
 /// Represents the stroke properties of a shape.

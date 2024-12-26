@@ -557,7 +557,6 @@ impl Renderer<'_> {
         ));
     }
 
-
     /// Renders all items currently in the draw queue.
     ///
     /// This method processes the draw commands for shapes and images, tessellates them,
@@ -756,7 +755,7 @@ impl Renderer<'_> {
                     }
                 },
                 |shape_id, draw_command, data| {
-                    let (render_pass, stencil_references, currently_set_pipeline) = data;
+                    let (render_pass, _stencil_references, currently_set_pipeline) = data;
 
                     match draw_command {
                         DrawCommand::Shape(shape) => {
@@ -946,7 +945,6 @@ impl Renderer<'_> {
             self.draw_tree.add_child_to_root(draw_command)
         }
     }
-
 
     /// Retrieves the current size of the rendering surface.
     ///

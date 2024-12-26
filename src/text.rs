@@ -159,14 +159,18 @@ pub(crate) struct TextDrawData {
     /// The area within which the text is rendered.
     pub(crate) area: MathRect,
     /// The vertical alignment of the text.
+    #[allow(unused)]
     pub(crate) vertical_alignment: TextAlignment,
     /// The actual text data as a string.
+    #[allow(unused)]
     pub(crate) data: String,
     /// The font size used for the text.
+    #[allow(unused)]
     pub(crate) font_size: f32,
     /// The top position of the text within the layout area.
     pub(crate) top: f32,
     /// Optional index of a shape to clip the text to.
+    #[allow(unused)]
     pub(crate) clip_to_shape: Option<usize>,
 }
 

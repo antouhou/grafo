@@ -61,43 +61,43 @@ fn create_equal_decrement_stencil_state() -> wgpu::StencilState {
     }
 }
 
-/// This stencil state always replaces the stencil value with the reference value.
-fn create_always_stencil_state() -> wgpu::StencilState {
-    // In this stencil state we will only draw where the stencil value is equal to the reference value,
-    //  and all outside areas are zeroed.
-    let face_state = wgpu::StencilFaceState {
-        compare: wgpu::CompareFunction::Always,
-        fail_op: wgpu::StencilOperation::Replace,
-        depth_fail_op: wgpu::StencilOperation::Replace,
-        pass_op: wgpu::StencilOperation::Replace,
-    };
+// /// This stencil state always replaces the stencil value with the reference value.
+// fn create_always_stencil_state() -> wgpu::StencilState {
+//     // In this stencil state we will only draw where the stencil value is equal to the reference value,
+//     //  and all outside areas are zeroed.
+//     let face_state = wgpu::StencilFaceState {
+//         compare: wgpu::CompareFunction::Always,
+//         fail_op: wgpu::StencilOperation::Replace,
+//         depth_fail_op: wgpu::StencilOperation::Replace,
+//         pass_op: wgpu::StencilOperation::Replace,
+//     };
+//
+//     wgpu::StencilState {
+//         front: face_state,
+//         back: face_state,
+//         read_mask: 0xff,
+//         write_mask: 0xff,
+//     }
+// }
 
-    wgpu::StencilState {
-        front: face_state,
-        back: face_state,
-        read_mask: 0xff,
-        write_mask: 0xff,
-    }
-}
-
-/// This stencil state always replaces the stencil value with the reference value.
-fn create_always_decrement_stencil_state() -> wgpu::StencilState {
-    // In this stencil state we will only draw where the stencil value is equal to the reference value,
-    //  and all outside areas are zeroed.
-    let face_state = wgpu::StencilFaceState {
-        compare: wgpu::CompareFunction::Always,
-        fail_op: wgpu::StencilOperation::Keep,
-        depth_fail_op: wgpu::StencilOperation::Keep,
-        pass_op: wgpu::StencilOperation::DecrementClamp,
-    };
-
-    wgpu::StencilState {
-        front: face_state,
-        back: face_state,
-        read_mask: 0xff,
-        write_mask: 0xff,
-    }
-}
+// /// This stencil state always replaces the stencil value with the reference value.
+// fn create_always_decrement_stencil_state() -> wgpu::StencilState {
+//     // In this stencil state we will only draw where the stencil value is equal to the reference value,
+//     //  and all outside areas are zeroed.
+//     let face_state = wgpu::StencilFaceState {
+//         compare: wgpu::CompareFunction::Always,
+//         fail_op: wgpu::StencilOperation::Keep,
+//         depth_fail_op: wgpu::StencilOperation::Keep,
+//         pass_op: wgpu::StencilOperation::DecrementClamp,
+//     };
+//
+//     wgpu::StencilState {
+//         front: face_state,
+//         back: face_state,
+//         read_mask: 0xff,
+//         write_mask: 0xff,
+//     }
+// }
 
 /// Creates a bind group so uniforms can be processed. Look at Uniforms struct for more info.
 pub fn create_uniform_bind_group_layout(device: &Device) -> BindGroupLayout {
@@ -156,15 +156,15 @@ pub fn create_equal_decrement_depth_state() -> wgpu::DepthStencilState {
     }
 }
 
-pub fn create_always_replace_depth_stencil_state() -> wgpu::DepthStencilState {
-    wgpu::DepthStencilState {
-        format: wgpu::TextureFormat::Depth24PlusStencil8,
-        depth_write_enabled: true,
-        depth_compare: wgpu::CompareFunction::Always,
-        stencil: create_always_stencil_state(),
-        bias: wgpu::DepthBiasState::default(),
-    }
-}
+// pub fn create_always_replace_depth_stencil_state() -> wgpu::DepthStencilState {
+//     wgpu::DepthStencilState {
+//         format: wgpu::TextureFormat::Depth24PlusStencil8,
+//         depth_write_enabled: true,
+//         depth_compare: wgpu::CompareFunction::Always,
+//         stencil: create_always_stencil_state(),
+//         bias: wgpu::DepthBiasState::default(),
+//     }
+// }
 
 pub fn write_on_equal_depth_stencil_state() -> wgpu::DepthStencilState {
     let face_state = wgpu::StencilFaceState {
@@ -214,24 +214,24 @@ pub fn always_pass_and_keep_stencil_state() -> wgpu::DepthStencilState {
     }
 }
 
-pub fn create_always_decrement_depth_stencil_state() -> wgpu::DepthStencilState {
-    wgpu::DepthStencilState {
-        format: wgpu::TextureFormat::Depth24PlusStencil8,
-        depth_write_enabled: true,
-        depth_compare: wgpu::CompareFunction::Always,
-        stencil: create_always_decrement_stencil_state(),
-        bias: wgpu::DepthBiasState::default(),
-    }
-}
+// pub fn create_always_decrement_depth_stencil_state() -> wgpu::DepthStencilState {
+//     wgpu::DepthStencilState {
+//         format: wgpu::TextureFormat::Depth24PlusStencil8,
+//         depth_write_enabled: true,
+//         depth_compare: wgpu::CompareFunction::Always,
+//         stencil: create_always_decrement_stencil_state(),
+//         bias: wgpu::DepthBiasState::default(),
+//     }
+// }
 
 pub enum PipelineType {
     /// Keeps values where the stencil is equal to the reference value, zeros outside areas.
     /// I.e. keeps intersection between stencil buffer and what's being rendered.
     EqualIncrementStencil,
-    /// Always replaces the stencil value with the reference value.
-    AlwaysReplaceStencil,
-    /// Always decrements the stencil value.
-    AlwaysDecrementStencil,
+    // /// Always replaces the stencil value with the reference value.
+    // AlwaysReplaceStencil,
+    // /// Always decrements the stencil value.
+    // AlwaysDecrementStencil,
     /// Decrements the stencil value where the stencil is equal to the reference value.
     EqualDecrementStencil,
 }
@@ -262,28 +262,28 @@ pub fn create_pipeline(
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         ),
-        PipelineType::AlwaysReplaceStencil => (
-            create_always_replace_depth_stencil_state(),
-            [Some(wgpu::ColorTargetState {
-                format: config.format,
-                blend: Some(wgpu::BlendState {
-                    color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::SrcAlpha,
-                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                    alpha: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::One,
-                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                }),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-        ),
-        PipelineType::AlwaysDecrementStencil => {
-            (create_always_decrement_depth_stencil_state(), [None])
-        }
+        // PipelineType::AlwaysReplaceStencil => (
+        //     create_always_replace_depth_stencil_state(),
+        //     [Some(wgpu::ColorTargetState {
+        //         format: config.format,
+        //         blend: Some(wgpu::BlendState {
+        //             color: wgpu::BlendComponent {
+        //                 src_factor: wgpu::BlendFactor::SrcAlpha,
+        //                 dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+        //                 operation: wgpu::BlendOperation::Add,
+        //             },
+        //             alpha: wgpu::BlendComponent {
+        //                 src_factor: wgpu::BlendFactor::One,
+        //                 dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+        //                 operation: wgpu::BlendOperation::Add,
+        //             },
+        //         }),
+        //         write_mask: wgpu::ColorWrites::ALL,
+        //     })],
+        // ),
+        // PipelineType::AlwaysDecrementStencil => {
+        //     (create_always_decrement_depth_stencil_state(), [None])
+        // }
         PipelineType::EqualDecrementStencil => (
             create_equal_decrement_depth_state(),
             [Some(wgpu::ColorTargetState {

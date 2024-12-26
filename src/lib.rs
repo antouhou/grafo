@@ -10,10 +10,10 @@
 //! - **Shape Rendering**: Create and render complex shapes
 //! - **Image Rendering**: Render images with support for clipping to shapes.
 //! - **Text Rendering**: Render text with customizable layout, alignment, and styling using the
-//! [`glyphon`](https://crates.io/crates/glyphon) crate.
+//!   [`glyphon`](https://crates.io/crates/glyphon) crate.
 //! - **Stencil Operations**: Advanced stencil operations for clipping and masking.
 //! - **Performance Optimization**: Utilizes parallel processing with `rayon` to optimize rendering
-//! performance.
+//!   performance.
 //!
 //! ## Getting Started
 //!
@@ -43,7 +43,6 @@
 //! use winit::event_loop::EventLoop;
 //! use winit::window::WindowBuilder;
 //!
-//! pub fn main() {
 //!     env_logger::init();
 //!     let event_loop = EventLoop::new().expect("To create the event loop");
 //!     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
@@ -93,7 +92,6 @@
 //!         },
 //!         _ => {}
 //!     });
-//! }
 //! ```
 //!
 //! ## Examples
@@ -120,8 +118,8 @@ mod shape;
 mod text;
 
 pub use color::Color;
-pub use renderer::Renderer;
 pub use renderer::MathRect;
-pub use stroke::Stroke;
+pub use renderer::Renderer;
 pub use shape::*;
+pub use stroke::Stroke;
 pub use text::*;

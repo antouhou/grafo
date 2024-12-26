@@ -11,17 +11,17 @@ and text with support for advanced features like stencil operations and parallel
 The library is designed for flexibility and ease of use, making it suitable for a wide 
 range of applications, from simple graphical interfaces to complex rendering engines.
 
-Grafo [available on crates.io](https://crates.io/crates/grafo), and
-[API Documentation is available on docs.rs](https://docs.rs/grafo/).
-
 ## Features
 
-* Shape Rendering: Create and render complex shapes. 
+* Shape Rendering: Create and render complex vector shapes. 
 * Image Rendering: Render images with support for clipping to shapes. 
 * Text Rendering: Render text with customizable layout, alignment, and styling using the 
 [glyphon](https://github.com/grovesNL/glyphon) crate. 
 * Stencil Operations: Advanced stencil operations for clipping and masking. 
 * Performance Optimization: Utilizes parallel processing with `rayon` to optimize rendering performance.
+
+Grafo [available on crates.io](https://crates.io/crates/grafo), and
+[API Documentation is available on docs.rs](https://docs.rs/grafo/).
 
 ## Getting Started
 
@@ -29,7 +29,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-grafo = "0.1.0" # Replace with the actual version
+grafo = "0.1.0" 
 winit = "0.27"   # For window creation and event handling
 image = "0.24"   # For image processing
 env_logger = "0.10" # For logging

@@ -107,7 +107,7 @@ impl Color {
     ///
     /// ```
     /// use grafo::Color;
-
+    ///
     /// let blue = Color::rgb(0, 0, 255);
     /// let array = blue.to_array();
     /// assert_eq!(array, [0, 0, 255, 255]);
