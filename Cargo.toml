@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "A GPU-accelerated rendering library for Rust"
 keywords = ["rendering", "vector_graphics", "gui", "graphics", "image"]
+categories = ["rendering::graphics-api", "gui"]
 
 [dependencies]
 bytemuck = "1.16.0"
