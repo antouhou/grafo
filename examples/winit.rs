@@ -1,7 +1,6 @@
 use futures::executor::block_on;
-use grafo::math::Box2D;
-use grafo::path::builder::BorderRadii;
-use grafo::{Color, Shape, Stroke};
+use grafo::{BorderRadii, Shape};
+use grafo::{Color, Stroke};
 use std::sync::Arc;
 use std::time::Instant;
 use winit::event::{Event, WindowEvent};
@@ -62,43 +61,43 @@ pub fn main() {
                 );
 
                 let red = Shape::rounded_rect(
-                    &Box2D::new((0.0, 0.0).into(), (200.0, 200.0).into()),
-                    &BorderRadii::new(0.0),
+                    [(0.0, 0.0), (200.0, 200.0)],
+                    BorderRadii::new(0.0),
                     Color::rgb(255, 0, 0),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
 
                 let green = Shape::rounded_rect(
-                    &Box2D::new((100.0, 100.0).into(), (300.0, 300.0).into()),
-                    &BorderRadii::new(0.0),
+                    [(100.0, 100.0), (300.0, 300.0)],
+                    BorderRadii::new(0.0),
                     Color::rgb(0, 255, 0),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
 
                 let blue = Shape::rounded_rect(
-                    &Box2D::new((150.0, 150.0).into(), (350.0, 350.0).into()),
-                    &BorderRadii::new(10.0),
+                    [(150.0, 150.0), (350.0, 350.0)],
+                    BorderRadii::new(10.0),
                     Color::rgb(0, 0, 255),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
 
                 let yellow = Shape::rounded_rect(
-                    &Box2D::new((0.0, 0.0).into(), (150.0, 150.0).into()),
-                    &BorderRadii::new(0.0),
+                    [(0.0, 0.0), (150.0, 150.0)],
+                    BorderRadii::new(0.0),
                     Color::rgb(255, 255, 0),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
 
                 let white = Shape::rounded_rect(
-                    &Box2D::new((0.0, 0.0).into(), (20.0, 20.0).into()),
-                    &BorderRadii::new(0.0),
+                    [(0.0, 0.0), (20.0, 20.0)],
+                    BorderRadii::new(0.0),
                     Color::rgb(255, 255, 255),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
 
                 let shape_that_doesnt_fit = Shape::rounded_rect(
-                    &Box2D::new((0.0, 0.0).into(), (20.0, 20.0).into()),
-                    &BorderRadii::new(0.0),
+                    [(0.0, 0.0), (20.0, 20.0)],
+                    BorderRadii::new(0.0),
                     Color::rgb(255, 255, 255),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
@@ -114,30 +113,39 @@ pub fn main() {
                 renderer.add_image(
                     &rust_logo_png_bytes,
                     rust_logo_png_dimensions,
-                    Box2D::from_origin_and_size(
-                        (100.0, 100.0).into(),
-                        rust_logo_png_dimensions_f32.into(),
-                    ),
+                    [
+                        (100.0, 100.0),
+                        (
+                            100.0 + rust_logo_png_dimensions_f32.0,
+                            100.0 + rust_logo_png_dimensions_f32.1,
+                        ),
+                    ],
                     Some(red_id),
                 );
 
                 renderer.add_image(
                     &rust_logo_png_bytes,
                     rust_logo_png_dimensions,
-                    Box2D::from_origin_and_size(
-                        (200.0, 200.0).into(),
-                        rust_logo_png_dimensions_f32.into(),
-                    ),
+                    [
+                        (200.0, 200.0),
+                        (
+                            200.0 + rust_logo_png_dimensions_f32.0,
+                            200.0 + rust_logo_png_dimensions_f32.1,
+                        ),
+                    ],
                     Some(background_id),
                 );
 
                 renderer.add_image(
                     &rust_logo_png_bytes,
                     rust_logo_png_dimensions,
-                    Box2D::from_origin_and_size(
-                        (400.0, 400.0).into(),
-                        rust_logo_png_dimensions_f32.into(),
-                    ),
+                    [
+                        (400.0, 400.0),
+                        (
+                            400.0 + rust_logo_png_dimensions_f32.0,
+                            400.0 + rust_logo_png_dimensions_f32.0,
+                        ),
+                    ],
                     None,
                 );
 

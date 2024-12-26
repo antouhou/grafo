@@ -17,6 +17,28 @@ pub(crate) struct ImageDrawData {
 }
 
 impl ImageDrawData {
+    pub fn new(
+        image_data: Vec<u8>,
+        physical_image_dimensions: (u32, u32),
+        rect: [(f32, f32); 2],
+        clip_to_shape: Option<usize>,
+    ) -> Self {
+        Self {
+            image_data,
+            image_size: physical_image_dimensions,
+            logical_rect: MathRect::new(
+                (rect[0].0, rect[0].1).into(),
+                (rect[1].0, rect[1].1).into(),
+            ),
+            clip_to_shape,
+            texture: None,
+            bind_group: None,
+            vertex_buffer: None,
+            index_buffer: None,
+            num_indices: None,
+        }
+    }
+
     pub(crate) fn prepare(
         &mut self,
         device: &wgpu::Device,
