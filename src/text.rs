@@ -199,7 +199,7 @@ impl TextDrawData {
             text,
             Attrs::new()
                 .family(Family::SansSerif)
-                .metadata(clip_to_shape.unwrap()),
+                .metadata(clip_to_shape.unwrap_or(0)),
             Shaping::Advanced,
         );
 

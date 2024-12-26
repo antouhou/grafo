@@ -27,9 +27,10 @@
 //! );
 //!
 //! // Build a custom shape using ShapeBuilder
-//! let custom_shape = ShapeBuilder::new()
+//! let custom_shape = Shape::builder()
 //!     .fill(Color::rgb(0, 0, 255)) // Blue fill
 //!     .stroke(Stroke::new(3.0, Color::BLACK)) // Black stroke with width 3.0
+//!     .begin((0.0, 0.0))
 //!     .line_to((50.0, 10.0))
 //!     .line_to((50.0, 50.0))
 //!     .close()
@@ -71,6 +72,7 @@ use wgpu::util::DeviceExt;
 /// let custom_path = Shape::builder()
 ///     .fill(Color::rgb(0, 255, 0))
 ///     .stroke(Stroke::new(1.0, Color::BLACK))
+///     .begin((0.0, 0.0))
 ///     .line_to((50.0, 10.0))
 ///     .line_to((50.0, 50.0))
 ///     .close()
@@ -516,6 +518,7 @@ impl ShapeDrawData {
 /// let custom_shape = ShapeBuilder::new()
 ///     .fill(Color::rgb(0, 0, 255)) // Blue fill
 ///     .stroke(Stroke::new(3.0, Color::BLACK)) // Black stroke with width 3.0
+///     .begin((0.0, 0.0))
 ///     .line_to((50.0, 10.0))
 ///     .line_to((50.0, 50.0))
 ///     .close()
@@ -611,6 +614,28 @@ impl ShapeBuilder {
         self
     }
 
+    /// Begin path at point
+    ///
+    /// # Parameters
+    ///
+    /// - `point`: The start point of the shape.
+    ///
+    /// # Returns
+    ///
+    /// The updated `ShapeBuilder` instance.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use grafo::ShapeBuilder;
+    ///
+    /// let builder = ShapeBuilder::new().begin((0.0, 0.0));
+    /// ```
+    pub fn begin(mut self, point: (f32, f32)) -> Self {
+        self.path_builder.begin(point.into());
+        self
+    }
+
     /// Draws a line from the current point to the specified point.
     ///
     /// # Parameters
@@ -626,7 +651,7 @@ impl ShapeBuilder {
     /// ```rust
     /// use grafo::ShapeBuilder;
     ///
-    /// let builder = ShapeBuilder::new().line_to((50.0, 10.0));
+    /// let builder = ShapeBuilder::new().begin((0.0, 0.0)).line_to((50.0, 10.0));
     /// ```
     pub fn line_to(mut self, point: (f32, f32)) -> Self {
         self.path_builder.line_to(point.into());
@@ -651,6 +676,7 @@ impl ShapeBuilder {
     /// use grafo::ShapeBuilder;
     ///
     /// let builder = ShapeBuilder::new()
+    ///     .begin((0.0, 0.0))
     ///     .cubic_bezier_to((20.0, 30.0), (40.0, 30.0), (50.0, 10.0));
     /// ```
     pub fn cubic_bezier_to(mut self, ctrl: (f32, f32), ctrl2: (f32, f32), to: (f32, f32)) -> Self {
@@ -676,6 +702,7 @@ impl ShapeBuilder {
     /// use grafo::ShapeBuilder;
     ///
     /// let builder = ShapeBuilder::new()
+    ///     .begin((0.0, 0.0))
     ///     .quadratic_bezier_to((25.0, 40.0), (50.0, 10.0));
     /// ```
     pub fn quadratic_bezier_to(mut self, ctrl: (f32, f32), to: (f32, f32)) -> Self {
@@ -695,7 +722,7 @@ impl ShapeBuilder {
     /// ```rust
     /// use grafo::ShapeBuilder;
     ///
-    /// let builder = ShapeBuilder::new().close();
+    /// let builder = ShapeBuilder::new().begin((0.0, 0.0)).close();
     /// ```
     pub fn close(mut self) -> Self {
         self.path_builder.close();
@@ -714,6 +741,7 @@ impl ShapeBuilder {
     /// use grafo::ShapeBuilder;
     ///
     /// let shape = ShapeBuilder::new()
+    ///     .begin((0.0, 0.0))
     ///     .line_to((50.0, 10.0))
     ///     .line_to((50.0, 50.0))
     ///     .close()

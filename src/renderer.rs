@@ -468,10 +468,10 @@ impl Renderer<'_> {
     /// // Initialize the renderer
     /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
     ///
-    /// let image_data = include_bytes!("path/to/image.png");
+    /// let image_data = vec![0; 16]; // A 2x2 black image
     /// renderer.add_image(
-    ///     image_data,
-    ///     (100, 100), // Image dimensions
+    ///     &image_data,
+    ///     (2, 2), // Image dimensions
     ///     [(50.0, 50.0), (150.0, 150.0)], // Rendering rectangle
     ///     Some(0), // Clip to shape with ID 0
     /// );
