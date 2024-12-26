@@ -1,8 +1,8 @@
 # Grafo
 
 [![Grafo crate](https://img.shields.io/crates/v/grafo.svg)](https://crates.io/crates/grafo)
-[![Grafo documentation](https://docs.rs/grafo/badge.svg)](https://docs.rs/grapho)
-[![Build and test](https://github.com/antouhou/grafo/actions/workflows/test.yml/badge.svg?branch=master)](https://github.com/antouhou/grafo/actions)
+[![Grafo documentation](https://docs.rs/grafo/badge.svg)](https://docs.rs/grafo)
+[![Build and test](https://github.com/antouhou/grafo/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/antouhou/grafo/actions)
 
 Grafo is a GPU-accelerated rendering library for Rust. 
 Leveraging the power of the `wgpu` crate, Grafo provides efficient rendering of shapes, images, 
