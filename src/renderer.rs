@@ -222,10 +222,10 @@ pub struct Renderer<'a> {
     /// Bind group for the decrementing pipeline.
     decrementing_bind_group: BindGroup,
 
-    #[cfg(feature = "performance_measurement")]
-    performance_query_set: wgpu::QuerySet,
-    #[cfg(feature = "performance_measurement")]
-    adapter: wgpu::Adapter,
+    // #[cfg(feature = "performance_measurement")]
+    // performance_query_set: wgpu::QuerySet,
+    // #[cfg(feature = "performance_measurement")]
+    // adapter: wgpu::Adapter,
 
     /// Render pipeline for cropping textures based on stencil.
     texture_crop_render_pipeline: Arc<wgpu::RenderPipeline>,
@@ -302,12 +302,12 @@ impl Renderer<'_> {
             .await
             .unwrap();
 
-        #[cfg(feature = "performance_measurement")]
-        let frametime_query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
-            label: wgpu::Label::Some("Frametime Query Set"),
-            count: 2, // We will use two timestamps
-            ty: wgpu::QueryType::Timestamp,
-        });
+        // #[cfg(feature = "performance_measurement")]
+        // let frametime_query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
+        //     label: wgpu::Label::Some("Frametime Query Set"),
+        //     count: 2, // We will use two timestamps
+        //     ty: wgpu::QueryType::Timestamp,
+        // });
 
         // surface.get_preferred_format(&adapter).unwrap()
 
@@ -378,10 +378,10 @@ impl Renderer<'_> {
 
             draw_tree: easy_tree::Tree::new(),
 
-            #[cfg(feature = "performance_measurement")]
-            performance_query_set: frametime_query_set,
-            #[cfg(feature = "performance_measurement")]
-            adapter,
+            // #[cfg(feature = "performance_measurement")]
+            // performance_query_set: frametime_query_set,
+            // #[cfg(feature = "performance_measurement")]
+            // adapter,
 
             texture_crop_render_pipeline: Arc::new(texture_crop_render_pipeline),
             texture_always_render_pipeline: Arc::new(texture_always_render_pipeline),
@@ -645,10 +645,10 @@ impl Renderer<'_> {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("And Command Encoder"),
             });
-        #[cfg(feature = "performance_measurement")]
-        let timer = Instant::now();
-        #[cfg(feature = "performance_measurement")]
-        encoder.write_timestamp(&self.performance_query_set, 0);
+        // #[cfg(feature = "performance_measurement")]
+        // let timer = Instant::now();
+        // #[cfg(feature = "performance_measurement")]
+        // encoder.write_timestamp(&self.performance_query_set, 0);
         println!("Creating encoder took: {:?}", first_timer.elapsed());
 
         let output = self.surface.get_current_texture()?;
@@ -829,14 +829,14 @@ impl Renderer<'_> {
         // /// TODO: this is for debugging purposes
         // self.depth_stencil_texture_viewer.copy_depth_stencil_texture_to_buffer(&mut encoder, &depth_texture);
 
-        #[cfg(feature = "performance_measurement")]
-        {
-            encoder.write_timestamp(&self.performance_query_set, 1);
-
-            encoder.resolve_query_set(&self.performance_query_set, 0..2, &query_buffer, 0);
-            // Copy the query buffer data to the read buffer
-            encoder.copy_buffer_to_buffer(&query_buffer, 0, &read_buffer, 0, 16);
-        };
+        // #[cfg(feature = "performance_measurement")]
+        // {
+        //     encoder.write_timestamp(&self.performance_query_set, 1);
+        //
+        //     // encoder.resolve_query_set(&self.performance_query_set, 0..2, &query_buffer, 0);
+        //     // // Copy the query buffer data to the read buffer
+        //     // encoder.copy_buffer_to_buffer(&query_buffer, 0, &read_buffer, 0, 16);
+        // };
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
@@ -846,34 +846,34 @@ impl Renderer<'_> {
         {
             self.device.poll(wgpu::Maintain::Poll);
 
-            let buffer_slice = read_buffer.slice(..);
-            buffer_slice.map_async(wgpu::MapMode::Read, |result| {
-                assert!(result.is_ok());
-            });
+            // let buffer_slice = read_buffer.slice(..);
+            // buffer_slice.map_async(wgpu::MapMode::Read, |result| {
+            //     assert!(result.is_ok());
+            // });
+            //
+            // self.device.poll(wgpu::Maintain::Wait);
+            //
+            // let data = buffer_slice.get_mapped_range();
+            // let timestamps: &[u64] = bytemuck::cast_slice(&data);
+            // let timestamp_start = timestamps[0];
+            // let timestamp_end = timestamps[1];
+            // drop(data);
+            // read_buffer.unmap();
 
-            self.device.poll(wgpu::Maintain::Wait);
-
-            let data = buffer_slice.get_mapped_range();
-            let timestamps: &[u64] = bytemuck::cast_slice(&data);
-            let timestamp_start = timestamps[0];
-            let timestamp_end = timestamps[1];
-            drop(data);
-            read_buffer.unmap();
-
-            let timestamp_period = self.queue.get_timestamp_period(); // Duration of a single timestamp in nanoseconds
-                                                                      // println!("Timestamp end: {:?}", timestamp_end);
-                                                                      // println!("Timestamp start: {:?}", timestamp_start);
-                                                                      // if (timestamp_end != 0) {
-                                                                      //     let frame_time_ns = (timestamp_end - timestamp_start) as f32 * timestamp_period;
-                                                                      //     println!("Frame time: {} ns", frame_time_ns);
-                                                                      // }
-            if timestamp_start > timestamp_end {
-                // let frame_time_ns = (timestamp_start - timestamp_end) as f32 * timestamp_period;
-                // println!("Frame time: {} ns", frame_time_ns);
-            } else {
-                // let frame_time_ns = (timestamp_end - timestamp_start) as f32 * timestamp_period;
-                // println!("Frame time: {} ns", frame_time_ns);
-            }
+            // let timestamp_period = self.queue.get_timestamp_period(); // Duration of a single timestamp in nanoseconds
+            //                                                           // println!("Timestamp end: {:?}", timestamp_end);
+            //                                                           // println!("Timestamp start: {:?}", timestamp_start);
+            //                                                           // if (timestamp_end != 0) {
+            //                                                           //     let frame_time_ns = (timestamp_end - timestamp_start) as f32 * timestamp_period;
+            //                                                           //     println!("Frame time: {} ns", frame_time_ns);
+            //                                                           // }
+            // if timestamp_start > timestamp_end {
+            //     // let frame_time_ns = (timestamp_start - timestamp_end) as f32 * timestamp_period;
+            //     // println!("Frame time: {} ns", frame_time_ns);
+            // } else {
+            //     // let frame_time_ns = (timestamp_end - timestamp_start) as f32 * timestamp_period;
+            //     // println!("Frame time: {} ns", frame_time_ns);
+            // }
         }
 
         // self.depth_stencil_texture_viewer.save_depth_stencil_texture(&self.device);
