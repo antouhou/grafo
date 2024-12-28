@@ -172,6 +172,7 @@ pub(crate) struct TextDrawData {
     /// Optional index of a shape to clip the text to.
     #[allow(unused)]
     pub(crate) clip_to_shape: Option<usize>,
+    pub(crate) color: Color,
 }
 
 impl TextDrawData {
@@ -252,6 +253,7 @@ impl TextDrawData {
             data: text.to_string(),
             font_size: layout.font_size,
             clip_to_shape,
+            color: layout.color,
         }
     }
     pub fn to_text_area(&self, scale_factor: f32) -> TextArea {
@@ -269,7 +271,7 @@ impl TextDrawData {
                 right: (area.max.x * scale_factor) as i32,
                 bottom: (area.max.y * scale_factor) as i32,
             },
-            default_color: TextColor::rgb(255, 255, 255),
+            default_color: TextColor::rgba(self.color.0[1], self.color.0[2], self.color.0[3], self.color.0[0]),
         }
     }
 }
