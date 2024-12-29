@@ -132,10 +132,11 @@ impl TextRendererWrapper {
         queue: &wgpu::Queue,
         swapchain_format: wgpu::TextureFormat,
         depth_stencil_state: Option<wgpu::DepthStencilState>,
+        glyphon_cache: &glyphon::Cache,
     ) -> Self {
         let font_system = FontSystem::new();
         let swash_cache = SwashCache::new();
-        let mut atlas = TextAtlas::new(device, queue, swapchain_format);
+        let mut atlas = TextAtlas::new(device, queue, glyphon_cache, swapchain_format);
         let text_renderer = TextRenderer::new(
             &mut atlas,
             device,
@@ -184,7 +185,7 @@ impl TextDrawData {
 
         let text_area_size = layout.area.size();
 
-        buffer.set_size(font_system, text_area_size.width, text_area_size.height);
+        buffer.set_size(font_system, Some(text_area_size.width), Some(text_area_size.height));
 
         // TODO: it's set text that causes performance issues
         buffer.set_text(
@@ -212,7 +213,7 @@ impl TextDrawData {
         let mut min_y = f32::INFINITY;
         let mut max_y = f32::NEG_INFINITY;
 
-        buffer.shape_until_scroll(font_system);
+        buffer.shape_until_scroll(font_system, false);
 
         for layout_run in buffer.layout_runs() {
             for glyph in layout_run.glyphs.iter() {
@@ -266,6 +267,7 @@ impl TextDrawData {
                 self.color.0[3],
                 self.color.0[0],
             ),
+            custom_glyphs: &[],
         }
     }
 }

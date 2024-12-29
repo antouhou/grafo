@@ -341,18 +341,21 @@ pub fn create_pipeline(
         layout: Some(&render_pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: "vs_main",
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
             buffers: &[CustomVertex::desc()],
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: "fs_main",
+            entry_point: Some("fs_main"),
+            compilation_options: Default::default(),
             targets: &targets,
         }),
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: Some(depth_stencil_state),
         multisample: wgpu::MultisampleState::default(),
         multiview: None,
+        cache: None,
     });
 
     (uniforms, bind_group, render_pipeline)
@@ -489,12 +492,14 @@ pub fn create_texture_pipeline(
         layout: Some(&render_pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: "vs_main",
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
             buffers: &[TexturedVertex::desc()],
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: "fs_main",
+            entry_point: Some("fs_main"),
+            compilation_options: Default::default(),
             targets: &targets,
         }),
         primitive: wgpu::PrimitiveState::default(),
@@ -502,6 +507,7 @@ pub fn create_texture_pipeline(
         depth_stencil: Some(write_on_equal_depth_stencil_state()),
         multisample: wgpu::MultisampleState::default(),
         multiview: None,
+        cache: None,
     });
 
     let always_render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -509,12 +515,14 @@ pub fn create_texture_pipeline(
         layout: Some(&render_pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: "vs_main",
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
             buffers: &[TexturedVertex::desc()],
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: "fs_main",
+            entry_point: Some("fs_main"),
+            compilation_options: Default::default(),
             targets: &targets,
         }),
         primitive: wgpu::PrimitiveState::default(),
@@ -522,6 +530,7 @@ pub fn create_texture_pipeline(
         depth_stencil: Some(always_pass_and_keep_stencil_state()),
         multisample: wgpu::MultisampleState::default(),
         multiview: None,
+        cache: None,
     });
 
     (bind_group_layout, render_pipeline, always_render_pipeline)
