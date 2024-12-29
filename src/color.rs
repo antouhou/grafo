@@ -41,6 +41,10 @@ impl Color {
     ///
     /// Red, green, and blue channels are set to zero, and alpha is fully opaque.
     pub const BLACK: Self = Self([0, 0, 0, 255]);
+    /// A white color.
+    ///
+    /// Red, green, and blue channels are set to zero, and alpha is fully opaque.
+    pub const WHITE: Self = Self([255, 255, 255, 255]);
 
     /// Creates a new color with the specified RGB values and full opacity.
     ///
