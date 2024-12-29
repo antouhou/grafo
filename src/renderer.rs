@@ -205,7 +205,6 @@ pub struct Renderer<'a> {
     /// Internal wrapper for text rendering components.
     text_renderer_wrapper: TextRendererWrapper,
     glyphon_viewport: glyphon::Viewport,
-    glyphon_cache: glyphon::Cache,
 
     /// Tree structure holding shapes and images to be rendered.
     draw_tree: easy_tree::Tree<DrawCommand>,
@@ -384,7 +383,6 @@ impl Renderer<'_> {
             // draw_queue: BTreeMap::new(),
             text_renderer_wrapper,
             glyphon_viewport,
-            glyphon_cache,
 
             and_pipeline: Arc::new(and_pipeline),
             and_uniforms,
