@@ -349,10 +349,13 @@ impl Renderer<'_> {
         let mut glyphon_viewport = glyphon::Viewport::new(&device, &glyphon_cache);
 
         {
-            glyphon_viewport.update(&queue, Resolution {
-                width: size.0,
-                height: size.1,
-            });
+            glyphon_viewport.update(
+                &queue,
+                Resolution {
+                    width: size.0,
+                    height: size.1,
+                },
+            );
         }
 
         let text_renderer_wrapper = TextRendererWrapper::new(
@@ -833,7 +836,11 @@ impl Renderer<'_> {
 
             self.text_renderer_wrapper
                 .text_renderer
-                .render(&self.text_renderer_wrapper.atlas, &self.glyphon_viewport, &mut data.0)
+                .render(
+                    &self.text_renderer_wrapper.atlas,
+                    &self.glyphon_viewport,
+                    &mut data.0,
+                )
                 .unwrap();
         }
 
@@ -1103,9 +1110,12 @@ impl Renderer<'_> {
         self.texture_crop_render_pipeline = Arc::new(texture_crop_render_pipeline);
         self.texture_always_render_pipeline = Arc::new(texture_always_render_pipeline);
 
-        self.glyphon_viewport.update(&self.queue, Resolution {
-            width: new_physical_size.0,
-            height: new_physical_size.1,
-        });
+        self.glyphon_viewport.update(
+            &self.queue,
+            Resolution {
+                width: new_physical_size.0,
+                height: new_physical_size.1,
+            },
+        );
     }
 }

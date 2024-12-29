@@ -185,7 +185,11 @@ impl TextDrawData {
 
         let text_area_size = layout.area.size();
 
-        buffer.set_size(font_system, Some(text_area_size.width), Some(text_area_size.height));
+        buffer.set_size(
+            font_system,
+            Some(text_area_size.width),
+            Some(text_area_size.height),
+        );
 
         // TODO: it's set text that causes performance issues
         buffer.set_text(
