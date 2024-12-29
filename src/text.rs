@@ -161,17 +161,9 @@ pub(crate) struct TextDrawData {
     /// The vertical alignment of the text.
     #[allow(unused)]
     pub(crate) vertical_alignment: TextAlignment,
-    /// The actual text data as a string.
-    #[allow(unused)]
-    pub(crate) data: String,
-    /// The font size used for the text.
-    #[allow(unused)]
-    pub(crate) font_size: f32,
     /// The top position of the text within the layout area.
     pub(crate) top: f32,
-    /// Optional index of a shape to clip the text to.
-    #[allow(unused)]
-    pub(crate) clip_to_shape: Option<usize>,
+    /// The color of the text.
     pub(crate) color: Color,
 }
 
@@ -250,9 +242,6 @@ impl TextDrawData {
             text_buffer: buffer,
             area: layout.area,
             vertical_alignment: layout.vertical_alignment,
-            data: text.to_string(),
-            font_size: layout.font_size,
-            clip_to_shape,
             color: layout.color,
         }
     }
@@ -271,7 +260,12 @@ impl TextDrawData {
                 right: (area.max.x * scale_factor) as i32,
                 bottom: (area.max.y * scale_factor) as i32,
             },
-            default_color: TextColor::rgba(self.color.0[1], self.color.0[2], self.color.0[3], self.color.0[0]),
+            default_color: TextColor::rgba(
+                self.color.0[1],
+                self.color.0[2],
+                self.color.0[3],
+                self.color.0[0],
+            ),
         }
     }
 }

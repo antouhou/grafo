@@ -1,13 +1,14 @@
 use futures::executor::block_on;
-use grafo::{MathRect, Shape, TextAlignment, TextLayout};
 use grafo::{Color, Stroke};
+use grafo::{MathRect, Shape, TextAlignment, TextLayout};
 use std::sync::Arc;
 use std::time::Instant;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
 
-pub fn main() { env_logger::init();
+pub fn main() {
+    env_logger::init();
     let event_loop = EventLoop::new().expect("To create the event loop");
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
 
@@ -49,14 +50,12 @@ pub fn main() { env_logger::init();
                 let first_background_min = (10.0, 10.0);
                 let first_background_max = (210.0, 32.0);
                 let first_text_background = Shape::rect(
-                    [
-                        first_background_min,
-                        first_background_max,
-                    ],
+                    [first_background_min, first_background_max],
                     Color::rgb(200, 200, 200),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let first_text_background_id = renderer.add_shape(first_text_background, Some(background_shape_id));
+                let first_text_background_id =
+                    renderer.add_shape(first_text_background, Some(background_shape_id));
                 let text = "Hello, world!";
                 let text_layout = TextLayout {
                     font_size: 20.0,
@@ -66,11 +65,7 @@ pub fn main() { env_logger::init();
                     horizontal_alignment: TextAlignment::Start,
                     vertical_alignment: TextAlignment::Start,
                 };
-                renderer.add_text(
-                    text,
-                    text_layout,
-                    Some(first_text_background_id),
-                );
+                renderer.add_text(text, text_layout, Some(first_text_background_id));
 
                 // Second text instance
                 let second_background_min = (10.0, 40.0);
@@ -78,14 +73,12 @@ pub fn main() { env_logger::init();
                 //  THE TEXT AREA HEIGHT
                 let second_background_max = (300.0, 80.0);
                 let second_text_background = Shape::rect(
-                    [
-                        second_background_min,
-                        second_background_max,
-                    ],
+                    [second_background_min, second_background_max],
                     Color::rgb(200, 200, 200),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let second_text_background_id = renderer.add_shape(second_text_background, Some(background_shape_id));
+                let second_text_background_id =
+                    renderer.add_shape(second_text_background, Some(background_shape_id));
                 let text_layout2 = TextLayout {
                     font_size: 40.0,
                     line_height: 40.0,
@@ -94,11 +87,7 @@ pub fn main() { env_logger::init();
                     horizontal_alignment: TextAlignment::End,
                     vertical_alignment: TextAlignment::Start,
                 };
-                renderer.add_text(
-                    text,
-                    text_layout2,
-                    Some(second_text_background_id),
-                );
+                renderer.add_text(text, text_layout2, Some(second_text_background_id));
 
                 let timer = Instant::now();
                 match renderer.render() {
