@@ -204,6 +204,7 @@ pub struct Renderer<'a> {
     text_instances: Vec<TextDrawData>,
     /// Internal wrapper for text rendering components.
     text_renderer_wrapper: TextRendererWrapper,
+    glyphon_viewport: glyphon::Viewport,
 
     /// Tree structure holding shapes and images to be rendered.
     draw_tree: easy_tree::Tree<DrawCommand>,
@@ -295,6 +296,7 @@ impl Renderer<'_> {
                     #[cfg(not(feature = "performance_measurement"))]
                     required_features: wgpu::Features::empty(),
                     required_limits: wgpu::Limits::default(),
+                    memory_hints: Default::default(),
                 },
                 None,
             )
@@ -342,11 +344,25 @@ impl Renderer<'_> {
                 PipelineType::EqualDecrementStencil,
             );
 
+        let glyphon_cache = glyphon::Cache::new(&device);
+        let mut glyphon_viewport = glyphon::Viewport::new(&device, &glyphon_cache);
+
+        {
+            glyphon_viewport.update(
+                &queue,
+                Resolution {
+                    width: size.0,
+                    height: size.1,
+                },
+            );
+        }
+
         let text_renderer_wrapper = TextRendererWrapper::new(
             &device,
             &queue,
             swapchain_format,
             Some(create_depth_stencil_state_for_text()),
+            &glyphon_cache,
         );
 
         let (
@@ -366,6 +382,7 @@ impl Renderer<'_> {
             text_instances,
             // draw_queue: BTreeMap::new(),
             text_renderer_wrapper,
+            glyphon_viewport,
 
             and_pipeline: Arc::new(and_pipeline),
             and_uniforms,
@@ -808,10 +825,7 @@ impl Renderer<'_> {
                     &self.queue,
                     &mut self.text_renderer_wrapper.font_system,
                     &mut self.text_renderer_wrapper.atlas,
-                    Resolution {
-                        width: self.physical_size.0,
-                        height: self.physical_size.1,
-                    },
+                    &self.glyphon_viewport,
                     text_areas,
                     &mut self.text_renderer_wrapper.swash_cache,
                     |index| depth(index, draw_tree_size),
@@ -820,7 +834,11 @@ impl Renderer<'_> {
 
             self.text_renderer_wrapper
                 .text_renderer
-                .render(&self.text_renderer_wrapper.atlas, &mut data.0)
+                .render(
+                    &self.text_renderer_wrapper.atlas,
+                    &self.glyphon_viewport,
+                    &mut data.0,
+                )
                 .unwrap();
         }
 
@@ -1089,5 +1107,13 @@ impl Renderer<'_> {
         self.texture_bind_group_layout = texture_bind_group_layout;
         self.texture_crop_render_pipeline = Arc::new(texture_crop_render_pipeline);
         self.texture_always_render_pipeline = Arc::new(texture_always_render_pipeline);
+
+        self.glyphon_viewport.update(
+            &self.queue,
+            Resolution {
+                width: new_physical_size.0,
+                height: new_physical_size.1,
+            },
+        );
     }
 }
