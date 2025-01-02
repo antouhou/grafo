@@ -52,7 +52,7 @@
 //!     horizontal_alignment: TextAlignment::Center,
 //!     vertical_alignment: TextAlignment::Center,
 //! };
-//! renderer.add_text("Hello, Grafo!", layout, None);
+//! renderer.add_text("Hello, Grafo!", layout, None, None);
 //!
 //! // Render the frame
 //! match renderer.render() {
@@ -176,7 +176,7 @@ enum DrawCommand {
 ///     horizontal_alignment: TextAlignment::Center,
 ///     vertical_alignment: TextAlignment::Center,
 /// };
-/// renderer.add_text("Hello, Grafo!", layout, None);
+/// renderer.add_text("Hello, Grafo!", layout, None, None);
 ///
 /// // Render the frame
 /// match renderer.render() {
@@ -555,7 +555,7 @@ impl Renderer<'_> {
     ///     horizontal_alignment: TextAlignment::Center,
     ///     vertical_alignment: TextAlignment::Center,
     /// };
-    /// renderer.add_text("Hello, Grafo!", layout, None);
+    /// renderer.add_text("Hello, Grafo!", layout, None, None);
     /// ```
     pub fn add_text(
         &mut self,
@@ -1119,11 +1119,86 @@ impl Renderer<'_> {
         );
     }
 
+    /// Loads fonts from the specified sources.
+    ///
+    /// Loaded fonts can be later used to render text using the [Renderer::add_text] method.
+    ///
+    /// # Parameters
+    ///
+    /// - `fonts`: An iterator of [fontdb::Source] objects representing the font sources to load.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use futures::executor::block_on;
+    /// use winit::event_loop::EventLoop;
+    /// use winit::window::WindowBuilder;
+    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
+    /// use grafo::Shape;
+    /// use grafo::Color;
+    /// use grafo::Stroke;
+    /// use grafo::fontdb;
+    ///
+    /// // This is for demonstration purposes only. If you want a working example with winit, please
+    /// // refer to the example in the "examples" folder.
+    /// let event_loop = EventLoop::new().expect("To create the event loop");
+    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    /// let physical_size = (800, 600);
+    /// let scale_factor = 1.0;
+    ///
+    /// // Initialize the renderer
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    ///
+    /// let roboto_font_ttf = include_bytes!("../examples/assets/Roboto-Regular.ttf").to_vec();
+    /// let roboto_font_source = fontdb::Source::Binary(Arc::new(roboto_font_ttf));
+    /// renderer.load_fonts([roboto_font_source].into_iter());
+    /// ```
     pub fn load_fonts(&mut self, fonts: impl Iterator<Item = fontdb::Source>) {
         let db = self.text_renderer_wrapper.font_system.db_mut();
 
         for source in fonts {
             db.load_font_source(source);
         }
+    }
+
+    /// Loads a font from a byte slice.
+    ///
+    /// Loaded fonts can be later used to render text using the [Renderer::add_text] method.
+    ///
+    /// # Parameters
+    ///
+    /// - `font_bytes`: A slice of bytes representing the font file.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use futures::executor::block_on;
+    /// use winit::event_loop::EventLoop;
+    /// use winit::window::WindowBuilder;
+    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
+    /// use grafo::Shape;
+    /// use grafo::Color;
+    /// use grafo::Stroke;
+    /// use grafo::fontdb;
+    ///
+    /// // This is for demonstration purposes only. If you want a working example with winit, please
+    /// // refer to the example in the "examples" folder.
+    /// let event_loop = EventLoop::new().expect("To create the event loop");
+    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    /// let physical_size = (800, 600);
+    /// let scale_factor = 1.0;
+    ///
+    /// // Initialize the renderer
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    ///
+    /// let roboto_font_ttf = include_bytes!("../examples/assets/Roboto-Regular.ttf");
+    /// renderer.load_font_from_bytes(roboto_font_ttf);
+    /// ```
+    pub fn load_font_from_bytes(&mut self, font_bytes: &[u8]) {
+        let db = self.text_renderer_wrapper.font_system.db_mut();
+        let source = fontdb::Source::Binary(Arc::new(font_bytes.to_vec()));
+        db.load_font_source(source);
     }
 }
