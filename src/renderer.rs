@@ -77,7 +77,7 @@ use crate::pipeline::{
 };
 use crate::util::to_logical;
 use ahash::{HashMap, HashMapExt};
-use glyphon::Resolution;
+use glyphon::{fontdb, Family, Resolution};
 
 use crate::image_draw_data::ImageDrawData;
 use crate::shape::{Shape, ShapeDrawData};
@@ -562,6 +562,7 @@ impl Renderer<'_> {
         text: &str,
         layout: impl Into<TextLayout>,
         clip_to_shape: Option<usize>,
+        font_family: Option<&str>,
     ) {
         self.text_instances.push(TextDrawData::new(
             text,
@@ -569,6 +570,7 @@ impl Renderer<'_> {
             clip_to_shape,
             self.scale_factor as f32,
             &mut self.text_renderer_wrapper.font_system,
+            Some(Family::Name(font_family.unwrap_or("sans-serif"))),
         ));
     }
 
@@ -1115,5 +1117,13 @@ impl Renderer<'_> {
                 height: new_physical_size.1,
             },
         );
+    }
+
+    pub fn load_fonts(&mut self, fonts: impl Iterator<Item = fontdb::Source>) {
+        let db = self.text_renderer_wrapper.font_system.db_mut();
+
+        for source in fonts {
+            db.load_font_source(source);
+        }
     }
 }

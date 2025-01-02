@@ -10,7 +10,7 @@ use winit::window::WindowBuilder;
 use image::io::Reader as ImageReader;
 
 pub fn main() {
-    let rust_logo_png_bytes = include_bytes!("./rust-logo-256x256-blk.png");
+    let rust_logo_png_bytes = include_bytes!("assets/rust-logo-256x256-blk.png");
     let rust_logo_png = ImageReader::new(std::io::Cursor::new(rust_logo_png_bytes))
         .with_guessed_format()
         .unwrap()

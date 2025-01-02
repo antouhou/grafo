@@ -1,5 +1,5 @@
 use futures::executor::block_on;
-use grafo::{Color, Stroke};
+use grafo::{fontdb, Color, Stroke};
 use grafo::{MathRect, Shape, TextAlignment, TextLayout};
 use std::sync::Arc;
 use std::time::Instant;
@@ -21,6 +21,11 @@ pub fn main() {
         physical_size,
         scale_factor,
     ));
+
+    // Load the font
+    let roboto_font_ttf = include_bytes!("assets/Roboto-Regular.ttf");
+    let roboto_font_source = fontdb::Source::Binary(Arc::new(roboto_font_ttf.to_vec()));
+    renderer.load_fonts([roboto_font_source].into_iter());
 
     let _ = event_loop.run(move |event, event_loop_window_target| match event {
         Event::WindowEvent {
@@ -65,7 +70,7 @@ pub fn main() {
                     horizontal_alignment: TextAlignment::Start,
                     vertical_alignment: TextAlignment::Start,
                 };
-                renderer.add_text(text, text_layout, Some(first_text_background_id));
+                renderer.add_text(text, text_layout, Some(first_text_background_id), None);
 
                 // Second text instance
                 let second_background_min = (10.0, 40.0);
@@ -87,7 +92,51 @@ pub fn main() {
                     horizontal_alignment: TextAlignment::End,
                     vertical_alignment: TextAlignment::Start,
                 };
-                renderer.add_text(text, text_layout2, Some(second_text_background_id));
+                renderer.add_text(text, text_layout2, Some(second_text_background_id), None);
+
+                // Example with font loaded from file
+                let third_background_min = (10.0, 90.0);
+                // TODO: IMPORTANT: TEXT WON'T BE LAYED OUT IF LINE HEIGHT IS SMALLER THAN
+                //  THE TEXT AREA HEIGHT
+                let third_background_max = (300.0, 130.0);
+                let third_text_background = Shape::rect(
+                    [third_background_min, third_background_max],
+                    Color::rgb(200, 200, 200),
+                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                );
+                let third_text_background_id =
+                    renderer.add_shape(third_text_background, Some(background_shape_id));
+                let text_layout3 = TextLayout {
+                    font_size: 40.0,
+                    line_height: 40.0,
+                    color: Color::rgb(255, 0, 0),
+                    area: MathRect::new(third_background_min.into(), third_background_max.into()),
+                    horizontal_alignment: TextAlignment::End,
+                    vertical_alignment: TextAlignment::Start,
+                };
+                renderer.add_text("This it Roboto", text_layout3, Some(third_text_background_id), Some("Roboto"));
+
+                // Example with system font
+                let fourth_background_min = (10.0, 140.0);
+                // TODO: IMPORTANT: TEXT WON'T BE LAYED OUT IF LINE HEIGHT IS SMALLER THAN
+                //  THE TEXT AREA HEIGHT
+                let fourth_background_max = (300.0, 180.0);
+                let fourth_text_background = Shape::rect(
+                    [fourth_background_min, fourth_background_max],
+                    Color::rgb(200, 200, 200),
+                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                );
+                let fourth_text_background_id =
+                    renderer.add_shape(fourth_text_background, Some(background_shape_id));
+                let text_layout4 = TextLayout {
+                    font_size: 40.0,
+                    line_height: 40.0,
+                    color: Color::rgb(255, 0, 0),
+                    area: MathRect::new(fourth_background_min.into(), fourth_background_max.into()),
+                    horizontal_alignment: TextAlignment::Center,
+                    vertical_alignment: TextAlignment::Start,
+                };
+                renderer.add_text("This is Papyrus", text_layout4, Some(fourth_text_background_id), Some("Papyrus"));
 
                 let timer = Instant::now();
                 match renderer.render() {

@@ -103,6 +103,8 @@
 
 pub use lyon;
 pub use wgpu;
+pub use glyphon;
+pub use glyphon::fontdb;
 
 mod color;
 mod debug_tools;
