@@ -515,12 +515,14 @@ impl Renderer<'_> {
         self.add_draw_command(draw_command, clip_to_shape);
     }
 
-    /// Adds text to the draw queue.
+    /// Adds text to the draw queue. If you want to use a custom font, you need to load it first
+    /// using the [Renderer::load_fonts] or [Renderer::load_font_from_bytes] methods.
     ///
     /// # Parameters
     ///
     /// - `text`: The string of text to be rendered.
     /// - `layout`: The layout configuration for the text.
+    /// - `font_family`: The font family to be used for rendering the text.
     /// - `clip_to_shape`: Optional index of a shape to which this text should be clipped.
     ///
     /// # Examples
