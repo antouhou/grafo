@@ -11,7 +11,7 @@
 //!
 //! ```rust,no_run
 //! use std::sync::Arc;
-//! use grafo::Renderer;
+//! use grafo::{FontFamily, Renderer};
 //! use grafo::Shape;
 //! use grafo::Color;
 //! use grafo::Stroke;
@@ -52,7 +52,7 @@
 //!     horizontal_alignment: TextAlignment::Center,
 //!     vertical_alignment: TextAlignment::Center,
 //! };
-//! renderer.add_text("Hello, Grafo!", layout, None);
+//! renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif, None);
 //!
 //! // Render the frame
 //! match renderer.render() {
@@ -77,12 +77,13 @@ use crate::pipeline::{
 };
 use crate::util::to_logical;
 use ahash::{HashMap, HashMapExt};
-use glyphon::Resolution;
+use glyphon::{fontdb, Resolution};
 
 use crate::image_draw_data::ImageDrawData;
 use crate::shape::{Shape, ShapeDrawData};
 
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
+use crate::FontFamily;
 use wgpu::{BindGroup, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
 
 /// Represents different rendering pipelines used by the `Renderer`.
@@ -133,7 +134,7 @@ enum DrawCommand {
 /// # Examples
 ///
 /// ```rust,no_run
-/// use grafo::Renderer;
+/// use grafo::{FontFamily, Renderer};
 /// use grafo::Shape;
 /// use grafo::Color;
 /// use grafo::Stroke;
@@ -176,7 +177,7 @@ enum DrawCommand {
 ///     horizontal_alignment: TextAlignment::Center,
 ///     vertical_alignment: TextAlignment::Center,
 /// };
-/// renderer.add_text("Hello, Grafo!", layout, None);
+/// renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif , None);
 ///
 /// // Render the frame
 /// match renderer.render() {
@@ -514,12 +515,14 @@ impl Renderer<'_> {
         self.add_draw_command(draw_command, clip_to_shape);
     }
 
-    /// Adds text to the draw queue.
+    /// Adds text to the draw queue. If you want to use a custom font, you need to load it first
+    /// using the [Renderer::load_fonts] or [Renderer::load_font_from_bytes] methods.
     ///
     /// # Parameters
     ///
     /// - `text`: The string of text to be rendered.
     /// - `layout`: The layout configuration for the text.
+    /// - `font_family`: The font family to be used for rendering the text.
     /// - `clip_to_shape`: Optional index of a shape to which this text should be clipped.
     ///
     /// # Examples
@@ -529,7 +532,7 @@ impl Renderer<'_> {
     /// use futures::executor::block_on;
     /// use winit::event_loop::EventLoop;
     /// use winit::window::WindowBuilder;
-    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
+    /// use grafo::{FontFamily, MathRect, Renderer, TextAlignment, TextLayout};
     /// use grafo::Shape;
     /// use grafo::Color;
     /// use grafo::Stroke;
@@ -555,12 +558,13 @@ impl Renderer<'_> {
     ///     horizontal_alignment: TextAlignment::Center,
     ///     vertical_alignment: TextAlignment::Center,
     /// };
-    /// renderer.add_text("Hello, Grafo!", layout, None);
+    /// renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif, None);
     /// ```
     pub fn add_text(
         &mut self,
         text: &str,
         layout: impl Into<TextLayout>,
+        font_family: FontFamily,
         clip_to_shape: Option<usize>,
     ) {
         self.text_instances.push(TextDrawData::new(
@@ -569,6 +573,7 @@ impl Renderer<'_> {
             clip_to_shape,
             self.scale_factor as f32,
             &mut self.text_renderer_wrapper.font_system,
+            font_family,
         ));
     }
 
@@ -1115,5 +1120,88 @@ impl Renderer<'_> {
                 height: new_physical_size.1,
             },
         );
+    }
+
+    /// Loads fonts from the specified sources.
+    ///
+    /// Loaded fonts can be later used to render text using the [Renderer::add_text] method.
+    ///
+    /// # Parameters
+    ///
+    /// - `fonts`: An iterator of [fontdb::Source] objects representing the font sources to load.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use futures::executor::block_on;
+    /// use winit::event_loop::EventLoop;
+    /// use winit::window::WindowBuilder;
+    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
+    /// use grafo::Shape;
+    /// use grafo::Color;
+    /// use grafo::Stroke;
+    /// use grafo::fontdb;
+    ///
+    /// // This is for demonstration purposes only. If you want a working example with winit, please
+    /// // refer to the example in the "examples" folder.
+    /// let event_loop = EventLoop::new().expect("To create the event loop");
+    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    /// let physical_size = (800, 600);
+    /// let scale_factor = 1.0;
+    ///
+    /// // Initialize the renderer
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    ///
+    /// let roboto_font_ttf = include_bytes!("../examples/assets/Roboto-Regular.ttf").to_vec();
+    /// let roboto_font_source = fontdb::Source::Binary(Arc::new(roboto_font_ttf));
+    /// renderer.load_fonts([roboto_font_source].into_iter());
+    /// ```
+    pub fn load_fonts(&mut self, fonts: impl Iterator<Item = fontdb::Source>) {
+        let db = self.text_renderer_wrapper.font_system.db_mut();
+
+        for source in fonts {
+            db.load_font_source(source);
+        }
+    }
+
+    /// Loads a font from a byte slice.
+    ///
+    /// Loaded fonts can be later used to render text using the [Renderer::add_text] method.
+    ///
+    /// # Parameters
+    ///
+    /// - `font_bytes`: A slice of bytes representing the font file.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use futures::executor::block_on;
+    /// use winit::event_loop::EventLoop;
+    /// use winit::window::WindowBuilder;
+    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
+    /// use grafo::Shape;
+    /// use grafo::Color;
+    /// use grafo::Stroke;
+    /// use grafo::fontdb;
+    ///
+    /// // This is for demonstration purposes only. If you want a working example with winit, please
+    /// // refer to the example in the "examples" folder.
+    /// let event_loop = EventLoop::new().expect("To create the event loop");
+    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    /// let physical_size = (800, 600);
+    /// let scale_factor = 1.0;
+    ///
+    /// // Initialize the renderer
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    ///
+    /// let roboto_font_ttf = include_bytes!("../examples/assets/Roboto-Regular.ttf");
+    /// renderer.load_font_from_bytes(roboto_font_ttf);
+    /// ```
+    pub fn load_font_from_bytes(&mut self, font_bytes: &[u8]) {
+        let db = self.text_renderer_wrapper.font_system.db_mut();
+        let source = fontdb::Source::Binary(Arc::new(font_bytes.to_vec()));
+        db.load_font_source(source);
     }
 }

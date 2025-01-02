@@ -101,6 +101,10 @@
 //! directory in the repository.
 //!
 
+pub use glyphon;
+pub use glyphon::fontdb;
+pub use glyphon::fontdb::Family as FontFamily;
+pub use glyphon::fontdb::Source as FontSource;
 pub use lyon;
 pub use wgpu;
 
