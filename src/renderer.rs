@@ -77,7 +77,7 @@ use crate::pipeline::{
 };
 use crate::util::to_logical;
 use ahash::{HashMap, HashMapExt};
-use glyphon::{fontdb, Family, Resolution};
+use glyphon::{fontdb, Resolution};
 
 use crate::image_draw_data::ImageDrawData;
 use crate::shape::{Shape, ShapeDrawData};
