@@ -114,7 +114,12 @@ pub fn main() {
                     horizontal_alignment: TextAlignment::End,
                     vertical_alignment: TextAlignment::Start,
                 };
-                renderer.add_text("This it Roboto", text_layout3, Some(third_text_background_id), Some("Roboto"));
+                renderer.add_text(
+                    "This it Roboto",
+                    text_layout3,
+                    Some(third_text_background_id),
+                    Some("Roboto"),
+                );
 
                 // Example with system font
                 let fourth_background_min = (10.0, 140.0);
@@ -136,7 +141,12 @@ pub fn main() {
                     horizontal_alignment: TextAlignment::Center,
                     vertical_alignment: TextAlignment::Start,
                 };
-                renderer.add_text("This is Papyrus", text_layout4, Some(fourth_text_background_id), Some("Papyrus"));
+                renderer.add_text(
+                    "This is Papyrus",
+                    text_layout4,
+                    Some(fourth_text_background_id),
+                    Some("Papyrus"),
+                );
 
                 let timer = Instant::now();
                 match renderer.render() {

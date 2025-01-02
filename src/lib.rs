@@ -101,10 +101,10 @@
 //! directory in the repository.
 //!
 
-pub use lyon;
-pub use wgpu;
 pub use glyphon;
 pub use glyphon::fontdb;
+pub use lyon;
+pub use wgpu;
 
 mod color;
 mod debug_tools;

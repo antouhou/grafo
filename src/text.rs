@@ -175,7 +175,7 @@ impl TextDrawData {
         clip_to_shape: Option<usize>,
         scale_factor: f32,
         font_system: &mut FontSystem,
-        font_family: Option<Family>
+        font_family: Option<Family>,
     ) -> Self {
         let layout = layout.into();
 
