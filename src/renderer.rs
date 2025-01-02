@@ -11,7 +11,7 @@
 //!
 //! ```rust,no_run
 //! use std::sync::Arc;
-//! use grafo::Renderer;
+//! use grafo::{FontFamily, Renderer};
 //! use grafo::Shape;
 //! use grafo::Color;
 //! use grafo::Stroke;
@@ -52,7 +52,7 @@
 //!     horizontal_alignment: TextAlignment::Center,
 //!     vertical_alignment: TextAlignment::Center,
 //! };
-//! renderer.add_text("Hello, Grafo!", layout, None, None);
+//! renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif, None);
 //!
 //! // Render the frame
 //! match renderer.render() {
@@ -83,6 +83,7 @@ use crate::image_draw_data::ImageDrawData;
 use crate::shape::{Shape, ShapeDrawData};
 
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
+use crate::FontFamily;
 use wgpu::{BindGroup, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
 
 /// Represents different rendering pipelines used by the `Renderer`.
@@ -133,7 +134,7 @@ enum DrawCommand {
 /// # Examples
 ///
 /// ```rust,no_run
-/// use grafo::Renderer;
+/// use grafo::{FontFamily, Renderer};
 /// use grafo::Shape;
 /// use grafo::Color;
 /// use grafo::Stroke;
@@ -176,7 +177,7 @@ enum DrawCommand {
 ///     horizontal_alignment: TextAlignment::Center,
 ///     vertical_alignment: TextAlignment::Center,
 /// };
-/// renderer.add_text("Hello, Grafo!", layout, None, None);
+/// renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif , None);
 ///
 /// // Render the frame
 /// match renderer.render() {
@@ -529,7 +530,7 @@ impl Renderer<'_> {
     /// use futures::executor::block_on;
     /// use winit::event_loop::EventLoop;
     /// use winit::window::WindowBuilder;
-    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
+    /// use grafo::{FontFamily, MathRect, Renderer, TextAlignment, TextLayout};
     /// use grafo::Shape;
     /// use grafo::Color;
     /// use grafo::Stroke;
@@ -555,14 +556,14 @@ impl Renderer<'_> {
     ///     horizontal_alignment: TextAlignment::Center,
     ///     vertical_alignment: TextAlignment::Center,
     /// };
-    /// renderer.add_text("Hello, Grafo!", layout, None, None);
+    /// renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif, None);
     /// ```
     pub fn add_text(
         &mut self,
         text: &str,
         layout: impl Into<TextLayout>,
+        font_family: FontFamily,
         clip_to_shape: Option<usize>,
-        font_family: Option<&str>,
     ) {
         self.text_instances.push(TextDrawData::new(
             text,
@@ -570,7 +571,7 @@ impl Renderer<'_> {
             clip_to_shape,
             self.scale_factor as f32,
             &mut self.text_renderer_wrapper.font_system,
-            Some(Family::Name(font_family.unwrap_or("sans-serif"))),
+            font_family,
         ));
     }
 

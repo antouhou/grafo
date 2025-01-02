@@ -1,5 +1,5 @@
 use futures::executor::block_on;
-use grafo::{fontdb, Color, Stroke};
+use grafo::{fontdb, Color, FontFamily, Stroke};
 use grafo::{MathRect, Shape, TextAlignment, TextLayout};
 use std::sync::Arc;
 use std::time::Instant;
@@ -70,7 +70,12 @@ pub fn main() {
                     horizontal_alignment: TextAlignment::Start,
                     vertical_alignment: TextAlignment::Start,
                 };
-                renderer.add_text(text, text_layout, Some(first_text_background_id), None);
+                renderer.add_text(
+                    text,
+                    text_layout,
+                    FontFamily::SansSerif,
+                    Some(first_text_background_id),
+                );
 
                 // Second text instance
                 let second_background_min = (10.0, 40.0);
@@ -92,7 +97,12 @@ pub fn main() {
                     horizontal_alignment: TextAlignment::End,
                     vertical_alignment: TextAlignment::Start,
                 };
-                renderer.add_text(text, text_layout2, Some(second_text_background_id), None);
+                renderer.add_text(
+                    text,
+                    text_layout2,
+                    FontFamily::SansSerif,
+                    Some(second_text_background_id),
+                );
 
                 // Example with font loaded from file
                 let third_background_min = (10.0, 90.0);
@@ -117,8 +127,8 @@ pub fn main() {
                 renderer.add_text(
                     "This it Roboto",
                     text_layout3,
+                    FontFamily::Name("Roboto"),
                     Some(third_text_background_id),
-                    Some("Roboto"),
                 );
 
                 // Example with system font
@@ -144,8 +154,8 @@ pub fn main() {
                 renderer.add_text(
                     "This is Papyrus",
                     text_layout4,
+                    FontFamily::Name("Papyrus"),
                     Some(fourth_text_background_id),
-                    Some("Papyrus"),
                 );
 
                 let timer = Instant::now();

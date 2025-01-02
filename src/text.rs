@@ -175,7 +175,7 @@ impl TextDrawData {
         clip_to_shape: Option<usize>,
         scale_factor: f32,
         font_system: &mut FontSystem,
-        font_family: Option<Family>,
+        font_family: Family,
     ) -> Self {
         let layout = layout.into();
 
@@ -197,7 +197,7 @@ impl TextDrawData {
             font_system,
             text,
             Attrs::new()
-                .family(font_family.unwrap_or(Family::SansSerif))
+                .family(font_family)
                 .metadata(clip_to_shape.unwrap_or(0)),
             Shaping::Advanced,
         );
