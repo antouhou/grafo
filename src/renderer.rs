@@ -712,6 +712,11 @@ impl Renderer<'_> {
                             if let (Some(vertex_buffer), Some(index_buffer)) =
                                 (shape.vertex_buffer.as_ref(), shape.index_buffer.as_ref())
                             {
+                                if vertex_buffer.size() == 0 || index_buffer.size() == 0 {
+                                    // TODO: this started to happen for some reason, investigate
+                                    return;
+                                }
+
                                 if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
                                     render_pass.set_pipeline(&self.and_pipeline);
                                     render_pass.set_bind_group(0, &self.and_bind_group, &[]);
@@ -751,6 +756,7 @@ impl Renderer<'_> {
                             }
                         }
                         DrawCommand::Image(image) => {
+                            println!("Image ID: {}", shape_id);
                             if let Some(clip_to_shape) = image.clip_to_shape {
                                 let parent_stencil =
                                     *stencil_references.get(&clip_to_shape).unwrap_or(&0);
@@ -782,6 +788,11 @@ impl Renderer<'_> {
                             if let (Some(vertex_buffer), Some(index_buffer)) =
                                 (shape.vertex_buffer.as_ref(), shape.index_buffer.as_ref())
                             {
+                                if vertex_buffer.size() == 0 || index_buffer.size() == 0 {
+                                    // TODO: this started to happen for some reason, investigate
+                                    return;
+                                }
+
                                 if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
                                     render_pass.set_pipeline(&self.decrementing_pipeline);
                                     render_pass.set_bind_group(
