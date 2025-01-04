@@ -70,16 +70,16 @@ use easy_tree::rayon::iter::ParallelIterator;
 
 pub type MathRect = lyon::math::Box2D;
 
+use crate::image_draw_data::ImageDrawData;
 use crate::pipeline::{
     create_and_depth_texture, create_depth_stencil_state_for_text, create_pipeline,
     create_render_pass, create_texture_pipeline, render_buffer_to_texture2, PipelineType, Uniforms,
 };
+use crate::shape::{Shape, ShapeDrawData};
 use crate::util::to_logical;
 use ahash::{HashMap, HashMapExt};
 use glyphon::{fontdb, Resolution};
 use log::warn;
-use crate::image_draw_data::ImageDrawData;
-use crate::shape::{Shape, ShapeDrawData};
 
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
 use crate::FontFamily;
