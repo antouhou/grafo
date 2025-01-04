@@ -77,7 +77,7 @@ use crate::pipeline::{
 use crate::util::to_logical;
 use ahash::{HashMap, HashMapExt};
 use glyphon::{fontdb, Resolution};
-
+use log::warn;
 use crate::image_draw_data::ImageDrawData;
 use crate::shape::{Shape, ShapeDrawData};
 
@@ -738,7 +738,7 @@ impl Renderer<'_> {
                                     stencil_references.insert(shape_id, 1);
                                 }
                             } else {
-                                println!("Missing vertex or index buffer for shape {}", shape_id);
+                                warn!("Missing vertex or index buffer for shape {}", shape_id);
                             }
                         }
                         DrawCommand::Image(image) => {
@@ -798,7 +798,7 @@ impl Renderer<'_> {
                                     this_shape_stencil,
                                 );
                             } else {
-                                println!("No vertex or index buffer found for shape {}", shape_id);
+                                warn!("No vertex or index buffer found for shape {}", shape_id);
                                 // TODO: no vertex or index buffer found - it is an error,
                                 //  so probably should panic
                             }
