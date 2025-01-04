@@ -65,22 +65,21 @@
 //! ```
 
 use std::sync::Arc;
-use std::time::Instant;
 
 use easy_tree::rayon::iter::ParallelIterator;
 
 pub type MathRect = lyon::math::Box2D;
 
+use crate::image_draw_data::ImageDrawData;
 use crate::pipeline::{
     create_and_depth_texture, create_depth_stencil_state_for_text, create_pipeline,
     create_render_pass, create_texture_pipeline, render_buffer_to_texture2, PipelineType, Uniforms,
 };
+use crate::shape::{Shape, ShapeDrawData};
 use crate::util::to_logical;
 use ahash::{HashMap, HashMapExt};
 use glyphon::{fontdb, Resolution};
-
-use crate::image_draw_data::ImageDrawData;
-use crate::shape::{Shape, ShapeDrawData};
+use log::warn;
 
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
 use crate::FontFamily;
@@ -616,8 +615,6 @@ impl Renderer<'_> {
     /// }
     /// ```
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        println!("===============");
-        let first_timer = Instant::now();
         let draw_tree_size = self.draw_tree.len();
         let iter = self.draw_tree.par_iter_mut();
 
@@ -636,12 +633,6 @@ impl Renderer<'_> {
             }
         });
 
-        println!(
-            "Iterating over the draw tree of {} elements took: {:?}",
-            self.draw_tree.len(),
-            first_timer.elapsed()
-        );
-
         // TODO: this is for debugging purposes
         // let query_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
         //     label: Some("Query Buffer"),
@@ -656,7 +647,6 @@ impl Renderer<'_> {
         //     usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         //     mapped_at_creation: false,
         // });
-        println!("Creating buffers took: {:?}", first_timer.elapsed());
 
         // TODO: this is for debugging purposes
         // let encoder_timer = Instant::now();
@@ -669,13 +659,11 @@ impl Renderer<'_> {
         // let timer = Instant::now();
         // #[cfg(feature = "performance_measurement")]
         // encoder.write_timestamp(&self.performance_query_set, 0);
-        println!("Creating encoder took: {:?}", first_timer.elapsed());
 
         let output = self.surface.get_current_texture()?;
         let output_texture_view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        println!("Getting output texture took: {:?}", first_timer.elapsed());
 
         let depth_texture =
             create_and_depth_texture(&self.device, (self.physical_size.0, self.physical_size.1));
@@ -689,8 +677,6 @@ impl Renderer<'_> {
 
             let render_pass =
                 create_render_pass(&mut encoder, &output_texture_view, &depth_texture_view);
-
-            println!("Creating pass took: {:?}", first_timer.elapsed());
 
             let shape_ids_to_stencil_references = HashMap::<usize, u32>::new();
             let current_pipeline = Pipeline::None;
@@ -752,11 +738,10 @@ impl Renderer<'_> {
                                     stencil_references.insert(shape_id, 1);
                                 }
                             } else {
-                                println!("Missing vertex or index buffer for shape {}", shape_id);
+                                warn!("Missing vertex or index buffer for shape {}", shape_id);
                             }
                         }
                         DrawCommand::Image(image) => {
-                            println!("Image ID: {}", shape_id);
                             if let Some(clip_to_shape) = image.clip_to_shape {
                                 let parent_stencil =
                                     *stencil_references.get(&clip_to_shape).unwrap_or(&0);
@@ -813,7 +798,7 @@ impl Renderer<'_> {
                                     this_shape_stencil,
                                 );
                             } else {
-                                println!("No vertex or index buffer found for shape {}", shape_id);
+                                warn!("No vertex or index buffer found for shape {}", shape_id);
                                 // TODO: no vertex or index buffer found - it is an error,
                                 //  so probably should panic
                             }
@@ -825,7 +810,6 @@ impl Renderer<'_> {
                 },
                 &mut data,
             );
-            println!("Walking the tree took: {:?}", first_timer.elapsed());
 
             // println!("{}", self.text_instances.len());
             // TODO: cache the text rendering
@@ -872,7 +856,6 @@ impl Renderer<'_> {
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-        println!("Queue submit took: {:?}", first_timer.elapsed());
 
         #[cfg(feature = "performance_measurement")]
         {
@@ -910,8 +893,6 @@ impl Renderer<'_> {
 
         // self.depth_stencil_texture_viewer.save_depth_stencil_texture(&self.device);
         // self.depth_stencil_texture_viewer.print_texture_data_at_pixel(112, 40);
-
-        println!("Total time spent {:?}", first_timer.elapsed());
         // println!("Render method took: {:?}", timer.elapsed());
 
         Ok(())
