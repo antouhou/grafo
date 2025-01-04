@@ -65,7 +65,6 @@
 //! ```
 
 use std::sync::Arc;
-use std::time::Instant;
 
 use easy_tree::rayon::iter::ParallelIterator;
 
