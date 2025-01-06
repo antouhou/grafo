@@ -37,7 +37,7 @@
 //!     .build();
 //! ```
 
-use crate::renderer::{depth, BufferPool};
+use crate::renderer::BufferPool;
 use crate::vertex::CustomVertex;
 use crate::{Color, Stroke};
 use lyon::lyon_tessellation::{
@@ -46,7 +46,6 @@ use lyon::lyon_tessellation::{
 use lyon::path::Winding;
 use lyon::tessellation::FillVertexConstructor;
 use wgpu::{Buffer, Queue};
-use wgpu::util::DeviceExt;
 
 /// Represents a graphical shape, which can be either a custom path or a simple rectangle.
 ///
@@ -344,7 +343,11 @@ impl PathShape {
     ///
     /// A `VertexBuffers` structure containing the tessellated vertices and indices.
     /// ```
-    pub(crate) fn tessellate(&self, depth: f32, tessellator: &mut FillTessellator) -> VertexBuffers<CustomVertex, u16> {
+    pub(crate) fn tessellate(
+        &self,
+        depth: f32,
+        tessellator: &mut FillTessellator,
+    ) -> VertexBuffers<CustomVertex, u16> {
         let mut buffers: VertexBuffers<CustomVertex, u16> = VertexBuffers::new();
         // let mut tessellator = FillTessellator::new();
         let options = FillOptions::default().with_tolerance(0.1);
@@ -467,13 +470,24 @@ impl ShapeDrawData {
         vertex_buffer_pool: &mut BufferPool,
         index_buffer_pool: &mut BufferPool,
     ) -> (wgpu::Buffer, wgpu::Buffer, u32) {
-        let vertex_buffers = self.vertex_buffers.as_ref().expect("To be tesselated at this point");
+        let vertex_buffers = self
+            .vertex_buffers
+            .as_ref()
+            .expect("To be tesselated at this point");
         // TODO: better buffer allocation
         let vertex_buffer = vertex_buffer_pool.get_buffer(device, 100000);
         let index_buffer = index_buffer_pool.get_buffer(device, 1000);
 
-        queue.write_buffer(&vertex_buffer, 0, bytemuck::cast_slice(&vertex_buffers.vertices));
-        queue.write_buffer(&index_buffer, 0, bytemuck::cast_slice(&vertex_buffers.indices));
+        queue.write_buffer(
+            &vertex_buffer,
+            0,
+            bytemuck::cast_slice(&vertex_buffers.vertices),
+        );
+        queue.write_buffer(
+            &index_buffer,
+            0,
+            bytemuck::cast_slice(&vertex_buffers.indices),
+        );
 
         (
             vertex_buffer,
@@ -482,7 +496,11 @@ impl ShapeDrawData {
         )
     }
 
-    pub(crate) fn return_buffers_to_pool(&mut self, vertex_buffer_pool: &mut BufferPool, index_buffer_pool: &mut BufferPool) {
+    pub(crate) fn return_buffers_to_pool(
+        &mut self,
+        vertex_buffer_pool: &mut BufferPool,
+        index_buffer_pool: &mut BufferPool,
+    ) {
         let vertex_buffer = self.vertex_buffer.take();
         if let Some(vertex_buffer) = vertex_buffer {
             vertex_buffer_pool.return_buffer(vertex_buffer);
@@ -516,7 +534,8 @@ impl ShapeDrawData {
         vertex_buffer_pool: &mut BufferPool,
         index_buffer_pool: &mut BufferPool,
     ) {
-        let (vertex_buffer, index_buffer, num_indices) = self.shape_data_to_buffers(device, queue, vertex_buffer_pool, index_buffer_pool);
+        let (vertex_buffer, index_buffer, num_indices) =
+            self.shape_data_to_buffers(device, queue, vertex_buffer_pool, index_buffer_pool);
 
         self.vertex_buffer = Some(vertex_buffer);
         self.index_buffer = Some(index_buffer);
@@ -524,8 +543,16 @@ impl ShapeDrawData {
     }
 
     /// Copies tessellated data into WGPU buffers and returns num_indices
-    pub fn copy_data_to_buffers(&self, vertex_buffer: &Buffer, index_buffer: &Buffer, queue: &Queue) -> u32 {
-        let vertex_buffers = self.vertex_buffers.as_ref().expect("To be tesselated at this point");
+    pub fn copy_data_to_buffers(
+        &self,
+        vertex_buffer: &Buffer,
+        index_buffer: &Buffer,
+        queue: &Queue,
+    ) -> u32 {
+        let vertex_buffers = self
+            .vertex_buffers
+            .as_ref()
+            .expect("To be tesselated at this point");
         let vertex_bytes = bytemuck::cast_slice(&vertex_buffers.vertices);
         let index_bytes = bytemuck::cast_slice(&vertex_buffers.indices);
 

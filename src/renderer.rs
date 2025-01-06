@@ -76,15 +76,16 @@ use crate::pipeline::{
     create_render_pass, create_texture_pipeline, render_buffer_to_texture2, PipelineType, Uniforms,
 };
 use crate::shape::{Shape, ShapeDrawData};
+use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
 use crate::util::to_logical;
+use crate::FontFamily;
 use ahash::{HashMap, HashMapExt};
 use glyphon::{fontdb, Resolution};
 use log::warn;
 use lyon::tessellation::FillTessellator;
-use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
-use crate::FontFamily;
-use wgpu::{BindGroup, Buffer, BufferUsages, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
-use wgpu::util::DeviceExt;
+use wgpu::{
+    BindGroup, Buffer, BufferUsages, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget,
+};
 
 pub(crate) struct BufferPool {
     buffer_usages: BufferUsages,
@@ -93,7 +94,10 @@ pub(crate) struct BufferPool {
 
 impl BufferPool {
     fn new(buffer_usages: BufferUsages) -> Self {
-        Self { buffers: Vec::new(), buffer_usages }
+        Self {
+            buffers: Vec::new(),
+            buffer_usages,
+        }
     }
 
     pub(crate) fn get_buffer(&mut self, device: &wgpu::Device, size: usize) -> Buffer {
@@ -663,7 +667,12 @@ impl Renderer<'_> {
             DrawCommand::Shape(ref mut shape) => {
                 let depth = depth(draw_command.0, draw_tree_size);
                 shape.tessellate(depth, &mut tesselator);
-                shape.prepare_buffers(&self.device, &self.queue, &mut self.vertex_buffer_pool, &mut self.index_buffer_pool);
+                shape.prepare_buffers(
+                    &self.device,
+                    &self.queue,
+                    &mut self.vertex_buffer_pool,
+                    &mut self.index_buffer_pool,
+                );
             }
             DrawCommand::Image(ref mut image) => {
                 image.prepare(
@@ -765,8 +774,8 @@ impl Renderer<'_> {
                                         *stencil_references.get(&clip_to_shape).unwrap_or(&0);
 
                                     render_buffer_to_texture2(
-                                        &vertex_buffer,
-                                        &index_buffer,
+                                        vertex_buffer,
+                                        index_buffer,
                                         num_indices,
                                         render_pass,
                                         parent_stencil,
@@ -779,8 +788,8 @@ impl Renderer<'_> {
                                     //  they should be rendered in a separate step
 
                                     render_buffer_to_texture2(
-                                        &vertex_buffer,
-                                        &index_buffer,
+                                        vertex_buffer,
+                                        index_buffer,
                                         num_indices,
                                         render_pass,
                                         0,
@@ -824,10 +833,10 @@ impl Renderer<'_> {
                             if let (Some(vertex_buffer), Some(index_buffer)) =
                                 (shape.vertex_buffer.as_ref(), shape.index_buffer.as_ref())
                             {
-                            let num_indices = shape.num_indices.unwrap();
-                            // let num_indices = shape.copy_data_to_buffers(&vertex_buffer, &index_buffer, &self.queue);
+                                let num_indices = shape.num_indices.unwrap();
+                                // let num_indices = shape.copy_data_to_buffers(&vertex_buffer, &index_buffer, &self.queue);
 
-                            if vertex_buffer.size() == 0 || index_buffer.size() == 0 {
+                                if vertex_buffer.size() == 0 || index_buffer.size() == 0 {
                                     // TODO: this started to happen for some reason, investigate
                                     return;
                                 }
@@ -845,8 +854,8 @@ impl Renderer<'_> {
                                 let this_shape_stencil = { *data.1.get(&shape_id).unwrap_or(&0) };
 
                                 render_buffer_to_texture2(
-                                    &vertex_buffer,
-                                    &index_buffer,
+                                    vertex_buffer,
+                                    index_buffer,
                                     num_indices,
                                     render_pass,
                                     this_shape_stencil,
@@ -899,20 +908,25 @@ impl Renderer<'_> {
         output.present();
 
         // Returning buffers back to the pool
-        self.draw_tree.iter_mut().for_each(|draw_command| match draw_command.1 {
-            DrawCommand::Shape(ref mut shape) => {
-                shape.return_buffers_to_pool(&mut self.vertex_buffer_pool, &mut self.index_buffer_pool);
-            }
-            DrawCommand::Image(ref mut image) => {
-                // image.prepare(
-                //     &self.device,
-                //     &self.queue,
-                //     &self.texture_bind_group_layout,
-                //     self.physical_size,
-                //     self.scale_factor as f32,
-                // );
-            }
-        });
+        self.draw_tree
+            .iter_mut()
+            .for_each(|draw_command| match draw_command.1 {
+                DrawCommand::Shape(ref mut shape) => {
+                    shape.return_buffers_to_pool(
+                        &mut self.vertex_buffer_pool,
+                        &mut self.index_buffer_pool,
+                    );
+                }
+                DrawCommand::Image(ref mut image) => {
+                    // image.prepare(
+                    //     &self.device,
+                    //     &self.queue,
+                    //     &self.texture_bind_group_layout,
+                    //     self.physical_size,
+                    //     self.scale_factor as f32,
+                    // );
+                }
+            });
 
         Ok(())
     }
