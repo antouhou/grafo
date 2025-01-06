@@ -482,6 +482,18 @@ impl ShapeDrawData {
         )
     }
 
+    pub(crate) fn return_buffers_to_pool(&mut self, vertex_buffer_pool: &mut BufferPool, index_buffer_pool: &mut BufferPool) {
+        let vertex_buffer = self.vertex_buffer.take();
+        if let Some(vertex_buffer) = vertex_buffer {
+            vertex_buffer_pool.return_buffer(vertex_buffer);
+        }
+
+        let index_buffer = self.index_buffer.take();
+        if let Some(index_buffer) = index_buffer {
+            index_buffer_pool.return_buffer(index_buffer);
+        }
+    }
+
     /// Prepares the GPU buffers for rendering the shape.
     ///
     /// # Parameters

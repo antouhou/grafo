@@ -109,8 +109,12 @@ impl BufferPool {
         }
     }
 
-    fn return_buffer(&mut self, buffer: Buffer) {
+    pub(crate) fn return_buffer(&mut self, buffer: Buffer) {
         self.buffers.push(buffer);
+    }
+
+    pub(crate) fn size(&self) -> usize {
+        self.buffers.len()
     }
 }
 
@@ -697,19 +701,19 @@ impl Renderer<'_> {
             let shape_ids_to_stencil_references = HashMap::<usize, u32>::new();
             let current_pipeline = Pipeline::None;
 
-            let vertex_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size: 800 * 600 * 4,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-
-            let index_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size: 800 * 600 * 4,
-                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
+            // let vertex_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            //     label: None,
+            //     size: 800 * 600 * 4,
+            //     usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            //     mapped_at_creation: false,
+            // });
+            //
+            // let index_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            //     label: None,
+            //     size: 800 * 600 * 4,
+            //     usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            //     mapped_at_creation: false,
+            // });
             // let vertex_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             //     label: None,
             //     contents: bytemuck::cast_slice(&empty_byte_array),
@@ -893,6 +897,22 @@ impl Renderer<'_> {
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
+
+        // Returning buffers back to the pool
+        self.draw_tree.iter_mut().for_each(|draw_command| match draw_command.1 {
+            DrawCommand::Shape(ref mut shape) => {
+                shape.return_buffers_to_pool(&mut self.vertex_buffer_pool, &mut self.index_buffer_pool);
+            }
+            DrawCommand::Image(ref mut image) => {
+                // image.prepare(
+                //     &self.device,
+                //     &self.queue,
+                //     &self.texture_bind_group_layout,
+                //     self.physical_size,
+                //     self.scale_factor as f32,
+                // );
+            }
+        });
 
         Ok(())
     }
