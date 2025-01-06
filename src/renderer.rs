@@ -80,10 +80,39 @@ use crate::util::to_logical;
 use ahash::{HashMap, HashMapExt};
 use glyphon::{fontdb, Resolution};
 use log::warn;
-
+use lyon::tessellation::FillTessellator;
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
 use crate::FontFamily;
-use wgpu::{BindGroup, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
+use wgpu::{BindGroup, Buffer, BufferUsages, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
+use wgpu::util::DeviceExt;
+
+pub(crate) struct BufferPool {
+    buffer_usages: BufferUsages,
+    buffers: Vec<Buffer>,
+}
+
+impl BufferPool {
+    fn new(buffer_usages: BufferUsages) -> Self {
+        Self { buffers: Vec::new(), buffer_usages }
+    }
+
+    pub(crate) fn get_buffer(&mut self, device: &wgpu::Device, size: usize) -> Buffer {
+        if let Some(buffer) = self.buffers.pop() {
+            buffer
+        } else {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: size as u64,
+                usage: self.buffer_usages,
+                mapped_at_creation: false,
+            })
+        }
+    }
+
+    fn return_buffer(&mut self, buffer: Buffer) {
+        self.buffers.push(buffer);
+    }
+}
 
 /// Represents different rendering pipelines used by the `Renderer`.
 ///
@@ -199,6 +228,9 @@ pub struct Renderer<'a> {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
+
+    vertex_buffer_pool: BufferPool,
+    index_buffer_pool: BufferPool,
 
     /// Text instances to be rendered
     text_instances: Vec<TextDrawData>,
@@ -383,6 +415,9 @@ impl Renderer<'_> {
             // draw_queue: BTreeMap::new(),
             text_renderer_wrapper,
             glyphon_viewport,
+
+            vertex_buffer_pool: BufferPool::new(BufferUsages::VERTEX | BufferUsages::COPY_DST),
+            index_buffer_pool: BufferPool::new(BufferUsages::INDEX | BufferUsages::COPY_DST),
 
             and_pipeline: Arc::new(and_pipeline),
             and_uniforms,
@@ -616,11 +651,15 @@ impl Renderer<'_> {
     /// ```
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let draw_tree_size = self.draw_tree.len();
-        let iter = self.draw_tree.par_iter_mut();
+        let iter = self.draw_tree.iter_mut();
 
+        let iter_time = std::time::Instant::now();
+        let mut tesselator = FillTessellator::new();
         iter.for_each(|draw_command| match draw_command.1 {
             DrawCommand::Shape(ref mut shape) => {
-                shape.prepare_buffers(&self.device, draw_command.0, draw_tree_size);
+                let depth = depth(draw_command.0, draw_tree_size);
+                shape.tessellate(depth, &mut tesselator);
+                shape.prepare_buffers(&self.device, &self.queue, &mut self.vertex_buffer_pool, &mut self.index_buffer_pool);
             }
             DrawCommand::Image(ref mut image) => {
                 image.prepare(
@@ -632,33 +671,13 @@ impl Renderer<'_> {
                 );
             }
         });
+        println!("Iter time: {:?}", iter_time.elapsed());
 
-        // TODO: this is for debugging purposes
-        // let query_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-        //     label: Some("Query Buffer"),
-        //     size: 16,
-        //     usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
-        //     mapped_at_creation: false,
-        // });
-        //
-        // let read_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-        //     label: Some("Read Buffer"),
-        //     size: 16,
-        //     usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-        //     mapped_at_creation: false,
-        // });
-
-        // TODO: this is for debugging purposes
-        // let encoder_timer = Instant::now();
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("And Command Encoder"),
             });
-        // #[cfg(feature = "performance_measurement")]
-        // let timer = Instant::now();
-        // #[cfg(feature = "performance_measurement")]
-        // encoder.write_timestamp(&self.performance_query_set, 0);
 
         let output = self.surface.get_current_texture()?;
         let output_texture_view = output
@@ -667,11 +686,8 @@ impl Renderer<'_> {
 
         let depth_texture =
             create_and_depth_texture(&self.device, (self.physical_size.0, self.physical_size.1));
-        // let iter_timer = Instant::now();
 
         {
-            // TODO: this is for debugging purposes
-            // let pass_timer = Instant::now();
             let depth_texture_view =
                 depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -680,6 +696,31 @@ impl Renderer<'_> {
 
             let shape_ids_to_stencil_references = HashMap::<usize, u32>::new();
             let current_pipeline = Pipeline::None;
+
+            let vertex_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: 800 * 600 * 4,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+
+            let index_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: 800 * 600 * 4,
+                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            // let vertex_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            //     label: None,
+            //     contents: bytemuck::cast_slice(&empty_byte_array),
+            //     usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            // });
+            //
+            // let index_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            //     label: None,
+            //     contents: bytemuck::cast_slice(&empty_byte_array),
+            //     usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            // });
 
             let mut data = (
                 render_pass,
@@ -695,6 +736,10 @@ impl Renderer<'_> {
 
                     match draw_command {
                         DrawCommand::Shape(shape) => {
+                            // let num_indices = 0;
+                            // let num_indices = shape.copy_data_to_buffers(&vertex_buffer, &index_buffer, &self.queue);
+                            // let (vertex_buffer, index_buffer, num_indices) = shape.prepare_buffers(&self.device, shape_id, draw_tree_size, &mut tesselator);
+
                             if let (Some(vertex_buffer), Some(index_buffer)) =
                                 (shape.vertex_buffer.as_ref(), shape.index_buffer.as_ref())
                             {
@@ -702,6 +747,8 @@ impl Renderer<'_> {
                                     // TODO: this started to happen for some reason, investigate
                                     return;
                                 }
+
+                                let num_indices = shape.num_indices.unwrap();
 
                                 if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
                                     render_pass.set_pipeline(&self.and_pipeline);
@@ -714,9 +761,9 @@ impl Renderer<'_> {
                                         *stencil_references.get(&clip_to_shape).unwrap_or(&0);
 
                                     render_buffer_to_texture2(
-                                        vertex_buffer,
-                                        index_buffer,
-                                        shape.num_indices.unwrap(),
+                                        &vertex_buffer,
+                                        &index_buffer,
+                                        num_indices,
                                         render_pass,
                                         parent_stencil,
                                     );
@@ -728,9 +775,9 @@ impl Renderer<'_> {
                                     //  they should be rendered in a separate step
 
                                     render_buffer_to_texture2(
-                                        vertex_buffer,
-                                        index_buffer,
-                                        shape.num_indices.unwrap(),
+                                        &vertex_buffer,
+                                        &index_buffer,
+                                        num_indices,
                                         render_pass,
                                         0,
                                     );
@@ -773,7 +820,10 @@ impl Renderer<'_> {
                             if let (Some(vertex_buffer), Some(index_buffer)) =
                                 (shape.vertex_buffer.as_ref(), shape.index_buffer.as_ref())
                             {
-                                if vertex_buffer.size() == 0 || index_buffer.size() == 0 {
+                            let num_indices = shape.num_indices.unwrap();
+                            // let num_indices = shape.copy_data_to_buffers(&vertex_buffer, &index_buffer, &self.queue);
+
+                            if vertex_buffer.size() == 0 || index_buffer.size() == 0 {
                                     // TODO: this started to happen for some reason, investigate
                                     return;
                                 }
@@ -791,9 +841,9 @@ impl Renderer<'_> {
                                 let this_shape_stencil = { *data.1.get(&shape_id).unwrap_or(&0) };
 
                                 render_buffer_to_texture2(
-                                    vertex_buffer,
-                                    index_buffer,
-                                    shape.num_indices.unwrap(),
+                                    &vertex_buffer,
+                                    &index_buffer,
+                                    num_indices,
                                     render_pass,
                                     this_shape_stencil,
                                 );
@@ -811,7 +861,6 @@ impl Renderer<'_> {
                 &mut data,
             );
 
-            // println!("{}", self.text_instances.len());
             // TODO: cache the text rendering
             let text_instances = std::mem::take(&mut self.text_instances);
             let text_areas = text_instances
@@ -842,58 +891,8 @@ impl Renderer<'_> {
                 .unwrap();
         }
 
-        // /// TODO: this is for debugging purposes
-        // self.depth_stencil_texture_viewer.copy_depth_stencil_texture_to_buffer(&mut encoder, &depth_texture);
-
-        // #[cfg(feature = "performance_measurement")]
-        // {
-        //     encoder.write_timestamp(&self.performance_query_set, 1);
-        //
-        //     // encoder.resolve_query_set(&self.performance_query_set, 0..2, &query_buffer, 0);
-        //     // // Copy the query buffer data to the read buffer
-        //     // encoder.copy_buffer_to_buffer(&query_buffer, 0, &read_buffer, 0, 16);
-        // };
-
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-
-        #[cfg(feature = "performance_measurement")]
-        {
-            self.device.poll(wgpu::Maintain::Poll);
-
-            // let buffer_slice = read_buffer.slice(..);
-            // buffer_slice.map_async(wgpu::MapMode::Read, |result| {
-            //     assert!(result.is_ok());
-            // });
-            //
-            // self.device.poll(wgpu::Maintain::Wait);
-            //
-            // let data = buffer_slice.get_mapped_range();
-            // let timestamps: &[u64] = bytemuck::cast_slice(&data);
-            // let timestamp_start = timestamps[0];
-            // let timestamp_end = timestamps[1];
-            // drop(data);
-            // read_buffer.unmap();
-
-            // let timestamp_period = self.queue.get_timestamp_period(); // Duration of a single timestamp in nanoseconds
-            //                                                           // println!("Timestamp end: {:?}", timestamp_end);
-            //                                                           // println!("Timestamp start: {:?}", timestamp_start);
-            //                                                           // if (timestamp_end != 0) {
-            //                                                           //     let frame_time_ns = (timestamp_end - timestamp_start) as f32 * timestamp_period;
-            //                                                           //     println!("Frame time: {} ns", frame_time_ns);
-            //                                                           // }
-            // if timestamp_start > timestamp_end {
-            //     // let frame_time_ns = (timestamp_start - timestamp_end) as f32 * timestamp_period;
-            //     // println!("Frame time: {} ns", frame_time_ns);
-            // } else {
-            //     // let frame_time_ns = (timestamp_end - timestamp_start) as f32 * timestamp_period;
-            //     // println!("Frame time: {} ns", frame_time_ns);
-            // }
-        }
-
-        // self.depth_stencil_texture_viewer.save_depth_stencil_texture(&self.device);
-        // self.depth_stencil_texture_viewer.print_texture_data_at_pixel(112, 40);
-        // println!("Render method took: {:?}", timer.elapsed());
 
         Ok(())
     }

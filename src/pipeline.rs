@@ -417,8 +417,8 @@ pub fn create_and_depth_texture(device: &Device, size: (u32, u32)) -> Texture {
 
 // Renders buffer to texture and increments stencil value where the buffer is drawn.
 pub fn render_buffer_to_texture2<'a>(
-    vertex_buffer: &'a wgpu::Buffer,
-    index_buffer: &'a wgpu::Buffer,
+    vertex_buffer: &wgpu::Buffer,
+    index_buffer: &wgpu::Buffer,
     num_indices: u32,
     incrementing_pass: &mut RenderPass<'a>,
     parent_stencil_reference: u32,
