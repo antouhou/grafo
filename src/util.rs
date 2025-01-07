@@ -1,10 +1,10 @@
 use crate::renderer::MathRect;
-use lyon::geom::euclid::Point2D;
-use lyon::tessellation::VertexBuffers;
-use wgpu::{Buffer, BufferUsages};
 use crate::vertex::CustomVertex;
 use glyphon::{Buffer as TextBuffer, FontSystem, Metrics};
+use lyon::geom::euclid::Point2D;
+use lyon::tessellation::VertexBuffers;
 use wgpu::util::DeviceExt;
+use wgpu::{Buffer, BufferUsages};
 
 pub fn normalize_rgba_color(color: &[u8; 4]) -> [f32; 4] {
     [
@@ -68,13 +68,13 @@ impl BufferPool {
 }
 
 pub struct LyonVertexBuffersPool {
-    vertex_buffers: Vec<VertexBuffers<CustomVertex, u16>>
+    vertex_buffers: Vec<VertexBuffers<CustomVertex, u16>>,
 }
 
 impl LyonVertexBuffersPool {
     pub fn new() -> Self {
         Self {
-            vertex_buffers: Vec::new()
+            vertex_buffers: Vec::new(),
         }
     }
 
@@ -96,17 +96,21 @@ impl LyonVertexBuffersPool {
 }
 
 pub struct TextBuffersPool {
-    buffers: Vec<TextBuffer>
+    buffers: Vec<TextBuffer>,
 }
 
 impl TextBuffersPool {
     pub fn new() -> Self {
         Self {
-            buffers: Vec::new()
+            buffers: Vec::new(),
         }
     }
 
-    pub fn get_text_buffer(&mut self, font_system: &mut FontSystem, metrics: Metrics) -> TextBuffer {
+    pub fn get_text_buffer(
+        &mut self,
+        font_system: &mut FontSystem,
+        metrics: Metrics,
+    ) -> TextBuffer {
         if let Some(mut buffer) = self.buffers.pop() {
             buffer.set_metrics(font_system, metrics);
             buffer

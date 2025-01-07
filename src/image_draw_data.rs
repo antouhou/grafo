@@ -1,7 +1,6 @@
 use crate::renderer::MathRect;
 use crate::util::{normalize_rect, ImageBuffersPool};
 use crate::vertex::TexturedVertex;
-use wgpu::util::DeviceExt;
 use wgpu::{BindGroup, BindGroupLayout, BufferSlice, Device};
 
 pub(crate) struct ImageDrawData {
@@ -102,7 +101,13 @@ impl ImageDrawData {
             ImageDrawData::create_bind_group(device, bind_group_layout, &view, &sampler);
 
         self.bind_group = Some(bind_group);
-        self.prepare_vertices(device, canvas_physical_size, scale_factor, image_buffers_pool, queue);
+        self.prepare_vertices(
+            device,
+            canvas_physical_size,
+            scale_factor,
+            image_buffers_pool,
+            queue,
+        );
     }
 
     fn prepare_vertices(

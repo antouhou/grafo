@@ -37,6 +37,7 @@
 //!     .build();
 //! ```
 
+use crate::util::{BufferPool, LyonVertexBuffersPool};
 use crate::vertex::CustomVertex;
 use crate::{Color, Stroke};
 use lyon::lyon_tessellation::{
@@ -45,7 +46,6 @@ use lyon::lyon_tessellation::{
 use lyon::path::Winding;
 use lyon::tessellation::FillVertexConstructor;
 use wgpu::{Buffer, Queue};
-use crate::util::{BufferPool, LyonVertexBuffersPool};
 
 /// Represents a graphical shape, which can be either a custom path or a simple rectangle.
 ///
@@ -349,7 +349,8 @@ impl PathShape {
         tessellator: &mut FillTessellator,
         lyon_vertex_buffers_pool: &mut LyonVertexBuffersPool,
     ) -> VertexBuffers<CustomVertex, u16> {
-        let mut buffers: VertexBuffers<CustomVertex, u16> = lyon_vertex_buffers_pool.get_vertex_buffers();
+        let mut buffers: VertexBuffers<CustomVertex, u16> =
+            lyon_vertex_buffers_pool.get_vertex_buffers();
 
         let options = FillOptions::default();
 
@@ -404,10 +405,16 @@ impl ShapeDrawData {
 
     /// Tesselates complex shapes and stores the resulting buffers.
     #[inline(always)]
-    pub(crate) fn tessellate(&mut self, depth: f32, tessellator: &mut FillTessellator, lyon_vertex_buffers_pool: &mut LyonVertexBuffersPool) {
+    pub(crate) fn tessellate(
+        &mut self,
+        depth: f32,
+        tessellator: &mut FillTessellator,
+        lyon_vertex_buffers_pool: &mut LyonVertexBuffersPool,
+    ) {
         match &self.shape {
             Shape::Path(path_shape) => {
-                let mut vertex_buffers = path_shape.tessellate(depth, tessellator, lyon_vertex_buffers_pool);
+                let mut vertex_buffers =
+                    path_shape.tessellate(depth, tessellator, lyon_vertex_buffers_pool);
                 if vertex_buffers.indices.len() % 2 != 0 {
                     vertex_buffers.indices.push(0);
                 }

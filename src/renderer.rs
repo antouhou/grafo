@@ -77,14 +77,16 @@ use crate::pipeline::{
 };
 use crate::shape::{Shape, ShapeDrawData};
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
-use crate::util::{to_logical, BufferPool, ImageBuffersPool, LyonVertexBuffersPool, TextBuffersPool};
+use crate::util::{
+    to_logical, BufferPool, ImageBuffersPool, LyonVertexBuffersPool, TextBuffersPool,
+};
 use crate::FontFamily;
 use ahash::{HashMap, HashMapExt};
 use glyphon::{fontdb, Resolution};
 use log::warn;
 use lyon::tessellation::FillTessellator;
 use wgpu::{
-    BindGroup, Buffer, BufferUsages, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget,
+    BindGroup, BufferUsages, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget,
 };
 
 /// Represents different rendering pipelines used by the `Renderer`.
@@ -591,7 +593,7 @@ impl Renderer<'_> {
             self.scale_factor as f32,
             &mut self.text_renderer_wrapper.font_system,
             font_family,
-            &mut self.text_buffers_pool
+            &mut self.text_buffers_pool,
         ));
     }
 
@@ -644,7 +646,7 @@ impl Renderer<'_> {
                 shape.tessellate(
                     depth,
                     &mut self.tessellator,
-                    &mut self.lyon_vertex_buffers_pool
+                    &mut self.lyon_vertex_buffers_pool,
                 );
                 shape.prepare_buffers(
                     &self.device,

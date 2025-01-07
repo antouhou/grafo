@@ -29,12 +29,12 @@
 //! ```
 
 use crate::renderer::MathRect;
+use crate::util::TextBuffersPool;
 use crate::Color;
 use glyphon::cosmic_text::Align;
 use glyphon::{Attrs, Family, FontSystem, Metrics, Shaping, SwashCache, TextAtlas, TextRenderer};
 use glyphon::{Buffer as TextBuffer, Color as TextColor, TextArea, TextBounds};
 use wgpu::{Device, MultisampleState};
-use crate::util::TextBuffersPool;
 
 /// Specifies the alignment of text within its layout area.
 ///
@@ -181,7 +181,10 @@ impl TextDrawData {
     ) -> Self {
         let layout = layout.into();
 
-        let mut buffer = text_buffers_pool.get_text_buffer(font_system, Metrics::new(layout.font_size, layout.line_height));
+        let mut buffer = text_buffers_pool.get_text_buffer(
+            font_system,
+            Metrics::new(layout.font_size, layout.line_height),
+        );
 
         let text_area_size = layout.area.size();
 
