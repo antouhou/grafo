@@ -414,8 +414,16 @@ impl Renderer<'_> {
     ///
     /// # Parameters
     ///
-    /// - `shape`: The shape to be rendered. It can be any type that implements `Into<Shape>`.
+    /// - `shape`: The shape to be rendered. It can be any type that implements `Into<Shape>`. If
+    ///     you're going to render a lot of shapes with the same outline, it is
+    ///     recommended to start shapes at 0.0, 0.0 where possible and use offset to move them on
+    ///     the screen. This way, it is going to be possible to cache tesselation results for
+    ///     such shapes, which would increase rendering time. This is useful if you render a lot
+    ///     of buttons with rounded corners, for example. Caching requires supplying a cache key
+    ///     to cache tessellated shape.
     /// - `clip_to_shape`: Optional index of another shape to which this shape should be clipped.
+    /// - `offset`: Offset to render the shape at.
+    /// - `cache_key`: A key that is going to be used for tesselation caching.
     ///
     /// # Returns
     ///
@@ -445,16 +453,25 @@ impl Renderer<'_> {
     ///
     /// let shape_id = renderer.add_shape(
     ///     Shape::rect(
-    ///         [(100.0, 100.0), (300.0, 200.0)],
+    ///         [(0.0, 100.0), (100.0, 100.0)],
     ///         Color::rgb(0, 128, 255), // Blue fill
     ///         Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
     ///     ),
     ///     None,
+    ///     // Shift rectangle by 100.0, 100.0
+    ///     (100.0, 100.0),
+    ///     None
     /// );
     /// ```
-    pub fn add_shape(&mut self, shape: impl Into<Shape>, clip_to_shape: Option<usize>) -> usize {
+    pub fn add_shape(
+        &mut self,
+        shape: impl Into<Shape>,
+        clip_to_shape: Option<usize>,
+        offset: (f32, f32),
+        cache_key: Option<u64>,
+    ) -> usize {
         self.add_draw_command(
-            DrawCommand::Shape(ShapeDrawData::new(shape, clip_to_shape)),
+            DrawCommand::Shape(ShapeDrawData::new(shape, clip_to_shape, offset, cache_key)),
             clip_to_shape,
         )
     }

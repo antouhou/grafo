@@ -37,7 +37,7 @@
 //!     .build();
 //! ```
 
-use crate::util::{BufferPool, LyonVertexBuffersPool, PoolManager};
+use crate::util::{BufferPool, PoolManager};
 use crate::vertex::CustomVertex;
 use crate::{Color, Stroke};
 use lyon::lyon_tessellation::{
@@ -347,10 +347,50 @@ impl PathShape {
         depth: f32,
         tessellator: &mut FillTessellator,
         buffers_pool: &mut PoolManager,
+        offset: (f32, f32),
+        cache_key: Option<u64>,
     ) -> VertexBuffers<CustomVertex, u16> {
-        let mut buffers: VertexBuffers<CustomVertex, u16> =
-            buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
+        let mut buffers = if let Some(cache_key) = cache_key {
+            if let Some(buffers) = buffers_pool
+                .tessellation_cache
+                .get_vertex_buffers(&cache_key)
+            {
+                buffers
+            } else {
+                let mut buffers: VertexBuffers<CustomVertex, u16> =
+                    buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
 
+                self.tesselate_into_buffers(&mut buffers, depth, tessellator);
+                buffers_pool
+                    .tessellation_cache
+                    .insert_vertex_buffers(cache_key, buffers.clone());
+
+                buffers
+            }
+        } else {
+            let mut buffers: VertexBuffers<CustomVertex, u16> =
+                buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
+
+            self.tesselate_into_buffers(&mut buffers, depth, tessellator);
+
+            buffers
+        };
+
+        // TODO: move vertex translation to the GPU
+        buffers.vertices.iter_mut().for_each(|v| {
+            v.position[0] += offset.0;
+            v.position[1] += offset.1;
+        });
+
+        buffers
+    }
+
+    fn tesselate_into_buffers(
+        &self,
+        buffers: &mut VertexBuffers<CustomVertex, u16>,
+        depth: f32,
+        tessellator: &mut FillTessellator,
+    ) {
         let options = FillOptions::default();
 
         let color = self.fill.normalize();
@@ -360,11 +400,9 @@ impl PathShape {
             .tessellate_path(
                 &self.path,
                 &options,
-                &mut BuffersBuilder::new(&mut buffers, vertex_converter),
+                &mut BuffersBuilder::new(buffers, vertex_converter),
             )
             .unwrap();
-
-        buffers
     }
 }
 
@@ -384,12 +422,21 @@ pub(crate) struct ShapeDrawData {
     pub(crate) clip_to_shape: Option<usize>,
     /// The shape associated with this draw data.
     pub(crate) shape: Shape,
+    /// Offset the shape by this amount
+    pub(crate) offset: (f32, f32),
 
     pub(crate) vertex_buffers: Option<VertexBuffers<CustomVertex, u16>>,
+
+    pub(crate) cache_key: Option<u64>,
 }
 
 impl ShapeDrawData {
-    pub fn new(shape: impl Into<Shape>, clip_to_shape: Option<usize>) -> Self {
+    pub fn new(
+        shape: impl Into<Shape>,
+        clip_to_shape: Option<usize>,
+        offset: (f32, f32),
+        cache_key: Option<u64>,
+    ) -> Self {
         let shape = shape.into();
 
         ShapeDrawData {
@@ -399,6 +446,8 @@ impl ShapeDrawData {
             vertex_buffers: None,
             clip_to_shape,
             shape,
+            offset,
+            cache_key,
         }
     }
 
@@ -412,13 +461,17 @@ impl ShapeDrawData {
     ) {
         match &self.shape {
             Shape::Path(path_shape) => {
-                let mut vertex_buffers = path_shape.tessellate(depth, tessellator, buffers_pool);
+                let offset = self.offset;
+                let mut vertex_buffers =
+                    path_shape.tessellate(depth, tessellator, buffers_pool, offset, self.cache_key);
                 if vertex_buffers.indices.len() % 2 != 0 {
                     vertex_buffers.indices.push(0);
                 }
                 self.vertex_buffers = Some(vertex_buffers);
             }
             Shape::Rect(rect_shape) => {
+                let offset = self.offset;
+
                 let min_width = rect_shape.rect[0].0;
                 let min_height = rect_shape.rect[0].1;
                 let max_width = rect_shape.rect[1].0;
@@ -428,32 +481,32 @@ impl ShapeDrawData {
 
                 let quad = [
                     CustomVertex {
-                        position: [min_width, min_height],
+                        position: [min_width + offset.0, min_height + offset.1],
                         color,
                         depth,
                     },
                     CustomVertex {
-                        position: [max_width, min_height],
+                        position: [max_width + offset.0, min_height + offset.1],
                         color,
                         depth,
                     },
                     CustomVertex {
-                        position: [min_width, max_height],
+                        position: [min_width + offset.0, max_height + offset.1],
                         color,
                         depth,
                     },
                     CustomVertex {
-                        position: [min_width, max_height],
+                        position: [min_width + offset.0, max_height + offset.1],
                         color,
                         depth,
                     },
                     CustomVertex {
-                        position: [max_width, min_height],
+                        position: [max_width + offset.0, min_height + offset.1],
                         color,
                         depth,
                     },
                     CustomVertex {
-                        position: [max_width, max_height],
+                        position: [max_width + offset.0, max_height + offset.1],
                         color,
                         depth,
                     },
@@ -472,7 +525,7 @@ impl ShapeDrawData {
 
     #[inline(always)]
     fn shape_data_to_buffers(
-        &self,
+        &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         buffer_pool: &mut PoolManager,
@@ -495,12 +548,12 @@ impl ShapeDrawData {
             0,
             bytemuck::cast_slice(&vertex_buffers.indices),
         );
+        let index_num = vertex_buffers.indices.len() as u32;
 
-        (
-            vertex_buffer,
-            index_buffer,
-            vertex_buffers.indices.len() as u32,
-        )
+        // After the buffers are written, we can return the vertex buffers to the pool
+        // self.return_lyon_vertex_buffers_to_pool(&mut buffer_pool.lyon_vertex_buffers_pool);
+
+        (vertex_buffer, index_buffer, index_num)
     }
 
     pub(crate) fn return_buffers(&mut self, buffer_pool: &mut PoolManager) {
@@ -508,7 +561,6 @@ impl ShapeDrawData {
             &mut buffer_pool.vertex_buffer_pool,
             &mut buffer_pool.index_buffer_pool,
         );
-        self.return_lyon_vertex_buffers_to_pool(&mut buffer_pool.lyon_vertex_buffers_pool);
     }
 
     fn return_buffers_to_pool(
@@ -524,17 +576,6 @@ impl ShapeDrawData {
         let index_buffer = self.index_buffer.take();
         if let Some(index_buffer) = index_buffer {
             index_buffer_pool.return_buffer(index_buffer);
-        }
-    }
-
-    fn return_lyon_vertex_buffers_to_pool(
-        &mut self,
-        vertex_buffer_pool: &mut LyonVertexBuffersPool,
-    ) {
-        let vertex_buffers = self.vertex_buffers.take();
-        if let Some(mut vertex_buffers) = vertex_buffers {
-            vertex_buffers.clear();
-            vertex_buffer_pool.return_vertex_buffers(vertex_buffers);
         }
     }
 

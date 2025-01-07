@@ -49,7 +49,7 @@ pub fn main() {
                     Color::rgb(255, 0, 255),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let background_shape_id = renderer.add_shape(background, None);
+                let background_shape_id = renderer.add_shape(background, None, (0.0, 0.0), None);
 
                 // First text instance
                 let first_background_min = (10.0, 10.0);
@@ -59,8 +59,12 @@ pub fn main() {
                     Color::rgb(200, 200, 200),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let first_text_background_id =
-                    renderer.add_shape(first_text_background, Some(background_shape_id));
+                let first_text_background_id = renderer.add_shape(
+                    first_text_background,
+                    Some(background_shape_id),
+                    (0.0, 0.0),
+                    None,
+                );
                 let text = "Hello, world!";
                 let text_layout = TextLayout {
                     font_size: 20.0,
@@ -87,8 +91,12 @@ pub fn main() {
                     Color::rgb(200, 200, 200),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let second_text_background_id =
-                    renderer.add_shape(second_text_background, Some(background_shape_id));
+                let second_text_background_id = renderer.add_shape(
+                    second_text_background,
+                    Some(background_shape_id),
+                    (0.0, 0.0),
+                    None,
+                );
                 let text_layout2 = TextLayout {
                     font_size: 40.0,
                     line_height: 40.0,
@@ -114,8 +122,12 @@ pub fn main() {
                     Color::rgb(200, 200, 200),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let third_text_background_id =
-                    renderer.add_shape(third_text_background, Some(background_shape_id));
+                let third_text_background_id = renderer.add_shape(
+                    third_text_background,
+                    Some(background_shape_id),
+                    (0.0, 0.0),
+                    None,
+                );
                 let text_layout3 = TextLayout {
                     font_size: 40.0,
                     line_height: 40.0,
@@ -141,8 +153,12 @@ pub fn main() {
                     Color::rgb(200, 200, 200),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let fourth_text_background_id =
-                    renderer.add_shape(fourth_text_background, Some(background_shape_id));
+                let fourth_text_background_id = renderer.add_shape(
+                    fourth_text_background,
+                    Some(background_shape_id),
+                    (0.0, 0.0),
+                    None,
+                );
                 let text_layout4 = TextLayout {
                     font_size: 40.0,
                     line_height: 40.0,

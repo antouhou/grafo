@@ -68,14 +68,14 @@ pub fn main() {
                 );
 
                 let green = Shape::rounded_rect(
-                    [(100.0, 100.0), (300.0, 300.0)],
+                    [(0.0, 0.0), (200.0, 200.0)],
                     BorderRadii::new(0.0),
                     Color::rgb(0, 255, 0),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
 
                 let blue = Shape::rounded_rect(
-                    [(150.0, 150.0), (350.0, 350.0)],
+                    [(0.0, 0.0), (200.0, 200.0)],
                     BorderRadii::new(10.0),
                     Color::rgb(0, 0, 255),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
@@ -102,13 +102,13 @@ pub fn main() {
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
 
-                let background_id = renderer.add_shape(background, None);
-                let red_id = renderer.add_shape(red, Some(background_id));
-                let green_id = renderer.add_shape(green, Some(red_id));
-                let blue_id = renderer.add_shape(blue, Some(green_id));
-                renderer.add_shape(yellow, Some(green_id));
-                renderer.add_shape(white, Some(red_id));
-                renderer.add_shape(shape_that_doesnt_fit, Some(blue_id));
+                let background_id = renderer.add_shape(background, None, (0.0, 0.0), None);
+                let red_id = renderer.add_shape(red, Some(background_id), (0.0, 0.0), None);
+                let green_id = renderer.add_shape(green, Some(red_id), (100.0, 100.0), None);
+                let blue_id = renderer.add_shape(blue, Some(green_id), (150.0, 150.0), None);
+                renderer.add_shape(yellow, Some(green_id), (0.0, 0.0), None);
+                renderer.add_shape(white, Some(red_id), (0.0, 0.0), None);
+                renderer.add_shape(shape_that_doesnt_fit, Some(blue_id), (0.0, 0.0), None);
 
                 renderer.add_image(
                     &rust_logo_png_bytes,

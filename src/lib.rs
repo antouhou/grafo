@@ -118,6 +118,7 @@ mod stroke;
 mod util;
 mod vertex;
 
+mod cache;
 mod shape;
 mod text;
 
