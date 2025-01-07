@@ -1,6 +1,6 @@
 [package]
 name = "grafo"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 description = "A GPU-accelerated rendering library for Rust"
 keywords = ["rendering", "vector_graphics", "gui", "graphics", "image"]
@@ -17,7 +17,7 @@ wgpu = "23.0.1"
 ahash = "0.8.11"
 lyon = "1.0.1"
 glyphon = "0.7.0"
-easy-tree = { version = "0.1.3", features = ["rayon"] }
+easy-tree = { version = "0.1.3" }
 log = "0.4.22"
 
 [dev-dependencies]

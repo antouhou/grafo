@@ -1,7 +1,6 @@
 use crate::renderer::MathRect;
-use crate::util::normalize_rect;
+use crate::util::{normalize_rect, PoolManager};
 use crate::vertex::TexturedVertex;
-use wgpu::util::DeviceExt;
 use wgpu::{BindGroup, BindGroupLayout, BufferSlice, Device};
 
 pub(crate) struct ImageDrawData {
@@ -46,6 +45,7 @@ impl ImageDrawData {
         bind_group_layout: &BindGroupLayout,
         canvas_physical_size: (u32, u32),
         scale_factor: f32,
+        buffers_pool: &mut PoolManager,
     ) {
         let texture_dimensions = self.image_size;
 
@@ -101,7 +101,13 @@ impl ImageDrawData {
             ImageDrawData::create_bind_group(device, bind_group_layout, &view, &sampler);
 
         self.bind_group = Some(bind_group);
-        self.prepare_vertices(device, canvas_physical_size, scale_factor);
+        self.prepare_vertices(
+            device,
+            canvas_physical_size,
+            scale_factor,
+            buffers_pool,
+            queue,
+        );
     }
 
     fn prepare_vertices(
@@ -109,6 +115,8 @@ impl ImageDrawData {
         device: &Device,
         canvas_physical_size: (u32, u32),
         scale_factor: f32,
+        buffers_pool: &mut PoolManager,
+        queue: &wgpu::Queue,
     ) {
         let normalized_rect =
             normalize_rect(&self.logical_rect, canvas_physical_size, scale_factor);
@@ -146,26 +154,32 @@ impl ImageDrawData {
             },
         ];
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::cast_slice(&quad),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let vertex_buffer = buffers_pool.image_buffers_pool.get_vertex_buffer(device);
+        queue.write_buffer(&vertex_buffer, 0, bytemuck::cast_slice(&quad));
 
-        let indices: &[u16] = &[
-            0, 1, 2, // first triangle
-            2, 3, 0, // second triangle
-        ];
-
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::cast_slice(indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        // Index buffer doesn't need any additional manipulation. In fact, it's probably
+        //  possible to reuse it for all images, since it's just a quad, and indices of the
+        //  quad are always the same.
+        let index_buffer = buffers_pool.image_buffers_pool.get_index_buffer(device);
 
         self.vertex_buffer = Some(vertex_buffer);
         self.index_buffer = Some(index_buffer);
-        self.num_indices = Some(indices.len() as u32);
+        // 6 indices for a quad - 3 for one triangle, 2 triangles in a quad
+        self.num_indices = Some(6);
+    }
+
+    pub fn return_buffers_to_pool(&mut self, buffers_pool: &mut PoolManager) {
+        if let Some(vertex_buffer) = self.vertex_buffer.take() {
+            buffers_pool
+                .image_buffers_pool
+                .return_vertex_buffer(vertex_buffer);
+        }
+
+        if let Some(index_buffer) = self.index_buffer.take() {
+            buffers_pool
+                .image_buffers_pool
+                .return_index_buffer(index_buffer);
+        }
     }
 
     fn create_sampler(device: &wgpu::Device) -> wgpu::Sampler {

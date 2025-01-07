@@ -29,6 +29,7 @@
 //! ```
 
 use crate::renderer::MathRect;
+use crate::util::PoolManager;
 use crate::Color;
 use glyphon::cosmic_text::Align;
 use glyphon::{Attrs, Family, FontSystem, Metrics, Shaping, SwashCache, TextAtlas, TextRenderer};
@@ -176,10 +177,11 @@ impl TextDrawData {
         scale_factor: f32,
         font_system: &mut FontSystem,
         font_family: Family,
+        buffers_pool: &mut PoolManager,
     ) -> Self {
         let layout = layout.into();
 
-        let mut buffer = TextBuffer::new(
+        let mut buffer = buffers_pool.text_buffers_pool.get_text_buffer(
             font_system,
             Metrics::new(layout.font_size, layout.line_height),
         );
