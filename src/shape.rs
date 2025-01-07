@@ -37,7 +37,6 @@
 //!     .build();
 //! ```
 
-use crate::renderer::BufferPool;
 use crate::vertex::CustomVertex;
 use crate::{Color, Stroke};
 use lyon::lyon_tessellation::{
@@ -46,6 +45,7 @@ use lyon::lyon_tessellation::{
 use lyon::path::Winding;
 use lyon::tessellation::FillVertexConstructor;
 use wgpu::{Buffer, Queue};
+use crate::util::{BufferPool, LyonVertexBuffersPool};
 
 /// Represents a graphical shape, which can be either a custom path or a simple rectangle.
 ///
@@ -347,10 +347,11 @@ impl PathShape {
         &self,
         depth: f32,
         tessellator: &mut FillTessellator,
+        lyon_vertex_buffers_pool: &mut LyonVertexBuffersPool,
     ) -> VertexBuffers<CustomVertex, u16> {
-        let mut buffers: VertexBuffers<CustomVertex, u16> = VertexBuffers::new();
-        // let mut tessellator = FillTessellator::new();
-        let options = FillOptions::default().with_tolerance(0.1);
+        let mut buffers: VertexBuffers<CustomVertex, u16> = lyon_vertex_buffers_pool.get_vertex_buffers();
+
+        let options = FillOptions::default();
 
         let color = self.fill.normalize();
         let vertex_converter = VertexConverter::new(depth, color);
@@ -403,11 +404,10 @@ impl ShapeDrawData {
 
     /// Tesselates complex shapes and stores the resulting buffers.
     #[inline(always)]
-    pub(crate) fn tessellate(&mut self, depth: f32, tessellator: &mut FillTessellator) {
-        // let mut tessellator = FillTessellator::new();
+    pub(crate) fn tessellate(&mut self, depth: f32, tessellator: &mut FillTessellator, lyon_vertex_buffers_pool: &mut LyonVertexBuffersPool) {
         match &self.shape {
             Shape::Path(path_shape) => {
-                let mut vertex_buffers = path_shape.tessellate(depth, tessellator);
+                let mut vertex_buffers = path_shape.tessellate(depth, tessellator, lyon_vertex_buffers_pool);
                 if vertex_buffers.indices.len() % 2 != 0 {
                     vertex_buffers.indices.push(0);
                 }
@@ -453,11 +453,14 @@ impl ShapeDrawData {
                         depth,
                     },
                 ];
+                let indices = [0u16, 1, 2, 3, 4, 5];
 
-                self.vertex_buffers = Some(VertexBuffers {
-                    vertices: quad.to_vec(),
-                    indices: vec![0u16, 1, 2, 3, 4, 5],
-                });
+                let mut vertex_buffers = lyon_vertex_buffers_pool.get_vertex_buffers();
+
+                vertex_buffers.vertices.extend(quad);
+                vertex_buffers.indices.extend(indices);
+
+                self.vertex_buffers = Some(vertex_buffers);
             }
         }
     }
@@ -509,6 +512,17 @@ impl ShapeDrawData {
         let index_buffer = self.index_buffer.take();
         if let Some(index_buffer) = index_buffer {
             index_buffer_pool.return_buffer(index_buffer);
+        }
+    }
+
+    pub(crate) fn return_lyon_vertex_buffers_to_pool(
+        &mut self,
+        vertex_buffer_pool: &mut LyonVertexBuffersPool,
+    ) {
+        let vertex_buffers = self.vertex_buffers.take();
+        if let Some(mut vertex_buffers) = vertex_buffers {
+            vertex_buffers.clear();
+            vertex_buffer_pool.return_vertex_buffers(vertex_buffers);
         }
     }
 

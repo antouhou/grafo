@@ -77,7 +77,7 @@ use crate::pipeline::{
 };
 use crate::shape::{Shape, ShapeDrawData};
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
-use crate::util::to_logical;
+use crate::util::{to_logical, BufferPool, ImageBuffersPool, LyonVertexBuffersPool, TextBuffersPool};
 use crate::FontFamily;
 use ahash::{HashMap, HashMapExt};
 use glyphon::{fontdb, Resolution};
@@ -86,41 +86,6 @@ use lyon::tessellation::FillTessellator;
 use wgpu::{
     BindGroup, Buffer, BufferUsages, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget,
 };
-
-pub(crate) struct BufferPool {
-    buffer_usages: BufferUsages,
-    buffers: Vec<Buffer>,
-}
-
-impl BufferPool {
-    fn new(buffer_usages: BufferUsages) -> Self {
-        Self {
-            buffers: Vec::new(),
-            buffer_usages,
-        }
-    }
-
-    pub(crate) fn get_buffer(&mut self, device: &wgpu::Device, size: usize) -> Buffer {
-        if let Some(buffer) = self.buffers.pop() {
-            buffer
-        } else {
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size: size as u64,
-                usage: self.buffer_usages,
-                mapped_at_creation: false,
-            })
-        }
-    }
-
-    pub(crate) fn return_buffer(&mut self, buffer: Buffer) {
-        self.buffers.push(buffer);
-    }
-
-    pub(crate) fn size(&self) -> usize {
-        self.buffers.len()
-    }
-}
 
 /// Represents different rendering pipelines used by the `Renderer`.
 ///
@@ -237,8 +202,13 @@ pub struct Renderer<'a> {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
 
+    tessellator: FillTessellator,
+
     vertex_buffer_pool: BufferPool,
     index_buffer_pool: BufferPool,
+    lyon_vertex_buffers_pool: LyonVertexBuffersPool,
+    text_buffers_pool: TextBuffersPool,
+    image_buffers_pool: ImageBuffersPool,
 
     /// Text instances to be rendered
     text_instances: Vec<TextDrawData>,
@@ -424,8 +394,13 @@ impl Renderer<'_> {
             text_renderer_wrapper,
             glyphon_viewport,
 
+            tessellator: FillTessellator::new(),
+
             vertex_buffer_pool: BufferPool::new(BufferUsages::VERTEX | BufferUsages::COPY_DST),
             index_buffer_pool: BufferPool::new(BufferUsages::INDEX | BufferUsages::COPY_DST),
+            lyon_vertex_buffers_pool: LyonVertexBuffersPool::new(),
+            text_buffers_pool: TextBuffersPool::new(),
+            image_buffers_pool: ImageBuffersPool::new(),
 
             and_pipeline: Arc::new(and_pipeline),
             and_uniforms,
@@ -616,6 +591,7 @@ impl Renderer<'_> {
             self.scale_factor as f32,
             &mut self.text_renderer_wrapper.font_system,
             font_family,
+            &mut self.text_buffers_pool
         ));
     }
 
@@ -662,11 +638,14 @@ impl Renderer<'_> {
         let iter = self.draw_tree.iter_mut();
 
         let iter_time = std::time::Instant::now();
-        let mut tesselator = FillTessellator::new();
         iter.for_each(|draw_command| match draw_command.1 {
             DrawCommand::Shape(ref mut shape) => {
                 let depth = depth(draw_command.0, draw_tree_size);
-                shape.tessellate(depth, &mut tesselator);
+                shape.tessellate(
+                    depth,
+                    &mut self.tessellator,
+                    &mut self.lyon_vertex_buffers_pool
+                );
                 shape.prepare_buffers(
                     &self.device,
                     &self.queue,
@@ -681,6 +660,7 @@ impl Renderer<'_> {
                     &self.texture_bind_group_layout,
                     self.physical_size,
                     self.scale_factor as f32,
+                    &mut self.image_buffers_pool,
                 );
             }
         });
@@ -710,31 +690,6 @@ impl Renderer<'_> {
             let shape_ids_to_stencil_references = HashMap::<usize, u32>::new();
             let current_pipeline = Pipeline::None;
 
-            // let vertex_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            //     label: None,
-            //     size: 800 * 600 * 4,
-            //     usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            //     mapped_at_creation: false,
-            // });
-            //
-            // let index_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            //     label: None,
-            //     size: 800 * 600 * 4,
-            //     usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-            //     mapped_at_creation: false,
-            // });
-            // let vertex_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            //     label: None,
-            //     contents: bytemuck::cast_slice(&empty_byte_array),
-            //     usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            // });
-            //
-            // let index_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            //     label: None,
-            //     contents: bytemuck::cast_slice(&empty_byte_array),
-            //     usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-            // });
-
             let mut data = (
                 render_pass,
                 shape_ids_to_stencil_references,
@@ -749,10 +704,6 @@ impl Renderer<'_> {
 
                     match draw_command {
                         DrawCommand::Shape(shape) => {
-                            // let num_indices = 0;
-                            // let num_indices = shape.copy_data_to_buffers(&vertex_buffer, &index_buffer, &self.queue);
-                            // let (vertex_buffer, index_buffer, num_indices) = shape.prepare_buffers(&self.device, shape_id, draw_tree_size, &mut tesselator);
-
                             if let (Some(vertex_buffer), Some(index_buffer)) =
                                 (shape.vertex_buffer.as_ref(), shape.index_buffer.as_ref())
                             {
@@ -902,6 +853,12 @@ impl Renderer<'_> {
                     &mut data.0,
                 )
                 .unwrap();
+
+            // Returning text buffers back to the pool
+            for text_instance in text_instances {
+                let TextDrawData { text_buffer, .. } = text_instance;
+                self.text_buffers_pool.return_text_buffer(text_buffer);
+            }
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -916,15 +873,10 @@ impl Renderer<'_> {
                         &mut self.vertex_buffer_pool,
                         &mut self.index_buffer_pool,
                     );
+                    shape.return_lyon_vertex_buffers_to_pool(&mut self.lyon_vertex_buffers_pool);
                 }
                 DrawCommand::Image(ref mut image) => {
-                    // image.prepare(
-                    //     &self.device,
-                    //     &self.queue,
-                    //     &self.texture_bind_group_layout,
-                    //     self.physical_size,
-                    //     self.scale_factor as f32,
-                    // );
+                    image.return_buffers_to_pool(&mut self.image_buffers_pool);
                 }
             });
 
