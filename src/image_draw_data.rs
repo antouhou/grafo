@@ -1,5 +1,5 @@
 use crate::renderer::MathRect;
-use crate::util::{normalize_rect, ImageBuffersPool};
+use crate::util::{normalize_rect, PoolManager};
 use crate::vertex::TexturedVertex;
 use wgpu::{BindGroup, BindGroupLayout, BufferSlice, Device};
 
@@ -45,7 +45,7 @@ impl ImageDrawData {
         bind_group_layout: &BindGroupLayout,
         canvas_physical_size: (u32, u32),
         scale_factor: f32,
-        image_buffers_pool: &mut ImageBuffersPool,
+        buffers_pool: &mut PoolManager,
     ) {
         let texture_dimensions = self.image_size;
 
@@ -105,7 +105,7 @@ impl ImageDrawData {
             device,
             canvas_physical_size,
             scale_factor,
-            image_buffers_pool,
+            buffers_pool,
             queue,
         );
     }
@@ -115,7 +115,7 @@ impl ImageDrawData {
         device: &Device,
         canvas_physical_size: (u32, u32),
         scale_factor: f32,
-        image_buffers_pool: &mut ImageBuffersPool,
+        buffers_pool: &mut PoolManager,
         queue: &wgpu::Queue,
     ) {
         let normalized_rect =
@@ -154,13 +154,13 @@ impl ImageDrawData {
             },
         ];
 
-        let vertex_buffer = image_buffers_pool.get_vertex_buffer(device);
+        let vertex_buffer = buffers_pool.image_buffers_pool.get_vertex_buffer(device);
         queue.write_buffer(&vertex_buffer, 0, bytemuck::cast_slice(&quad));
 
         // Index buffer doesn't need any additional manipulation. In fact, it's probably
         //  possible to reuse it for all images, since it's just a quad, and indices of the
         //  quad are always the same.
-        let index_buffer = image_buffers_pool.get_index_buffer(device);
+        let index_buffer = buffers_pool.image_buffers_pool.get_index_buffer(device);
 
         self.vertex_buffer = Some(vertex_buffer);
         self.index_buffer = Some(index_buffer);
@@ -168,13 +168,17 @@ impl ImageDrawData {
         self.num_indices = Some(6);
     }
 
-    pub fn return_buffers_to_pool(&mut self, image_buffers_pool: &mut ImageBuffersPool) {
+    pub fn return_buffers_to_pool(&mut self, buffers_pool: &mut PoolManager) {
         if let Some(vertex_buffer) = self.vertex_buffer.take() {
-            image_buffers_pool.return_vertex_buffer(vertex_buffer);
+            buffers_pool
+                .image_buffers_pool
+                .return_vertex_buffer(vertex_buffer);
         }
 
         if let Some(index_buffer) = self.index_buffer.take() {
-            image_buffers_pool.return_index_buffer(index_buffer);
+            buffers_pool
+                .image_buffers_pool
+                .return_index_buffer(index_buffer);
         }
     }
 

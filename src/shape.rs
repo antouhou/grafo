@@ -37,7 +37,7 @@
 //!     .build();
 //! ```
 
-use crate::util::{BufferPool, LyonVertexBuffersPool};
+use crate::util::{BufferPool, LyonVertexBuffersPool, PoolManager};
 use crate::vertex::CustomVertex;
 use crate::{Color, Stroke};
 use lyon::lyon_tessellation::{
@@ -45,7 +45,6 @@ use lyon::lyon_tessellation::{
 };
 use lyon::path::Winding;
 use lyon::tessellation::FillVertexConstructor;
-use wgpu::{Buffer, Queue};
 
 /// Represents a graphical shape, which can be either a custom path or a simple rectangle.
 ///
@@ -347,10 +346,10 @@ impl PathShape {
         &self,
         depth: f32,
         tessellator: &mut FillTessellator,
-        lyon_vertex_buffers_pool: &mut LyonVertexBuffersPool,
+        buffers_pool: &mut PoolManager,
     ) -> VertexBuffers<CustomVertex, u16> {
         let mut buffers: VertexBuffers<CustomVertex, u16> =
-            lyon_vertex_buffers_pool.get_vertex_buffers();
+            buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
 
         let options = FillOptions::default();
 
@@ -409,12 +408,11 @@ impl ShapeDrawData {
         &mut self,
         depth: f32,
         tessellator: &mut FillTessellator,
-        lyon_vertex_buffers_pool: &mut LyonVertexBuffersPool,
+        buffers_pool: &mut PoolManager,
     ) {
         match &self.shape {
             Shape::Path(path_shape) => {
-                let mut vertex_buffers =
-                    path_shape.tessellate(depth, tessellator, lyon_vertex_buffers_pool);
+                let mut vertex_buffers = path_shape.tessellate(depth, tessellator, buffers_pool);
                 if vertex_buffers.indices.len() % 2 != 0 {
                     vertex_buffers.indices.push(0);
                 }
@@ -462,7 +460,7 @@ impl ShapeDrawData {
                 ];
                 let indices = [0u16, 1, 2, 3, 4, 5];
 
-                let mut vertex_buffers = lyon_vertex_buffers_pool.get_vertex_buffers();
+                let mut vertex_buffers = buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
 
                 vertex_buffers.vertices.extend(quad);
                 vertex_buffers.indices.extend(indices);
@@ -477,16 +475,15 @@ impl ShapeDrawData {
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        vertex_buffer_pool: &mut BufferPool,
-        index_buffer_pool: &mut BufferPool,
+        buffer_pool: &mut PoolManager,
     ) -> (wgpu::Buffer, wgpu::Buffer, u32) {
         let vertex_buffers = self
             .vertex_buffers
             .as_ref()
             .expect("To be tesselated at this point");
         // TODO: better buffer allocation
-        let vertex_buffer = vertex_buffer_pool.get_buffer(device, 100000);
-        let index_buffer = index_buffer_pool.get_buffer(device, 1000);
+        let vertex_buffer = buffer_pool.vertex_buffer_pool.get_buffer(device, 100000);
+        let index_buffer = buffer_pool.index_buffer_pool.get_buffer(device, 1000);
 
         queue.write_buffer(
             &vertex_buffer,
@@ -506,7 +503,15 @@ impl ShapeDrawData {
         )
     }
 
-    pub(crate) fn return_buffers_to_pool(
+    pub(crate) fn return_buffers(&mut self, buffer_pool: &mut PoolManager) {
+        self.return_buffers_to_pool(
+            &mut buffer_pool.vertex_buffer_pool,
+            &mut buffer_pool.index_buffer_pool,
+        );
+        self.return_lyon_vertex_buffers_to_pool(&mut buffer_pool.lyon_vertex_buffers_pool);
+    }
+
+    fn return_buffers_to_pool(
         &mut self,
         vertex_buffer_pool: &mut BufferPool,
         index_buffer_pool: &mut BufferPool,
@@ -522,7 +527,7 @@ impl ShapeDrawData {
         }
     }
 
-    pub(crate) fn return_lyon_vertex_buffers_to_pool(
+    fn return_lyon_vertex_buffers_to_pool(
         &mut self,
         vertex_buffer_pool: &mut LyonVertexBuffersPool,
     ) {
@@ -552,59 +557,14 @@ impl ShapeDrawData {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        vertex_buffer_pool: &mut BufferPool,
-        index_buffer_pool: &mut BufferPool,
+        buffer_pool: &mut PoolManager,
     ) {
         let (vertex_buffer, index_buffer, num_indices) =
-            self.shape_data_to_buffers(device, queue, vertex_buffer_pool, index_buffer_pool);
+            self.shape_data_to_buffers(device, queue, buffer_pool);
 
         self.vertex_buffer = Some(vertex_buffer);
         self.index_buffer = Some(index_buffer);
         self.num_indices = Some(num_indices);
-    }
-
-    /// Copies tessellated data into WGPU buffers and returns num_indices
-    pub fn copy_data_to_buffers(
-        &self,
-        vertex_buffer: &Buffer,
-        index_buffer: &Buffer,
-        queue: &Queue,
-    ) -> u32 {
-        let vertex_buffers = self
-            .vertex_buffers
-            .as_ref()
-            .expect("To be tesselated at this point");
-        let vertex_bytes = bytemuck::cast_slice(&vertex_buffers.vertices);
-        let index_bytes = bytemuck::cast_slice(&vertex_buffers.indices);
-
-        // // Map the buffer for writing
-        // vertex_buffer.slice(..).map_async(wgpu::MapMode::Write, |_| {});
-
-        // Wait for the mapping to complete
-        // device.poll(wgpu::Maintain::Wait);
-        //
-        // // Write data to the buffer
-        // {
-        //     let mut mapped_range = buffer.slice(..).get_mapped_range_mut();
-        //     mapped_range.copy_from_slice(data);
-        // }
-        //
-        // // Unmap the buffer
-        // buffer.unmap();
-
-        // if vertex_bytes.len() == 42 {
-        //     println!("Vertex buffer: is 42");
-        // }
-        //
-        // if index_bytes.len() == 42 {
-        //     println!("Index buffer: is 42");
-        //     println!("{:?}", vertex_buffers.indices.len())
-        // }
-
-        queue.write_buffer(vertex_buffer, 0, vertex_bytes);
-        queue.write_buffer(index_buffer, 0, index_bytes);
-
-        self.vertex_buffers.as_ref().unwrap().indices.len() as u32
     }
 }
 

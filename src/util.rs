@@ -61,10 +61,6 @@ impl BufferPool {
     pub(crate) fn return_buffer(&mut self, buffer: Buffer) {
         self.buffers.push(buffer);
     }
-
-    pub(crate) fn size(&self) -> usize {
-        self.buffers.len()
-    }
 }
 
 pub struct LyonVertexBuffersPool {
@@ -88,10 +84,6 @@ impl LyonVertexBuffersPool {
 
     pub fn return_vertex_buffers(&mut self, vertex_buffers: VertexBuffers<CustomVertex, u16>) {
         self.vertex_buffers.push(vertex_buffers);
-    }
-
-    pub fn size(&self) -> usize {
-        self.vertex_buffers.len()
     }
 }
 
@@ -121,10 +113,6 @@ impl TextBuffersPool {
 
     pub fn return_text_buffer(&mut self, buffer: TextBuffer) {
         self.buffers.push(buffer);
-    }
-
-    pub fn size(&self) -> usize {
-        self.buffers.len()
     }
 }
 
@@ -181,9 +169,31 @@ impl ImageBuffersPool {
     pub fn return_index_buffer(&mut self, buffer: wgpu::Buffer) {
         self.index_buffers.push(buffer);
     }
+}
 
-    pub fn size(&self) -> usize {
-        self.vertex_buffers.len() + self.index_buffers.len()
+pub(crate) struct PoolManager {
+    pub vertex_buffer_pool: BufferPool,
+    pub index_buffer_pool: BufferPool,
+    pub lyon_vertex_buffers_pool: LyonVertexBuffersPool,
+    pub text_buffers_pool: TextBuffersPool,
+    pub image_buffers_pool: ImageBuffersPool,
+}
+
+impl PoolManager {
+    pub(crate) fn new() -> Self {
+        Self {
+            vertex_buffer_pool: BufferPool::new(BufferUsages::VERTEX | BufferUsages::COPY_DST),
+            index_buffer_pool: BufferPool::new(
+                wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            ),
+            lyon_vertex_buffers_pool: LyonVertexBuffersPool::new(),
+            text_buffers_pool: TextBuffersPool::new(),
+            image_buffers_pool: ImageBuffersPool::new(),
+        }
+    }
+
+    pub fn return_text_buffer(&mut self, buffer: TextBuffer) {
+        self.text_buffers_pool.return_text_buffer(buffer);
     }
 }
 
