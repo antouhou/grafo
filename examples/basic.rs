@@ -28,7 +28,7 @@ pub fn main() {
         Color::rgb(0, 128, 255),        // Blue fill
         Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
     );
-    renderer.add_shape(rect, None);
+    renderer.add_shape(rect, None, (0.0, 0.0), None);
 
     // Start the event loop
     let _ = event_loop.run(move |event, event_loop_window_target| match event {

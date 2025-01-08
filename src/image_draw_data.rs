@@ -38,6 +38,51 @@ impl ImageDrawData {
         }
     }
 
+    pub(crate) fn allocate_texture(
+        texture_extent: wgpu::Extent3d,
+        device: &wgpu::Device,
+    ) -> wgpu::Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: texture_extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            // sRGBA, as we're going to work with RGBA images
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            // TEXTURE_BINDING to use texture in the shader, COPY_DST to copy data to the texture
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        })
+    }
+
+    pub(crate) fn write_image_bytes_to_texture(
+        texture: &wgpu::Texture,
+        texture_dimensions: (u32, u32),
+        texture_extent: wgpu::Extent3d,
+        texture_data_bytes: &[u8],
+        queue: &wgpu::Queue,
+    ) {
+        queue.write_texture(
+            // Tells wgpu where to copy the pixel data
+            wgpu::ImageCopyTexture {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            // The actual pixel data
+            texture_data_bytes,
+            // The layout of the texture
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * texture_dimensions.0),
+                rows_per_image: Some(texture_dimensions.1),
+            },
+            texture_extent,
+        );
+    }
+
     pub(crate) fn prepare(
         &mut self,
         device: &wgpu::Device,
@@ -59,36 +104,14 @@ impl ImageDrawData {
             depth_or_array_layers: 1,
         };
 
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size: texture_extent,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            // sRGBA, as we're going to work with RGBA images
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            // TEXTURE_BINDING to use texture in the shader, COPY_DST to copy data to the texture
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+        let texture = Self::allocate_texture(texture_extent, device);
 
-        queue.write_texture(
-            // Tells wgpu where to copy the pixel data
-            wgpu::ImageCopyTexture {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            // The actual pixel data
-            &self.image_data,
-            // The layout of the texture
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * texture_dimensions.0),
-                rows_per_image: Some(texture_dimensions.1),
-            },
+        Self::write_image_bytes_to_texture(
+            &texture,
+            texture_dimensions,
             texture_extent,
+            &self.image_data,
+            queue,
         );
 
         self.texture = Some(texture);

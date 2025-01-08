@@ -15,10 +15,11 @@ readme = "README.md"
 bytemuck = "1.21.0"
 wgpu = "23.0.1"
 ahash = "0.8.11"
-lyon = "1.0.1"
+lyon = { version = "1.0.1", features = ["serialization"]}
 glyphon = "0.7.0"
 easy-tree = { version = "0.1.3" }
 log = "0.4.22"
+lru = "0.12.5"
 
 [dev-dependencies]
 winit = "0.29.15"

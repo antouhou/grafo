@@ -1,3 +1,4 @@
+use crate::cache::Cache;
 use crate::renderer::MathRect;
 use crate::vertex::CustomVertex;
 use glyphon::{Buffer as TextBuffer, FontSystem, Metrics};
@@ -80,10 +81,6 @@ impl LyonVertexBuffersPool {
         } else {
             VertexBuffers::new()
         }
-    }
-
-    pub fn return_vertex_buffers(&mut self, vertex_buffers: VertexBuffers<CustomVertex, u16>) {
-        self.vertex_buffers.push(vertex_buffers);
     }
 }
 
@@ -177,6 +174,7 @@ pub(crate) struct PoolManager {
     pub lyon_vertex_buffers_pool: LyonVertexBuffersPool,
     pub text_buffers_pool: TextBuffersPool,
     pub image_buffers_pool: ImageBuffersPool,
+    pub tessellation_cache: Cache,
 }
 
 impl PoolManager {
@@ -189,6 +187,7 @@ impl PoolManager {
             lyon_vertex_buffers_pool: LyonVertexBuffersPool::new(),
             text_buffers_pool: TextBuffersPool::new(),
             image_buffers_pool: ImageBuffersPool::new(),
+            tessellation_cache: Cache::new(),
         }
     }
 
