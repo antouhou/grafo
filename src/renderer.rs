@@ -482,7 +482,7 @@ impl Renderer<'_> {
     ///
     /// - `image`: A byte slice representing the image data.
     /// - `physical_image_dimensions`: A tuple representing the image's width and height in pixels.
-    /// - `rect`: An array containing two tuples representing the top-left and bottom-right
+    /// - `area`: An array containing two tuples representing the top-left and bottom-right
     ///   coordinates where the image should be rendered.
     /// - `clip_to_shape`: Optional index of a shape to which this image should be clipped.
     ///
@@ -520,7 +520,7 @@ impl Renderer<'_> {
         &mut self,
         image: &[u8],
         physical_image_dimensions: (u32, u32),
-        rect: [(f32, f32); 2],
+        area: [(f32, f32); 2],
         clip_to_shape: Option<usize>,
     ) {
         // TODO: cache image data
@@ -530,7 +530,7 @@ impl Renderer<'_> {
         let draw_command = DrawCommand::Image(ImageDrawData::new(
             image_data,
             physical_image_dimensions,
-            rect,
+            area,
             clip_to_shape,
         ));
 
