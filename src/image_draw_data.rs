@@ -38,7 +38,10 @@ impl ImageDrawData {
         }
     }
 
-    pub(crate) fn allocate_texture(texture_extent: wgpu::Extent3d, device: &wgpu::Device) -> wgpu::Texture {
+    pub(crate) fn allocate_texture(
+        texture_extent: wgpu::Extent3d,
+        device: &wgpu::Device,
+    ) -> wgpu::Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: texture_extent,
@@ -63,7 +66,7 @@ impl ImageDrawData {
         queue.write_texture(
             // Tells wgpu where to copy the pixel data
             wgpu::ImageCopyTexture {
-                texture: &texture,
+                texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -108,7 +111,7 @@ impl ImageDrawData {
             texture_dimensions,
             texture_extent,
             &self.image_data,
-            &queue
+            queue,
         );
 
         self.texture = Some(texture);
