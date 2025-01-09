@@ -114,11 +114,10 @@ impl ImageDrawData {
             queue,
         );
 
+        let view = Self::create_view(&texture);
+
         self.texture = Some(texture);
 
-        let view = self
-            .create_texture_view()
-            .expect("Texture to be prepared for rendering");
         let sampler = ImageDrawData::create_sampler(device);
         let bind_group =
             ImageDrawData::create_bind_group(device, bind_group_layout, &view, &sampler);
@@ -215,6 +214,10 @@ impl ImageDrawData {
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         })
+    }
+
+    fn create_view(texture: &wgpu::Texture) -> wgpu::TextureView {
+        texture.create_view(&wgpu::TextureViewDescriptor::default())
     }
 
     fn create_texture_view(&self) -> Option<wgpu::TextureView> {
