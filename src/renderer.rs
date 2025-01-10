@@ -64,6 +64,7 @@
 //! renderer.clear_draw_queue();
 //! ```
 
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 pub type MathRect = lyon::math::Box2D;
@@ -82,6 +83,7 @@ use glyphon::{fontdb, Resolution};
 use log::warn;
 use lyon::tessellation::FillTessellator;
 use wgpu::{BindGroup, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
+use crate::texture_manager::TextureManager;
 
 /// Represents different rendering pipelines used by the `Renderer`.
 ///
@@ -194,13 +196,15 @@ pub struct Renderer<'a> {
 
     // WGPU components
     surface: wgpu::Surface<'a>,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
     config: wgpu::SurfaceConfiguration,
 
     tessellator: FillTessellator,
 
     buffers_pool_manager: PoolManager,
+
+    texture_manager: TextureManager,
 
     /// Text instances to be rendered
     text_instances: Vec<TextDrawData>,
@@ -233,8 +237,6 @@ pub struct Renderer<'a> {
     texture_crop_render_pipeline: Arc<wgpu::RenderPipeline>,
     /// Render pipeline for always rendering textures without clipping.
     texture_always_render_pipeline: Arc<wgpu::RenderPipeline>,
-    /// Bind group layout for texture rendering pipelines.
-    texture_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl Renderer<'_> {
@@ -373,6 +375,13 @@ impl Renderer<'_> {
             texture_always_render_pipeline,
         ) = create_texture_pipeline(&device, &config);
 
+        let device = Arc::new(device);
+        let queue = Arc::new(queue);
+
+        let texture_manager = TextureManager::new(
+            device.clone(), queue.clone(), texture_bind_group_layout
+        );
+
         Self {
             surface,
             device,
@@ -387,6 +396,8 @@ impl Renderer<'_> {
             glyphon_viewport,
 
             tessellator: FillTessellator::new(),
+
+            texture_manager,
 
             buffers_pool_manager: PoolManager::new(),
 
@@ -406,7 +417,6 @@ impl Renderer<'_> {
             // adapter,
             texture_crop_render_pipeline: Arc::new(texture_crop_render_pipeline),
             texture_always_render_pipeline: Arc::new(texture_always_render_pipeline),
-            texture_bind_group_layout,
         }
     }
 
@@ -520,21 +530,51 @@ impl Renderer<'_> {
         &mut self,
         image: &[u8],
         physical_image_dimensions: (u32, u32),
-        area: [(f32, f32); 2],
+        draw_at: [(f32, f32); 2],
         clip_to_shape: Option<usize>,
     ) {
-        // TODO: cache image data
-        // let texture_id = TextureId::new(image);
-        let image_data = image.to_vec();
+
+        // Creating naive texture ID based on the image data
+        let mut default_hasher = std::collections::hash_map::DefaultHasher::new();
+        image.hash(&mut default_hasher);
+        let texture_id = default_hasher.finish();
+
+        let is_already_loaded = self.texture_manager.is_texture_loaded(texture_id);
+
+        if !is_already_loaded {
+            self.texture_manager.allocate_texture_with_data(texture_id, physical_image_dimensions, image);
+        }
 
         let draw_command = DrawCommand::Image(ImageDrawData::new(
-            image_data,
+            texture_id,
             physical_image_dimensions,
-            area,
+            draw_at,
             clip_to_shape,
         ));
 
         self.add_draw_command(draw_command, clip_to_shape);
+    }
+
+    pub fn add_texture_draw_to_queue(
+        &mut self,
+        texture_id: u64,
+        physical_image_dimensions: (u32, u32),
+        draw_at: [(f32, f32); 2],
+        clip_to_shape: Option<usize>,
+    ) {
+        let draw_command = DrawCommand::Image(ImageDrawData::new(
+            texture_id,
+            physical_image_dimensions,
+            draw_at,
+            clip_to_shape,
+        ));
+
+        self.add_draw_command(draw_command, clip_to_shape);
+    }
+
+    /// A texture manager is a helper to allow more granular approach to drawing images
+    pub fn texture_manager(&self) -> &TextureManager {
+        &self.texture_manager
     }
 
     /// Adds text to the draw queue. If you want to use a custom font, you need to load it first
@@ -651,12 +691,13 @@ impl Renderer<'_> {
             }
             DrawCommand::Image(ref mut image) => {
                 image.prepare(
-                    &self.device,
-                    &self.queue,
-                    &self.texture_bind_group_layout,
+                    &self.texture_manager,
+                    // &self.device,
+                    // &self.queue,
+                    // &self.texture_bind_group_layout,
                     self.physical_size,
                     self.scale_factor as f32,
-                    &mut self.buffers_pool_manager,
+                    // &mut self.buffers_pool_manager,
                 );
             }
         });
@@ -1078,7 +1119,7 @@ impl Renderer<'_> {
             texture_crop_render_pipeline,
             texture_always_render_pipeline,
         ) = create_texture_pipeline(&self.device, &self.config);
-        self.texture_bind_group_layout = texture_bind_group_layout;
+        self.texture_manager.set_bind_group_layout(texture_bind_group_layout);
         self.texture_crop_render_pipeline = Arc::new(texture_crop_render_pipeline);
         self.texture_always_render_pipeline = Arc::new(texture_always_render_pipeline);
 

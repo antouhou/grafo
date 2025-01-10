@@ -2,9 +2,10 @@ use crate::renderer::MathRect;
 use crate::util::{normalize_rect, PoolManager};
 use crate::vertex::TexturedVertex;
 use wgpu::{BindGroup, BindGroupLayout, BufferSlice, Device};
+use crate::texture_manager::TextureManager;
 
 pub(crate) struct ImageDrawData {
-    pub(crate) image_data: Vec<u8>,
+    pub(crate) texture_id: u64,
     pub(crate) image_size: (u32, u32),
     pub(crate) logical_rect: MathRect,
     pub(crate) clip_to_shape: Option<usize>,
@@ -17,13 +18,13 @@ pub(crate) struct ImageDrawData {
 
 impl ImageDrawData {
     pub fn new(
-        image_data: Vec<u8>,
+        texture_id: u64,
         physical_image_dimensions: (u32, u32),
         rect: [(f32, f32); 2],
         clip_to_shape: Option<usize>,
     ) -> Self {
         Self {
-            image_data,
+            texture_id,
             image_size: physical_image_dimensions,
             logical_rect: MathRect::new(
                 (rect[0].0, rect[0].1).into(),
@@ -85,51 +86,59 @@ impl ImageDrawData {
 
     pub(crate) fn prepare(
         &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        bind_group_layout: &BindGroupLayout,
+        texture_manager: &TextureManager,
+        // device: &wgpu::Device,
+        // queue: &wgpu::Queue,
+        // bind_group_layout: &BindGroupLayout,
         canvas_physical_size: (u32, u32),
         scale_factor: f32,
-        buffers_pool: &mut PoolManager,
+        // buffers_pool: &mut PoolManager,
     ) {
         let texture_dimensions = self.image_size;
 
-        if (texture_dimensions.0 * texture_dimensions.1) != (self.image_data.len() / 4) as u32 {
-            panic!("Image size and data size mismatch");
-        }
+        // if (texture_dimensions.0 * texture_dimensions.1) != (self.image_data.len() / 4) as u32 {
+        //     panic!("Image size and data size mismatch");
+        // }
 
-        let texture_extent = wgpu::Extent3d {
-            width: texture_dimensions.0,
-            height: texture_dimensions.1,
-            depth_or_array_layers: 1,
-        };
+        // let texture_extent = wgpu::Extent3d {
+        //     width: texture_dimensions.0,
+        //     height: texture_dimensions.1,
+        //     depth_or_array_layers: 1,
+        // };
+        //
+        // let texture = Self::allocate_texture(texture_extent, device);
 
-        let texture = Self::allocate_texture(texture_extent, device);
+        // Self::write_image_bytes_to_texture(
+        //     &texture,
+        //     texture_dimensions,
+        //     texture_extent,
+        //     &self.image_data,
+        //     queue,
+        // );
 
-        Self::write_image_bytes_to_texture(
-            &texture,
-            texture_dimensions,
-            texture_extent,
-            &self.image_data,
-            queue,
-        );
+        // let view = Self::create_view(&texture);
+        //
+        // self.texture = Some(texture);
+        //
+        // let sampler = ImageDrawData::create_sampler(device);
+        // let bind_group =
+        //     ImageDrawData::create_bind_group(device, bind_group_layout, &view, &sampler);
 
-        let view = Self::create_view(&texture);
-
-        self.texture = Some(texture);
-
-        let sampler = ImageDrawData::create_sampler(device);
-        let bind_group =
-            ImageDrawData::create_bind_group(device, bind_group_layout, &view, &sampler);
+        let (
+            vertex_buffer,
+            index_buffer,
+            bind_group
+        ) = texture_manager.create_everything_to_render_texture(
+            self.texture_id,
+            canvas_physical_size,
+            &self.logical_rect,
+            scale_factor,
+        ).unwrap();
 
         self.bind_group = Some(bind_group);
-        self.prepare_vertices(
-            device,
-            canvas_physical_size,
-            scale_factor,
-            buffers_pool,
-            queue,
-        );
+        self.vertex_buffer = Some(vertex_buffer);
+        self.index_buffer = Some(index_buffer);
+        self.num_indices = Some(6);
     }
 
     fn prepare_vertices(

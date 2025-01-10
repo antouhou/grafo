@@ -121,6 +121,7 @@ mod vertex;
 mod cache;
 mod shape;
 mod text;
+mod texture_manager;
 
 pub use color::Color;
 pub use renderer::MathRect;
@@ -128,3 +129,4 @@ pub use renderer::Renderer;
 pub use shape::*;
 pub use stroke::Stroke;
 pub use text::*;
+pub use texture_manager::TextureManager;
