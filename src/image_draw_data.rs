@@ -14,11 +14,7 @@ pub(crate) struct ImageDrawData {
 }
 
 impl ImageDrawData {
-    pub fn new(
-        texture_id: u64,
-        rect: [(f32, f32); 2],
-        clip_to_shape: Option<usize>,
-    ) -> Self {
+    pub fn new(texture_id: u64, rect: [(f32, f32); 2], clip_to_shape: Option<usize>) -> Self {
         Self {
             texture_id,
             logical_rect: MathRect::new(

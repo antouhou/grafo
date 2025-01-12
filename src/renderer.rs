@@ -547,11 +547,8 @@ impl Renderer<'_> {
             );
         }
 
-        let draw_command = DrawCommand::Image(ImageDrawData::new(
-            texture_id,
-            draw_at,
-            clip_to_shape,
-        ));
+        let draw_command =
+            DrawCommand::Image(ImageDrawData::new(texture_id, draw_at, clip_to_shape));
 
         self.add_draw_command(draw_command, clip_to_shape);
     }
@@ -562,11 +559,8 @@ impl Renderer<'_> {
         draw_at: [(f32, f32); 2],
         clip_to_shape: Option<usize>,
     ) {
-        let draw_command = DrawCommand::Image(ImageDrawData::new(
-            texture_id,
-            draw_at,
-            clip_to_shape,
-        ));
+        let draw_command =
+            DrawCommand::Image(ImageDrawData::new(texture_id, draw_at, clip_to_shape));
 
         self.add_draw_command(draw_command, clip_to_shape);
     }
