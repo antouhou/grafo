@@ -1,15 +1,24 @@
+use dextreamer::VideoStreamEvent;
+use futures::executor::block_on;
+use grafo::TextureManager;
 use std::fs;
 use std::path::Path;
-use futures::executor::block_on;
-use grafo::{fontdb, Color, FontFamily, Stroke};
-use grafo::{MathRect, Shape, TextAlignment, TextLayout};
 use std::sync::Arc;
-use std::time::Instant;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
-use dextreamer;
-use dextreamer::VideoStreamEvent;
+
+struct VideoFrameLoader(TextureManager);
+
+impl dextreamer::FrameHandler for VideoFrameLoader {
+    fn handle_new_frame(&self, frame_data: &[u8], frame_size: (u32, u32)) {
+        let texture_manager = &self.0;
+        let texture_id = 123;
+        texture_manager
+            .load_data_into_texture(texture_id, frame_data, frame_size)
+            .expect("To load frame data into texture");
+    }
+}
 
 const TEST_VIDEO_FILE_PATH: &str = "examples/assets/sintel_trailer-480p.mkv";
 pub fn main() {
@@ -39,24 +48,24 @@ pub fn main() {
     ));
 
     let video_size = (848, 360);
-    /// Test id - you should use something else to uniquely identify video texture with
+    // Test id - you should use something else to uniquely identify video texture with
     let video_texture_id = 123;
     renderer.texture_manager().allocate_texture(123, video_size);
 
     let texture_manager_for_video = renderer.texture_manager().clone();
+    let frame_loader = VideoFrameLoader(texture_manager_for_video);
 
     let window_clone = window.clone();
-    let (video_sender, video_receiver) = dextreamer::open_video(test_video_uri);
+    let (video_sender, video_receiver) = dextreamer::open_video(test_video_uri, frame_loader);
 
     // Start video receiver thread handler
-    std::thread::spawn(move || {
-        let mut video_receiver = video_receiver;
+    let _ = std::thread::spawn(move || {
+        let video_receiver = video_receiver;
         loop {
             for video_event in video_receiver.iter() {
                 match video_event {
                     VideoStreamEvent::VideoLoaded(_) => {}
-                    VideoStreamEvent::NewFrame(data) => {
-                        texture_manager_for_video.load_data_into_texture(video_texture_id, &data.data, video_size).expect("To load video frame into texture");
+                    VideoStreamEvent::NewFrame => {
                         window_clone.request_redraw();
                     }
                     VideoStreamEvent::Error(_) => {}
@@ -65,7 +74,9 @@ pub fn main() {
                     VideoStreamEvent::VolumeChanged(_) => {}
                     VideoStreamEvent::PlayingStateChanged(_) => {}
                     VideoStreamEvent::PositionChanged(_) => {}
-                    VideoStreamEvent::Closed => {}
+                    VideoStreamEvent::Closed => {
+                        println!("Video closed");
+                    }
                 }
             }
         }
@@ -76,7 +87,12 @@ pub fn main() {
             ref event,
             window_id,
         } if window_id == window.id() => match event {
-            WindowEvent::CloseRequested => event_loop_window_target.exit(),
+            WindowEvent::CloseRequested => {
+                video_sender
+                    .send(dextreamer::VideoStreamAction::Close)
+                    .expect("To send close command to video stream");
+                event_loop_window_target.exit();
+            }
             WindowEvent::Resized(physical_size) => {
                 let new_size = (physical_size.width, physical_size.height);
                 renderer.resize(new_size);
@@ -84,13 +100,10 @@ pub fn main() {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                let timer = Instant::now();
-
                 renderer.add_texture_draw_to_queue(
                     video_texture_id,
-                    (848, 360),
-                    [(0.0, 0.0), (848.0, 360.0)],
-                    None
+                    [(0.0, 0.0), (video_size.0 as f32, video_size.1 as f32)],
+                    None,
                 );
 
                 match renderer.render() {
@@ -101,7 +114,6 @@ pub fn main() {
                     Err(wgpu::SurfaceError::OutOfMemory) => event_loop_window_target.exit(),
                     Err(e) => eprintln!("{:?}", e),
                 }
-                println!("Render time: {:?}", timer.elapsed());
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 renderer.change_scale_factor(*scale_factor);

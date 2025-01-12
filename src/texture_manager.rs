@@ -1,9 +1,8 @@
+use crate::util::{normalize_rect, PoolManager};
+use crate::vertex::TexturedVertex;
+use crate::MathRect;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use wgpu::util::DeviceExt;
-use crate::MathRect;
-use crate::util::{normalize_rect};
-use crate::vertex::TexturedVertex;
 
 #[derive(Debug)]
 pub enum TextureManagerError {
@@ -21,7 +20,11 @@ pub struct TextureManager {
 }
 
 impl TextureManager {
-    pub(crate) fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>, bind_group_layout: wgpu::BindGroupLayout) -> Self {
+    pub(crate) fn new(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        bind_group_layout: wgpu::BindGroupLayout,
+    ) -> Self {
         let sampler = Self::create_sampler(&device);
         Self {
             device,
@@ -48,11 +51,7 @@ impl TextureManager {
         *self.bind_group_layout.write().unwrap() = bind_group_layout;
     }
 
-    pub fn allocate_texture(
-        &self,
-        texture_id: u64,
-        texture_dimensions: (u32, u32),
-    ) {
+    pub fn allocate_texture(&self, texture_id: u64, texture_dimensions: (u32, u32)) {
         let texture_extent = wgpu::Extent3d {
             width: texture_dimensions.0,
             height: texture_dimensions.1,
@@ -72,7 +71,10 @@ impl TextureManager {
             view_formats: &[],
         });
 
-        self.texture_storage.write().unwrap().insert(texture_id, texture);
+        self.texture_storage
+            .write()
+            .unwrap()
+            .insert(texture_id, texture);
     }
 
     /// Allocates texture and loads data into it
@@ -83,13 +85,21 @@ impl TextureManager {
         texture_data: &[u8],
     ) {
         self.allocate_texture(texture_id, texture_dimensions);
-        self.load_data_into_texture(texture_id, texture_data, texture_dimensions).unwrap();
+        self.load_data_into_texture(texture_id, texture_data, texture_dimensions)
+            .unwrap();
     }
 
     /// Loads data to already allocated texture
-    pub fn load_data_into_texture(&self, texture_id: u64, texture_data: &[u8], texture_dimensions: (u32, u32)) -> Result<(), TextureManagerError> {
+    pub fn load_data_into_texture(
+        &self,
+        texture_id: u64,
+        texture_data: &[u8],
+        texture_dimensions: (u32, u32),
+    ) -> Result<(), TextureManagerError> {
         let texture_storage = self.texture_storage.read().unwrap();
-        let texture = texture_storage.get(&texture_id).ok_or(TextureManagerError::TextureNotFound(texture_id))?;
+        let texture = texture_storage
+            .get(&texture_id)
+            .ok_or(TextureManagerError::TextureNotFound(texture_id))?;
 
         let texture_extent = wgpu::Extent3d {
             width: texture_dimensions.0,
@@ -97,7 +107,12 @@ impl TextureManager {
             depth_or_array_layers: 1,
         };
 
-        self.write_image_bytes_to_texture(texture, texture_dimensions, texture_extent, texture_data);
+        self.write_image_bytes_to_texture(
+            texture,
+            texture_dimensions,
+            texture_extent,
+            texture_data,
+        );
 
         Ok(())
     }
@@ -154,23 +169,6 @@ impl TextureManager {
         })
     }
 
-    fn create_index_buffer(&self) -> wgpu::Buffer {
-        // To draw an image we need to use only two triangles, so indices are always
-        //  going to be the same
-        let indices: &[u16] = &[
-            0, 1, 2, // first triangle
-            2, 3, 0, // second triangle
-        ];
-
-        let index_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::cast_slice(indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-
-        index_buffer
-    }
-
     /// This creates vertex buffer for a quad that will be used to draw the texture. Not that
     ///  there can be any number of those buffers, each representing an area of the screen
     fn create_vertex_buffer(
@@ -178,17 +176,17 @@ impl TextureManager {
         canvas_physical_size: (u32, u32),
         logical_area_to_render_texture: &MathRect,
         scale_factor: f32,
+        buffer_pool: &mut PoolManager,
     ) -> wgpu::Buffer {
-        let vertex_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            // To draw an image, we always need 4 quad vertices, so the size is always the same
-            size: 64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let vertex_buffer = buffer_pool
+            .image_buffers_pool
+            .get_vertex_buffer(&self.device);
 
-        let normalized_rect =
-            normalize_rect(logical_area_to_render_texture, canvas_physical_size, scale_factor);
+        let normalized_rect = normalize_rect(
+            logical_area_to_render_texture,
+            canvas_physical_size,
+            scale_factor,
+        );
         let min_x = normalized_rect.min.x;
         let min_y = normalized_rect.min.y;
         let max_x = normalized_rect.max.x;
@@ -223,7 +221,8 @@ impl TextureManager {
             },
         ];
 
-        self.queue.write_buffer(&vertex_buffer, 0, bytemuck::cast_slice(&quad));
+        self.queue
+            .write_buffer(&vertex_buffer, 0, bytemuck::cast_slice(&quad));
 
         vertex_buffer
     }
@@ -234,16 +233,23 @@ impl TextureManager {
         canvas_physical_size: (u32, u32),
         logical_screen_area: &MathRect,
         scale_factor: f32,
-    ) -> Result<(
-        wgpu::Buffer,
-        wgpu::Buffer,
-        wgpu::BindGroup,
-    ), TextureManagerError> {
-        let vertex_buffer = self.create_vertex_buffer(canvas_physical_size, logical_screen_area, scale_factor);
-        let index_buffer = self.create_index_buffer();
+        buffers_pool: &mut PoolManager,
+    ) -> Result<(wgpu::Buffer, wgpu::Buffer, wgpu::BindGroup), TextureManagerError> {
+        let vertex_buffer = self.create_vertex_buffer(
+            canvas_physical_size,
+            logical_screen_area,
+            scale_factor,
+            buffers_pool,
+        );
+
+        let index_buffer = buffers_pool
+            .image_buffers_pool
+            .get_index_buffer(&self.device);
 
         let texture_storage = &self.texture_storage.read().unwrap();
-        let texture = texture_storage.get(&texture_id).ok_or(TextureManagerError::TextureNotFound(texture_id))?;
+        let texture = texture_storage
+            .get(&texture_id)
+            .ok_or(TextureManagerError::TextureNotFound(texture_id))?;
         let texture_view = Self::create_view(texture);
         let bind_group_layout = self.bind_group_layout.read().unwrap();
         let bind_group = self.create_bind_group(&bind_group_layout, &texture_view);
@@ -252,6 +258,9 @@ impl TextureManager {
     }
 
     pub fn is_texture_loaded(&self, texture_id: u64) -> bool {
-        self.texture_storage.read().unwrap().contains_key(&texture_id)
+        self.texture_storage
+            .read()
+            .unwrap()
+            .contains_key(&texture_id)
     }
 }

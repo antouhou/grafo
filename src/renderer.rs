@@ -76,6 +76,7 @@ use crate::pipeline::{
 };
 use crate::shape::{Shape, ShapeDrawData};
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
+use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
 use crate::FontFamily;
 use ahash::{HashMap, HashMapExt};
@@ -83,7 +84,6 @@ use glyphon::{fontdb, Resolution};
 use log::warn;
 use lyon::tessellation::FillTessellator;
 use wgpu::{BindGroup, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
-use crate::texture_manager::TextureManager;
 
 /// Represents different rendering pipelines used by the `Renderer`.
 ///
@@ -378,9 +378,8 @@ impl Renderer<'_> {
         let device = Arc::new(device);
         let queue = Arc::new(queue);
 
-        let texture_manager = TextureManager::new(
-            device.clone(), queue.clone(), texture_bind_group_layout
-        );
+        let texture_manager =
+            TextureManager::new(device.clone(), queue.clone(), texture_bind_group_layout);
 
         Self {
             surface,
@@ -533,7 +532,6 @@ impl Renderer<'_> {
         draw_at: [(f32, f32); 2],
         clip_to_shape: Option<usize>,
     ) {
-
         // Creating naive texture ID based on the image data
         let mut default_hasher = std::collections::hash_map::DefaultHasher::new();
         image.hash(&mut default_hasher);
@@ -542,12 +540,15 @@ impl Renderer<'_> {
         let is_already_loaded = self.texture_manager.is_texture_loaded(texture_id);
 
         if !is_already_loaded {
-            self.texture_manager.allocate_texture_with_data(texture_id, physical_image_dimensions, image);
+            self.texture_manager.allocate_texture_with_data(
+                texture_id,
+                physical_image_dimensions,
+                image,
+            );
         }
 
         let draw_command = DrawCommand::Image(ImageDrawData::new(
             texture_id,
-            physical_image_dimensions,
             draw_at,
             clip_to_shape,
         ));
@@ -558,13 +559,11 @@ impl Renderer<'_> {
     pub fn add_texture_draw_to_queue(
         &mut self,
         texture_id: u64,
-        physical_image_dimensions: (u32, u32),
         draw_at: [(f32, f32); 2],
         clip_to_shape: Option<usize>,
     ) {
         let draw_command = DrawCommand::Image(ImageDrawData::new(
             texture_id,
-            physical_image_dimensions,
             draw_at,
             clip_to_shape,
         ));
@@ -682,7 +681,7 @@ impl Renderer<'_> {
         let draw_tree_size = self.draw_tree.len();
         let iter = self.draw_tree.iter_mut();
 
-        let iter_time = std::time::Instant::now();
+        // let iter_time = std::time::Instant::now();
         iter.for_each(|draw_command| match draw_command.1 {
             DrawCommand::Shape(ref mut shape) => {
                 let depth = depth(draw_command.0, draw_tree_size);
@@ -697,11 +696,11 @@ impl Renderer<'_> {
                     // &self.texture_bind_group_layout,
                     self.physical_size,
                     self.scale_factor as f32,
-                    // &mut self.buffers_pool_manager,
+                    &mut self.buffers_pool_manager,
                 );
             }
         });
-        println!("Iter time: {:?}", iter_time.elapsed());
+        // println!("Iter time: {:?}", iter_time.elapsed());
 
         let mut encoder = self
             .device
@@ -913,6 +912,8 @@ impl Renderer<'_> {
                 }
             });
 
+        // self.buffers_pool_manager.print_sizes();
+
         Ok(())
     }
 
@@ -1119,7 +1120,8 @@ impl Renderer<'_> {
             texture_crop_render_pipeline,
             texture_always_render_pipeline,
         ) = create_texture_pipeline(&self.device, &self.config);
-        self.texture_manager.set_bind_group_layout(texture_bind_group_layout);
+        self.texture_manager
+            .set_bind_group_layout(texture_bind_group_layout);
         self.texture_crop_render_pipeline = Arc::new(texture_crop_render_pipeline);
         self.texture_always_render_pipeline = Arc::new(texture_always_render_pipeline);
 

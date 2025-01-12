@@ -194,6 +194,16 @@ impl PoolManager {
     pub fn return_text_buffer(&mut self, buffer: TextBuffer) {
         self.text_buffers_pool.return_text_buffer(buffer);
     }
+
+    // pub fn print_sizes(&self) {
+    //     println!("Vertex buffers: {}", self.vertex_buffer_pool.buffers.len());
+    //     println!("Index buffers: {}", self.index_buffer_pool.buffers.len());
+    //     println!("Lyon vertex buffers: {}", self.lyon_vertex_buffers_pool.vertex_buffers.len());
+    //     println!("Text buffers: {}", self.text_buffers_pool.buffers.len());
+    //     println!("Image vertex buffers: {}", self.image_buffers_pool.vertex_buffers.len());
+    //     println!("Image index buffers: {}", self.image_buffers_pool.index_buffers.len());
+    //     println!("Tessellation cache: {}", self.tessellation_cache.len());
+    // }
 }
 
 // #[inline(always)]

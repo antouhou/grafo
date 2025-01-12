@@ -501,9 +501,9 @@ checksum = "96a6ac251f4a2aca6b3f91340350eab87ae57c3f127ffeb585e92bd336717991"
 
 [[package]]
 name = "dextreamer"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39ec36b4bda66375735be8881e73392877007fe950af7f9edf1bfc5586c16252"
+checksum = "5dd24cca0fabf81b30b6d07848423805311a29d73d008bcbbdcc9a6d40217168"
 dependencies = [
  "gstreamer",
  "gstreamer-app",

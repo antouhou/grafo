@@ -26,7 +26,7 @@ winit = "0.29.15"
 env_logger = "0.11.3"
 futures = "0.3.30"
 image = "0.24.9"
-dextreamer = "0.1.0"
+dextreamer = "0.2.0"
 
 [features]
 performance_measurement = []
