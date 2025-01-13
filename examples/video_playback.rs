@@ -21,7 +21,7 @@
 // }
 //
 // const TEST_VIDEO_FILE_PATH: &str = "examples/assets/sintel_trailer-480p.mkv";
-// pub fn main() {
+pub fn main() {
 //     let test_video_relative_path = Path::new(TEST_VIDEO_FILE_PATH);
 //     let test_video_absolute_path =
 //         fs::canonicalize(test_video_relative_path).expect("Test video file to exist");
@@ -122,4 +122,4 @@
 //         },
 //         _ => {}
 //     });
-// }
+}
