@@ -60,11 +60,11 @@
 //!
 //!     // Define a simple rectangle shape
 //!     let rect = Shape::rect(
-//!         [(100.0, 100.0), (300.0, 200.0)],
+//!         [(0.0, 0.0), (200.0, 100.0)],
 //!         Color::rgb(0, 128, 255), // Blue fill
 //!         Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
 //!     );
-//!     renderer.add_shape(rect, None);
+//!     renderer.add_shape(rect, None, (100.0, 100.0), None);
 //!
 //!     // Start the event loop
 //!     let _ = event_loop.run(move |event, event_loop_window_target| match event {

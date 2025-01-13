@@ -34,11 +34,11 @@
 //!
 //! // Add a rectangle shape
 //! let rect = Shape::rect(
-//!     [(100.0, 100.0), (300.0, 200.0)],
+//!     [(0.0, 0.0), (200.0, 100.0)],
 //!     Color::rgb(0, 128, 255), // Blue fill
 //!     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
 //! );
-//! renderer.add_shape(rect, None);
+//! renderer.add_shape(rect, None, (100.0, 100.0), None);
 //!
 //! // Add some text
 //! let layout = TextLayout {
@@ -158,11 +158,11 @@ enum DrawCommand {
 ///
 /// // Add a rectangle shape
 /// let rect = Shape::rect(
-///     [(100.0, 100.0), (300.0, 200.0)],
+///     [(0.0, 0.0), (200.0, 100.0)],
 ///     Color::rgb(0, 128, 255), // Blue fill
 ///     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
 /// );
-/// renderer.add_shape(rect, None);
+/// renderer.add_shape(rect, None, (100.0, 100.0), None);
 ///
 /// // Add some text
 /// let layout = TextLayout {
@@ -675,7 +675,6 @@ impl Renderer<'_> {
         let draw_tree_size = self.draw_tree.len();
         let iter = self.draw_tree.iter_mut();
 
-        // let iter_time = std::time::Instant::now();
         iter.for_each(|draw_command| match draw_command.1 {
             DrawCommand::Shape(ref mut shape) => {
                 let depth = depth(draw_command.0, draw_tree_size);
@@ -685,16 +684,12 @@ impl Renderer<'_> {
             DrawCommand::Image(ref mut image) => {
                 image.prepare(
                     &self.texture_manager,
-                    // &self.device,
-                    // &self.queue,
-                    // &self.texture_bind_group_layout,
                     self.physical_size,
                     self.scale_factor as f32,
                     &mut self.buffers_pool_manager,
                 );
             }
         });
-        // println!("Iter time: {:?}", iter_time.elapsed());
 
         let mut encoder = self
             .device
