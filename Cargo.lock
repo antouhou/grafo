@@ -575,7 +575,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0f0eb73b934648cd7a4a61f1b15391cd95dab0b4da6e2e66c2a072c144b4a20"
 dependencies = [
  "num-traits",
- "serde",
 ]
 
 [[package]]
@@ -1189,7 +1188,6 @@ dependencies = [
  "arrayvec",
  "euclid",
  "num-traits",
- "serde",
 ]
 
 [[package]]
@@ -1200,7 +1198,6 @@ checksum = "9c08a606c7a59638d6c6aa18ac91a06aa9fb5f765a7efb27e6a4da58700740d7"
 dependencies = [
  "lyon_geom",
  "num-traits",
- "serde",
 ]
 
 [[package]]
@@ -1212,7 +1209,6 @@ dependencies = [
  "float_next_after",
  "lyon_path",
  "num-traits",
- "serde",
 ]
 
 [[package]]
