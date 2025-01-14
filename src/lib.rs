@@ -1,27 +1,34 @@
 //! # Grafo
 //!
-//! Grafo is a GPU-accelerated rendering library built in Rust. It leverages the
-//! power of the [`wgpu`](https://crates.io/crates/wgpu) crate for rendering shapes, images, and
-//! text efficiently. Designed with flexibility and ease of use in mind, Grafo integrates seamlessly
-//! with other modules to provide a comprehensive rendering solution for Rust applications.
+//! [![Grafo crate](https://img.shields.io/crates/v/grafo.svg)](https://crates.io/crates/grafo)
+//! [![Grafo documentation](https://docs.rs/grafo/badge.svg)](https://docs.rs/grafo)
+//! [![Build and test](https://github.com/antouhou/grafo/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/antouhou/grafo/actions)
+//!
+//! Grafo is a GPU-accelerated rendering library for Rust. It is a one-stop solution in case
+//! you need a quick and simple way to render shapes, images, and text in your application. It
+//! supports features such as masking, clipping, and font loading and rendering.
+//!
+//! The library is designed for flexibility and ease of use, making it suitable for a wide
+//! range of applications, from simple graphical interfaces to complex rendering engines.
 //!
 //! ## Features
 //!
-//! - **Shape Rendering**: Create and render complex shapes
-//! - **Image Rendering**: Render images with support for clipping to shapes.
-//! - **Text Rendering**: Render text with customizable layout, alignment, and styling using the
-//!   [`glyphon`](https://crates.io/crates/glyphon) crate.
-//! - **Stencil Operations**: Advanced stencil operations for clipping and masking.
-//! - **Performance Optimization**: Utilizes parallel processing with `rayon` to optimize rendering
-//!   performance.
+//! * Shape Rendering: Create and render complex vector shapes.
+//! * Image Rendering: Render images with support for clipping to shapes.
+//! * Text Rendering: Load fonts and render text with customizable layout, alignment, and styling using the
+//! [glyphon](https://github.com/grovesNL/glyphon) crate.
+//! * Stencil Operations: Advanced stencil operations for clipping and masking.
+//!
+//! Grafo [available on crates.io](https://crates.io/crates/grafo), and
+//! [API Documentation is available on docs.rs](https://docs.rs/grafo/).
 //!
 //! ## Getting Started
 //!
-//! To get started with Grafo, add it as a dependency in your `Cargo.toml`:
+//! Add the following to your `Cargo.toml`:
 //!
 //! ```toml
 //! [dependencies]
-//! grafo = "0.1.0" # Replace with the actual version
+//! grafo = "0.1.0"
 //! winit = "0.27"   # For window creation and event handling
 //! image = "0.24"   # For image processing
 //! env_logger = "0.10" # For logging
@@ -32,9 +39,9 @@
 //!
 //! Below is a simple example demonstrating how to initialize the `Renderer`, add shapes and text,
 //! and render a frame using `winit`. For a more comprehensive example, refer to the
-//! [`examples`](https://github.com/antouhou/grafo/tree/main/examples) folder in the repository.
+//! [examples](https://github.com/antouhou/grafo/tree/main/examples) folder in the repository.
 //!
-//! ```rust,no_run
+//! ```rust
 //! use futures::executor::block_on;
 //! use grafo::{BorderRadii, Shape};
 //! use grafo::{Color, Stroke};
@@ -43,8 +50,9 @@
 //! use winit::event_loop::EventLoop;
 //! use winit::window::WindowBuilder;
 //!
+//! pub fn main() {
 //!     env_logger::init();
-//!     let event_loop = EventLoop::new().expect("To create the event loop");
+//!     let event_loop = EventLoop::new();
 //!     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
 //!
 //!     let window_size = window.inner_size();
@@ -60,14 +68,14 @@
 //!
 //!     // Define a simple rectangle shape
 //!     let rect = Shape::rect(
-//!         [(0.0, 0.0), (200.0, 100.0)],
+//!         [(100.0, 100.0), (300.0, 200.0)],
 //!         Color::rgb(0, 128, 255), // Blue fill
 //!         Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
 //!     );
-//!     renderer.add_shape(rect, None, (100.0, 100.0), None);
+//!     renderer.add_shape(rect, None);
 //!
 //!     // Start the event loop
-//!     let _ = event_loop.run(move |event, event_loop_window_target| match event {
+//!     event_loop.run(move |event, event_loop_window_target| match event {
 //!         Event::WindowEvent {
 //!             ref event,
 //!             window_id,
@@ -92,14 +100,14 @@
 //!         },
 //!         _ => {}
 //!     });
+//! }
 //! ```
 //!
 //! ## Examples
 //!
-//! For a detailed example showcasing advanced features like hierarchical clipping, image rendering,
-//! and text rendering, please refer to the [`examples`](https://github.com/your-repo/grafo/tree/main/examples)
-//! directory in the repository.
-//!
+//! For a detailed example showcasing advanced features like hierarchical clipping,
+//! image rendering, and text rendering, please refer to the
+//! [examples](https://github.com/antouhou/grafo/tree/main/examples) directory in the repository.
 
 pub use glyphon;
 pub use glyphon::fontdb;

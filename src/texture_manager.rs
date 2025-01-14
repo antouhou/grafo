@@ -9,6 +9,49 @@ pub enum TextureManagerError {
     TextureNotFound(u64),
 }
 
+/// A manager for textures providing granular control over texture handling.
+///
+/// This manager allows for:
+/// - Loading textures from different threads while keeping usage safe in the rendering thread.
+/// - Allocating textures and subsequently loading image data into them.
+/// - Updating the data in an existing texture.
+///
+/// # Examples
+///
+/// Allocate a texture and then load data into it:
+///
+/// ```rust,no_run
+/// # use std::sync::Arc;
+/// # use futures::executor::block_on;
+/// # use winit::event_loop::EventLoop;
+/// # use winit::window::WindowBuilder;
+/// # use grafo::Renderer;
+/// # use grafo::Shape;
+/// # use grafo::Color;
+/// # use grafo::Stroke;
+/// #
+/// # let event_loop = EventLoop::new().expect("To create the event loop");
+/// # let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+/// # let physical_size = (800, 600);
+/// # let scale_factor = 1.0;
+/// # let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+///
+/// let texture_manager = renderer.texture_manager();
+/// let texture_id = 42;
+/// let texture_dimensions = (256, 256);
+/// let data = vec![255u8; 256 * 256 * 4];
+///
+/// // Allocate texture and load data
+/// texture_manager.allocate_texture_with_data(texture_id, texture_dimensions, &data);
+/// // Update data in the texture
+/// texture_manager.load_data_into_texture(texture_id, texture_dimensions, &data).unwrap();
+/// // Check if the texture is loaded
+/// assert!(texture_manager.is_texture_loaded(texture_id));
+/// // Clone the texture manager to pass to another thread
+/// let texture_manager_clone = texture_manager.clone();
+/// ```
+///
+/// The texture manager internally uses an `Arc<RwLock<_>>` to manage its bind group layout and texture storage.
 #[derive(Clone)]
 pub struct TextureManager {
     device: Arc<wgpu::Device>,
@@ -51,6 +94,15 @@ impl TextureManager {
         *self.bind_group_layout.write().unwrap() = bind_group_layout;
     }
 
+    /// Allocates a new RGBA8 texture with the given dimensions without providing any data.
+    ///
+    /// If you want to allocate and load data into the texture at the same time, use
+    /// [`TextureManager::allocate_texture_with_data`] instead.
+    /// You can then load data into the texture later using [`TextureManager::load_data_into_texture`].
+    ///
+    /// # Parameters
+    /// - `texture_id`: Unique identifier for the texture.
+    /// - `texture_dimensions`: A tuple `(width, height)` representing the dimensions of the texture.
     pub fn allocate_texture(&self, texture_id: u64, texture_dimensions: (u32, u32)) {
         let texture_extent = wgpu::Extent3d {
             width: texture_dimensions.0,
@@ -77,7 +129,15 @@ impl TextureManager {
             .insert(texture_id, texture);
     }
 
-    /// Allocates texture and loads data into it
+    /// Allocates a texture and immediately loads image data into it.
+    ///
+    /// This function will first allocate the texture, then attempt to load the provided data.
+    ///
+    /// # Parameters
+    /// - `texture_id`: Unique identifier for the texture.
+    /// - `texture_dimensions`: A tuple `(width, height)` representing the dimensions of the texture.
+    /// - `texture_data`: A byte slice containing the image data. The data length is expected to
+    ///      match the texture dimensions and pixel format (RGBA8).
     pub fn allocate_texture_with_data(
         &self,
         texture_id: u64,
@@ -85,16 +145,25 @@ impl TextureManager {
         texture_data: &[u8],
     ) {
         self.allocate_texture(texture_id, texture_dimensions);
-        self.load_data_into_texture(texture_id, texture_data, texture_dimensions)
+        self.load_data_into_texture(texture_id, texture_dimensions, texture_data)
             .unwrap();
     }
 
-    /// Loads data to already allocated texture
+    /// Loads image data into an already allocated texture.
+    ///
+    /// # Parameters
+    /// - `texture_id`: Unique identifier for the texture.
+    /// - `texture_dimensions`: A tuple `(width, height)` representing the dimensions of the texture.
+    /// - `texture_data`: A byte slice containing the image data in an RGBA8 format.
+    ///
+    /// # Returns
+    /// - `Ok(())` if the operation succeeds.
+    /// - `Err(TextureManagerError::TextureNotFound(texture_id))` if the texture does not exist.
     pub fn load_data_into_texture(
         &self,
         texture_id: u64,
-        texture_data: &[u8],
         texture_dimensions: (u32, u32),
+        texture_data: &[u8],
     ) -> Result<(), TextureManagerError> {
         let texture_storage = self.texture_storage.read().unwrap();
         let texture = texture_storage
