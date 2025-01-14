@@ -485,7 +485,10 @@ impl Renderer<'_> {
         )
     }
 
-    /// Adds an image to the draw queue.
+    /// Adds an image to the draw queue. This is a shorthand method if you quickly want to render
+    /// an image from the main thread; If you want to update texture data from a different thread,
+    /// or want more control over allocating and updating texture data in general, you should use
+    /// [Renderer::texture_manager].
     ///
     /// # Parameters
     ///
@@ -518,23 +521,23 @@ impl Renderer<'_> {
     /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
     ///
     /// let image_data = vec![0; 16]; // A 2x2 black image
-    /// renderer.add_image(
+    /// renderer.add_rgba_image(
     ///     &image_data,
     ///     (2, 2), // Image dimensions
     ///     [(50.0, 50.0), (150.0, 150.0)], // Rendering rectangle
     ///     Some(0), // Clip to shape with ID 0
     /// );
     /// ```
-    pub fn add_image(
+    pub fn add_rgba_image(
         &mut self,
-        image: &[u8],
+        texture_rgba_data: &[u8],
         physical_image_dimensions: (u32, u32),
         draw_at: [(f32, f32); 2],
         clip_to_shape: Option<usize>,
     ) {
         // Creating naive texture ID based on the image data
         let mut default_hasher = std::collections::hash_map::DefaultHasher::new();
-        image.hash(&mut default_hasher);
+        texture_rgba_data.hash(&mut default_hasher);
         let texture_id = default_hasher.finish();
 
         let is_already_loaded = self.texture_manager.is_texture_loaded(texture_id);
@@ -543,7 +546,7 @@ impl Renderer<'_> {
             self.texture_manager.allocate_texture_with_data(
                 texture_id,
                 physical_image_dimensions,
-                image,
+                texture_rgba_data,
             );
         }
 
@@ -553,6 +556,8 @@ impl Renderer<'_> {
         self.add_draw_command(draw_command, clip_to_shape);
     }
 
+    /// Adds a texture to the draw queue. The texture must be loaded with the [Renderer::texture_manager]
+    /// first.
     pub fn add_texture_draw_to_queue(
         &mut self,
         texture_id: u64,
@@ -565,7 +570,8 @@ impl Renderer<'_> {
         self.add_draw_command(draw_command, clip_to_shape);
     }
 
-    /// A texture manager is a helper to allow more granular approach to drawing images
+    /// A texture manager is a helper to allow more granular approach to drawing images. It can
+    /// be cloned and passed to a different thread if you want to update texture
     pub fn texture_manager(&self) -> &TextureManager {
         &self.texture_manager
     }

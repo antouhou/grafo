@@ -110,7 +110,7 @@ pub fn main() {
                 renderer.add_shape(white, Some(red_id), (0.0, 0.0), None);
                 renderer.add_shape(shape_that_doesnt_fit, Some(blue_id), (0.0, 0.0), None);
 
-                renderer.add_image(
+                renderer.add_rgba_image(
                     &rust_logo_png_bytes,
                     rust_logo_png_dimensions,
                     [
@@ -123,7 +123,7 @@ pub fn main() {
                     Some(red_id),
                 );
 
-                renderer.add_image(
+                renderer.add_rgba_image(
                     &rust_logo_png_bytes,
                     rust_logo_png_dimensions,
                     [
@@ -136,7 +136,7 @@ pub fn main() {
                     Some(background_id),
                 );
 
-                renderer.add_image(
+                renderer.add_rgba_image(
                     &rust_logo_png_bytes,
                     rust_logo_png_dimensions,
                     [
