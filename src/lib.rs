@@ -16,7 +16,7 @@
 //! * Shape Rendering: Create and render complex vector shapes.
 //! * Image Rendering: Render images with support for clipping to shapes.
 //! * Text Rendering: Load fonts and render text with customizable layout, alignment, and styling using the
-//! [glyphon](https://github.com/grovesNL/glyphon) crate.
+//!    [glyphon](https://github.com/grovesNL/glyphon) crate.
 //! * Stencil Operations: Advanced stencil operations for clipping and masking.
 //!
 //! Grafo [available on crates.io](https://crates.io/crates/grafo), and
@@ -41,7 +41,7 @@
 //! and render a frame using `winit`. For a more comprehensive example, refer to the
 //! [examples](https://github.com/antouhou/grafo/tree/main/examples) folder in the repository.
 //!
-//! ```rust
+//! ```rust,no_run
 //! use futures::executor::block_on;
 //! use grafo::{BorderRadii, Shape};
 //! use grafo::{Color, Stroke};
@@ -50,9 +50,8 @@
 //! use winit::event_loop::EventLoop;
 //! use winit::window::WindowBuilder;
 //!
-//! pub fn main() {
 //!     env_logger::init();
-//!     let event_loop = EventLoop::new();
+//!     let event_loop = EventLoop::new().expect("to start an event loop");
 //!     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
 //!
 //!     let window_size = window.inner_size();
@@ -68,11 +67,11 @@
 //!
 //!     // Define a simple rectangle shape
 //!     let rect = Shape::rect(
-//!         [(100.0, 100.0), (300.0, 200.0)],
+//!         [(0.0, 0.0), (200.0, 100.0)],
 //!         Color::rgb(0, 128, 255), // Blue fill
 //!         Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
 //!     );
-//!     renderer.add_shape(rect, None);
+//!     renderer.add_shape(rect, None, (100.0, 100.0), None);
 //!
 //!     // Start the event loop
 //!     event_loop.run(move |event, event_loop_window_target| match event {
@@ -100,7 +99,6 @@
 //!         },
 //!         _ => {}
 //!     });
-//! }
 //! ```
 //!
 //! ## Examples

@@ -51,9 +51,9 @@ use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
 
 pub fn main() {
-env_logger::init();
-let event_loop = EventLoop::new();
-let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    env_logger::init();
+    let event_loop = EventLoop::new().expect("to start an event loop");
+    let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
 
     let window_size = window.inner_size();
     let scale_factor = window.scale_factor();
@@ -72,7 +72,11 @@ let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
         Color::rgb(0, 128, 255), // Blue fill
         Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
     );
-    renderer.add_shape(rect, None);
+    let rect = Shape::rect(
+        [(0.0, 0.0), (200.0, 100.0)],
+        Color::rgb(0, 128, 255), // Blue fill
+        Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+    );
 
     // Start the event loop
     event_loop.run(move |event, event_loop_window_target| match event {
