@@ -80,7 +80,8 @@ use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
 use crate::FontFamily;
 use ahash::{HashMap, HashMapExt};
-use glyphon::{fontdb, Resolution};
+use glyphon::{fontdb, FontSystem, Resolution, SwashCache};
+use glyphon::cosmic_text::FontMatchKey;
 use log::warn;
 use lyon::tessellation::FillTessellator;
 use wgpu::{BindGroup, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
@@ -206,6 +207,8 @@ pub struct Renderer<'a> {
 
     texture_manager: TextureManager,
 
+    font_system: FontSystem,
+    swash_cache: SwashCache,
     /// Text instances to be rendered
     text_instances: Vec<TextDrawData>,
     /// Internal wrapper for text rendering components.
@@ -348,8 +351,17 @@ impl Renderer<'_> {
                 PipelineType::EqualDecrementStencil,
             );
 
-        let glyphon_cache = glyphon::Cache::new(&device);
-        let mut glyphon_viewport = glyphon::Viewport::new(&device, &glyphon_cache);
+        let text_renderer_wrapper = TextRendererWrapper::new(
+            &device,
+            &queue,
+            swapchain_format,
+            Some(create_depth_stencil_state_for_text()),
+        );
+
+        let font_system = FontSystem::new();
+        let swash_cache = SwashCache::new();
+
+        let mut glyphon_viewport = glyphon::Viewport::new(&device, &text_renderer_wrapper.glyphon_cache);
 
         {
             glyphon_viewport.update(
@@ -360,14 +372,6 @@ impl Renderer<'_> {
                 },
             );
         }
-
-        let text_renderer_wrapper = TextRendererWrapper::new(
-            &device,
-            &queue,
-            swapchain_format,
-            Some(create_depth_stencil_state_for_text()),
-            &glyphon_cache,
-        );
 
         let (
             texture_bind_group_layout,
@@ -391,6 +395,8 @@ impl Renderer<'_> {
             scale_factor,
             text_instances,
             // draw_queue: BTreeMap::new(),
+            font_system,
+            swash_cache,
             text_renderer_wrapper,
             glyphon_viewport,
 
@@ -628,12 +634,37 @@ impl Renderer<'_> {
         font_family: FontFamily,
         clip_to_shape: Option<usize>,
     ) {
+        self.add_text_internal(text, layout, font_family, clip_to_shape, None)
+    }
+
+    /// Same as [Renderer::add_text], but allows to use a custom font system
+    pub fn add_text_with_custom_font_system(
+        &mut self,
+        text: &str,
+        layout: impl Into<TextLayout>,
+        font_family: FontFamily,
+        clip_to_shape: Option<usize>,
+        font_system: &mut FontSystem
+    ) {
+        self.add_text_internal(text, layout, font_family, clip_to_shape, Some(font_system))
+    }
+
+    fn add_text_internal(
+        &mut self,
+        text: &str,
+        layout: impl Into<TextLayout>,
+        font_family: FontFamily,
+        clip_to_shape: Option<usize>,
+        font_system: Option<&mut FontSystem>
+    ) {
+        let font_system = font_system.unwrap_or(&mut self.font_system);
+
         self.text_instances.push(TextDrawData::new(
             text,
             layout,
             clip_to_shape,
             self.scale_factor as f32,
-            &mut self.text_renderer_wrapper.font_system,
+            font_system,
             font_family,
             &mut self.buffers_pool_manager,
         ));
@@ -678,6 +709,22 @@ impl Renderer<'_> {
     /// }
     /// ```
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        self.render_internal(None, None)
+    }
+
+    pub fn render_with_custom_font_system(
+        &mut self,
+        font_system: &mut FontSystem,
+        swash_cache: &mut SwashCache
+    ) -> Result<(), wgpu::SurfaceError> {
+        self.render_internal(Some(font_system), Some(swash_cache))
+    }
+
+    fn render_internal(
+        &mut self,
+        custom_font_system: Option<&mut FontSystem>,
+        custom_swash_cache: Option<&mut SwashCache>
+    ) -> Result<(), wgpu::SurfaceError> {
         let draw_tree_size = self.draw_tree.len();
         let iter = self.draw_tree.iter_mut();
 
@@ -862,16 +909,19 @@ impl Renderer<'_> {
                 .iter()
                 .map(|text_instance| text_instance.to_text_area(self.scale_factor as f32));
 
+            let font_system = custom_font_system.unwrap_or(&mut self.font_system);
+            let swash_cache = custom_swash_cache.unwrap_or(&mut self.swash_cache);
+
             self.text_renderer_wrapper
                 .text_renderer
                 .prepare_with_depth(
                     &self.device,
                     &self.queue,
-                    &mut self.text_renderer_wrapper.font_system,
+                    font_system,
                     &mut self.text_renderer_wrapper.atlas,
                     &self.glyphon_viewport,
                     text_areas,
-                    &mut self.text_renderer_wrapper.swash_cache,
+                    swash_cache,
                     |index| depth(index, draw_tree_size),
                 )
                 .unwrap();
@@ -1165,7 +1215,21 @@ impl Renderer<'_> {
     /// renderer.load_fonts([roboto_font_source].into_iter());
     /// ```
     pub fn load_fonts(&mut self, fonts: impl Iterator<Item = fontdb::Source>) {
-        let db = self.text_renderer_wrapper.font_system.db_mut();
+        self.load_fonts_internal(fonts, None)
+    }
+
+    /// Same as [Renderer::load_fonts], but allows to use a custom font system.
+    pub fn load_fonts_with_custom_font_system(
+        &mut self,
+        fonts: impl Iterator<Item = fontdb::Source>,
+        font_system: &mut FontSystem,
+    ) {
+        self.load_fonts_internal(fonts, Some(font_system))
+    }
+
+    fn load_fonts_internal(&mut self, fonts: impl Iterator<Item = fontdb::Source>, font_system: Option<&mut FontSystem>) {
+        let font_system = font_system.unwrap_or(&mut self.font_system);
+        let db = font_system.db_mut();
 
         for source in fonts {
             db.load_font_source(source);
@@ -1207,7 +1271,21 @@ impl Renderer<'_> {
     /// renderer.load_font_from_bytes(roboto_font_ttf);
     /// ```
     pub fn load_font_from_bytes(&mut self, font_bytes: &[u8]) {
-        let db = self.text_renderer_wrapper.font_system.db_mut();
+        self.load_font_from_bytes_internal(font_bytes, None)
+    }
+
+    /// Same as [Renderer::load_font_from_bytes], but allows to use a custom font system.
+    pub fn load_font_from_bytes_with_custom_font_system(
+        &mut self,
+        font_bytes: &[u8],
+        font_system: &mut FontSystem,
+    ) {
+        self.load_font_from_bytes_internal(font_bytes, Some(font_system))
+    }
+
+    fn load_font_from_bytes_internal(&mut self, font_bytes: &[u8], font_system: Option<&mut FontSystem>) {
+        let font_system = font_system.unwrap_or(&mut self.font_system);
+        let db = font_system.db_mut();
         let source = fontdb::Source::Binary(Arc::new(font_bytes.to_vec()));
         db.load_font_source(source);
     }

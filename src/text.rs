@@ -115,8 +115,7 @@ pub struct TextLayout {
 pub(crate) struct TextRendererWrapper {
     pub(crate) text_renderer: TextRenderer,
     pub(crate) atlas: TextAtlas,
-    pub(crate) font_system: FontSystem,
-    pub(crate) swash_cache: SwashCache,
+    pub(crate) glyphon_cache: glyphon::Cache,
 }
 
 impl TextRendererWrapper {
@@ -133,11 +132,9 @@ impl TextRendererWrapper {
         queue: &wgpu::Queue,
         swapchain_format: wgpu::TextureFormat,
         depth_stencil_state: Option<wgpu::DepthStencilState>,
-        glyphon_cache: &glyphon::Cache,
     ) -> Self {
-        let font_system = FontSystem::new();
-        let swash_cache = SwashCache::new();
-        let mut atlas = TextAtlas::new(device, queue, glyphon_cache, swapchain_format);
+        let glyphon_cache = glyphon::Cache::new(&device);
+        let mut atlas = TextAtlas::new(device, queue, &glyphon_cache, swapchain_format);
         let text_renderer = TextRenderer::new(
             &mut atlas,
             device,
@@ -148,8 +145,7 @@ impl TextRendererWrapper {
         Self {
             text_renderer,
             atlas,
-            font_system,
-            swash_cache,
+            glyphon_cache
         }
     }
 }
