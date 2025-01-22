@@ -81,7 +81,6 @@ use crate::util::{to_logical, PoolManager};
 use crate::FontFamily;
 use ahash::{HashMap, HashMapExt};
 use glyphon::{fontdb, FontSystem, Resolution, SwashCache};
-use glyphon::cosmic_text::FontMatchKey;
 use log::warn;
 use lyon::tessellation::FillTessellator;
 use wgpu::{BindGroup, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
@@ -361,7 +360,8 @@ impl Renderer<'_> {
         let font_system = FontSystem::new();
         let swash_cache = SwashCache::new();
 
-        let mut glyphon_viewport = glyphon::Viewport::new(&device, &text_renderer_wrapper.glyphon_cache);
+        let mut glyphon_viewport =
+            glyphon::Viewport::new(&device, &text_renderer_wrapper.glyphon_cache);
 
         {
             glyphon_viewport.update(
@@ -644,7 +644,7 @@ impl Renderer<'_> {
         layout: impl Into<TextLayout>,
         font_family: FontFamily,
         clip_to_shape: Option<usize>,
-        font_system: &mut FontSystem
+        font_system: &mut FontSystem,
     ) {
         self.add_text_internal(text, layout, font_family, clip_to_shape, Some(font_system))
     }
@@ -655,7 +655,7 @@ impl Renderer<'_> {
         layout: impl Into<TextLayout>,
         font_family: FontFamily,
         clip_to_shape: Option<usize>,
-        font_system: Option<&mut FontSystem>
+        font_system: Option<&mut FontSystem>,
     ) {
         let font_system = font_system.unwrap_or(&mut self.font_system);
 
@@ -715,7 +715,7 @@ impl Renderer<'_> {
     pub fn render_with_custom_font_system(
         &mut self,
         font_system: &mut FontSystem,
-        swash_cache: &mut SwashCache
+        swash_cache: &mut SwashCache,
     ) -> Result<(), wgpu::SurfaceError> {
         self.render_internal(Some(font_system), Some(swash_cache))
     }
@@ -723,7 +723,7 @@ impl Renderer<'_> {
     fn render_internal(
         &mut self,
         custom_font_system: Option<&mut FontSystem>,
-        custom_swash_cache: Option<&mut SwashCache>
+        custom_swash_cache: Option<&mut SwashCache>,
     ) -> Result<(), wgpu::SurfaceError> {
         let draw_tree_size = self.draw_tree.len();
         let iter = self.draw_tree.iter_mut();
@@ -1227,7 +1227,11 @@ impl Renderer<'_> {
         self.load_fonts_internal(fonts, Some(font_system))
     }
 
-    fn load_fonts_internal(&mut self, fonts: impl Iterator<Item = fontdb::Source>, font_system: Option<&mut FontSystem>) {
+    fn load_fonts_internal(
+        &mut self,
+        fonts: impl Iterator<Item = fontdb::Source>,
+        font_system: Option<&mut FontSystem>,
+    ) {
         let font_system = font_system.unwrap_or(&mut self.font_system);
         let db = font_system.db_mut();
 
@@ -1283,7 +1287,11 @@ impl Renderer<'_> {
         self.load_font_from_bytes_internal(font_bytes, Some(font_system))
     }
 
-    fn load_font_from_bytes_internal(&mut self, font_bytes: &[u8], font_system: Option<&mut FontSystem>) {
+    fn load_font_from_bytes_internal(
+        &mut self,
+        font_bytes: &[u8],
+        font_system: Option<&mut FontSystem>,
+    ) {
         let font_system = font_system.unwrap_or(&mut self.font_system);
         let db = font_system.db_mut();
         let source = fontdb::Source::Binary(Arc::new(font_bytes.to_vec()));

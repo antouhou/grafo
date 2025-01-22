@@ -32,7 +32,7 @@ use crate::renderer::MathRect;
 use crate::util::PoolManager;
 use crate::Color;
 use glyphon::cosmic_text::Align;
-use glyphon::{Attrs, Family, FontSystem, Metrics, Shaping, SwashCache, TextAtlas, TextRenderer};
+use glyphon::{Attrs, Family, FontSystem, Metrics, Shaping, TextAtlas, TextRenderer};
 use glyphon::{Buffer as TextBuffer, Color as TextColor, TextArea, TextBounds};
 use wgpu::{Device, MultisampleState};
 
@@ -133,7 +133,7 @@ impl TextRendererWrapper {
         swapchain_format: wgpu::TextureFormat,
         depth_stencil_state: Option<wgpu::DepthStencilState>,
     ) -> Self {
-        let glyphon_cache = glyphon::Cache::new(&device);
+        let glyphon_cache = glyphon::Cache::new(device);
         let mut atlas = TextAtlas::new(device, queue, &glyphon_cache, swapchain_format);
         let text_renderer = TextRenderer::new(
             &mut atlas,
@@ -145,7 +145,7 @@ impl TextRendererWrapper {
         Self {
             text_renderer,
             atlas,
-            glyphon_cache
+            glyphon_cache,
         }
     }
 }
