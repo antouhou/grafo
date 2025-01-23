@@ -78,7 +78,7 @@ use crate::shape::{Shape, ShapeDrawData};
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
-use crate::FontFamily;
+use crate::{Color, FontFamily};
 use ahash::{HashMap, HashMapExt};
 use glyphon::{fontdb, FontSystem, Resolution, SwashCache};
 use log::warn;
@@ -667,6 +667,22 @@ impl Renderer<'_> {
             font_system,
             font_family,
             &mut self.buffers_pool_manager,
+        ));
+    }
+
+    pub fn add_text_buffer(
+        &mut self,
+        text: &glyphon::Buffer,
+        clip_to_shape: Option<usize>,
+        area: MathRect,
+        fallback_color: Color,
+        vertical_offset: f32,
+    ) {
+        self.text_instances.push(TextDrawData::with_buffer(
+            text,
+            area,
+            fallback_color,
+            vertical_offset,
         ));
     }
 

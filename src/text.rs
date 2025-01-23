@@ -156,9 +156,6 @@ pub(crate) struct TextDrawData {
     pub(crate) text_buffer: TextBuffer,
     /// The area within which the text is rendered.
     pub(crate) area: MathRect,
-    /// The vertical alignment of the text.
-    #[allow(unused)]
-    pub(crate) vertical_alignment: TextAlignment,
     /// The top position of the text within the layout area.
     pub(crate) top: f32,
     /// The color of the text.
@@ -227,11 +224,16 @@ impl TextDrawData {
         }
 
         // TODO: that should be a line height
-        let buffer_height = if max_y > min_y {
-            max_y - min_y + layout.font_size
-        } else {
-            layout.font_size // for a single line
-        };
+        // let buffer_height = if max_y > min_y {
+        //     max_y - min_y + layout.font_size
+        // } else {
+        //     layout.font_size // for a single line
+        // };
+
+        let buffer_height = buffer.size();
+        let buffer_height = buffer_height.1.unwrap_or(0.0);
+
+        println!("Buffer height: {}", buffer_height);
 
         let top = match layout.vertical_alignment {
             TextAlignment::Start => area.min.y,
@@ -245,10 +247,24 @@ impl TextDrawData {
             top,
             text_buffer: buffer,
             area: layout.area,
-            vertical_alignment: layout.vertical_alignment,
             color: layout.color,
         }
     }
+
+    pub(crate) fn with_buffer(
+        buffer: &TextBuffer,
+        area: MathRect,
+        fallback_color: Color,
+        vertical_offset: f32,
+    ) -> Self {
+        TextDrawData {
+            top: vertical_offset,
+            text_buffer: buffer.clone(),
+            area,
+            color: fallback_color,
+        }
+    }
+
     pub fn to_text_area(&self, scale_factor: f32) -> TextArea {
         let area = self.area;
         let top = self.top;
