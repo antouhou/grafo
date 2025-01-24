@@ -80,7 +80,7 @@ use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
 use crate::{Color, FontFamily};
 use ahash::{HashMap, HashMapExt};
-use glyphon::{fontdb, FontSystem, Resolution, SwashCache};
+use glyphon::{fontdb, FontSystem, Metrics, Resolution, SwashCache};
 use log::warn;
 use lyon::tessellation::FillTessellator;
 use wgpu::{BindGroup, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
@@ -678,13 +678,21 @@ impl Renderer<'_> {
     /// What other methods accepts as clip_to_shape should be stored in the Buffer's attrs, otherwise it won't be rendered correctly.
     pub fn add_text_buffer(
         &mut self,
-        text: &glyphon::Buffer,
+        text_buffer: &glyphon::Buffer,
         area: MathRect,
         fallback_color: Color,
         vertical_offset: f32,
     ) {
+        let buffers_pool = &mut self.buffers_pool_manager;
+        let mut buffer = buffers_pool.text_buffers_pool.get_text_buffer(
+            // Those values don't matter, because we are not going to use them
+            &mut self.font_system,
+            Metrics::new(1.0,1.0),
+        );
+
+        text_buffer.clone_into(&mut buffer);
         self.text_instances.push(TextDrawData::with_buffer(
-            text,
+            text_buffer,
             area,
             fallback_color,
             vertical_offset,
