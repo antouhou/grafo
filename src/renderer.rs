@@ -670,10 +670,15 @@ impl Renderer<'_> {
         ));
     }
 
+    /// [Renderer::add_text] lays out, shapes and styles the text. This method, on the other hand,
+    /// only adds the text buffer to the draw queue. This is useful when you want to use the text
+    /// buffer somewhere else, for example to detect clicks on the text.
+    ///
+    /// # NOTE
+    /// What other methods accepts as clip_to_shape should be stored in the Buffer's attrs, otherwise it won't be rendered correctly.
     pub fn add_text_buffer(
         &mut self,
         text: &glyphon::Buffer,
-        clip_to_shape: Option<usize>,
         area: MathRect,
         fallback_color: Color,
         vertical_offset: f32,
