@@ -78,7 +78,7 @@ use crate::shape::{Shape, ShapeDrawData};
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
-use crate::FontFamily;
+use crate::{Color, FontFamily};
 use ahash::{HashMap, HashMapExt};
 use glyphon::{fontdb, FontSystem, Resolution, SwashCache};
 use log::warn;
@@ -667,6 +667,27 @@ impl Renderer<'_> {
             font_system,
             font_family,
             &mut self.buffers_pool_manager,
+        ));
+    }
+
+    /// [Renderer::add_text] lays out, shapes and styles the text. This method, on the other hand,
+    /// only adds the text buffer to the draw queue. This is useful when you want to use the text
+    /// buffer somewhere else, for example to detect clicks on the text.
+    ///
+    /// # NOTE
+    /// What other methods accepts as clip_to_shape should be stored in the Buffer's attrs, otherwise it won't be rendered correctly.
+    pub fn add_text_buffer(
+        &mut self,
+        text: &glyphon::Buffer,
+        area: MathRect,
+        fallback_color: Color,
+        vertical_offset: f32,
+    ) {
+        self.text_instances.push(TextDrawData::with_buffer(
+            text,
+            area,
+            fallback_color,
+            vertical_offset,
         ));
     }
 
