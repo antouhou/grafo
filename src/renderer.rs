@@ -687,7 +687,7 @@ impl Renderer<'_> {
         let mut buffer = buffers_pool.text_buffers_pool.get_text_buffer(
             // Those values don't matter, because we are not going to use them
             &mut self.font_system,
-            Metrics::new(1.0,1.0),
+            Metrics::new(1.0, 1.0),
         );
 
         text_buffer.clone_into(&mut buffer);
