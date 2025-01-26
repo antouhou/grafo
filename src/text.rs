@@ -34,7 +34,6 @@ use crate::Color;
 use glyphon::cosmic_text::Align;
 use glyphon::{Attrs, Family, FontSystem, Metrics, Shaping, TextAtlas, TextRenderer};
 use glyphon::{Buffer as TextBuffer, Color as TextColor, TextArea, TextBounds};
-use glyphon::cosmic_text::ttf_parser::opentype_layout::ClassDefinition;
 use wgpu::{Device, MultisampleState};
 
 /// Specifies the alignment of text within its layout area.
@@ -192,9 +191,7 @@ impl TextDrawData {
         buffer.set_text(
             font_system,
             text,
-            Attrs::new()
-                .family(font_family)
-                .metadata(buffer_id),
+            Attrs::new().family(font_family).metadata(buffer_id),
             Shaping::Advanced,
         );
 

@@ -636,7 +636,7 @@ impl Renderer<'_> {
         font_family: FontFamily,
         clip_to_shape: Option<usize>,
     ) {
-        self.add_text_internal(text, layout, font_family, clip_to_shape, None,)
+        self.add_text_internal(text, layout, font_family, clip_to_shape, None)
     }
 
     /// Same as [Renderer::add_text], but allows to use a custom font system
@@ -672,7 +672,8 @@ impl Renderer<'_> {
             font_family,
             &mut self.buffers_pool_manager,
         ));
-        self.text_buffer_ids_to_clips.insert(buffer_id, clip_to_shape.unwrap_or(0));
+        self.text_buffer_ids_to_clips
+            .insert(buffer_id, clip_to_shape.unwrap_or(0));
     }
 
     /// This method  adds the text buffer to the draw queue. This is useful when you want to use
@@ -715,7 +716,8 @@ impl Renderer<'_> {
             fallback_color,
             vertical_offset,
         ));
-        self.text_buffer_ids_to_clips.insert(text_buffer_id, clip_to_shape.unwrap_or(0));
+        self.text_buffer_ids_to_clips
+            .insert(text_buffer_id, clip_to_shape.unwrap_or(0));
     }
 
     /// Renders all items currently in the draw queue.
@@ -972,7 +974,11 @@ impl Renderer<'_> {
                     swash_cache,
                     |buffer_id| {
                         // TODO: print warning if the buffer is not found
-                        let clip_to_shape = self.text_buffer_ids_to_clips.get(&buffer_id).copied().unwrap_or(0);
+                        let clip_to_shape = self
+                            .text_buffer_ids_to_clips
+                            .get(&buffer_id)
+                            .copied()
+                            .unwrap_or(0);
                         depth(clip_to_shape, draw_tree_size)
                     },
                 )
