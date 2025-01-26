@@ -635,9 +635,8 @@ impl Renderer<'_> {
         layout: impl Into<TextLayout>,
         font_family: FontFamily,
         clip_to_shape: Option<usize>,
-        text_id: usize,
     ) {
-        self.add_text_internal(text, layout, font_family, clip_to_shape, None, text_id)
+        self.add_text_internal(text, layout, font_family, clip_to_shape, None,)
     }
 
     /// Same as [Renderer::add_text], but allows to use a custom font system
@@ -648,9 +647,8 @@ impl Renderer<'_> {
         font_family: FontFamily,
         clip_to_shape: Option<usize>,
         font_system: &mut FontSystem,
-        text_id: usize,
     ) {
-        self.add_text_internal(text, layout, font_family, clip_to_shape, Some(font_system), text_id)
+        self.add_text_internal(text, layout, font_family, clip_to_shape, Some(font_system))
     }
 
     fn add_text_internal(
@@ -660,9 +658,10 @@ impl Renderer<'_> {
         font_family: FontFamily,
         clip_to_shape: Option<usize>,
         font_system: Option<&mut FontSystem>,
-        buffer_id: usize,
     ) {
         let font_system = font_system.unwrap_or(&mut self.font_system);
+
+        let buffer_id = self.text_instances.len();
 
         self.text_instances.push(TextDrawData::new(
             text,

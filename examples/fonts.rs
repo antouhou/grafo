@@ -79,7 +79,6 @@ pub fn main() {
                     text_layout,
                     FontFamily::SansSerif,
                     Some(first_text_background_id),
-                    1
                 );
 
                 // Second text instance
@@ -111,7 +110,6 @@ pub fn main() {
                     text_layout2,
                     FontFamily::SansSerif,
                     Some(second_text_background_id),
-                    2
                 );
 
                 // Example with font loaded from file
@@ -143,7 +141,6 @@ pub fn main() {
                     text_layout3,
                     FontFamily::Name("Roboto"),
                     Some(third_text_background_id),
-                    3
                 );
 
                 // Example with system font
@@ -175,7 +172,6 @@ pub fn main() {
                     text_layout4,
                     FontFamily::Name("Papyrus"),
                     Some(fourth_text_background_id),
-                    4
                 );
 
                 let timer = Instant::now();
