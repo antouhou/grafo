@@ -271,13 +271,6 @@ impl TextDrawData {
         let top = self.top;
 
         let bounds = TextBounds {
-            left: i32::MIN,
-            top: i32::MIN,
-            right: i32::MAX,
-            bottom: i32::MAX,
-        };
-
-        let bounds = TextBounds {
             left: (area.min.x * scale_factor) as i32,
             top: (area.min.y * scale_factor) as i32,
             right: (area.max.x * scale_factor) as i32,
