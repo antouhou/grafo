@@ -216,6 +216,7 @@ pub struct Renderer<'a> {
 
     /// Tree structure holding shapes and images to be rendered.
     draw_tree: easy_tree::Tree<DrawCommand>,
+    text_buffer_ids_to_clips: HashMap<usize, usize>,
 
     /// Uniforms for the "And" rendering pipeline.
     and_uniforms: Uniforms,
@@ -415,6 +416,7 @@ impl Renderer<'_> {
             decrementing_bind_group,
 
             draw_tree: easy_tree::Tree::new(),
+            text_buffer_ids_to_clips: HashMap::new(),
 
             // #[cfg(feature = "performance_measurement")]
             // performance_query_set: frametime_query_set,
@@ -659,29 +661,46 @@ impl Renderer<'_> {
     ) {
         let font_system = font_system.unwrap_or(&mut self.font_system);
 
+        let buffer_id = self.text_instances.len();
+
         self.text_instances.push(TextDrawData::new(
             text,
             layout,
-            clip_to_shape,
+            buffer_id,
             self.scale_factor as f32,
             font_system,
             font_family,
             &mut self.buffers_pool_manager,
         ));
+        self.text_buffer_ids_to_clips
+            .insert(buffer_id, clip_to_shape.unwrap_or(0));
     }
 
-    /// [Renderer::add_text] lays out, shapes and styles the text. This method, on the other hand,
-    /// only adds the text buffer to the draw queue. This is useful when you want to use the text
-    /// buffer somewhere else, for example to detect clicks on the text.
+    /// This method  adds the text buffer to the draw queue. This is useful when you want to use
+    /// the text buffer somewhere else, for example to detect clicks on the text.
+    ///
+    /// # Parameters
+    ///
+    /// - `text_buffer`: Text buffer to be rendered.
+    /// - `area`: Where to render the text.
+    /// - `fallback_color`: Color used as a fallback color.
+    /// - `vertical_offset`: Vertical offset from the top of the canvas where to start rendering the text.
+    /// - `text_buffer_id`: Unique identifier for the text buffer. This value is used to map the text
+    ///     buffer to the clip shape. NOTE! This value should match the same value set as buffer's
+    ///     attr's metadata.
+    /// - `clip_to_shape`: Optional index of a shape to which this text should be clipped.
     ///
     /// # NOTE
-    /// What other methods accepts as clip_to_shape should be stored in the Buffer's attrs, otherwise it won't be rendered correctly.
+    /// It is very important to set the same value for `text_buffer_id` and the metadata of the buffer,
+    /// otherwise the text won't be rendered.
     pub fn add_text_buffer(
         &mut self,
         text_buffer: &glyphon::Buffer,
         area: MathRect,
         fallback_color: Color,
         vertical_offset: f32,
+        text_buffer_id: usize,
+        clip_to_shape: Option<usize>,
     ) {
         let buffers_pool = &mut self.buffers_pool_manager;
         let mut buffer = buffers_pool.text_buffers_pool.get_text_buffer(
@@ -697,6 +716,8 @@ impl Renderer<'_> {
             fallback_color,
             vertical_offset,
         ));
+        self.text_buffer_ids_to_clips
+            .insert(text_buffer_id, clip_to_shape.unwrap_or(0));
     }
 
     /// Renders all items currently in the draw queue.
@@ -951,7 +972,15 @@ impl Renderer<'_> {
                     &self.glyphon_viewport,
                     text_areas,
                     swash_cache,
-                    |index| depth(index, draw_tree_size),
+                    |buffer_id| {
+                        // TODO: print warning if the buffer is not found
+                        let clip_to_shape = self
+                            .text_buffer_ids_to_clips
+                            .get(&buffer_id)
+                            .copied()
+                            .unwrap_or(0);
+                        depth(clip_to_shape, draw_tree_size)
+                    },
                 )
                 .unwrap();
 
@@ -1026,6 +1055,7 @@ impl Renderer<'_> {
     pub fn clear_draw_queue(&mut self) {
         self.draw_tree.clear();
         self.text_instances.clear();
+        self.text_buffer_ids_to_clips.clear();
     }
 
     /// Adds a generic draw command to the draw tree.

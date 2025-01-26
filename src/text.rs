@@ -166,7 +166,7 @@ impl TextDrawData {
     pub fn new(
         text: &str,
         layout: impl Into<TextLayout>,
-        clip_to_shape: Option<usize>,
+        buffer_id: usize,
         scale_factor: f32,
         font_system: &mut FontSystem,
         font_family: Family,
@@ -191,9 +191,7 @@ impl TextDrawData {
         buffer.set_text(
             font_system,
             text,
-            Attrs::new()
-                .family(font_family)
-                .metadata(clip_to_shape.unwrap_or(0)),
+            Attrs::new().family(font_family).metadata(buffer_id),
             Shaping::Advanced,
         );
 
@@ -269,17 +267,19 @@ impl TextDrawData {
         let area = self.area;
         let top = self.top;
 
+        let bounds = TextBounds {
+            left: (area.min.x * scale_factor) as i32,
+            top: (area.min.y * scale_factor) as i32,
+            right: (area.max.x * scale_factor) as i32,
+            bottom: (area.max.y * scale_factor) as i32,
+        };
+
         TextArea {
             buffer: &self.text_buffer,
             left: area.min.x * scale_factor,
             top: top * scale_factor,
             scale: scale_factor,
-            bounds: TextBounds {
-                left: (area.min.x * scale_factor) as i32,
-                top: (area.min.y * scale_factor) as i32,
-                right: (area.max.x * scale_factor) as i32,
-                bottom: (area.max.y * scale_factor) as i32,
-            },
+            bounds,
             default_color: TextColor::rgba(
                 self.color.0[1],
                 self.color.0[2],
