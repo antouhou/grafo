@@ -675,12 +675,23 @@ impl Renderer<'_> {
         self.text_buffer_ids_to_clips.insert(buffer_id, clip_to_shape.unwrap_or(0));
     }
 
-    /// [Renderer::add_text] lays out, shapes and styles the text. This method, on the other hand,
-    /// only adds the text buffer to the draw queue. This is useful when you want to use the text
-    /// buffer somewhere else, for example to detect clicks on the text.
+    /// This method  adds the text buffer to the draw queue. This is useful when you want to use
+    /// the text buffer somewhere else, for example to detect clicks on the text.
+    ///
+    /// # Parameters
+    ///
+    /// - `text_buffer`: Text buffer to be rendered.
+    /// - `area`: Where to render the text.
+    /// - `fallback_color`: Color used as a fallback color.
+    /// - `vertical_offset`: Vertical offset from the top of the canvas where to start rendering the text.
+    /// - `text_buffer_id`: Unique identifier for the text buffer. This value is used to map the text
+    ///     buffer to the clip shape. NOTE! This value should match the same value set as buffer's
+    ///     attr's metadata.
+    /// - `clip_to_shape`: Optional index of a shape to which this text should be clipped.
     ///
     /// # NOTE
-    /// What other methods accepts as clip_to_shape should be stored in the Buffer's attrs, otherwise it won't be rendered correctly.
+    /// It is very important to set the same value for `text_buffer_id` and the metadata of the buffer,
+    /// otherwise the text won't be rendered.
     pub fn add_text_buffer(
         &mut self,
         text_buffer: &glyphon::Buffer,
