@@ -216,6 +216,7 @@ pub struct Renderer<'a> {
 
     /// Tree structure holding shapes and images to be rendered.
     draw_tree: easy_tree::Tree<DrawCommand>,
+    text_buffer_ids_to_clips: HashMap<usize, usize>,
 
     /// Uniforms for the "And" rendering pipeline.
     and_uniforms: Uniforms,
@@ -415,6 +416,7 @@ impl Renderer<'_> {
             decrementing_bind_group,
 
             draw_tree: easy_tree::Tree::new(),
+            text_buffer_ids_to_clips: HashMap::new(),
 
             // #[cfg(feature = "performance_measurement")]
             // performance_query_set: frametime_query_set,
@@ -633,8 +635,9 @@ impl Renderer<'_> {
         layout: impl Into<TextLayout>,
         font_family: FontFamily,
         clip_to_shape: Option<usize>,
+        text_id: usize,
     ) {
-        self.add_text_internal(text, layout, font_family, clip_to_shape, None)
+        self.add_text_internal(text, layout, font_family, clip_to_shape, None, text_id)
     }
 
     /// Same as [Renderer::add_text], but allows to use a custom font system
@@ -645,8 +648,9 @@ impl Renderer<'_> {
         font_family: FontFamily,
         clip_to_shape: Option<usize>,
         font_system: &mut FontSystem,
+        text_id: usize,
     ) {
-        self.add_text_internal(text, layout, font_family, clip_to_shape, Some(font_system))
+        self.add_text_internal(text, layout, font_family, clip_to_shape, Some(font_system), text_id)
     }
 
     fn add_text_internal(
@@ -656,18 +660,20 @@ impl Renderer<'_> {
         font_family: FontFamily,
         clip_to_shape: Option<usize>,
         font_system: Option<&mut FontSystem>,
+        buffer_id: usize,
     ) {
         let font_system = font_system.unwrap_or(&mut self.font_system);
 
         self.text_instances.push(TextDrawData::new(
             text,
             layout,
-            clip_to_shape,
+            buffer_id,
             self.scale_factor as f32,
             font_system,
             font_family,
             &mut self.buffers_pool_manager,
         ));
+        self.text_buffer_ids_to_clips.insert(buffer_id, clip_to_shape.unwrap_or(0));
     }
 
     /// [Renderer::add_text] lays out, shapes and styles the text. This method, on the other hand,
@@ -682,6 +688,8 @@ impl Renderer<'_> {
         area: MathRect,
         fallback_color: Color,
         vertical_offset: f32,
+        text_buffer_id: usize,
+        clip_to_shape: Option<usize>,
     ) {
         let buffers_pool = &mut self.buffers_pool_manager;
         let mut buffer = buffers_pool.text_buffers_pool.get_text_buffer(
@@ -697,6 +705,7 @@ impl Renderer<'_> {
             fallback_color,
             vertical_offset,
         ));
+        self.text_buffer_ids_to_clips.insert(text_buffer_id, clip_to_shape.unwrap_or(0));
     }
 
     /// Renders all items currently in the draw queue.
@@ -951,7 +960,11 @@ impl Renderer<'_> {
                     &self.glyphon_viewport,
                     text_areas,
                     swash_cache,
-                    |index| depth(index, draw_tree_size),
+                    |buffer_id| {
+                        // TODO: print warning if the buffer is not found
+                        let clip_to_shape = self.text_buffer_ids_to_clips.get(&buffer_id).copied().unwrap_or(0);
+                        depth(clip_to_shape, draw_tree_size)
+                    },
                 )
                 .unwrap();
 
@@ -1026,6 +1039,7 @@ impl Renderer<'_> {
     pub fn clear_draw_queue(&mut self) {
         self.draw_tree.clear();
         self.text_instances.clear();
+        self.text_buffer_ids_to_clips.clear();
     }
 
     /// Adds a generic draw command to the draw tree.
