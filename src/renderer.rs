@@ -953,7 +953,6 @@ impl Renderer<'_> {
                 &mut data,
             );
 
-            // TODO: cache the text rendering
             let text_instances = std::mem::take(&mut self.text_instances);
             let text_areas = text_instances
                 .iter()
@@ -1153,6 +1152,10 @@ impl Renderer<'_> {
     pub fn change_scale_factor(&mut self, new_scale_factor: f64) {
         self.scale_factor = new_scale_factor;
         self.resize(self.physical_size)
+    }
+
+    pub fn scale_factor(&self) -> f64 {
+        self.scale_factor
     }
 
     /// Resizes the renderer to the specified physical size.
