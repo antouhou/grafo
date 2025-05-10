@@ -30,7 +30,7 @@
 //! let scale_factor = 1.0;
 //!
 //! // Initialize the renderer
-//! let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+//! let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
 //!
 //! // Add a rectangle shape
 //! let rect = Shape::rect(
@@ -154,7 +154,7 @@ enum DrawCommand {
 ///
 ///
 /// // Initialize the renderer
-/// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+/// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
 ///
 /// // Add a rectangle shape
 /// let rect = Shape::rect(
@@ -269,12 +269,13 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     /// ```
     pub async fn new(
         window: impl Into<SurfaceTarget<'static>>,
         physical_size: (u32, u32),
         scale_factor: f64,
+        vsync: bool,
     ) -> Self {
         let size = physical_size;
         let canvas_logical_size = to_logical(size, scale_factor);
@@ -326,7 +327,7 @@ impl Renderer<'_> {
             format: swapchain_format,
             width: size.0,
             height: size.1,
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode: if vsync { wgpu::PresentMode::AutoVsync } else { wgpu::PresentMode::AutoNoVsync },
             desired_maximum_frame_latency: 2,
             // TODO: Check if this is the correct alpha mode
             alpha_mode: CompositeAlphaMode::Opaque,
@@ -466,7 +467,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// let shape_id = renderer.add_shape(
     ///     Shape::rect(
@@ -526,7 +527,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// let image_data = vec![0; 16]; // A 2x2 black image
     /// renderer.add_rgba_image(
@@ -614,7 +615,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// let layout = TextLayout {
     ///     font_size: 24.0,
@@ -749,7 +750,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// // Add shapes, images, and text...
     ///
@@ -1044,7 +1045,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// // Add shapes, images, and text...
     ///
@@ -1107,7 +1108,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// let size = renderer.size();
     /// println!("Rendering surface size: {}x{}", size.0, size.1);
@@ -1144,7 +1145,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// // Change the scale factor to 2.0 for high-DPI rendering
     /// renderer.change_scale_factor(2.0);
@@ -1187,7 +1188,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// // Resize the renderer to 1024x768 pixels
     /// renderer.resize((1024, 768));
@@ -1270,7 +1271,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// let roboto_font_ttf = include_bytes!("../examples/assets/Roboto-Regular.ttf").to_vec();
     /// let roboto_font_source = fontdb::Source::Binary(Arc::new(roboto_font_ttf));
@@ -1331,7 +1332,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// let roboto_font_ttf = include_bytes!("../examples/assets/Roboto-Regular.ttf");
     /// renderer.load_font_from_bytes(roboto_font_ttf);

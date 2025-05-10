@@ -34,7 +34,7 @@ pub enum TextureManagerError {
 /// # let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
 /// # let physical_size = (800, 600);
 /// # let scale_factor = 1.0;
-/// # let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+/// # let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
 ///
 /// let texture_manager = renderer.texture_manager();
 /// let texture_id = 42;

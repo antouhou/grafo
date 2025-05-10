@@ -22,6 +22,7 @@ pub fn main() {
         window.clone(),
         physical_size,
         scale_factor,
+        false
     ));
 
     // Load the font
@@ -36,7 +37,7 @@ pub fn main() {
             ref event,
             window_id,
         } if window_id == window.id() => match event {
-            WindowEvent::KeyboardInput { device_id, event, is_synthetic } => {
+            WindowEvent::KeyboardInput { device_id: _, event, is_synthetic: _ } => {
                 match event.physical_key {
                     PhysicalKey::Unidentified(_) => {}
                     PhysicalKey::Code(key_code) => {
@@ -106,7 +107,7 @@ pub fn main() {
                 text_buffer.set_wrap(&mut font_system, cosmic_text::Wrap::None);
 
                 let scroll_value = *scroll_state.read().unwrap();
-                let scroll = cosmic_text::Scroll::new(0, scroll_value.1, 100.0);
+                let scroll = cosmic_text::Scroll::new(0, scroll_value.1, scroll_value.0);
 
                 let text_area_size = (
                     background_max.0 - background_min.0,
@@ -114,12 +115,6 @@ pub fn main() {
                 );
 
                 println!("text_area_size: {:?}", text_area_size);
-
-                text_buffer.set_size(
-                    &mut font_system,
-                    Some(text_area_size.0 * renderer.scale_factor() as f32),
-                    Some(text_area_size.1 * renderer.scale_factor() as f32),
-                );
 
                 text_buffer.set_text(
                     &mut font_system,
@@ -133,6 +128,14 @@ pub fn main() {
 
                 text_buffer.set_scroll(scroll);
                 println!("Scroll: x: {}, y: {}", scroll_value.0, scroll_value.1);
+                text_buffer.set_size(
+                    &mut font_system,
+                    Some(text_area_size.0 * renderer.scale_factor() as f32),
+                    Some(text_area_size.1 * renderer.scale_factor() as f32),
+                );
+                text_buffer.shape_until_scroll(&mut font_system, true);
+
+                println!("Text buffer scroll: {:?}", text_buffer.scroll());
 
                 let text_bounds = MathRect::new(background_min.into(), background_max.into());
                 let vertical_offset = 10.0;

@@ -63,6 +63,7 @@
 //!         window.clone(),
 //!         physical_size,
 //!         scale_factor,
+//!         true
 //!     ));
 //!
 //!     // Define a simple rectangle shape
