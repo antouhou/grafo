@@ -1,4 +1,5 @@
 use futures::executor::block_on;
+use glyphon::cosmic_text;
 use grafo::{fontdb, Color, Stroke};
 use grafo::{MathRect, Shape};
 use std::sync::{Arc, RwLock};
@@ -7,7 +8,6 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::keyboard::PhysicalKey;
 use winit::window::WindowBuilder;
-use glyphon::cosmic_text;
 
 pub fn main() {
     env_logger::init();
@@ -22,7 +22,7 @@ pub fn main() {
         window.clone(),
         physical_size,
         scale_factor,
-        false
+        false,
     ));
 
     // Load the font

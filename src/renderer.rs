@@ -327,7 +327,11 @@ impl Renderer<'_> {
             format: swapchain_format,
             width: size.0,
             height: size.1,
-            present_mode: if vsync { wgpu::PresentMode::AutoVsync } else { wgpu::PresentMode::AutoNoVsync },
+            present_mode: if vsync {
+                wgpu::PresentMode::AutoVsync
+            } else {
+                wgpu::PresentMode::AutoNoVsync
+            },
             desired_maximum_frame_latency: 2,
             // TODO: Check if this is the correct alpha mode
             alpha_mode: CompositeAlphaMode::Opaque,
@@ -433,12 +437,12 @@ impl Renderer<'_> {
     /// # Parameters
     ///
     /// - `shape`: The shape to be rendered. It can be any type that implements `Into<Shape>`. If
-    ///     you're going to render a lot of shapes with the same outline, it is
-    ///     recommended to start shapes at 0.0, 0.0 where possible and use offset to move them on
-    ///     the screen. This way, it is going to be possible to cache tesselation results for
-    ///     such shapes, which would increase rendering time. This is useful if you render a lot
-    ///     of buttons with rounded corners, for example. Caching requires supplying a cache key
-    ///     to cache tessellated shape.
+    ///   you're going to render a lot of shapes with the same outline, it is
+    ///   recommended to start shapes at 0.0, 0.0 where possible and use offset to move them on
+    ///   the screen. This way, it is going to be possible to cache tesselation results for
+    ///   such shapes, which would increase rendering time. This is useful if you render a lot
+    ///   of buttons with rounded corners, for example. Caching requires supplying a cache key
+    ///   to cache tessellated shape.
     /// - `clip_to_shape`: Optional index of another shape to which this shape should be clipped.
     /// - `offset`: Offset to render the shape at.
     /// - `cache_key`: A key that is going to be used for tesselation caching.
@@ -687,8 +691,8 @@ impl Renderer<'_> {
     /// - `fallback_color`: Color used as a fallback color.
     /// - `vertical_offset`: Vertical offset from the top of the canvas where to start rendering the text.
     /// - `text_buffer_id`: Unique identifier for the text buffer. This value is used to map the text
-    ///     buffer to the clip shape. NOTE! This value should match the same value set as buffer's
-    ///     attr's metadata.
+    ///   buffer to the clip shape. NOTE! This value should match the same value set as buffer's
+    ///   attr's metadata.
     /// - `clip_to_shape`: Optional index of a shape to which this text should be clipped.
     ///
     /// # NOTE

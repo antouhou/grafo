@@ -1,4 +1,4 @@
-use glyphon::cosmic_text::{FontSystem, Metrics, Buffer, Wrap, Attrs, Family, Shaping, Scroll};
+use glyphon::cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Scroll, Shaping, Wrap};
 
 fn main() {
     let mut font_system = FontSystem::new();
