@@ -20,6 +20,7 @@ pub fn main() {
         window.clone(),
         physical_size,
         scale_factor,
+        true,
     ));
 
     // Load the font

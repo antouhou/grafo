@@ -30,7 +30,7 @@
 //! let scale_factor = 1.0;
 //!
 //! // Initialize the renderer
-//! let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+//! let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
 //!
 //! // Add a rectangle shape
 //! let rect = Shape::rect(
@@ -154,7 +154,7 @@ enum DrawCommand {
 ///
 ///
 /// // Initialize the renderer
-/// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+/// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
 ///
 /// // Add a rectangle shape
 /// let rect = Shape::rect(
@@ -269,12 +269,13 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     /// ```
     pub async fn new(
         window: impl Into<SurfaceTarget<'static>>,
         physical_size: (u32, u32),
         scale_factor: f64,
+        vsync: bool,
     ) -> Self {
         let size = physical_size;
         let canvas_logical_size = to_logical(size, scale_factor);
@@ -326,7 +327,11 @@ impl Renderer<'_> {
             format: swapchain_format,
             width: size.0,
             height: size.1,
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode: if vsync {
+                wgpu::PresentMode::AutoVsync
+            } else {
+                wgpu::PresentMode::AutoNoVsync
+            },
             desired_maximum_frame_latency: 2,
             // TODO: Check if this is the correct alpha mode
             alpha_mode: CompositeAlphaMode::Opaque,
@@ -432,12 +437,12 @@ impl Renderer<'_> {
     /// # Parameters
     ///
     /// - `shape`: The shape to be rendered. It can be any type that implements `Into<Shape>`. If
-    ///     you're going to render a lot of shapes with the same outline, it is
-    ///     recommended to start shapes at 0.0, 0.0 where possible and use offset to move them on
-    ///     the screen. This way, it is going to be possible to cache tesselation results for
-    ///     such shapes, which would increase rendering time. This is useful if you render a lot
-    ///     of buttons with rounded corners, for example. Caching requires supplying a cache key
-    ///     to cache tessellated shape.
+    ///   you're going to render a lot of shapes with the same outline, it is
+    ///   recommended to start shapes at 0.0, 0.0 where possible and use offset to move them on
+    ///   the screen. This way, it is going to be possible to cache tesselation results for
+    ///   such shapes, which would increase rendering time. This is useful if you render a lot
+    ///   of buttons with rounded corners, for example. Caching requires supplying a cache key
+    ///   to cache tessellated shape.
     /// - `clip_to_shape`: Optional index of another shape to which this shape should be clipped.
     /// - `offset`: Offset to render the shape at.
     /// - `cache_key`: A key that is going to be used for tesselation caching.
@@ -466,7 +471,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// let shape_id = renderer.add_shape(
     ///     Shape::rect(
@@ -526,7 +531,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// let image_data = vec![0; 16]; // A 2x2 black image
     /// renderer.add_rgba_image(
@@ -614,7 +619,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// let layout = TextLayout {
     ///     font_size: 24.0,
@@ -686,8 +691,8 @@ impl Renderer<'_> {
     /// - `fallback_color`: Color used as a fallback color.
     /// - `vertical_offset`: Vertical offset from the top of the canvas where to start rendering the text.
     /// - `text_buffer_id`: Unique identifier for the text buffer. This value is used to map the text
-    ///     buffer to the clip shape. NOTE! This value should match the same value set as buffer's
-    ///     attr's metadata.
+    ///   buffer to the clip shape. NOTE! This value should match the same value set as buffer's
+    ///   attr's metadata.
     /// - `clip_to_shape`: Optional index of a shape to which this text should be clipped.
     ///
     /// # NOTE
@@ -749,7 +754,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// // Add shapes, images, and text...
     ///
@@ -953,7 +958,6 @@ impl Renderer<'_> {
                 &mut data,
             );
 
-            // TODO: cache the text rendering
             let text_instances = std::mem::take(&mut self.text_instances);
             let text_areas = text_instances
                 .iter()
@@ -1045,7 +1049,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// // Add shapes, images, and text...
     ///
@@ -1108,7 +1112,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// let size = renderer.size();
     /// println!("Rendering surface size: {}x{}", size.0, size.1);
@@ -1145,7 +1149,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// // Change the scale factor to 2.0 for high-DPI rendering
     /// renderer.change_scale_factor(2.0);
@@ -1153,6 +1157,10 @@ impl Renderer<'_> {
     pub fn change_scale_factor(&mut self, new_scale_factor: f64) {
         self.scale_factor = new_scale_factor;
         self.resize(self.physical_size)
+    }
+
+    pub fn scale_factor(&self) -> f64 {
+        self.scale_factor
     }
 
     /// Resizes the renderer to the specified physical size.
@@ -1184,7 +1192,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// // Resize the renderer to 1024x768 pixels
     /// renderer.resize((1024, 768));
@@ -1267,7 +1275,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// let roboto_font_ttf = include_bytes!("../examples/assets/Roboto-Regular.ttf").to_vec();
     /// let roboto_font_source = fontdb::Source::Binary(Arc::new(roboto_font_ttf));
@@ -1328,7 +1336,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
     ///
     /// let roboto_font_ttf = include_bytes!("../examples/assets/Roboto-Regular.ttf");
     /// renderer.load_font_from_bytes(roboto_font_ttf);

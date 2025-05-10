@@ -16,7 +16,7 @@
 //! * Shape Rendering: Create and render complex vector shapes.
 //! * Image Rendering: Render images with support for clipping to shapes.
 //! * Text Rendering: Load fonts and render text with customizable layout, alignment, and styling using the
-//!    [glyphon](https://github.com/grovesNL/glyphon) crate.
+//!   [glyphon](https://github.com/grovesNL/glyphon) crate.
 //! * Stencil Operations: Advanced stencil operations for clipping and masking.
 //!
 //! Grafo [available on crates.io](https://crates.io/crates/grafo), and
@@ -63,6 +63,7 @@
 //!         window.clone(),
 //!         physical_size,
 //!         scale_factor,
+//!         true
 //!     ));
 //!
 //!     // Define a simple rectangle shape

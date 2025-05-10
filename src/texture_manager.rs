@@ -34,7 +34,7 @@ pub enum TextureManagerError {
 /// # let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
 /// # let physical_size = (800, 600);
 /// # let scale_factor = 1.0;
-/// # let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor));
+/// # let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
 ///
 /// let texture_manager = renderer.texture_manager();
 /// let texture_id = 42;
@@ -137,7 +137,7 @@ impl TextureManager {
     /// - `texture_id`: Unique identifier for the texture.
     /// - `texture_dimensions`: A tuple `(width, height)` representing the dimensions of the texture.
     /// - `texture_data`: A byte slice containing the image data. The data length is expected to
-    ///      match the texture dimensions and pixel format (RGBA8).
+    ///   match the texture dimensions and pixel format (RGBA8).
     pub fn allocate_texture_with_data(
         &self,
         texture_id: u64,
