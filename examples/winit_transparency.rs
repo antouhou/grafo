@@ -26,7 +26,7 @@ pub fn main() {
         window.clone(),
         physical_size,
         scale_factor,
-        true,  // vsync
+        true, // vsync
     ));
 
     let _ = event_loop.run(move |event, event_loop_window_target| match event {
@@ -46,7 +46,7 @@ pub fn main() {
                 // Create a simple rectangle to test rendering
                 let rect = Shape::rect(
                     [(100.0, 100.0), (300.0, 200.0)],
-                    Color::rgb(255, 100, 50), // Orange fill
+                    Color::rgb(255, 100, 50),       // Orange fill
                     Stroke::new(3.0, Color::BLACK), // Black stroke
                 );
                 renderer.add_shape(rect, None, (0.0, 0.0), None);
@@ -54,7 +54,7 @@ pub fn main() {
                 // Create a rounded rectangle to test different shapes
                 let rounded_rect = Shape::rounded_rect(
                     [(350.0, 250.0), (450.0, 350.0)],
-                    BorderRadii::new(50.0), // Makes it circular
+                    BorderRadii::new(50.0),    // Makes it circular
                     Color::rgb(100, 200, 255), // Light blue fill
                     Stroke::new(2.0, Color::rgb(0, 100, 200)), // Darker blue stroke
                 );

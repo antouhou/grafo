@@ -324,10 +324,18 @@ impl Renderer<'_> {
         let swapchain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
 
         let surface_caps = surface.get_capabilities(&adapter);
-        let alpha_mode = if transparent && surface_caps.alpha_modes.contains(&CompositeAlphaMode::PreMultiplied) {
+        let alpha_mode = if transparent
+            && surface_caps
+                .alpha_modes
+                .contains(&CompositeAlphaMode::PreMultiplied)
+        {
             log::info!("Using PreMultiplied alpha mode for transparency");
             CompositeAlphaMode::PreMultiplied
-        } else if transparent && surface_caps.alpha_modes.contains(&CompositeAlphaMode::PostMultiplied) {
+        } else if transparent
+            && surface_caps
+                .alpha_modes
+                .contains(&CompositeAlphaMode::PostMultiplied)
+        {
             log::info!("Using PostMultiplied alpha mode for transparency");
             CompositeAlphaMode::PostMultiplied
         } else {

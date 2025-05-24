@@ -37,7 +37,7 @@ pub fn main() {
         physical_size,
         scale_factor,
         true,
-        true
+        true,
     ));
 
     let _ = event_loop.run(move |event, event_loop_window_target| match event {
