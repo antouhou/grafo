@@ -63,7 +63,8 @@
 //!         window.clone(),
 //!         physical_size,
 //!         scale_factor,
-//!         true
+//!         true,  // vsync
+//!         false, // transparent
 //!     ));
 //!
 //!     // Define a simple rectangle shape

@@ -30,7 +30,7 @@
 //! let scale_factor = 1.0;
 //!
 //! // Initialize the renderer
-//! let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
+//! let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
 //!
 //! // Add a rectangle shape
 //! let rect = Shape::rect(
@@ -154,7 +154,7 @@ enum DrawCommand {
 ///
 ///
 /// // Initialize the renderer
-/// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
+/// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
 ///
 /// // Add a rectangle shape
 /// let rect = Shape::rect(
@@ -269,13 +269,14 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
+    /// let renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     /// ```
     pub async fn new(
         window: impl Into<SurfaceTarget<'static>>,
         physical_size: (u32, u32),
         scale_factor: f64,
         vsync: bool,
+        transparent: bool,
     ) -> Self {
         let size = physical_size;
         let canvas_logical_size = to_logical(size, scale_factor);
@@ -322,6 +323,20 @@ impl Renderer<'_> {
 
         let swapchain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
 
+        let surface_caps = surface.get_capabilities(&adapter);
+        let alpha_mode = if transparent && surface_caps.alpha_modes.contains(&CompositeAlphaMode::PreMultiplied) {
+            log::info!("Using PreMultiplied alpha mode for transparency");
+            CompositeAlphaMode::PreMultiplied
+        } else if transparent && surface_caps.alpha_modes.contains(&CompositeAlphaMode::PostMultiplied) {
+            log::info!("Using PostMultiplied alpha mode for transparency");
+            CompositeAlphaMode::PostMultiplied
+        } else {
+            if transparent {
+                log::warn!("Transparency requested but no suitable alpha mode available, falling back to Opaque");
+            }
+            CompositeAlphaMode::Opaque
+        };
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: swapchain_format,
@@ -333,8 +348,7 @@ impl Renderer<'_> {
                 wgpu::PresentMode::AutoNoVsync
             },
             desired_maximum_frame_latency: 2,
-            // TODO: Check if this is the correct alpha mode
-            alpha_mode: CompositeAlphaMode::Opaque,
+            alpha_mode,
             view_formats: vec![],
         };
         surface.configure(&device, &config);
@@ -432,6 +446,49 @@ impl Renderer<'_> {
         }
     }
 
+    /// Creates a new transparent `Renderer` instance.
+    ///
+    /// This is a convenience method that calls [`Renderer::new`] with `transparent` set to `true`.
+    ///
+    /// # Parameters
+    ///
+    /// - `window`: The window surface target to render to.
+    /// - `physical_size`: The physical size of the rendering surface in pixels.
+    /// - `scale_factor`: The DPI scale factor of the window.
+    /// - `vsync`: Whether to enable vertical synchronization.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use futures::executor::block_on;
+    /// use std::sync::Arc;
+    /// use winit::window::WindowBuilder;
+    /// use winit::event_loop::EventLoop;
+    ///
+    /// let event_loop = EventLoop::new().expect("To create the event loop");
+    /// let window = Arc::new(WindowBuilder::new()
+    ///     .with_transparent(true)
+    ///     .build(&event_loop)
+    ///     .unwrap());
+    /// let physical_size = (800, 600);
+    /// let scale_factor = 1.0;
+    ///
+    /// let mut renderer = block_on(grafo::Renderer::new_transparent(
+    ///     window.clone(),
+    ///     physical_size,
+    ///     scale_factor,
+    ///     true
+    /// ));
+    /// ```
+    pub async fn new_transparent(
+        window: impl Into<SurfaceTarget<'static>>,
+        physical_size: (u32, u32),
+        scale_factor: f64,
+        vsync: bool,
+    ) -> Self {
+        Self::new(window, physical_size, scale_factor, vsync, true).await
+    }
+
     /// Adds a shape to the draw queue.
     ///
     /// # Parameters
@@ -471,7 +528,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
     /// let shape_id = renderer.add_shape(
     ///     Shape::rect(
@@ -531,7 +588,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
     /// let image_data = vec![0; 16]; // A 2x2 black image
     /// renderer.add_rgba_image(
@@ -619,7 +676,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
     /// let layout = TextLayout {
     ///     font_size: 24.0,
@@ -754,7 +811,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
     /// // Add shapes, images, and text...
     ///
@@ -1049,7 +1106,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
     /// // Add shapes, images, and text...
     ///
@@ -1112,7 +1169,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
     /// let size = renderer.size();
     /// println!("Rendering surface size: {}x{}", size.0, size.1);
@@ -1149,7 +1206,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
     /// // Change the scale factor to 2.0 for high-DPI rendering
     /// renderer.change_scale_factor(2.0);
@@ -1192,7 +1249,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
     /// // Resize the renderer to 1024x768 pixels
     /// renderer.resize((1024, 768));
@@ -1275,7 +1332,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
     /// let roboto_font_ttf = include_bytes!("../examples/assets/Roboto-Regular.ttf").to_vec();
     /// let roboto_font_source = fontdb::Source::Binary(Arc::new(roboto_font_ttf));
@@ -1336,7 +1393,7 @@ impl Renderer<'_> {
     /// let scale_factor = 1.0;
     ///
     /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true));
+    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
     /// let roboto_font_ttf = include_bytes!("../examples/assets/Roboto-Regular.ttf");
     /// renderer.load_font_from_bytes(roboto_font_ttf);

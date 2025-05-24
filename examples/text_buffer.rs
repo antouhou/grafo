@@ -22,7 +22,8 @@ pub fn main() {
         window.clone(),
         physical_size,
         scale_factor,
-        false,
+        false, // vsync
+        false, // transparent
     ));
 
     // Load the font

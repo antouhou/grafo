@@ -372,7 +372,7 @@ pub fn create_render_pass<'a, 'b: 'a>(
             view: output_texture_view,
             resolve_target: None,
             ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                 store: StoreOp::Store,
             },
         })],
