@@ -13,7 +13,7 @@ fn main() {
 
     buffer.set_text(
         "Lorem ipsum dolor sit amet, qui minim labore adipisicing minim sint cillum sint consectetur cupidatat.",
-        Attrs::new().family(Family::SansSerif),
+        &Attrs::new().family(Family::SansSerif),
         Shaping::Advanced
     );
 

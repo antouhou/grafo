@@ -23,19 +23,24 @@ pub enum TextureManagerError {
 /// ```rust,no_run
 /// # use std::sync::Arc;
 /// # use futures::executor::block_on;
-/// # use winit::event_loop::EventLoop;
-/// # use winit::window::WindowBuilder;
+/// # use winit::application::ApplicationHandler;
+/// # use winit::event_loop::{ActiveEventLoop, EventLoop};
+/// # use winit::window::Window;
 /// # use grafo::Renderer;
 /// # use grafo::Shape;
 /// # use grafo::Color;
 /// # use grafo::Stroke;
 /// #
-/// # let event_loop = EventLoop::new().expect("To create the event loop");
-/// # let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-/// # let physical_size = (800, 600);
-/// # let scale_factor = 1.0;
-/// # let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
-///
+/// # struct App;
+/// # impl ApplicationHandler for App {
+/// #     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+/// #         let window_surface = Arc::new(
+/// #             event_loop.create_window(Window::default_attributes()).unwrap()
+/// #         );
+/// #         let physical_size = (800, 600);
+/// #         let scale_factor = 1.0;
+/// #         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+/// #
 /// let texture_manager = renderer.texture_manager();
 /// let texture_id = 42;
 /// let texture_dimensions = (256, 256);
@@ -49,6 +54,12 @@ pub enum TextureManagerError {
 /// assert!(texture_manager.is_texture_loaded(texture_id));
 /// // Clone the texture manager to pass to another thread
 /// let texture_manager_clone = texture_manager.clone();
+/// #     }
+/// #
+/// #     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
+/// #         // Handle window events (stub for doc test)
+/// #     }
+/// # }
 /// ```
 ///
 /// The texture manager internally uses an `Arc<RwLock<_>>` to manage its bind group layout and texture storage.
@@ -195,7 +206,7 @@ impl TextureManager {
     ) {
         self.queue.write_texture(
             // Tells wgpu where to copy the pixel data
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
@@ -204,7 +215,7 @@ impl TextureManager {
             // The actual pixel data
             texture_data_bytes,
             // The layout of the texture
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * texture_dimensions.0),
                 rows_per_image: Some(texture_dimensions.1),

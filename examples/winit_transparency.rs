@@ -2,39 +2,62 @@ use futures::executor::block_on;
 use grafo::{BorderRadii, Color, Shape, Stroke};
 use std::sync::Arc;
 use std::time::Instant;
-use winit::event::{Event, WindowEvent};
-use winit::event_loop::EventLoop;
-use winit::window::WindowBuilder;
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::window::{Window, WindowId};
 
-pub fn main() {
-    env_logger::init();
-    let event_loop = EventLoop::new().expect("To create the event loop");
-    let window = Arc::new(
-        WindowBuilder::new()
-            .with_title("Grafo Winit Test")
-            .with_transparent(true)
-            .with_inner_size(winit::dpi::LogicalSize::new(800, 600))
-            .build(&event_loop)
-            .unwrap(),
-    );
+#[derive(Default)]
+struct App<'a> {
+    window: Option<Arc<Window>>,
+    renderer: Option<grafo::Renderer<'a>>,
+}
 
-    let window_size = window.inner_size();
-    let scale_factor = window.scale_factor();
-    let physical_size = (window_size.width, window_size.height);
+impl<'a> ApplicationHandler for App<'a> {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let window = Arc::new(
+            event_loop
+                .create_window(
+                    Window::default_attributes()
+                        .with_title("Grafo Winit Test")
+                        .with_transparent(true)
+                        .with_inner_size(winit::dpi::LogicalSize::new(800, 600)),
+                )
+                .unwrap(),
+        );
 
-    let mut renderer = block_on(grafo::Renderer::new_transparent(
-        window.clone(),
-        physical_size,
-        scale_factor,
-        true, // vsync
-    ));
+        let window_size = window.inner_size();
+        let scale_factor = window.scale_factor();
+        let physical_size = (window_size.width, window_size.height);
 
-    let _ = event_loop.run(move |event, event_loop_window_target| match event {
-        Event::WindowEvent {
-            ref event,
-            window_id,
-        } if window_id == window.id() => match event {
-            WindowEvent::CloseRequested => event_loop_window_target.exit(),
+        let renderer = block_on(grafo::Renderer::new_transparent(
+            window.clone(),
+            physical_size,
+            scale_factor,
+            true, // vsync
+        ));
+
+        self.window = Some(window);
+        self.renderer = Some(renderer);
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        let Some(window) = &self.window else { return };
+        let Some(renderer) = &mut self.renderer else {
+            return;
+        };
+
+        if window_id != window.id() {
+            return;
+        }
+
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(physical_size) => {
                 let new_size = (physical_size.width, physical_size.height);
                 renderer.resize(new_size);
@@ -72,13 +95,20 @@ pub fn main() {
                     }
                     Err(wgpu::SurfaceError::OutOfMemory) => {
                         println!("Out of memory, exiting...");
-                        event_loop_window_target.exit()
+                        event_loop.exit()
                     }
                     Err(e) => eprintln!("Render error: {:?}", e),
                 }
             }
             _ => {}
-        },
-        _ => {}
-    });
+        }
+    }
+}
+
+pub fn main() {
+    env_logger::init();
+    let event_loop = EventLoop::new().expect("To create the event loop");
+
+    let mut app = App::default();
+    let _ = event_loop.run_app(&mut app);
 }

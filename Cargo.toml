@@ -1,6 +1,6 @@
 [package]
 name = "grafo"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 description = "A GPU-accelerated rendering library for Rust"
 keywords = ["rendering", "vector_graphics", "gui", "graphics", "image"]
@@ -12,21 +12,20 @@ documentation = "https://docs.rs/grafo/"
 readme = "README.md"
 
 [dependencies]
-bytemuck = "1.21.0"
-wgpu = "23.0.1"
-ahash = "0.8.11"
-lyon = { version = "1.0.1"}
-glyphon = "0.7.0"
-easy-tree = { version = "0.1.3" }
-log = "0.4.22"
-lru = "0.12.5"
+bytemuck = "1.23"
+wgpu = "25.0"
+ahash = "0.8"
+lyon = { version = "1.0"}
+glyphon = "0.9"
+easy-tree = { version = "0.1" }
+log = "0.4"
+lru = "0.14"
 
 [dev-dependencies]
-winit = "0.29.15"
-env_logger = "0.11.3"
-futures = "0.3.30"
-image = "0.24.9"
-#dextreamer = "0.2.0"
+winit = "0.30"
+env_logger = "0.11"
+futures = "0.3"
+image = "0.25"
 
 [features]
 performance_measurement = []
