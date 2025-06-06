@@ -281,7 +281,7 @@ impl Renderer<'_> {
         let size = physical_size;
         let canvas_logical_size = to_logical(size, scale_factor);
 
-        let instance = wgpu::Instance::new(InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(&InstanceDescriptor::default());
         let surface = instance
             .create_surface(window)
             .expect("Failed to create surface");
@@ -306,8 +306,8 @@ impl Renderer<'_> {
                     required_features: wgpu::Features::empty(),
                     required_limits: wgpu::Limits::default(),
                     memory_hints: Default::default(),
+                    trace: Default::default(),
                 },
-                None,
             )
             .await
             .unwrap();

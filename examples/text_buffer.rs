@@ -120,7 +120,7 @@ pub fn main() {
                 text_buffer.set_text(
                     &mut font_system,
                     text,
-                    cosmic_text::Attrs::new()
+                    &cosmic_text::Attrs::new()
                         .family(cosmic_text::Family::SansSerif)
                         .metadata(text_buffer_id)
                         .color(cosmic_text::Color::rgb(0, 0, 255)),

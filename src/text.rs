@@ -191,7 +191,7 @@ impl TextDrawData {
         buffer.set_text(
             font_system,
             text,
-            Attrs::new().family(font_family).metadata(buffer_id),
+            &Attrs::new().family(font_family).metadata(buffer_id),
             Shaping::Advanced,
         );
 
