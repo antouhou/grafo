@@ -17,51 +17,62 @@
 //! use grafo::Stroke;
 //! use grafo::{TextAlignment, TextLayout};
 //! use grafo::MathRect;
-//! use wgpu::Surface;
-//! use winit::event_loop::EventLoop;
-//! use winit::window::WindowBuilder;
+//! use winit::application::ApplicationHandler;
+//! use winit::event_loop::{ActiveEventLoop, EventLoop};
+//! use winit::window::Window;
 //! use futures::executor::block_on;
 //!
 //! // This is for demonstration purposes only. If you want a working example with winit, please
 //! // refer to the example in the "examples" folder.
-//! let event_loop = EventLoop::new().expect("To create the event loop");
-//! let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-//! let physical_size = (800, 600);
-//! let scale_factor = 1.0;
+//! 
+//! struct App;
+//! impl ApplicationHandler for App {
+//!     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+//!         let window_surface = Arc::new(
+//!             event_loop.create_window(Window::default_attributes()).unwrap()
+//!         );
+//!         let physical_size = (800, 600);
+//!         let scale_factor = 1.0;
 //!
-//! // Initialize the renderer
-//! let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+//!         // Initialize the renderer
+//!         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
 //!
-//! // Add a rectangle shape
-//! let rect = Shape::rect(
-//!     [(0.0, 0.0), (200.0, 100.0)],
-//!     Color::rgb(0, 128, 255), // Blue fill
-//!     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
-//! );
-//! renderer.add_shape(rect, None, (100.0, 100.0), None);
+//!         // Add a rectangle shape
+//!         let rect = Shape::rect(
+//!             [(0.0, 0.0), (200.0, 100.0)],
+//!             Color::rgb(0, 128, 255), // Blue fill
+//!             Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+//!         );
+//!         renderer.add_shape(rect, None, (100.0, 100.0), None);
 //!
-//! // Add some text
-//! let layout = TextLayout {
-//!     font_size: 24.0,
-//!     line_height: 30.0,
-//!     color: Color::rgb(255, 255, 255), // White text
-//!     area: MathRect {
-//!         min: (50.0, 50.0).into(),
-//!         max: (400.0, 100.0).into(),
-//!     },
-//!     horizontal_alignment: TextAlignment::Center,
-//!     vertical_alignment: TextAlignment::Center,
-//! };
-//! renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif, None);
+//!         // Add some text
+//!         let layout = TextLayout {
+//!             font_size: 24.0,
+//!             line_height: 30.0,
+//!             color: Color::rgb(255, 255, 255), // White text
+//!             area: MathRect {
+//!                 min: (50.0, 50.0).into(),
+//!                 max: (400.0, 100.0).into(),
+//!             },
+//!             horizontal_alignment: TextAlignment::Center,
+//!             vertical_alignment: TextAlignment::Center,
+//!         };
+//!         renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif, None);
 //!
-//! // Render the frame
-//! match renderer.render() {
-//!     Ok(_) => println!("Frame rendered successfully."),
-//!     Err(e) => eprintln!("Rendering error: {:?}", e),
+//!         // Render the frame
+//!         match renderer.render() {
+//!             Ok(_) => println!("Frame rendered successfully."),
+//!             Err(e) => eprintln!("Rendering error: {:?}", e),
+//!         }
+//!
+//!         // Clear the draw queue after rendering
+//!         renderer.clear_draw_queue();
+//!     }
+//!
+//!     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
+//!         // Handle window events (stub for doc test)
+//!     }
 //! }
-//!
-//! // Clear the draw queue after rendering
-//! renderer.clear_draw_queue();
 //! ```
 
 use std::hash::{Hash, Hasher};
@@ -140,52 +151,59 @@ enum DrawCommand {
 /// use grafo::{TextAlignment, TextLayout};
 /// use grafo::MathRect;
 /// use wgpu::Surface;
-/// use winit::event_loop::EventLoop;
-/// use winit::window::WindowBuilder;
+/// use winit::application::ApplicationHandler;
+/// use winit::event_loop::{ActiveEventLoop, EventLoop};
+/// use winit::window::Window;
 /// use std::sync::Arc;
 /// use futures::executor::block_on;
 ///
 /// // This is for demonstration purposes only. If you want a working example with winit, please
 /// // refer to the example in the "examples" folder.
-/// let event_loop = EventLoop::new().expect("To create the event loop");
-/// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-/// let physical_size = (800, 600);
-/// let scale_factor = 1.0;
+/// struct App;
+/// impl ApplicationHandler for App {
+///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+///         let window_surface = Arc::new(
+///             event_loop.create_window(Window::default_attributes()).unwrap()
+///         );
+///         let physical_size = (800, 600);
+///         let scale_factor = 1.0;
 ///
+///         // Initialize the renderer
+///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
 ///
-/// // Initialize the renderer
-/// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+///         // Add a rectangle shape
+///         let rect = Shape::rect(
+///             [(0.0, 0.0), (200.0, 100.0)],
+///             Color::rgb(0, 128, 255), // Blue fill
+///             Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+///         );
+///         renderer.add_shape(rect, None, (100.0, 100.0), None);
 ///
-/// // Add a rectangle shape
-/// let rect = Shape::rect(
-///     [(0.0, 0.0), (200.0, 100.0)],
-///     Color::rgb(0, 128, 255), // Blue fill
-///     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
-/// );
-/// renderer.add_shape(rect, None, (100.0, 100.0), None);
+///         // Add some text
+///         let layout = TextLayout {
+///             font_size: 24.0,
+///             line_height: 30.0,
+///             color: Color::rgb(255, 255, 255), // White text
+///             area: MathRect {
+///                 min: (50.0, 50.0).into(),
+///                 max: (400.0, 100.0).into(),
+///             },
+///             horizontal_alignment: TextAlignment::Center,
+///             vertical_alignment: TextAlignment::Center,
+///         };
+///         renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif , None);
 ///
-/// // Add some text
-/// let layout = TextLayout {
-///     font_size: 24.0,
-///     line_height: 30.0,
-///     color: Color::rgb(255, 255, 255), // White text
-///     area: MathRect {
-///         min: (50.0, 50.0).into(),
-///         max: (400.0, 100.0).into(),
-///     },
-///     horizontal_alignment: TextAlignment::Center,
-///     vertical_alignment: TextAlignment::Center,
-/// };
-/// renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif , None);
+///         // Render the frame
+///         match renderer.render() {
+///             Ok(_) => println!("Frame rendered successfully."),
+///             Err(e) => eprintln!("Rendering error: {:?}", e),
+///         }
 ///
-/// // Render the frame
-/// match renderer.render() {
-///     Ok(_) => println!("Frame rendered successfully."),
-///     Err(e) => eprintln!("Rendering error: {:?}", e),
+///         // Clear the draw queue after rendering
+///         renderer.clear_draw_queue();
+///     }
+///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
 /// }
-///
-/// // Clear the draw queue after rendering
-/// renderer.clear_draw_queue();
 /// ```
 pub struct Renderer<'a> {
     // Window information
@@ -257,19 +275,26 @@ impl Renderer<'_> {
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
     /// use grafo::Renderer;
-    /// use wgpu::Surface;
-    /// use winit::event_loop::EventLoop;
-    /// use winit::window::WindowBuilder;
+    /// use winit::application::ApplicationHandler;
+    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
+    /// use winit::window::Window;
     ///
     /// // This is for demonstration purposes only. If you want a working example with winit, please
     /// // refer to the example in the "examples" folder.
-    /// let event_loop = EventLoop::new().expect("To create the event loop");
-    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    /// let physical_size = (800, 600);
-    /// let scale_factor = 1.0;
+    /// struct App;
+    /// impl ApplicationHandler for App {
+    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    ///         let window_surface = Arc::new(
+    ///             event_loop.create_window(Window::default_attributes()).unwrap()
+    ///         );
+    ///         let physical_size = (800, 600);
+    ///         let scale_factor = 1.0;
     ///
-    /// // Initialize the renderer
-    /// let renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         // Initialize the renderer
+    ///         let renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///     }
+    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
+    /// }
     /// ```
     pub async fn new(
         window: impl Into<SurfaceTarget<'static>>,
@@ -468,23 +493,29 @@ impl Renderer<'_> {
     /// ```rust,no_run
     /// use futures::executor::block_on;
     /// use std::sync::Arc;
-    /// use winit::window::WindowBuilder;
-    /// use winit::event_loop::EventLoop;
+    /// use winit::application::ApplicationHandler;
+    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
+    /// use winit::window::{Window, WindowAttributes};
     ///
-    /// let event_loop = EventLoop::new().expect("To create the event loop");
-    /// let window = Arc::new(WindowBuilder::new()
-    ///     .with_transparent(true)
-    ///     .build(&event_loop)
-    ///     .unwrap());
-    /// let physical_size = (800, 600);
-    /// let scale_factor = 1.0;
+    /// struct App;
+    /// impl ApplicationHandler for App {
+    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    ///         let window_attributes = Window::default_attributes().with_transparent(true);
+    ///         let window = Arc::new(
+    ///             event_loop.create_window(window_attributes).unwrap()
+    ///         );
+    ///         let physical_size = (800, 600);
+    ///         let scale_factor = 1.0;
     ///
-    /// let mut renderer = block_on(grafo::Renderer::new_transparent(
-    ///     window.clone(),
-    ///     physical_size,
-    ///     scale_factor,
-    ///     true
-    /// ));
+    ///         let mut renderer = block_on(grafo::Renderer::new_transparent(
+    ///             window.clone(),
+    ///             physical_size,
+    ///             scale_factor,
+    ///             true
+    ///         ));
+    ///     }
+    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
+    /// }
     /// ```
     pub async fn new_transparent(
         window: impl Into<SurfaceTarget<'static>>,
@@ -519,8 +550,9 @@ impl Renderer<'_> {
     /// ```rust,no_run
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
-    /// use winit::event_loop::EventLoop;
-    /// use winit::window::WindowBuilder;
+    /// use winit::application::ApplicationHandler;
+    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
+    /// use winit::window::Window;
     /// use grafo::Renderer;
     /// use grafo::Shape;
     /// use grafo::Color;
@@ -528,25 +560,32 @@ impl Renderer<'_> {
     ///
     /// // This is for demonstration purposes only. If you want a working example with winit, please
     /// // refer to the example in the "examples" folder.
-    /// let event_loop = EventLoop::new().expect("To create the event loop");
-    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    /// let physical_size = (800, 600);
-    /// let scale_factor = 1.0;
+    /// struct App;
+    /// impl ApplicationHandler for App {
+    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    ///         let window_surface = Arc::new(
+    ///             event_loop.create_window(Window::default_attributes()).unwrap()
+    ///         );
+    ///         let physical_size = (800, 600);
+    ///         let scale_factor = 1.0;
     ///
-    /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         // Initialize the renderer
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
-    /// let shape_id = renderer.add_shape(
-    ///     Shape::rect(
-    ///         [(0.0, 100.0), (100.0, 100.0)],
-    ///         Color::rgb(0, 128, 255), // Blue fill
-    ///         Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
-    ///     ),
-    ///     None,
-    ///     // Shift rectangle by 100.0, 100.0
-    ///     (100.0, 100.0),
-    ///     None
-    /// );
+    ///         let shape_id = renderer.add_shape(
+    ///             Shape::rect(
+    ///                 [(0.0, 100.0), (100.0, 100.0)],
+    ///                 Color::rgb(0, 128, 255), // Blue fill
+    ///                 Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+    ///             ),
+    ///             None,
+    ///             // Shift rectangle by 100.0, 100.0
+    ///             (100.0, 100.0),
+    ///             None
+    ///         );
+    ///     }
+    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
+    /// }
     /// ```
     pub fn add_shape(
         &mut self,
@@ -579,8 +618,9 @@ impl Renderer<'_> {
     /// ```rust,no_run
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
-    /// use winit::event_loop::EventLoop;
-    /// use winit::window::WindowBuilder;
+    /// use winit::application::ApplicationHandler;
+    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
+    /// use winit::window::Window;
     /// use grafo::Renderer;
     /// use grafo::Shape;
     /// use grafo::Color;
@@ -588,21 +628,28 @@ impl Renderer<'_> {
     ///
     /// // This is for demonstration purposes only. If you want a working example with winit, please
     /// // refer to the example in the "examples" folder.
-    /// let event_loop = EventLoop::new().expect("To create the event loop");
-    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    /// let physical_size = (800, 600);
-    /// let scale_factor = 1.0;
+    /// struct App;
+    /// impl ApplicationHandler for App {
+    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    ///         let window_surface = Arc::new(
+    ///             event_loop.create_window(Window::default_attributes()).unwrap()
+    ///         );
+    ///         let physical_size = (800, 600);
+    ///         let scale_factor = 1.0;
     ///
-    /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         // Initialize the renderer
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
-    /// let image_data = vec![0; 16]; // A 2x2 black image
-    /// renderer.add_rgba_image(
-    ///     &image_data,
-    ///     (2, 2), // Image dimensions
-    ///     [(50.0, 50.0), (150.0, 150.0)], // Rendering rectangle
-    ///     Some(0), // Clip to shape with ID 0
-    /// );
+    ///         let image_data = vec![0; 16]; // A 2x2 black image
+    ///         renderer.add_rgba_image(
+    ///             &image_data,
+    ///             (2, 2), // Image dimensions
+    ///             [(50.0, 50.0), (150.0, 150.0)], // Rendering rectangle
+    ///             Some(0), // Clip to shape with ID 0
+    ///         );
+    ///     }
+    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
+    /// }
     /// ```
     pub fn add_rgba_image(
         &mut self,
@@ -667,8 +714,9 @@ impl Renderer<'_> {
     /// ```rust,no_run
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
-    /// use winit::event_loop::EventLoop;
-    /// use winit::window::WindowBuilder;
+    /// use winit::application::ApplicationHandler;
+    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
+    /// use winit::window::Window;
     /// use grafo::{FontFamily, MathRect, Renderer, TextAlignment, TextLayout};
     /// use grafo::Shape;
     /// use grafo::Color;
@@ -676,26 +724,33 @@ impl Renderer<'_> {
     ///
     /// // This is for demonstration purposes only. If you want a working example with winit, please
     /// // refer to the example in the "examples" folder.
-    /// let event_loop = EventLoop::new().expect("To create the event loop");
-    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    /// let physical_size = (800, 600);
-    /// let scale_factor = 1.0;
+    /// struct App;
+    /// impl ApplicationHandler for App {
+    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    ///         let window_surface = Arc::new(
+    ///             event_loop.create_window(Window::default_attributes()).unwrap()
+    ///         );
+    ///         let physical_size = (800, 600);
+    ///         let scale_factor = 1.0;
     ///
-    /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         // Initialize the renderer
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
-    /// let layout = TextLayout {
-    ///     font_size: 24.0,
-    ///     line_height: 30.0,
-    ///     color: Color::rgb(255, 255, 255), // White text
-    ///     area: MathRect {
-    ///         min: (50.0, 50.0).into(),
-    ///         max: (400.0, 100.0).into(),
-    ///     },
-    ///     horizontal_alignment: TextAlignment::Center,
-    ///     vertical_alignment: TextAlignment::Center,
-    /// };
-    /// renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif, None);
+    ///         let layout = TextLayout {
+    ///             font_size: 24.0,
+    ///             line_height: 30.0,
+    ///             color: Color::rgb(255, 255, 255), // White text
+    ///             area: MathRect {
+    ///                 min: (50.0, 50.0).into(),
+    ///                 max: (400.0, 100.0).into(),
+    ///             },
+    ///             horizontal_alignment: TextAlignment::Center,
+    ///             vertical_alignment: TextAlignment::Center,
+    ///         };
+    ///         renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif, None);
+    ///     }
+    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
+    /// }
     /// ```
     pub fn add_text(
         &mut self,
@@ -802,8 +857,9 @@ impl Renderer<'_> {
     /// ```rust,no_run
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
-    /// use winit::event_loop::EventLoop;
-    /// use winit::window::WindowBuilder;
+    /// use winit::application::ApplicationHandler;
+    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
+    /// use winit::window::Window;
     /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
     /// use grafo::Shape;
     /// use grafo::Color;
@@ -811,19 +867,26 @@ impl Renderer<'_> {
     ///
     /// // This is for demonstration purposes only. If you want a working example with winit, please
     /// // refer to the example in the "examples" folder.
-    /// let event_loop = EventLoop::new().expect("To create the event loop");
-    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    /// let physical_size = (800, 600);
-    /// let scale_factor = 1.0;
+    /// struct App;
+    /// impl ApplicationHandler for App {
+    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    ///         let window_surface = Arc::new(
+    ///             event_loop.create_window(Window::default_attributes()).unwrap()
+    ///         );
+    ///         let physical_size = (800, 600);
+    ///         let scale_factor = 1.0;
     ///
-    /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         // Initialize the renderer
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
-    /// // Add shapes, images, and text...
+    ///         // Add shapes, images, and text...
     ///
-    /// // Render the frame
-    /// if let Err(e) = renderer.render() {
-    ///     eprintln!("Rendering error: {:?}", e);
+    ///         // Render the frame
+    ///         if let Err(e) = renderer.render() {
+    ///             eprintln!("Rendering error: {:?}", e);
+    ///         }
+    ///     }
+    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
     /// }
     /// ```
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -1097,8 +1160,9 @@ impl Renderer<'_> {
     /// ```rust,no_run
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
-    /// use winit::event_loop::EventLoop;
-    /// use winit::window::WindowBuilder;
+    /// use winit::application::ApplicationHandler;
+    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
+    /// use winit::window::Window;
     /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
     /// use grafo::Shape;
     /// use grafo::Color;
@@ -1106,18 +1170,29 @@ impl Renderer<'_> {
     ///
     /// // This is for demonstration purposes only. If you want a working example with winit, please
     /// // refer to the example in the "examples" folder.
-    /// let event_loop = EventLoop::new().expect("To create the event loop");
-    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    /// let physical_size = (800, 600);
-    /// let scale_factor = 1.0;
+    /// 
+    /// struct App;
+    /// impl ApplicationHandler for App {
+    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    ///         let window_surface = Arc::new(
+    ///             event_loop.create_window(Window::default_attributes()).unwrap()
+    ///         );
+    ///         let physical_size = (800, 600);
+    ///         let scale_factor = 1.0;
     ///
-    /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         // Initialize the renderer
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
-    /// // Add shapes, images, and text...
+    ///         // Add shapes, images, and text...
     ///
-    /// // Clear the draw queue
-    /// renderer.clear_draw_queue();
+    ///         // Clear the draw queue
+    ///         renderer.clear_draw_queue();
+    ///     }
+    ///
+    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
+    ///         // Handle window events (stub for doc test)
+    ///     }
+    /// }
     /// ```
     pub fn clear_draw_queue(&mut self) {
         self.draw_tree.clear();
@@ -1160,8 +1235,9 @@ impl Renderer<'_> {
     /// ```rust,no_run
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
-    /// use winit::event_loop::EventLoop;
-    /// use winit::window::WindowBuilder;
+    /// use winit::application::ApplicationHandler;
+    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
+    /// use winit::window::Window;
     /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
     /// use grafo::Shape;
     /// use grafo::Color;
@@ -1169,16 +1245,27 @@ impl Renderer<'_> {
     ///
     /// // This is for demonstration purposes only. If you want a working example with winit, please
     /// // refer to the example in the "examples" folder.
-    /// let event_loop = EventLoop::new().expect("To create the event loop");
-    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    /// let physical_size = (800, 600);
-    /// let scale_factor = 1.0;
+    /// 
+    /// struct App;
+    /// impl ApplicationHandler for App {
+    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    ///         let window_surface = Arc::new(
+    ///             event_loop.create_window(Window::default_attributes()).unwrap()
+    ///         );
+    ///         let physical_size = (800, 600);
+    ///         let scale_factor = 1.0;
     ///
-    /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         // Initialize the renderer
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
-    /// let size = renderer.size();
-    /// println!("Rendering surface size: {}x{}", size.0, size.1);
+    ///         let size = renderer.size();
+    ///         println!("Rendering surface size: {}x{}", size.0, size.1);
+    ///     }
+    ///
+    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
+    ///         // Handle window events (stub for doc test)
+    ///     }
+    /// }
     /// ```
     pub fn size(&self) -> (u32, u32) {
         self.physical_size
@@ -1197,8 +1284,9 @@ impl Renderer<'_> {
     /// ```rust,no_run
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
-    /// use winit::event_loop::EventLoop;
-    /// use winit::window::WindowBuilder;
+    /// use winit::application::ApplicationHandler;
+    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
+    /// use winit::window::Window;
     /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
     /// use grafo::Shape;
     /// use grafo::Color;
@@ -1206,16 +1294,27 @@ impl Renderer<'_> {
     ///
     /// // This is for demonstration purposes only. If you want a working example with winit, please
     /// // refer to the example in the "examples" folder.
-    /// let event_loop = EventLoop::new().expect("To create the event loop");
-    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    /// let physical_size = (800, 600);
-    /// let scale_factor = 1.0;
+    /// 
+    /// struct App;
+    /// impl ApplicationHandler for App {
+    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    ///         let window_surface = Arc::new(
+    ///             event_loop.create_window(Window::default_attributes()).unwrap()
+    ///         );
+    ///         let physical_size = (800, 600);
+    ///         let scale_factor = 1.0;
     ///
-    /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         // Initialize the renderer
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
-    /// // Change the scale factor to 2.0 for high-DPI rendering
-    /// renderer.change_scale_factor(2.0);
+    ///         // Change the scale factor to 2.0 for high-DPI rendering
+    ///         renderer.change_scale_factor(2.0);
+    ///     }
+    ///
+    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
+    ///         // Handle window events (stub for doc test)
+    ///     }
+    /// }
     /// ```
     pub fn change_scale_factor(&mut self, new_scale_factor: f64) {
         self.scale_factor = new_scale_factor;
@@ -1240,8 +1339,9 @@ impl Renderer<'_> {
     /// ```rust,no_run
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
-    /// use winit::event_loop::EventLoop;
-    /// use winit::window::WindowBuilder;
+    /// use winit::application::ApplicationHandler;
+    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
+    /// use winit::window::Window;
     /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
     /// use grafo::Shape;
     /// use grafo::Color;
@@ -1249,16 +1349,27 @@ impl Renderer<'_> {
     ///
     /// // This is for demonstration purposes only. If you want a working example with winit, please
     /// // refer to the example in the "examples" folder.
-    /// let event_loop = EventLoop::new().expect("To create the event loop");
-    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    /// let physical_size = (800, 600);
-    /// let scale_factor = 1.0;
+    /// 
+    /// struct App;
+    /// impl ApplicationHandler for App {
+    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    ///         let window_surface = Arc::new(
+    ///             event_loop.create_window(Window::default_attributes()).unwrap()
+    ///         );
+    ///         let physical_size = (800, 600);
+    ///         let scale_factor = 1.0;
     ///
-    /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         // Initialize the renderer
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
-    /// // Resize the renderer to 1024x768 pixels
-    /// renderer.resize((1024, 768));
+    ///         // Resize the renderer to 1024x768 pixels
+    ///         renderer.resize((1024, 768));
+    ///     }
+    ///
+    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
+    ///         // Handle window events (stub for doc test)
+    ///     }
+    /// }
     /// ```
     pub fn resize(&mut self, new_physical_size: (u32, u32)) {
         self.physical_size = new_physical_size;
@@ -1322,8 +1433,9 @@ impl Renderer<'_> {
     /// ```rust,no_run
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
-    /// use winit::event_loop::EventLoop;
-    /// use winit::window::WindowBuilder;
+    /// use winit::application::ApplicationHandler;
+    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
+    /// use winit::window::Window;
     /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
     /// use grafo::Shape;
     /// use grafo::Color;
@@ -1332,17 +1444,28 @@ impl Renderer<'_> {
     ///
     /// // This is for demonstration purposes only. If you want a working example with winit, please
     /// // refer to the example in the "examples" folder.
-    /// let event_loop = EventLoop::new().expect("To create the event loop");
-    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    /// let physical_size = (800, 600);
-    /// let scale_factor = 1.0;
+    /// 
+    /// struct App;
+    /// impl ApplicationHandler for App {
+    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    ///         let window_surface = Arc::new(
+    ///             event_loop.create_window(Window::default_attributes()).unwrap()
+    ///         );
+    ///         let physical_size = (800, 600);
+    ///         let scale_factor = 1.0;
     ///
-    /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         // Initialize the renderer
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
-    /// let roboto_font_ttf = include_bytes!("../examples/assets/Roboto-Regular.ttf").to_vec();
-    /// let roboto_font_source = fontdb::Source::Binary(Arc::new(roboto_font_ttf));
-    /// renderer.load_fonts([roboto_font_source].into_iter());
+    ///         let roboto_font_ttf = include_bytes!("../examples/assets/Roboto-Regular.ttf").to_vec();
+    ///         let roboto_font_source = fontdb::Source::Binary(Arc::new(roboto_font_ttf));
+    ///         renderer.load_fonts([roboto_font_source].into_iter());
+    ///     }
+    ///
+    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
+    ///         // Handle window events (stub for doc test)
+    ///     }
+    /// }
     /// ```
     pub fn load_fonts(&mut self, fonts: impl Iterator<Item = fontdb::Source>) {
         self.load_fonts_internal(fonts, None)
@@ -1383,8 +1506,9 @@ impl Renderer<'_> {
     /// ```rust,no_run
     /// use std::sync::Arc;
     /// use futures::executor::block_on;
-    /// use winit::event_loop::EventLoop;
-    /// use winit::window::WindowBuilder;
+    /// use winit::application::ApplicationHandler;
+    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
+    /// use winit::window::Window;
     /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
     /// use grafo::Shape;
     /// use grafo::Color;
@@ -1393,16 +1517,27 @@ impl Renderer<'_> {
     ///
     /// // This is for demonstration purposes only. If you want a working example with winit, please
     /// // refer to the example in the "examples" folder.
-    /// let event_loop = EventLoop::new().expect("To create the event loop");
-    /// let window_surface = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
-    /// let physical_size = (800, 600);
-    /// let scale_factor = 1.0;
+    /// 
+    /// struct App;
+    /// impl ApplicationHandler for App {
+    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    ///         let window_surface = Arc::new(
+    ///             event_loop.create_window(Window::default_attributes()).unwrap()
+    ///         );
+    ///         let physical_size = (800, 600);
+    ///         let scale_factor = 1.0;
     ///
-    /// // Initialize the renderer
-    /// let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         // Initialize the renderer
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
-    /// let roboto_font_ttf = include_bytes!("../examples/assets/Roboto-Regular.ttf");
-    /// renderer.load_font_from_bytes(roboto_font_ttf);
+    ///         let roboto_font_ttf = include_bytes!("../examples/assets/Roboto-Regular.ttf");
+    ///         renderer.load_font_from_bytes(roboto_font_ttf);
+    ///     }
+    ///
+    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
+    ///         // Handle window events (stub for doc test)
+    ///     }
+    /// }
     /// ```
     pub fn load_font_from_bytes(&mut self, font_bytes: &[u8]) {
         self.load_font_from_bytes_internal(font_bytes, None)
