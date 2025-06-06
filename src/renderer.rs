@@ -24,7 +24,7 @@
 //!
 //! // This is for demonstration purposes only. If you want a working example with winit, please
 //! // refer to the example in the "examples" folder.
-//! 
+//!
 //! struct App;
 //! impl ApplicationHandler for App {
 //!     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -1170,7 +1170,7 @@ impl Renderer<'_> {
     ///
     /// // This is for demonstration purposes only. If you want a working example with winit, please
     /// // refer to the example in the "examples" folder.
-    /// 
+    ///
     /// struct App;
     /// impl ApplicationHandler for App {
     ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -1245,7 +1245,7 @@ impl Renderer<'_> {
     ///
     /// // This is for demonstration purposes only. If you want a working example with winit, please
     /// // refer to the example in the "examples" folder.
-    /// 
+    ///
     /// struct App;
     /// impl ApplicationHandler for App {
     ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -1294,7 +1294,7 @@ impl Renderer<'_> {
     ///
     /// // This is for demonstration purposes only. If you want a working example with winit, please
     /// // refer to the example in the "examples" folder.
-    /// 
+    ///
     /// struct App;
     /// impl ApplicationHandler for App {
     ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -1349,7 +1349,7 @@ impl Renderer<'_> {
     ///
     /// // This is for demonstration purposes only. If you want a working example with winit, please
     /// // refer to the example in the "examples" folder.
-    /// 
+    ///
     /// struct App;
     /// impl ApplicationHandler for App {
     ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -1444,7 +1444,7 @@ impl Renderer<'_> {
     ///
     /// // This is for demonstration purposes only. If you want a working example with winit, please
     /// // refer to the example in the "examples" folder.
-    /// 
+    ///
     /// struct App;
     /// impl ApplicationHandler for App {
     ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -1517,7 +1517,7 @@ impl Renderer<'_> {
     ///
     /// // This is for demonstration purposes only. If you want a working example with winit, please
     /// // refer to the example in the "examples" folder.
-    /// 
+    ///
     /// struct App;
     /// impl ApplicationHandler for App {
     ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {

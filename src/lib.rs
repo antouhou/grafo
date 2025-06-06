@@ -121,13 +121,11 @@
 //!         }
 //!     }
 //! }
-//! 
-//! fn main() {
+//!
 //!     env_logger::init();
 //!     let event_loop = EventLoop::new().expect("to start an event loop");
 //!     let mut app = App::default();
 //!     event_loop.run_app(&mut app).unwrap();
-//! }
 //! ```
 //!
 //! ## Examples
