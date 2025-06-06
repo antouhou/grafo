@@ -296,19 +296,17 @@ impl Renderer<'_> {
             .unwrap();
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    #[cfg(feature = "performance_measurement")]
-                    required_features: wgpu::Features::TIMESTAMP_QUERY
-                        | wgpu::Features::DEPTH32FLOAT_STENCIL8,
-                    #[cfg(not(feature = "performance_measurement"))]
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
-                    memory_hints: Default::default(),
-                    trace: Default::default(),
-                },
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                #[cfg(feature = "performance_measurement")]
+                required_features: wgpu::Features::TIMESTAMP_QUERY
+                    | wgpu::Features::DEPTH32FLOAT_STENCIL8,
+                #[cfg(not(feature = "performance_measurement"))]
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                memory_hints: Default::default(),
+                trace: Default::default(),
+            })
             .await
             .unwrap();
 

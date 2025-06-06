@@ -3,45 +3,71 @@ use grafo::{fontdb, Color, FontFamily, Stroke};
 use grafo::{MathRect, Shape, TextAlignment, TextLayout};
 use std::sync::Arc;
 use std::time::Instant;
-use winit::event::{Event, WindowEvent};
-use winit::event_loop::EventLoop;
-use winit::window::WindowBuilder;
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::window::{Window, WindowId};
 
-pub fn main() {
-    env_logger::init();
-    let event_loop = EventLoop::new().expect("To create the event loop");
-    let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+#[derive(Default)]
+struct App<'a> {
+    window: Option<Arc<Window>>,
+    renderer: Option<grafo::Renderer<'a>>,
+}
 
-    let window_size = window.inner_size();
-    let scale_factor = window.scale_factor();
-    let physical_size = (window_size.width, window_size.height);
+impl<'a> ApplicationHandler for App<'a> {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let window = Arc::new(
+            event_loop
+                .create_window(Window::default_attributes())
+                .unwrap(),
+        );
 
-    let mut renderer = block_on(grafo::Renderer::new(
-        window.clone(),
-        physical_size,
-        scale_factor,
-        true,  // vsync
-        false, // transparent
-    ));
+        let window_size = window.inner_size();
+        let scale_factor = window.scale_factor();
+        let physical_size = (window_size.width, window_size.height);
 
-    // Load the font
-    let roboto_font_ttf = include_bytes!("assets/Roboto-Regular.ttf");
-    let roboto_font_source = fontdb::Source::Binary(Arc::new(roboto_font_ttf.to_vec()));
-    renderer.load_fonts([roboto_font_source].into_iter());
+        let mut renderer = block_on(grafo::Renderer::new(
+            window.clone(),
+            physical_size,
+            scale_factor,
+            true,  // vsync
+            false, // transparent
+        ));
 
-    let _ = event_loop.run(move |event, event_loop_window_target| match event {
-        Event::WindowEvent {
-            ref event,
-            window_id,
-        } if window_id == window.id() => match event {
-            WindowEvent::CloseRequested => event_loop_window_target.exit(),
+        // Load the font
+        let roboto_font_ttf = include_bytes!("assets/Roboto-Regular.ttf");
+        let roboto_font_source = fontdb::Source::Binary(Arc::new(roboto_font_ttf.to_vec()));
+        renderer.load_fonts([roboto_font_source].into_iter());
+
+        self.window = Some(window);
+        self.renderer = Some(renderer);
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        let Some(window) = &self.window else { return };
+        let Some(renderer) = &mut self.renderer else {
+            return;
+        };
+
+        if window_id != window.id() {
+            return;
+        }
+
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(physical_size) => {
                 let new_size = (physical_size.width, physical_size.height);
                 renderer.resize(new_size);
-
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                let window_size = window.inner_size();
+
                 // Main window background
                 let background = Shape::rect(
                     [
@@ -182,16 +208,21 @@ pub fn main() {
                         renderer.clear_draw_queue();
                     }
                     Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size()),
-                    Err(wgpu::SurfaceError::OutOfMemory) => event_loop_window_target.exit(),
+                    Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
                     Err(e) => eprintln!("{:?}", e),
                 }
                 println!("Render time: {:?}", timer.elapsed());
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                renderer.change_scale_factor(*scale_factor);
+                renderer.change_scale_factor(scale_factor);
             }
             _ => {}
-        },
-        _ => {}
-    });
+        }
+    }
+}
+
+fn main() {
+    let event_loop = EventLoop::new().unwrap();
+    let mut app = App::default();
+    event_loop.run_app(&mut app).unwrap();
 }

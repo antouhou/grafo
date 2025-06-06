@@ -4,72 +4,108 @@ use grafo::{fontdb, Color, Stroke};
 use grafo::{MathRect, Shape};
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
-use winit::event::{Event, WindowEvent};
-use winit::event_loop::EventLoop;
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::PhysicalKey;
-use winit::window::WindowBuilder;
+use winit::window::{Window, WindowId};
 
-pub fn main() {
-    env_logger::init();
-    let event_loop = EventLoop::new().expect("To create the event loop");
-    let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+struct App {
+    window: Option<Arc<Window>>,
+    renderer: Option<grafo::Renderer<'static>>,
+    scroll_state: Arc<RwLock<(f32, f32)>>,
+}
 
-    let window_size = window.inner_size();
-    let scale_factor = window.scale_factor();
-    let physical_size = (window_size.width, window_size.height);
+impl Default for App {
+    fn default() -> Self {
+        Self {
+            window: None,
+            renderer: None,
+            scroll_state: Arc::new(RwLock::new((0.0, 0.0))),
+        }
+    }
+}
 
-    let mut renderer = block_on(grafo::Renderer::new(
-        window.clone(),
-        physical_size,
-        scale_factor,
-        false, // vsync
-        false, // transparent
-    ));
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let window = Arc::new(
+            event_loop
+                .create_window(Window::default_attributes())
+                .unwrap(),
+        );
 
-    // Load the font
-    let roboto_font_ttf = include_bytes!("assets/Roboto-Regular.ttf");
-    let roboto_font_source = fontdb::Source::Binary(Arc::new(roboto_font_ttf.to_vec()));
-    renderer.load_fonts([roboto_font_source].into_iter());
+        let window_size = window.inner_size();
+        let scale_factor = window.scale_factor();
+        let physical_size = (window_size.width, window_size.height);
 
-    let scroll_state = Arc::new(RwLock::new((0.0, 0.0)));
+        let mut renderer = block_on(grafo::Renderer::new(
+            window.clone(),
+            physical_size,
+            scale_factor,
+            false, // vsync
+            false, // transparent
+        ));
 
-    let _ = event_loop.run(move |event, event_loop_window_target| match event {
-        Event::WindowEvent {
-            ref event,
-            window_id,
-        } if window_id == window.id() => match event {
-            WindowEvent::KeyboardInput { device_id: _, event, is_synthetic: _ } => {
-                match event.physical_key {
-                    PhysicalKey::Unidentified(_) => {}
-                    PhysicalKey::Code(key_code) => {
-                        match key_code {
-                            winit::keyboard::KeyCode::ArrowLeft => {
-                                scroll_state.write().unwrap().0 += 10.0;
-                            }
-                            winit::keyboard::KeyCode::ArrowRight => {
-                                scroll_state.write().unwrap().0 -= 10.0;
-                            }
-                            winit::keyboard::KeyCode::ArrowUp => {
-                                scroll_state.write().unwrap().1 += 1.0;
-                            }
-                            winit::keyboard::KeyCode::ArrowDown => {
-                                scroll_state.write().unwrap().1 -= 1.0;
-                            }
-                            _ => {}
+        // Load the font
+        let roboto_font_ttf = include_bytes!("assets/Roboto-Regular.ttf");
+        let roboto_font_source = fontdb::Source::Binary(Arc::new(roboto_font_ttf.to_vec()));
+        renderer.load_fonts([roboto_font_source].into_iter());
+
+        self.window = Some(window);
+        self.renderer = Some(renderer);
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        let Some(window) = &self.window else { return };
+        let Some(renderer) = &mut self.renderer else {
+            return;
+        };
+
+        if window_id != window.id() {
+            return;
+        }
+
+        match event {
+            WindowEvent::KeyboardInput {
+                device_id: _,
+                event,
+                is_synthetic: _,
+            } => match event.physical_key {
+                PhysicalKey::Unidentified(_) => {}
+                PhysicalKey::Code(key_code) => {
+                    match key_code {
+                        winit::keyboard::KeyCode::ArrowLeft => {
+                            self.scroll_state.write().unwrap().0 += 10.0;
                         }
-
-                        window.request_redraw();
+                        winit::keyboard::KeyCode::ArrowRight => {
+                            self.scroll_state.write().unwrap().0 -= 10.0;
+                        }
+                        winit::keyboard::KeyCode::ArrowUp => {
+                            self.scroll_state.write().unwrap().1 += 1.0;
+                        }
+                        winit::keyboard::KeyCode::ArrowDown => {
+                            self.scroll_state.write().unwrap().1 -= 1.0;
+                        }
+                        _ => {}
                     }
+
+                    window.request_redraw();
                 }
-            }
-            WindowEvent::CloseRequested => event_loop_window_target.exit(),
+            },
+            WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(physical_size) => {
                 let new_size = (physical_size.width, physical_size.height);
                 renderer.resize(new_size);
-
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                let window_size = window.inner_size();
+
                 // Main window background
                 let background = Shape::rect(
                     [
@@ -107,12 +143,12 @@ pub fn main() {
                 // No wrap, so if the text overflows the bounds, it will be clipped
                 text_buffer.set_wrap(&mut font_system, cosmic_text::Wrap::None);
 
-                let scroll_value = *scroll_state.read().unwrap();
+                let scroll_value = *self.scroll_state.read().unwrap();
                 let scroll = cosmic_text::Scroll::new(0, scroll_value.1, scroll_value.0);
 
                 let text_area_size = (
                     background_max.0 - background_min.0,
-                    background_max.1 - background_min.1
+                    background_max.1 - background_min.1,
                 );
 
                 println!("text_area_size: {:?}", text_area_size);
@@ -124,7 +160,7 @@ pub fn main() {
                         .family(cosmic_text::Family::SansSerif)
                         .metadata(text_buffer_id)
                         .color(cosmic_text::Color::rgb(0, 0, 255)),
-                    cosmic_text::Shaping::Advanced
+                    cosmic_text::Shaping::Advanced,
                 );
 
                 text_buffer.set_scroll(scroll);
@@ -156,16 +192,22 @@ pub fn main() {
                         renderer.clear_draw_queue();
                     }
                     Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size()),
-                    Err(wgpu::SurfaceError::OutOfMemory) => event_loop_window_target.exit(),
+                    Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
                     Err(e) => eprintln!("{:?}", e),
                 }
                 println!("Render time: {:?}", timer.elapsed());
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                renderer.change_scale_factor(*scale_factor);
+                renderer.change_scale_factor(scale_factor);
             }
             _ => {}
-        },
-        _ => {}
-    });
+        }
+    }
+}
+
+pub fn main() {
+    env_logger::init();
+    let event_loop = EventLoop::new().expect("To create the event loop");
+    let mut app = App::default();
+    event_loop.run_app(&mut app).unwrap();
 }
