@@ -29,11 +29,11 @@
 //! ```
 
 use crate::renderer::MathRect;
-use crate::util::PoolManager;
 use crate::Color;
 use glyphon::cosmic_text::Align;
-use glyphon::{Attrs, Family, FontSystem, Metrics, Shaping, TextAtlas, TextRenderer};
+use glyphon::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, TextAtlas, TextRenderer};
 use glyphon::{Buffer as TextBuffer, Color as TextColor, TextArea, TextBounds};
+use std::borrow::Cow;
 use wgpu::{Device, MultisampleState};
 
 /// Specifies the alignment of text within its layout area.
@@ -61,6 +61,22 @@ pub enum TextAlignment {
     End,
     /// Center-align the text.
     Center,
+}
+
+pub trait IntoCowBuffer<'a> {
+    fn into_cow(self) -> std::borrow::Cow<'a, glyphon::Buffer>;
+}
+
+impl<'a> IntoCowBuffer<'a> for glyphon::Buffer {
+    fn into_cow(self) -> std::borrow::Cow<'a, glyphon::Buffer> {
+        std::borrow::Cow::Owned(self)
+    }
+}
+
+impl<'a> IntoCowBuffer<'a> for &'a glyphon::Buffer {
+    fn into_cow(self) -> std::borrow::Cow<'a, glyphon::Buffer> {
+        std::borrow::Cow::Borrowed(self)
+    }
 }
 
 /// Defines the layout parameters for rendering text.
@@ -150,31 +166,46 @@ impl TextRendererWrapper {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct TextDrawData {
-    /// The text buffer containing glyph information.
-    pub(crate) text_buffer: TextBuffer,
-    /// The area within which the text is rendered.
-    pub(crate) area: MathRect,
-    /// The top position of the text within the layout area.
-    pub(crate) top: f32,
-    /// The color of the text.
-    pub(crate) color: Color,
+pub struct NoopTextDataIter<'a> {
+    _phantom: std::marker::PhantomData<&'a ()>,
 }
 
-impl TextDrawData {
+impl<'a> Iterator for NoopTextDataIter<'a> {
+    type Item = TextDrawData<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        None
+    }
+}
+
+#[derive(Debug)]
+pub struct TextDrawData<'a> {
+    /// The text buffer containing glyph information.
+    pub text_buffer: Cow<'a, TextBuffer>,
+    /// The area within which the text is rendered.
+    pub area: MathRect,
+    /// The top position of the text within the layout area.
+    pub top: f32,
+    /// The color of the text.
+    pub fallback_color: Color,
+    /// Optional index of the shape to which the text is clipped.
+    pub clip_to_shape: Option<usize>,
+    pub buffer_metadata: usize,
+}
+
+impl<'a> TextDrawData<'a> {
     pub fn new(
         text: &str,
         layout: impl Into<TextLayout>,
-        buffer_id: usize,
         scale_factor: f32,
         font_system: &mut FontSystem,
         font_family: Family,
-        buffers_pool: &mut PoolManager,
+        clip_to_shape: Option<usize>,
+        buffer_id: usize,
     ) -> Self {
         let layout = layout.into();
 
-        let mut buffer = buffers_pool.text_buffers_pool.get_text_buffer(
+        let mut buffer = Buffer::new(
             font_system,
             Metrics::new(layout.font_size, layout.line_height),
         );
@@ -191,7 +222,9 @@ impl TextDrawData {
         buffer.set_text(
             font_system,
             text,
-            &Attrs::new().family(font_family).metadata(buffer_id),
+            &Attrs::new()
+                .family(font_family)
+                .metadata(clip_to_shape.unwrap_or(0)),
             Shaping::Advanced,
         );
 
@@ -231,7 +264,7 @@ impl TextDrawData {
         let buffer_height = buffer.size();
         let buffer_height = buffer_height.1.unwrap_or(0.0);
 
-        println!("Buffer height: {}", buffer_height);
+        println!("Buffer height: {buffer_height}");
 
         let top = match layout.vertical_alignment {
             TextAlignment::Start => area.min.y,
@@ -243,23 +276,61 @@ impl TextDrawData {
 
         TextDrawData {
             top,
-            text_buffer: buffer,
+            text_buffer: Cow::Owned(buffer),
             area: layout.area,
-            color: layout.color,
+            fallback_color: layout.color,
+            clip_to_shape,
+            buffer_metadata: buffer_id,
         }
     }
 
-    pub(crate) fn with_buffer(
-        buffer: &TextBuffer,
+    pub fn with_buffer(
+        buffer: impl IntoCowBuffer<'a>,
         area: MathRect,
         fallback_color: Color,
         vertical_offset: f32,
+        clip_to_shape: Option<usize>,
+        buffer_metadata: usize,
     ) -> Self {
         TextDrawData {
             top: vertical_offset,
-            text_buffer: buffer.clone(),
+            text_buffer: buffer.into_cow(),
             area,
-            color: fallback_color,
+            fallback_color,
+            clip_to_shape,
+            buffer_metadata,
+        }
+    }
+
+    pub fn into_text_area(self, scale_factor: f32) -> TextArea<'a> {
+        let area = self.area;
+        let top = self.top;
+
+        let bounds = TextBounds {
+            left: (area.min.x * scale_factor) as i32,
+            top: (area.min.y * scale_factor) as i32,
+            right: (area.max.x * scale_factor) as i32,
+            bottom: (area.max.y * scale_factor) as i32,
+        };
+
+        match self.text_buffer {
+            Cow::Borrowed(buffer_ref) => TextArea {
+                buffer: buffer_ref,
+                left: area.min.x * scale_factor,
+                top: top * scale_factor,
+                scale: scale_factor,
+                bounds,
+                default_color: TextColor::rgba(
+                    self.fallback_color.0[1],
+                    self.fallback_color.0[2],
+                    self.fallback_color.0[3],
+                    self.fallback_color.0[0],
+                ),
+                custom_glyphs: &[],
+            },
+            Cow::Owned(_owned) => {
+                panic!("Can't do right now");
+            }
         }
     }
 
@@ -281,10 +352,10 @@ impl TextDrawData {
             scale: scale_factor,
             bounds,
             default_color: TextColor::rgba(
-                self.color.0[1],
-                self.color.0[2],
-                self.color.0[3],
-                self.color.0[0],
+                self.fallback_color.0[1],
+                self.fallback_color.0[2],
+                self.fallback_color.0[3],
+                self.fallback_color.0[0],
             ),
             custom_glyphs: &[],
         }

@@ -97,7 +97,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         println!("Out of memory, exiting...");
                         event_loop.exit()
                     }
-                    Err(e) => eprintln!("Render error: {:?}", e),
+                    Err(e) => eprintln!("Render error: {e:?}"),
                 }
             }
             _ => {}

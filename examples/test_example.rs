@@ -24,6 +24,6 @@ fn main() {
     buffer.shape_until_scroll(false);
 
     for run in buffer.layout_runs() {
-        println!("Layout run: {:?}", run);
+        println!("Layout run: {run:?}");
     }
 }

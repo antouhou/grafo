@@ -1,7 +1,6 @@
 use crate::cache::Cache;
 use crate::renderer::MathRect;
 use crate::vertex::CustomVertex;
-use glyphon::{Buffer as TextBuffer, FontSystem, Metrics};
 use lyon::geom::euclid::Point2D;
 use lyon::tessellation::VertexBuffers;
 use wgpu::util::DeviceExt;
@@ -84,34 +83,34 @@ impl LyonVertexBuffersPool {
     }
 }
 
-pub struct TextBuffersPool {
-    buffers: Vec<TextBuffer>,
-}
-
-impl TextBuffersPool {
-    pub fn new() -> Self {
-        Self {
-            buffers: Vec::new(),
-        }
-    }
-
-    pub fn get_text_buffer(
-        &mut self,
-        font_system: &mut FontSystem,
-        metrics: Metrics,
-    ) -> TextBuffer {
-        if let Some(mut buffer) = self.buffers.pop() {
-            buffer.set_metrics(font_system, metrics);
-            buffer
-        } else {
-            TextBuffer::new(font_system, metrics)
-        }
-    }
-
-    pub fn return_text_buffer(&mut self, buffer: TextBuffer) {
-        self.buffers.push(buffer);
-    }
-}
+// pub struct TextBuffersPool {
+//     buffers: Vec<TextBuffer>,
+// }
+//
+// impl TextBuffersPool {
+//     pub fn new() -> Self {
+//         Self {
+//             buffers: Vec::new(),
+//         }
+//     }
+//
+//     pub fn get_text_buffer(
+//         &mut self,
+//         font_system: &mut FontSystem,
+//         metrics: Metrics,
+//     ) -> TextBuffer {
+//         if let Some(mut buffer) = self.buffers.pop() {
+//             buffer.set_metrics(font_system, metrics);
+//             buffer
+//         } else {
+//             TextBuffer::new(font_system, metrics)
+//         }
+//     }
+//
+//     pub fn return_text_buffer(&mut self, buffer: TextBuffer) {
+//         self.buffers.push(buffer);
+//     }
+// }
 
 pub struct ImageBuffersPool {
     vertex_buffers: Vec<wgpu::Buffer>,
@@ -172,7 +171,6 @@ pub(crate) struct PoolManager {
     pub vertex_buffer_pool: BufferPool,
     pub index_buffer_pool: BufferPool,
     pub lyon_vertex_buffers_pool: LyonVertexBuffersPool,
-    pub text_buffers_pool: TextBuffersPool,
     pub image_buffers_pool: ImageBuffersPool,
     pub tessellation_cache: Cache,
 }
@@ -185,24 +183,18 @@ impl PoolManager {
                 wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
             ),
             lyon_vertex_buffers_pool: LyonVertexBuffersPool::new(),
-            text_buffers_pool: TextBuffersPool::new(),
             image_buffers_pool: ImageBuffersPool::new(),
             tessellation_cache: Cache::new(),
         }
-    }
-
-    pub fn return_text_buffer(&mut self, buffer: TextBuffer) {
-        self.text_buffers_pool.return_text_buffer(buffer);
     }
 
     // pub fn print_sizes(&self) {
     //     println!("Vertex buffers: {}", self.vertex_buffer_pool.buffers.len());
     //     println!("Index buffers: {}", self.index_buffer_pool.buffers.len());
     //     println!("Lyon vertex buffers: {}", self.lyon_vertex_buffers_pool.vertex_buffers.len());
-    //     println!("Text buffers: {}", self.text_buffers_pool.buffers.len());
     //     println!("Image vertex buffers: {}", self.image_buffers_pool.vertex_buffers.len());
     //     println!("Image index buffers: {}", self.image_buffers_pool.index_buffers.len());
-    //     println!("Tessellation cache: {}", self.tessellation_cache.len());
+    //     // println!("Tessellation cache: {}", self.tessellation_cache.len());
     // }
 }
 
