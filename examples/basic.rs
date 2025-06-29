@@ -74,7 +74,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 }
                 Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size()),
                 Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
-                Err(e) => eprintln!("{:?}", e),
+                Err(e) => eprintln!("{e:?}"),
             },
             _ => {}
         }

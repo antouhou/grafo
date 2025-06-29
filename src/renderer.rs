@@ -57,7 +57,7 @@
 //!             horizontal_alignment: TextAlignment::Center,
 //!             vertical_alignment: TextAlignment::Center,
 //!         };
-//!         renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif, None);
+//!         renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif, None, 0);
 //!
 //!         // Render the frame
 //!         match renderer.render() {
@@ -89,9 +89,9 @@ use crate::shape::{Shape, ShapeDrawData};
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
-use crate::{Color, FontFamily};
+use crate::{Color, FontFamily, IntoCowBuffer, NoopTextDataIter};
 use ahash::{HashMap, HashMapExt};
-use glyphon::{fontdb, FontSystem, Metrics, Resolution, SwashCache};
+use glyphon::{fontdb, FontSystem, Resolution, SwashCache};
 use log::warn;
 use lyon::tessellation::FillTessellator;
 use wgpu::{BindGroup, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
@@ -191,7 +191,7 @@ enum DrawCommand {
 ///             horizontal_alignment: TextAlignment::Center,
 ///             vertical_alignment: TextAlignment::Center,
 ///         };
-///         renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif , None);
+///         renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif , None, 0);
 ///
 ///         // Render the frame
 ///         match renderer.render() {
@@ -227,14 +227,14 @@ pub struct Renderer<'a> {
     font_system: FontSystem,
     swash_cache: SwashCache,
     /// Text instances to be rendered
-    text_instances: Vec<TextDrawData>,
+    text_instances: Vec<TextDrawData<'a>>,
     /// Internal wrapper for text rendering components.
     text_renderer_wrapper: TextRendererWrapper,
     glyphon_viewport: glyphon::Viewport,
 
     /// Tree structure holding shapes and images to be rendered.
     draw_tree: easy_tree::Tree<DrawCommand>,
-    text_buffer_ids_to_clips: HashMap<usize, usize>,
+    metadata_to_clips: HashMap<usize, usize>,
 
     /// Uniforms for the "And" rendering pipeline.
     and_uniforms: Uniforms,
@@ -260,7 +260,7 @@ pub struct Renderer<'a> {
     texture_always_render_pipeline: Arc<wgpu::RenderPipeline>,
 }
 
-impl Renderer<'_> {
+impl<'a> Renderer<'a> {
     /// Creates a new `Renderer` instance.
     ///
     /// # Parameters
@@ -466,7 +466,7 @@ impl Renderer<'_> {
             decrementing_bind_group,
 
             draw_tree: easy_tree::Tree::new(),
-            text_buffer_ids_to_clips: HashMap::new(),
+            metadata_to_clips: HashMap::new(),
 
             // #[cfg(feature = "performance_measurement")]
             // performance_query_set: frametime_query_set,
@@ -747,7 +747,7 @@ impl Renderer<'_> {
     ///             horizontal_alignment: TextAlignment::Center,
     ///             vertical_alignment: TextAlignment::Center,
     ///         };
-    ///         renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif, None);
+    ///         renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif, None, 0);
     ///     }
     ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
     /// }
@@ -758,8 +758,9 @@ impl Renderer<'_> {
         layout: impl Into<TextLayout>,
         font_family: FontFamily,
         clip_to_shape: Option<usize>,
+        buffer_id: usize,
     ) {
-        self.add_text_internal(text, layout, font_family, clip_to_shape, None)
+        self.add_text_internal(text, layout, font_family, clip_to_shape, None, buffer_id)
     }
 
     /// Same as [Renderer::add_text], but allows to use a custom font system
@@ -770,8 +771,16 @@ impl Renderer<'_> {
         font_family: FontFamily,
         clip_to_shape: Option<usize>,
         font_system: &mut FontSystem,
+        buffer_id: usize,
     ) {
-        self.add_text_internal(text, layout, font_family, clip_to_shape, Some(font_system))
+        self.add_text_internal(
+            text,
+            layout,
+            font_family,
+            clip_to_shape,
+            Some(font_system),
+            buffer_id,
+        )
     }
 
     fn add_text_internal(
@@ -781,22 +790,19 @@ impl Renderer<'_> {
         font_family: FontFamily,
         clip_to_shape: Option<usize>,
         font_system: Option<&mut FontSystem>,
+        buffer_id: usize,
     ) {
         let font_system = font_system.unwrap_or(&mut self.font_system);
-
-        let buffer_id = self.text_instances.len();
 
         self.text_instances.push(TextDrawData::new(
             text,
             layout,
-            buffer_id,
             self.scale_factor as f32,
             font_system,
             font_family,
-            &mut self.buffers_pool_manager,
+            clip_to_shape,
+            buffer_id,
         ));
-        self.text_buffer_ids_to_clips
-            .insert(buffer_id, clip_to_shape.unwrap_or(0));
     }
 
     /// This method  adds the text buffer to the draw queue. This is useful when you want to use
@@ -808,39 +814,27 @@ impl Renderer<'_> {
     /// - `area`: Where to render the text.
     /// - `fallback_color`: Color used as a fallback color.
     /// - `vertical_offset`: Vertical offset from the top of the canvas where to start rendering the text.
-    /// - `text_buffer_id`: Unique identifier for the text buffer. This value is used to map the text
-    ///   buffer to the clip shape. NOTE! This value should match the same value set as buffer's
-    ///   attr's metadata.
-    /// - `clip_to_shape`: Optional index of a shape to which this text should be clipped.
     ///
     /// # NOTE
-    /// It is very important to set the same value for `text_buffer_id` and the metadata of the buffer,
-    /// otherwise the text won't be rendered.
+    /// It is very important to set the metadata of the text buffer to be equal to the id of the
+    /// shape that is going to be used for clipping, if you want the text to be clipped by a shape.
     pub fn add_text_buffer(
         &mut self,
-        text_buffer: &glyphon::Buffer,
+        text_buffer: impl IntoCowBuffer<'a>,
         area: MathRect,
         fallback_color: Color,
         vertical_offset: f32,
-        text_buffer_id: usize,
+        buffer_metadata: usize,
         clip_to_shape: Option<usize>,
     ) {
-        let buffers_pool = &mut self.buffers_pool_manager;
-        let mut buffer = buffers_pool.text_buffers_pool.get_text_buffer(
-            // Those values don't matter, because we are not going to use them
-            &mut self.font_system,
-            Metrics::new(1.0, 1.0),
-        );
-
-        text_buffer.clone_into(&mut buffer);
         self.text_instances.push(TextDrawData::with_buffer(
             text_buffer,
             area,
             fallback_color,
             vertical_offset,
+            clip_to_shape,
+            buffer_metadata,
         ));
-        self.text_buffer_ids_to_clips
-            .insert(text_buffer_id, clip_to_shape.unwrap_or(0));
     }
 
     /// Renders all items currently in the draw queue.
@@ -890,21 +884,23 @@ impl Renderer<'_> {
     /// }
     /// ```
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        self.render_internal(None, None)
+        self.render_internal(None, None, None::<NoopTextDataIter>)
     }
 
-    pub fn render_with_custom_font_system(
+    pub fn render_with_custom_font_system<'b>(
         &mut self,
         font_system: &mut FontSystem,
         swash_cache: &mut SwashCache,
+        text_instances: Option<impl Iterator<Item = TextDrawData<'b>>>,
     ) -> Result<(), wgpu::SurfaceError> {
-        self.render_internal(Some(font_system), Some(swash_cache))
+        self.render_internal(Some(font_system), Some(swash_cache), text_instances)
     }
 
-    fn render_internal(
+    fn render_internal<'b>(
         &mut self,
         custom_font_system: Option<&mut FontSystem>,
         custom_swash_cache: Option<&mut SwashCache>,
+        custom_text_instances: Option<impl Iterator<Item = TextDrawData<'b>>>,
     ) -> Result<(), wgpu::SurfaceError> {
         let draw_tree_size = self.draw_tree.len();
         let iter = self.draw_tree.iter_mut();
@@ -1084,35 +1080,12 @@ impl Renderer<'_> {
                 &mut data,
             );
 
-            let text_instances = std::mem::take(&mut self.text_instances);
-            let text_areas = text_instances
-                .iter()
-                .map(|text_instance| text_instance.to_text_area(self.scale_factor as f32));
-
-            let font_system = custom_font_system.unwrap_or(&mut self.font_system);
-            let swash_cache = custom_swash_cache.unwrap_or(&mut self.swash_cache);
-
-            self.text_renderer_wrapper
-                .text_renderer
-                .prepare_with_depth(
-                    &self.device,
-                    &self.queue,
-                    font_system,
-                    &mut self.text_renderer_wrapper.atlas,
-                    &self.glyphon_viewport,
-                    text_areas,
-                    swash_cache,
-                    |buffer_id| {
-                        // TODO: print warning if the buffer is not found
-                        let clip_to_shape = self
-                            .text_buffer_ids_to_clips
-                            .get(&buffer_id)
-                            .copied()
-                            .unwrap_or(0);
-                        depth(clip_to_shape, draw_tree_size)
-                    },
-                )
-                .unwrap();
+            // // Preparing text renderer
+            self.prepare_text_buffers(
+                custom_text_instances,
+                custom_font_system,
+                custom_swash_cache,
+            );
 
             self.text_renderer_wrapper
                 .text_renderer
@@ -1122,12 +1095,6 @@ impl Renderer<'_> {
                     &mut data.0,
                 )
                 .unwrap();
-
-            // Returning text buffers back to the pool
-            for text_instance in text_instances {
-                let TextDrawData { text_buffer, .. } = text_instance;
-                self.buffers_pool_manager.return_text_buffer(text_buffer);
-            }
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -1148,6 +1115,82 @@ impl Renderer<'_> {
         // self.buffers_pool_manager.print_sizes();
 
         Ok(())
+    }
+
+    pub fn prepare_text_buffers<'b>(
+        &mut self,
+        custom_text_instances_iter: Option<impl Iterator<Item = TextDrawData<'b>>>,
+        custom_font_system: Option<&mut FontSystem>,
+        custom_swash_cache: Option<&mut SwashCache>,
+    ) {
+        let font_system = custom_font_system.unwrap_or(&mut self.font_system);
+        let swash_cache = custom_swash_cache.unwrap_or(&mut self.swash_cache);
+
+        if let Some(text_instances_iter) = custom_text_instances_iter {
+            // TODO: make vec a pool
+            let text_areas = text_instances_iter
+                .map(|text_instance| {
+                    self.metadata_to_clips.insert(
+                        text_instance.buffer_metadata,
+                        text_instance.clip_to_shape.unwrap_or_default(),
+                    );
+                    text_instance.into_text_area(self.scale_factor as f32)
+                })
+                .collect::<Vec<_>>();
+
+            self.text_renderer_wrapper
+                .text_renderer
+                .prepare_with_depth(
+                    &self.device,
+                    &self.queue,
+                    font_system,
+                    &mut self.text_renderer_wrapper.atlas,
+                    &self.glyphon_viewport,
+                    text_areas,
+                    swash_cache,
+                    |metadata| {
+                        depth(
+                            self.metadata_to_clips.get(&metadata).copied().unwrap_or(0),
+                            self.draw_tree.len(),
+                        )
+                    },
+                )
+                .unwrap();
+        } else {
+            // TODO: make vec a pool
+            let text_areas = self
+                .text_instances
+                .iter()
+                .map(|text_instance| {
+                    self.metadata_to_clips.insert(
+                        text_instance.buffer_metadata,
+                        text_instance.clip_to_shape.unwrap_or_default(),
+                    );
+                    text_instance.to_text_area(self.scale_factor as f32)
+                })
+                .collect::<Vec<_>>();
+
+            self.text_renderer_wrapper
+                .text_renderer
+                .prepare_with_depth(
+                    &self.device,
+                    &self.queue,
+                    font_system,
+                    &mut self.text_renderer_wrapper.atlas,
+                    &self.glyphon_viewport,
+                    text_areas,
+                    swash_cache,
+                    |metadata| {
+                        depth(
+                            self.metadata_to_clips.get(&metadata).copied().unwrap_or(0),
+                            self.draw_tree.len(),
+                        )
+                    },
+                )
+                .unwrap();
+
+            self.text_instances.clear();
+        }
     }
 
     /// Clears all items currently in the draw queue.
@@ -1197,7 +1240,7 @@ impl Renderer<'_> {
     pub fn clear_draw_queue(&mut self) {
         self.draw_tree.clear();
         self.text_instances.clear();
-        self.text_buffer_ids_to_clips.clear();
+        self.metadata_to_clips.clear();
     }
 
     /// Adds a generic draw command to the draw tree.

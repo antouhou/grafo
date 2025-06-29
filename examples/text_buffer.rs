@@ -1,6 +1,6 @@
 use futures::executor::block_on;
 use glyphon::cosmic_text;
-use grafo::{fontdb, Color, Stroke};
+use grafo::{fontdb, Color, NoopTextDataIter, Stroke};
 use grafo::{MathRect, Shape};
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
@@ -151,7 +151,7 @@ impl ApplicationHandler for App {
                     background_max.1 - background_min.1,
                 );
 
-                println!("text_area_size: {:?}", text_area_size);
+                println!("text_area_size: {text_area_size:?}");
 
                 text_buffer.set_text(
                     &mut font_system,
@@ -178,7 +178,7 @@ impl ApplicationHandler for App {
                 let vertical_offset = 10.0;
 
                 renderer.add_text_buffer(
-                    &text_buffer,
+                    text_buffer,
                     text_bounds,
                     Color::WHITE,
                     vertical_offset,
@@ -187,13 +187,17 @@ impl ApplicationHandler for App {
                 );
 
                 let timer = Instant::now();
-                match renderer.render_with_custom_font_system(&mut font_system, &mut swash_cache) {
+                match renderer.render_with_custom_font_system(
+                    &mut font_system,
+                    &mut swash_cache,
+                    None::<NoopTextDataIter>,
+                ) {
                     Ok(_) => {
                         renderer.clear_draw_queue();
                     }
                     Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size()),
                     Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
-                    Err(e) => eprintln!("{:?}", e),
+                    Err(e) => eprintln!("{e:?}"),
                 }
                 println!("Render time: {:?}", timer.elapsed());
             }
