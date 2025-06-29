@@ -107,7 +107,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     text_layout,
                     FontFamily::SansSerif,
                     Some(first_text_background_id),
-                    3,
+                    0,
                 );
 
                 // Second text instance
@@ -139,7 +139,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     text_layout2,
                     FontFamily::SansSerif,
                     Some(second_text_background_id),
-                    2,
+                    1,
                 );
 
                 // Example with font loaded from file
@@ -171,7 +171,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     text_layout3,
                     FontFamily::Name("Roboto"),
                     Some(third_text_background_id),
-                    1,
+                    2,
                 );
 
                 // Example with system font
@@ -203,7 +203,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     text_layout4,
                     FontFamily::Name("Papyrus"),
                     Some(fourth_text_background_id),
-                    0,
+                    3,
                 );
 
                 let timer = Instant::now();
