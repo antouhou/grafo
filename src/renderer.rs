@@ -88,9 +88,10 @@ use crate::pipeline::{
 use crate::shape::{Shape, ShapeDrawData};
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
 use crate::texture_manager::TextureManager;
-use crate::util::{to_logical, PoolManager};
+use crate::util::{get_global_pool_manager, to_logical};
 use crate::{Color, FontFamily, IntoCowBuffer, NoopTextDataIter};
 use ahash::{HashMap, HashMapExt};
+use easy_tree::rayon::prelude::*;
 use glyphon::{fontdb, FontSystem, Resolution, SwashCache};
 use log::warn;
 use lyon::tessellation::FillTessellator;
@@ -217,10 +218,6 @@ pub struct Renderer<'a> {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     config: wgpu::SurfaceConfiguration,
-
-    tessellator: FillTessellator,
-
-    buffers_pool_manager: PoolManager,
 
     texture_manager: TextureManager,
 
@@ -451,11 +448,7 @@ impl<'a> Renderer<'a> {
             text_renderer_wrapper,
             glyphon_viewport,
 
-            tessellator: FillTessellator::new(),
-
             texture_manager,
-
-            buffers_pool_manager: PoolManager::new(),
 
             and_pipeline: Arc::new(and_pipeline),
             and_uniforms,
@@ -902,24 +895,31 @@ impl<'a> Renderer<'a> {
         custom_swash_cache: Option<&mut SwashCache>,
         custom_text_instances: Option<impl Iterator<Item = TextDrawData<'b>>>,
     ) -> Result<(), wgpu::SurfaceError> {
+        let render_start = std::time::Instant::now();
         let draw_tree_size = self.draw_tree.len();
-        let iter = self.draw_tree.iter_mut();
+        let iter = self.draw_tree.par_iter_mut();
+
+        // Get access to the global buffer pool manager
+        let global_pool = get_global_pool_manager();
 
         iter.for_each(|draw_command| match draw_command.1 {
             DrawCommand::Shape(ref mut shape) => {
                 let depth = depth(draw_command.0, draw_tree_size);
-                shape.tessellate(depth, &mut self.tessellator, &mut self.buffers_pool_manager);
-                shape.prepare_buffers(&self.device, &self.queue, &mut self.buffers_pool_manager);
+                {
+                    let mut tessellator = FillTessellator::new();
+                    shape.tessellate(depth, &mut tessellator);
+                    shape.prepare_buffers(&self.device, &self.queue);
+                }
             }
             DrawCommand::Image(ref mut image) => {
                 image.prepare(
                     &self.texture_manager,
                     self.physical_size,
                     self.scale_factor as f32,
-                    &mut self.buffers_pool_manager,
                 );
             }
         });
+        println!("Time to prepare buffers: {:?}", render_start.elapsed());
 
         let mut encoder = self
             .device
@@ -951,6 +951,10 @@ impl<'a> Renderer<'a> {
                 current_pipeline,
             );
 
+            println!(
+                "Time spent before starting traversal: {:?}",
+                render_start.elapsed()
+            );
             self.draw_tree.traverse(
                 |shape_id, draw_command, data| {
                     // NOTE: this is destructured here and not above because we need to pass the
@@ -1079,12 +1083,20 @@ impl<'a> Renderer<'a> {
                 },
                 &mut data,
             );
+            println!(
+                "Time spent traversing the tree: {:?}",
+                render_start.elapsed()
+            );
 
             // // Preparing text renderer
             self.prepare_text_buffers(
                 custom_text_instances,
                 custom_font_system,
                 custom_swash_cache,
+            );
+            println!(
+                "Time spent preparing text buffers: {:?}",
+                render_start.elapsed()
             );
 
             self.text_renderer_wrapper
@@ -1095,24 +1107,40 @@ impl<'a> Renderer<'a> {
                     &mut data.0,
                 )
                 .unwrap();
+            println!("Time spent rendering text: {:?}", render_start.elapsed());
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
+        println!(
+            "Time spent submitting the encoder: {:?}",
+            render_start.elapsed()
+        );
         output.present();
+        println!(
+            "Time spent presenting the output: {:?}",
+            render_start.elapsed()
+        );
 
         // Returning buffers back to the pool
-        self.draw_tree
-            .iter_mut()
-            .for_each(|draw_command| match draw_command.1 {
-                DrawCommand::Shape(ref mut shape) => {
-                    shape.return_buffers(&mut self.buffers_pool_manager);
-                }
-                DrawCommand::Image(ref mut image) => {
-                    image.return_buffers_to_pool(&mut self.buffers_pool_manager);
-                }
-            });
+        {
+            let mut pool = global_pool.lock().unwrap();
+            self.draw_tree
+                .iter_mut()
+                .for_each(|draw_command| match draw_command.1 {
+                    DrawCommand::Shape(ref mut shape) => {
+                        shape.return_buffers(&mut pool);
+                    }
+                    DrawCommand::Image(ref mut image) => {
+                        image.return_buffers_to_pool(&mut pool);
+                    }
+                });
+        }
+        println!(
+            "Time spent returning buffers to the pool: {:?}",
+            render_start.elapsed()
+        );
 
-        // self.buffers_pool_manager.print_sizes();
+        // pool.print_sizes();
 
         Ok(())
     }

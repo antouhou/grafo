@@ -1,6 +1,6 @@
-use crate::util::{normalize_rect, PoolManager};
+use crate::util::normalize_rect;
 use crate::vertex::TexturedVertex;
-use crate::MathRect;
+use crate::{get_global_pool_manager, MathRect};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -256,11 +256,14 @@ impl TextureManager {
         canvas_physical_size: (u32, u32),
         logical_area_to_render_texture: &MathRect,
         scale_factor: f32,
-        buffer_pool: &mut PoolManager,
     ) -> wgpu::Buffer {
-        let vertex_buffer = buffer_pool
-            .image_buffers_pool
-            .get_vertex_buffer(&self.device);
+        let vertex_buffer = {
+            let pool_manager = get_global_pool_manager();
+            let mut buffers_pool = pool_manager.lock().unwrap();
+            buffers_pool
+                .image_buffers_pool
+                .get_vertex_buffer(&self.device)
+        };
 
         let normalized_rect = normalize_rect(
             logical_area_to_render_texture,
@@ -313,18 +316,17 @@ impl TextureManager {
         canvas_physical_size: (u32, u32),
         logical_screen_area: &MathRect,
         scale_factor: f32,
-        buffers_pool: &mut PoolManager,
     ) -> Result<(wgpu::Buffer, wgpu::Buffer, wgpu::BindGroup), TextureManagerError> {
-        let vertex_buffer = self.create_vertex_buffer(
-            canvas_physical_size,
-            logical_screen_area,
-            scale_factor,
-            buffers_pool,
-        );
+        let vertex_buffer =
+            self.create_vertex_buffer(canvas_physical_size, logical_screen_area, scale_factor);
 
-        let index_buffer = buffers_pool
-            .image_buffers_pool
-            .get_index_buffer(&self.device);
+        let index_buffer = {
+            let pool_manager = get_global_pool_manager();
+            let mut buffers_pool = pool_manager.lock().unwrap();
+            buffers_pool
+                .image_buffers_pool
+                .get_index_buffer(&self.device)
+        };
 
         let texture_storage = &self.texture_storage.read().unwrap();
         let texture = texture_storage

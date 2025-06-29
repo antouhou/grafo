@@ -163,3 +163,4 @@ pub use shape::*;
 pub use stroke::Stroke;
 pub use text::*;
 pub use texture_manager::TextureManager;
+pub use util::{get_global_pool_manager, initialize_global_pool_manager, PoolManager};

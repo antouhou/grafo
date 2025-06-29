@@ -39,7 +39,7 @@
 
 use crate::util::{BufferPool, PoolManager};
 use crate::vertex::CustomVertex;
-use crate::{Color, Stroke};
+use crate::{get_global_pool_manager, Color, Stroke};
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, VertexBuffers,
 };
@@ -346,30 +346,43 @@ impl PathShape {
         &self,
         depth: f32,
         tessellator: &mut FillTessellator,
-        buffers_pool: &mut PoolManager,
         offset: (f32, f32),
         cache_key: Option<u64>,
     ) -> VertexBuffers<CustomVertex, u16> {
         let mut buffers = if let Some(cache_key) = cache_key {
-            if let Some(buffers) = buffers_pool
-                .tessellation_cache
-                .get_vertex_buffers(&cache_key)
-            {
-                buffers
-            } else {
-                let mut buffers: VertexBuffers<CustomVertex, u16> =
-                    buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
-
-                self.tesselate_into_buffers(&mut buffers, depth, tessellator);
+            if let Some(buffers) = {
+                let pool_manager = get_global_pool_manager();
+                let mut buffers_pool = pool_manager.lock().unwrap();
                 buffers_pool
                     .tessellation_cache
-                    .insert_vertex_buffers(cache_key, buffers.clone());
+                    .get_vertex_buffers(&cache_key)
+            } {
+                buffers
+            } else {
+                let mut buffers: VertexBuffers<CustomVertex, u16> = {
+                    let pool_manager = get_global_pool_manager();
+                    let mut buffers_pool = pool_manager.lock().unwrap();
+                    buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers()
+                };
+
+                self.tesselate_into_buffers(&mut buffers, depth, tessellator);
+
+                {
+                    let pool_manager = get_global_pool_manager();
+                    let mut buffers_pool = pool_manager.lock().unwrap();
+                    buffers_pool
+                        .tessellation_cache
+                        .insert_vertex_buffers(cache_key, buffers.clone());
+                }
 
                 buffers
             }
         } else {
-            let mut buffers: VertexBuffers<CustomVertex, u16> =
-                buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
+            let mut buffers: VertexBuffers<CustomVertex, u16> = {
+                let pool_manager = get_global_pool_manager();
+                let mut buffers_pool = pool_manager.lock().unwrap();
+                buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers()
+            };
 
             self.tesselate_into_buffers(&mut buffers, depth, tessellator);
 
@@ -453,17 +466,12 @@ impl ShapeDrawData {
 
     /// Tesselates complex shapes and stores the resulting buffers.
     #[inline(always)]
-    pub(crate) fn tessellate(
-        &mut self,
-        depth: f32,
-        tessellator: &mut FillTessellator,
-        buffers_pool: &mut PoolManager,
-    ) {
+    pub(crate) fn tessellate(&mut self, depth: f32, tessellator: &mut FillTessellator) {
         match &self.shape {
             Shape::Path(path_shape) => {
                 let offset = self.offset;
                 let mut vertex_buffers =
-                    path_shape.tessellate(depth, tessellator, buffers_pool, offset, self.cache_key);
+                    path_shape.tessellate(depth, tessellator, offset, self.cache_key);
                 if vertex_buffers.indices.len() % 2 != 0 {
                     vertex_buffers.indices.push(0);
                 }
@@ -513,7 +521,11 @@ impl ShapeDrawData {
                 ];
                 let indices = [0u16, 1, 2, 3, 4, 5];
 
-                let mut vertex_buffers = buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
+                let mut vertex_buffers = {
+                    let pool_manager = get_global_pool_manager();
+                    let mut buffers_pool = pool_manager.lock().unwrap();
+                    buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers()
+                };
 
                 vertex_buffers.vertices.extend(quad);
                 vertex_buffers.indices.extend(indices);
@@ -528,15 +540,22 @@ impl ShapeDrawData {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        buffer_pool: &mut PoolManager,
     ) -> (wgpu::Buffer, wgpu::Buffer, u32) {
         let vertex_buffers = self
             .vertex_buffers
             .as_ref()
             .expect("To be tesselated at this point");
         // TODO: better buffer allocation
-        let vertex_buffer = buffer_pool.vertex_buffer_pool.get_buffer(device, 100000);
-        let index_buffer = buffer_pool.index_buffer_pool.get_buffer(device, 1000);
+        let vertex_buffer = {
+            let pool_manager = get_global_pool_manager();
+            let mut buffers_pool = pool_manager.lock().unwrap();
+            buffers_pool.vertex_buffer_pool.get_buffer(device, 100000)
+        };
+        let index_buffer = {
+            let pool_manager = get_global_pool_manager();
+            let mut buffers_pool = pool_manager.lock().unwrap();
+            buffers_pool.index_buffer_pool.get_buffer(device, 1000)
+        };
 
         queue.write_buffer(
             &vertex_buffer,
@@ -594,14 +613,8 @@ impl ShapeDrawData {
     /// // shape_draw_data.prepare_buffers(&device, shape_id, max_shape_id);
     /// ```
     #[inline(always)]
-    pub fn prepare_buffers(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        buffer_pool: &mut PoolManager,
-    ) {
-        let (vertex_buffer, index_buffer, num_indices) =
-            self.shape_data_to_buffers(device, queue, buffer_pool);
+    pub fn prepare_buffers(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        let (vertex_buffer, index_buffer, num_indices) = self.shape_data_to_buffers(device, queue);
 
         self.vertex_buffer = Some(vertex_buffer);
         self.index_buffer = Some(index_buffer);

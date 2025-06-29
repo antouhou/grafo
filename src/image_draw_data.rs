@@ -37,7 +37,7 @@ impl ImageDrawData {
         // bind_group_layout: &BindGroupLayout,
         canvas_physical_size: (u32, u32),
         scale_factor: f32,
-        buffers_pool: &mut PoolManager,
+        // buffers_pool: &mut PoolManager,
     ) {
         let (vertex_buffer, index_buffer, bind_group) = texture_manager
             .create_everything_to_render_texture(
@@ -45,7 +45,6 @@ impl ImageDrawData {
                 canvas_physical_size,
                 &self.logical_rect,
                 scale_factor,
-                buffers_pool,
             )
             .unwrap();
 

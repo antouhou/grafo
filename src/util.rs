@@ -3,6 +3,7 @@ use crate::renderer::MathRect;
 use crate::vertex::CustomVertex;
 use lyon::geom::euclid::Point2D;
 use lyon::tessellation::VertexBuffers;
+use std::sync::{Arc, Mutex, OnceLock};
 use wgpu::util::DeviceExt;
 use wgpu::{Buffer, BufferUsages};
 
@@ -32,20 +33,20 @@ pub fn normalize_rect(
     }
 }
 
-pub(crate) struct BufferPool {
+pub struct BufferPool {
     buffer_usages: BufferUsages,
     buffers: Vec<Buffer>,
 }
 
 impl BufferPool {
-    pub(crate) fn new(buffer_usages: BufferUsages) -> Self {
+    pub fn new(buffer_usages: BufferUsages) -> Self {
         Self {
             buffers: Vec::new(),
             buffer_usages,
         }
     }
 
-    pub(crate) fn get_buffer(&mut self, device: &wgpu::Device, size: usize) -> Buffer {
+    pub fn get_buffer(&mut self, device: &wgpu::Device, size: usize) -> Buffer {
         if let Some(buffer) = self.buffers.pop() {
             buffer
         } else {
@@ -58,13 +59,19 @@ impl BufferPool {
         }
     }
 
-    pub(crate) fn return_buffer(&mut self, buffer: Buffer) {
+    pub fn return_buffer(&mut self, buffer: Buffer) {
         self.buffers.push(buffer);
     }
 }
 
 pub struct LyonVertexBuffersPool {
     vertex_buffers: Vec<VertexBuffers<CustomVertex, u16>>,
+}
+
+impl Default for LyonVertexBuffersPool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LyonVertexBuffersPool {
@@ -117,6 +124,12 @@ pub struct ImageBuffersPool {
     index_buffers: Vec<wgpu::Buffer>,
 }
 
+impl Default for ImageBuffersPool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ImageBuffersPool {
     pub fn new() -> Self {
         Self {
@@ -167,7 +180,7 @@ impl ImageBuffersPool {
     }
 }
 
-pub(crate) struct PoolManager {
+pub struct PoolManager {
     pub vertex_buffer_pool: BufferPool,
     pub index_buffer_pool: BufferPool,
     pub lyon_vertex_buffers_pool: LyonVertexBuffersPool,
@@ -175,8 +188,14 @@ pub(crate) struct PoolManager {
     pub tessellation_cache: Cache,
 }
 
+impl Default for PoolManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PoolManager {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             vertex_buffer_pool: BufferPool::new(BufferUsages::VERTEX | BufferUsages::COPY_DST),
             index_buffer_pool: BufferPool::new(
@@ -196,6 +215,80 @@ impl PoolManager {
     //     println!("Image index buffers: {}", self.image_buffers_pool.index_buffers.len());
     //     // println!("Tessellation cache: {}", self.tessellation_cache.len());
     // }
+}
+
+// Global buffer pool manager instance
+static GLOBAL_POOL_MANAGER: OnceLock<Arc<Mutex<PoolManager>>> = OnceLock::new();
+
+/// Get access to the global buffer pool manager.
+///
+/// This function returns a thread-safe reference to the global buffer pool manager.
+/// The pool manager is automatically initialized on first use and can be safely
+/// accessed from multiple threads concurrently.
+///
+/// The pool manager helps reduce memory allocation overhead by reusing GPU buffers
+/// across multiple rendering operations. All renderers in the application will
+/// share the same pool, making buffer usage more efficient.
+///
+/// # Thread Safety
+///
+/// This function is completely thread-safe. Multiple threads can call this function
+/// concurrently and access the returned pool manager safely through the `Arc<Mutex<_>>`.
+///
+/// # Examples
+///
+/// ```rust
+/// use grafo::get_global_pool_manager;
+/// use std::thread;
+///
+/// // Access from main thread
+/// let pool = get_global_pool_manager();
+///
+/// // Access from multiple threads
+/// let handles: Vec<_> = (0..4).map(|_| {
+///     thread::spawn(|| {
+///         let pool = get_global_pool_manager();
+///         // Use the pool manager here...
+///         let _guard = pool.lock().unwrap();
+///         // Perform operations with the pool
+///     })
+/// }).collect();
+///
+/// for handle in handles {
+///     handle.join().unwrap();
+/// }
+/// ```
+///
+/// This function is thread-safe and can be called from multiple threads.
+pub fn get_global_pool_manager() -> Arc<Mutex<PoolManager>> {
+    GLOBAL_POOL_MANAGER
+        .get_or_init(|| Arc::new(Mutex::new(PoolManager::new())))
+        .clone()
+}
+
+/// Initialize the global buffer pool manager.
+///
+/// This function explicitly initializes the global buffer pool manager.
+/// While this is optional (the pool manager will be automatically initialized
+/// on first use), calling this function can be useful if you want to ensure
+/// the pool is initialized at a specific point in your application's lifecycle.
+///
+/// # Examples
+///
+/// ```rust
+/// use grafo::initialize_global_pool_manager;
+///
+/// fn main() {
+///     // Initialize the pool manager early in the application
+///     initialize_global_pool_manager();
+///     
+///     // Rest of your application...
+/// }
+/// ```
+///
+/// This is optional - the pool manager will be automatically initialized on first use.
+pub fn initialize_global_pool_manager() {
+    let _ = get_global_pool_manager();
 }
 
 // #[inline(always)]
