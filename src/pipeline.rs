@@ -439,21 +439,6 @@ pub fn render_buffer_range_to_texture(
     incrementing_pass.draw_indexed(index_start..index_end, 0, 0..1);
 }
 
-// Renders buffer to texture and increments stencil value where the buffer is drawn.
-pub fn render_buffer_to_texture2(
-    vertex_buffer: &wgpu::Buffer,
-    index_buffer: &wgpu::Buffer,
-    num_indices: u32,
-    incrementing_pass: &mut RenderPass<'_>,
-    parent_stencil_reference: u32,
-) {
-    incrementing_pass.set_stencil_reference(parent_stencil_reference);
-
-    incrementing_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-    incrementing_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-    incrementing_pass.draw_indexed(0..num_indices, 0, 0..1);
-}
-
 pub fn create_texture_pipeline(
     device: &wgpu::Device,
     config: &wgpu::SurfaceConfiguration,

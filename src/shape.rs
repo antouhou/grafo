@@ -417,28 +417,19 @@ impl PathShape {
 /// directly by library users.
 #[derive(Debug)]
 pub(crate) struct ShapeDrawData {
-    // /// The vertex buffer containing the shape's vertices.
-    // pub(crate) vertex_buffer: Option<wgpu::Buffer>,
-    // /// The index buffer containing the shape's indices.
-    // pub(crate) index_buffer: Option<wgpu::Buffer>,
-    /// The number of indices in the index buffer.
-    pub(crate) num_indices: Option<u32>,
     /// An optional index of another shape to clip to.
     pub(crate) clip_to_shape: Option<usize>,
     /// The shape associated with this draw data.
     pub(crate) shape: Shape,
     /// Offset the shape by this amount
     pub(crate) offset: (f32, f32),
-
-    pub(crate) vertex_buffers: Option<Rc<VertexBuffers<CustomVertex, u16>>>,
-
+    /// Optional cache key for the shape, used for caching tessellated buffers.
     pub(crate) cache_key: Option<u64>,
-    
     /// Range in the aggregated vertex buffer (start_index, count)
     pub(crate) vertex_buffer_range: Option<(usize, usize)>,
     /// Range in the aggregated index buffer (start_index, count)  
     pub(crate) index_buffer_range: Option<(usize, usize)>,
-
+    /// Indicates whether the shape is empty (no vertices or indices).
     pub(crate) is_empty: bool,
 }
 
@@ -452,10 +443,6 @@ impl ShapeDrawData {
         let shape = shape.into();
 
         ShapeDrawData {
-            // vertex_buffer: None,
-            // index_buffer: None,
-            num_indices: None,
-            vertex_buffers: None,
             clip_to_shape,
             shape,
             offset,
@@ -466,20 +453,18 @@ impl ShapeDrawData {
         }
     }
 
-    /// Tesselates complex shapes and stores the resulting buffers.
+    /// Tessellates complex shapes and stores the resulting buffers.
     #[inline(always)]
     pub(crate) fn tessellate(
         &mut self,
         depth: f32,
         tessellator: &mut FillTessellator,
         buffers_pool: &mut PoolManager,
-    ) {
+    ) -> Rc<VertexBuffers<CustomVertex, u16>> {
         match &self.shape {
             Shape::Path(path_shape) => {
                 let offset = self.offset;
-                let vertex_buffers =
-                    path_shape.tessellate(depth, tessellator, buffers_pool, offset, self.cache_key);
-                self.vertex_buffers = Some(vertex_buffers);
+                path_shape.tessellate(depth, tessellator, buffers_pool, offset, self.cache_key)
             }
             Shape::Rect(rect_shape) => {
                 let offset = self.offset;
@@ -530,7 +515,7 @@ impl ShapeDrawData {
                 vertex_buffers.vertices.extend(quad);
                 vertex_buffers.indices.extend(indices);
 
-                self.vertex_buffers = Some(Rc::new(vertex_buffers));
+                Rc::new(vertex_buffers)
             }
         }
     }

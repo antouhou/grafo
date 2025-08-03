@@ -903,23 +903,30 @@ impl<'a> Renderer<'a> {
         custom_text_instances: Option<impl Iterator<Item = TextDrawData<'b>>>,
     ) -> Result<(), wgpu::SurfaceError> {
         let draw_tree_size = self.draw_tree.len();
-        let iter = self.draw_tree.iter_mut();
 
         let time_start = std::time::Instant::now();
         
-        // First pass: tessellate all shapes and collect their vertex/index data
         let mut all_vertices: Vec<crate::vertex::CustomVertex> = Vec::new();
         let mut all_indices: Vec<u16> = Vec::new();
 
-        iter.for_each(|draw_command| match draw_command.1 {
-            DrawCommand::Shape(ref mut shape) => {
-                let depth = depth(draw_command.0, draw_tree_size);
-                shape.tessellate(depth, &mut self.tessellator, &mut self.buffers_pool_manager);
+        let tessellator = &mut self.tessellator;
+        let buffers_pool_manager = &mut self.buffers_pool_manager;
+        let texture_manager = &self.texture_manager;
+        let physical_size = self.physical_size;
+        let scale_factor = self.scale_factor;
 
-                if let Some(vertex_buffers) = &shape.vertex_buffers {
-                    if vertex_buffers.vertices.len() == 0 || vertex_buffers.indices.len() == 0 {
+        // First pass: tessellate all shapes and aggregate vertex/index data
+        for (node_id, draw_command) in self.draw_tree.iter_mut() {
+            match draw_command {
+                DrawCommand::Shape(ref mut shape) => {
+                    let depth = depth(node_id, draw_tree_size);
+                    
+                    // Get tessellated buffers using the optimized cache approach
+                    let vertex_buffers = shape.tessellate(depth, tessellator, buffers_pool_manager);
+
+                    if vertex_buffers.vertices.is_empty() || vertex_buffers.indices.is_empty() {
                         shape.is_empty = true;
-                        return;
+                        continue;
                     }
 
                     let vertex_start = all_vertices.len();
@@ -936,24 +943,21 @@ impl<'a> Renderer<'a> {
                     let vertex_count = vertex_buffers.vertices.len();
                     let index_count = vertex_buffers.indices.len();
 
-                    shape.num_indices = Some(index_count as u32);
-
-                    // Store buffer ranges for later use in rendering
                     shape.vertex_buffer_range = Some((vertex_start, vertex_count));
                     shape.index_buffer_range = Some((index_start, index_count));
                 }
+                DrawCommand::Image(ref mut image) => {
+                    image.prepare(
+                        texture_manager,
+                        physical_size,
+                        scale_factor as f32,
+                        buffers_pool_manager,
+                    );
+                }
             }
-            DrawCommand::Image(ref mut image) => {
-                image.prepare(
-                    &self.texture_manager,
-                    self.physical_size,
-                    self.scale_factor as f32,
-                    &mut self.buffers_pool_manager,
-                );
-            }
-        });
+        }
         
-        // Second pass: create aggregated buffers and write once to the queue
+        // Create aggregated buffers only if needed
         let aggregated_vertex_buffer = if !all_vertices.is_empty() {
             let total_vertex_size = all_vertices.len() * std::mem::size_of::<crate::vertex::CustomVertex>();
             let vertex_buffer = self.buffers_pool_manager.vertex_buffer_pool.get_buffer(&self.device, total_vertex_size);
@@ -1180,15 +1184,8 @@ impl<'a> Renderer<'a> {
             .for_each(|draw_command| match draw_command.1 {
                 DrawCommand::Shape(ref mut shape) => {
                     // Clear the aggregated buffer references
-                    // shape.vertex_buffer = None;
-                    // shape.index_buffer = None;
-                    shape.num_indices = None;
                     shape.vertex_buffer_range = None;
                     shape.index_buffer_range = None;
-                    
-                    // The vertex_buffers (tessellation results) are still managed by the cache/pool
-                    // No need to explicitly return them here as they're either cached or will be
-                    // returned to the lyon vertex buffer pool when they go out of scope
                 }
                 DrawCommand::Image(ref mut image) => {
                     image.return_buffers_to_pool(&mut self.buffers_pool_manager);
