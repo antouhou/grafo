@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use crate::cache::Cache;
 use crate::renderer::MathRect;
 use crate::vertex::CustomVertex;
@@ -34,21 +35,31 @@ pub fn normalize_rect(
 
 pub(crate) struct BufferPool {
     buffer_usages: BufferUsages,
-    buffers: Vec<Buffer>,
+    buffers: HashMap<usize, Vec<Buffer>>,
 }
 
 impl BufferPool {
     pub(crate) fn new(buffer_usages: BufferUsages) -> Self {
         Self {
-            buffers: Vec::new(),
+            buffers: HashMap::new(),
             buffer_usages,
         }
     }
 
     pub(crate) fn get_buffer(&mut self, device: &wgpu::Device, size: usize) -> Buffer {
-        if let Some(buffer) = self.buffers.pop() {
-            buffer
+        if let Some(cache) = self.buffers.get_mut(&size) {
+            if let Some(buffer) = cache.pop() {
+                return buffer;
+            } else {
+                device.create_buffer(&wgpu::BufferDescriptor {
+                    label: None,
+                    size: size as u64,
+                    usage: self.buffer_usages,
+                    mapped_at_creation: false,
+                })
+            }
         } else {
+            self.buffers.insert(size, Vec::new());
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
                 size: size as u64,
@@ -58,8 +69,12 @@ impl BufferPool {
         }
     }
 
-    pub(crate) fn return_buffer(&mut self, buffer: Buffer) {
-        self.buffers.push(buffer);
+    pub(crate) fn return_buffer(&mut self, buffer: Buffer, capacity: usize) {
+        if let Some(cache) = self.buffers.get_mut(&capacity) {
+            cache.push(buffer);
+        } else {
+            self.buffers.insert(capacity, vec![buffer]);
+        }
     }
 }
 

@@ -37,6 +37,7 @@
 //!     .build();
 //! ```
 
+use std::rc::Rc;
 use crate::util::{BufferPool, PoolManager};
 use crate::vertex::CustomVertex;
 use crate::{Color, Stroke};
@@ -349,7 +350,7 @@ impl PathShape {
         buffers_pool: &mut PoolManager,
         offset: (f32, f32),
         cache_key: Option<u64>,
-    ) -> VertexBuffers<CustomVertex, u16> {
+    ) -> Rc<VertexBuffers<CustomVertex, u16>> {
         let mut buffers = if let Some(cache_key) = cache_key {
             if let Some(buffers) = buffers_pool
                 .tessellation_cache
@@ -376,13 +377,17 @@ impl PathShape {
             buffers
         };
 
+        if buffers.indices.len() % 2 != 0 {
+            buffers.indices.push(0);
+        }
+
         // TODO: move vertex translation to the GPU
         buffers.vertices.iter_mut().for_each(|v| {
             v.position[0] += offset.0;
             v.position[1] += offset.1;
         });
 
-        buffers
+        Rc::new(buffers)
     }
 
     fn tesselate_into_buffers(
@@ -425,7 +430,7 @@ pub(crate) struct ShapeDrawData {
     /// Offset the shape by this amount
     pub(crate) offset: (f32, f32),
 
-    pub(crate) vertex_buffers: Option<VertexBuffers<CustomVertex, u16>>,
+    pub(crate) vertex_buffers: Option<Rc<VertexBuffers<CustomVertex, u16>>>,
 
     pub(crate) cache_key: Option<u64>,
 }
@@ -462,11 +467,8 @@ impl ShapeDrawData {
         match &self.shape {
             Shape::Path(path_shape) => {
                 let offset = self.offset;
-                let mut vertex_buffers =
+                let vertex_buffers =
                     path_shape.tessellate(depth, tessellator, buffers_pool, offset, self.cache_key);
-                if vertex_buffers.indices.len() % 2 != 0 {
-                    vertex_buffers.indices.push(0);
-                }
                 self.vertex_buffers = Some(vertex_buffers);
             }
             Shape::Rect(rect_shape) => {
@@ -518,7 +520,7 @@ impl ShapeDrawData {
                 vertex_buffers.vertices.extend(quad);
                 vertex_buffers.indices.extend(indices);
 
-                self.vertex_buffers = Some(vertex_buffers);
+                self.vertex_buffers = Some(Rc::new(vertex_buffers));
             }
         }
     }
@@ -534,19 +536,26 @@ impl ShapeDrawData {
             .vertex_buffers
             .as_ref()
             .expect("To be tesselated at this point");
+
+        let verts = &vertex_buffers.vertices;
+        let idxs  = &vertex_buffers.indices;
+
+        let vb_byte_len = verts.len() * size_of::<CustomVertex>();
+        let ib_byte_len = idxs.len()  * size_of::<u16>();
+
         // TODO: better buffer allocation
-        let vertex_buffer = buffer_pool.vertex_buffer_pool.get_buffer(device, 100000);
-        let index_buffer = buffer_pool.index_buffer_pool.get_buffer(device, 1000);
+        let vertex_buffer = buffer_pool.vertex_buffer_pool.get_buffer(device, vb_byte_len);
+        let index_buffer = buffer_pool.index_buffer_pool.get_buffer(device, ib_byte_len);
 
         queue.write_buffer(
             &vertex_buffer,
             0,
-            bytemuck::cast_slice(&vertex_buffers.vertices),
+            bytemuck::cast_slice(verts),
         );
         queue.write_buffer(
             &index_buffer,
             0,
-            bytemuck::cast_slice(&vertex_buffers.indices),
+            bytemuck::cast_slice(idxs),
         );
         let index_num = vertex_buffers.indices.len() as u32;
 
@@ -568,14 +577,25 @@ impl ShapeDrawData {
         vertex_buffer_pool: &mut BufferPool,
         index_buffer_pool: &mut BufferPool,
     ) {
+        let vertex_buffers = self
+            .vertex_buffers
+            .as_ref()
+            .expect("To be tesselated at this point");
+
+        let verts = &vertex_buffers.vertices;
+        let idxs  = &vertex_buffers.indices;
+
+        let vb_byte_len = verts.len() * size_of::<CustomVertex>();
+        let ib_byte_len = idxs.len()  * size_of::<u16>();
+
         let vertex_buffer = self.vertex_buffer.take();
         if let Some(vertex_buffer) = vertex_buffer {
-            vertex_buffer_pool.return_buffer(vertex_buffer);
+            vertex_buffer_pool.return_buffer(vertex_buffer, vb_byte_len);
         }
 
         let index_buffer = self.index_buffer.take();
         if let Some(index_buffer) = index_buffer {
-            index_buffer_pool.return_buffer(index_buffer);
+            index_buffer_pool.return_buffer(index_buffer, ib_byte_len);
         }
     }
 

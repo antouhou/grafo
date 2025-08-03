@@ -905,6 +905,7 @@ impl<'a> Renderer<'a> {
         let draw_tree_size = self.draw_tree.len();
         let iter = self.draw_tree.iter_mut();
 
+        let time_start = std::time::Instant::now();
         iter.for_each(|draw_command| match draw_command.1 {
             DrawCommand::Shape(ref mut shape) => {
                 let depth = depth(draw_command.0, draw_tree_size);
@@ -920,6 +921,11 @@ impl<'a> Renderer<'a> {
                 );
             }
         });
+        let time_tessellation = time_start.elapsed();
+        println!(
+            "Tessellation and buffer preparation took: {:.2} ms",
+            time_tessellation.as_secs_f64() * 1000.0
+        );
 
         let mut encoder = self
             .device
@@ -1461,6 +1467,15 @@ impl<'a> Renderer<'a> {
                 height: new_physical_size.1,
             },
         );
+    }
+
+    pub fn set_vsync(&mut self, vsync: bool) {
+        self.config.present_mode = if vsync {
+            wgpu::PresentMode::Fifo
+        } else {
+            wgpu::PresentMode::Immediate
+        };
+        self.surface.configure(&self.device, &self.config);
     }
 
     /// Loads fonts from the specified sources.
