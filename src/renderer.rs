@@ -911,46 +911,16 @@ impl<'a> Renderer<'a> {
         let mut all_vertices: Vec<crate::vertex::CustomVertex> = Vec::new();
         let mut all_indices: Vec<u16> = Vec::new();
 
-        let mut heh = 0;
-        let mut huh = 0;
         iter.for_each(|draw_command| match draw_command.1 {
             DrawCommand::Shape(ref mut shape) => {
                 let depth = depth(draw_command.0, draw_tree_size);
                 shape.tessellate(depth, &mut self.tessellator, &mut self.buffers_pool_manager);
 
-                // let vertex_buffers = self
-                //     .vertex_buffers
-                //     .as_ref()
-                //     .expect("To be tesselated at this point");
-                // // TODO: better buffer allocation
-                // let vertex_buffer = buffer_pool.vertex_buffer_pool.get_buffer(device, 100000);
-                // let index_buffer = buffer_pool.index_buffer_pool.get_buffer(device, 1000);
-                //
-                // queue.write_buffer(
-                //     &vertex_buffer,
-                //     0,
-                //     bytemuck::cast_slice(&vertex_buffers.vertices),
-                // );
-                // queue.write_buffer(
-                //     &index_buffer,
-                //     0,
-                //     bytemuck::cast_slice(&vertex_buffers.indices),
-                // );
-                // let index_num = vertex_buffers.indices.len() as u32;
-
-                // After the buffers are written, we can return the vertex buffers to the pool
-                // self.return_lyon_vertex_buffers_to_pool(&mut buffer_pool.lyon_vertex_buffers_pool);
-
-                // (vertex_buffer, index_buffer, index_num)
-
-                // Collect vertex and index data instead of preparing individual buffers
                 if let Some(vertex_buffers) = &shape.vertex_buffers {
                     if vertex_buffers.vertices.len() == 0 || vertex_buffers.indices.len() == 0 {
-                        heh += 1;
                         shape.is_empty = true;
                         return;
                     }
-                    huh += 1;
 
                     let vertex_start = all_vertices.len();
                     let index_start = all_indices.len();
@@ -971,8 +941,6 @@ impl<'a> Renderer<'a> {
                     // Store buffer ranges for later use in rendering
                     shape.vertex_buffer_range = Some((vertex_start, vertex_count));
                     shape.index_buffer_range = Some((index_start, index_count));
-                } else {
-                    panic!("Oh no!");
                 }
             }
             DrawCommand::Image(ref mut image) => {
@@ -984,9 +952,6 @@ impl<'a> Renderer<'a> {
                 );
             }
         });
-
-        println!("Heh: {}", heh);
-        println!("Huh: {}", huh);
         
         // Second pass: create aggregated buffers and write once to the queue
         let aggregated_vertex_buffer = if !all_vertices.is_empty() {
@@ -1016,26 +981,6 @@ impl<'a> Renderer<'a> {
         } else {
             None
         };
-        
-        // Third pass: assign buffer slices to each shape
-        // let mut range_index = 0;
-        // self.draw_tree.iter_mut().for_each(|draw_command| {
-        //     if let DrawCommand::Shape(ref mut shape) = draw_command.1 {
-        //         if shape.vertex_buffers.is_some() {
-        //             let (vertex_start, vertex_count, index_start, index_count) = shape_buffer_ranges[range_index];
-        //
-        //             shape.vertex_buffer = aggregated_vertex_buffer.as_ref().cloned();
-        //             shape.index_buffer = aggregated_index_buffer.as_ref().cloned();
-        //             shape.num_indices = Some(index_count as u32);
-        //
-        //             // Store buffer ranges for later use in rendering
-        //             shape.vertex_buffer_range = Some((vertex_start, vertex_count));
-        //             shape.index_buffer_range = Some((index_start, index_count));
-        //
-        //             range_index += 1;
-        //         }
-        //     }
-        // });
         
         let time_tessellation = time_start.elapsed();
         println!(
@@ -1085,20 +1030,8 @@ impl<'a> Renderer<'a> {
                                 (shape.vertex_buffer_range, shape.index_buffer_range)
                             {
                                 if shape.is_empty {
-                                    println!("Skipping empty shape {}", shape_id);
                                     return;
                                 }
-                                // if vertex_range.0 >= vertex_range.1
-                                //     || index_range.0 >= index_range.1
-                                // {
-                                //     println!("Invalid vertex or index range for shape {}", shape_id);
-                                //     return;
-                                // }
-                                println!("Range: {:?}, {:?}", vertex_range, index_range);
-                                // if vertex_buffer.size() == 0 || index_buffer.size() == 0 {
-                                //     // TODO: this started to happen for some reason, investigate
-                                //     return;
-                                // }
 
                                 if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
                                     render_pass.set_pipeline(&self.and_pipeline);

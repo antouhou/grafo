@@ -419,24 +419,24 @@ pub fn create_and_depth_texture(device: &Device, size: (u32, u32)) -> Texture {
 pub fn render_buffer_range_to_texture(
     vertex_buffer: &wgpu::Buffer,
     index_buffer: &wgpu::Buffer,
-    vertex_range: (usize, usize), // (start_vertex, vertex_count)
+    _vertex_range: (usize, usize), // (start_vertex, vertex_count) - not needed with current approach
     index_range: (usize, usize),  // (start_index, index_count)
     incrementing_pass: &mut RenderPass<'_>,
     parent_stencil_reference: u32,
 ) {
-    use std::mem::size_of;
-    
     incrementing_pass.set_stencil_reference(parent_stencil_reference);
 
-    let vertex_start_bytes = (vertex_range.0 * size_of::<crate::vertex::CustomVertex>()) as u64;
-    let vertex_size_bytes = (vertex_range.1 * size_of::<crate::vertex::CustomVertex>()) as u64;
+    // Use the full buffers but specify the vertex base offset in draw_indexed
+    incrementing_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+    incrementing_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
     
-    let index_start_bytes = (index_range.0 * size_of::<u16>()) as u64;
-    let index_size_bytes = (index_range.1 * size_of::<u16>()) as u64;
-
-    incrementing_pass.set_vertex_buffer(0, vertex_buffer.slice(vertex_start_bytes..vertex_start_bytes + vertex_size_bytes));
-    incrementing_pass.set_index_buffer(index_buffer.slice(index_start_bytes..index_start_bytes + index_size_bytes), wgpu::IndexFormat::Uint16);
-    incrementing_pass.draw_indexed(0..index_range.1 as u32, 0, 0..1);
+    // The indices in the aggregated buffer are already offset, so we need to:
+    // 1. Use the correct index range
+    // 2. Set the vertex base to 0 since we're using the full vertex buffer
+    let index_start = index_range.0 as u32;
+    let index_end = (index_range.0 + index_range.1) as u32;
+    
+    incrementing_pass.draw_indexed(index_start..index_end, 0, 0..1);
 }
 
 // Renders buffer to texture and increments stencil value where the buffer is drawn.
