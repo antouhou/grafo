@@ -83,7 +83,7 @@ pub type MathRect = lyon::math::Box2D;
 use crate::image_draw_data::ImageDrawData;
 use crate::pipeline::{
     create_and_depth_texture, create_depth_stencil_state_for_text, create_pipeline,
-    create_render_pass, create_texture_pipeline, render_buffer_to_texture2, PipelineType, Uniforms,
+    create_render_pass, create_texture_pipeline, render_buffer_range_to_texture, PipelineType, Uniforms,
 };
 use crate::shape::{Shape, ShapeDrawData};
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
@@ -906,11 +906,74 @@ impl<'a> Renderer<'a> {
         let iter = self.draw_tree.iter_mut();
 
         let time_start = std::time::Instant::now();
+        
+        // First pass: tessellate all shapes and collect their vertex/index data
+        let mut all_vertices: Vec<crate::vertex::CustomVertex> = Vec::new();
+        let mut all_indices: Vec<u16> = Vec::new();
+
+        let mut heh = 0;
+        let mut huh = 0;
         iter.for_each(|draw_command| match draw_command.1 {
             DrawCommand::Shape(ref mut shape) => {
                 let depth = depth(draw_command.0, draw_tree_size);
                 shape.tessellate(depth, &mut self.tessellator, &mut self.buffers_pool_manager);
-                shape.prepare_buffers(&self.device, &self.queue, &mut self.buffers_pool_manager);
+
+                // let vertex_buffers = self
+                //     .vertex_buffers
+                //     .as_ref()
+                //     .expect("To be tesselated at this point");
+                // // TODO: better buffer allocation
+                // let vertex_buffer = buffer_pool.vertex_buffer_pool.get_buffer(device, 100000);
+                // let index_buffer = buffer_pool.index_buffer_pool.get_buffer(device, 1000);
+                //
+                // queue.write_buffer(
+                //     &vertex_buffer,
+                //     0,
+                //     bytemuck::cast_slice(&vertex_buffers.vertices),
+                // );
+                // queue.write_buffer(
+                //     &index_buffer,
+                //     0,
+                //     bytemuck::cast_slice(&vertex_buffers.indices),
+                // );
+                // let index_num = vertex_buffers.indices.len() as u32;
+
+                // After the buffers are written, we can return the vertex buffers to the pool
+                // self.return_lyon_vertex_buffers_to_pool(&mut buffer_pool.lyon_vertex_buffers_pool);
+
+                // (vertex_buffer, index_buffer, index_num)
+
+                // Collect vertex and index data instead of preparing individual buffers
+                if let Some(vertex_buffers) = &shape.vertex_buffers {
+                    if vertex_buffers.vertices.len() == 0 || vertex_buffers.indices.len() == 0 {
+                        heh += 1;
+                        shape.is_empty = true;
+                        return;
+                    }
+                    huh += 1;
+
+                    let vertex_start = all_vertices.len();
+                    let index_start = all_indices.len();
+                    let vertex_offset = vertex_start as u16;
+                    
+                    all_vertices.extend_from_slice(&vertex_buffers.vertices);
+                    
+                    // Offset indices by the current vertex count
+                    for &index in &vertex_buffers.indices {
+                        all_indices.push(index + vertex_offset);
+                    }
+                    
+                    let vertex_count = vertex_buffers.vertices.len();
+                    let index_count = vertex_buffers.indices.len();
+
+                    shape.num_indices = Some(index_count as u32);
+
+                    // Store buffer ranges for later use in rendering
+                    shape.vertex_buffer_range = Some((vertex_start, vertex_count));
+                    shape.index_buffer_range = Some((index_start, index_count));
+                } else {
+                    panic!("Oh no!");
+                }
             }
             DrawCommand::Image(ref mut image) => {
                 image.prepare(
@@ -921,9 +984,62 @@ impl<'a> Renderer<'a> {
                 );
             }
         });
+
+        println!("Heh: {}", heh);
+        println!("Huh: {}", huh);
+        
+        // Second pass: create aggregated buffers and write once to the queue
+        let aggregated_vertex_buffer = if !all_vertices.is_empty() {
+            let total_vertex_size = all_vertices.len() * std::mem::size_of::<crate::vertex::CustomVertex>();
+            let vertex_buffer = self.buffers_pool_manager.vertex_buffer_pool.get_buffer(&self.device, total_vertex_size);
+            
+            self.queue.write_buffer(
+                &vertex_buffer,
+                0,
+                bytemuck::cast_slice(&all_vertices),
+            );
+            Some(vertex_buffer)
+        } else {
+            None
+        };
+        
+        let aggregated_index_buffer = if !all_indices.is_empty() {
+            let total_index_size = all_indices.len() * std::mem::size_of::<u16>();
+            let index_buffer = self.buffers_pool_manager.index_buffer_pool.get_buffer(&self.device, total_index_size);
+
+            self.queue.write_buffer(
+                &index_buffer,
+                0,
+                bytemuck::cast_slice(&all_indices),
+            );
+            Some(index_buffer)
+        } else {
+            None
+        };
+        
+        // Third pass: assign buffer slices to each shape
+        // let mut range_index = 0;
+        // self.draw_tree.iter_mut().for_each(|draw_command| {
+        //     if let DrawCommand::Shape(ref mut shape) = draw_command.1 {
+        //         if shape.vertex_buffers.is_some() {
+        //             let (vertex_start, vertex_count, index_start, index_count) = shape_buffer_ranges[range_index];
+        //
+        //             shape.vertex_buffer = aggregated_vertex_buffer.as_ref().cloned();
+        //             shape.index_buffer = aggregated_index_buffer.as_ref().cloned();
+        //             shape.num_indices = Some(index_count as u32);
+        //
+        //             // Store buffer ranges for later use in rendering
+        //             shape.vertex_buffer_range = Some((vertex_start, vertex_count));
+        //             shape.index_buffer_range = Some((index_start, index_count));
+        //
+        //             range_index += 1;
+        //         }
+        //     }
+        // });
+        
         let time_tessellation = time_start.elapsed();
         println!(
-            "Tessellation and buffer preparation took: {:.2} ms",
+            "Tessellation and aggregated buffer preparation took: {:.2} ms",
             time_tessellation.as_secs_f64() * 1000.0
         );
 
@@ -965,15 +1081,24 @@ impl<'a> Renderer<'a> {
 
                     match draw_command {
                         DrawCommand::Shape(shape) => {
-                            if let (Some(vertex_buffer), Some(index_buffer)) =
-                                (shape.vertex_buffer.as_ref(), shape.index_buffer.as_ref())
+                            if let (Some(vertex_range), Some(index_range)) =
+                                (shape.vertex_buffer_range, shape.index_buffer_range)
                             {
-                                if vertex_buffer.size() == 0 || index_buffer.size() == 0 {
-                                    // TODO: this started to happen for some reason, investigate
+                                if shape.is_empty {
+                                    println!("Skipping empty shape {}", shape_id);
                                     return;
                                 }
-
-                                let num_indices = shape.num_indices.unwrap();
+                                // if vertex_range.0 >= vertex_range.1
+                                //     || index_range.0 >= index_range.1
+                                // {
+                                //     println!("Invalid vertex or index range for shape {}", shape_id);
+                                //     return;
+                                // }
+                                println!("Range: {:?}, {:?}", vertex_range, index_range);
+                                // if vertex_buffer.size() == 0 || index_buffer.size() == 0 {
+                                //     // TODO: this started to happen for some reason, investigate
+                                //     return;
+                                // }
 
                                 if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
                                     render_pass.set_pipeline(&self.and_pipeline);
@@ -985,10 +1110,11 @@ impl<'a> Renderer<'a> {
                                     let parent_stencil =
                                         *stencil_references.get(&clip_to_shape).unwrap_or(&0);
 
-                                    render_buffer_to_texture2(
-                                        vertex_buffer,
-                                        index_buffer,
-                                        num_indices,
+                                    render_buffer_range_to_texture(
+                                        aggregated_vertex_buffer.as_ref().unwrap(),
+                                        aggregated_index_buffer.as_ref().unwrap(),
+                                        vertex_range,
+                                        index_range,
                                         render_pass,
                                         parent_stencil,
                                     );
@@ -999,10 +1125,11 @@ impl<'a> Renderer<'a> {
                                     //  rendering them we need to reset stencil texture, and
                                     //  they should be rendered in a separate step
 
-                                    render_buffer_to_texture2(
-                                        vertex_buffer,
-                                        index_buffer,
-                                        num_indices,
+                                    render_buffer_range_to_texture(
+                                        aggregated_vertex_buffer.as_ref().unwrap(),
+                                        aggregated_index_buffer.as_ref().unwrap(),
+                                        vertex_range,
+                                        index_range,
                                         render_pass,
                                         0,
                                     );
@@ -1010,7 +1137,7 @@ impl<'a> Renderer<'a> {
                                     stencil_references.insert(shape_id, 1);
                                 }
                             } else {
-                                warn!("Missing vertex or index buffer for shape {}", shape_id);
+                                warn!("Missing vertex or index buffer or ranges for shape {}", shape_id);
                             }
                         }
                         DrawCommand::Image(image) => {
@@ -1042,14 +1169,10 @@ impl<'a> Renderer<'a> {
 
                     match draw_command {
                         DrawCommand::Shape(shape) => {
-                            if let (Some(vertex_buffer), Some(index_buffer)) =
-                                (shape.vertex_buffer.as_ref(), shape.index_buffer.as_ref())
+                            if let (Some(vertex_range), Some(index_range)) =
+                                (shape.vertex_buffer_range, shape.index_buffer_range)
                             {
-                                let num_indices = shape.num_indices.unwrap();
-                                // let num_indices = shape.copy_data_to_buffers(&vertex_buffer, &index_buffer, &self.queue);
-
-                                if vertex_buffer.size() == 0 || index_buffer.size() == 0 {
-                                    // TODO: this started to happen for some reason, investigate
+                                if shape.is_empty {
                                     return;
                                 }
 
@@ -1065,15 +1188,16 @@ impl<'a> Renderer<'a> {
 
                                 let this_shape_stencil = { *data.1.get(&shape_id).unwrap_or(&0) };
 
-                                render_buffer_to_texture2(
-                                    vertex_buffer,
-                                    index_buffer,
-                                    num_indices,
+                                render_buffer_range_to_texture(
+                                    aggregated_vertex_buffer.as_ref().unwrap(),
+                                    aggregated_index_buffer.as_ref().unwrap(),
+                                    vertex_range,
+                                    index_range,
                                     render_pass,
                                     this_shape_stencil,
                                 );
                             } else {
-                                warn!("No vertex or index buffer found for shape {}", shape_id);
+                                warn!("No vertex or index buffer or ranges found for shape {}", shape_id);
                                 // TODO: no vertex or index buffer found - it is an error,
                                 //  so probably should panic
                             }
@@ -1106,12 +1230,32 @@ impl<'a> Renderer<'a> {
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
-        // Returning buffers back to the pool
+        // Return aggregated buffers to the pool
+        if let Some(vertex_buffer) = aggregated_vertex_buffer {
+            let total_vertex_size = all_vertices.len() * std::mem::size_of::<crate::vertex::CustomVertex>();
+            self.buffers_pool_manager.vertex_buffer_pool.return_buffer(vertex_buffer, total_vertex_size);
+        }
+        
+        if let Some(index_buffer) = aggregated_index_buffer {
+            let total_index_size = all_indices.len() * std::mem::size_of::<u16>();
+            self.buffers_pool_manager.index_buffer_pool.return_buffer(index_buffer, total_index_size);
+        }
+
+        // Clear shape buffer references and return other resources to the pool
         self.draw_tree
             .iter_mut()
             .for_each(|draw_command| match draw_command.1 {
                 DrawCommand::Shape(ref mut shape) => {
-                    shape.return_buffers(&mut self.buffers_pool_manager);
+                    // Clear the aggregated buffer references
+                    // shape.vertex_buffer = None;
+                    // shape.index_buffer = None;
+                    shape.num_indices = None;
+                    shape.vertex_buffer_range = None;
+                    shape.index_buffer_range = None;
+                    
+                    // The vertex_buffers (tessellation results) are still managed by the cache/pool
+                    // No need to explicitly return them here as they're either cached or will be
+                    // returned to the lyon vertex buffer pool when they go out of scope
                 }
                 DrawCommand::Image(ref mut image) => {
                     image.return_buffers_to_pool(&mut self.buffers_pool_manager);

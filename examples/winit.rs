@@ -98,7 +98,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         (0.0, 0.0),
                         (window_size.width as f32, window_size.height as f32),
                     ],
-                    Color::rgb(255, 255, 255),
+                    Color::rgb(255, 255, 200),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
 
