@@ -75,27 +75,24 @@ impl<'a> ApplicationHandler for App<'a> {
                     Color::rgb(0, 128, 255),        // Blue fill
                     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
                 );
-                println!("Adding shape to renderer");
                 renderer.add_shape(rect, None, (0.0, 0.0), None);
 
                 let rect = Shape::rect(
                     [(500.0, 100.0), (600.0, 200.0)],
-                    Color::rgb(0, 128, 0),        // Blue fill
+                    Color::rgb(0, 128, 0),          // Blue fill
                     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
                 );
-                println!("Adding shape to renderer");
                 renderer.add_shape(rect, None, (0.0, 0.0), None);
 
                 match renderer.render() {
                     Ok(_) => {
-                        println!("Hehe");
                         renderer.clear_draw_queue();
                     }
                     Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size()),
                     Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
                     Err(e) => eprintln!("{e:?}"),
                 }
-            },
+            }
             _ => {}
         }
     }

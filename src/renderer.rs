@@ -83,7 +83,8 @@ pub type MathRect = lyon::math::Box2D;
 use crate::image_draw_data::ImageDrawData;
 use crate::pipeline::{
     create_and_depth_texture, create_depth_stencil_state_for_text, create_pipeline,
-    create_render_pass, create_texture_pipeline, render_buffer_range_to_texture, PipelineType, Uniforms,
+    create_render_pass, create_texture_pipeline, render_buffer_range_to_texture, PipelineType,
+    Uniforms,
 };
 use crate::shape::{Shape, ShapeDrawData};
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
@@ -94,7 +95,8 @@ use ahash::{HashMap, HashMapExt};
 use glyphon::{fontdb, FontSystem, Resolution, SwashCache};
 use log::warn;
 use lyon::tessellation::FillTessellator;
-use wgpu::{BindGroup, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
+use wgpu::{BindGroup, BufferUsages, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
 
 /// Represents different rendering pipelines used by the `Renderer`.
 ///
@@ -258,6 +260,9 @@ pub struct Renderer<'a> {
     texture_crop_render_pipeline: Arc<wgpu::RenderPipeline>,
     /// Render pipeline for always rendering textures without clipping.
     texture_always_render_pipeline: Arc<wgpu::RenderPipeline>,
+
+    temp_vertices: Vec<crate::vertex::CustomVertex>,
+    temp_indices: Vec<u16>,
 }
 
 impl<'a> Renderer<'a> {
@@ -474,6 +479,9 @@ impl<'a> Renderer<'a> {
             // adapter,
             texture_crop_render_pipeline: Arc::new(texture_crop_render_pipeline),
             texture_always_render_pipeline: Arc::new(texture_always_render_pipeline),
+
+            temp_vertices: Vec::new(),
+            temp_indices: Vec::new(),
         }
     }
 
@@ -902,12 +910,10 @@ impl<'a> Renderer<'a> {
         custom_swash_cache: Option<&mut SwashCache>,
         custom_text_instances: Option<impl Iterator<Item = TextDrawData<'b>>>,
     ) -> Result<(), wgpu::SurfaceError> {
-        let draw_tree_size = self.draw_tree.len();
+        self.temp_vertices.clear();
+        self.temp_indices.clear();
 
-        let time_start = std::time::Instant::now();
-        
-        let mut all_vertices: Vec<crate::vertex::CustomVertex> = Vec::new();
-        let mut all_indices: Vec<u16> = Vec::new();
+        let draw_tree_size = self.draw_tree.len();
 
         let tessellator = &mut self.tessellator;
         let buffers_pool_manager = &mut self.buffers_pool_manager;
@@ -920,7 +926,7 @@ impl<'a> Renderer<'a> {
             match draw_command {
                 DrawCommand::Shape(ref mut shape) => {
                     let depth = depth(node_id, draw_tree_size);
-                    
+
                     // Get tessellated buffers using the optimized cache approach
                     let vertex_buffers = shape.tessellate(depth, tessellator, buffers_pool_manager);
 
@@ -929,17 +935,18 @@ impl<'a> Renderer<'a> {
                         continue;
                     }
 
-                    let vertex_start = all_vertices.len();
-                    let index_start = all_indices.len();
+                    let vertex_start = self.temp_vertices.len();
+                    let index_start = self.temp_indices.len();
                     let vertex_offset = vertex_start as u16;
-                    
-                    all_vertices.extend_from_slice(&vertex_buffers.vertices);
-                    
+
+                    self.temp_vertices
+                        .extend_from_slice(&vertex_buffers.vertices);
+
                     // Offset indices by the current vertex count
                     for &index in &vertex_buffers.indices {
-                        all_indices.push(index + vertex_offset);
+                        self.temp_indices.push(index + vertex_offset);
                     }
-                    
+
                     let vertex_count = vertex_buffers.vertices.len();
                     let index_count = vertex_buffers.indices.len();
 
@@ -956,41 +963,33 @@ impl<'a> Renderer<'a> {
                 }
             }
         }
-        
+
         // Create aggregated buffers only if needed
-        let aggregated_vertex_buffer = if !all_vertices.is_empty() {
-            let total_vertex_size = all_vertices.len() * std::mem::size_of::<crate::vertex::CustomVertex>();
-            let vertex_buffer = self.buffers_pool_manager.vertex_buffer_pool.get_buffer(&self.device, total_vertex_size);
-            
-            self.queue.write_buffer(
-                &vertex_buffer,
-                0,
-                bytemuck::cast_slice(&all_vertices),
-            );
+        let aggregated_vertex_buffer = if !self.temp_vertices.is_empty() {
+            let vertex_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::cast_slice(&self.temp_vertices),
+                usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            });
+
             Some(vertex_buffer)
         } else {
             None
         };
-        
-        let aggregated_index_buffer = if !all_indices.is_empty() {
-            let total_index_size = all_indices.len() * std::mem::size_of::<u16>();
-            let index_buffer = self.buffers_pool_manager.index_buffer_pool.get_buffer(&self.device, total_index_size);
 
-            self.queue.write_buffer(
-                &index_buffer,
-                0,
-                bytemuck::cast_slice(&all_indices),
-            );
+        let aggregated_index_buffer = if !self.temp_indices.is_empty() {
+            let total_index_size = self.temp_indices.len() * std::mem::size_of::<u16>();
+            let index_buffer = self
+                .buffers_pool_manager
+                .index_buffer_pool
+                .get_buffer(&self.device, total_index_size);
+
+            self.queue
+                .write_buffer(&index_buffer, 0, bytemuck::cast_slice(&self.temp_indices));
             Some(index_buffer)
         } else {
             None
         };
-        
-        let time_tessellation = time_start.elapsed();
-        println!(
-            "Tessellation and aggregated buffer preparation took: {:.2} ms",
-            time_tessellation.as_secs_f64() * 1000.0
-        );
 
         let mut encoder = self
             .device
@@ -1074,7 +1073,10 @@ impl<'a> Renderer<'a> {
                                     stencil_references.insert(shape_id, 1);
                                 }
                             } else {
-                                warn!("Missing vertex or index buffer or ranges for shape {}", shape_id);
+                                warn!(
+                                    "Missing vertex or index buffer or ranges for shape {}",
+                                    shape_id
+                                );
                             }
                         }
                         DrawCommand::Image(image) => {
@@ -1134,7 +1136,10 @@ impl<'a> Renderer<'a> {
                                     this_shape_stencil,
                                 );
                             } else {
-                                warn!("No vertex or index buffer or ranges found for shape {}", shape_id);
+                                warn!(
+                                    "No vertex or index buffer or ranges found for shape {}",
+                                    shape_id
+                                );
                                 // TODO: no vertex or index buffer found - it is an error,
                                 //  so probably should panic
                             }
@@ -1169,13 +1174,18 @@ impl<'a> Renderer<'a> {
 
         // Return aggregated buffers to the pool
         if let Some(vertex_buffer) = aggregated_vertex_buffer {
-            let total_vertex_size = all_vertices.len() * std::mem::size_of::<crate::vertex::CustomVertex>();
-            self.buffers_pool_manager.vertex_buffer_pool.return_buffer(vertex_buffer, total_vertex_size);
+            let total_vertex_size =
+                self.temp_vertices.len() * std::mem::size_of::<crate::vertex::CustomVertex>();
+            self.buffers_pool_manager
+                .vertex_buffer_pool
+                .return_buffer(vertex_buffer, total_vertex_size);
         }
-        
+
         if let Some(index_buffer) = aggregated_index_buffer {
-            let total_index_size = all_indices.len() * std::mem::size_of::<u16>();
-            self.buffers_pool_manager.index_buffer_pool.return_buffer(index_buffer, total_index_size);
+            let total_index_size = self.temp_indices.len() * std::mem::size_of::<u16>();
+            self.buffers_pool_manager
+                .index_buffer_pool
+                .return_buffer(index_buffer, total_index_size);
         }
 
         // Clear shape buffer references and return other resources to the pool

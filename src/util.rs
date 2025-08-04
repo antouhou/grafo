@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use crate::cache::Cache;
 use crate::renderer::MathRect;
 use crate::vertex::CustomVertex;
 use lyon::geom::euclid::Point2D;
 use lyon::tessellation::VertexBuffers;
+use std::collections::HashMap;
 use wgpu::util::DeviceExt;
 use wgpu::{Buffer, BufferUsages};
 
@@ -49,7 +49,7 @@ impl BufferPool {
     pub(crate) fn get_buffer(&mut self, device: &wgpu::Device, size: usize) -> Buffer {
         if let Some(cache) = self.buffers.get_mut(&size) {
             if let Some(buffer) = cache.pop() {
-                return buffer;
+                buffer
             } else {
                 device.create_buffer(&wgpu::BufferDescriptor {
                     label: None,

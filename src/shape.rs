@@ -37,7 +37,6 @@
 //!     .build();
 //! ```
 
-use std::rc::Rc;
 use crate::util::PoolManager;
 use crate::vertex::CustomVertex;
 use crate::{Color, Stroke};
@@ -46,6 +45,7 @@ use lyon::lyon_tessellation::{
 };
 use lyon::path::Winding;
 use lyon::tessellation::FillVertexConstructor;
+use std::rc::Rc;
 
 /// Represents a graphical shape, which can be either a custom path or a simple rectangle.
 ///
@@ -449,7 +449,7 @@ impl ShapeDrawData {
             cache_key,
             vertex_buffer_range: None,
             index_buffer_range: None,
-            is_empty: false
+            is_empty: false,
         }
     }
 
