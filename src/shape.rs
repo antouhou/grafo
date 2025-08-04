@@ -37,7 +37,7 @@
 //!     .build();
 //! ```
 
-use crate::util::{BufferPool, PoolManager};
+use crate::util::PoolManager;
 use crate::vertex::CustomVertex;
 use crate::{Color, Stroke};
 use lyon::lyon_tessellation::{
@@ -45,6 +45,7 @@ use lyon::lyon_tessellation::{
 };
 use lyon::path::Winding;
 use lyon::tessellation::FillVertexConstructor;
+use std::rc::Rc;
 
 /// Represents a graphical shape, which can be either a custom path or a simple rectangle.
 ///
@@ -349,7 +350,7 @@ impl PathShape {
         buffers_pool: &mut PoolManager,
         offset: (f32, f32),
         cache_key: Option<u64>,
-    ) -> VertexBuffers<CustomVertex, u16> {
+    ) -> Rc<VertexBuffers<CustomVertex, u16>> {
         let mut buffers = if let Some(cache_key) = cache_key {
             if let Some(buffers) = buffers_pool
                 .tessellation_cache
@@ -376,13 +377,17 @@ impl PathShape {
             buffers
         };
 
+        if buffers.indices.len() % 2 != 0 {
+            buffers.indices.push(0);
+        }
+
         // TODO: move vertex translation to the GPU
         buffers.vertices.iter_mut().for_each(|v| {
             v.position[0] += offset.0;
             v.position[1] += offset.1;
         });
 
-        buffers
+        Rc::new(buffers)
     }
 
     fn tesselate_into_buffers(
@@ -412,22 +417,20 @@ impl PathShape {
 /// directly by library users.
 #[derive(Debug)]
 pub(crate) struct ShapeDrawData {
-    /// The vertex buffer containing the shape's vertices.
-    pub(crate) vertex_buffer: Option<wgpu::Buffer>,
-    /// The index buffer containing the shape's indices.
-    pub(crate) index_buffer: Option<wgpu::Buffer>,
-    /// The number of indices in the index buffer.
-    pub(crate) num_indices: Option<u32>,
     /// An optional index of another shape to clip to.
     pub(crate) clip_to_shape: Option<usize>,
     /// The shape associated with this draw data.
     pub(crate) shape: Shape,
     /// Offset the shape by this amount
     pub(crate) offset: (f32, f32),
-
-    pub(crate) vertex_buffers: Option<VertexBuffers<CustomVertex, u16>>,
-
+    /// Optional cache key for the shape, used for caching tessellated buffers.
     pub(crate) cache_key: Option<u64>,
+    /// Range in the aggregated vertex buffer (start_index, count)
+    pub(crate) vertex_buffer_range: Option<(usize, usize)>,
+    /// Range in the aggregated index buffer (start_index, count)  
+    pub(crate) index_buffer_range: Option<(usize, usize)>,
+    /// Indicates whether the shape is empty (no vertices or indices).
+    pub(crate) is_empty: bool,
 }
 
 impl ShapeDrawData {
@@ -440,34 +443,28 @@ impl ShapeDrawData {
         let shape = shape.into();
 
         ShapeDrawData {
-            vertex_buffer: None,
-            index_buffer: None,
-            num_indices: None,
-            vertex_buffers: None,
             clip_to_shape,
             shape,
             offset,
             cache_key,
+            vertex_buffer_range: None,
+            index_buffer_range: None,
+            is_empty: false,
         }
     }
 
-    /// Tesselates complex shapes and stores the resulting buffers.
+    /// Tessellates complex shapes and stores the resulting buffers.
     #[inline(always)]
     pub(crate) fn tessellate(
         &mut self,
         depth: f32,
         tessellator: &mut FillTessellator,
         buffers_pool: &mut PoolManager,
-    ) {
+    ) -> Rc<VertexBuffers<CustomVertex, u16>> {
         match &self.shape {
             Shape::Path(path_shape) => {
                 let offset = self.offset;
-                let mut vertex_buffers =
-                    path_shape.tessellate(depth, tessellator, buffers_pool, offset, self.cache_key);
-                if vertex_buffers.indices.len() % 2 != 0 {
-                    vertex_buffers.indices.push(0);
-                }
-                self.vertex_buffers = Some(vertex_buffers);
+                path_shape.tessellate(depth, tessellator, buffers_pool, offset, self.cache_key)
             }
             Shape::Rect(rect_shape) => {
                 let offset = self.offset;
@@ -518,94 +515,9 @@ impl ShapeDrawData {
                 vertex_buffers.vertices.extend(quad);
                 vertex_buffers.indices.extend(indices);
 
-                self.vertex_buffers = Some(vertex_buffers);
+                Rc::new(vertex_buffers)
             }
         }
-    }
-
-    #[inline(always)]
-    fn shape_data_to_buffers(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        buffer_pool: &mut PoolManager,
-    ) -> (wgpu::Buffer, wgpu::Buffer, u32) {
-        let vertex_buffers = self
-            .vertex_buffers
-            .as_ref()
-            .expect("To be tesselated at this point");
-        // TODO: better buffer allocation
-        let vertex_buffer = buffer_pool.vertex_buffer_pool.get_buffer(device, 100000);
-        let index_buffer = buffer_pool.index_buffer_pool.get_buffer(device, 1000);
-
-        queue.write_buffer(
-            &vertex_buffer,
-            0,
-            bytemuck::cast_slice(&vertex_buffers.vertices),
-        );
-        queue.write_buffer(
-            &index_buffer,
-            0,
-            bytemuck::cast_slice(&vertex_buffers.indices),
-        );
-        let index_num = vertex_buffers.indices.len() as u32;
-
-        // After the buffers are written, we can return the vertex buffers to the pool
-        // self.return_lyon_vertex_buffers_to_pool(&mut buffer_pool.lyon_vertex_buffers_pool);
-
-        (vertex_buffer, index_buffer, index_num)
-    }
-
-    pub(crate) fn return_buffers(&mut self, buffer_pool: &mut PoolManager) {
-        self.return_buffers_to_pool(
-            &mut buffer_pool.vertex_buffer_pool,
-            &mut buffer_pool.index_buffer_pool,
-        );
-    }
-
-    fn return_buffers_to_pool(
-        &mut self,
-        vertex_buffer_pool: &mut BufferPool,
-        index_buffer_pool: &mut BufferPool,
-    ) {
-        let vertex_buffer = self.vertex_buffer.take();
-        if let Some(vertex_buffer) = vertex_buffer {
-            vertex_buffer_pool.return_buffer(vertex_buffer);
-        }
-
-        let index_buffer = self.index_buffer.take();
-        if let Some(index_buffer) = index_buffer {
-            index_buffer_pool.return_buffer(index_buffer);
-        }
-    }
-
-    /// Prepares the GPU buffers for rendering the shape.
-    ///
-    /// # Parameters
-    ///
-    /// - `device`: The WGPU device used to create the buffers.
-    /// - `shape_id`: The identifier for the shape, used to calculate depth.
-    /// - `max_shape_id`: The maximum number of shapes, used to normalize depth.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// // Assuming `device` is a valid wgpu::Device instance and shape_id/max_shape_id are set
-    /// // shape_draw_data.prepare_buffers(&device, shape_id, max_shape_id);
-    /// ```
-    #[inline(always)]
-    pub fn prepare_buffers(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        buffer_pool: &mut PoolManager,
-    ) {
-        let (vertex_buffer, index_buffer, num_indices) =
-            self.shape_data_to_buffers(device, queue, buffer_pool);
-
-        self.vertex_buffer = Some(vertex_buffer);
-        self.index_buffer = Some(index_buffer);
-        self.num_indices = Some(num_indices);
     }
 }
 
