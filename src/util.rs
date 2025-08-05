@@ -3,9 +3,7 @@ use crate::renderer::MathRect;
 use crate::vertex::CustomVertex;
 use lyon::geom::euclid::Point2D;
 use lyon::tessellation::VertexBuffers;
-use std::collections::HashMap;
 use wgpu::util::DeviceExt;
-use wgpu::{Buffer, BufferUsages};
 
 pub fn normalize_rgba_color(color: &[u8; 4]) -> [f32; 4] {
     [
@@ -30,51 +28,6 @@ pub fn normalize_rect(
     MathRect {
         min: Point2D::new(ndc_min_x, ndc_min_y),
         max: Point2D::new(ndc_max_x, ndc_max_y),
-    }
-}
-
-pub(crate) struct BufferPool {
-    buffer_usages: BufferUsages,
-    buffers: HashMap<usize, Vec<Buffer>>,
-}
-
-impl BufferPool {
-    pub(crate) fn new(buffer_usages: BufferUsages) -> Self {
-        Self {
-            buffers: HashMap::new(),
-            buffer_usages,
-        }
-    }
-
-    pub(crate) fn get_buffer(&mut self, device: &wgpu::Device, size: usize) -> Buffer {
-        if let Some(cache) = self.buffers.get_mut(&size) {
-            if let Some(buffer) = cache.pop() {
-                buffer
-            } else {
-                device.create_buffer(&wgpu::BufferDescriptor {
-                    label: None,
-                    size: size as u64,
-                    usage: self.buffer_usages,
-                    mapped_at_creation: false,
-                })
-            }
-        } else {
-            self.buffers.insert(size, Vec::new());
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size: size as u64,
-                usage: self.buffer_usages,
-                mapped_at_creation: false,
-            })
-        }
-    }
-
-    pub(crate) fn return_buffer(&mut self, buffer: Buffer, capacity: usize) {
-        if let Some(cache) = self.buffers.get_mut(&capacity) {
-            cache.push(buffer);
-        } else {
-            self.buffers.insert(capacity, vec![buffer]);
-        }
     }
 }
 
@@ -183,8 +136,6 @@ impl ImageBuffersPool {
 }
 
 pub(crate) struct PoolManager {
-    pub vertex_buffer_pool: BufferPool,
-    pub index_buffer_pool: BufferPool,
     pub lyon_vertex_buffers_pool: LyonVertexBuffersPool,
     pub image_buffers_pool: ImageBuffersPool,
     pub tessellation_cache: Cache,
@@ -193,10 +144,6 @@ pub(crate) struct PoolManager {
 impl PoolManager {
     pub(crate) fn new() -> Self {
         Self {
-            vertex_buffer_pool: BufferPool::new(BufferUsages::VERTEX | BufferUsages::COPY_DST),
-            index_buffer_pool: BufferPool::new(
-                wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-            ),
             lyon_vertex_buffers_pool: LyonVertexBuffersPool::new(),
             image_buffers_pool: ImageBuffersPool::new(),
             tessellation_cache: Cache::new(),

@@ -978,14 +978,12 @@ impl<'a> Renderer<'a> {
         };
 
         let aggregated_index_buffer = if !self.temp_indices.is_empty() {
-            let total_index_size = self.temp_indices.len() * std::mem::size_of::<u16>();
-            let index_buffer = self
-                .buffers_pool_manager
-                .index_buffer_pool
-                .get_buffer(&self.device, total_index_size);
+            let index_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::cast_slice(&self.temp_indices),
+                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            });
 
-            self.queue
-                .write_buffer(&index_buffer, 0, bytemuck::cast_slice(&self.temp_indices));
             Some(index_buffer)
         } else {
             None
@@ -1171,22 +1169,6 @@ impl<'a> Renderer<'a> {
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-
-        // Return aggregated buffers to the pool
-        if let Some(vertex_buffer) = aggregated_vertex_buffer {
-            let total_vertex_size =
-                self.temp_vertices.len() * std::mem::size_of::<crate::vertex::CustomVertex>();
-            self.buffers_pool_manager
-                .vertex_buffer_pool
-                .return_buffer(vertex_buffer, total_vertex_size);
-        }
-
-        if let Some(index_buffer) = aggregated_index_buffer {
-            let total_index_size = self.temp_indices.len() * std::mem::size_of::<u16>();
-            self.buffers_pool_manager
-                .index_buffer_pool
-                .return_buffer(index_buffer, total_index_size);
-        }
 
         // Clear shape buffer references and return other resources to the pool
         self.draw_tree
