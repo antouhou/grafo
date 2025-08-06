@@ -438,21 +438,21 @@ pub fn render_buffer_range_to_texture(
     incrementing_pass.draw_indexed(index_start..index_end, 0, 0..1);
 }
 
-pub fn render_buffer_range_to_texture_no_buffer_set(
-    index_range: (usize, usize),   // (start_index, index_count)
-    incrementing_pass: &mut RenderPass<'_>,
-    parent_stencil_reference: u32,
-) {
-    incrementing_pass.set_stencil_reference(parent_stencil_reference);
-
-    // The indices in the aggregated buffer are already offset, so we need to:
-    // 1. Use the correct index range
-    // 2. Set the vertex base to 0 since we're using the full vertex buffer
-    let index_start = index_range.0 as u32;
-    let index_end = (index_range.0 + index_range.1) as u32;
-
-    incrementing_pass.draw_indexed(index_start..index_end, 0, 0..1);
-}
+// pub fn render_buffer_range_to_texture_no_buffer_set(
+//     index_range: (usize, usize),   // (start_index, index_count)
+//     incrementing_pass: &mut RenderPass<'_>,
+//     parent_stencil_reference: u32,
+// ) {
+//     incrementing_pass.set_stencil_reference(parent_stencil_reference);
+//
+//     // The indices in the aggregated buffer are already offset, so we need to:
+//     // 1. Use the correct index range
+//     // 2. Set the vertex base to 0 since we're using the full vertex buffer
+//     let index_start = index_range.0 as u32;
+//     let index_end = (index_range.0 + index_range.1) as u32;
+//
+//     incrementing_pass.draw_indexed(index_start..index_end, 0, 0..1);
+// }
 
 pub fn create_texture_pipeline(
     device: &wgpu::Device,

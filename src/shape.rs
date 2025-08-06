@@ -46,7 +46,7 @@ use lyon::lyon_tessellation::{
 use lyon::path::Winding;
 use lyon::tessellation::FillVertexConstructor;
 
-pub struct CachedShape {
+pub(crate) struct CachedShape {
     pub offset: (f32, f32),
     pub depth: f32,
     pub vertex_buffers: VertexBuffers<CustomVertex, u16>
@@ -524,8 +524,6 @@ pub(crate) struct ShapeDrawData {
     pub(crate) offset: (f32, f32),
     /// Optional cache key for the shape, used for caching tessellated buffers.
     pub(crate) cache_key: Option<u64>,
-    /// Range in the aggregated vertex buffer (start_index, count)
-    pub(crate) vertex_buffer_range: Option<(usize, usize)>,
     /// Range in the aggregated index buffer (start_index, count)  
     pub(crate) index_buffer_range: Option<(usize, usize)>,
     /// Indicates whether the shape is empty (no vertices or indices).
@@ -546,7 +544,6 @@ impl ShapeDrawData {
             shape,
             offset,
             cache_key,
-            vertex_buffer_range: None,
             index_buffer_range: None,
             is_empty: false,
         }
@@ -568,7 +565,6 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) id: u64,
     pub(crate) offset: (f32, f32),
     pub(crate) clip_to_shape: Option<usize>,
-    pub(crate) vertex_buffer_range: Option<(usize, usize)>,
     pub(crate) index_buffer_range: Option<(usize, usize)>,
     pub(crate) is_empty: bool,
 }
@@ -579,7 +575,6 @@ impl CachedShapeDrawData {
             id,
             offset,
             clip_to_shape,
-            vertex_buffer_range: None,
             index_buffer_range: None,
             is_empty: false,
         }
