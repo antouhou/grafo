@@ -86,11 +86,11 @@ use crate::pipeline::{
     create_render_pass, create_texture_pipeline, render_buffer_range_to_texture, PipelineType,
     Uniforms,
 };
-use crate::shape::{Shape, ShapeDrawData};
+use crate::shape::{CachedShapeDrawData, Shape, ShapeDrawData};
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
-use crate::{Color, FontFamily, IntoCowBuffer, NoopTextDataIter};
+use crate::{CachedShape, Color, FontFamily, IntoCowBuffer, NoopTextDataIter};
 use ahash::{HashMap, HashMapExt};
 use glyphon::{fontdb, FontSystem, Resolution, SwashCache};
 use log::warn;
@@ -137,6 +137,7 @@ pub fn depth(draw_command_id: usize, draw_commands_total: usize) -> f32 {
 /// This enum is used internally by the `Renderer` to manage different types of draw operations.
 enum DrawCommand {
     Shape(ShapeDrawData),
+    CachedShape(CachedShapeDrawData),
     Image(ImageDrawData),
 }
 
@@ -263,6 +264,13 @@ pub struct Renderer<'a> {
 
     temp_vertices: Vec<crate::vertex::CustomVertex>,
     temp_indices: Vec<u16>,
+    
+    /// Reusable aggregated vertex buffer
+    aggregated_vertex_buffer: Option<wgpu::Buffer>,
+    /// Reusable aggregated index buffer  
+    aggregated_index_buffer: Option<wgpu::Buffer>,
+
+    shape_cache: HashMap<u64, CachedShape>
 }
 
 impl<'a> Renderer<'a> {
@@ -482,6 +490,10 @@ impl<'a> Renderer<'a> {
 
             temp_vertices: Vec::new(),
             temp_indices: Vec::new(),
+            aggregated_vertex_buffer: None,
+            aggregated_index_buffer: None,
+
+            shape_cache: HashMap::new(),
         }
     }
 
@@ -604,6 +616,29 @@ impl<'a> Renderer<'a> {
     ) -> usize {
         self.add_draw_command(
             DrawCommand::Shape(ShapeDrawData::new(shape, clip_to_shape, offset, cache_key)),
+            clip_to_shape,
+        )
+    }
+
+    pub fn load_shape(
+        &mut self,
+        shape: impl AsRef<Shape>,
+        offset: (f32, f32),
+        cache_key: u64,
+        tessellation_cache_key: Option<u64>,
+    ) {
+        let cached_shape = CachedShape::new(shape.as_ref(), offset, 0.0, &mut self.tessellator, &mut self.buffers_pool_manager, tessellation_cache_key);
+        self.shape_cache.insert(cache_key, cached_shape);
+    }
+
+    pub fn add_cached_shape_to_the_render_queue(
+        &mut self,
+        cache_key: u64,
+        clip_to_shape: Option<usize>,
+        offset: (f32, f32),
+    ) -> usize {
+        self.add_draw_command(
+            DrawCommand::CachedShape(CachedShapeDrawData::new(cache_key, offset, clip_to_shape)),
             clip_to_shape,
         )
     }
@@ -947,10 +982,8 @@ impl<'a> Renderer<'a> {
                         self.temp_indices.push(index + vertex_offset);
                     }
 
-                    let vertex_count = vertex_buffers.vertices.len();
                     let index_count = vertex_buffers.indices.len();
 
-                    shape.vertex_buffer_range = Some((vertex_start, vertex_count));
                     shape.index_buffer_range = Some((index_start, index_count));
                 }
                 DrawCommand::Image(ref mut image) => {
@@ -961,33 +994,95 @@ impl<'a> Renderer<'a> {
                         buffers_pool_manager,
                     );
                 }
+                DrawCommand::CachedShape(cached_shape_data) => {
+                    let depth = depth(node_id, draw_tree_size);
+
+                    if let Some(cached_shape) = self.shape_cache.get_mut(&cached_shape_data.id) {
+                        if cached_shape.vertex_buffers.vertices.is_empty() || cached_shape.vertex_buffers.indices.is_empty() {
+                            cached_shape_data.is_empty = true;
+                            continue;
+                        }
+
+                        if depth != cached_shape.depth && cached_shape.offset != cached_shape_data.offset {
+                            cached_shape.set_offset_and_depth(cached_shape_data.offset, depth);
+                        } else if depth != cached_shape.depth {
+                            cached_shape.set_depth(depth);
+                        } else if cached_shape_data.offset != cached_shape.offset {
+                            cached_shape.set_offset(cached_shape_data.offset);
+                        }
+
+                        let vertex_start = self.temp_vertices.len();
+                        let index_start = self.temp_indices.len();
+                        let vertex_offset = vertex_start as u16;
+
+                        let vertex_buffers = &cached_shape.vertex_buffers;
+
+                        self.temp_vertices
+                            .extend_from_slice(&vertex_buffers.vertices);
+
+                        // Offset indices by the current vertex count
+                        for &index in &vertex_buffers.indices {
+                            self.temp_indices.push(index + vertex_offset);
+                        }
+
+                        let index_count = vertex_buffers.indices.len();
+
+                        cached_shape_data.index_buffer_range = Some((index_start, index_count));
+                    } else {
+                        println!("Warning: Cached shape not found in cache");
+                    }
+                }
             }
         }
 
-        // Create aggregated buffers only if needed
-        let aggregated_vertex_buffer = if !self.temp_vertices.is_empty() {
-            let vertex_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::cast_slice(&self.temp_vertices),
-                usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            });
+        // Create or update aggregated buffers only if needed
+        if !self.temp_vertices.is_empty() {
+            let required_vertex_size = std::mem::size_of_val(&self.temp_vertices[..]);
+            
+            // Check if we need to reallocate the vertex buffer
+            let needs_realloc = self.aggregated_vertex_buffer.as_ref()
+                .map(|buffer| buffer.size() < required_vertex_size as u64)
+                .unwrap_or(true);
+                
+            if needs_realloc {
+                self.aggregated_vertex_buffer = Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Aggregated Vertex Buffer"),
+                    contents: bytemuck::cast_slice(&self.temp_vertices),
+                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                }));
+            } else {
+                // Update existing buffer content
+                self.queue.write_buffer(
+                    self.aggregated_vertex_buffer.as_ref().unwrap(),
+                    0,
+                    bytemuck::cast_slice(&self.temp_vertices),
+                );
+            }
+        }
 
-            Some(vertex_buffer)
-        } else {
-            None
-        };
-
-        let aggregated_index_buffer = if !self.temp_indices.is_empty() {
-            let index_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::cast_slice(&self.temp_indices),
-                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-            });
-
-            Some(index_buffer)
-        } else {
-            None
-        };
+        if !self.temp_indices.is_empty() {
+            let required_index_size = std::mem::size_of_val(&self.temp_indices[..]);
+            
+            // Check if we need to reallocate the index buffer
+            let needs_realloc = self.aggregated_index_buffer.as_ref()
+                .map(|buffer| buffer.size() < required_index_size as u64)
+                .unwrap_or(true);
+                
+            if needs_realloc {
+                self.aggregated_index_buffer = Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Aggregated Index Buffer"),
+                    contents: bytemuck::cast_slice(&self.temp_indices),
+                    usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+                }));
+            } else {
+                // Update existing buffer content
+                self.queue.write_buffer(
+                    self.aggregated_index_buffer.as_ref().unwrap(),
+                    0,
+                    bytemuck::cast_slice(&self.temp_indices),
+                );
+            }
+        }
 
         let mut encoder = self
             .device
@@ -1027,8 +1122,7 @@ impl<'a> Renderer<'a> {
 
                     match draw_command {
                         DrawCommand::Shape(shape) => {
-                            if let (Some(vertex_range), Some(index_range)) =
-                                (shape.vertex_buffer_range, shape.index_buffer_range)
+                            if let Some(index_range) = shape.index_buffer_range
                             {
                                 if shape.is_empty {
                                     return;
@@ -1045,9 +1139,8 @@ impl<'a> Renderer<'a> {
                                         *stencil_references.get(&clip_to_shape).unwrap_or(&0);
 
                                     render_buffer_range_to_texture(
-                                        aggregated_vertex_buffer.as_ref().unwrap(),
-                                        aggregated_index_buffer.as_ref().unwrap(),
-                                        vertex_range,
+                                        self.aggregated_vertex_buffer.as_ref().unwrap(),
+                                        self.aggregated_index_buffer.as_ref().unwrap(),
                                         index_range,
                                         render_pass,
                                         parent_stencil,
@@ -1060,9 +1153,59 @@ impl<'a> Renderer<'a> {
                                     //  they should be rendered in a separate step
 
                                     render_buffer_range_to_texture(
-                                        aggregated_vertex_buffer.as_ref().unwrap(),
-                                        aggregated_index_buffer.as_ref().unwrap(),
-                                        vertex_range,
+                                        self.aggregated_vertex_buffer.as_ref().unwrap(),
+                                        self.aggregated_index_buffer.as_ref().unwrap(),
+                                        index_range,
+                                        render_pass,
+                                        0,
+                                    );
+
+                                    stencil_references.insert(shape_id, 1);
+                                }
+                            } else {
+                                warn!(
+                                    "Missing vertex or index buffer or ranges for shape {}",
+                                    shape_id
+                                );
+                            }
+                        },
+                        DrawCommand::CachedShape(shape) => {
+                            // TODO: this code is exactly the same as the above, think about how to
+                            //  merge those branches into one
+                            if let Some(index_range) =
+                                shape.index_buffer_range
+                            {
+                                if shape.is_empty {
+                                    return;
+                                }
+
+                                if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
+                                    render_pass.set_pipeline(&self.and_pipeline);
+                                    render_pass.set_bind_group(0, &self.and_bind_group, &[]);
+                                    *currently_set_pipeline = Pipeline::StencilIncrement;
+                                }
+
+                                if let Some(clip_to_shape) = shape.clip_to_shape {
+                                    let parent_stencil =
+                                        *stencil_references.get(&clip_to_shape).unwrap_or(&0);
+
+                                    render_buffer_range_to_texture(
+                                        self.aggregated_vertex_buffer.as_ref().unwrap(),
+                                        self.aggregated_index_buffer.as_ref().unwrap(),
+                                        index_range,
+                                        render_pass,
+                                        parent_stencil,
+                                    );
+
+                                    stencil_references.insert(shape_id, parent_stencil + 1);
+                                } else {
+                                    // TODO: every no clip should have its own tree, and before
+                                    //  rendering them we need to reset stencil texture, and
+                                    //  they should be rendered in a separate step
+
+                                    render_buffer_range_to_texture(
+                                        self.aggregated_vertex_buffer.as_ref().unwrap(),
+                                        self.aggregated_index_buffer.as_ref().unwrap(),
                                         index_range,
                                         render_pass,
                                         0,
@@ -1106,8 +1249,7 @@ impl<'a> Renderer<'a> {
 
                     match draw_command {
                         DrawCommand::Shape(shape) => {
-                            if let (Some(vertex_range), Some(index_range)) =
-                                (shape.vertex_buffer_range, shape.index_buffer_range)
+                            if let Some(index_range) = shape.index_buffer_range
                             {
                                 if shape.is_empty {
                                     return;
@@ -1126,9 +1268,46 @@ impl<'a> Renderer<'a> {
                                 let this_shape_stencil = { *data.1.get(&shape_id).unwrap_or(&0) };
 
                                 render_buffer_range_to_texture(
-                                    aggregated_vertex_buffer.as_ref().unwrap(),
-                                    aggregated_index_buffer.as_ref().unwrap(),
-                                    vertex_range,
+                                    self.aggregated_vertex_buffer.as_ref().unwrap(),
+                                    self.aggregated_index_buffer.as_ref().unwrap(),
+                                    index_range,
+                                    render_pass,
+                                    this_shape_stencil,
+                                );
+                            } else {
+                                warn!(
+                                    "No vertex or index buffer or ranges found for shape {}",
+                                    shape_id
+                                );
+                                // TODO: no vertex or index buffer found - it is an error,
+                                //  so probably should panic
+                            }
+                        },
+                        DrawCommand::CachedShape(shape) => {
+                            // TODO: this is a copy-paste from the above, think about how to combine
+                            //  them into one branch
+                            if let Some(index_range) =
+                                shape.index_buffer_range
+                            {
+                                if shape.is_empty {
+                                    return;
+                                }
+
+                                if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
+                                    render_pass.set_pipeline(&self.decrementing_pipeline);
+                                    render_pass.set_bind_group(
+                                        0,
+                                        &self.decrementing_bind_group,
+                                        &[],
+                                    );
+                                    *currently_set_pipeline = Pipeline::StencilDecrement;
+                                }
+
+                                let this_shape_stencil = { *data.1.get(&shape_id).unwrap_or(&0) };
+
+                                render_buffer_range_to_texture(
+                                    self.aggregated_vertex_buffer.as_ref().unwrap(),
+                                    self.aggregated_index_buffer.as_ref().unwrap(),
                                     index_range,
                                     render_pass,
                                     this_shape_stencil,
@@ -1176,7 +1355,10 @@ impl<'a> Renderer<'a> {
             .for_each(|draw_command| match draw_command.1 {
                 DrawCommand::Shape(ref mut shape) => {
                     // Clear the aggregated buffer references
-                    shape.vertex_buffer_range = None;
+                    shape.index_buffer_range = None;
+                }
+                DrawCommand::CachedShape(ref mut shape) => {
+                    // Clear the aggregated buffer references
                     shape.index_buffer_range = None;
                 }
                 DrawCommand::Image(ref mut image) => {
