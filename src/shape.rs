@@ -49,7 +49,8 @@ use lyon::tessellation::FillVertexConstructor;
 pub(crate) struct CachedShape {
     pub offset: (f32, f32),
     pub depth: f32,
-    pub vertex_buffers: VertexBuffers<CustomVertex, u16>
+    pub bounding_box: (f32, f32, f32, f32),
+    pub vertex_buffers: VertexBuffers<CustomVertex, u16>,
 }
 
 impl CachedShape {
@@ -57,15 +58,35 @@ impl CachedShape {
     /// Note that tessellator_cache_key is different from the shape cache key; a Shape cache key is
     /// the shape identifier, while tesselator_cache_key is used to cache the tessellation of the
     /// shape and should be based on the shape properties, and not the shape identifier
-    pub fn new(shape: &Shape, offset: (f32, f32), depth: f32, tessellator: &mut FillTessellator, pool: &mut PoolManager, tessellator_cache_key: Option<u64>) -> Self {
+    pub fn new(
+        shape: &Shape,
+        offset: (f32, f32),
+        depth: f32,
+        mut bounding_box: (f32, f32, f32, f32),
+        tessellator: &mut FillTessellator,
+        pool: &mut PoolManager,
+        tessellator_cache_key: Option<u64>,
+    ) -> Self {
         let vertices = shape.tessellate(offset, depth, tessellator, pool, tessellator_cache_key);
-        Self { offset, depth, vertex_buffers: vertices }
+        bounding_box.0 += offset.0;
+        bounding_box.1 += offset.1;
+        Self {
+            offset,
+            depth,
+            bounding_box,
+            vertex_buffers: vertices,
+        }
     }
 
     pub fn set_offset_and_depth(&mut self, offset: (f32, f32), depth: f32) {
         let delta = (offset.0 - self.offset.0, offset.1 - self.offset.1);
         self.offset = offset;
         self.depth = depth;
+
+        // Update bounding box by the same delta
+        self.bounding_box.0 += delta.0; // x
+        self.bounding_box.1 += delta.1; // y
+
         for vertex in self.vertex_buffers.vertices.iter_mut() {
             vertex.position[0] += delta.0;
             vertex.position[1] += delta.1;
@@ -76,6 +97,11 @@ impl CachedShape {
     pub fn set_offset(&mut self, offset: (f32, f32)) {
         let delta = (offset.0 - self.offset.0, offset.1 - self.offset.1);
         self.offset = offset;
+
+        // Update bounding box by the same delta
+        self.bounding_box.0 += delta.0; // x
+        self.bounding_box.1 += delta.1; // y
+
         for vertex in self.vertex_buffers.vertices.iter_mut() {
             vertex.position[0] += delta.0;
             vertex.position[1] += delta.1;
@@ -213,11 +239,22 @@ impl Shape {
         Shape::Path(path_shape)
     }
 
-    pub(crate) fn tessellate(&self, offset: (f32, f32), depth: f32, tessellator: &mut FillTessellator, buffers_pool: &mut PoolManager, tesselation_cache_key: Option<u64>) -> VertexBuffers<CustomVertex, u16> {
+    pub(crate) fn tessellate(
+        &self,
+        offset: (f32, f32),
+        depth: f32,
+        tessellator: &mut FillTessellator,
+        buffers_pool: &mut PoolManager,
+        tesselation_cache_key: Option<u64>,
+    ) -> VertexBuffers<CustomVertex, u16> {
         match &self {
-            Shape::Path(path_shape) => {
-                path_shape.tessellate(depth, tessellator, buffers_pool, offset, tesselation_cache_key)
-            }
+            Shape::Path(path_shape) => path_shape.tessellate(
+                depth,
+                tessellator,
+                buffers_pool,
+                offset,
+                tesselation_cache_key,
+            ),
             Shape::Rect(rect_shape) => {
                 let min_width = rect_shape.rect[0].0;
                 let min_height = rect_shape.rect[0].1;
@@ -557,7 +594,13 @@ impl ShapeDrawData {
         tessellator: &mut FillTessellator,
         buffers_pool: &mut PoolManager,
     ) -> VertexBuffers<CustomVertex, u16> {
-        self.shape.tessellate(self.offset, depth, tessellator, buffers_pool, self.cache_key)
+        self.shape.tessellate(
+            self.offset,
+            depth,
+            tessellator,
+            buffers_pool,
+            self.cache_key,
+        )
     }
 }
 
@@ -618,8 +661,7 @@ impl Default for ShapeBuilder {
     /// # Examples
     ///
     /// ```rust
-    /// use grafo::ShapeBuilder;
-    ///
+    /// use grafo::ShapeBuilder;    ///
     /// let builder = ShapeBuilder::default();
     /// ```
     fn default() -> Self {

@@ -417,17 +417,27 @@ pub fn create_and_depth_texture(device: &Device, size: (u32, u32)) -> Texture {
 
 // Renders buffer range to texture and increments stencil value where the buffer is drawn.
 pub fn render_buffer_range_to_texture(
-    vertex_buffer: &wgpu::Buffer,
-    index_buffer: &wgpu::Buffer,
-    index_range: (usize, usize),   // (start_index, index_count)
-    incrementing_pass: &mut RenderPass<'_>,
+    // vertex_buffer: &wgpu::Buffer,
+    // index_buffer: &wgpu::Buffer,
+    index_range: (usize, usize), // (start_index, index_count)
+    render_pass: &mut RenderPass<'_>,
     parent_stencil_reference: u32,
+    scissor_rect: Option<(u32, u32, u32, u32)>,
+    viewport_size: (u32, u32),
 ) {
-    incrementing_pass.set_stencil_reference(parent_stencil_reference);
+    render_pass.set_stencil_reference(parent_stencil_reference);
+
+    // Set scissor rectangle - either to the specified rect or to the full viewport
+    if let Some((x, y, width, height)) = scissor_rect {
+        render_pass.set_scissor_rect(x, y, width, height);
+    } else {
+        // Disable scissor testing by setting it to the full viewport
+        render_pass.set_scissor_rect(0, 0, viewport_size.0, viewport_size.1);
+    }
 
     // Use the full buffers but specify the vertex base offset in draw_indexed
-    incrementing_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-    incrementing_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+    // render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+    // render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
     // The indices in the aggregated buffer are already offset, so we need to:
     // 1. Use the correct index range
@@ -435,7 +445,7 @@ pub fn render_buffer_range_to_texture(
     let index_start = index_range.0 as u32;
     let index_end = (index_range.0 + index_range.1) as u32;
 
-    incrementing_pass.draw_indexed(index_start..index_end, 0, 0..1);
+    render_pass.draw_indexed(index_start..index_end, 0, 0..1);
 }
 
 // pub fn render_buffer_range_to_texture_no_buffer_set(

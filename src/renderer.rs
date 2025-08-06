@@ -264,13 +264,13 @@ pub struct Renderer<'a> {
 
     temp_vertices: Vec<crate::vertex::CustomVertex>,
     temp_indices: Vec<u16>,
-    
+
     /// Reusable aggregated vertex buffer
     aggregated_vertex_buffer: Option<wgpu::Buffer>,
     /// Reusable aggregated index buffer  
     aggregated_index_buffer: Option<wgpu::Buffer>,
 
-    shape_cache: HashMap<u64, CachedShape>
+    shape_cache: HashMap<u64, CachedShape>,
 }
 
 impl<'a> Renderer<'a> {
@@ -623,11 +623,20 @@ impl<'a> Renderer<'a> {
     pub fn load_shape(
         &mut self,
         shape: impl AsRef<Shape>,
+        bounding_box: (f32, f32, f32, f32),
         offset: (f32, f32),
         cache_key: u64,
         tessellation_cache_key: Option<u64>,
     ) {
-        let cached_shape = CachedShape::new(shape.as_ref(), offset, 0.0, &mut self.tessellator, &mut self.buffers_pool_manager, tessellation_cache_key);
+        let cached_shape = CachedShape::new(
+            shape.as_ref(),
+            offset,
+            0.0,
+            bounding_box,
+            &mut self.tessellator,
+            &mut self.buffers_pool_manager,
+            tessellation_cache_key,
+        );
         self.shape_cache.insert(cache_key, cached_shape);
     }
 
@@ -998,12 +1007,16 @@ impl<'a> Renderer<'a> {
                     let depth = depth(node_id, draw_tree_size);
 
                     if let Some(cached_shape) = self.shape_cache.get_mut(&cached_shape_data.id) {
-                        if cached_shape.vertex_buffers.vertices.is_empty() || cached_shape.vertex_buffers.indices.is_empty() {
+                        if cached_shape.vertex_buffers.vertices.is_empty()
+                            || cached_shape.vertex_buffers.indices.is_empty()
+                        {
                             cached_shape_data.is_empty = true;
                             continue;
                         }
 
-                        if depth != cached_shape.depth && cached_shape.offset != cached_shape_data.offset {
+                        if depth != cached_shape.depth
+                            && cached_shape.offset != cached_shape_data.offset
+                        {
                             cached_shape.set_offset_and_depth(cached_shape_data.offset, depth);
                         } else if depth != cached_shape.depth {
                             cached_shape.set_depth(depth);
@@ -1038,18 +1051,21 @@ impl<'a> Renderer<'a> {
         // Create or update aggregated buffers only if needed
         if !self.temp_vertices.is_empty() {
             let required_vertex_size = std::mem::size_of_val(&self.temp_vertices[..]);
-            
+
             // Check if we need to reallocate the vertex buffer
-            let needs_realloc = self.aggregated_vertex_buffer.as_ref()
+            let needs_realloc = self
+                .aggregated_vertex_buffer
+                .as_ref()
                 .map(|buffer| buffer.size() < required_vertex_size as u64)
                 .unwrap_or(true);
-                
+
             if needs_realloc {
-                self.aggregated_vertex_buffer = Some(self.device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Aggregated Vertex Buffer"),
-                    contents: bytemuck::cast_slice(&self.temp_vertices),
-                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-                }));
+                self.aggregated_vertex_buffer =
+                    Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                        label: Some("Aggregated Vertex Buffer"),
+                        contents: bytemuck::cast_slice(&self.temp_vertices),
+                        usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                    }));
             } else {
                 // Update existing buffer content
                 self.queue.write_buffer(
@@ -1062,18 +1078,21 @@ impl<'a> Renderer<'a> {
 
         if !self.temp_indices.is_empty() {
             let required_index_size = std::mem::size_of_val(&self.temp_indices[..]);
-            
+
             // Check if we need to reallocate the index buffer
-            let needs_realloc = self.aggregated_index_buffer.as_ref()
+            let needs_realloc = self
+                .aggregated_index_buffer
+                .as_ref()
                 .map(|buffer| buffer.size() < required_index_size as u64)
                 .unwrap_or(true);
-                
+
             if needs_realloc {
-                self.aggregated_index_buffer = Some(self.device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Aggregated Index Buffer"),
-                    contents: bytemuck::cast_slice(&self.temp_indices),
-                    usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-                }));
+                self.aggregated_index_buffer =
+                    Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                        label: Some("Aggregated Index Buffer"),
+                        contents: bytemuck::cast_slice(&self.temp_indices),
+                        usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+                    }));
             } else {
                 // Update existing buffer content
                 self.queue.write_buffer(
@@ -1131,6 +1150,12 @@ impl<'a> Renderer<'a> {
                                 if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
                                     render_pass.set_pipeline(&self.and_pipeline);
                                     render_pass.set_bind_group(0, &self.and_bind_group, &[]);
+
+                                    if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
+                                        render_pass.set_vertex_buffer(0, self.aggregated_vertex_buffer.as_ref().unwrap().slice(..));
+                                        render_pass.set_index_buffer(self.aggregated_index_buffer.as_ref().unwrap().slice(..), wgpu::IndexFormat::Uint16);
+                                    }
+
                                     *currently_set_pipeline = Pipeline::StencilIncrement;
                                 }
 
@@ -1139,11 +1164,13 @@ impl<'a> Renderer<'a> {
                                         *stencil_references.get(&clip_to_shape).unwrap_or(&0);
 
                                     render_buffer_range_to_texture(
-                                        self.aggregated_vertex_buffer.as_ref().unwrap(),
-                                        self.aggregated_index_buffer.as_ref().unwrap(),
+                                        // self.aggregated_vertex_buffer.as_ref().unwrap(),
+                                        // self.aggregated_index_buffer.as_ref().unwrap(),
                                         index_range,
                                         render_pass,
                                         parent_stencil,
+                                        None,
+                                        self.physical_size,
                                     );
 
                                     stencil_references.insert(shape_id, parent_stencil + 1);
@@ -1153,11 +1180,13 @@ impl<'a> Renderer<'a> {
                                     //  they should be rendered in a separate step
 
                                     render_buffer_range_to_texture(
-                                        self.aggregated_vertex_buffer.as_ref().unwrap(),
-                                        self.aggregated_index_buffer.as_ref().unwrap(),
+                                        // self.aggregated_vertex_buffer.as_ref().unwrap(),
+                                        // self.aggregated_index_buffer.as_ref().unwrap(),
                                         index_range,
                                         render_pass,
                                         0,
+                                        None,
+                                        self.physical_size,
                                     );
 
                                     stencil_references.insert(shape_id, 1);
@@ -1182,36 +1211,79 @@ impl<'a> Renderer<'a> {
                                 if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
                                     render_pass.set_pipeline(&self.and_pipeline);
                                     render_pass.set_bind_group(0, &self.and_bind_group, &[]);
+
+                                    // Decrement pipeline uses the same buffers
+                                    if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
+                                        render_pass.set_vertex_buffer(0, self.aggregated_vertex_buffer.as_ref().unwrap().slice(..));
+                                        render_pass.set_index_buffer(self.aggregated_index_buffer.as_ref().unwrap().slice(..), wgpu::IndexFormat::Uint16);
+                                    }
+
                                     *currently_set_pipeline = Pipeline::StencilIncrement;
                                 }
 
-                                if let Some(clip_to_shape) = shape.clip_to_shape {
-                                    let parent_stencil =
-                                        *stencil_references.get(&clip_to_shape).unwrap_or(&0);
+                                // Get the cached shape to access its bounding box
+                                if let Some(cached_shape) = self.shape_cache.get(&shape.id) {
+                                    if let Some(clip_to_shape) = shape.clip_to_shape {
+                                        let parent_stencil =
+                                            *stencil_references.get(&clip_to_shape).unwrap_or(&0);
 
-                                    render_buffer_range_to_texture(
-                                        self.aggregated_vertex_buffer.as_ref().unwrap(),
-                                        self.aggregated_index_buffer.as_ref().unwrap(),
-                                        index_range,
-                                        render_pass,
-                                        parent_stencil,
-                                    );
+                                        // Convert bounding box to scissor rectangle
+                                        let bbox = cached_shape.bounding_box;
+                                        let scissor_rect = Some((
+                                            bbox.0.max(0.0) as u32,  // x
+                                            bbox.1.max(0.0) as u32,  // y  
+                                            bbox.2.max(0.0) as u32,  // width
+                                            bbox.3.max(0.0) as u32,  // height
+                                        ));
 
-                                    stencil_references.insert(shape_id, parent_stencil + 1);
+                                        render_buffer_range_to_texture(
+                                            // self.aggregated_vertex_buffer.as_ref().unwrap(),
+                                            // self.aggregated_index_buffer.as_ref().unwrap(),
+                                            index_range,
+                                            render_pass,
+                                            parent_stencil,
+                                            scissor_rect,
+                                            self.physical_size,
+                                        );
+
+                                        stencil_references.insert(shape_id, parent_stencil + 1);
+                                    } else {
+                                        // TODO: every no clip should have its own tree, and before
+                                        //  rendering them we need to reset stencil texture, and
+                                        //  they should be rendered in a separate step
+
+                                        // Convert bounding box to scissor rectangle
+                                        let bbox = cached_shape.bounding_box;
+                                        let scissor_rect = Some((
+                                            bbox.0.max(0.0) as u32,  // x
+                                            bbox.1.max(0.0) as u32,  // y  
+                                            bbox.2.max(0.0) as u32,  // width
+                                            bbox.3.max(0.0) as u32,  // height
+                                        ));
+
+                                        // Debug: Log scissor rectangle size vs viewport
+                                        if let Some((_x, _y, w, h)) = scissor_rect {
+                                            let viewport_area = self.physical_size.0 * self.physical_size.1;
+                                            let scissor_area = w * h;
+                                            let coverage = (scissor_area as f32) / (viewport_area as f32) * 100.0;
+                                            println!("Scissor rect: {}x{} covers {:.1}% of {}x{} viewport", 
+                                                w, h, coverage, self.physical_size.0, self.physical_size.1);
+                                        }
+
+                                        render_buffer_range_to_texture(
+                                            // self.aggregated_vertex_buffer.as_ref().unwrap(),
+                                            // self.aggregated_index_buffer.as_ref().unwrap(),
+                                            index_range,
+                                            render_pass,
+                                            0,
+                                            scissor_rect,
+                                            self.physical_size,
+                                        );
+
+                                        stencil_references.insert(shape_id, 1);
+                                    }
                                 } else {
-                                    // TODO: every no clip should have its own tree, and before
-                                    //  rendering them we need to reset stencil texture, and
-                                    //  they should be rendered in a separate step
-
-                                    render_buffer_range_to_texture(
-                                        self.aggregated_vertex_buffer.as_ref().unwrap(),
-                                        self.aggregated_index_buffer.as_ref().unwrap(),
-                                        index_range,
-                                        render_pass,
-                                        0,
-                                    );
-
-                                    stencil_references.insert(shape_id, 1);
+                                    warn!("Cached shape not found for shape_id: {}", shape_id);
                                 }
                             } else {
                                 warn!(
@@ -1262,17 +1334,25 @@ impl<'a> Renderer<'a> {
                                         &self.decrementing_bind_group,
                                         &[],
                                     );
+
+                                    if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
+                                        render_pass.set_vertex_buffer(0, self.aggregated_vertex_buffer.as_ref().unwrap().slice(..));
+                                        render_pass.set_index_buffer(self.aggregated_index_buffer.as_ref().unwrap().slice(..), wgpu::IndexFormat::Uint16);
+                                    }
+
                                     *currently_set_pipeline = Pipeline::StencilDecrement;
                                 }
 
                                 let this_shape_stencil = { *data.1.get(&shape_id).unwrap_or(&0) };
 
                                 render_buffer_range_to_texture(
-                                    self.aggregated_vertex_buffer.as_ref().unwrap(),
-                                    self.aggregated_index_buffer.as_ref().unwrap(),
+                                    // self.aggregated_vertex_buffer.as_ref().unwrap(),
+                                    // self.aggregated_index_buffer.as_ref().unwrap(),
                                     index_range,
                                     render_pass,
                                     this_shape_stencil,
+                                    None,
+                                    self.physical_size,
                                 );
                             } else {
                                 warn!(
@@ -1300,17 +1380,25 @@ impl<'a> Renderer<'a> {
                                         &self.decrementing_bind_group,
                                         &[],
                                     );
+
+                                    if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
+                                        render_pass.set_vertex_buffer(0, self.aggregated_vertex_buffer.as_ref().unwrap().slice(..));
+                                        render_pass.set_index_buffer(self.aggregated_index_buffer.as_ref().unwrap().slice(..), wgpu::IndexFormat::Uint16);
+                                    }
+
                                     *currently_set_pipeline = Pipeline::StencilDecrement;
                                 }
 
                                 let this_shape_stencil = { *data.1.get(&shape_id).unwrap_or(&0) };
 
                                 render_buffer_range_to_texture(
-                                    self.aggregated_vertex_buffer.as_ref().unwrap(),
-                                    self.aggregated_index_buffer.as_ref().unwrap(),
+                                    // self.aggregated_vertex_buffer.as_ref().unwrap(),
+                                    // self.aggregated_index_buffer.as_ref().unwrap(),
                                     index_range,
                                     render_pass,
                                     this_shape_stencil,
+                                    None,
+                                    self.physical_size,
                                 );
                             } else {
                                 warn!(
