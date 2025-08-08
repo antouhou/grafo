@@ -1133,7 +1133,7 @@ impl<'a> Renderer<'a> {
                 current_pipeline,
             );
 
-            self.draw_tree.traverse(
+            self.draw_tree.traverse_mut(
                 |shape_id, draw_command, data| {
                     // NOTE: this is destructured here and not above because we need to pass the
                     //  data to the closure below
@@ -1151,6 +1151,7 @@ impl<'a> Renderer<'a> {
                                     render_pass.set_pipeline(&self.and_pipeline);
                                     render_pass.set_bind_group(0, &self.and_bind_group, &[]);
 
+                                    // Those pipelines use the same vertex buffers
                                     if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
                                         render_pass.set_vertex_buffer(0, self.aggregated_vertex_buffer.as_ref().unwrap().slice(..));
                                         render_pass.set_index_buffer(self.aggregated_index_buffer.as_ref().unwrap().slice(..), wgpu::IndexFormat::Uint16);
@@ -1164,13 +1165,9 @@ impl<'a> Renderer<'a> {
                                         *stencil_references.get(&clip_to_shape).unwrap_or(&0);
 
                                     render_buffer_range_to_texture(
-                                        // self.aggregated_vertex_buffer.as_ref().unwrap(),
-                                        // self.aggregated_index_buffer.as_ref().unwrap(),
                                         index_range,
                                         render_pass,
                                         parent_stencil,
-                                        None,
-                                        self.physical_size,
                                     );
 
                                     stencil_references.insert(shape_id, parent_stencil + 1);
@@ -1180,13 +1177,9 @@ impl<'a> Renderer<'a> {
                                     //  they should be rendered in a separate step
 
                                     render_buffer_range_to_texture(
-                                        // self.aggregated_vertex_buffer.as_ref().unwrap(),
-                                        // self.aggregated_index_buffer.as_ref().unwrap(),
                                         index_range,
                                         render_pass,
                                         0,
-                                        None,
-                                        self.physical_size,
                                     );
 
                                     stencil_references.insert(shape_id, 1);
@@ -1227,23 +1220,10 @@ impl<'a> Renderer<'a> {
                                         let parent_stencil =
                                             *stencil_references.get(&clip_to_shape).unwrap_or(&0);
 
-                                        // Convert bounding box to scissor rectangle
-                                        let bbox = cached_shape.bounding_box;
-                                        let scissor_rect = Some((
-                                            bbox.0.max(0.0) as u32,  // x
-                                            bbox.1.max(0.0) as u32,  // y  
-                                            bbox.2.max(0.0) as u32,  // width
-                                            bbox.3.max(0.0) as u32,  // height
-                                        ));
-
                                         render_buffer_range_to_texture(
-                                            // self.aggregated_vertex_buffer.as_ref().unwrap(),
-                                            // self.aggregated_index_buffer.as_ref().unwrap(),
                                             index_range,
                                             render_pass,
                                             parent_stencil,
-                                            scissor_rect,
-                                            self.physical_size,
                                         );
 
                                         stencil_references.insert(shape_id, parent_stencil + 1);
@@ -1252,32 +1232,10 @@ impl<'a> Renderer<'a> {
                                         //  rendering them we need to reset stencil texture, and
                                         //  they should be rendered in a separate step
 
-                                        // Convert bounding box to scissor rectangle
-                                        let bbox = cached_shape.bounding_box;
-                                        let scissor_rect = Some((
-                                            bbox.0.max(0.0) as u32,  // x
-                                            bbox.1.max(0.0) as u32,  // y  
-                                            bbox.2.max(0.0) as u32,  // width
-                                            bbox.3.max(0.0) as u32,  // height
-                                        ));
-
-                                        // Debug: Log scissor rectangle size vs viewport
-                                        if let Some((_x, _y, w, h)) = scissor_rect {
-                                            let viewport_area = self.physical_size.0 * self.physical_size.1;
-                                            let scissor_area = w * h;
-                                            let coverage = (scissor_area as f32) / (viewport_area as f32) * 100.0;
-                                            println!("Scissor rect: {}x{} covers {:.1}% of {}x{} viewport", 
-                                                w, h, coverage, self.physical_size.0, self.physical_size.1);
-                                        }
-
                                         render_buffer_range_to_texture(
-                                            // self.aggregated_vertex_buffer.as_ref().unwrap(),
-                                            // self.aggregated_index_buffer.as_ref().unwrap(),
                                             index_range,
                                             render_pass,
                                             0,
-                                            scissor_rect,
-                                            self.physical_size,
                                         );
 
                                         stencil_references.insert(shape_id, 1);
@@ -1346,13 +1304,9 @@ impl<'a> Renderer<'a> {
                                 let this_shape_stencil = { *data.1.get(&shape_id).unwrap_or(&0) };
 
                                 render_buffer_range_to_texture(
-                                    // self.aggregated_vertex_buffer.as_ref().unwrap(),
-                                    // self.aggregated_index_buffer.as_ref().unwrap(),
                                     index_range,
                                     render_pass,
                                     this_shape_stencil,
-                                    None,
-                                    self.physical_size,
                                 );
                             } else {
                                 warn!(
@@ -1392,13 +1346,9 @@ impl<'a> Renderer<'a> {
                                 let this_shape_stencil = { *data.1.get(&shape_id).unwrap_or(&0) };
 
                                 render_buffer_range_to_texture(
-                                    // self.aggregated_vertex_buffer.as_ref().unwrap(),
-                                    // self.aggregated_index_buffer.as_ref().unwrap(),
                                     index_range,
                                     render_pass,
                                     this_shape_stencil,
-                                    None,
-                                    self.physical_size,
                                 );
                             } else {
                                 warn!(
