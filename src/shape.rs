@@ -565,6 +565,8 @@ pub(crate) struct ShapeDrawData {
     pub(crate) index_buffer_range: Option<(usize, usize)>,
     /// Indicates whether the shape is empty (no vertices or indices).
     pub(crate) is_empty: bool,
+    /// Stencil reference assigned during render traversal (parent + 1). Cleared after frame.
+    pub(crate) stencil_ref: Option<u32>,
 }
 
 impl ShapeDrawData {
@@ -583,6 +585,7 @@ impl ShapeDrawData {
             cache_key,
             index_buffer_range: None,
             is_empty: false,
+            stencil_ref: None,
         }
     }
 
@@ -610,6 +613,8 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) clip_to_shape: Option<usize>,
     pub(crate) index_buffer_range: Option<(usize, usize)>,
     pub(crate) is_empty: bool,
+    /// Stencil reference assigned during render traversal (parent + 1). Cleared after frame.
+    pub(crate) stencil_ref: Option<u32>,
 }
 
 impl CachedShapeDrawData {
@@ -620,6 +625,7 @@ impl CachedShapeDrawData {
             clip_to_shape,
             index_buffer_range: None,
             is_empty: false,
+            stencil_ref: None,
         }
     }
 }

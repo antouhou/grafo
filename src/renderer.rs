@@ -1124,20 +1124,18 @@ impl<'a> Renderer<'a> {
             let render_pass =
                 create_render_pass(&mut encoder, &output_texture_view, &depth_texture_view);
 
-            let shape_ids_to_stencil_references = HashMap::<usize, u32>::new();
+            // Use a simple stack of stencil references along the traversal path.
+            // Top of the stack is the current parent stencil reference.
+            let stencil_stack: Vec<u32> = Vec::new();
             let current_pipeline = Pipeline::None;
 
-            let mut data = (
-                render_pass,
-                shape_ids_to_stencil_references,
-                current_pipeline,
-            );
+            let mut data = (render_pass, stencil_stack, current_pipeline);
 
             self.draw_tree.traverse_mut(
                 |shape_id, draw_command, data| {
                     // NOTE: this is destructured here and not above because we need to pass the
                     //  data to the closure below
-                    let (render_pass, stencil_references, currently_set_pipeline) = data;
+                    let (render_pass, stencil_stack, currently_set_pipeline) = data;
 
                     match draw_command {
                         DrawCommand::Shape(shape) => {
@@ -1160,30 +1158,20 @@ impl<'a> Renderer<'a> {
                                     *currently_set_pipeline = Pipeline::StencilIncrement;
                                 }
 
-                                if let Some(clip_to_shape) = shape.clip_to_shape {
-                                    let parent_stencil =
-                                        *stencil_references.get(&clip_to_shape).unwrap_or(&0);
+                                // Determine parent stencil from the stack (0 if root)
+                                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
 
-                                    render_buffer_range_to_texture(
-                                        index_range,
-                                        render_pass,
-                                        parent_stencil,
-                                    );
+                                // Render increment pass with parent stencil
+                                render_buffer_range_to_texture(
+                                    index_range,
+                                    render_pass,
+                                    parent_stencil,
+                                );
 
-                                    stencil_references.insert(shape_id, parent_stencil + 1);
-                                } else {
-                                    // TODO: every no clip should have its own tree, and before
-                                    //  rendering them we need to reset stencil texture, and
-                                    //  they should be rendered in a separate step
-
-                                    render_buffer_range_to_texture(
-                                        index_range,
-                                        render_pass,
-                                        0,
-                                    );
-
-                                    stencil_references.insert(shape_id, 1);
-                                }
+                                // Assign and push this node's stencil reference (parent + 1)
+                                let this_stencil = parent_stencil + 1;
+                                shape.stencil_ref = Some(this_stencil);
+                                stencil_stack.push(this_stencil);
                             } else {
                                 warn!(
                                     "Missing vertex or index buffer or ranges for shape {}",
@@ -1214,35 +1202,20 @@ impl<'a> Renderer<'a> {
                                     *currently_set_pipeline = Pipeline::StencilIncrement;
                                 }
 
-                                // Get the cached shape to access its bounding box
-                                if let Some(cached_shape) = self.shape_cache.get(&shape.id) {
-                                    if let Some(clip_to_shape) = shape.clip_to_shape {
-                                        let parent_stencil =
-                                            *stencil_references.get(&clip_to_shape).unwrap_or(&0);
+                                // Determine parent stencil from the stack (0 if root)
+                                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
 
-                                        render_buffer_range_to_texture(
-                                            index_range,
-                                            render_pass,
-                                            parent_stencil,
-                                        );
+                                // Render increment pass with parent stencil
+                                render_buffer_range_to_texture(
+                                    index_range,
+                                    render_pass,
+                                    parent_stencil,
+                                );
 
-                                        stencil_references.insert(shape_id, parent_stencil + 1);
-                                    } else {
-                                        // TODO: every no clip should have its own tree, and before
-                                        //  rendering them we need to reset stencil texture, and
-                                        //  they should be rendered in a separate step
-
-                                        render_buffer_range_to_texture(
-                                            index_range,
-                                            render_pass,
-                                            0,
-                                        );
-
-                                        stencil_references.insert(shape_id, 1);
-                                    }
-                                } else {
-                                    warn!("Cached shape not found for shape_id: {}", shape_id);
-                                }
+                                // Assign and push this node's stencil reference (parent + 1)
+                                let this_stencil = parent_stencil + 1;
+                                shape.stencil_ref = Some(this_stencil);
+                                stencil_stack.push(this_stencil);
                             } else {
                                 warn!(
                                     "Missing vertex or index buffer or ranges for shape {}",
@@ -1251,9 +1224,8 @@ impl<'a> Renderer<'a> {
                             }
                         }
                         DrawCommand::Image(image) => {
-                            if let Some(clip_to_shape) = image.clip_to_shape {
-                                let parent_stencil =
-                                    *stencil_references.get(&clip_to_shape).unwrap_or(&0);
+                            if image.clip_to_shape.is_some() {
+                                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
                                 // If the image is clipped to a shape, we set up the pipeline
                                 // to crop the image to the shape using the stencil texture
                                 render_pass.set_pipeline(&self.texture_crop_render_pipeline);
@@ -1275,7 +1247,7 @@ impl<'a> Renderer<'a> {
                     }
                 },
                 |shape_id, draw_command, data| {
-                    let (render_pass, _stencil_references, currently_set_pipeline) = data;
+                    let (render_pass, stencil_stack, currently_set_pipeline) = data;
 
                     match draw_command {
                         DrawCommand::Shape(shape) => {
@@ -1301,13 +1273,18 @@ impl<'a> Renderer<'a> {
                                     *currently_set_pipeline = Pipeline::StencilDecrement;
                                 }
 
-                                let this_shape_stencil = { *data.1.get(&shape_id).unwrap_or(&0) };
+                                // Use this node's stored stencil reference and then pop the stack
+                                let this_shape_stencil = shape.stencil_ref.unwrap_or(0);
 
                                 render_buffer_range_to_texture(
                                     index_range,
                                     render_pass,
                                     this_shape_stencil,
                                 );
+
+                                if shape.stencil_ref.is_some() {
+                                    stencil_stack.pop();
+                                }
                             } else {
                                 warn!(
                                     "No vertex or index buffer or ranges found for shape {}",
@@ -1343,13 +1320,18 @@ impl<'a> Renderer<'a> {
                                     *currently_set_pipeline = Pipeline::StencilDecrement;
                                 }
 
-                                let this_shape_stencil = { *data.1.get(&shape_id).unwrap_or(&0) };
+                                // Use this node's stored stencil reference and then pop the stack
+                                let this_shape_stencil = shape.stencil_ref.unwrap_or(0);
 
                                 render_buffer_range_to_texture(
                                     index_range,
                                     render_pass,
                                     this_shape_stencil,
                                 );
+
+                                if shape.stencil_ref.is_some() {
+                                    stencil_stack.pop();
+                                }
                             } else {
                                 warn!(
                                     "No vertex or index buffer or ranges found for shape {}",
@@ -1394,10 +1376,12 @@ impl<'a> Renderer<'a> {
                 DrawCommand::Shape(ref mut shape) => {
                     // Clear the aggregated buffer references
                     shape.index_buffer_range = None;
+                    shape.stencil_ref = None;
                 }
                 DrawCommand::CachedShape(ref mut shape) => {
                     // Clear the aggregated buffer references
                     shape.index_buffer_range = None;
+                    shape.stencil_ref = None;
                 }
                 DrawCommand::Image(ref mut image) => {
                     image.return_buffers_to_pool(&mut self.buffers_pool_manager);
