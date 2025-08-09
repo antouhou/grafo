@@ -615,7 +615,7 @@ impl<'a> Renderer<'a> {
         cache_key: Option<u64>,
     ) -> usize {
         self.add_draw_command(
-            DrawCommand::Shape(ShapeDrawData::new(shape, clip_to_shape, offset, cache_key)),
+            DrawCommand::Shape(ShapeDrawData::new(shape, offset, cache_key)),
             clip_to_shape,
         )
     }
@@ -647,7 +647,7 @@ impl<'a> Renderer<'a> {
         offset: (f32, f32),
     ) -> usize {
         self.add_draw_command(
-            DrawCommand::CachedShape(CachedShapeDrawData::new(cache_key, offset, clip_to_shape)),
+            DrawCommand::CachedShape(CachedShapeDrawData::new(cache_key, offset)),
             clip_to_shape,
         )
     }

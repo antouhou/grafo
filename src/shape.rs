@@ -553,8 +553,6 @@ impl PathShape {
 /// directly by library users.
 #[derive(Debug)]
 pub(crate) struct ShapeDrawData {
-    /// An optional index of another shape to clip to.
-    pub(crate) clip_to_shape: Option<usize>,
     /// The shape associated with this draw data.
     pub(crate) shape: Shape,
     /// Offset the shape by this amount
@@ -572,14 +570,12 @@ pub(crate) struct ShapeDrawData {
 impl ShapeDrawData {
     pub fn new(
         shape: impl Into<Shape>,
-        clip_to_shape: Option<usize>,
         offset: (f32, f32),
         cache_key: Option<u64>,
     ) -> Self {
         let shape = shape.into();
 
         ShapeDrawData {
-            clip_to_shape,
             shape,
             offset,
             cache_key,
@@ -610,7 +606,6 @@ impl ShapeDrawData {
 pub(crate) struct CachedShapeDrawData {
     pub(crate) id: u64,
     pub(crate) offset: (f32, f32),
-    pub(crate) clip_to_shape: Option<usize>,
     pub(crate) index_buffer_range: Option<(usize, usize)>,
     pub(crate) is_empty: bool,
     /// Stencil reference assigned during render traversal (parent + 1). Cleared after frame.
@@ -618,11 +613,10 @@ pub(crate) struct CachedShapeDrawData {
 }
 
 impl CachedShapeDrawData {
-    pub fn new(id: u64, offset: (f32, f32), clip_to_shape: Option<usize>) -> Self {
+    pub fn new(id: u64, offset: (f32, f32)) -> Self {
         Self {
             id,
             offset,
-            clip_to_shape,
             index_buffer_range: None,
             is_empty: false,
             stencil_ref: None,
