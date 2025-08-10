@@ -1139,89 +1139,48 @@ impl<'a> Renderer<'a> {
 
                     match draw_command {
                         DrawCommand::Shape(shape) => {
-                            if let Some(index_range) = shape.index_buffer_range
-                            {
-                                if shape.is_empty {
-                                    return;
-                                }
-
-                                if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
-                                    render_pass.set_pipeline(&self.and_pipeline);
-                                    render_pass.set_bind_group(0, &self.and_bind_group, &[]);
-
-                                    // Those pipelines use the same vertex buffers
-                                    if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
-                                        render_pass.set_vertex_buffer(0, self.aggregated_vertex_buffer.as_ref().unwrap().slice(..));
-                                        render_pass.set_index_buffer(self.aggregated_index_buffer.as_ref().unwrap().slice(..), wgpu::IndexFormat::Uint16);
-                                    }
-
-                                    *currently_set_pipeline = Pipeline::StencilIncrement;
-                                }
-
-                                // Determine parent stencil from the stack (0 if root)
-                                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
-
-                                // Render increment pass with parent stencil
-                                render_buffer_range_to_texture(
-                                    index_range,
-                                    render_pass,
-                                    parent_stencil,
-                                );
-
-                                // Assign and push this node's stencil reference (parent + 1)
-                                let this_stencil = parent_stencil + 1;
-                                shape.stencil_ref = Some(this_stencil);
-                                stencil_stack.push(this_stencil);
-                            } else {
+                            if shape.index_buffer_range.is_none() {
                                 warn!(
                                     "Missing vertex or index buffer or ranges for shape {}",
                                     shape_id
                                 );
+                                return;
                             }
-                        },
+
+                            handle_increment_pass(
+                                render_pass,
+                                currently_set_pipeline,
+                                stencil_stack,
+                                shape.index_buffer_range,
+                                shape.is_empty,
+                                &mut shape.stencil_ref,
+                                &self.and_pipeline,
+                                &self.and_bind_group,
+                                self.aggregated_vertex_buffer.as_ref().unwrap(),
+                                self.aggregated_index_buffer.as_ref().unwrap(),
+                            );
+                        }
                         DrawCommand::CachedShape(shape) => {
-                            // TODO: this code is exactly the same as the above, think about how to
-                            //  merge those branches into one
-                            if let Some(index_range) =
-                                shape.index_buffer_range
-                            {
-                                if shape.is_empty {
-                                    return;
-                                }
-
-                                if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
-                                    render_pass.set_pipeline(&self.and_pipeline);
-                                    render_pass.set_bind_group(0, &self.and_bind_group, &[]);
-
-                                    // Decrement pipeline uses the same buffers
-                                    if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
-                                        render_pass.set_vertex_buffer(0, self.aggregated_vertex_buffer.as_ref().unwrap().slice(..));
-                                        render_pass.set_index_buffer(self.aggregated_index_buffer.as_ref().unwrap().slice(..), wgpu::IndexFormat::Uint16);
-                                    }
-
-                                    *currently_set_pipeline = Pipeline::StencilIncrement;
-                                }
-
-                                // Determine parent stencil from the stack (0 if root)
-                                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
-
-                                // Render increment pass with parent stencil
-                                render_buffer_range_to_texture(
-                                    index_range,
-                                    render_pass,
-                                    parent_stencil,
-                                );
-
-                                // Assign and push this node's stencil reference (parent + 1)
-                                let this_stencil = parent_stencil + 1;
-                                shape.stencil_ref = Some(this_stencil);
-                                stencil_stack.push(this_stencil);
-                            } else {
+                            if shape.index_buffer_range.is_none() {
                                 warn!(
                                     "Missing vertex or index buffer or ranges for shape {}",
                                     shape_id
                                 );
+                                return;
                             }
+
+                            handle_increment_pass(
+                                render_pass,
+                                currently_set_pipeline,
+                                stencil_stack,
+                                shape.index_buffer_range,
+                                shape.is_empty,
+                                &mut shape.stencil_ref,
+                                &self.and_pipeline,
+                                &self.and_bind_group,
+                                self.aggregated_vertex_buffer.as_ref().unwrap(),
+                                self.aggregated_index_buffer.as_ref().unwrap(),
+                            );
                         }
                         DrawCommand::Image(image) => {
                             if image.clip_to_shape.is_some() {
@@ -1251,95 +1210,48 @@ impl<'a> Renderer<'a> {
 
                     match draw_command {
                         DrawCommand::Shape(shape) => {
-                            if let Some(index_range) = shape.index_buffer_range
-                            {
-                                if shape.is_empty {
-                                    return;
-                                }
-
-                                if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
-                                    render_pass.set_pipeline(&self.decrementing_pipeline);
-                                    render_pass.set_bind_group(
-                                        0,
-                                        &self.decrementing_bind_group,
-                                        &[],
-                                    );
-
-                                    if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
-                                        render_pass.set_vertex_buffer(0, self.aggregated_vertex_buffer.as_ref().unwrap().slice(..));
-                                        render_pass.set_index_buffer(self.aggregated_index_buffer.as_ref().unwrap().slice(..), wgpu::IndexFormat::Uint16);
-                                    }
-
-                                    *currently_set_pipeline = Pipeline::StencilDecrement;
-                                }
-
-                                // Use this node's stored stencil reference and then pop the stack
-                                let this_shape_stencil = shape.stencil_ref.unwrap_or(0);
-
-                                render_buffer_range_to_texture(
-                                    index_range,
-                                    render_pass,
-                                    this_shape_stencil,
-                                );
-
-                                if shape.stencil_ref.is_some() {
-                                    stencil_stack.pop();
-                                }
-                            } else {
+                            if shape.index_buffer_range.is_none() {
                                 warn!(
                                     "No vertex or index buffer or ranges found for shape {}",
                                     shape_id
                                 );
-                                // TODO: no vertex or index buffer found - it is an error,
-                                //  so probably should panic
+                                return;
                             }
-                        },
+
+                            handle_decrement_pass(
+                                render_pass,
+                                currently_set_pipeline,
+                                stencil_stack,
+                                shape.index_buffer_range,
+                                shape.is_empty,
+                                shape.stencil_ref,
+                                &self.decrementing_pipeline,
+                                &self.decrementing_bind_group,
+                                self.aggregated_vertex_buffer.as_ref().unwrap(),
+                                self.aggregated_index_buffer.as_ref().unwrap(),
+                            );
+                        }
                         DrawCommand::CachedShape(shape) => {
-                            // TODO: this is a copy-paste from the above, think about how to combine
-                            //  them into one branch
-                            if let Some(index_range) =
-                                shape.index_buffer_range
-                            {
-                                if shape.is_empty {
-                                    return;
-                                }
-
-                                if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
-                                    render_pass.set_pipeline(&self.decrementing_pipeline);
-                                    render_pass.set_bind_group(
-                                        0,
-                                        &self.decrementing_bind_group,
-                                        &[],
-                                    );
-
-                                    if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
-                                        render_pass.set_vertex_buffer(0, self.aggregated_vertex_buffer.as_ref().unwrap().slice(..));
-                                        render_pass.set_index_buffer(self.aggregated_index_buffer.as_ref().unwrap().slice(..), wgpu::IndexFormat::Uint16);
-                                    }
-
-                                    *currently_set_pipeline = Pipeline::StencilDecrement;
-                                }
-
-                                // Use this node's stored stencil reference and then pop the stack
-                                let this_shape_stencil = shape.stencil_ref.unwrap_or(0);
-
-                                render_buffer_range_to_texture(
-                                    index_range,
-                                    render_pass,
-                                    this_shape_stencil,
-                                );
-
-                                if shape.stencil_ref.is_some() {
-                                    stencil_stack.pop();
-                                }
-                            } else {
+                            if shape.index_buffer_range.is_none() {
                                 warn!(
                                     "No vertex or index buffer or ranges found for shape {}",
                                     shape_id
                                 );
-                                // TODO: no vertex or index buffer found - it is an error,
-                                //  so probably should panic
+                                return;
                             }
+
+                            handle_decrement_pass(
+                                render_pass,
+                                currently_set_pipeline,
+                                stencil_stack,
+                                shape.index_buffer_range,
+                                shape.is_empty,
+                                shape.stencil_ref,
+                                &self.decrementing_pipeline,
+                                &self.decrementing_bind_group,
+                                self.aggregated_vertex_buffer.as_ref().unwrap(),
+                                self.aggregated_index_buffer.as_ref().unwrap(),
+                            );
                         }
                         DrawCommand::Image(_) => {
                             // nothing to do here
@@ -1889,5 +1801,92 @@ impl<'a> Renderer<'a> {
         let db = font_system.db_mut();
         let source = fontdb::Source::Binary(Arc::new(font_bytes.to_vec()));
         db.load_font_source(source);
+    }
+}
+
+// Helper to handle stencil increment pass for any shape-like data
+fn handle_increment_pass<'rp>(
+    render_pass: &mut wgpu::RenderPass<'rp>,
+    currently_set_pipeline: &mut Pipeline,
+    stencil_stack: &mut Vec<u32>,
+    index_range: Option<(usize, usize)>, // (start_index, index_count)
+    is_empty: bool,
+    stencil_ref_mut: &mut Option<u32>,
+    and_pipeline: &wgpu::RenderPipeline,
+    and_bind_group: &wgpu::BindGroup,
+    aggregated_vertex_buffer: &wgpu::Buffer,
+    aggregated_index_buffer: &wgpu::Buffer,
+) {
+    if let Some(index_range) = index_range {
+        if is_empty {
+            return;
+        }
+
+        if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
+            render_pass.set_pipeline(and_pipeline);
+            render_pass.set_bind_group(0, and_bind_group, &[]);
+
+            // Those pipelines use the same vertex buffers
+            if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
+                render_pass.set_vertex_buffer(0, aggregated_vertex_buffer.slice(..));
+                render_pass
+                    .set_index_buffer(aggregated_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            }
+
+            *currently_set_pipeline = Pipeline::StencilIncrement;
+        }
+
+        // Determine the parent stencil from the stack (0 if root)
+        let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+
+        // Render increment pass with parent stencil
+        render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
+
+        // Assign and push this node's stencil reference (parent + 1)
+        let this_stencil = parent_stencil + 1;
+        *stencil_ref_mut = Some(this_stencil);
+        stencil_stack.push(this_stencil);
+    }
+}
+
+// Helper to handle stencil decrement pass for any shape-like data
+fn handle_decrement_pass<'rp>(
+    render_pass: &mut wgpu::RenderPass<'rp>,
+    currently_set_pipeline: &mut Pipeline,
+    stencil_stack: &mut Vec<u32>,
+    index_range: Option<(usize, usize)>, // (start_index, index_count)
+    is_empty: bool,
+    stencil_ref: Option<u32>,
+    decrementing_pipeline: &wgpu::RenderPipeline,
+    decrementing_bind_group: &wgpu::BindGroup,
+    aggregated_vertex_buffer: &wgpu::Buffer,
+    aggregated_index_buffer: &wgpu::Buffer,
+) {
+    if let Some(index_range) = index_range {
+        if is_empty {
+            return;
+        }
+
+        if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
+            render_pass.set_pipeline(decrementing_pipeline);
+            render_pass.set_bind_group(0, decrementing_bind_group, &[]);
+
+            if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
+                render_pass.set_vertex_buffer(0, aggregated_vertex_buffer.slice(..));
+                render_pass
+                    .set_index_buffer(aggregated_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            }
+
+            *currently_set_pipeline = Pipeline::StencilDecrement;
+        }
+
+        // Use this node's stored stencil reference and then pop the stack
+        let this_shape_stencil = stencil_ref.unwrap_or(0);
+
+        render_buffer_range_to_texture(index_range, render_pass, this_shape_stencil);
+
+        if stencil_ref.is_some() {
+            stencil_stack.pop();
+        }
     }
 }

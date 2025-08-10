@@ -568,11 +568,7 @@ pub(crate) struct ShapeDrawData {
 }
 
 impl ShapeDrawData {
-    pub fn new(
-        shape: impl Into<Shape>,
-        offset: (f32, f32),
-        cache_key: Option<u64>,
-    ) -> Self {
+    pub fn new(shape: impl Into<Shape>, offset: (f32, f32), cache_key: Option<u64>) -> Self {
         let shape = shape.into();
 
         ShapeDrawData {
