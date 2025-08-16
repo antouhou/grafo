@@ -152,9 +152,20 @@ impl<'a> ApplicationHandler for App<'a> {
                 renderer.add_shape(white, Some(red_id), (0.0, 0.0), None);
                 renderer.add_shape(shape_that_doesnt_fit, Some(blue_id), (0.0, 0.0), None);
 
-                renderer.add_rgba_image(
-                    &self.rust_logo_png_bytes,
-                    self.rust_logo_png_dimensions,
+                let texture_id = 1;
+                renderer
+                    .texture_manager()
+                    .allocate_texture(texture_id, self.rust_logo_png_dimensions);
+                renderer
+                    .texture_manager()
+                    .load_data_into_texture(
+                        texture_id,
+                        self.rust_logo_png_dimensions,
+                        &self.rust_logo_png_bytes,
+                    )
+                    .unwrap();
+                renderer.add_texture_draw_to_queue(
+                    texture_id,
                     [
                         (100.0, 100.0),
                         (
@@ -165,9 +176,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     Some(red_id),
                 );
 
-                renderer.add_rgba_image(
-                    &self.rust_logo_png_bytes,
-                    self.rust_logo_png_dimensions,
+                renderer.add_texture_draw_to_queue(
+                    texture_id,
                     [
                         (200.0, 200.0),
                         (
@@ -177,10 +187,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     ],
                     Some(background_id),
                 );
-
-                renderer.add_rgba_image(
-                    &self.rust_logo_png_bytes,
-                    self.rust_logo_png_dimensions,
+                renderer.add_texture_draw_to_queue(
+                    texture_id,
                     [
                         (400.0, 400.0),
                         (
