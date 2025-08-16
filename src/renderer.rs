@@ -85,7 +85,7 @@ use crate::pipeline::{
     create_render_pass, create_texture_pipeline, render_buffer_range_to_texture, PipelineType,
     Uniforms,
 };
-use crate::shape::{CachedShapeDrawData, Shape, ShapeDrawData};
+use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
@@ -1037,6 +1037,18 @@ impl<'a> Renderer<'a> {
         let depth_texture =
             create_and_depth_texture(&self.device, (self.physical_size.0, self.physical_size.1));
 
+        let pipelines = Pipelines {
+            and_pipeline: &self.and_pipeline,
+            and_bind_group: &self.and_bind_group,
+            decrementing_pipeline: &self.decrementing_pipeline,
+            decrementing_bind_group: &self.decrementing_bind_group,
+        };
+
+        let buffers = Buffers {
+            aggregated_vertex_buffer: self.aggregated_vertex_buffer.as_ref().unwrap(),
+            aggregated_index_buffer: self.aggregated_index_buffer.as_ref().unwrap(),
+        };
+
         {
             let depth_texture_view =
                 depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -1052,54 +1064,30 @@ impl<'a> Renderer<'a> {
             let mut data = (render_pass, stencil_stack, current_pipeline);
 
             self.draw_tree.traverse_mut(
-                |shape_id, draw_command, data| {
+                |_shape_id, draw_command, data| {
                     // NOTE: this is destructured here and not above because we need to pass the
                     //  data to the closure below
                     let (render_pass, stencil_stack, currently_set_pipeline) = data;
 
                     match draw_command {
                         DrawCommand::Shape(shape) => {
-                            if shape.index_buffer_range.is_none() {
-                                warn!(
-                                    "Missing vertex or index buffer or ranges for shape {}",
-                                    shape_id
-                                );
-                                return;
-                            }
-
                             handle_increment_pass(
                                 render_pass,
                                 currently_set_pipeline,
                                 stencil_stack,
-                                shape.index_buffer_range,
-                                shape.is_empty,
-                                &mut shape.stencil_ref,
-                                &self.and_pipeline,
-                                &self.and_bind_group,
-                                self.aggregated_vertex_buffer.as_ref().unwrap(),
-                                self.aggregated_index_buffer.as_ref().unwrap(),
+                                shape,
+                                &pipelines,
+                                &buffers,
                             );
                         }
                         DrawCommand::CachedShape(shape) => {
-                            if shape.index_buffer_range.is_none() {
-                                warn!(
-                                    "Missing vertex or index buffer or ranges for shape {}",
-                                    shape_id
-                                );
-                                return;
-                            }
-
                             handle_increment_pass(
                                 render_pass,
                                 currently_set_pipeline,
                                 stencil_stack,
-                                shape.index_buffer_range,
-                                shape.is_empty,
-                                &mut shape.stencil_ref,
-                                &self.and_pipeline,
-                                &self.and_bind_group,
-                                self.aggregated_vertex_buffer.as_ref().unwrap(),
-                                self.aggregated_index_buffer.as_ref().unwrap(),
+                                shape,
+                                &pipelines,
+                                &buffers,
                             );
                         }
                         DrawCommand::Image(image) => {
@@ -1125,52 +1113,28 @@ impl<'a> Renderer<'a> {
                         }
                     }
                 },
-                |shape_id, draw_command, data| {
+                |_shape_id, draw_command, data| {
                     let (render_pass, stencil_stack, currently_set_pipeline) = data;
 
                     match draw_command {
                         DrawCommand::Shape(shape) => {
-                            if shape.index_buffer_range.is_none() {
-                                warn!(
-                                    "No vertex or index buffer or ranges found for shape {}",
-                                    shape_id
-                                );
-                                return;
-                            }
-
                             handle_decrement_pass(
                                 render_pass,
                                 currently_set_pipeline,
                                 stencil_stack,
-                                shape.index_buffer_range,
-                                shape.is_empty,
-                                shape.stencil_ref,
-                                &self.decrementing_pipeline,
-                                &self.decrementing_bind_group,
-                                self.aggregated_vertex_buffer.as_ref().unwrap(),
-                                self.aggregated_index_buffer.as_ref().unwrap(),
+                                shape,
+                                &pipelines,
+                                &buffers,
                             );
                         }
                         DrawCommand::CachedShape(shape) => {
-                            if shape.index_buffer_range.is_none() {
-                                warn!(
-                                    "No vertex or index buffer or ranges found for shape {}",
-                                    shape_id
-                                );
-                                return;
-                            }
-
                             handle_decrement_pass(
                                 render_pass,
                                 currently_set_pipeline,
                                 stencil_stack,
-                                shape.index_buffer_range,
-                                shape.is_empty,
-                                shape.stencil_ref,
-                                &self.decrementing_pipeline,
-                                &self.decrementing_bind_group,
-                                self.aggregated_vertex_buffer.as_ref().unwrap(),
-                                self.aggregated_index_buffer.as_ref().unwrap(),
+                                shape,
+                                &pipelines,
+                                &buffers,
                             );
                         }
                         DrawCommand::Image(_) => {
@@ -1724,33 +1688,43 @@ impl<'a> Renderer<'a> {
     }
 }
 
+struct Buffers<'a> {
+    aggregated_vertex_buffer: &'a wgpu::Buffer,
+    aggregated_index_buffer: &'a wgpu::Buffer,
+}
+
+struct Pipelines<'a> {
+    and_pipeline: &'a wgpu::RenderPipeline,
+    and_bind_group: &'a wgpu::BindGroup,
+    decrementing_pipeline: &'a wgpu::RenderPipeline,
+    decrementing_bind_group: &'a wgpu::BindGroup,
+}
+
 // Helper to handle stencil increment pass for any shape-like data
 fn handle_increment_pass<'rp>(
     render_pass: &mut wgpu::RenderPass<'rp>,
     currently_set_pipeline: &mut Pipeline,
     stencil_stack: &mut Vec<u32>,
-    index_range: Option<(usize, usize)>, // (start_index, index_count)
-    is_empty: bool,
-    stencil_ref_mut: &mut Option<u32>,
-    and_pipeline: &wgpu::RenderPipeline,
-    and_bind_group: &wgpu::BindGroup,
-    aggregated_vertex_buffer: &wgpu::Buffer,
-    aggregated_index_buffer: &wgpu::Buffer,
+    shape: &mut impl DrawShapeCommand,
+    pipelines: &Pipelines,
+    buffers: &Buffers,
 ) {
-    if let Some(index_range) = index_range {
-        if is_empty {
+    if let Some(index_range) = shape.index_buffer_range() {
+        if shape.is_empty() {
             return;
         }
 
         if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
-            render_pass.set_pipeline(and_pipeline);
-            render_pass.set_bind_group(0, and_bind_group, &[]);
+            render_pass.set_pipeline(pipelines.and_pipeline);
+            render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
 
             // Those pipelines use the same vertex buffers
             if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
-                render_pass.set_vertex_buffer(0, aggregated_vertex_buffer.slice(..));
-                render_pass
-                    .set_index_buffer(aggregated_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    buffers.aggregated_index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint16,
+                );
             }
 
             *currently_set_pipeline = Pipeline::StencilIncrement;
@@ -1764,8 +1738,10 @@ fn handle_increment_pass<'rp>(
 
         // Assign and push this node's stencil reference (parent + 1)
         let this_stencil = parent_stencil + 1;
-        *stencil_ref_mut = Some(this_stencil);
+        *shape.stencil_ref_mut() = Some(this_stencil);
         stencil_stack.push(this_stencil);
+    } else {
+        warn!("Shape with no index buffer range found, skipping increment pass");
     }
 }
 
@@ -1774,39 +1750,39 @@ fn handle_decrement_pass<'rp>(
     render_pass: &mut wgpu::RenderPass<'rp>,
     currently_set_pipeline: &mut Pipeline,
     stencil_stack: &mut Vec<u32>,
-    index_range: Option<(usize, usize)>, // (start_index, index_count)
-    is_empty: bool,
-    stencil_ref: Option<u32>,
-    decrementing_pipeline: &wgpu::RenderPipeline,
-    decrementing_bind_group: &wgpu::BindGroup,
-    aggregated_vertex_buffer: &wgpu::Buffer,
-    aggregated_index_buffer: &wgpu::Buffer,
+    shape: &mut impl DrawShapeCommand,
+    pipelines: &Pipelines,
+    buffers: &Buffers,
 ) {
-    if let Some(index_range) = index_range {
-        if is_empty {
+    if let Some(index_range) = shape.index_buffer_range() {
+        if shape.is_empty() {
             return;
         }
 
         if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
-            render_pass.set_pipeline(decrementing_pipeline);
-            render_pass.set_bind_group(0, decrementing_bind_group, &[]);
+            render_pass.set_pipeline(pipelines.decrementing_pipeline);
+            render_pass.set_bind_group(0, pipelines.decrementing_bind_group, &[]);
 
             if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
-                render_pass.set_vertex_buffer(0, aggregated_vertex_buffer.slice(..));
-                render_pass
-                    .set_index_buffer(aggregated_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    buffers.aggregated_index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint16,
+                );
             }
 
             *currently_set_pipeline = Pipeline::StencilDecrement;
         }
 
         // Use this node's stored stencil reference and then pop the stack
-        let this_shape_stencil = stencil_ref.unwrap_or(0);
+        let this_shape_stencil = shape.stencil_ref_mut().unwrap_or(0);
 
         render_buffer_range_to_texture(index_range, render_pass, this_shape_stencil);
 
-        if stencil_ref.is_some() {
+        if shape.stencil_ref_mut().is_some() {
             stencil_stack.pop();
         }
+    } else {
+        warn!("Shape with no index buffer range found, skipping decrement pass");
     }
 }

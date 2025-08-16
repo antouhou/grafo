@@ -965,3 +965,43 @@ impl From<BorderRadii> for lyon::path::builder::BorderRadii {
         }
     }
 }
+
+pub(crate) trait DrawShapeCommand {
+    fn index_buffer_range(&self) -> Option<(usize, usize)>; // (start_index, index_count)
+    fn is_empty(&self) -> bool;
+    fn stencil_ref_mut(&mut self) -> &mut Option<u32>;
+}
+
+impl DrawShapeCommand for ShapeDrawData {
+    #[inline]
+    fn index_buffer_range(&self) -> Option<(usize, usize)> {
+        self.index_buffer_range
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.is_empty
+    }
+
+    #[inline]
+    fn stencil_ref_mut(&mut self) -> &mut Option<u32> {
+        &mut self.stencil_ref
+    }
+}
+
+impl DrawShapeCommand for CachedShapeDrawData {
+    #[inline]
+    fn index_buffer_range(&self) -> Option<(usize, usize)> {
+        self.index_buffer_range
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.is_empty
+    }
+
+    #[inline]
+    fn stencil_ref_mut(&mut self) -> &mut Option<u32> {
+        &mut self.stencil_ref
+    }
+}
