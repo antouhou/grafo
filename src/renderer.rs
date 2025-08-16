@@ -75,7 +75,6 @@
 //! }
 //! ```
 
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 pub type MathRect = lyon::math::Box2D;
@@ -650,85 +649,6 @@ impl<'a> Renderer<'a> {
             DrawCommand::CachedShape(CachedShapeDrawData::new(cache_key, offset)),
             clip_to_shape,
         )
-    }
-
-    /// Adds an image to the draw queue. This is a shorthand method if you quickly want to render
-    /// an image from the main thread; If you want to update texture data from a different thread,
-    /// or want more control over allocating and updating texture data in general, you should use
-    /// [Renderer::texture_manager].
-    ///
-    /// # Parameters
-    ///
-    /// - `image`: A byte slice representing the image data.
-    /// - `physical_image_dimensions`: A tuple representing the image's width and height in pixels.
-    /// - `area`: An array containing two tuples representing the top-left and bottom-right
-    ///   coordinates where the image should be rendered.
-    /// - `clip_to_shape`: Optional index of a shape to which this image should be clipped.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use std::sync::Arc;
-    /// use futures::executor::block_on;
-    /// use winit::application::ApplicationHandler;
-    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
-    /// use winit::window::Window;
-    /// use grafo::Renderer;
-    /// use grafo::Shape;
-    /// use grafo::Color;
-    /// use grafo::Stroke;
-    ///
-    /// // This is for demonstration purposes only. If you want a working example with winit, please
-    /// // refer to the example in the "examples" folder.
-    /// struct App;
-    /// impl ApplicationHandler for App {
-    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-    ///         let window_surface = Arc::new(
-    ///             event_loop.create_window(Window::default_attributes()).unwrap()
-    ///         );
-    ///         let physical_size = (800, 600);
-    ///         let scale_factor = 1.0;
-    ///
-    ///         // Initialize the renderer
-    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
-    ///
-    ///         let image_data = vec![0; 16]; // A 2x2 black image
-    ///         renderer.add_rgba_image(
-    ///             &image_data,
-    ///             (2, 2), // Image dimensions
-    ///             [(50.0, 50.0), (150.0, 150.0)], // Rendering rectangle
-    ///             Some(0), // Clip to shape with ID 0
-    ///         );
-    ///     }
-    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
-    /// }
-    /// ```
-    pub fn add_rgba_image(
-        &mut self,
-        texture_rgba_data: &[u8],
-        physical_image_dimensions: (u32, u32),
-        draw_at: [(f32, f32); 2],
-        clip_to_shape: Option<usize>,
-    ) {
-        // Creating naive texture ID based on the image data
-        let mut default_hasher = std::collections::hash_map::DefaultHasher::new();
-        texture_rgba_data.hash(&mut default_hasher);
-        let texture_id = default_hasher.finish();
-
-        let is_already_loaded = self.texture_manager.is_texture_loaded(texture_id);
-
-        if !is_already_loaded {
-            self.texture_manager.allocate_texture_with_data(
-                texture_id,
-                physical_image_dimensions,
-                texture_rgba_data,
-            );
-        }
-
-        let draw_command =
-            DrawCommand::Image(ImageDrawData::new(texture_id, draw_at, clip_to_shape));
-
-        self.add_draw_command(draw_command, clip_to_shape);
     }
 
     /// Adds a texture to the draw queue. The texture must be loaded with the [Renderer::texture_manager]
