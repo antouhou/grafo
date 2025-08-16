@@ -334,7 +334,7 @@ impl<'a> TextDrawData<'a> {
         }
     }
 
-    pub fn to_text_area(&self, scale_factor: f32) -> TextArea {
+    pub fn to_text_area(&self, scale_factor: f32) -> TextArea<'_> {
         let area = self.area;
         let top = self.top;
 

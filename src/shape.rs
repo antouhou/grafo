@@ -45,8 +45,76 @@ use lyon::lyon_tessellation::{
 };
 use lyon::path::Winding;
 use lyon::tessellation::FillVertexConstructor;
-use std::rc::Rc;
 
+pub(crate) struct CachedShape {
+    pub offset: (f32, f32),
+    pub depth: f32,
+    pub bounding_box: (f32, f32, f32, f32),
+    pub vertex_buffers: VertexBuffers<CustomVertex, u16>,
+}
+
+impl CachedShape {
+    /// Creates a new `CachedShape` with the specified shape, offset, and depth.
+    /// Note that tessellator_cache_key is different from the shape cache key; a Shape cache key is
+    /// the shape identifier, while tesselator_cache_key is used to cache the tessellation of the
+    /// shape and should be based on the shape properties, and not the shape identifier
+    pub fn new(
+        shape: &Shape,
+        offset: (f32, f32),
+        depth: f32,
+        mut bounding_box: (f32, f32, f32, f32),
+        tessellator: &mut FillTessellator,
+        pool: &mut PoolManager,
+        tessellator_cache_key: Option<u64>,
+    ) -> Self {
+        let vertices = shape.tessellate(offset, depth, tessellator, pool, tessellator_cache_key);
+        bounding_box.0 += offset.0;
+        bounding_box.1 += offset.1;
+        Self {
+            offset,
+            depth,
+            bounding_box,
+            vertex_buffers: vertices,
+        }
+    }
+
+    pub fn set_offset_and_depth(&mut self, offset: (f32, f32), depth: f32) {
+        let delta = (offset.0 - self.offset.0, offset.1 - self.offset.1);
+        self.offset = offset;
+        self.depth = depth;
+
+        // Update bounding box by the same delta
+        self.bounding_box.0 += delta.0; // x
+        self.bounding_box.1 += delta.1; // y
+
+        for vertex in self.vertex_buffers.vertices.iter_mut() {
+            vertex.position[0] += delta.0;
+            vertex.position[1] += delta.1;
+            vertex.depth = depth;
+        }
+    }
+
+    pub fn set_offset(&mut self, offset: (f32, f32)) {
+        let delta = (offset.0 - self.offset.0, offset.1 - self.offset.1);
+        self.offset = offset;
+
+        // Update bounding box by the same delta
+        self.bounding_box.0 += delta.0; // x
+        self.bounding_box.1 += delta.1; // y
+
+        for vertex in self.vertex_buffers.vertices.iter_mut() {
+            vertex.position[0] += delta.0;
+            vertex.position[1] += delta.1;
+        }
+    }
+
+    pub fn set_depth(&mut self, depth: f32) {
+        self.depth = depth;
+        for vertex in self.vertex_buffers.vertices.iter_mut() {
+            vertex.depth = depth;
+        }
+    }
+}
 /// Represents a graphical shape, which can be either a custom path or a simple rectangle.
 ///
 /// # Variants
@@ -169,6 +237,74 @@ impl Shape {
             stroke,
         };
         Shape::Path(path_shape)
+    }
+
+    pub(crate) fn tessellate(
+        &self,
+        offset: (f32, f32),
+        depth: f32,
+        tessellator: &mut FillTessellator,
+        buffers_pool: &mut PoolManager,
+        tesselation_cache_key: Option<u64>,
+    ) -> VertexBuffers<CustomVertex, u16> {
+        match &self {
+            Shape::Path(path_shape) => path_shape.tessellate(
+                depth,
+                tessellator,
+                buffers_pool,
+                offset,
+                tesselation_cache_key,
+            ),
+            Shape::Rect(rect_shape) => {
+                let min_width = rect_shape.rect[0].0;
+                let min_height = rect_shape.rect[0].1;
+                let max_width = rect_shape.rect[1].0;
+                let max_height = rect_shape.rect[1].1;
+
+                let color = rect_shape.fill.normalize();
+
+                let quad = [
+                    CustomVertex {
+                        position: [min_width + offset.0, min_height + offset.1],
+                        color,
+                        depth,
+                    },
+                    CustomVertex {
+                        position: [max_width + offset.0, min_height + offset.1],
+                        color,
+                        depth,
+                    },
+                    CustomVertex {
+                        position: [min_width + offset.0, max_height + offset.1],
+                        color,
+                        depth,
+                    },
+                    CustomVertex {
+                        position: [min_width + offset.0, max_height + offset.1],
+                        color,
+                        depth,
+                    },
+                    CustomVertex {
+                        position: [max_width + offset.0, min_height + offset.1],
+                        color,
+                        depth,
+                    },
+                    CustomVertex {
+                        position: [max_width + offset.0, max_height + offset.1],
+                        color,
+                        depth,
+                    },
+                ];
+                let indices = [0u16, 1, 2, 3, 4, 5];
+
+                let mut vertex_buffers = buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
+
+                vertex_buffers.vertices.extend(quad);
+                vertex_buffers.indices.extend(indices);
+
+                vertex_buffers
+            }
+        }
     }
 }
 
@@ -349,9 +485,9 @@ impl PathShape {
         tessellator: &mut FillTessellator,
         buffers_pool: &mut PoolManager,
         offset: (f32, f32),
-        cache_key: Option<u64>,
-    ) -> Rc<VertexBuffers<CustomVertex, u16>> {
-        let mut buffers = if let Some(cache_key) = cache_key {
+        tesselation_cache_key: Option<u64>,
+    ) -> VertexBuffers<CustomVertex, u16> {
+        let mut buffers = if let Some(cache_key) = tesselation_cache_key {
             if let Some(buffers) = buffers_pool
                 .tessellation_cache
                 .get_vertex_buffers(&cache_key)
@@ -387,7 +523,7 @@ impl PathShape {
             v.position[1] += offset.1;
         });
 
-        Rc::new(buffers)
+        buffers
     }
 
     fn tesselate_into_buffers(
@@ -417,39 +553,31 @@ impl PathShape {
 /// directly by library users.
 #[derive(Debug)]
 pub(crate) struct ShapeDrawData {
-    /// An optional index of another shape to clip to.
-    pub(crate) clip_to_shape: Option<usize>,
     /// The shape associated with this draw data.
     pub(crate) shape: Shape,
     /// Offset the shape by this amount
     pub(crate) offset: (f32, f32),
     /// Optional cache key for the shape, used for caching tessellated buffers.
     pub(crate) cache_key: Option<u64>,
-    /// Range in the aggregated vertex buffer (start_index, count)
-    pub(crate) vertex_buffer_range: Option<(usize, usize)>,
     /// Range in the aggregated index buffer (start_index, count)  
     pub(crate) index_buffer_range: Option<(usize, usize)>,
     /// Indicates whether the shape is empty (no vertices or indices).
     pub(crate) is_empty: bool,
+    /// Stencil reference assigned during render traversal (parent + 1). Cleared after frame.
+    pub(crate) stencil_ref: Option<u32>,
 }
 
 impl ShapeDrawData {
-    pub fn new(
-        shape: impl Into<Shape>,
-        clip_to_shape: Option<usize>,
-        offset: (f32, f32),
-        cache_key: Option<u64>,
-    ) -> Self {
+    pub fn new(shape: impl Into<Shape>, offset: (f32, f32), cache_key: Option<u64>) -> Self {
         let shape = shape.into();
 
         ShapeDrawData {
-            clip_to_shape,
             shape,
             offset,
             cache_key,
-            vertex_buffer_range: None,
             index_buffer_range: None,
             is_empty: false,
+            stencil_ref: None,
         }
     }
 
@@ -460,63 +588,34 @@ impl ShapeDrawData {
         depth: f32,
         tessellator: &mut FillTessellator,
         buffers_pool: &mut PoolManager,
-    ) -> Rc<VertexBuffers<CustomVertex, u16>> {
-        match &self.shape {
-            Shape::Path(path_shape) => {
-                let offset = self.offset;
-                path_shape.tessellate(depth, tessellator, buffers_pool, offset, self.cache_key)
-            }
-            Shape::Rect(rect_shape) => {
-                let offset = self.offset;
+    ) -> VertexBuffers<CustomVertex, u16> {
+        self.shape.tessellate(
+            self.offset,
+            depth,
+            tessellator,
+            buffers_pool,
+            self.cache_key,
+        )
+    }
+}
 
-                let min_width = rect_shape.rect[0].0;
-                let min_height = rect_shape.rect[0].1;
-                let max_width = rect_shape.rect[1].0;
-                let max_height = rect_shape.rect[1].1;
+pub(crate) struct CachedShapeDrawData {
+    pub(crate) id: u64,
+    pub(crate) offset: (f32, f32),
+    pub(crate) index_buffer_range: Option<(usize, usize)>,
+    pub(crate) is_empty: bool,
+    /// Stencil reference assigned during render traversal (parent + 1). Cleared after frame.
+    pub(crate) stencil_ref: Option<u32>,
+}
 
-                let color = rect_shape.fill.normalize();
-
-                let quad = [
-                    CustomVertex {
-                        position: [min_width + offset.0, min_height + offset.1],
-                        color,
-                        depth,
-                    },
-                    CustomVertex {
-                        position: [max_width + offset.0, min_height + offset.1],
-                        color,
-                        depth,
-                    },
-                    CustomVertex {
-                        position: [min_width + offset.0, max_height + offset.1],
-                        color,
-                        depth,
-                    },
-                    CustomVertex {
-                        position: [min_width + offset.0, max_height + offset.1],
-                        color,
-                        depth,
-                    },
-                    CustomVertex {
-                        position: [max_width + offset.0, min_height + offset.1],
-                        color,
-                        depth,
-                    },
-                    CustomVertex {
-                        position: [max_width + offset.0, max_height + offset.1],
-                        color,
-                        depth,
-                    },
-                ];
-                let indices = [0u16, 1, 2, 3, 4, 5];
-
-                let mut vertex_buffers = buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
-
-                vertex_buffers.vertices.extend(quad);
-                vertex_buffers.indices.extend(indices);
-
-                Rc::new(vertex_buffers)
-            }
+impl CachedShapeDrawData {
+    pub fn new(id: u64, offset: (f32, f32)) -> Self {
+        Self {
+            id,
+            offset,
+            index_buffer_range: None,
+            is_empty: false,
+            stencil_ref: None,
         }
     }
 }
@@ -558,8 +657,7 @@ impl Default for ShapeBuilder {
     /// # Examples
     ///
     /// ```rust
-    /// use grafo::ShapeBuilder;
-    ///
+    /// use grafo::ShapeBuilder;    ///
     /// let builder = ShapeBuilder::default();
     /// ```
     fn default() -> Self {
@@ -865,5 +963,45 @@ impl From<BorderRadii> for lyon::path::builder::BorderRadii {
             bottom_left: val.bottom_left,
             bottom_right: val.bottom_right,
         }
+    }
+}
+
+pub(crate) trait DrawShapeCommand {
+    fn index_buffer_range(&self) -> Option<(usize, usize)>; // (start_index, index_count)
+    fn is_empty(&self) -> bool;
+    fn stencil_ref_mut(&mut self) -> &mut Option<u32>;
+}
+
+impl DrawShapeCommand for ShapeDrawData {
+    #[inline]
+    fn index_buffer_range(&self) -> Option<(usize, usize)> {
+        self.index_buffer_range
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.is_empty
+    }
+
+    #[inline]
+    fn stencil_ref_mut(&mut self) -> &mut Option<u32> {
+        &mut self.stencil_ref
+    }
+}
+
+impl DrawShapeCommand for CachedShapeDrawData {
+    #[inline]
+    fn index_buffer_range(&self) -> Option<(usize, usize)> {
+        self.index_buffer_range
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.is_empty
+    }
+
+    #[inline]
+    fn stencil_ref_mut(&mut self) -> &mut Option<u32> {
+        &mut self.stencil_ref
     }
 }
