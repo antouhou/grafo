@@ -38,7 +38,7 @@
 //! ```
 
 use crate::util::PoolManager;
-use crate::vertex::CustomVertex;
+use crate::vertex::{CustomVertex, InstanceTransform};
 use crate::{Color, Stroke};
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, VertexBuffers,
@@ -565,6 +565,10 @@ pub(crate) struct ShapeDrawData {
     pub(crate) is_empty: bool,
     /// Stencil reference assigned during render traversal (parent + 1). Cleared after frame.
     pub(crate) stencil_ref: Option<u32>,
+    /// Index into the per-frame instance transform buffer
+    pub(crate) instance_index: Option<usize>,
+    /// Optional per-shape transform applied in clip-space (post-normalization)
+    pub(crate) transform: Option<InstanceTransform>,
 }
 
 impl ShapeDrawData {
@@ -578,6 +582,8 @@ impl ShapeDrawData {
             index_buffer_range: None,
             is_empty: false,
             stencil_ref: None,
+            instance_index: None,
+            transform: None,
         }
     }
 
@@ -606,6 +612,10 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) is_empty: bool,
     /// Stencil reference assigned during render traversal (parent + 1). Cleared after frame.
     pub(crate) stencil_ref: Option<u32>,
+    /// Index into the per-frame instance transform buffer
+    pub(crate) instance_index: Option<usize>,
+    /// Optional per-shape transform applied in clip-space (post-normalization)
+    pub(crate) transform: Option<InstanceTransform>,
 }
 
 impl CachedShapeDrawData {
@@ -616,6 +626,8 @@ impl CachedShapeDrawData {
             index_buffer_range: None,
             is_empty: false,
             stencil_ref: None,
+            instance_index: None,
+            transform: None,
         }
     }
 }
@@ -970,6 +982,10 @@ pub(crate) trait DrawShapeCommand {
     fn index_buffer_range(&self) -> Option<(usize, usize)>; // (start_index, index_count)
     fn is_empty(&self) -> bool;
     fn stencil_ref_mut(&mut self) -> &mut Option<u32>;
+    fn instance_index_mut(&mut self) -> &mut Option<usize>;
+    fn instance_index(&self) -> Option<usize>;
+    fn transform(&self) -> Option<InstanceTransform>;
+    fn set_transform(&mut self, t: InstanceTransform);
 }
 
 impl DrawShapeCommand for ShapeDrawData {
@@ -987,6 +1003,26 @@ impl DrawShapeCommand for ShapeDrawData {
     fn stencil_ref_mut(&mut self) -> &mut Option<u32> {
         &mut self.stencil_ref
     }
+
+    #[inline]
+    fn instance_index_mut(&mut self) -> &mut Option<usize> {
+        &mut self.instance_index
+    }
+
+    #[inline]
+    fn instance_index(&self) -> Option<usize> {
+        self.instance_index
+    }
+
+    #[inline]
+    fn transform(&self) -> Option<InstanceTransform> {
+        self.transform
+    }
+
+    #[inline]
+    fn set_transform(&mut self, t: InstanceTransform) {
+        self.transform = Some(t);
+    }
 }
 
 impl DrawShapeCommand for CachedShapeDrawData {
@@ -1003,5 +1039,25 @@ impl DrawShapeCommand for CachedShapeDrawData {
     #[inline]
     fn stencil_ref_mut(&mut self) -> &mut Option<u32> {
         &mut self.stencil_ref
+    }
+
+    #[inline]
+    fn instance_index_mut(&mut self) -> &mut Option<usize> {
+        &mut self.instance_index
+    }
+
+    #[inline]
+    fn instance_index(&self) -> Option<usize> {
+        self.instance_index
+    }
+
+    #[inline]
+    fn transform(&self) -> Option<InstanceTransform> {
+        self.transform
+    }
+
+    #[inline]
+    fn set_transform(&mut self, t: InstanceTransform) {
+        self.transform = Some(t);
     }
 }

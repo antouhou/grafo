@@ -91,6 +91,7 @@ use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
 use crate::{CachedShape, Color, FontFamily, IntoCowBuffer, NoopTextDataIter};
 use ahash::{HashMap, HashMapExt};
+use crate::vertex::InstanceTransform;
 use glyphon::{fontdb, FontSystem, Resolution, SwashCache};
 use log::warn;
 use lyon::tessellation::FillTessellator;
@@ -264,10 +265,15 @@ pub struct Renderer<'a> {
     temp_vertices: Vec<crate::vertex::CustomVertex>,
     temp_indices: Vec<u16>,
 
+    /// Per-frame transforms for shapes (one per shape/cached shape draw)
+    temp_instance_transforms: Vec<InstanceTransform>,
+
     /// Reusable aggregated vertex buffer
     aggregated_vertex_buffer: Option<wgpu::Buffer>,
     /// Reusable aggregated index buffer  
     aggregated_index_buffer: Option<wgpu::Buffer>,
+    /// Per-frame instance transforms GPU buffer
+    aggregated_instance_buffer: Option<wgpu::Buffer>,
 
     /// Identity instance buffer to satisfy transform input until per-shape transforms are wired
     identity_instance_buffer: Option<wgpu::Buffer>,
@@ -492,8 +498,10 @@ impl<'a> Renderer<'a> {
 
             temp_vertices: Vec::new(),
             temp_indices: Vec::new(),
+            temp_instance_transforms: Vec::new(),
             aggregated_vertex_buffer: None,
             aggregated_index_buffer: None,
+            aggregated_instance_buffer: None,
             identity_instance_buffer: None,
 
             shape_cache: HashMap::new(),
@@ -879,7 +887,8 @@ impl<'a> Renderer<'a> {
         custom_text_instances: Option<impl Iterator<Item = TextDrawData<'b>>>,
     ) -> Result<(), wgpu::SurfaceError> {
         self.temp_vertices.clear();
-        self.temp_indices.clear();
+    self.temp_indices.clear();
+    self.temp_instance_transforms.clear();
 
         let draw_tree_size = self.draw_tree.len();
 
@@ -889,8 +898,8 @@ impl<'a> Renderer<'a> {
         let physical_size = self.physical_size;
         let scale_factor = self.scale_factor;
 
-        // First pass: tessellate all shapes and aggregate vertex/index data
-        for (node_id, draw_command) in self.draw_tree.iter_mut() {
+    // First pass: tessellate all shapes and aggregate vertex/index and instance data
+    for (node_id, draw_command) in self.draw_tree.iter_mut() {
             match draw_command {
                 DrawCommand::Shape(ref mut shape) => {
                     let depth = depth(node_id, draw_tree_size);
@@ -918,6 +927,12 @@ impl<'a> Renderer<'a> {
                     let index_count = vertex_buffers.indices.len();
 
                     shape.index_buffer_range = Some((index_start, index_count));
+
+                    // Collect instance transform (identity for now; Stage 3 can expose real transforms)
+                    let instance_idx = self.temp_instance_transforms.len();
+                    let transform = shape.transform().unwrap_or_else(InstanceTransform::identity);
+                    self.temp_instance_transforms.push(transform);
+                    *shape.instance_index_mut() = Some(instance_idx);
                 }
                 DrawCommand::Image(ref mut image) => {
                     image.prepare(
@@ -965,6 +980,14 @@ impl<'a> Renderer<'a> {
                         let index_count = vertex_buffers.indices.len();
 
                         cached_shape_data.index_buffer_range = Some((index_start, index_count));
+
+                        // Instance for cached shape (identity for now)
+                        let instance_idx = self.temp_instance_transforms.len();
+                        let transform = cached_shape_data
+                            .transform()
+                            .unwrap_or_else(InstanceTransform::identity);
+                        self.temp_instance_transforms.push(transform);
+                        *cached_shape_data.instance_index_mut() = Some(instance_idx);
                     } else {
                         println!("Warning: Cached shape not found in cache");
                     }
@@ -1058,10 +1081,34 @@ impl<'a> Renderer<'a> {
             decrementing_bind_group: &self.decrementing_bind_group,
         };
 
-    let buffers = Buffers {
+        // Create/update aggregated instance buffer
+        if !self.temp_instance_transforms.is_empty() {
+            let required_instance_size = std::mem::size_of_val(&self.temp_instance_transforms[..]);
+            let needs_realloc = self
+                .aggregated_instance_buffer
+                .as_ref()
+                .map(|buffer| buffer.size() < required_instance_size as u64)
+                .unwrap_or(true);
+            if needs_realloc {
+                self.aggregated_instance_buffer = Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Aggregated Instance Buffer"),
+                    contents: bytemuck::cast_slice(&self.temp_instance_transforms),
+                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                }));
+            } else {
+                self.queue.write_buffer(
+                    self.aggregated_instance_buffer.as_ref().unwrap(),
+                    0,
+                    bytemuck::cast_slice(&self.temp_instance_transforms),
+                );
+            }
+        }
+
+        let buffers = Buffers {
             aggregated_vertex_buffer: self.aggregated_vertex_buffer.as_ref().unwrap(),
             aggregated_index_buffer: self.aggregated_index_buffer.as_ref().unwrap(),
             identity_instance_buffer: self.identity_instance_buffer.as_ref().unwrap(),
+            aggregated_instance_buffer: self.aggregated_instance_buffer.as_ref(),
         };
 
     {
@@ -1327,7 +1374,7 @@ impl<'a> Renderer<'a> {
     pub fn clear_draw_queue(&mut self) {
         self.draw_tree.clear();
         self.text_instances.clear();
-        self.metadata_to_clips.clear();
+    self.metadata_to_clips.clear();
     }
 
     /// Adds a generic draw command to the draw tree.
@@ -1352,6 +1399,25 @@ impl<'a> Renderer<'a> {
         } else {
             self.draw_tree.add_child_to_root(draw_command)
         }
+    }
+
+    /// Sets a 4x4 column-major transform for a shape or cached shape.
+    /// The transform is applied in clip space AFTER pixel-to-NDC normalization in the shader.
+    pub fn set_shape_transform_cols(&mut self, node_id: usize, cols: [[f32; 4]; 4]) {
+        let t = InstanceTransform { col0: cols[0], col1: cols[1], col2: cols[2], col3: cols[3] };
+        self.draw_tree.traverse_mut(
+            |id, draw_command, _| {
+                if id == node_id {
+                    match draw_command {
+                        DrawCommand::Shape(shape) => shape.set_transform(t),
+                        DrawCommand::CachedShape(cached) => cached.set_transform(t),
+                        DrawCommand::Image(_) => {}
+                    }
+                }
+            },
+            |_, _, _| {},
+            &mut ( ),
+        );
     }
 
     /// Retrieves the current size of the rendering surface.
@@ -1707,6 +1773,7 @@ struct Buffers<'a> {
     aggregated_vertex_buffer: &'a wgpu::Buffer,
     aggregated_index_buffer: &'a wgpu::Buffer,
     identity_instance_buffer: &'a wgpu::Buffer,
+    aggregated_instance_buffer: Option<&'a wgpu::Buffer>,
 }
 
 struct Pipelines<'a> {
@@ -1752,6 +1819,18 @@ fn handle_increment_pass<'rp>(
         let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
 
         // Render increment pass with parent stencil
+        // Bind per-instance transform slice if available, else fall back to identity
+        if let Some(instance_idx) = shape.instance_index() {
+            if let Some(inst_buf) = buffers.aggregated_instance_buffer {
+                let stride = std::mem::size_of::<InstanceTransform>() as u64;
+                let offset = instance_idx as u64 * stride;
+                render_pass.set_vertex_buffer(1, inst_buf.slice(offset..offset + stride));
+            } else {
+                render_pass.set_vertex_buffer(1, buffers.identity_instance_buffer.slice(..));
+            }
+        } else {
+            render_pass.set_vertex_buffer(1, buffers.identity_instance_buffer.slice(..));
+        }
         render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
 
         // Assign and push this node's stencil reference (parent + 1)
@@ -1797,6 +1876,18 @@ fn handle_decrement_pass<'rp>(
         // Use this node's stored stencil reference and then pop the stack
         let this_shape_stencil = shape.stencil_ref_mut().unwrap_or(0);
 
+        // Bind per-instance transform slice if available, else fall back to identity
+        if let Some(instance_idx) = shape.instance_index() {
+            if let Some(inst_buf) = buffers.aggregated_instance_buffer {
+                let stride = std::mem::size_of::<InstanceTransform>() as u64;
+                let offset = instance_idx as u64 * stride;
+                render_pass.set_vertex_buffer(1, inst_buf.slice(offset..offset + stride));
+            } else {
+                render_pass.set_vertex_buffer(1, buffers.identity_instance_buffer.slice(..));
+            }
+        } else {
+            render_pass.set_vertex_buffer(1, buffers.identity_instance_buffer.slice(..));
+        }
         render_buffer_range_to_texture(index_range, render_pass, this_shape_stencil);
 
         if shape.stencil_ref_mut().is_some() {

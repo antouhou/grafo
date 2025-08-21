@@ -109,6 +109,9 @@ pub fn main() {
 
 ## Examples
 
+- `basic.rs` – draw simple shapes
+- `transforms.rs` – demonstrates enabling per-shape transform inputs (Stage 2 uses identity per-item; Stage 3 adds API usage)
+
 For a detailed example showcasing advanced features like hierarchical clipping, 
 image rendering, and text rendering, please refer to the 
 [examples](https://github.com/antouhou/grafo/tree/main/examples) directory in the repository.
