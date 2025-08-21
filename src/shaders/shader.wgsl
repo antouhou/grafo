@@ -2,6 +2,11 @@ struct VertexInput {
     @location(0) position: vec2<f32>,
     @location(1) color: vec4<f32>,
     @location(2) depth: f32,
+    // Per-instance transform matrix columns (column-major)
+    @location(3) t_col0: vec4<f32>,
+    @location(4) t_col1: vec4<f32>,
+    @location(5) t_col2: vec4<f32>,
+    @location(6) t_col3: vec4<f32>,
 };
 
 struct VertexOutput {
@@ -37,7 +42,10 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     // is a cube with corners (-1, -1, -1) and (1, 1, 1).
     let ndc_x = 2.0 * input.position.x / uniforms.canvas_size.x - 1.0;
     let ndc_y = 1.0 - 2.0 * input.position.y / uniforms.canvas_size.y;
-    output.position = vec4<f32>(ndc_x, ndc_y, input.depth, 1.0);
+    // Build the transform matrix and apply it AFTER normalization so shapes keep their size
+    let model: mat4x4<f32> = mat4x4<f32>(input.t_col0, input.t_col1, input.t_col2, input.t_col3);
+    let clip_pos = vec4<f32>(ndc_x, ndc_y, input.depth, 1.0);
+    output.position = model * clip_pos;
     output.color = input.color;
     return output;
 }

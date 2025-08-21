@@ -269,6 +269,9 @@ pub struct Renderer<'a> {
     /// Reusable aggregated index buffer  
     aggregated_index_buffer: Option<wgpu::Buffer>,
 
+    /// Identity instance buffer to satisfy transform input until per-shape transforms are wired
+    identity_instance_buffer: Option<wgpu::Buffer>,
+
     shape_cache: HashMap<u64, CachedShape>,
 }
 
@@ -491,6 +494,7 @@ impl<'a> Renderer<'a> {
             temp_indices: Vec::new(),
             aggregated_vertex_buffer: None,
             aggregated_index_buffer: None,
+            identity_instance_buffer: None,
 
             shape_cache: HashMap::new(),
         }
@@ -996,7 +1000,7 @@ impl<'a> Renderer<'a> {
             }
         }
 
-        if !self.temp_indices.is_empty() {
+    if !self.temp_indices.is_empty() {
             let required_index_size = std::mem::size_of_val(&self.temp_indices[..]);
 
             // Check if we need to reallocate the index buffer
@@ -1023,7 +1027,17 @@ impl<'a> Renderer<'a> {
             }
         }
 
-        let mut encoder = self
+        // Ensure identity instance buffer exists before we start setting up passes
+        if self.identity_instance_buffer.is_none() {
+            let identity = crate::vertex::InstanceTransform::identity();
+            self.identity_instance_buffer = Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Identity Instance Buffer"),
+                contents: bytemuck::cast_slice(&[identity]),
+                usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            }));
+        }
+
+    let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("And Command Encoder"),
@@ -1037,19 +1051,20 @@ impl<'a> Renderer<'a> {
         let depth_texture =
             create_and_depth_texture(&self.device, (self.physical_size.0, self.physical_size.1));
 
-        let pipelines = Pipelines {
+    let pipelines = Pipelines {
             and_pipeline: &self.and_pipeline,
             and_bind_group: &self.and_bind_group,
             decrementing_pipeline: &self.decrementing_pipeline,
             decrementing_bind_group: &self.decrementing_bind_group,
         };
 
-        let buffers = Buffers {
+    let buffers = Buffers {
             aggregated_vertex_buffer: self.aggregated_vertex_buffer.as_ref().unwrap(),
             aggregated_index_buffer: self.aggregated_index_buffer.as_ref().unwrap(),
+            identity_instance_buffer: self.identity_instance_buffer.as_ref().unwrap(),
         };
 
-        {
+    {
             let depth_texture_view =
                 depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -1691,6 +1706,7 @@ impl<'a> Renderer<'a> {
 struct Buffers<'a> {
     aggregated_vertex_buffer: &'a wgpu::Buffer,
     aggregated_index_buffer: &'a wgpu::Buffer,
+    identity_instance_buffer: &'a wgpu::Buffer,
 }
 
 struct Pipelines<'a> {
@@ -1721,6 +1737,8 @@ fn handle_increment_pass<'rp>(
             // Those pipelines use the same vertex buffers
             if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+                // Bind identity instance transform so shader inputs @location(3..6) are valid
+                render_pass.set_vertex_buffer(1, buffers.identity_instance_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
@@ -1765,6 +1783,8 @@ fn handle_decrement_pass<'rp>(
 
             if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+                // Bind identity instance transform so shader inputs @location(3..6) are valid
+                render_pass.set_vertex_buffer(1, buffers.identity_instance_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
