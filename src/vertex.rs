@@ -58,6 +58,29 @@ impl InstanceTransform {
         }
     }
 
+    /// Column-major 4x4 matrix multiply: returns `self * rhs`
+    /// Suitable for WGSL where we apply `model * vec4` in the vertex shader.
+    #[inline]
+    pub fn mul(self, rhs: InstanceTransform) -> InstanceTransform {
+        // For column-major matrices, each result column is self * rhs.column_j
+        let a = self;
+        let b = rhs;
+        let col = |bx: [f32; 4]| -> [f32; 4] {
+            [
+                a.col0[0] * bx[0] + a.col1[0] * bx[1] + a.col2[0] * bx[2] + a.col3[0] * bx[3],
+                a.col0[1] * bx[0] + a.col1[1] * bx[1] + a.col2[1] * bx[2] + a.col3[1] * bx[3],
+                a.col0[2] * bx[0] + a.col1[2] * bx[1] + a.col2[2] * bx[2] + a.col3[2] * bx[3],
+                a.col0[3] * bx[0] + a.col1[3] * bx[1] + a.col2[3] * bx[2] + a.col3[3] * bx[3],
+            ]
+        };
+        InstanceTransform {
+            col0: col(b.col0),
+            col1: col(b.col1),
+            col2: col(b.col2),
+            col3: col(b.col3),
+        }
+    }
+
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         let stride = std::mem::size_of::<InstanceTransform>() as wgpu::BufferAddress;
         wgpu::VertexBufferLayout {
