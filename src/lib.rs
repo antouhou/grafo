@@ -18,6 +18,7 @@
 //! * Text Rendering: Load fonts and render text with customizable layout, alignment, and styling using the
 //!   [glyphon](https://github.com/grovesNL/glyphon) crate.
 //! * Stencil Operations: Advanced stencil operations for clipping and masking.
+//! * 3D Transforms: Apply translation, rotation, and scaling transforms to shapes using 4x4 transformation matrices.
 //!
 //! Grafo [available on crates.io](https://crates.io/crates/grafo), and
 //! [API Documentation is available on docs.rs](https://docs.rs/grafo/).
@@ -128,6 +129,38 @@
 //!     event_loop.run_app(&mut app).unwrap();
 //! ```
 //!
+//! ### 3D Transforms
+//!
+//! Grafo supports 3D transformation matrices for positioning, rotating, and scaling shapes:
+//!
+//! ```rust,no_run
+//! use grafo::{TransformInstance, Shape, Color, Stroke};
+//!
+//! # let mut renderer = todo!(); // Assume renderer is initialized
+//!
+//! let rect = Shape::rect(
+//!     [(0.0, 0.0), (100.0, 100.0)],
+//!     Color::rgb(255, 0, 0),
+//!     Stroke::new(2.0, Color::BLACK),
+//! );
+//!
+//! // Translation
+//! let translated = TransformInstance::translation(100.0, 50.0, 0.0);
+//! renderer.add_shape_with_transform(rect.clone(), None, translated, None);
+//!
+//! // Rotation (45 degrees around Z-axis)
+//! let rotated = TransformInstance::rotation_z(std::f32::consts::PI / 4.0);
+//! renderer.add_shape_with_transform(rect.clone(), None, rotated, None);
+//!
+//! // Combined transform: translate + rotate + scale
+//! let combined = TransformInstance::from_trs(
+//!     [200.0, 100.0, 0.0],        // translation
+//!     std::f32::consts::PI / 6.0, // 30 degree rotation
+//!     [1.5, 1.2, 1.0],           // scale
+//! );
+//! renderer.add_shape_with_transform(rect, None, combined, None);
+//! ```
+//!
 //! ## Examples
 //!
 //! For a detailed example showcasing advanced features like hierarchical clipping,
@@ -162,3 +195,4 @@ pub use shape::*;
 pub use stroke::Stroke;
 pub use text::*;
 pub use texture_manager::TextureManager;
+pub use vertex::TransformInstance;

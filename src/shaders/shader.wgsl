@@ -4,6 +4,13 @@ struct VertexInput {
     @location(2) depth: f32,
 };
 
+struct InstanceInput {
+    @location(3) transform_0: vec4<f32>,
+    @location(4) transform_1: vec4<f32>,
+    @location(5) transform_2: vec4<f32>,
+    @location(6) transform_3: vec4<f32>,
+};
+
 struct VertexOutput {
     @invariant @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
@@ -31,12 +38,24 @@ fn to_srgb(color: vec3<f32>) -> vec3<f32> {
 }
 
 @vertex
-fn vs_main(input: VertexInput) -> VertexOutput {
+fn vs_main(input: VertexInput, instance: InstanceInput) -> VertexOutput {
     var output: VertexOutput;
-    // NDC stands for Normalized Device Coordinates. It's a coordinate system where the visible area of the screen
-    // is a cube with corners (-1, -1, -1) and (1, 1, 1).
-    let ndc_x = 2.0 * input.position.x / uniforms.canvas_size.x - 1.0;
-    let ndc_y = 1.0 - 2.0 * input.position.y / uniforms.canvas_size.y;
+    
+    // Reconstruct the transform matrix from the instance input
+    let transform_matrix = mat4x4<f32>(
+        instance.transform_0,
+        instance.transform_1,
+        instance.transform_2,
+        instance.transform_3
+    );
+    
+    // Apply the transform to the vertex position (extend to 4D homogeneous coordinates)
+    let world_position = transform_matrix * vec4<f32>(input.position, 0.0, 1.0);
+    
+    // Convert to NDC coordinates using the canvas size uniforms
+    let ndc_x = 2.0 * world_position.x / uniforms.canvas_size.x - 1.0;
+    let ndc_y = 1.0 - 2.0 * world_position.y / uniforms.canvas_size.y;
+    
     output.position = vec4<f32>(ndc_x, ndc_y, input.depth, 1.0);
     output.color = input.color;
     return output;

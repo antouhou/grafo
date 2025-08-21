@@ -67,7 +67,7 @@ impl CachedShape {
         pool: &mut PoolManager,
         tessellator_cache_key: Option<u64>,
     ) -> Self {
-        let vertices = shape.tessellate(offset, depth, tessellator, pool, tessellator_cache_key);
+        let vertices = shape.tessellate(offset, depth, tessellator, pool, tessellator_cache_key, false);
         bounding_box.0 += offset.0;
         bounding_box.1 += offset.1;
         Self {
@@ -246,13 +246,14 @@ impl Shape {
         tessellator: &mut FillTessellator,
         buffers_pool: &mut PoolManager,
         tesselation_cache_key: Option<u64>,
+        use_transforms: bool,
     ) -> VertexBuffers<CustomVertex, u16> {
         match &self {
             Shape::Path(path_shape) => path_shape.tessellate(
                 depth,
                 tessellator,
                 buffers_pool,
-                offset,
+                if use_transforms { (0.0, 0.0) } else { offset },
                 tesselation_cache_key,
             ),
             Shape::Rect(rect_shape) => {
@@ -263,34 +264,36 @@ impl Shape {
 
                 let color = rect_shape.fill.normalize();
 
+                let actual_offset = if use_transforms { (0.0, 0.0) } else { offset };
+
                 let quad = [
                     CustomVertex {
-                        position: [min_width + offset.0, min_height + offset.1],
+                        position: [min_width + actual_offset.0, min_height + actual_offset.1],
                         color,
                         depth,
                     },
                     CustomVertex {
-                        position: [max_width + offset.0, min_height + offset.1],
+                        position: [max_width + actual_offset.0, min_height + actual_offset.1],
                         color,
                         depth,
                     },
                     CustomVertex {
-                        position: [min_width + offset.0, max_height + offset.1],
+                        position: [min_width + actual_offset.0, max_height + actual_offset.1],
                         color,
                         depth,
                     },
                     CustomVertex {
-                        position: [min_width + offset.0, max_height + offset.1],
+                        position: [min_width + actual_offset.0, max_height + actual_offset.1],
                         color,
                         depth,
                     },
                     CustomVertex {
-                        position: [max_width + offset.0, min_height + offset.1],
+                        position: [max_width + actual_offset.0, min_height + actual_offset.1],
                         color,
                         depth,
                     },
                     CustomVertex {
-                        position: [max_width + offset.0, max_height + offset.1],
+                        position: [max_width + actual_offset.0, max_height + actual_offset.1],
                         color,
                         depth,
                     },
@@ -298,6 +301,10 @@ impl Shape {
                 let indices = [0u16, 1, 2, 3, 4, 5];
 
                 let mut vertex_buffers = buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
+                
+                // Clear any existing data from the pooled buffer
+                vertex_buffers.vertices.clear();
+                vertex_buffers.indices.clear();
 
                 vertex_buffers.vertices.extend(quad);
                 vertex_buffers.indices.extend(indices);
@@ -317,6 +324,12 @@ impl From<PathShape> for Shape {
 impl From<RectShape> for Shape {
     fn from(value: RectShape) -> Self {
         Shape::Rect(value)
+    }
+}
+
+impl AsRef<Shape> for Shape {
+    fn as_ref(&self) -> &Shape {
+        self
     }
 }
 
@@ -496,6 +509,10 @@ impl PathShape {
             } else {
                 let mut buffers: VertexBuffers<CustomVertex, u16> =
                     buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
+                
+                // Clear any existing data from the pooled buffer
+                buffers.vertices.clear();
+                buffers.indices.clear();
 
                 self.tesselate_into_buffers(&mut buffers, depth, tessellator);
                 buffers_pool
@@ -507,6 +524,10 @@ impl PathShape {
         } else {
             let mut buffers: VertexBuffers<CustomVertex, u16> =
                 buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
+            
+            // Clear any existing data from the pooled buffer
+            buffers.vertices.clear();
+            buffers.indices.clear();
 
             self.tesselate_into_buffers(&mut buffers, depth, tessellator);
 
@@ -557,10 +578,14 @@ pub(crate) struct ShapeDrawData {
     pub(crate) shape: Shape,
     /// Offset the shape by this amount
     pub(crate) offset: (f32, f32),
+    /// Optional transform matrix for 3D positioning
+    pub(crate) transform: Option<crate::vertex::TransformInstance>,
     /// Optional cache key for the shape, used for caching tessellated buffers.
     pub(crate) cache_key: Option<u64>,
     /// Range in the aggregated index buffer (start_index, count)  
     pub(crate) index_buffer_range: Option<(usize, usize)>,
+    /// Index into the transform instance buffer
+    pub(crate) instance_index: Option<u32>,
     /// Indicates whether the shape is empty (no vertices or indices).
     pub(crate) is_empty: bool,
     /// Stencil reference assigned during render traversal (parent + 1). Cleared after frame.
@@ -574,8 +599,29 @@ impl ShapeDrawData {
         ShapeDrawData {
             shape,
             offset,
+            transform: None,
             cache_key,
             index_buffer_range: None,
+            instance_index: None,
+            is_empty: false,
+            stencil_ref: None,
+        }
+    }
+
+    pub fn new_with_transform(
+        shape: impl Into<Shape>, 
+        transform: crate::vertex::TransformInstance, 
+        cache_key: Option<u64>
+    ) -> Self {
+        let shape = shape.into();
+
+        ShapeDrawData {
+            shape,
+            offset: (0.0, 0.0), // Use zero offset when using transforms
+            transform: Some(transform),
+            cache_key,
+            index_buffer_range: None,
+            instance_index: None,
             is_empty: false,
             stencil_ref: None,
         }
@@ -589,12 +635,14 @@ impl ShapeDrawData {
         tessellator: &mut FillTessellator,
         buffers_pool: &mut PoolManager,
     ) -> VertexBuffers<CustomVertex, u16> {
+        let use_transforms = self.transform.is_some();
         self.shape.tessellate(
             self.offset,
             depth,
             tessellator,
             buffers_pool,
             self.cache_key,
+            use_transforms,
         )
     }
 }
@@ -603,9 +651,11 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) id: u64,
     pub(crate) offset: (f32, f32),
     pub(crate) index_buffer_range: Option<(usize, usize)>,
+    pub(crate) instance_index: Option<u32>,
     pub(crate) is_empty: bool,
     /// Stencil reference assigned during render traversal (parent + 1). Cleared after frame.
     pub(crate) stencil_ref: Option<u32>,
+    pub(crate) transform: Option<crate::vertex::TransformInstance>,
 }
 
 impl CachedShapeDrawData {
@@ -614,8 +664,22 @@ impl CachedShapeDrawData {
             id,
             offset,
             index_buffer_range: None,
+            instance_index: None,
             is_empty: false,
             stencil_ref: None,
+            transform: None,
+        }
+    }
+    
+    pub fn new_with_transform(id: u64, offset: (f32, f32), transform: crate::vertex::TransformInstance) -> Self {
+        Self {
+            id,
+            offset,
+            index_buffer_range: None,
+            instance_index: None,
+            is_empty: false,
+            stencil_ref: None,
+            transform: Some(transform),
         }
     }
 }
@@ -968,6 +1032,7 @@ impl From<BorderRadii> for lyon::path::builder::BorderRadii {
 
 pub(crate) trait DrawShapeCommand {
     fn index_buffer_range(&self) -> Option<(usize, usize)>; // (start_index, index_count)
+    fn instance_index(&self) -> Option<u32>;
     fn is_empty(&self) -> bool;
     fn stencil_ref_mut(&mut self) -> &mut Option<u32>;
 }
@@ -976,6 +1041,11 @@ impl DrawShapeCommand for ShapeDrawData {
     #[inline]
     fn index_buffer_range(&self) -> Option<(usize, usize)> {
         self.index_buffer_range
+    }
+
+    #[inline]
+    fn instance_index(&self) -> Option<u32> {
+        self.instance_index
     }
 
     #[inline]
@@ -993,6 +1063,11 @@ impl DrawShapeCommand for CachedShapeDrawData {
     #[inline]
     fn index_buffer_range(&self) -> Option<(usize, usize)> {
         self.index_buffer_range
+    }
+
+    #[inline]
+    fn instance_index(&self) -> Option<u32> {
+        self.instance_index
     }
 
     #[inline]

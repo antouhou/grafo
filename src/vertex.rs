@@ -67,3 +67,173 @@ impl TexturedVertex {
         }
     }
 }
+
+/// Transform matrix for per-instance data
+/// Represents a 4x4 transformation matrix stored as 4 vec4s for GPU compatibility
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct TransformInstance {
+    pub(crate) transform: [[f32; 4]; 4],
+}
+
+impl TransformInstance {
+    /// Creates a new identity transform
+    pub fn identity() -> Self {
+        Self {
+            transform: [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+        }
+    }
+
+    /// Creates a translation transform
+    pub fn translation(x: f32, y: f32, z: f32) -> Self {
+        Self {
+            transform: [
+                [1.0, 0.0, 0.0, 0.0], // column 0
+                [0.0, 1.0, 0.0, 0.0], // column 1
+                [0.0, 0.0, 1.0, 0.0], // column 2
+                [x, y, z, 1.0],       // column 3 (translation)
+            ],
+        }
+    }
+
+    /// Creates a scaling transform
+    pub fn scale(x: f32, y: f32, z: f32) -> Self {
+        Self {
+            transform: [
+                [x, 0.0, 0.0, 0.0],   // column 0
+                [0.0, y, 0.0, 0.0],   // column 1
+                [0.0, 0.0, z, 0.0],   // column 2
+                [0.0, 0.0, 0.0, 1.0], // column 3
+            ],
+        }
+    }
+
+    /// Creates a rotation transform around the Z axis (2D rotation)
+    pub fn rotation_z(angle_radians: f32) -> Self {
+        let cos_a = angle_radians.cos();
+        let sin_a = angle_radians.sin();
+        Self {
+            transform: [
+                [cos_a, sin_a, 0.0, 0.0],  // column 0
+                [-sin_a, cos_a, 0.0, 0.0], // column 1
+                [0.0, 0.0, 1.0, 0.0],      // column 2
+                [0.0, 0.0, 0.0, 1.0],      // column 3
+            ],
+        }
+    }
+
+    /// Creates a combined transform with translation, rotation (Z), and scale
+    pub fn from_trs(translation: [f32; 3], rotation_z: f32, scale: [f32; 3]) -> Self {
+        let cos_r = rotation_z.cos();
+        let sin_r = rotation_z.sin();
+        
+        // For column-major storage: [column][row]
+        Self {
+            transform: [
+                [scale[0] * cos_r, scale[0] * sin_r, 0.0, 0.0], // column 0
+                [scale[1] * -sin_r, scale[1] * cos_r, 0.0, 0.0], // column 1
+                [0.0, 0.0, scale[2], 0.0], // column 2
+                [translation[0], translation[1], translation[2], 1.0], // column 3
+            ],
+        }
+    }
+
+    /// Multiplies this transform by another transform (matrix multiplication)
+    /// Returns a new TransformInstance representing the combined transformation
+    /// Note: matrices are stored in column-major order
+    pub fn multiply(&self, other: &TransformInstance) -> Self {
+        let a = &self.transform;
+        let b = &other.transform;
+        
+        let mut result = [[0.0; 4]; 4];
+        
+        // For column-major matrices: result[col][row] = sum(a[k][row] * b[col][k])
+        for col in 0..4 {
+            for row in 0..4 {
+                for k in 0..4 {
+                    result[col][row] += a[k][row] * b[col][k];
+                }
+            }
+        }
+        
+        Self { transform: result }
+    }
+
+    /// Chains a translation transformation to this transform
+    pub fn then_translate(self, x: f32, y: f32, z: f32) -> Self {
+        let translation = Self::translation(x, y, z);
+        translation.multiply(&self)
+    }
+
+    /// Chains a rotation transformation to this transform
+    pub fn then_rotate_z(self, angle_radians: f32) -> Self {
+        let rotation = Self::rotation_z(angle_radians);
+        rotation.multiply(&self)
+    }
+
+    /// Chains a scale transformation to this transform
+    pub fn then_scale(self, x: f32, y: f32, z: f32) -> Self {
+        let scale = Self::scale(x, y, z);
+        scale.multiply(&self)
+    }
+
+    /// Applies a translation transformation to this transform (modifies in place)
+    pub fn translate(&mut self, x: f32, y: f32, z: f32) -> &mut Self {
+        let translation = Self::translation(x, y, z);
+        *self = translation.multiply(self);
+        self
+    }
+
+    /// Applies a rotation transformation to this transform (modifies in place)
+    pub fn rotate_z(&mut self, angle_radians: f32) -> &mut Self {
+        let rotation = Self::rotation_z(angle_radians);
+        *self = rotation.multiply(self);
+        self
+    }
+
+    /// Applies a scale transformation to this transform (modifies in place)
+    pub fn scale_by(&mut self, x: f32, y: f32, z: f32) -> &mut Self {
+        let scale = Self::scale(x, y, z);
+        *self = scale.multiply(self);
+        self
+    }
+
+    /// Vertex buffer layout for instance data
+    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<TransformInstance>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                // Transform matrix row 0
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x4,
+                    offset: 0,
+                    shader_location: 3,
+                },
+                // Transform matrix row 1
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x4,
+                    offset: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+                    shader_location: 4,
+                },
+                // Transform matrix row 2
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x4,
+                    offset: (2 * std::mem::size_of::<[f32; 4]>()) as wgpu::BufferAddress,
+                    shader_location: 5,
+                },
+                // Transform matrix row 3
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x4,
+                    offset: (3 * std::mem::size_of::<[f32; 4]>()) as wgpu::BufferAddress,
+                    shader_location: 6,
+                },
+            ],
+        }
+    }
+}

@@ -89,6 +89,7 @@ use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
+use crate::vertex::TransformInstance;
 use crate::{CachedShape, Color, FontFamily, IntoCowBuffer, NoopTextDataIter};
 use ahash::{HashMap, HashMapExt};
 use glyphon::{fontdb, FontSystem, Resolution, SwashCache};
@@ -263,11 +264,14 @@ pub struct Renderer<'a> {
 
     temp_vertices: Vec<crate::vertex::CustomVertex>,
     temp_indices: Vec<u16>,
+    temp_transforms: Vec<TransformInstance>,
 
     /// Reusable aggregated vertex buffer
     aggregated_vertex_buffer: Option<wgpu::Buffer>,
     /// Reusable aggregated index buffer  
     aggregated_index_buffer: Option<wgpu::Buffer>,
+    /// Reusable aggregated transform buffer
+    aggregated_transform_buffer: Option<wgpu::Buffer>,
 
     shape_cache: HashMap<u64, CachedShape>,
 }
@@ -489,8 +493,10 @@ impl<'a> Renderer<'a> {
 
             temp_vertices: Vec::new(),
             temp_indices: Vec::new(),
+            temp_transforms: Vec::new(),
             aggregated_vertex_buffer: None,
             aggregated_index_buffer: None,
+            aggregated_transform_buffer: None,
 
             shape_cache: HashMap::new(),
         }
@@ -619,6 +625,80 @@ impl<'a> Renderer<'a> {
         )
     }
 
+    /// Adds a shape to the draw queue with a 3D transform matrix.
+    ///
+    /// # Parameters
+    ///
+    /// - `shape`: The shape to be rendered.
+    /// - `clip_to_shape`: Optional index of another shape to which this shape should be clipped.
+    /// - `transform`: The 3D transformation matrix to apply to the shape.
+    /// - `cache_key`: Optional key for caching tessellated buffers.
+    ///
+    /// # Returns
+    ///
+    /// The index of the added shape, which can be used for clipping other shapes.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use futures::executor::block_on;
+    /// use winit::application::ApplicationHandler;
+    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
+    /// use winit::window::Window;
+    /// use grafo::Renderer;
+    /// use grafo::Shape;
+    /// use grafo::Color;
+    /// use grafo::Stroke;
+    /// use grafo::vertex::TransformInstance;
+    ///
+    /// // This is for demonstration purposes only
+    /// struct App;
+    /// impl ApplicationHandler for App {
+    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    ///         let window_surface = Arc::new(
+    ///             event_loop.create_window(Window::default_attributes()).unwrap()
+    ///         );
+    ///         let physical_size = (800, 600);
+    ///         let scale_factor = 1.0;
+    ///
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    /// 
+    ///         // Create a transform with translation, rotation, and scale
+    ///         let transform = TransformInstance::from_trs(
+    ///             [50.0, 50.0, 0.0],  // translation
+    ///             0.5,                 // rotation around Z axis
+    ///             [1.2, 1.2, 1.0]     // scale
+    ///         );
+    /// 
+    ///         let shape_id = renderer.add_shape_with_transform(
+    ///             Shape::rect(
+    ///                 [(0.0, 0.0), (100.0, 50.0)],
+    ///                 Color::rgb(255, 0, 0),
+    ///                 Stroke::new(2.0, Color::BLACK),
+    ///             ),
+    ///             None,
+    ///             transform,
+    ///             None
+    ///         );
+    ///     }
+    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
+    /// }
+    /// ```
+    pub fn add_shape_with_transform(
+        &mut self,
+        shape: impl Into<Shape>,
+        clip_to_shape: Option<usize>,
+        transform: TransformInstance,
+        cache_key: Option<u64>,
+    ) -> usize {
+        // Convert shape to use zero offset since transform handles positioning
+        self.add_draw_command(
+            DrawCommand::Shape(ShapeDrawData::new_with_transform(shape, transform, cache_key)),
+            clip_to_shape,
+        )
+    }
+
     pub fn load_shape(
         &mut self,
         shape: impl AsRef<Shape>,
@@ -647,6 +727,19 @@ impl<'a> Renderer<'a> {
     ) -> usize {
         self.add_draw_command(
             DrawCommand::CachedShape(CachedShapeDrawData::new(cache_key, offset)),
+            clip_to_shape,
+        )
+    }
+
+    pub fn add_cached_shape_to_the_render_queue_with_transform(
+        &mut self,
+        cache_key: u64,
+        clip_to_shape: Option<usize>,
+        offset: (f32, f32),
+        transform: crate::vertex::TransformInstance,
+    ) -> usize {
+        self.add_draw_command(
+            DrawCommand::CachedShape(CachedShapeDrawData::new_with_transform(cache_key, offset, transform)),
             clip_to_shape,
         )
     }
@@ -876,6 +969,7 @@ impl<'a> Renderer<'a> {
     ) -> Result<(), wgpu::SurfaceError> {
         self.temp_vertices.clear();
         self.temp_indices.clear();
+        self.temp_transforms.clear();
 
         let draw_tree_size = self.draw_tree.len();
 
@@ -886,6 +980,7 @@ impl<'a> Renderer<'a> {
         let scale_factor = self.scale_factor;
 
         // First pass: tessellate all shapes and aggregate vertex/index data
+        let mut instance_counter = 0u32;
         for (node_id, draw_command) in self.draw_tree.iter_mut() {
             match draw_command {
                 DrawCommand::Shape(ref mut shape) => {
@@ -903,6 +998,9 @@ impl<'a> Renderer<'a> {
                     let index_start = self.temp_indices.len();
                     let vertex_offset = vertex_start as u16;
 
+                    println!("Shape {}: vertex_start={}, index_start={}, vertex_count={}, index_count={}", 
+                        instance_counter, vertex_start, index_start, vertex_buffers.vertices.len(), vertex_buffers.indices.len());
+
                     self.temp_vertices
                         .extend_from_slice(&vertex_buffers.vertices);
 
@@ -913,7 +1011,16 @@ impl<'a> Renderer<'a> {
 
                     let index_count = vertex_buffers.indices.len();
 
+                    // Add transform instance (use transform or identity)
+                    let transform = shape.transform.unwrap_or_else(|| {
+                        // For shapes without transforms, create a transform that applies the offset
+                        TransformInstance::translation(shape.offset.0, shape.offset.1, 0.0)
+                    });
+                    self.temp_transforms.push(transform);
+
                     shape.index_buffer_range = Some((index_start, index_count));
+                    shape.instance_index = Some(instance_counter);
+                    instance_counter += 1;
                 }
                 DrawCommand::Image(ref mut image) => {
                     image.prepare(
@@ -960,7 +1067,22 @@ impl<'a> Renderer<'a> {
 
                         let index_count = vertex_buffers.indices.len();
 
+                        // Add transform for cached shape
+                        let transform = if let Some(transform) = cached_shape_data.transform {
+                            transform
+                        } else {
+                            // Fallback to translation transform using offset
+                            TransformInstance::translation(
+                                cached_shape_data.offset.0, 
+                                cached_shape_data.offset.1, 
+                                0.0
+                            )
+                        };
+                        self.temp_transforms.push(transform);
+
                         cached_shape_data.index_buffer_range = Some((index_start, index_count));
+                        cached_shape_data.instance_index = Some(instance_counter);
+                        instance_counter += 1;
                     } else {
                         println!("Warning: Cached shape not found in cache");
                     }
@@ -1023,6 +1145,34 @@ impl<'a> Renderer<'a> {
             }
         }
 
+        // Create or update aggregated transform buffer
+        if !self.temp_transforms.is_empty() {
+            let required_transform_size = std::mem::size_of_val(&self.temp_transforms[..]);
+
+            // Check if we need to reallocate the transform buffer
+            let needs_realloc = self
+                .aggregated_transform_buffer
+                .as_ref()
+                .map(|buffer| buffer.size() < required_transform_size as u64)
+                .unwrap_or(true);
+
+            if needs_realloc {
+                self.aggregated_transform_buffer =
+                    Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                        label: Some("Aggregated Transform Buffer"),
+                        contents: bytemuck::cast_slice(&self.temp_transforms),
+                        usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                    }));
+            } else {
+                // Update existing buffer content
+                self.queue.write_buffer(
+                    self.aggregated_transform_buffer.as_ref().unwrap(),
+                    0,
+                    bytemuck::cast_slice(&self.temp_transforms),
+                );
+            }
+        }
+
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -1047,6 +1197,7 @@ impl<'a> Renderer<'a> {
         let buffers = Buffers {
             aggregated_vertex_buffer: self.aggregated_vertex_buffer.as_ref().unwrap(),
             aggregated_index_buffer: self.aggregated_index_buffer.as_ref().unwrap(),
+            aggregated_transform_buffer: self.aggregated_transform_buffer.as_ref().unwrap(),
         };
 
         {
@@ -1691,6 +1842,7 @@ impl<'a> Renderer<'a> {
 struct Buffers<'a> {
     aggregated_vertex_buffer: &'a wgpu::Buffer,
     aggregated_index_buffer: &'a wgpu::Buffer,
+    aggregated_transform_buffer: &'a wgpu::Buffer,
 }
 
 struct Pipelines<'a> {
@@ -1709,11 +1861,10 @@ fn handle_increment_pass<'rp>(
     pipelines: &Pipelines,
     buffers: &Buffers,
 ) {
-    if let Some(index_range) = shape.index_buffer_range() {
+    if let (Some(index_range), Some(instance_index)) = (shape.index_buffer_range(), shape.instance_index()) {
         if shape.is_empty() {
             return;
         }
-
         if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
             render_pass.set_pipeline(pipelines.and_pipeline);
             render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
@@ -1721,6 +1872,7 @@ fn handle_increment_pass<'rp>(
             // Those pipelines use the same vertex buffers
             if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, buffers.aggregated_transform_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
@@ -1734,7 +1886,7 @@ fn handle_increment_pass<'rp>(
         let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
 
         // Render increment pass with parent stencil
-        render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
+        render_buffer_range_to_texture(index_range, instance_index, render_pass, parent_stencil);
 
         // Assign and push this node's stencil reference (parent + 1)
         let this_stencil = parent_stencil + 1;
@@ -1754,7 +1906,7 @@ fn handle_decrement_pass<'rp>(
     pipelines: &Pipelines,
     buffers: &Buffers,
 ) {
-    if let Some(index_range) = shape.index_buffer_range() {
+    if let (Some(index_range), Some(instance_index)) = (shape.index_buffer_range(), shape.instance_index()) {
         if shape.is_empty() {
             return;
         }
@@ -1765,6 +1917,7 @@ fn handle_decrement_pass<'rp>(
 
             if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, buffers.aggregated_transform_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
@@ -1777,7 +1930,7 @@ fn handle_decrement_pass<'rp>(
         // Use this node's stored stencil reference and then pop the stack
         let this_shape_stencil = shape.stencil_ref_mut().unwrap_or(0);
 
-        render_buffer_range_to_texture(index_range, render_pass, this_shape_stencil);
+        render_buffer_range_to_texture(index_range, instance_index, render_pass, this_shape_stencil);
 
         if shape.stencil_ref_mut().is_some() {
             stencil_stack.pop();
