@@ -38,14 +38,17 @@ fn to_srgb(color: vec3<f32>) -> vec3<f32> {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    // NDC stands for Normalized Device Coordinates. It's a coordinate system where the visible area of the screen
-    // is a cube with corners (-1, -1, -1) and (1, 1, 1).
-    let ndc_x = 2.0 * input.position.x / uniforms.canvas_size.x - 1.0;
-    let ndc_y = 1.0 - 2.0 * input.position.y / uniforms.canvas_size.y;
-    // Build the transform matrix and apply it AFTER normalization so shapes keep their size
+    // Build the transform matrix
     let model: mat4x4<f32> = mat4x4<f32>(input.t_col0, input.t_col1, input.t_col2, input.t_col3);
-    let clip_pos = vec4<f32>(ndc_x, ndc_y, input.depth, 1.0);
-    output.position = model * clip_pos;
+
+    // Apply the per-instance transform in pixel space first
+    let world_pos = model * vec4<f32>(input.position, 0.0, 1.0);
+
+    // Then convert to NDC (Normalized Device Coordinates)
+    // NDC is a cube with corners (-1, -1, -1) and (1, 1, 1).
+    let ndc_x = 2.0 * world_pos.x / uniforms.canvas_size.x - 1.0;
+    let ndc_y = 1.0 - 2.0 * world_pos.y / uniforms.canvas_size.y;
+    output.position = vec4<f32>(ndc_x, ndc_y, input.depth, 1.0);
     output.color = input.color;
     return output;
 }
