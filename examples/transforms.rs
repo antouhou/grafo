@@ -1,7 +1,12 @@
+use euclid::{default::Transform3D, Angle};
 use futures::executor::block_on;
 use grafo::Shape;
 use grafo::{Color, Stroke};
-use euclid::{default::Transform3D, Angle};
+use lyon::algorithms::hit_test::hit_test_path;
+use lyon::algorithms::math::point as algo_point;
+use lyon::geom::point;
+use lyon::path::FillRule;
+use lyon::path::Path;
 
 // Local converter from euclid to grafo's GPU instance layout so we keep euclid out of the main crate.
 fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstance {
@@ -20,6 +25,30 @@ fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstan
         col3: [m.m41, m.m42, m.m43, m.m44],
     }
 }
+
+// Convert world point (in pixels) into shape-local coordinates using the same 2D affine
+// that the shader applies: world = A * local + t, where
+//   A = [[m11, m12], [m21, m22]] and t = [m41, m42].
+// Returns None if the transform is not invertible.
+fn world_to_local_2d(tx: &Transform3D<f32>, world: (f32, f32)) -> Option<(f32, f32)> {
+    let a = tx.m11;
+    let b = tx.m12;
+    let c = tx.m21;
+    let d = tx.m22;
+    let tx_ = tx.m41;
+    let ty_ = tx.m42;
+    let det = a * d - b * c;
+    if det.abs() < 1e-6 {
+        return None;
+    }
+    let inv_det = 1.0 / det;
+    let wx = world.0 - tx_;
+    let wy = world.1 - ty_;
+    // inv(A) * (w - t)
+    let lx = (d * wx - b * wy) * inv_det;
+    let ly = (-c * wx + a * wy) * inv_det;
+    Some((lx, ly))
+}
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -31,6 +60,20 @@ struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
     angle: f32,
+    // Last mouse position in physical pixels (window space)
+    last_mouse_pos: Option<(f32, f32)>,
+    // Window scale factor
+    scale_factor: f64,
+    // Lyon paths for our rectangles (local space, origin at (0,0))
+    red_path: Path,
+    green_path: Path,
+    blue_path: Path,
+    heart_path: Path,
+    // Base and hover colors
+    red_color: (Color, Color),
+    green_color: (Color, Color),
+    blue_color: (Color, Color),
+    heart_color: (Color, Color),
 }
 
 impl<'a> ApplicationHandler for App<'a> {
@@ -54,6 +97,35 @@ impl<'a> ApplicationHandler for App<'a> {
             false, // transparent
         ));
 
+        // Prepare lyon paths for rectangles (200x100 at local origin)
+        let build_rect_path = || {
+            let mut pb = lyon::path::Path::builder();
+            pb.begin(point(0.0, 0.0));
+            pb.line_to(point(200.0, 0.0));
+            pb.line_to(point(200.0, 100.0));
+            pb.line_to(point(0.0, 100.0));
+            pb.close();
+            pb.build()
+        };
+
+        self.red_path = build_rect_path();
+        self.green_path = build_rect_path();
+        self.blue_path = build_rect_path();
+        // Build a heart shape path centered near (0,0)
+        let mut hb = lyon::path::Path::builder();
+        hb.begin(point(0.0, 30.0));
+        hb.cubic_bezier_to(point(0.0, 0.0), point(50.0, 0.0), point(50.0, 30.0));
+        hb.cubic_bezier_to(point(50.0, 55.0), point(25.0, 77.0), point(0.0, 100.0));
+        hb.cubic_bezier_to(point(-25.0, 77.0), point(-50.0, 55.0), point(-50.0, 30.0));
+        hb.cubic_bezier_to(point(-50.0, 0.0), point(0.0, 0.0), point(0.0, 30.0));
+        hb.close();
+        self.heart_path = hb.build();
+        self.red_color = (Color::rgb(200, 60, 60), Color::rgb(255, 120, 120));
+        self.green_color = (Color::rgb(60, 200, 60), Color::rgb(120, 255, 120));
+        self.blue_color = (Color::rgb(60, 60, 200), Color::rgb(120, 120, 255));
+        self.heart_color = (Color::rgb(220, 0, 90), Color::rgb(255, 80, 150));
+
+        self.scale_factor = scale_factor;
         self.window = Some(window);
         self.renderer = Some(renderer);
     }
@@ -75,6 +147,19 @@ impl<'a> ApplicationHandler for App<'a> {
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CursorMoved { position, .. } => {
+                // Convert logical coords to physical pixels for consistency with our world space
+                let (x, y) = (
+                    position.x as f32 * self.scale_factor as f32,
+                    position.y as f32 * self.scale_factor as f32,
+                );
+                self.last_mouse_pos = Some((x, y));
+                window.request_redraw();
+            }
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                self.scale_factor = scale_factor;
+                window.request_redraw();
+            }
             WindowEvent::Resized(physical_size) => {
                 let new_size = (physical_size.width, physical_size.height);
                 renderer.resize(new_size);
@@ -84,52 +169,97 @@ impl<'a> ApplicationHandler for App<'a> {
                 let background = Shape::rect(
                     [
                         (0.0, 0.0),
-                        (window.inner_size().width as f32, window.inner_size().height as f32),
+                        (
+                            window.inner_size().width as f32,
+                            window.inner_size().height as f32,
+                        ),
                     ],
-                    Color::BLACK, // Magenta background
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)), // Black stroke
+                    Color::BLACK,
+                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
                 renderer.add_shape(background, None, (0.0, 0.0), None);
 
-                // Re-add shapes each frame and apply per-shape transforms
-                let red = renderer.add_shape(
-                    Shape::rect(
-                        [(0.0, 0.0), (200.0, 100.0)],
-                        Color::rgb(200, 60, 60),
-                        Stroke::new(2.0, Color::BLACK),
-                    ),
-                    None,
-                    (0.0, 0.0),
-                    None,
-                );
-                let green = renderer.add_shape(
-                    Shape::rect(
-                        [(0.0, 0.0), (200.0, 100.0)],
-                        Color::rgb(60, 200, 60),
-                        Stroke::new(2.0, Color::BLACK),
-                    ),
-                    None,
-                    (0.0, 0.0),
-                    None,
-                );
-                let blue = renderer.add_shape(
-                    Shape::rect(
-                        [(0.0, 0.0), (200.0, 100.0)],
-                        Color::rgb(60, 60, 200),
-                        Stroke::new(2.0, Color::BLACK),
-                    ),
-                    None,
-                    (0.0, 0.0),
-                    None,
-                );
+                // Compute transforms in euclid space (same as before)
+                let red_tx = Transform3D::rotation(0.0, 0.0, 1.0, Angle::degrees(45.0))
+                    .then(&Transform3D::translation(100.0, 100.0, 0.0));
+                let green_tx = Transform3D::scale(0.5, 0.5, 1.0)
+                    .then(&Transform3D::translation(400.0, 100.0, 0.0));
+                let blue_tx = Transform3D::translation(100.0, 300.0, 0.0);
 
-                renderer.set_shape_transform(red, transform_instance_from_euclid(
-                    Transform3D::
-                        rotation(0.0, 0.0, 1.0, Angle::degrees(45.0))
-                        .then(&Transform3D::translation(100.0, 100.0, 0.0))
+                // Hover detection: transform mouse point back into local space and test against path's bbox
+                let mouse = self.last_mouse_pos;
+                let is_hover =
+                    |path: &Path, tx: &Transform3D<f32>, mouse: Option<(f32, f32)>| -> bool {
+                        let Some((mx, my)) = mouse else {
+                            return false;
+                        };
+                        if let Some((lx, ly)) = world_to_local_2d(tx, (mx, my)) {
+                            return hit_test_path(
+                                &algo_point(lx, ly),
+                                path.iter(),
+                                FillRule::NonZero,
+                                0.01,
+                            );
+                        }
+                        false
+                    };
+
+                let red_hover = is_hover(&self.red_path, &red_tx, mouse);
+                let green_hover = is_hover(&self.green_path, &green_tx, mouse);
+                let blue_hover = is_hover(&self.blue_path, &blue_tx, mouse);
+                // Heart transform: scale and rotate a bit, then translate
+                let heart_tx = Transform3D::scale(1.8, 1.8, 1.0)
+                    .then(&Transform3D::rotation(0.0, 0.0, 1.0, Angle::degrees(-20.0)))
+                    .then(&Transform3D::translation(450.0, 300.0, 0.0));
+                let heart_hover = is_hover(&self.heart_path, &heart_tx, mouse);
+
+                // Re-add shapes each frame using lyon paths for hit testing and dynamic color
+                let red_shape = Shape::Path(grafo::PathShape::new(
+                    self.red_path.clone(),
+                    if red_hover {
+                        self.red_color.1
+                    } else {
+                        self.red_color.0
+                    },
+                    Stroke::new(2.0, Color::BLACK),
                 ));
-                renderer.set_shape_transform(green, transform_instance_from_euclid(Transform3D::scale(0.5, 0.5, 1.0).then(&Transform3D::translation(400.0, 100.0, 0.0))));
-                renderer.set_shape_transform(blue, transform_instance_from_euclid(Transform3D::translation(100.0, 300.0, 0.0)));
+                let green_shape = Shape::Path(grafo::PathShape::new(
+                    self.green_path.clone(),
+                    if green_hover {
+                        self.green_color.1
+                    } else {
+                        self.green_color.0
+                    },
+                    Stroke::new(2.0, Color::BLACK),
+                ));
+                let blue_shape = Shape::Path(grafo::PathShape::new(
+                    self.blue_path.clone(),
+                    if blue_hover {
+                        self.blue_color.1
+                    } else {
+                        self.blue_color.0
+                    },
+                    Stroke::new(2.0, Color::BLACK),
+                ));
+                let heart_shape = Shape::Path(grafo::PathShape::new(
+                    self.heart_path.clone(),
+                    if heart_hover {
+                        self.heart_color.1
+                    } else {
+                        self.heart_color.0
+                    },
+                    Stroke::new(2.0, Color::BLACK),
+                ));
+
+                let red = renderer.add_shape(red_shape, None, (0.0, 0.0), None);
+                let green = renderer.add_shape(green_shape, None, (0.0, 0.0), None);
+                let blue = renderer.add_shape(blue_shape, None, (0.0, 0.0), None);
+                let heart = renderer.add_shape(heart_shape, None, (0.0, 0.0), None);
+
+                renderer.set_shape_transform(red, transform_instance_from_euclid(red_tx));
+                renderer.set_shape_transform(green, transform_instance_from_euclid(green_tx));
+                renderer.set_shape_transform(blue, transform_instance_from_euclid(blue_tx));
+                renderer.set_shape_transform(heart, transform_instance_from_euclid(heart_tx));
 
                 // Advance animation angle
                 self.angle = (self.angle + 0.02) % (std::f32::consts::TAU);
@@ -153,6 +283,21 @@ pub fn main() {
     env_logger::init();
     let event_loop = EventLoop::new().expect("To create the event loop");
 
-    let mut app = App::default();
+    // Initialize app with defaults and placeholders; actual renderer/window set on resume
+    let mut app = App {
+        window: None,
+        renderer: None,
+        angle: 0.0,
+        last_mouse_pos: None,
+        scale_factor: 1.0,
+        red_path: Path::new(),
+        green_path: Path::new(),
+        blue_path: Path::new(),
+        heart_path: Path::new(),
+        red_color: (Color::rgb(200, 60, 60), Color::rgb(255, 120, 120)),
+        green_color: (Color::rgb(60, 200, 60), Color::rgb(120, 255, 120)),
+        blue_color: (Color::rgb(60, 60, 200), Color::rgb(120, 120, 255)),
+        heart_color: (Color::rgb(220, 0, 90), Color::rgb(255, 80, 150)),
+    };
     let _ = event_loop.run_app(&mut app);
 }

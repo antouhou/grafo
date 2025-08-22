@@ -81,7 +81,6 @@ impl InstanceTransform {
         }
     }
 
-
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         let stride = std::mem::size_of::<InstanceTransform>() as wgpu::BufferAddress;
         wgpu::VertexBufferLayout {

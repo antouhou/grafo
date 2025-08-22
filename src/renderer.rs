@@ -89,9 +89,9 @@ use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
 use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
+use crate::vertex::InstanceTransform;
 use crate::{CachedShape, Color, FontFamily, IntoCowBuffer, NoopTextDataIter};
 use ahash::{HashMap, HashMapExt};
-use crate::vertex::InstanceTransform;
 use glyphon::{fontdb, FontSystem, Resolution, SwashCache};
 use log::warn;
 use lyon::tessellation::FillTessellator;
@@ -887,8 +887,8 @@ impl<'a> Renderer<'a> {
         custom_text_instances: Option<impl Iterator<Item = TextDrawData<'b>>>,
     ) -> Result<(), wgpu::SurfaceError> {
         self.temp_vertices.clear();
-    self.temp_indices.clear();
-    self.temp_instance_transforms.clear();
+        self.temp_indices.clear();
+        self.temp_instance_transforms.clear();
 
         let draw_tree_size = self.draw_tree.len();
 
@@ -898,8 +898,8 @@ impl<'a> Renderer<'a> {
         let physical_size = self.physical_size;
         let scale_factor = self.scale_factor;
 
-    // First pass: tessellate all shapes and aggregate vertex/index and instance data
-    for (node_id, draw_command) in self.draw_tree.iter_mut() {
+        // First pass: tessellate all shapes and aggregate vertex/index and instance data
+        for (node_id, draw_command) in self.draw_tree.iter_mut() {
             match draw_command {
                 DrawCommand::Shape(ref mut shape) => {
                     let depth = depth(node_id, draw_tree_size);
@@ -930,7 +930,9 @@ impl<'a> Renderer<'a> {
 
                     // Collect instance transform (identity for now; Stage 3 can expose real transforms)
                     let instance_idx = self.temp_instance_transforms.len();
-                    let transform = shape.transform().unwrap_or_else(InstanceTransform::identity);
+                    let transform = shape
+                        .transform()
+                        .unwrap_or_else(InstanceTransform::identity);
                     self.temp_instance_transforms.push(transform);
                     *shape.instance_index_mut() = Some(instance_idx);
                 }
@@ -1023,7 +1025,7 @@ impl<'a> Renderer<'a> {
             }
         }
 
-    if !self.temp_indices.is_empty() {
+        if !self.temp_indices.is_empty() {
             let required_index_size = std::mem::size_of_val(&self.temp_indices[..]);
 
             // Check if we need to reallocate the index buffer
@@ -1053,14 +1055,15 @@ impl<'a> Renderer<'a> {
         // Ensure identity instance buffer exists before we start setting up passes
         if self.identity_instance_buffer.is_none() {
             let identity = crate::vertex::InstanceTransform::identity();
-            self.identity_instance_buffer = Some(self.device.create_buffer_init(&BufferInitDescriptor {
-                label: Some("Identity Instance Buffer"),
-                contents: bytemuck::cast_slice(&[identity]),
-                usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            }));
+            self.identity_instance_buffer =
+                Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Identity Instance Buffer"),
+                    contents: bytemuck::cast_slice(&[identity]),
+                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                }));
         }
 
-    let mut encoder = self
+        let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("And Command Encoder"),
@@ -1074,7 +1077,7 @@ impl<'a> Renderer<'a> {
         let depth_texture =
             create_and_depth_texture(&self.device, (self.physical_size.0, self.physical_size.1));
 
-    let pipelines = Pipelines {
+        let pipelines = Pipelines {
             and_pipeline: &self.and_pipeline,
             and_bind_group: &self.and_bind_group,
             decrementing_pipeline: &self.decrementing_pipeline,
@@ -1090,11 +1093,12 @@ impl<'a> Renderer<'a> {
                 .map(|buffer| buffer.size() < required_instance_size as u64)
                 .unwrap_or(true);
             if needs_realloc {
-                self.aggregated_instance_buffer = Some(self.device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Aggregated Instance Buffer"),
-                    contents: bytemuck::cast_slice(&self.temp_instance_transforms),
-                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-                }));
+                self.aggregated_instance_buffer =
+                    Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                        label: Some("Aggregated Instance Buffer"),
+                        contents: bytemuck::cast_slice(&self.temp_instance_transforms),
+                        usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                    }));
             } else {
                 self.queue.write_buffer(
                     self.aggregated_instance_buffer.as_ref().unwrap(),
@@ -1111,7 +1115,7 @@ impl<'a> Renderer<'a> {
             aggregated_instance_buffer: self.aggregated_instance_buffer.as_ref(),
         };
 
-    {
+        {
             let depth_texture_view =
                 depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -1374,7 +1378,7 @@ impl<'a> Renderer<'a> {
     pub fn clear_draw_queue(&mut self) {
         self.draw_tree.clear();
         self.text_instances.clear();
-    self.metadata_to_clips.clear();
+        self.metadata_to_clips.clear();
     }
 
     /// Adds a generic draw command to the draw tree.
@@ -1404,7 +1408,12 @@ impl<'a> Renderer<'a> {
     /// Sets a 4x4 column-major transform for a shape or cached shape.
     /// The transform is applied in clip space AFTER pixel-to-NDC normalization in the shader.
     pub fn set_shape_transform_cols(&mut self, node_id: usize, cols: [[f32; 4]; 4]) {
-        let t = InstanceTransform { col0: cols[0], col1: cols[1], col2: cols[2], col3: cols[3] };
+        let t = InstanceTransform {
+            col0: cols[0],
+            col1: cols[1],
+            col2: cols[2],
+            col3: cols[3],
+        };
         self.draw_tree.traverse_mut(
             |id, draw_command, _| {
                 if id == node_id {
@@ -1416,7 +1425,7 @@ impl<'a> Renderer<'a> {
                 }
             },
             |_, _, _| {},
-            &mut ( ),
+            &mut (),
         );
     }
 
@@ -1435,7 +1444,7 @@ impl<'a> Renderer<'a> {
                 }
             },
             |_, _, _| {},
-            &mut ( ),
+            &mut (),
         );
     }
 
