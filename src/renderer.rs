@@ -1414,38 +1414,26 @@ impl<'a> Renderer<'a> {
             col2: cols[2],
             col3: cols[3],
         };
-        self.draw_tree.traverse_mut(
-            |id, draw_command, _| {
-                if id == node_id {
-                    match draw_command {
-                        DrawCommand::Shape(shape) => shape.set_transform(t),
-                        DrawCommand::CachedShape(cached) => cached.set_transform(t),
-                        DrawCommand::Image(_) => {}
-                    }
-                }
-            },
-            |_, _, _| {},
-            &mut (),
-        );
+        if let Some(draw_command) = self.draw_tree.get_mut(node_id) {
+            match draw_command {
+                DrawCommand::Shape(shape) => shape.set_transform(t),
+                DrawCommand::CachedShape(cached) => cached.set_transform(t),
+                DrawCommand::Image(_) => {}
+            }
+        }
     }
 
     /// Sets a transform for a shape or cached shape using any type that can be converted
     /// into a GPU `TransformInstance`.
     pub fn set_shape_transform(&mut self, node_id: usize, m: impl Into<InstanceTransform>) {
         let t: InstanceTransform = m.into();
-        self.draw_tree.traverse_mut(
-            |id, draw_command, _| {
-                if id == node_id {
-                    match draw_command {
-                        DrawCommand::Shape(shape) => shape.set_transform(t),
-                        DrawCommand::CachedShape(cached) => cached.set_transform(t),
-                        DrawCommand::Image(_) => {}
-                    }
-                }
-            },
-            |_, _, _| {},
-            &mut (),
-        );
+        if let Some(draw_command) = self.draw_tree.get_mut(node_id) {
+            match draw_command {
+                DrawCommand::Shape(shape) => shape.set_transform(t),
+                DrawCommand::CachedShape(cached) => cached.set_transform(t),
+                DrawCommand::Image(_) => {}
+            }
+        }
     }
 
     /// Retrieves the current size of the rendering surface.
