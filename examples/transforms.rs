@@ -183,9 +183,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     .then(&Transform3D::translation(100.0, 100.0, 0.0));
                 let green_tx = Transform3D::scale(0.5, 0.5, 1.0)
                     .then(&Transform3D::translation(400.0, 100.0, 0.0));
-                let blue_tx = Transform3D::rotation(0.0, 1.0, 0.0, Angle::degrees(45.0)).then(
-                    &Transform3D::translation(100.0, 300.0, 0.0)
-                );
+                let blue_tx = Transform3D::rotation(0.0, 1.0, 0.0, Angle::degrees(45.0))
+                    .then(&Transform3D::translation(100.0, 300.0, 0.0));
 
                 // Hover detection: transform mouse point back into local space and test against path's bbox
                 let mouse = self.last_mouse_pos;
