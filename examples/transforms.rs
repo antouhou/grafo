@@ -148,16 +148,18 @@ impl<'a> ApplicationHandler for App<'a> {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::CursorMoved { position, .. } => {
-                // Convert logical coords to physical pixels for consistency with our world space
+                // Convert physical coords to logical to match the renderer's logical space
                 let (x, y) = (
-                    position.x as f32 * self.scale_factor as f32,
-                    position.y as f32 * self.scale_factor as f32,
+                    position.x as f32 / self.scale_factor as f32,
+                    position.y as f32 / self.scale_factor as f32,
                 );
                 self.last_mouse_pos = Some((x, y));
                 window.request_redraw();
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.scale_factor = scale_factor;
+                // Propagate DPI change to the renderer so normalization uses the new logical size
+                renderer.change_scale_factor(scale_factor);
                 window.request_redraw();
             }
             WindowEvent::Resized(physical_size) => {
@@ -166,14 +168,11 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                // Background in logical coordinates (renderer normalizes using logical canvas size)
+                let logical_w = window.inner_size().width as f32 / self.scale_factor as f32;
+                let logical_h = window.inner_size().height as f32 / self.scale_factor as f32;
                 let background = Shape::rect(
-                    [
-                        (0.0, 0.0),
-                        (
-                            window.inner_size().width as f32,
-                            window.inner_size().height as f32,
-                        ),
-                    ],
+                    [(0.0, 0.0), (logical_w, logical_h)],
                     Color::BLACK,
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
@@ -184,7 +183,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     .then(&Transform3D::translation(100.0, 100.0, 0.0));
                 let green_tx = Transform3D::scale(0.5, 0.5, 1.0)
                     .then(&Transform3D::translation(400.0, 100.0, 0.0));
-                let blue_tx = Transform3D::translation(100.0, 300.0, 0.0);
+                let blue_tx = Transform3D::rotation(0.0, 1.0, 0.0, Angle::degrees(45.0)).then(
+                    &Transform3D::translation(100.0, 300.0, 0.0)
+                );
 
                 // Hover detection: transform mouse point back into local space and test against path's bbox
                 let mouse = self.last_mouse_pos;
