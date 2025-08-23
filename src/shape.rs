@@ -90,7 +90,7 @@ impl CachedShape {
         for vertex in self.vertex_buffers.vertices.iter_mut() {
             vertex.position[0] += delta.0;
             vertex.position[1] += delta.1;
-            vertex.depth = depth;
+            vertex.order = depth;
         }
     }
 
@@ -111,7 +111,7 @@ impl CachedShape {
     pub fn set_depth(&mut self, depth: f32) {
         self.depth = depth;
         for vertex in self.vertex_buffers.vertices.iter_mut() {
-            vertex.depth = depth;
+            vertex.order = depth;
         }
     }
 }
@@ -267,32 +267,32 @@ impl Shape {
                     CustomVertex {
                         position: [min_width + offset.0, min_height + offset.1],
                         color,
-                        depth,
+                        order: depth,
                     },
                     CustomVertex {
                         position: [max_width + offset.0, min_height + offset.1],
                         color,
-                        depth,
+                        order: depth,
                     },
                     CustomVertex {
                         position: [min_width + offset.0, max_height + offset.1],
                         color,
-                        depth,
+                        order: depth,
                     },
                     CustomVertex {
                         position: [min_width + offset.0, max_height + offset.1],
                         color,
-                        depth,
+                        order: depth,
                     },
                     CustomVertex {
                         position: [max_width + offset.0, min_height + offset.1],
                         color,
-                        depth,
+                        order: depth,
                     },
                     CustomVertex {
                         position: [max_width + offset.0, max_height + offset.1],
                         color,
-                        depth,
+                        order: depth,
                     },
                 ];
                 let indices = [0u16, 1, 2, 3, 4, 5];
@@ -439,7 +439,7 @@ impl FillVertexConstructor<CustomVertex> for VertexConverter {
     fn new_vertex(&mut self, vertex: FillVertex) -> CustomVertex {
         CustomVertex {
             position: vertex.position().to_array(),
-            depth: self.depth,
+            order: self.depth,
             color: self.color,
         }
     }
