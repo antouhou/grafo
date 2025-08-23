@@ -38,6 +38,57 @@ impl CustomVertex {
         }
     }
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct InstanceTransform {
+    pub col0: [f32; 4],
+    pub col1: [f32; 4],
+    pub col2: [f32; 4],
+    pub col3: [f32; 4],
+}
+
+impl InstanceTransform {
+    pub fn identity() -> Self {
+        Self {
+            col0: [1.0, 0.0, 0.0, 0.0],
+            col1: [0.0, 1.0, 0.0, 0.0],
+            col2: [0.0, 0.0, 1.0, 0.0],
+            col3: [0.0, 0.0, 0.0, 1.0],
+        }
+    }
+
+    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        let stride = std::mem::size_of::<InstanceTransform>() as wgpu::BufferAddress;
+        wgpu::VertexBufferLayout {
+            array_stride: stride,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x4,
+                    offset: 0,
+                    shader_location: 3,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x4,
+                    offset: 16,
+                    shader_location: 4,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x4,
+                    offset: 32,
+                    shader_location: 5,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x4,
+                    offset: 48,
+                    shader_location: 6,
+                },
+            ],
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct TexturedVertex {

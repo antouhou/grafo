@@ -990,6 +990,7 @@ dependencies = [
  "bytemuck",
  "easy-tree",
  "env_logger",
+ "euclid",
  "futures",
  "glyphon",
  "image",
