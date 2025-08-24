@@ -49,6 +49,7 @@ fn world_to_local_2d(tx: &Transform3D<f32>, world: (f32, f32)) -> Option<(f32, f
     let ly = (-c * wx + a * wy) * inv_det;
     Some((lx, ly))
 }
+use image::ImageReader;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -74,6 +75,9 @@ struct App<'a> {
     green_color: (Color, Color),
     blue_color: (Color, Color),
     heart_color: (Color, Color),
+    rust_logo_png_dimensions: (u32, u32),
+    rust_logo_png_bytes: Vec<u8>,
+    rust_logo_texture_id: u64,
 }
 
 impl<'a> ApplicationHandler for App<'a> {
@@ -96,6 +100,25 @@ impl<'a> ApplicationHandler for App<'a> {
             true,  // vsync
             false, // transparent
         ));
+
+        let rust_logo_png_bytes = include_bytes!("assets/rust-logo-256x256-blk.png");
+        let rust_logo_png = ImageReader::new(std::io::Cursor::new(rust_logo_png_bytes))
+            .with_guessed_format()
+            .unwrap()
+            .decode()
+            .unwrap();
+        let rust_logo_rgba = rust_logo_png.as_rgba8().unwrap();
+        let rust_logo_png_dimensions = rust_logo_rgba.dimensions();
+        let rust_logo_png_bytes = rust_logo_rgba.to_vec();
+
+        self.rust_logo_png_dimensions = rust_logo_png_dimensions;
+        self.rust_logo_png_bytes = rust_logo_png_bytes;
+        self.rust_logo_texture_id = 100;
+        renderer.texture_manager().allocate_texture_with_data(
+            self.rust_logo_texture_id,
+            self.rust_logo_png_dimensions,
+            &self.rust_logo_png_bytes,
+        );
 
         // Prepare lyon paths for rectangles (200x100 at local origin)
         let build_rect_path = || {
@@ -256,6 +279,8 @@ impl<'a> ApplicationHandler for App<'a> {
                 let blue = renderer.add_shape(blue_shape, None, (0.0, 0.0), None);
                 let heart = renderer.add_shape(heart_shape, None, (0.0, 0.0), None);
 
+                renderer.set_shape_texture(blue, Some(self.rust_logo_texture_id));
+
                 renderer.set_shape_transform(red, transform_instance_from_euclid(red_tx));
                 renderer.set_shape_transform(green, transform_instance_from_euclid(green_tx));
                 renderer.set_shape_transform(blue, transform_instance_from_euclid(blue_tx));
@@ -298,6 +323,9 @@ pub fn main() {
         green_color: (Color::rgb(60, 200, 60), Color::rgb(120, 255, 120)),
         blue_color: (Color::rgb(60, 60, 200), Color::rgb(120, 120, 255)),
         heart_color: (Color::rgb(220, 0, 90), Color::rgb(255, 80, 150)),
+        rust_logo_png_dimensions: (0, 0),
+        rust_logo_png_bytes: Vec::new(),
+        rust_logo_texture_id: 0,
     };
     let _ = event_loop.run_app(&mut app);
 }

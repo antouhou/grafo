@@ -7,11 +7,14 @@ struct VertexInput {
     @location(4) t_col1: vec4<f32>,
     @location(5) t_col2: vec4<f32>,
     @location(6) t_col3: vec4<f32>,
+    // Optional texture coordinates for shape texturing
+    @location(7) tex_coords: vec2<f32>,
 };
 
 struct VertexOutput {
     @invariant @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
+    @location(1) tex_coords: vec2<f32>,
 };
 
 // This is a struct that will be used for position normalization
@@ -20,6 +23,9 @@ struct Uniforms {
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+// Texture/sampler for optional shape texturing. A default white texture can be bound when unused.
+@group(1) @binding(0) var t_shape: texture_2d<f32>;
+@group(1) @binding(1) var s_shape: sampler;
 
 fn to_linear(color: vec3<f32>) -> vec3<f32> {
     let cutoff = vec3<f32>(0.04045);
@@ -50,13 +56,16 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     let ndc_y = 1.0 - 2.0 * world_pos.y / uniforms.canvas_size.y;
     output.position = vec4<f32>(ndc_x, ndc_y, input.depth, 1.0);
     output.color = input.color;
+    output.tex_coords = input.tex_coords;
     return output;
 }
 
 @fragment
-fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
+fn fs_main(@location(0) color: vec4<f32>, @location(1) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     // Convert input color from sRGB to linear space that shader expects
     let linear_color = vec4<f32>(to_linear(color.rgb), color.a);
-
-    return linear_color;
+    // Sample texture (if default white is bound this will be a no-op multiplier)
+    let tex_color = textureSample(t_shape, s_shape, tex_coords);
+    // For sRGB textures, sampling returns linear; multiply in linear space
+    return vec4<f32>(linear_color.rgb * tex_color.rgb, linear_color.a * tex_color.a);
 }

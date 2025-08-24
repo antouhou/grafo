@@ -249,6 +249,35 @@ impl TextureManager {
         })
     }
 
+    /// Creates a bind group for the provided `layout` using the stored sampler and
+    /// the texture identified by `texture_id`.
+    pub(crate) fn create_bind_group_for_layout(
+        &self,
+        layout: &wgpu::BindGroupLayout,
+        texture_id: u64,
+    ) -> Result<wgpu::BindGroup, TextureManagerError> {
+        let storage = self.texture_storage.read().unwrap();
+        let texture = storage
+            .get(&texture_id)
+            .ok_or(TextureManagerError::TextureNotFound(texture_id))?;
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+            label: Some("shape_texture_bind_group"),
+        });
+        Ok(bind_group)
+    }
+
     /// This creates vertex buffer for a quad that will be used to draw the texture. Not that
     ///  there can be any number of those buffers, each representing an area of the screen
     fn create_vertex_buffer(

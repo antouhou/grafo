@@ -245,6 +245,10 @@ pub struct Renderer<'a> {
     and_bind_group: BindGroup,
     /// Render pipeline for the "And" operations.
     and_pipeline: Arc<wgpu::RenderPipeline>,
+    /// Bind group layout for shape textures (group 1)
+    shape_texture_bind_group_layout: Arc<wgpu::BindGroupLayout>,
+    /// Default white texture bind group (bound when shape has no texture)
+    default_shape_texture_bind_group: Arc<wgpu::BindGroup>,
 
     /// Render pipeline for decrementing stencil values.
     decrementing_pipeline: Arc<wgpu::RenderPipeline>,
@@ -407,20 +411,24 @@ impl<'a> Renderer<'a> {
 
         let text_instances = Vec::new();
 
-        let (and_uniforms, and_bind_group, and_pipeline) = create_pipeline(
+        let (and_uniforms, and_bind_group, and_texture_bgl, and_pipeline) = create_pipeline(
             canvas_logical_size,
             &device,
             &config,
             PipelineType::EqualIncrementStencil,
         );
 
-        let (decrementing_uniforms, decrementing_bind_group, decrementing_pipeline) =
-            create_pipeline(
-                canvas_logical_size,
-                &device,
-                &config,
-                PipelineType::EqualDecrementStencil,
-            );
+        let (
+            decrementing_uniforms,
+            decrementing_bind_group,
+            _shape_texture_bind_group_layout_init,
+            decrementing_pipeline,
+        ) = create_pipeline(
+            canvas_logical_size,
+            &device,
+            &config,
+            PipelineType::EqualDecrementStencil,
+        );
 
         let text_renderer_wrapper = TextRendererWrapper::new(
             &device,
@@ -457,6 +465,74 @@ impl<'a> Renderer<'a> {
         let texture_manager =
             TextureManager::new(device.clone(), queue.clone(), texture_bind_group_layout);
 
+        // Create default white texture and bind group for shapes
+        let (default_shape_texture_bind_group, shape_texture_bind_group_layout) = {
+            let white_tex = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("default_white_texture"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let white_view = white_tex.create_view(&wgpu::TextureViewDescriptor::default());
+            // upload a single white pixel
+            let white: [u8; 4] = [255, 255, 255, 255];
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &white_tex,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &white,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4),
+                    rows_per_image: Some(1),
+                },
+                wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+            );
+
+            let shape_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::FilterMode::Nearest,
+                ..Default::default()
+            });
+
+            // use the already created layout from EqualIncrement pipeline
+            let shape_texture_bgl = and_texture_bgl;
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &shape_texture_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&white_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&shape_sampler),
+                    },
+                ],
+                label: Some("default_shape_texture_bind_group"),
+            });
+            (bind_group, shape_texture_bgl)
+        };
+
         Self {
             surface,
             device,
@@ -481,6 +557,8 @@ impl<'a> Renderer<'a> {
             and_pipeline: Arc::new(and_pipeline),
             and_uniforms,
             and_bind_group,
+            shape_texture_bind_group_layout: Arc::new(shape_texture_bind_group_layout),
+            default_shape_texture_bind_group: Arc::new(default_shape_texture_bind_group),
 
             decrementing_pipeline: Arc::new(decrementing_pipeline),
             decrementing_uniforms,
@@ -1082,6 +1160,9 @@ impl<'a> Renderer<'a> {
             and_bind_group: &self.and_bind_group,
             decrementing_pipeline: &self.decrementing_pipeline,
             decrementing_bind_group: &self.decrementing_bind_group,
+            shape_texture_bgl: &self.shape_texture_bind_group_layout,
+            default_shape_texture_bg: &self.default_shape_texture_bind_group,
+            texture_manager: &self.texture_manager,
         };
 
         // Create/update aggregated instance buffer
@@ -1127,13 +1208,22 @@ impl<'a> Renderer<'a> {
             let stencil_stack: Vec<u32> = Vec::new();
             let current_pipeline = Pipeline::None;
 
-            let mut data = (render_pass, stencil_stack, current_pipeline);
+            // Keep per-shape texture bind groups alive for the duration of this pass
+            let retained_bind_groups: Vec<wgpu::BindGroup> = Vec::new();
+
+            let mut data = (
+                render_pass,
+                stencil_stack,
+                current_pipeline,
+                retained_bind_groups,
+            );
 
             self.draw_tree.traverse_mut(
                 |_shape_id, draw_command, data| {
                     // NOTE: this is destructured here and not above because we need to pass the
                     //  data to the closure below
-                    let (render_pass, stencil_stack, currently_set_pipeline) = data;
+                    let (render_pass, stencil_stack, currently_set_pipeline, retained_bind_groups) =
+                        data;
 
                     match draw_command {
                         DrawCommand::Shape(shape) => {
@@ -1144,6 +1234,7 @@ impl<'a> Renderer<'a> {
                                 shape,
                                 &pipelines,
                                 &buffers,
+                                retained_bind_groups,
                             );
                         }
                         DrawCommand::CachedShape(shape) => {
@@ -1154,6 +1245,7 @@ impl<'a> Renderer<'a> {
                                 shape,
                                 &pipelines,
                                 &buffers,
+                                retained_bind_groups,
                             );
                         }
                         DrawCommand::Image(image) => {
@@ -1180,7 +1272,8 @@ impl<'a> Renderer<'a> {
                     }
                 },
                 |_shape_id, draw_command, data| {
-                    let (render_pass, stencil_stack, currently_set_pipeline) = data;
+                    let (render_pass, stencil_stack, currently_set_pipeline, retained_bind_groups) =
+                        data;
 
                     match draw_command {
                         DrawCommand::Shape(shape) => {
@@ -1191,6 +1284,7 @@ impl<'a> Renderer<'a> {
                                 shape,
                                 &pipelines,
                                 &buffers,
+                                retained_bind_groups,
                             );
                         }
                         DrawCommand::CachedShape(shape) => {
@@ -1201,6 +1295,7 @@ impl<'a> Renderer<'a> {
                                 shape,
                                 &pipelines,
                                 &buffers,
+                                retained_bind_groups,
                             );
                         }
                         DrawCommand::Image(_) => {
@@ -1436,6 +1531,18 @@ impl<'a> Renderer<'a> {
         }
     }
 
+    /// Associates a texture with a shape or cached shape by node id.
+    /// Pass `None` to remove texture and fall back to solid fill color.
+    pub fn set_shape_texture(&mut self, node_id: usize, texture_id: Option<u64>) {
+        if let Some(draw_command) = self.draw_tree.get_mut(node_id) {
+            match draw_command {
+                DrawCommand::Shape(shape) => shape.set_texture_id(texture_id),
+                DrawCommand::CachedShape(cached) => cached.set_texture_id(texture_id),
+                DrawCommand::Image(_) => {}
+            }
+        }
+    }
+
     /// Retrieves the current size of the rendering surface.
     ///
     /// # Returns
@@ -1591,7 +1698,7 @@ impl<'a> Renderer<'a> {
         // Update the render pipeline to match the new size with new uniforms. Uniforms are
         // needed to normalize the coordinates of the shapes
 
-        let (and_uniforms, and_bind_group, and_pipeline) = create_pipeline(
+        let (and_uniforms, and_bind_group, and_texture_bgl, and_pipeline) = create_pipeline(
             to_logical(new_physical_size, self.scale_factor),
             &self.device,
             &self.config,
@@ -1600,18 +1707,86 @@ impl<'a> Renderer<'a> {
         self.and_uniforms = and_uniforms;
         self.and_bind_group = and_bind_group;
         self.and_pipeline = Arc::new(and_pipeline);
+        self.shape_texture_bind_group_layout = Arc::new(and_texture_bgl);
+        // Recreate default white shape texture bind group to match new layout
+        {
+            let white_tex = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("default_white_texture"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let white_view = white_tex.create_view(&wgpu::TextureViewDescriptor::default());
+            let white: [u8; 4] = [255, 255, 255, 255];
+            self.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &white_tex,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &white,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4),
+                    rows_per_image: Some(1),
+                },
+                wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+            );
+            let shape_sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::FilterMode::Nearest,
+                ..Default::default()
+            });
+            self.default_shape_texture_bind_group =
+                Arc::new(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &self.shape_texture_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&white_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&shape_sampler),
+                        },
+                    ],
+                    label: Some("default_shape_texture_bind_group"),
+                }));
+        }
 
         // Update the always decrement pipeline
-        let (decrementing_uniforms, decrementing_bind_group, decrementing_pipeline) =
-            create_pipeline(
-                to_logical(new_physical_size, self.scale_factor),
-                &self.device,
-                &self.config,
-                PipelineType::EqualDecrementStencil,
-            );
+        let (
+            decrementing_uniforms,
+            decrementing_bind_group,
+            shape_texture_bind_group_layout,
+            decrementing_pipeline,
+        ) = create_pipeline(
+            to_logical(new_physical_size, self.scale_factor),
+            &self.device,
+            &self.config,
+            PipelineType::EqualDecrementStencil,
+        );
         self.decrementing_uniforms = decrementing_uniforms;
         self.decrementing_bind_group = decrementing_bind_group;
         self.decrementing_pipeline = Arc::new(decrementing_pipeline);
+        self.shape_texture_bind_group_layout = Arc::new(shape_texture_bind_group_layout);
 
         let (
             texture_bind_group_layout,
@@ -1797,6 +1972,9 @@ struct Pipelines<'a> {
     and_bind_group: &'a wgpu::BindGroup,
     decrementing_pipeline: &'a wgpu::RenderPipeline,
     decrementing_bind_group: &'a wgpu::BindGroup,
+    shape_texture_bgl: &'a wgpu::BindGroupLayout,
+    default_shape_texture_bg: &'a wgpu::BindGroup,
+    texture_manager: &'a TextureManager,
 }
 
 // Helper to handle stencil increment pass for any shape-like data
@@ -1807,6 +1985,7 @@ fn handle_increment_pass<'rp>(
     shape: &mut impl DrawShapeCommand,
     pipelines: &Pipelines,
     buffers: &Buffers,
+    retained_bind_groups: &mut Vec<wgpu::BindGroup>,
 ) {
     if let Some(index_range) = shape.index_buffer_range() {
         if shape.is_empty() {
@@ -1816,6 +1995,8 @@ fn handle_increment_pass<'rp>(
         if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
             render_pass.set_pipeline(pipelines.and_pipeline);
             render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
+            // Bind default shape texture/sampler at group(1)
+            render_pass.set_bind_group(1, pipelines.default_shape_texture_bg, &[]);
 
             // Those pipelines use the same vertex buffers
             if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
@@ -1833,6 +2014,20 @@ fn handle_increment_pass<'rp>(
 
         // Determine the parent stencil from the stack (0 if root)
         let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+
+        // If shape has its own texture, bind it now; otherwise keep default bound
+        if let Some(tex_id) = shape.texture_id() {
+            if pipelines.texture_manager.is_texture_loaded(tex_id) {
+                if let Ok(bg) = pipelines
+                    .texture_manager
+                    .create_bind_group_for_layout(pipelines.shape_texture_bgl, tex_id)
+                {
+                    retained_bind_groups.push(bg);
+                    let idx = retained_bind_groups.len() - 1;
+                    render_pass.set_bind_group(1, &retained_bind_groups[idx], &[]);
+                }
+            }
+        }
 
         // Render increment pass with parent stencil
         // Bind per-instance transform slice if available, else fall back to identity
@@ -1866,6 +2061,7 @@ fn handle_decrement_pass<'rp>(
     shape: &mut impl DrawShapeCommand,
     pipelines: &Pipelines,
     buffers: &Buffers,
+    _retained_bind_groups: &mut Vec<wgpu::BindGroup>,
 ) {
     if let Some(index_range) = shape.index_buffer_range() {
         if shape.is_empty() {
@@ -1875,6 +2071,8 @@ fn handle_decrement_pass<'rp>(
         if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
             render_pass.set_pipeline(pipelines.decrementing_pipeline);
             render_pass.set_bind_group(0, pipelines.decrementing_bind_group, &[]);
+            // Bind default shape texture/sampler at group(1) to satisfy layout
+            render_pass.set_bind_group(1, pipelines.default_shape_texture_bg, &[]);
 
             if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
