@@ -71,6 +71,8 @@ pub struct TextureManager {
     bind_group_layout: Arc<RwLock<wgpu::BindGroupLayout>>,
     /// Textures is raw image data, without any screen position information
     texture_storage: Arc<RwLock<HashMap<u64, wgpu::Texture>>>,
+    /// Cache for shape texture bind groups keyed by (texture_id, layout_epoch)
+    shape_bind_group_cache: Arc<RwLock<HashMap<(u64, u64), Arc<wgpu::BindGroup>>>>,
 }
 
 impl TextureManager {
@@ -86,6 +88,7 @@ impl TextureManager {
             sampler: Arc::new(sampler),
             bind_group_layout: Arc::new(RwLock::new(bind_group_layout)),
             texture_storage: Arc::new(RwLock::new(HashMap::new())),
+            shape_bind_group_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -251,17 +254,35 @@ impl TextureManager {
 
     /// Creates a bind group for the provided `layout` using the stored sampler and
     /// the texture identified by `texture_id`.
-    pub(crate) fn create_bind_group_for_layout(
+    // Removed: create_bind_group_for_layout in favor of get_or_create_shape_bind_group cache
+
+    /// Returns a cached bind group for the given `layout_epoch` and `texture_id`,
+    /// creating and caching it if necessary. This avoids per-frame bind group creation
+    /// when binding textures for shapes.
+    pub(crate) fn get_or_create_shape_bind_group(
         &self,
         layout: &wgpu::BindGroupLayout,
+        layout_epoch: u64,
         texture_id: u64,
-    ) -> Result<wgpu::BindGroup, TextureManagerError> {
+    ) -> Result<Arc<wgpu::BindGroup>, TextureManagerError> {
+        // Fast path: check cache
+        if let Some(bg) = self
+            .shape_bind_group_cache
+            .read()
+            .unwrap()
+            .get(&(texture_id, layout_epoch))
+            .cloned()
+        {
+            return Ok(bg);
+        }
+
+        // Create bind group
         let storage = self.texture_storage.read().unwrap();
         let texture = storage
             .get(&texture_id)
             .ok_or(TextureManagerError::TextureNotFound(texture_id))?;
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group = Arc::new(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -273,8 +294,15 @@ impl TextureManager {
                     resource: wgpu::BindingResource::Sampler(&self.sampler),
                 },
             ],
-            label: Some("shape_texture_bind_group"),
-        });
+            label: Some("shape_texture_bind_group_cached"),
+        }));
+
+        // Insert into cache
+        self.shape_bind_group_cache
+            .write()
+            .unwrap()
+            .insert((texture_id, layout_epoch), bind_group.clone());
+
         Ok(bind_group)
     }
 
