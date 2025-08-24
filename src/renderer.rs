@@ -247,9 +247,9 @@ pub struct Renderer<'a> {
     and_pipeline: Arc<wgpu::RenderPipeline>,
     /// Bind group layout for shape textures (group 1)
     shape_texture_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-    /// Monotonic counter to invalidate cached shape texture bind groups when layout changes
+    /// Monotonic counter to invalidate cached shape texture bind groups when the layout changes
     shape_texture_layout_epoch: u64,
-    /// Default white texture bind group (bound when shape has no texture)
+    /// Default white texture bind group (bound when the shape has no texture)
     default_shape_texture_bind_group: Arc<wgpu::BindGroup>,
 
     /// Render pipeline for decrementing stencil values.
@@ -573,8 +573,8 @@ impl<'a> Renderer<'a> {
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
 

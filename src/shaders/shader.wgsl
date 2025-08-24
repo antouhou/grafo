@@ -62,13 +62,13 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(@location(0) color: vec4<f32>, @location(1) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    // Convert input color from sRGB to linear space that shader expects
-    let linear_color = vec4<f32>(to_linear(color.rgb), color.a);
-    // Sample texture. If the bound texture is transparent (default), fall back to fill color.
-    let tex_color = textureSample(t_shape, s_shape, tex_coords);
-    // If there's meaningful texture alpha, prefer the texture color; otherwise, use the fill
-    let use_tex = tex_color.a > 0.001;
-    let out_rgb = select(linear_color.rgb, tex_color.rgb, use_tex);
-    let out_a = select(linear_color.a, tex_color.a, use_tex);
+    // Convert shape fill color from sRGB to linear
+    let fill_lin = vec4<f32>(to_linear(color.rgb), color.a);
+    // Sample texture (Rgba8UnormSrgb is converted to linear on sample)
+    let tex = textureSample(t_shape, s_shape, tex_coords);
+    // Composite texture over fill using texture alpha:
+    // out = tex OVER fill
+    let out_rgb = mix(fill_lin.rgb, tex.rgb, tex.a);
+    let out_a = tex.a + fill_lin.a * (1.0 - tex.a);
     return vec4<f32>(out_rgb, out_a);
 }
