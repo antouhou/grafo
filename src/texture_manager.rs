@@ -147,11 +147,16 @@ impl TextureManager {
     ///
     /// This function will first allocate the texture, then attempt to load the provided data.
     ///
+    /// If you are seeing fringes when sampling/minifying near transparent edges, ensure that your
+    /// texture data is in a premultiplied alpha format. You can use the
+    /// `premultiply_rgba8_srgb_inplace` helper function provided in this crate to convert your
+    /// RGBA8 sRGB data to premultiplied alpha.
+    ///
     /// # Parameters
     /// - `texture_id`: Unique identifier for the texture.
     /// - `texture_dimensions`: A tuple `(width, height)` representing the dimensions of the texture.
     /// - `texture_data`: A byte slice containing the image data. The data length is expected to
-    ///   match the texture dimensions and pixel format (RGBA8).
+    ///   match the texture dimensions and pixel format (RGBA8 with premultiplied alpha).
     pub fn allocate_texture_with_data(
         &self,
         texture_id: u64,
@@ -159,16 +164,22 @@ impl TextureManager {
         texture_data: &[u8],
     ) {
         self.allocate_texture(texture_id, texture_dimensions);
-        self.load_data_into_texture(texture_id, texture_dimensions, texture_data)
+        self
+            .load_data_into_texture(texture_id, texture_dimensions, &texture_data)
             .unwrap();
     }
 
-    /// Loads image data into an already allocated texture.
+    /// Loads image data into an already allocated texture. If you are seeing fringes when
+    /// sampling/minifying near transparent edges, ensure that your texture data is in a
+    /// premultiplied alpha format. You can use the `premultiply_rgba8_srgb_inplace` helper
+    /// function provided in this crate to convert your RGBA8 sRGB data to premultiplied alpha.
     ///
     /// # Parameters
     /// - `texture_id`: Unique identifier for the texture.
     /// - `texture_dimensions`: A tuple `(width, height)` representing the dimensions of the texture.
-    /// - `texture_data`: A byte slice containing the image data in an RGBA8 format.
+    /// - `texture_data`: A byte slice containing the image data in an RGBA8 format with premultiplied alpha.
+    /// If your texture isn't premultiplied, consider using a `premultiply_rgba8_srgb_inplace` helper
+    /// function provided in this crate. This is needed to avoid fringes when sampling/minifying near transparent edges.
     ///
     /// # Returns
     /// - `Ok(())` if the operation succeeds.
@@ -399,5 +410,41 @@ impl TextureManager {
             .read()
             .unwrap()
             .contains_key(&texture_id)
+    }
+}
+
+// Converts an RGBA8 sRGB image in-place to premultiplied alpha.
+// This operates in linear space for correct results:
+// 1) convert sRGB to linear
+// 2) multiply RGB by A
+// 3) convert back to sRGB
+// Alpha remains unchanged numerically in 0..1 mapped to 0..255.
+fn srgb_to_linear_u8(c: u8) -> f32 {
+    let x = c as f32 / 255.0;
+    if x <= 0.04045 { x / 12.92 } else { ((x + 0.055) / 1.055).powf(2.4) }
+}
+
+fn linear_to_srgb_u8(x: f32) -> u8 {
+    let x = x.clamp(0.0, 1.0);
+    let y = if x <= 0.0031308 { x * 12.92 } else { 1.055 * x.powf(1.0 / 2.4) - 0.055 };
+    (y.clamp(0.0, 1.0) * 255.0 + 0.5).floor() as u8
+}
+
+pub fn premultiply_rgba8_srgb_inplace(pixels: &mut [u8]) {
+    assert!(pixels.len() % 4 == 0, "RGBA8 data length must be multiple of 4");
+    for px in pixels.chunks_mut(4) {
+        let r_lin = srgb_to_linear_u8(px[0]);
+        let g_lin = srgb_to_linear_u8(px[1]);
+        let b_lin = srgb_to_linear_u8(px[2]);
+        let a = px[3] as f32 / 255.0;
+
+        let r_pma = r_lin * a;
+        let g_pma = g_lin * a;
+        let b_pma = b_lin * a;
+
+        px[0] = linear_to_srgb_u8(r_pma);
+        px[1] = linear_to_srgb_u8(g_pma);
+        px[2] = linear_to_srgb_u8(b_pma);
+        // keep alpha as-is
     }
 }

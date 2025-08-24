@@ -64,11 +64,11 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 fn fs_main(@location(0) color: vec4<f32>, @location(1) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     // Convert shape fill color from sRGB to linear
     let fill_lin = vec4<f32>(to_linear(color.rgb), color.a);
-    // Sample texture (Rgba8UnormSrgb is converted to linear on sample)
-    let tex = textureSample(t_shape, s_shape, tex_coords);
-    // Composite texture over fill using texture alpha:
-    // out = tex OVER fill
-    let out_rgb = mix(fill_lin.rgb, tex.rgb, tex.a);
-    let out_a = tex.a + fill_lin.a * (1.0 - tex.a);
-    return vec4<f32>(out_rgb, out_a);
+    // Sample texture (Rgba8UnormSrgb is converted to linear on sample). We upload textures as premultiplied alpha.
+    let tex_pma = textureSample(t_shape, s_shape, tex_coords);
+    // Convert fill to premultiplied
+    let fill_pma = vec4<f32>(fill_lin.rgb * fill_lin.a, fill_lin.a);
+    // Composite premultiplied: out = tex + fill * (1 - tex.a)
+    let out_pma = fill_pma * (1.0 - tex_pma.a) + tex_pma;
+    return out_pma;
 }

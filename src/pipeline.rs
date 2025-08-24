@@ -250,8 +250,9 @@ pub fn create_pipeline(
             [Some(wgpu::ColorTargetState {
                 format: config.format,
                 blend: Some(wgpu::BlendState {
+                    // Premultiplied alpha blending
                     color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::SrcAlpha,
+                        src_factor: wgpu::BlendFactor::One,
                         dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
                         operation: wgpu::BlendOperation::Add,
                     },
@@ -291,8 +292,9 @@ pub fn create_pipeline(
             [Some(wgpu::ColorTargetState {
                 format: config.format,
                 blend: Some(wgpu::BlendState {
+                    // Premultiplied alpha blending
                     color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::SrcAlpha,
+                        src_factor: wgpu::BlendFactor::One,
                         dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
                         operation: wgpu::BlendOperation::Add,
                     },
@@ -505,8 +507,9 @@ pub fn create_texture_pipeline(
     let targets = [Some(wgpu::ColorTargetState {
         format: config.format,
         blend: Some(wgpu::BlendState {
+            // Premultiplied alpha blending for textured quads
             color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::SrcAlpha,
+                src_factor: wgpu::BlendFactor::One,
                 dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
                 operation: wgpu::BlendOperation::Add,
             },

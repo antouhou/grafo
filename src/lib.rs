@@ -163,3 +163,4 @@ pub use stroke::Stroke;
 pub use text::*;
 pub use texture_manager::TextureManager;
 pub use vertex::InstanceTransform as TransformInstance;
+pub use texture_manager::premultiply_rgba8_srgb_inplace;

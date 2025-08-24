@@ -1,6 +1,6 @@
 use euclid::{default::Transform3D, Angle};
 use futures::executor::block_on;
-use grafo::Shape;
+use grafo::{premultiply_rgba8_srgb_inplace, Shape};
 use grafo::{Color, Stroke};
 use lyon::algorithms::hit_test::hit_test_path;
 use lyon::algorithms::math::point as algo_point;
@@ -109,7 +109,8 @@ impl<'a> ApplicationHandler for App<'a> {
             .unwrap();
         let rust_logo_rgba = rust_logo_png.as_rgba8().unwrap();
         let rust_logo_png_dimensions = rust_logo_rgba.dimensions();
-        let rust_logo_png_bytes = rust_logo_rgba.to_vec();
+        let mut rust_logo_png_bytes = rust_logo_rgba.to_vec();
+        premultiply_rgba8_srgb_inplace(&mut rust_logo_png_bytes);
 
         self.rust_logo_png_dimensions = rust_logo_png_dimensions;
         self.rust_logo_png_bytes = rust_logo_png_bytes;
