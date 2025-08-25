@@ -259,17 +259,17 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 // Perspective origin at mouse (logical pixels); if no mouse yet, use canvas center.
                 let (origin_x, origin_y) = match self.last_mouse_pos {
-                    Some((mx, my)) => (mx, my),
+                    Some((mx, my)) => (mx * 2.0, my * 2.0),
                     None => (logical_w * 0.5, logical_h * 0.5),
                 };
-                let d = 1000.0;
+                let d = 2000.0;
                 // Build a perspective "with origin": T(+origin) · P(d) · T(-origin)
                 let perspective_with_origin = Transform3D::translation(origin_x, origin_y, 0.0)
                     .then(&Transform3D::perspective(d))
                     .then(&Transform3D::translation(-origin_x, -origin_y, 0.0));
 
-                let blue_tx = Transform3D::rotation(0.0, 1.0, 0.0, Angle::degrees(25.0))
-                    .then_rotate(1.0, 0.0, 0.0, Angle::degrees(25.0))
+                let blue_tx = Transform3D::rotation(0.0, 0.0, 0.0, Angle::degrees(45.0))
+                    .then_rotate(1.0, 0.0, 0.0, Angle::degrees(45.0))
                     .then(&Transform3D::translation(100.0, 300.0, 0.0))
                     .then(&perspective_with_origin);
 
