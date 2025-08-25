@@ -8,6 +8,7 @@ pub struct CustomVertex {
     pub(crate) position: [f32; 2],
     pub(crate) color: [f32; 4], // RGBA color
     pub(crate) depth: f32,
+    pub(crate) tex_coords: [f32; 2],
 }
 
 impl CustomVertex {
@@ -33,6 +34,12 @@ impl CustomVertex {
                     format: wgpu::VertexFormat::Float32,
                     offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
                     shader_location: 2,
+                },
+                // Tex Coords (kept at a higher location to not clash with instance attrs)
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: std::mem::size_of::<[f32; 7]>() as wgpu::BufferAddress,
+                    shader_location: 7,
                 },
             ],
         }

@@ -7,11 +7,14 @@ struct VertexInput {
     @location(4) t_col1: vec4<f32>,
     @location(5) t_col2: vec4<f32>,
     @location(6) t_col3: vec4<f32>,
+    // Optional texture coordinates for shape texturing
+    @location(7) tex_coords: vec2<f32>,
 };
 
 struct VertexOutput {
     @invariant @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
+    @location(1) tex_coords: vec2<f32>,
 };
 
 // This is a struct that will be used for position normalization
@@ -20,6 +23,9 @@ struct Uniforms {
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+// Texture/sampler for optional shape texturing. A default white texture can be bound when unused.
+@group(1) @binding(0) var t_shape: texture_2d<f32>;
+@group(1) @binding(1) var s_shape: sampler;
 
 fn to_linear(color: vec3<f32>) -> vec3<f32> {
     let cutoff = vec3<f32>(0.04045);
@@ -50,13 +56,19 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     let ndc_y = 1.0 - 2.0 * world_pos.y / uniforms.canvas_size.y;
     output.position = vec4<f32>(ndc_x, ndc_y, input.depth, 1.0);
     output.color = input.color;
+    output.tex_coords = input.tex_coords;
     return output;
 }
 
 @fragment
-fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
-    // Convert input color from sRGB to linear space that shader expects
-    let linear_color = vec4<f32>(to_linear(color.rgb), color.a);
-
-    return linear_color;
+fn fs_main(@location(0) color: vec4<f32>, @location(1) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
+    // Convert shape fill color from sRGB to linear
+    let fill_lin = vec4<f32>(to_linear(color.rgb), color.a);
+    // Sample texture (Rgba8UnormSrgb is converted to linear on sample). We upload textures as premultiplied alpha.
+    let tex_pma = textureSample(t_shape, s_shape, tex_coords);
+    // Convert fill to premultiplied
+    let fill_pma = vec4<f32>(fill_lin.rgb * fill_lin.a, fill_lin.a);
+    // Composite premultiplied: out = tex + fill * (1 - tex.a)
+    let out_pma = fill_pma * (1.0 - tex_pma.a) + tex_pma;
+    return out_pma;
 }

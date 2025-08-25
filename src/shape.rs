@@ -263,36 +263,48 @@ impl Shape {
 
                 let color = rect_shape.fill.normalize();
 
+                // Compute UVs mapping the rectangle to [0,1] in local space
+                let w = (max_width - min_width).max(1e-6);
+                let h = (max_height - min_height).max(1e-6);
+                let uv =
+                    |x: f32, y: f32| -> [f32; 2] { [(x - min_width) / w, (y - min_height) / h] };
+
                 let quad = [
                     CustomVertex {
                         position: [min_width + offset.0, min_height + offset.1],
                         color,
                         depth,
+                        tex_coords: uv(min_width, min_height),
                     },
                     CustomVertex {
                         position: [max_width + offset.0, min_height + offset.1],
                         color,
                         depth,
+                        tex_coords: uv(max_width, min_height),
                     },
                     CustomVertex {
                         position: [min_width + offset.0, max_height + offset.1],
                         color,
                         depth,
+                        tex_coords: uv(min_width, max_height),
                     },
                     CustomVertex {
                         position: [min_width + offset.0, max_height + offset.1],
                         color,
                         depth,
+                        tex_coords: uv(min_width, max_height),
                     },
                     CustomVertex {
                         position: [max_width + offset.0, min_height + offset.1],
                         color,
                         depth,
+                        tex_coords: uv(max_width, min_height),
                     },
                     CustomVertex {
                         position: [max_width + offset.0, max_height + offset.1],
                         color,
                         depth,
+                        tex_coords: uv(max_width, max_height),
                     },
                 ];
                 let indices = [0u16, 1, 2, 3, 4, 5];
@@ -441,6 +453,7 @@ impl FillVertexConstructor<CustomVertex> for VertexConverter {
             position: vertex.position().to_array(),
             depth: self.depth,
             color: self.color,
+            tex_coords: [0.0, 0.0],
         }
     }
 }
@@ -544,6 +557,38 @@ impl PathShape {
                 &mut BuffersBuilder::new(buffers, vertex_converter),
             )
             .unwrap();
+
+        // Generate UVs for the tessellated path using its axis-aligned bounding box in local space
+        if !buffers.vertices.is_empty() {
+            // Compute AABB of positions before offset translation
+            let mut min_x = f32::INFINITY;
+            let mut min_y = f32::INFINITY;
+            let mut max_x = f32::NEG_INFINITY;
+            let mut max_y = f32::NEG_INFINITY;
+            for v in buffers.vertices.iter() {
+                let x = v.position[0];
+                let y = v.position[1];
+                if x < min_x {
+                    min_x = x;
+                }
+                if y < min_y {
+                    min_y = y;
+                }
+                if x > max_x {
+                    max_x = x;
+                }
+                if y > max_y {
+                    max_y = y;
+                }
+            }
+            let w = (max_x - min_x).max(1e-6);
+            let h = (max_y - min_y).max(1e-6);
+            for v in buffers.vertices.iter_mut() {
+                let u = (v.position[0] - min_x) / w;
+                let vcoord = (v.position[1] - min_y) / h;
+                v.tex_coords = [u, vcoord];
+            }
+        }
     }
 }
 
@@ -569,6 +614,8 @@ pub(crate) struct ShapeDrawData {
     pub(crate) instance_index: Option<usize>,
     /// Optional per-shape transform applied in clip-space (post-normalization)
     pub(crate) transform: Option<InstanceTransform>,
+    /// Optional texture id associated with this shape (sampled in the shape pipeline)
+    pub(crate) texture_id: Option<u64>,
 }
 
 impl ShapeDrawData {
@@ -584,6 +631,7 @@ impl ShapeDrawData {
             stencil_ref: None,
             instance_index: None,
             transform: None,
+            texture_id: None,
         }
     }
 
@@ -616,6 +664,8 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) instance_index: Option<usize>,
     /// Optional per-shape transform applied in clip-space (post-normalization)
     pub(crate) transform: Option<InstanceTransform>,
+    /// Optional texture id associated with this cached shape
+    pub(crate) texture_id: Option<u64>,
 }
 
 impl CachedShapeDrawData {
@@ -628,6 +678,7 @@ impl CachedShapeDrawData {
             stencil_ref: None,
             instance_index: None,
             transform: None,
+            texture_id: None,
         }
     }
 }
@@ -986,6 +1037,8 @@ pub(crate) trait DrawShapeCommand {
     fn instance_index(&self) -> Option<usize>;
     fn transform(&self) -> Option<InstanceTransform>;
     fn set_transform(&mut self, t: InstanceTransform);
+    fn texture_id(&self) -> Option<u64>;
+    fn set_texture_id(&mut self, id: Option<u64>);
 }
 
 impl DrawShapeCommand for ShapeDrawData {
@@ -1023,6 +1076,16 @@ impl DrawShapeCommand for ShapeDrawData {
     fn set_transform(&mut self, t: InstanceTransform) {
         self.transform = Some(t);
     }
+
+    #[inline]
+    fn texture_id(&self) -> Option<u64> {
+        self.texture_id
+    }
+
+    #[inline]
+    fn set_texture_id(&mut self, id: Option<u64>) {
+        self.texture_id = id;
+    }
 }
 
 impl DrawShapeCommand for CachedShapeDrawData {
@@ -1059,5 +1122,15 @@ impl DrawShapeCommand for CachedShapeDrawData {
     #[inline]
     fn set_transform(&mut self, t: InstanceTransform) {
         self.transform = Some(t);
+    }
+
+    #[inline]
+    fn texture_id(&self) -> Option<u64> {
+        self.texture_id
+    }
+
+    #[inline]
+    fn set_texture_id(&mut self, id: Option<u64>) {
+        self.texture_id = id;
     }
 }
