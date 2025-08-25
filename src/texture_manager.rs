@@ -72,8 +72,10 @@ pub struct TextureManager {
     /// Textures is raw image data, without any screen position information
     texture_storage: Arc<RwLock<HashMap<u64, wgpu::Texture>>>,
     /// Cache for shape texture bind groups keyed by (texture_id, layout_epoch)
-    shape_bind_group_cache: Arc<RwLock<HashMap<(u64, u64), Arc<wgpu::BindGroup>>>>,
+    shape_bind_group_cache: Arc<RwLock<BindGroupCache>>,
 }
+
+type BindGroupCache = HashMap<(u64, u64), Arc<wgpu::BindGroup>>;
 
 impl TextureManager {
     pub(crate) fn new(
@@ -164,8 +166,7 @@ impl TextureManager {
         texture_data: &[u8],
     ) {
         self.allocate_texture(texture_id, texture_dimensions);
-        self
-            .load_data_into_texture(texture_id, texture_dimensions, &texture_data)
+        self.load_data_into_texture(texture_id, texture_dimensions, texture_data)
             .unwrap();
     }
 
@@ -178,8 +179,8 @@ impl TextureManager {
     /// - `texture_id`: Unique identifier for the texture.
     /// - `texture_dimensions`: A tuple `(width, height)` representing the dimensions of the texture.
     /// - `texture_data`: A byte slice containing the image data in an RGBA8 format with premultiplied alpha.
-    /// If your texture isn't premultiplied, consider using a `premultiply_rgba8_srgb_inplace` helper
-    /// function provided in this crate. This is needed to avoid fringes when sampling/minifying near transparent edges.
+    ///   If your texture isn't premultiplied, consider using a `premultiply_rgba8_srgb_inplace` helper
+    ///   function provided in this crate. This is needed to avoid fringes when sampling/minifying near transparent edges.
     ///
     /// # Returns
     /// - `Ok(())` if the operation succeeds.
@@ -265,8 +266,7 @@ impl TextureManager {
 
     /// Creates a bind group for the provided `layout` using the stored sampler and
     /// the texture identified by `texture_id`.
-    // Removed: create_bind_group_for_layout in favor of get_or_create_shape_bind_group cache
-
+    ///
     /// Returns a cached bind group for the given `layout_epoch` and `texture_id`,
     /// creating and caching it if necessary. This avoids per-frame bind group creation
     /// when binding textures for shapes.
@@ -421,17 +421,28 @@ impl TextureManager {
 // Alpha remains unchanged numerically in 0..1 mapped to 0..255.
 fn srgb_to_linear_u8(c: u8) -> f32 {
     let x = c as f32 / 255.0;
-    if x <= 0.04045 { x / 12.92 } else { ((x + 0.055) / 1.055).powf(2.4) }
+    if x <= 0.04045 {
+        x / 12.92
+    } else {
+        ((x + 0.055) / 1.055).powf(2.4)
+    }
 }
 
 fn linear_to_srgb_u8(x: f32) -> u8 {
     let x = x.clamp(0.0, 1.0);
-    let y = if x <= 0.0031308 { x * 12.92 } else { 1.055 * x.powf(1.0 / 2.4) - 0.055 };
+    let y = if x <= 0.0031308 {
+        x * 12.92
+    } else {
+        1.055 * x.powf(1.0 / 2.4) - 0.055
+    };
     (y.clamp(0.0, 1.0) * 255.0 + 0.5).floor() as u8
 }
 
 pub fn premultiply_rgba8_srgb_inplace(pixels: &mut [u8]) {
-    assert!(pixels.len() % 4 == 0, "RGBA8 data length must be multiple of 4");
+    assert!(
+        pixels.len() % 4 == 0,
+        "RGBA8 data length must be multiple of 4"
+    );
     for px in pixels.chunks_mut(4) {
         let r_lin = srgb_to_linear_u8(px[0]);
         let g_lin = srgb_to_linear_u8(px[1]);

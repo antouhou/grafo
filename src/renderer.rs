@@ -1729,10 +1729,10 @@ impl<'a> Renderer<'a> {
         );
         self.decrementing_uniforms = decrementing_uniforms;
         self.decrementing_bind_group = decrementing_bind_group;
-    self.decrementing_pipeline = Arc::new(decrementing_pipeline);
-    self.shape_texture_bind_group_layout = Arc::new(shape_texture_bind_group_layout);
-    // Bump epoch again since layout may have changed through this pipeline too
-    self.shape_texture_layout_epoch = self.shape_texture_layout_epoch.wrapping_add(1);
+        self.decrementing_pipeline = Arc::new(decrementing_pipeline);
+        self.shape_texture_bind_group_layout = Arc::new(shape_texture_bind_group_layout);
+        // Bump epoch again since layout may have changed through this pipeline too
+        self.shape_texture_layout_epoch = self.shape_texture_layout_epoch.wrapping_add(1);
 
         let (
             texture_bind_group_layout,
