@@ -93,6 +93,7 @@ use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
+use winit::keyboard::{Key, NamedKey};
 
 #[derive(Default)]
 struct App<'a> {
@@ -101,6 +102,18 @@ struct App<'a> {
     angle: f32,
     // Last mouse position in physical pixels (window space)
     last_mouse_pos: Option<(f32, f32)>,
+    // Accumulated orbit angles in degrees (mouse-driven)
+    orbit_yaw_deg: f32,
+    orbit_pitch_deg: f32,
+    // Orbit control decoupling: update yaw/pitch only during drag
+    orbit_dragging: bool,
+    orbit_last_mouse_pos: Option<(f32, f32)>,
+    // User-tweakable settings
+    orbit_sensitivity: f32,      // degrees per logical pixel
+    blue_perspective_d: f32,     // perspective distance for blue shape
+    blue_follow_mouse: bool,     // whether perspective origin follows mouse
+    blue_pos: (f32, f32),        // world position (top-left) of blue rect
+    blue_size: (f32, f32),       // local size of blue rect
     // Window scale factor
     scale_factor: f64,
     // Lyon paths for our rectangles (local space, origin at (0,0))
@@ -119,6 +132,13 @@ struct App<'a> {
     rust_logo_texture_id: u64,
     perspective_color: (Color, Color),
 }
+
+// Keyboard controls in this example:
+// - Arrow Left/Right: orbit yaw -/+ (rotate camera around blue shape)
+// - Arrow Up/Down: orbit pitch -/+ (tilt camera around blue shape)
+// - [ / ]: decrease / increase the blue shape perspective distance (strength)
+// - F: toggle following mouse for camera origin (on/off)
+// - R: reset orbit (yaw=0, pitch=0)
 
 impl<'a> ApplicationHandler for App<'a> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -227,7 +247,74 @@ impl<'a> ApplicationHandler for App<'a> {
                     position.y as f32 / self.scale_factor as f32,
                 );
                 self.last_mouse_pos = Some((x, y));
+                // Only update orbit while dragging; use a separate last position to avoid
+                // interfering with the perspective origin tracking.
+        if self.orbit_dragging {
+                    if let Some((px, py)) = self.orbit_last_mouse_pos {
+                        let dx = x - px;
+                        let dy = y - py;
+            let sens = self.orbit_sensitivity; // degrees per logical pixel
+            self.orbit_yaw_deg = (self.orbit_yaw_deg + dx * sens) % 360.0;
+            self.orbit_pitch_deg = (self.orbit_pitch_deg + dy * sens)
+                            .clamp(-80.0, 80.0);
+                    }
+                    self.orbit_last_mouse_pos = Some((x, y));
+                }
                 window.request_redraw();
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                if button == winit::event::MouseButton::Left {
+                    match state {
+                        winit::event::ElementState::Pressed => {
+                            self.orbit_dragging = true;
+                            // Start orbit deltas from current cursor pos if available
+                            self.orbit_last_mouse_pos = self.last_mouse_pos;
+                        }
+                        winit::event::ElementState::Released => {
+                            self.orbit_dragging = false;
+                            self.orbit_last_mouse_pos = None;
+                        }
+                    }
+                }
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                use winit::event::ElementState;
+                if event.state == ElementState::Pressed {
+                    let yaw_step = 3.0f32;
+                    let pitch_step = 3.0f32;
+                    let dist_step = 100.0f32;
+                    let key = event.logical_key.clone();
+                    match key {
+                        Key::Named(NamedKey::ArrowLeft) => {
+                            self.orbit_yaw_deg = (self.orbit_yaw_deg - yaw_step).rem_euclid(360.0);
+                        }
+                        Key::Named(NamedKey::ArrowRight) => {
+                            self.orbit_yaw_deg = (self.orbit_yaw_deg + yaw_step).rem_euclid(360.0);
+                        }
+                        Key::Named(NamedKey::ArrowUp) => {
+                            self.orbit_pitch_deg = (self.orbit_pitch_deg - pitch_step).clamp(-80.0, 80.0);
+                        }
+                        Key::Named(NamedKey::ArrowDown) => {
+                            self.orbit_pitch_deg = (self.orbit_pitch_deg + pitch_step).clamp(-80.0, 80.0);
+                        }
+                        Key::Character(ch) if ch == "[" => {
+                            self.blue_perspective_d = (self.blue_perspective_d - dist_step).max(1.0);
+                        }
+                        Key::Character(ch) if ch == "]" => {
+                            self.blue_perspective_d = (self.blue_perspective_d + dist_step).max(1.0);
+                        }
+                        Key::Character(ch) if ch.eq_ignore_ascii_case("f") => {
+                            self.blue_follow_mouse = !self.blue_follow_mouse;
+                        }
+                        Key::Character(ch) if ch.eq_ignore_ascii_case("r") => {
+                            self.orbit_yaw_deg = 0.0;
+                            self.orbit_pitch_deg = 0.0;
+                        }
+                        _ => {}
+                    }
+                    // Trigger redraw after parameter change
+                    window.request_redraw();
+                }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.scale_factor = scale_factor;
@@ -257,21 +344,36 @@ impl<'a> ApplicationHandler for App<'a> {
                 let green_tx = Transform3D::scale(0.5, 0.5, 1.0)
                     .then(&Transform3D::translation(400.0, 100.0, 0.0));
 
-                // Perspective origin at mouse (logical pixels); if no mouse yet, use canvas center.
-                let (origin_x, origin_y) = match self.last_mouse_pos {
-                    Some((mx, my)) => (mx * 2.0, my * 2.0),
-                    None => (logical_w * 0.5, logical_h * 0.5),
+                // Blue shape: rotate around Y by base 45° + mouse-driven yaw, and around X by
+                // a mouse-driven pitch; also simulate a per-shape "camera" by sliding the
+                // perspective origin in both X and Y with the mouse.
+                let d = self.blue_perspective_d; // perspective distance (bigger = subtler perspective)
+                let blue_pos = self.blue_pos;
+                let blue_size = self.blue_size; // local rect path size
+                let blue_center_local = (blue_size.0 * 0.5, blue_size.1 * 0.5); // local pivot
+                let blue_center = (blue_pos.0 + blue_size.0 * 0.5, blue_pos.1 + blue_size.1 * 0.5);
+                let (origin_x_for_blue, origin_y_for_blue) = if self.blue_follow_mouse {
+                    match self.last_mouse_pos {
+                        Some((mx, my)) => (mx, my), // react to both horizontal and vertical motion
+                        None => blue_center,
+                    }
+                } else {
+                    blue_center
                 };
-                let d = 2000.0;
-                // Build a perspective "with origin": T(+origin) · P(d) · T(-origin)
-                let perspective_with_origin = Transform3D::translation(origin_x, origin_y, 0.0)
+                let blue_perspective = Transform3D::translation(origin_x_for_blue, origin_y_for_blue, 0.0)
                     .then(&Transform3D::perspective(d))
-                    .then(&Transform3D::translation(-origin_x, -origin_y, 0.0));
+                    .then(&Transform3D::translation(-origin_x_for_blue, -origin_y_for_blue, 0.0));
 
-                let blue_tx = Transform3D::rotation(0.0, 0.0, 0.0, Angle::degrees(45.0))
-                    .then_rotate(1.0, 0.0, 0.0, Angle::degrees(45.0))
-                    .then(&Transform3D::translation(100.0, 300.0, 0.0))
-                    .then(&perspective_with_origin);
+                let yaw = 45.0 + self.orbit_yaw_deg;   // base + yaw
+                let pitch = self.orbit_pitch_deg;      // pitch
+
+                // Rotate around the shape's local center to simulate orbiting
+                let blue_tx = Transform3D::translation(-blue_center_local.0, -blue_center_local.1, 0.0)
+                    .then(&Transform3D::rotation(0.0, 1.0, 0.0, Angle::degrees(yaw)))
+                    .then(&Transform3D::rotation(1.0, 0.0, 0.0, Angle::degrees(pitch)))
+                    .then(&Transform3D::translation(blue_center_local.0, blue_center_local.1, 0.0))
+                    .then(&Transform3D::translation(blue_pos.0, blue_pos.1, 0.0))
+                    .then(&blue_perspective);
 
                 // Hover detection: transform mouse point back into local space and test against path's bbox
                 let mouse = self.last_mouse_pos;
@@ -382,6 +484,61 @@ impl<'a> ApplicationHandler for App<'a> {
     }
 }
 
+// Helper methods to tweak orbit/camera and blue shape settings for experimentation.
+impl<'a> App<'a> {
+    /// Set absolute yaw in degrees (adds to the base 45°).
+    pub fn set_orbit_yaw_deg(&mut self, deg: f32) {
+        self.orbit_yaw_deg = deg;
+    }
+
+    /// Set absolute pitch in degrees (will be clamped to [-80, 80]).
+    pub fn set_orbit_pitch_deg(&mut self, deg: f32) {
+        self.orbit_pitch_deg = deg.clamp(-80.0, 80.0);
+    }
+
+    /// Increment yaw by delta degrees.
+    pub fn add_orbit_yaw_deg(&mut self, delta: f32) {
+        self.orbit_yaw_deg = (self.orbit_yaw_deg + delta) % 360.0;
+    }
+
+    /// Increment pitch by delta degrees (clamped to [-80, 80]).
+    pub fn add_orbit_pitch_deg(&mut self, delta: f32) {
+        self.orbit_pitch_deg = (self.orbit_pitch_deg + delta).clamp(-80.0, 80.0);
+    }
+
+    /// Reset yaw/pitch to 0.
+    pub fn reset_orbit(&mut self) {
+        self.orbit_yaw_deg = 0.0;
+        self.orbit_pitch_deg = 0.0;
+    }
+
+    /// Set orbit mouse sensitivity in degrees per logical pixel.
+    pub fn set_orbit_sensitivity(&mut self, sensitivity: f32) {
+        self.orbit_sensitivity = sensitivity.max(0.0);
+    }
+
+    /// Set perspective distance for the blue shape (smaller => stronger perspective).
+    pub fn set_blue_perspective_distance(&mut self, d: f32) {
+        // Avoid zero/negative distances which would break the projection
+        self.blue_perspective_d = d.max(1.0);
+    }
+
+    /// Follow mouse for perspective origin (true) or use the shape center (false).
+    pub fn set_blue_follow_mouse(&mut self, enabled: bool) {
+        self.blue_follow_mouse = enabled;
+    }
+
+    /// Set the world position (top-left) of the blue rectangle.
+    pub fn set_blue_position(&mut self, x: f32, y: f32) {
+        self.blue_pos = (x, y);
+    }
+
+    /// Set the local size of the blue rectangle.
+    pub fn set_blue_size(&mut self, width: f32, height: f32) {
+        self.blue_size = (width.max(1.0), height.max(1.0));
+    }
+}
+
 pub fn main() {
     env_logger::init();
     let event_loop = EventLoop::new().expect("To create the event loop");
@@ -392,6 +549,15 @@ pub fn main() {
         renderer: None,
         angle: 0.0,
         last_mouse_pos: None,
+    orbit_yaw_deg: 0.0,
+    orbit_pitch_deg: 0.0,
+    orbit_dragging: false,
+    orbit_last_mouse_pos: None,
+    orbit_sensitivity: 0.08,
+    blue_perspective_d: 2000.0,
+    blue_follow_mouse: true,
+    blue_pos: (100.0, 300.0),
+    blue_size: (200.0, 100.0),
         scale_factor: 1.0,
         red_path: Path::new(),
         green_path: Path::new(),
