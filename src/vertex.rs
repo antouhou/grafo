@@ -7,7 +7,7 @@ use bytemuck::{Pod, Zeroable};
 pub struct CustomVertex {
     pub(crate) position: [f32; 2],
     pub(crate) color: [f32; 4], // RGBA color
-    pub(crate) depth: f32,
+    pub(crate) order: f32,
     pub(crate) tex_coords: [f32; 2],
 }
 
@@ -29,7 +29,7 @@ impl CustomVertex {
                     offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
                     shader_location: 1,
                 },
-                // Depth
+                // Render order (forwarded to position.z)
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32,
                     offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,

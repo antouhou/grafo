@@ -128,7 +128,7 @@ pub enum Pipeline {
 ///
 /// A `f32` representing the normalized depth value.
 #[inline(always)]
-pub fn depth(draw_command_id: usize, draw_commands_total: usize) -> f32 {
+pub fn order_value(draw_command_id: usize, draw_commands_total: usize) -> f32 {
     (1.0 - (draw_command_id as f32 / draw_commands_total as f32)).clamp(0.0000000001, 0.9999999999)
 }
 
@@ -990,7 +990,7 @@ impl<'a> Renderer<'a> {
         for (node_id, draw_command) in self.draw_tree.iter_mut() {
             match draw_command {
                 DrawCommand::Shape(ref mut shape) => {
-                    let depth = depth(node_id, draw_tree_size);
+                    let depth = order_value(node_id, draw_tree_size);
 
                     // Get tessellated buffers using the optimized cache approach
                     let vertex_buffers = shape.tessellate(depth, tessellator, buffers_pool_manager);
@@ -1033,7 +1033,7 @@ impl<'a> Renderer<'a> {
                     );
                 }
                 DrawCommand::CachedShape(cached_shape_data) => {
-                    let depth = depth(node_id, draw_tree_size);
+                    let depth = order_value(node_id, draw_tree_size);
 
                     if let Some(cached_shape) = self.shape_cache.get_mut(&cached_shape_data.id) {
                         if cached_shape.vertex_buffers.vertices.is_empty()
@@ -1379,7 +1379,7 @@ impl<'a> Renderer<'a> {
                     text_areas,
                     swash_cache,
                     |metadata| {
-                        depth(
+                        order_value(
                             self.metadata_to_clips.get(&metadata).copied().unwrap_or(0),
                             self.draw_tree.len(),
                         )
@@ -1411,7 +1411,7 @@ impl<'a> Renderer<'a> {
                     text_areas,
                     swash_cache,
                     |metadata| {
-                        depth(
+                        order_value(
                             self.metadata_to_clips.get(&metadata).copied().unwrap_or(0),
                             self.draw_tree.len(),
                         )
