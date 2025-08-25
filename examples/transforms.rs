@@ -92,8 +92,8 @@ use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
-use winit::window::{Window, WindowId};
 use winit::keyboard::{Key, NamedKey};
+use winit::window::{Window, WindowId};
 
 #[derive(Default)]
 struct App<'a> {
@@ -109,11 +109,11 @@ struct App<'a> {
     orbit_dragging: bool,
     orbit_last_mouse_pos: Option<(f32, f32)>,
     // User-tweakable settings
-    orbit_sensitivity: f32,      // degrees per logical pixel
-    blue_perspective_d: f32,     // perspective distance for blue shape
-    blue_follow_mouse: bool,     // whether perspective origin follows mouse
-    blue_pos: (f32, f32),        // world position (top-left) of blue rect
-    blue_size: (f32, f32),       // local size of blue rect
+    orbit_sensitivity: f32,  // degrees per logical pixel
+    blue_perspective_d: f32, // perspective distance for blue shape
+    blue_follow_mouse: bool, // whether perspective origin follows mouse
+    blue_pos: (f32, f32),    // world position (top-left) of blue rect
+    blue_size: (f32, f32),   // local size of blue rect
     // Window scale factor
     scale_factor: f64,
     // Lyon paths for our rectangles (local space, origin at (0,0))
@@ -195,7 +195,7 @@ impl<'a> ApplicationHandler for App<'a> {
         self.red_path = build_rect_path();
         self.green_path = build_rect_path();
         self.blue_path = build_rect_path();
-    // Build a heart shape path centered near (0,0)
+        // Build a heart shape path centered near (0,0)
         let mut hb = lyon::path::Path::builder();
         hb.begin(point(0.0, 30.0));
         hb.cubic_bezier_to(point(0.0, 0.0), point(50.0, 0.0), point(50.0, 30.0));
@@ -204,19 +204,19 @@ impl<'a> ApplicationHandler for App<'a> {
         hb.cubic_bezier_to(point(-50.0, 0.0), point(0.0, 0.0), point(0.0, 30.0));
         hb.close();
         self.heart_path = hb.build();
-    // Simple diamond to showcase perspective
-    let mut pb = lyon::path::Path::builder();
-    pb.begin(point(0.0, -60.0));
-    pb.line_to(point(60.0, 0.0));
-    pb.line_to(point(0.0, 60.0));
-    pb.line_to(point(-60.0, 0.0));
-    pb.close();
-    self.perspective_path = pb.build();
+        // Simple diamond to showcase perspective
+        let mut pb = lyon::path::Path::builder();
+        pb.begin(point(0.0, -60.0));
+        pb.line_to(point(60.0, 0.0));
+        pb.line_to(point(0.0, 60.0));
+        pb.line_to(point(-60.0, 0.0));
+        pb.close();
+        self.perspective_path = pb.build();
         self.red_color = (Color::rgb(200, 60, 60), Color::rgb(255, 120, 120));
         self.green_color = (Color::rgb(60, 200, 60), Color::rgb(120, 255, 120));
         self.blue_color = (Color::rgb(60, 60, 200), Color::rgb(120, 120, 255));
         self.heart_color = (Color::rgb(220, 0, 90), Color::rgb(255, 80, 150));
-    self.perspective_color = (Color::rgb(255, 180, 0), Color::rgb(255, 220, 120));
+        self.perspective_color = (Color::rgb(255, 180, 0), Color::rgb(255, 220, 120));
 
         self.scale_factor = scale_factor;
         self.window = Some(window);
@@ -249,14 +249,14 @@ impl<'a> ApplicationHandler for App<'a> {
                 self.last_mouse_pos = Some((x, y));
                 // Only update orbit while dragging; use a separate last position to avoid
                 // interfering with the perspective origin tracking.
-        if self.orbit_dragging {
+                if self.orbit_dragging {
                     if let Some((px, py)) = self.orbit_last_mouse_pos {
                         let dx = x - px;
                         let dy = y - py;
-            let sens = self.orbit_sensitivity; // degrees per logical pixel
-            self.orbit_yaw_deg = (self.orbit_yaw_deg + dx * sens) % 360.0;
-            self.orbit_pitch_deg = (self.orbit_pitch_deg + dy * sens)
-                            .clamp(-80.0, 80.0);
+                        let sens = self.orbit_sensitivity; // degrees per logical pixel
+                        self.orbit_yaw_deg = (self.orbit_yaw_deg + dx * sens) % 360.0;
+                        self.orbit_pitch_deg =
+                            (self.orbit_pitch_deg + dy * sens).clamp(-80.0, 80.0);
                     }
                     self.orbit_last_mouse_pos = Some((x, y));
                 }
@@ -292,16 +292,20 @@ impl<'a> ApplicationHandler for App<'a> {
                             self.orbit_yaw_deg = (self.orbit_yaw_deg + yaw_step).rem_euclid(360.0);
                         }
                         Key::Named(NamedKey::ArrowUp) => {
-                            self.orbit_pitch_deg = (self.orbit_pitch_deg - pitch_step).clamp(-80.0, 80.0);
+                            self.orbit_pitch_deg =
+                                (self.orbit_pitch_deg - pitch_step).clamp(-80.0, 80.0);
                         }
                         Key::Named(NamedKey::ArrowDown) => {
-                            self.orbit_pitch_deg = (self.orbit_pitch_deg + pitch_step).clamp(-80.0, 80.0);
+                            self.orbit_pitch_deg =
+                                (self.orbit_pitch_deg + pitch_step).clamp(-80.0, 80.0);
                         }
                         Key::Character(ch) if ch == "[" => {
-                            self.blue_perspective_d = (self.blue_perspective_d - dist_step).max(1.0);
+                            self.blue_perspective_d =
+                                (self.blue_perspective_d - dist_step).max(1.0);
                         }
                         Key::Character(ch) if ch == "]" => {
-                            self.blue_perspective_d = (self.blue_perspective_d + dist_step).max(1.0);
+                            self.blue_perspective_d =
+                                (self.blue_perspective_d + dist_step).max(1.0);
                         }
                         Key::Character(ch) if ch.eq_ignore_ascii_case("f") => {
                             self.blue_follow_mouse = !self.blue_follow_mouse;
@@ -351,7 +355,10 @@ impl<'a> ApplicationHandler for App<'a> {
                 let blue_pos = self.blue_pos;
                 let blue_size = self.blue_size; // local rect path size
                 let blue_center_local = (blue_size.0 * 0.5, blue_size.1 * 0.5); // local pivot
-                let blue_center = (blue_pos.0 + blue_size.0 * 0.5, blue_pos.1 + blue_size.1 * 0.5);
+                let blue_center = (
+                    blue_pos.0 + blue_size.0 * 0.5,
+                    blue_pos.1 + blue_size.1 * 0.5,
+                );
                 let (origin_x_for_blue, origin_y_for_blue) = if self.blue_follow_mouse {
                     match self.last_mouse_pos {
                         Some((mx, my)) => (mx, my), // react to both horizontal and vertical motion
@@ -360,20 +367,30 @@ impl<'a> ApplicationHandler for App<'a> {
                 } else {
                     blue_center
                 };
-                let blue_perspective = Transform3D::translation(origin_x_for_blue, origin_y_for_blue, 0.0)
-                    .then(&Transform3D::perspective(d))
-                    .then(&Transform3D::translation(-origin_x_for_blue, -origin_y_for_blue, 0.0));
+                let blue_perspective =
+                    Transform3D::translation(origin_x_for_blue, origin_y_for_blue, 0.0)
+                        .then(&Transform3D::perspective(d))
+                        .then(&Transform3D::translation(
+                            -origin_x_for_blue,
+                            -origin_y_for_blue,
+                            0.0,
+                        ));
 
-                let yaw = 45.0 + self.orbit_yaw_deg;   // base + yaw
-                let pitch = self.orbit_pitch_deg;      // pitch
+                let yaw = 45.0 + self.orbit_yaw_deg; // base + yaw
+                let pitch = self.orbit_pitch_deg; // pitch
 
                 // Rotate around the shape's local center to simulate orbiting
-                let blue_tx = Transform3D::translation(-blue_center_local.0, -blue_center_local.1, 0.0)
-                    .then(&Transform3D::rotation(0.0, 1.0, 0.0, Angle::degrees(yaw)))
-                    .then(&Transform3D::rotation(1.0, 0.0, 0.0, Angle::degrees(pitch)))
-                    .then(&Transform3D::translation(blue_center_local.0, blue_center_local.1, 0.0))
-                    .then(&Transform3D::translation(blue_pos.0, blue_pos.1, 0.0))
-                    .then(&blue_perspective);
+                let blue_tx =
+                    Transform3D::translation(-blue_center_local.0, -blue_center_local.1, 0.0)
+                        .then(&Transform3D::rotation(0.0, 1.0, 0.0, Angle::degrees(yaw)))
+                        .then(&Transform3D::rotation(1.0, 0.0, 0.0, Angle::degrees(pitch)))
+                        .then(&Transform3D::translation(
+                            blue_center_local.0,
+                            blue_center_local.1,
+                            0.0,
+                        ))
+                        .then(&Transform3D::translation(blue_pos.0, blue_pos.1, 0.0))
+                        .then(&blue_perspective);
 
                 // Hover detection: transform mouse point back into local space and test against path's bbox
                 let mouse = self.last_mouse_pos;
@@ -406,7 +423,9 @@ impl<'a> ApplicationHandler for App<'a> {
                 let persp = Transform3D::perspective(600.0);
                 let tilt = Transform3D::rotation(1.0, 0.0, 0.0, Angle::degrees(60.0));
                 let model = tilt.then(&Transform3D::translation(0.0, 0.0, 200.0));
-                let perspective_tx = model.then(&Transform3D::translation(500.0, 420.0, 0.0)).then(&persp);
+                let perspective_tx = model
+                    .then(&Transform3D::translation(500.0, 420.0, 0.0))
+                    .then(&persp);
                 let perspective_hover = is_hover(&self.perspective_path, &perspective_tx, mouse);
 
                 // Re-add shapes each frame using lyon paths for hit testing and dynamic color
@@ -448,7 +467,11 @@ impl<'a> ApplicationHandler for App<'a> {
                 ));
                 let perspective_shape = Shape::Path(grafo::PathShape::new(
                     self.perspective_path.clone(),
-                    if perspective_hover { self.perspective_color.1 } else { self.perspective_color.0 },
+                    if perspective_hover {
+                        self.perspective_color.1
+                    } else {
+                        self.perspective_color.0
+                    },
                     Stroke::new(2.0, Color::BLACK),
                 ));
 
@@ -464,7 +487,10 @@ impl<'a> ApplicationHandler for App<'a> {
                 renderer.set_shape_transform(green, transform_instance_from_euclid(green_tx));
                 renderer.set_shape_transform(blue, transform_instance_from_euclid(blue_tx));
                 renderer.set_shape_transform(heart, transform_instance_from_euclid(heart_tx));
-                renderer.set_shape_transform(perspective, transform_instance_from_euclid(perspective_tx));
+                renderer.set_shape_transform(
+                    perspective,
+                    transform_instance_from_euclid(perspective_tx),
+                );
 
                 // Advance animation angle
                 self.angle = (self.angle + 0.02) % (std::f32::consts::TAU);
@@ -549,26 +575,26 @@ pub fn main() {
         renderer: None,
         angle: 0.0,
         last_mouse_pos: None,
-    orbit_yaw_deg: 0.0,
-    orbit_pitch_deg: 0.0,
-    orbit_dragging: false,
-    orbit_last_mouse_pos: None,
-    orbit_sensitivity: 0.08,
-    blue_perspective_d: 2000.0,
-    blue_follow_mouse: true,
-    blue_pos: (100.0, 300.0),
-    blue_size: (200.0, 100.0),
+        orbit_yaw_deg: 0.0,
+        orbit_pitch_deg: 0.0,
+        orbit_dragging: false,
+        orbit_last_mouse_pos: None,
+        orbit_sensitivity: 0.08,
+        blue_perspective_d: 2000.0,
+        blue_follow_mouse: true,
+        blue_pos: (100.0, 300.0),
+        blue_size: (200.0, 100.0),
         scale_factor: 1.0,
         red_path: Path::new(),
         green_path: Path::new(),
         blue_path: Path::new(),
         heart_path: Path::new(),
-    perspective_path: Path::new(),
+        perspective_path: Path::new(),
         red_color: (Color::rgb(200, 60, 60), Color::rgb(255, 120, 120)),
         green_color: (Color::rgb(60, 200, 60), Color::rgb(120, 255, 120)),
         blue_color: (Color::rgb(60, 60, 200), Color::rgb(120, 120, 255)),
         heart_color: (Color::rgb(220, 0, 90), Color::rgb(255, 80, 150)),
-    perspective_color: (Color::rgb(255, 180, 0), Color::rgb(255, 220, 120)),
+        perspective_color: (Color::rgb(255, 180, 0), Color::rgb(255, 220, 120)),
         rust_logo_png_dimensions: (0, 0),
         rust_logo_png_bytes: Vec::new(),
         rust_logo_texture_id: 0,
