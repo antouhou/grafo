@@ -71,7 +71,11 @@ pub struct TextureManager {
     bind_group_layout: Arc<RwLock<wgpu::BindGroupLayout>>,
     /// Textures is raw image data, without any screen position information
     texture_storage: Arc<RwLock<HashMap<u64, wgpu::Texture>>>,
+    /// Cache for shape texture bind groups keyed by (texture_id, layout_epoch)
+    shape_bind_group_cache: Arc<RwLock<BindGroupCache>>,
 }
+
+type BindGroupCache = HashMap<(u64, u64), Arc<wgpu::BindGroup>>;
 
 impl TextureManager {
     pub(crate) fn new(
@@ -86,6 +90,7 @@ impl TextureManager {
             sampler: Arc::new(sampler),
             bind_group_layout: Arc::new(RwLock::new(bind_group_layout)),
             texture_storage: Arc::new(RwLock::new(HashMap::new())),
+            shape_bind_group_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -95,8 +100,8 @@ impl TextureManager {
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         })
     }
@@ -144,11 +149,16 @@ impl TextureManager {
     ///
     /// This function will first allocate the texture, then attempt to load the provided data.
     ///
+    /// If you are seeing fringes when sampling/minifying near transparent edges, ensure that your
+    /// texture data is in a premultiplied alpha format. You can use the
+    /// `premultiply_rgba8_srgb_inplace` helper function provided in this crate to convert your
+    /// RGBA8 sRGB data to premultiplied alpha.
+    ///
     /// # Parameters
     /// - `texture_id`: Unique identifier for the texture.
     /// - `texture_dimensions`: A tuple `(width, height)` representing the dimensions of the texture.
     /// - `texture_data`: A byte slice containing the image data. The data length is expected to
-    ///   match the texture dimensions and pixel format (RGBA8).
+    ///   match the texture dimensions and pixel format (RGBA8 with premultiplied alpha).
     pub fn allocate_texture_with_data(
         &self,
         texture_id: u64,
@@ -160,12 +170,17 @@ impl TextureManager {
             .unwrap();
     }
 
-    /// Loads image data into an already allocated texture.
+    /// Loads image data into an already allocated texture. If you are seeing fringes when
+    /// sampling/minifying near transparent edges, ensure that your texture data is in a
+    /// premultiplied alpha format. You can use the `premultiply_rgba8_srgb_inplace` helper
+    /// function provided in this crate to convert your RGBA8 sRGB data to premultiplied alpha.
     ///
     /// # Parameters
     /// - `texture_id`: Unique identifier for the texture.
     /// - `texture_dimensions`: A tuple `(width, height)` representing the dimensions of the texture.
-    /// - `texture_data`: A byte slice containing the image data in an RGBA8 format.
+    /// - `texture_data`: A byte slice containing the image data in an RGBA8 format with premultiplied alpha.
+    ///   If your texture isn't premultiplied, consider using a `premultiply_rgba8_srgb_inplace` helper
+    ///   function provided in this crate. This is needed to avoid fringes when sampling/minifying near transparent edges.
     ///
     /// # Returns
     /// - `Ok(())` if the operation succeeds.
@@ -247,6 +262,59 @@ impl TextureManager {
             ],
             label: Some("diffuse_bind_group"),
         })
+    }
+
+    /// Creates a bind group for the provided `layout` using the stored sampler and
+    /// the texture identified by `texture_id`.
+    ///
+    /// Returns a cached bind group for the given `layout_epoch` and `texture_id`,
+    /// creating and caching it if necessary. This avoids per-frame bind group creation
+    /// when binding textures for shapes.
+    pub(crate) fn get_or_create_shape_bind_group(
+        &self,
+        layout: &wgpu::BindGroupLayout,
+        layout_epoch: u64,
+        texture_id: u64,
+    ) -> Result<Arc<wgpu::BindGroup>, TextureManagerError> {
+        // Fast path: check cache
+        if let Some(bg) = self
+            .shape_bind_group_cache
+            .read()
+            .unwrap()
+            .get(&(texture_id, layout_epoch))
+            .cloned()
+        {
+            return Ok(bg);
+        }
+
+        // Create bind group
+        let storage = self.texture_storage.read().unwrap();
+        let texture = storage
+            .get(&texture_id)
+            .ok_or(TextureManagerError::TextureNotFound(texture_id))?;
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let bind_group = Arc::new(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+            label: Some("shape_texture_bind_group_cached"),
+        }));
+
+        // Insert into cache
+        self.shape_bind_group_cache
+            .write()
+            .unwrap()
+            .insert((texture_id, layout_epoch), bind_group.clone());
+
+        Ok(bind_group)
     }
 
     /// This creates vertex buffer for a quad that will be used to draw the texture. Not that
@@ -342,5 +410,52 @@ impl TextureManager {
             .read()
             .unwrap()
             .contains_key(&texture_id)
+    }
+}
+
+// Converts an RGBA8 sRGB image in-place to premultiplied alpha.
+// This operates in linear space for correct results:
+// 1) convert sRGB to linear
+// 2) multiply RGB by A
+// 3) convert back to sRGB
+// Alpha remains unchanged numerically in 0..1 mapped to 0..255.
+fn srgb_to_linear_u8(c: u8) -> f32 {
+    let x = c as f32 / 255.0;
+    if x <= 0.04045 {
+        x / 12.92
+    } else {
+        ((x + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+fn linear_to_srgb_u8(x: f32) -> u8 {
+    let x = x.clamp(0.0, 1.0);
+    let y = if x <= 0.0031308 {
+        x * 12.92
+    } else {
+        1.055 * x.powf(1.0 / 2.4) - 0.055
+    };
+    (y.clamp(0.0, 1.0) * 255.0 + 0.5).floor() as u8
+}
+
+pub fn premultiply_rgba8_srgb_inplace(pixels: &mut [u8]) {
+    assert!(
+        pixels.len() % 4 == 0,
+        "RGBA8 data length must be multiple of 4"
+    );
+    for px in pixels.chunks_mut(4) {
+        let r_lin = srgb_to_linear_u8(px[0]);
+        let g_lin = srgb_to_linear_u8(px[1]);
+        let b_lin = srgb_to_linear_u8(px[2]);
+        let a = px[3] as f32 / 255.0;
+
+        let r_pma = r_lin * a;
+        let g_pma = g_lin * a;
+        let b_pma = b_lin * a;
+
+        px[0] = linear_to_srgb_u8(r_pma);
+        px[1] = linear_to_srgb_u8(g_pma);
+        px[2] = linear_to_srgb_u8(b_pma);
+        // keep alpha as-is
     }
 }
