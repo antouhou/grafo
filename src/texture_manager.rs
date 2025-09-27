@@ -120,6 +120,12 @@ impl TextureManager {
     /// - `texture_id`: Unique identifier for the texture.
     /// - `texture_dimensions`: A tuple `(width, height)` representing the dimensions of the texture.
     pub fn allocate_texture(&self, texture_id: u64, texture_dimensions: (u32, u32)) {
+        let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
+        // If the binding cache contains entries for this texture_id, remove them
+        // as the texture is being re-allocated, and the old bind groups are no longer valid.
+        bind_group_cache
+            .retain(|(cached_texture_id, _shape_id), _bind_group| *cached_texture_id != texture_id);
+
         let texture_extent = wgpu::Extent3d {
             width: texture_dimensions.0,
             height: texture_dimensions.1,
@@ -440,7 +446,7 @@ fn linear_to_srgb_u8(x: f32) -> u8 {
 
 pub fn premultiply_rgba8_srgb_inplace(pixels: &mut [u8]) {
     assert!(
-        pixels.len() % 4 == 0,
+        pixels.len().is_multiple_of(4),
         "RGBA8 data length must be multiple of 4"
     );
     for px in pixels.chunks_mut(4) {
