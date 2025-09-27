@@ -446,7 +446,7 @@ fn linear_to_srgb_u8(x: f32) -> u8 {
 
 pub fn premultiply_rgba8_srgb_inplace(pixels: &mut [u8]) {
     assert!(
-        pixels.len() % 4 == 0,
+        pixels.len().is_multiple_of(4),
         "RGBA8 data length must be multiple of 4"
     );
     for px in pixels.chunks_mut(4) {
