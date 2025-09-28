@@ -690,14 +690,12 @@ impl<'a> Renderer<'a> {
     pub fn load_shape(
         &mut self,
         shape: impl AsRef<Shape>,
-        bounding_box: (f32, f32, f32, f32),
         cache_key: u64,
         tessellation_cache_key: Option<u64>,
     ) {
         let cached_shape = CachedShape::new(
             shape.as_ref(),
             0.0,
-            bounding_box,
             &mut self.tessellator,
             &mut self.buffers_pool_manager,
             tessellation_cache_key,

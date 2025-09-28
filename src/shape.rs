@@ -48,7 +48,6 @@ use lyon::tessellation::FillVertexConstructor;
 
 pub(crate) struct CachedShape {
     pub depth: f32,
-    pub bounding_box: (f32, f32, f32, f32),
     pub vertex_buffers: VertexBuffers<CustomVertex, u16>,
 }
 
@@ -60,17 +59,12 @@ impl CachedShape {
     pub fn new(
         shape: &Shape,
         depth: f32,
-        bounding_box: (f32, f32, f32, f32),
         tessellator: &mut FillTessellator,
         pool: &mut PoolManager,
         tessellator_cache_key: Option<u64>,
     ) -> Self {
         let vertices = shape.tessellate(depth, tessellator, pool, tessellator_cache_key);
-        Self {
-            depth,
-            bounding_box,
-            vertex_buffers: vertices,
-        }
+        Self { depth, vertex_buffers: vertices }
     }
 
     pub fn set_depth(&mut self, depth: f32) {
