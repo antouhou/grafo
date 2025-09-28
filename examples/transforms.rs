@@ -127,6 +127,9 @@ struct App<'a> {
     green_color: (Color, Color),
     blue_color: (Color, Color),
     heart_color: (Color, Color),
+    // Jelly wobble demo
+    jelly_path: Path,
+    jelly_color: (Color, Color),
     rust_logo_png_dimensions: (u32, u32),
     rust_logo_png_bytes: Vec<u8>,
     rust_logo_texture_id: u64,
@@ -195,6 +198,8 @@ impl<'a> ApplicationHandler for App<'a> {
         self.red_path = build_rect_path();
         self.green_path = build_rect_path();
         self.blue_path = build_rect_path();
+    // Jelly wobble will use a slightly rounded-inspired rectangle (simple rect for now)
+    self.jelly_path = build_rect_path();
         // Build a heart shape path centered near (0,0)
         let mut hb = lyon::path::Path::builder();
         hb.begin(point(0.0, 30.0));
@@ -413,6 +418,20 @@ impl<'a> ApplicationHandler for App<'a> {
                 let red_hover = is_hover(&self.red_path, &red_tx, mouse);
                 let green_hover = is_hover(&self.green_path, &green_tx, mouse);
                 let blue_hover = is_hover(&self.blue_path, &blue_tx, mouse);
+                // Jelly wobble: bottom-anchored rectangle that squashes and rotates slightly
+                let jelly_pos = (750.0, 120.0); // world position (top-left approx)
+                let jelly_local_size = (200.0, 100.0);
+                let jelly_pivot = (jelly_local_size.0 * 0.5, jelly_local_size.1); // bottom-center
+                let s = (self.angle * 3.0).sin();
+                let wobble_x = 1.0 + 0.14 * s;
+                let wobble_y = 1.0 - 0.14 * s;
+                let wobble_rot = 5.0 * (self.angle * 2.0).sin(); // degrees
+                let jelly_tx = Transform3D::translation(-jelly_pivot.0, -jelly_pivot.1, 0.0)
+                    .then(&Transform3D::scale(wobble_x, wobble_y, 1.0))
+                    .then(&Transform3D::rotation(0.0, 0.0, 1.0, Angle::degrees(wobble_rot)))
+                    .then(&Transform3D::translation(jelly_pivot.0, jelly_pivot.1, 0.0))
+                    .then(&Transform3D::translation(jelly_pos.0, jelly_pos.1, 0.0));
+                let jelly_hover = is_hover(&self.jelly_path, &jelly_tx, mouse);
                 // Heart transform: scale and rotate a bit, then translate
                 let heart_tx = Transform3D::scale(1.8, 1.8, 1.0)
                     .then(&Transform3D::rotation(0.0, 0.0, 1.0, Angle::degrees(-20.0)))
@@ -456,6 +475,11 @@ impl<'a> ApplicationHandler for App<'a> {
                     },
                     Stroke::new(2.0, Color::BLACK),
                 ));
+                let jelly_shape = Shape::Path(grafo::PathShape::new(
+                    self.jelly_path.clone(),
+                    if jelly_hover { self.jelly_color.1 } else { self.jelly_color.0 },
+                    Stroke::new(2.0, Color::BLACK),
+                ));
                 let heart_shape = Shape::Path(grafo::PathShape::new(
                     self.heart_path.clone(),
                     if heart_hover {
@@ -478,6 +502,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let red = renderer.add_shape(red_shape, None, (0.0, 0.0), None);
                 let green = renderer.add_shape(green_shape, None, (0.0, 0.0), None);
                 let blue = renderer.add_shape(blue_shape, None, (0.0, 0.0), None);
+                let jelly = renderer.add_shape(jelly_shape, None, (0.0, 0.0), None);
                 let heart = renderer.add_shape(heart_shape, None, (0.0, 0.0), None);
                 let perspective = renderer.add_shape(perspective_shape, None, (0.0, 0.0), None);
 
@@ -486,6 +511,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 renderer.set_shape_transform(red, transform_instance_from_euclid(red_tx));
                 renderer.set_shape_transform(green, transform_instance_from_euclid(green_tx));
                 renderer.set_shape_transform(blue, transform_instance_from_euclid(blue_tx));
+                renderer.set_shape_transform(jelly, transform_instance_from_euclid(jelly_tx));
                 renderer.set_shape_transform(heart, transform_instance_from_euclid(heart_tx));
                 renderer.set_shape_transform(
                     perspective,
@@ -594,6 +620,8 @@ pub fn main() {
         green_color: (Color::rgb(60, 200, 60), Color::rgb(120, 255, 120)),
         blue_color: (Color::rgb(60, 60, 200), Color::rgb(120, 120, 255)),
         heart_color: (Color::rgb(220, 0, 90), Color::rgb(255, 80, 150)),
+        jelly_path: Path::new(),
+        jelly_color: (Color::rgb(90, 200, 255), Color::rgb(140, 235, 255)),
         perspective_color: (Color::rgb(255, 180, 0), Color::rgb(255, 220, 120)),
         rust_logo_png_dimensions: (0, 0),
         rust_logo_png_bytes: Vec::new(),
