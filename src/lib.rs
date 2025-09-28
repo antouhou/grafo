@@ -84,7 +84,8 @@
 //!             Color::rgb(0, 128, 255), // Blue fill
 //!             Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
 //!         );
-//!         renderer.add_shape(rect, None, (100.0, 100.0), None);
+//!         let rect_id = renderer.add_shape(rect, None, None);
+//!         renderer.set_shape_transform(rect_id, grafo::TransformInstance::identity());
 //!
 //!         self.window = Some(window);
 //!         self.renderer = Some(renderer);

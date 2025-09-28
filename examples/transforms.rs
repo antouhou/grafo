@@ -345,7 +345,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     Color::BLACK,
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                renderer.add_shape(background, None, (0.0, 0.0), None);
+                renderer.add_shape(background, None, None);
 
                 // Compute transforms in euclid space (same as before)
                 let red_tx = Transform3D::rotation(0.0, 0.0, 1.0, Angle::degrees(45.0))
@@ -499,12 +499,12 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(2.0, Color::BLACK),
                 ));
 
-                let red = renderer.add_shape(red_shape, None, (0.0, 0.0), None);
-                let green = renderer.add_shape(green_shape, None, (0.0, 0.0), None);
-                let blue = renderer.add_shape(blue_shape, None, (0.0, 0.0), None);
-                let jelly = renderer.add_shape(jelly_shape, None, (0.0, 0.0), None);
-                let heart = renderer.add_shape(heart_shape, None, (0.0, 0.0), None);
-                let perspective = renderer.add_shape(perspective_shape, None, (0.0, 0.0), None);
+                let red = renderer.add_shape(red_shape, None, None);
+                let green = renderer.add_shape(green_shape, None, None);
+                let blue = renderer.add_shape(blue_shape, None, None);
+                let jelly = renderer.add_shape(jelly_shape, None, None);
+                let heart = renderer.add_shape(heart_shape, None, None);
+                let perspective = renderer.add_shape(perspective_shape, None, None);
 
                 renderer.set_shape_texture(blue, Some(self.rust_logo_texture_id));
 

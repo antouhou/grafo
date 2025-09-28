@@ -64,19 +64,19 @@ pub fn main() {
         window.clone(),
         physical_size,
         scale_factor,
+        true,
+        false,
     ));
 
     // Define a simple rectangle shape
-    let rect = Shape::rect(
-        [(100.0, 100.0), (300.0, 200.0)],
-        Color::rgb(0, 128, 255), // Blue fill
-        Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
-    );
     let rect = Shape::rect(
         [(0.0, 0.0), (200.0, 100.0)],
         Color::rgb(0, 128, 255), // Blue fill
         Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
     );
+    let rect_id = renderer.add_shape(rect, None, None);
+    // Position using a transform instead of legacy offsets
+    renderer.set_shape_transform(rect_id, grafo::TransformInstance::translation(100.0, 100.0));
 
     // Start the event loop
     event_loop.run(move |event, event_loop_window_target| match event {
@@ -115,6 +115,24 @@ pub fn main() {
 For a detailed example showcasing advanced features like hierarchical clipping, 
 image rendering, and text rendering, please refer to the 
 [examples](https://github.com/antouhou/grafo/tree/main/examples) directory in the repository.
+
+### Positioning shapes
+
+You can use per-shape transforms to position shapes on the screen. Common helpers:
+
+- Translate: `TransformInstance::translation(tx, ty)`
+- Scale: `TransformInstance::scale(sx, sy)`
+- Rotate (Z): `TransformInstance::rotation_z_deg(deg)`
+- Compose: `a.multiply(&b)` applies `b` then `a`
+
+Example:
+
+```rust
+let id = renderer.add_shape(my_shape, None, None);
+let t = grafo::TransformInstance::translation(150.0, 80.0);
+let r = grafo::TransformInstance::rotation_z_deg(15.0);
+renderer.set_shape_transform(id, t.multiply(&r));
+```
 
 ## Documentation
 

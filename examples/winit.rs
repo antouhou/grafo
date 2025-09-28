@@ -144,13 +144,19 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
 
-                let background_id = renderer.add_shape(background, None, (0.0, 0.0), None);
-                let red_id = renderer.add_shape(red, Some(background_id), (0.0, 0.0), None);
-                let green_id = renderer.add_shape(green, Some(red_id), (100.0, 100.0), None);
-                let blue_id = renderer.add_shape(blue, Some(green_id), (150.0, 150.0), None);
-                renderer.add_shape(yellow, Some(green_id), (0.0, 0.0), None);
-                renderer.add_shape(white, Some(red_id), (0.0, 0.0), None);
-                renderer.add_shape(shape_that_doesnt_fit, Some(blue_id), (0.0, 0.0), None);
+                let background_id = renderer.add_shape(background, None, None);
+                let red_id = renderer.add_shape(red, Some(background_id), None);
+                let green_id = renderer.add_shape(green, Some(red_id), None);
+                let blue_id = renderer.add_shape(blue, Some(green_id), None);
+                let yellow_id = renderer.add_shape(yellow, Some(green_id), None);
+                let white_id = renderer.add_shape(white, Some(red_id), None);
+                let doesnt_fit_id = renderer.add_shape(shape_that_doesnt_fit, Some(blue_id), None);
+
+                // Recreate previous offsets with transforms
+                renderer.set_shape_transform(green_id, grafo::TransformInstance::translation(100.0, 100.0));
+                renderer.set_shape_transform(blue_id, grafo::TransformInstance::translation(150.0, 150.0));
+                // yellow, white, shape_that_doesnt_fit used (0,0) so identity is fine
+                let _ = (yellow_id, white_id, doesnt_fit_id);
 
                 let texture_id = 1;
                 renderer
