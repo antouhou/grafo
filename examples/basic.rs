@@ -40,7 +40,7 @@ impl<'a> ApplicationHandler for App<'a> {
             Color::rgb(0, 128, 255),        // Blue fill
             Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
         );
-        renderer.add_shape(rect, None, (0.0, 0.0), None);
+    renderer.add_shape(rect, None, None);
 
         self.window = Some(window);
         self.renderer = Some(renderer);
@@ -75,14 +75,14 @@ impl<'a> ApplicationHandler for App<'a> {
                     Color::rgb(0, 128, 255),        // Blue fill
                     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
                 );
-                renderer.add_shape(rect, None, (0.0, 0.0), None);
+                renderer.add_shape(rect, None, None);
 
                 let rect = Shape::rect(
                     [(500.0, 100.0), (600.0, 200.0)],
                     Color::rgb(0, 128, 0),          // Blue fill
                     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
                 );
-                renderer.add_shape(rect, None, (0.0, 0.0), None);
+                renderer.add_shape(rect, None, None);
 
                 match renderer.render() {
                     Ok(_) => {

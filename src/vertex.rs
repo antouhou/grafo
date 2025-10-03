@@ -65,6 +65,140 @@ impl InstanceTransform {
         }
     }
 
+    /// Create a 2D translation transform (tx, ty) in pixels.
+    pub fn translation(tx: f32, ty: f32) -> Self {
+        Self {
+            col0: [1.0, 0.0, 0.0, 0.0],
+            col1: [0.0, 1.0, 0.0, 0.0],
+            col2: [0.0, 0.0, 1.0, 0.0],
+            col3: [tx, ty, 0.0, 1.0],
+        }
+    }
+
+    /// Create a 3D translation transform (tx, ty, tz).
+    pub fn translation3d(tx: f32, ty: f32, tz: f32) -> Self {
+        Self {
+            col0: [1.0, 0.0, 0.0, 0.0],
+            col1: [0.0, 1.0, 0.0, 0.0],
+            col2: [0.0, 0.0, 1.0, 0.0],
+            col3: [tx, ty, tz, 1.0],
+        }
+    }
+
+    /// Create a 2D scale transform with factors (sx, sy).
+    pub fn scale(sx: f32, sy: f32) -> Self {
+        Self {
+            col0: [sx, 0.0, 0.0, 0.0],
+            col1: [0.0, sy, 0.0, 0.0],
+            col2: [0.0, 0.0, 1.0, 0.0],
+            col3: [0.0, 0.0, 0.0, 1.0],
+        }
+    }
+
+    /// Create a 3D scale transform with factors (sx, sy, sz).
+    pub fn scale3d(sx: f32, sy: f32, sz: f32) -> Self {
+        Self {
+            col0: [sx, 0.0, 0.0, 0.0],
+            col1: [0.0, sy, 0.0, 0.0],
+            col2: [0.0, 0.0, sz, 0.0],
+            col3: [0.0, 0.0, 0.0, 1.0],
+        }
+    }
+
+    /// Create a rotation around the Z axis by `radians`.
+    /// Positive angles rotate counter-clockwise in screen space.
+    pub fn rotation_z(radians: f32) -> Self {
+        let (s, c) = radians.sin_cos();
+        // Column-major
+        Self {
+            col0: [c, s, 0.0, 0.0],
+            col1: [-s, c, 0.0, 0.0],
+            col2: [0.0, 0.0, 1.0, 0.0],
+            col3: [0.0, 0.0, 0.0, 1.0],
+        }
+    }
+
+    /// Create a rotation around the Z axis by `degrees`.
+    pub fn rotation_z_deg(degrees: f32) -> Self {
+        Self::rotation_z(degrees.to_radians())
+    }
+
+    /// Create a 2D affine transform from matrix components:
+    ///   [ a c tx ]
+    ///   [ b d ty ]
+    ///   [ 0 0  1 ]
+    pub fn affine_2d(a: f32, b: f32, c: f32, d: f32, tx: f32, ty: f32) -> Self {
+        // Column-major storage
+        Self {
+            col0: [a, b, 0.0, 0.0],
+            col1: [c, d, 0.0, 0.0],
+            col2: [0.0, 0.0, 1.0, 0.0],
+            col3: [tx, ty, 0.0, 1.0],
+        }
+    }
+
+    /// Matrix multiplication (self * rhs), column-major.
+    /// Useful to compose transforms: first rhs, then self.
+    pub fn multiply(&self, rhs: &Self) -> Self {
+        // Build row vectors of `self`
+        let r0 = [self.col0[0], self.col1[0], self.col2[0], self.col3[0]];
+        let r1 = [self.col0[1], self.col1[1], self.col2[1], self.col3[1]];
+        let r2 = [self.col0[2], self.col1[2], self.col2[2], self.col3[2]];
+        let r3 = [self.col0[3], self.col1[3], self.col2[3], self.col3[3]];
+
+        // Helper to multiply row by rhs column
+        fn dot_row_col(row: [f32; 4], col: [f32; 4]) -> f32 {
+            row[0] * col[0] + row[1] * col[1] + row[2] * col[2] + row[3] * col[3]
+        }
+
+        let c0 = [
+            dot_row_col(r0, rhs.col0),
+            dot_row_col(r1, rhs.col0),
+            dot_row_col(r2, rhs.col0),
+            dot_row_col(r3, rhs.col0),
+        ];
+        let c1 = [
+            dot_row_col(r0, rhs.col1),
+            dot_row_col(r1, rhs.col1),
+            dot_row_col(r2, rhs.col1),
+            dot_row_col(r3, rhs.col1),
+        ];
+        let c2 = [
+            dot_row_col(r0, rhs.col2),
+            dot_row_col(r1, rhs.col2),
+            dot_row_col(r2, rhs.col2),
+            dot_row_col(r3, rhs.col2),
+        ];
+        let c3 = [
+            dot_row_col(r0, rhs.col3),
+            dot_row_col(r1, rhs.col3),
+            dot_row_col(r2, rhs.col3),
+            dot_row_col(r3, rhs.col3),
+        ];
+
+        Self {
+            col0: c0,
+            col1: c1,
+            col2: c2,
+            col3: c3,
+        }
+    }
+
+    /// Return the 4x4 columns as an array.
+    pub fn as_columns(&self) -> [[f32; 4]; 4] {
+        [self.col0, self.col1, self.col2, self.col3]
+    }
+
+    /// Build from 4x4 columns.
+    pub fn from_columns(cols: [[f32; 4]; 4]) -> Self {
+        Self {
+            col0: cols[0],
+            col1: cols[1],
+            col2: cols[2],
+            col3: cols[3],
+        }
+    }
+
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         let stride = std::mem::size_of::<InstanceTransform>() as wgpu::BufferAddress;
         wgpu::VertexBufferLayout {

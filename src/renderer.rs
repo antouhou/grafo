@@ -33,45 +33,16 @@
 //!         );
 //!         let physical_size = (800, 600);
 //!         let scale_factor = 1.0;
-//!
-//!         // Initialize the renderer
 //!         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
-//!
-//!         // Add a rectangle shape
-//!         let rect = Shape::rect(
-//!             [(0.0, 0.0), (200.0, 100.0)],
-//!             Color::rgb(0, 128, 255), // Blue fill
-//!             Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
-//!         );
-//!         renderer.add_shape(rect, None, (100.0, 100.0), None);
-//!
-//!         // Add some text
-//!         let layout = TextLayout {
-//!             font_size: 24.0,
-//!             line_height: 30.0,
-//!             color: Color::rgb(255, 255, 255), // White text
-//!             area: MathRect {
-//!                 min: (50.0, 50.0).into(),
-//!                 max: (400.0, 100.0).into(),
-//!             },
-//!             horizontal_alignment: TextAlignment::Center,
-//!             vertical_alignment: TextAlignment::Center,
-//!         };
+//!         let rect = Shape::rect([(0.0, 0.0), (200.0, 100.0)], Color::rgb(0, 128, 255), Stroke::new(2.0, Color::BLACK));
+//!         let rect_id = renderer.add_shape(rect, None, None);
+//!         renderer.set_shape_transform(rect_id, grafo::TransformInstance::identity());
+//!         let layout = TextLayout { font_size: 24.0, line_height: 30.0, color: Color::rgb(255, 255, 255), area: MathRect { min: (50.0, 50.0).into(), max: (400.0, 100.0).into() }, horizontal_alignment: TextAlignment::Center, vertical_alignment: TextAlignment::Center };
 //!         renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif, None, 0);
-//!
-//!         // Render the frame
-//!         match renderer.render() {
-//!             Ok(_) => println!("Frame rendered successfully."),
-//!             Err(e) => eprintln!("Rendering error: {:?}", e),
-//!         }
-//!
-//!         // Clear the draw queue after rendering
+//!         let _ = renderer.render();
 //!         renderer.clear_draw_queue();
 //!     }
-//!
-//!     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
-//!         // Handle window events (stub for doc test)
-//!     }
+//!     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
 //! }
 //! ```
 
@@ -180,7 +151,8 @@ enum DrawCommand {
 ///             Color::rgb(0, 128, 255), // Blue fill
 ///             Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
 ///         );
-///         renderer.add_shape(rect, None, (100.0, 100.0), None);
+///         let rect_id = renderer.add_shape(rect, None, None);
+///         renderer.set_shape_transform(rect_id, grafo::TransformInstance::identity());
 ///
 ///         // Add some text
 ///         let layout = TextLayout {
@@ -651,13 +623,12 @@ impl<'a> Renderer<'a> {
     ///
     /// - `shape`: The shape to be rendered. It can be any type that implements `Into<Shape>`. If
     ///   you're going to render a lot of shapes with the same outline, it is
-    ///   recommended to start shapes at 0.0, 0.0 where possible and use offset to move them on
+    ///   recommended to start shapes at 0.0, 0.0 where possible and use per-shape transforms to move them on
     ///   the screen. This way, it is going to be possible to cache tesselation results for
     ///   such shapes, which would increase rendering time. This is useful if you render a lot
     ///   of buttons with rounded corners, for example. Caching requires supplying a cache key
     ///   to cache tessellated shape.
     /// - `clip_to_shape`: Optional index of another shape to which this shape should be clipped.
-    /// - `offset`: Offset to render the shape at.
     /// - `cache_key`: A key that is going to be used for tesselation caching.
     ///
     /// # Returns
@@ -698,10 +669,8 @@ impl<'a> Renderer<'a> {
     ///                 Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
     ///             ),
     ///             None,
-    ///             // Shift rectangle by 100.0, 100.0
-    ///             (100.0, 100.0),
-    ///             None
     ///         );
+    ///         renderer.set_shape_transform(shape_id, grafo::TransformInstance::identity());
     ///     }
     ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
     /// }
@@ -710,11 +679,10 @@ impl<'a> Renderer<'a> {
         &mut self,
         shape: impl Into<Shape>,
         clip_to_shape: Option<usize>,
-        offset: (f32, f32),
         cache_key: Option<u64>,
     ) -> usize {
         self.add_draw_command(
-            DrawCommand::Shape(ShapeDrawData::new(shape, offset, cache_key)),
+            DrawCommand::Shape(ShapeDrawData::new(shape, cache_key)),
             clip_to_shape,
         )
     }
@@ -722,16 +690,12 @@ impl<'a> Renderer<'a> {
     pub fn load_shape(
         &mut self,
         shape: impl AsRef<Shape>,
-        bounding_box: (f32, f32, f32, f32),
-        offset: (f32, f32),
         cache_key: u64,
         tessellation_cache_key: Option<u64>,
     ) {
         let cached_shape = CachedShape::new(
             shape.as_ref(),
-            offset,
             0.0,
-            bounding_box,
             &mut self.tessellator,
             &mut self.buffers_pool_manager,
             tessellation_cache_key,
@@ -743,10 +707,9 @@ impl<'a> Renderer<'a> {
         &mut self,
         cache_key: u64,
         clip_to_shape: Option<usize>,
-        offset: (f32, f32),
     ) -> usize {
         self.add_draw_command(
-            DrawCommand::CachedShape(CachedShapeDrawData::new(cache_key, offset)),
+            DrawCommand::CachedShape(CachedShapeDrawData::new(cache_key)),
             clip_to_shape,
         )
     }
@@ -1043,14 +1006,8 @@ impl<'a> Renderer<'a> {
                             continue;
                         }
 
-                        if depth != cached_shape.depth
-                            && cached_shape.offset != cached_shape_data.offset
-                        {
-                            cached_shape.set_offset_and_depth(cached_shape_data.offset, depth);
-                        } else if depth != cached_shape.depth {
+                        if depth != cached_shape.depth {
                             cached_shape.set_depth(depth);
-                        } else if cached_shape_data.offset != cached_shape.offset {
-                            cached_shape.set_offset(cached_shape_data.offset);
                         }
 
                         let vertex_start = self.temp_vertices.len();

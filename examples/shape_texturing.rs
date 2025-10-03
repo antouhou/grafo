@@ -105,9 +105,13 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(2.0, Color::rgb(200, 200, 200)),
                 );
 
-                let background_id = renderer.add_shape(background, None, (0.0, 0.0), None);
-                let rect_id =
-                    renderer.add_shape(textured_rect, Some(background_id), (100.0, 100.0), None);
+                let background_id = renderer.add_shape(background, None, None);
+                let rect_id = renderer.add_shape(textured_rect, Some(background_id), None);
+                // Previously this shape used an offset of (100, 100)
+                renderer.set_shape_transform(
+                    rect_id,
+                    grafo::TransformInstance::translation(100.0, 100.0),
+                );
 
                 // Upload texture once per frame here for demo purposes. In a real app, do this once.
                 let texture_id = 100u64;
