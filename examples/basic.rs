@@ -40,7 +40,7 @@ impl<'a> ApplicationHandler for App<'a> {
             Color::rgb(0, 128, 255),        // Blue fill
             Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
         );
-    renderer.add_shape(rect, None, None);
+        renderer.add_shape(rect, None, None);
 
         self.window = Some(window);
         self.renderer = Some(renderer);

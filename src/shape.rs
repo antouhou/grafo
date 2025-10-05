@@ -64,7 +64,10 @@ impl CachedShape {
         tessellator_cache_key: Option<u64>,
     ) -> Self {
         let vertices = shape.tessellate(depth, tessellator, pool, tessellator_cache_key);
-        Self { depth, vertex_buffers: vertices }
+        Self {
+            depth,
+            vertex_buffers: vertices,
+        }
     }
 
     pub fn set_depth(&mut self, depth: f32) {
@@ -206,8 +209,9 @@ impl Shape {
         tesselation_cache_key: Option<u64>,
     ) -> VertexBuffers<CustomVertex, u16> {
         match &self {
-            Shape::Path(path_shape) =>
-                path_shape.tessellate(depth, tessellator, buffers_pool, tesselation_cache_key),
+            Shape::Path(path_shape) => {
+                path_shape.tessellate(depth, tessellator, buffers_pool, tesselation_cache_key)
+            }
             Shape::Rect(rect_shape) => {
                 let min_width = rect_shape.rect[0].0;
                 let min_height = rect_shape.rect[0].1;
@@ -543,7 +547,7 @@ impl PathShape {
 /// This struct is used internally by the renderer and typically does not need to be used
 /// directly by library users.
 #[derive(Debug)]
-    pub(crate) struct ShapeDrawData {
+pub(crate) struct ShapeDrawData {
     /// The shape associated with this draw data.
     pub(crate) shape: Shape,
     /// Optional cache key for the shape, used for caching tessellated buffers.

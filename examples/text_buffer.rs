@@ -125,8 +125,8 @@ impl ApplicationHandler for App {
                     Color::rgb(200, 200, 200),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let first_text_background_id = renderer
-                    .add_shape(first_text_background, Some(background_shape_id), None);
+                let first_text_background_id =
+                    renderer.add_shape(first_text_background, Some(background_shape_id), None);
                 let text = "Hello, world! This is a long text that will be clipped if it overflows the bounds.";
 
                 let text_buffer_id = 123;
