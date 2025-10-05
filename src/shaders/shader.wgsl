@@ -25,8 +25,12 @@ struct Uniforms {
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 // Texture/sampler for optional shape texturing. A default white texture can be bound when unused.
-@group(1) @binding(0) var t_shape: texture_2d<f32>;
-@group(1) @binding(1) var s_shape: sampler;
+// Layer 0 (background)
+@group(1) @binding(0) var t_shape_layer0: texture_2d<f32>;
+@group(1) @binding(1) var s_shape_layer0: sampler;
+// Layer 1 (foreground/overlay)
+@group(2) @binding(0) var t_shape_layer1: texture_2d<f32>;
+@group(2) @binding(1) var s_shape_layer1: sampler;
 
 fn to_linear(color: vec3<f32>) -> vec3<f32> {
     let cutoff = vec3<f32>(0.04045);
@@ -70,11 +74,13 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 fn fs_main(@location(0) color: vec4<f32>, @location(1) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     // Convert shape fill color from sRGB to linear
     let fill_lin = vec4<f32>(to_linear(color.rgb), color.a);
-    // Sample texture (Rgba8UnormSrgb is converted to linear on sample). We upload textures as premultiplied alpha.
-    let tex_pma = textureSample(t_shape, s_shape, tex_coords);
+    // Sample layer0 and layer1 (Rgba8UnormSrgb -> linear automatically). Data is premultiplied.
+    let layer0_pma = textureSample(t_shape_layer0, s_shape_layer0, tex_coords);
+    let layer1_pma = textureSample(t_shape_layer1, s_shape_layer1, tex_coords);
     // Convert fill to premultiplied
     let fill_pma = vec4<f32>(fill_lin.rgb * fill_lin.a, fill_lin.a);
-    // Composite premultiplied: out = tex + fill * (1 - tex.a)
-    let out_pma = fill_pma * (1.0 - tex_pma.a) + tex_pma;
-    return out_pma;
+    // Compose: base = texture layer 0 over shape fill, then layer 1 over result.
+    let base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
+    let final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
+    return final_pma;
 }

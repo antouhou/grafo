@@ -116,6 +116,37 @@ For a detailed example showcasing advanced features like hierarchical clipping,
 image rendering, and text rendering, please refer to the 
 [examples](https://github.com/antouhou/grafo/tree/main/examples) directory in the repository.
 
+### Multi-texturing (Background + Foreground)
+
+Shapes now support up to two texture layers that are composited with the shape fill using premultiplied alpha:
+
+1. Background layer (index 0 / `TextureLayer::Background`)
+2. Foreground layer (index 1 / `TextureLayer::Foreground`)
+
+Composition order (bottom to top):
+
+`final = foreground + (background + fill * (1 - background.a)) * (1 - foreground.a)`
+
+API:
+
+```rust
+use grafo::{Renderer, Shape, Color, Stroke, TextureLayer};
+
+// After loading/allocating textures via renderer.texture_manager()
+let id = renderer.add_shape(
+    Shape::rect([(0.0,0.0),(300.0,200.0)], Color::rgb(40,40,40), Stroke::new(1.0, Color::BLACK)),
+    None,
+    None,
+);
+renderer.set_shape_texture_on(id, TextureLayer::Background, Some(bg_tex_id));
+renderer.set_shape_texture_on(id, TextureLayer::Foreground, Some(fg_tex_id));
+
+// Or legacy single-layer helper (maps to Background):
+renderer.set_shape_texture(id, Some(bg_tex_id));
+```
+
+See `examples/multi_texture.rs` for a runnable demo that generates procedural background & foreground textures.
+
 ### Positioning shapes
 
 You can use per-shape transforms to position shapes on the screen. Common helpers:
