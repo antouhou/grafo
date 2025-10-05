@@ -15,8 +15,6 @@
 //!
 //! * Shape Rendering: Create and render complex vector shapes.
 //! * Image Rendering: Render images with support for clipping to shapes.
-//! * Text Rendering: Load fonts and render text with customizable layout, alignment, and styling using the
-//!   [glyphon](https://github.com/grovesNL/glyphon) crate.
 //! * Stencil Operations: Advanced stencil operations for clipping and masking.
 //!
 //! Grafo [available on crates.io](https://crates.io/crates/grafo), and
@@ -135,10 +133,6 @@
 //! image rendering, and text rendering, please refer to the
 //! [examples](https://github.com/antouhou/grafo/tree/main/examples) directory in the repository.
 
-pub use glyphon;
-pub use glyphon::fontdb;
-pub use glyphon::fontdb::Family as FontFamily;
-pub use glyphon::fontdb::Source as FontSource;
 pub use lyon;
 pub use wgpu;
 
@@ -153,7 +147,6 @@ mod vertex;
 
 mod cache;
 mod shape;
-mod text;
 mod texture_manager;
 
 pub use color::Color;
@@ -162,7 +155,6 @@ pub use renderer::Renderer;
 pub use renderer::TextureLayer;
 pub use shape::*;
 pub use stroke::Stroke;
-pub use text::*;
 pub use texture_manager::premultiply_rgba8_srgb_inplace;
 pub use texture_manager::TextureManager;
 pub use vertex::InstanceTransform as TransformInstance;

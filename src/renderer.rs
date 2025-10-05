@@ -1,46 +1,8 @@
 //! Renderer for the Grafo library.
 //!
 //! This module provides the [`Renderer`] struct, which is responsible for rendering shapes,
-//! images, and text. It leverages the `wgpu` crate for GPU-accelerated rendering and integrates
-//! with other modules like `shape`, `text`, and `image_draw_data` to manage various rendering
-//! components.
-//!
-//! # Examples
-//!
-//! Initializing and using the `Renderer`:
-//!
-//! ```rust,no_run
-//! use std::sync::Arc;
-//! use grafo::{FontFamily, Renderer};
-//! use grafo::Shape;
-//! use grafo::Color;
-//! use grafo::Stroke;
-//! use grafo::{TextAlignment, TextLayout};
-//! use grafo::MathRect;
-//! use winit::application::ApplicationHandler;
-//! use winit::event_loop::{ActiveEventLoop, EventLoop};
-//! use winit::window::Window;
-//! use futures::executor::block_on;
-//!
-//! // This is for demonstration purposes only. If you want a working example with winit, please
-//! // refer to the example in the "examples" folder.
-//!
-//! struct App;
-//! impl ApplicationHandler for App {
-//!     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-//!         let window_surface = Arc::new(
-//!             event_loop.create_window(Window::default_attributes()).unwrap()
-//!         );
-//!         let physical_size = (800, 600);
-//!         let scale_factor = 1.0;
-//!         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
-//!         let rect = Shape::rect([(0.0, 0.0), (200.0, 100.0)], Color::rgb(0, 128, 255), Stroke::new(2.0, Color::BLACK));
-//!         let rect_id = renderer.add_shape(rect, None, None);
-//!         renderer.set_shape_transform(rect_id, grafo::TransformInstance::identity());
-//!         let layout = TextLayout { font_size: 24.0, line_height: 30.0, color: Color::rgb(255, 255, 255), area: MathRect { min: (50.0, 50.0).into(), max: (400.0, 100.0).into() }, horizontal_alignment: TextAlignment::Center, vertical_alignment: TextAlignment::Center };
-//!         renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif, None, 0);
-//!         let _ = renderer.render();
-//!         renderer.clear_draw_queue();
+//! images. It leverages the `wgpu` crate for GPU-accelerated rendering and integrates
+//! with other modules like `shape` and `image_draw_data` to manage various rendering
 //!     }
 //!     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
 //! }
@@ -52,18 +14,15 @@ pub type MathRect = lyon::math::Box2D;
 
 use crate::image_draw_data::ImageDrawData;
 use crate::pipeline::{
-    create_and_depth_texture, create_depth_stencil_state_for_text, create_pipeline,
-    create_render_pass, create_texture_pipeline, render_buffer_range_to_texture, PipelineType,
-    Uniforms,
+    create_and_depth_texture, create_pipeline, create_render_pass, create_texture_pipeline,
+    render_buffer_range_to_texture, PipelineType, Uniforms,
 };
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
-use crate::text::{TextDrawData, TextLayout, TextRendererWrapper};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
 use crate::vertex::InstanceTransform;
-use crate::{CachedShape, Color, FontFamily, IntoCowBuffer, NoopTextDataIter};
+use crate::CachedShape;
 use ahash::{HashMap, HashMapExt};
-use glyphon::{fontdb, FontSystem, Resolution, SwashCache};
 use log::warn;
 use lyon::tessellation::FillTessellator;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
@@ -214,14 +173,6 @@ pub struct Renderer<'a> {
     buffers_pool_manager: PoolManager,
 
     texture_manager: TextureManager,
-
-    font_system: FontSystem,
-    swash_cache: SwashCache,
-    /// Text instances to be rendered
-    text_instances: Vec<TextDrawData<'a>>,
-    /// Internal wrapper for text rendering components.
-    text_renderer_wrapper: TextRendererWrapper,
-    glyphon_viewport: glyphon::Viewport,
 
     /// Tree structure holding shapes and images to be rendered.
     draw_tree: easy_tree::Tree<DrawCommand>,
@@ -400,8 +351,6 @@ impl<'a> Renderer<'a> {
         };
         surface.configure(&device, &config);
 
-        let text_instances = Vec::new();
-
         let (
             and_uniforms,
             and_bind_group,
@@ -427,29 +376,6 @@ impl<'a> Renderer<'a> {
             &config,
             PipelineType::EqualDecrementStencil,
         );
-
-        let text_renderer_wrapper = TextRendererWrapper::new(
-            &device,
-            &queue,
-            swapchain_format,
-            Some(create_depth_stencil_state_for_text()),
-        );
-
-        let font_system = FontSystem::new();
-        let swash_cache = SwashCache::new();
-
-        let mut glyphon_viewport =
-            glyphon::Viewport::new(&device, &text_renderer_wrapper.glyphon_cache);
-
-        {
-            glyphon_viewport.update(
-                &queue,
-                Resolution {
-                    width: size.0,
-                    height: size.1,
-                },
-            );
-        }
 
         let (
             texture_bind_group_layout,
@@ -477,12 +403,6 @@ impl<'a> Renderer<'a> {
             physical_size: size,
 
             scale_factor,
-            text_instances,
-            // draw_queue: BTreeMap::new(),
-            font_system,
-            swash_cache,
-            text_renderer_wrapper,
-            glyphon_viewport,
 
             tessellator: FillTessellator::new(),
 
@@ -769,144 +689,6 @@ impl<'a> Renderer<'a> {
         &self.texture_manager
     }
 
-    /// Adds text to the draw queue. If you want to use a custom font, you need to load it first
-    /// using the [Renderer::load_fonts] or [Renderer::load_font_from_bytes] methods.
-    ///
-    /// # Parameters
-    ///
-    /// - `text`: The string of text to be rendered.
-    /// - `layout`: The layout configuration for the text.
-    /// - `font_family`: The font family to be used for rendering the text.
-    /// - `clip_to_shape`: Optional index of a shape to which this text should be clipped.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use std::sync::Arc;
-    /// use futures::executor::block_on;
-    /// use winit::application::ApplicationHandler;
-    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
-    /// use winit::window::Window;
-    /// use grafo::{FontFamily, MathRect, Renderer, TextAlignment, TextLayout};
-    /// use grafo::Shape;
-    /// use grafo::Color;
-    /// use grafo::Stroke;
-    ///
-    /// // This is for demonstration purposes only. If you want a working example with winit, please
-    /// // refer to the example in the "examples" folder.
-    /// struct App;
-    /// impl ApplicationHandler for App {
-    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-    ///         let window_surface = Arc::new(
-    ///             event_loop.create_window(Window::default_attributes()).unwrap()
-    ///         );
-    ///         let physical_size = (800, 600);
-    ///         let scale_factor = 1.0;
-    ///
-    ///         // Initialize the renderer
-    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
-    ///
-    ///         let layout = TextLayout {
-    ///             font_size: 24.0,
-    ///             line_height: 30.0,
-    ///             color: Color::rgb(255, 255, 255), // White text
-    ///             area: MathRect {
-    ///                 min: (50.0, 50.0).into(),
-    ///                 max: (400.0, 100.0).into(),
-    ///             },
-    ///             horizontal_alignment: TextAlignment::Center,
-    ///             vertical_alignment: TextAlignment::Center,
-    ///         };
-    ///         renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif, None, 0);
-    ///     }
-    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
-    /// }
-    /// ```
-    pub fn add_text(
-        &mut self,
-        text: &str,
-        layout: impl Into<TextLayout>,
-        font_family: FontFamily,
-        clip_to_shape: Option<usize>,
-        buffer_id: usize,
-    ) {
-        self.add_text_internal(text, layout, font_family, clip_to_shape, None, buffer_id)
-    }
-
-    /// Same as [Renderer::add_text], but allows to use a custom font system
-    pub fn add_text_with_custom_font_system(
-        &mut self,
-        text: &str,
-        layout: impl Into<TextLayout>,
-        font_family: FontFamily,
-        clip_to_shape: Option<usize>,
-        font_system: &mut FontSystem,
-        buffer_id: usize,
-    ) {
-        self.add_text_internal(
-            text,
-            layout,
-            font_family,
-            clip_to_shape,
-            Some(font_system),
-            buffer_id,
-        )
-    }
-
-    fn add_text_internal(
-        &mut self,
-        text: &str,
-        layout: impl Into<TextLayout>,
-        font_family: FontFamily,
-        clip_to_shape: Option<usize>,
-        font_system: Option<&mut FontSystem>,
-        buffer_id: usize,
-    ) {
-        let font_system = font_system.unwrap_or(&mut self.font_system);
-
-        self.text_instances.push(TextDrawData::new(
-            text,
-            layout,
-            self.scale_factor as f32,
-            font_system,
-            font_family,
-            clip_to_shape,
-            buffer_id,
-        ));
-    }
-
-    /// This method  adds the text buffer to the draw queue. This is useful when you want to use
-    /// the text buffer somewhere else, for example to detect clicks on the text.
-    ///
-    /// # Parameters
-    ///
-    /// - `text_buffer`: Text buffer to be rendered.
-    /// - `area`: Where to render the text.
-    /// - `fallback_color`: Color used as a fallback color.
-    /// - `vertical_offset`: Vertical offset from the top of the canvas where to start rendering the text.
-    ///
-    /// # NOTE
-    /// It is very important to set the metadata of the text buffer to be equal to the id of the
-    /// shape that is going to be used for clipping, if you want the text to be clipped by a shape.
-    pub fn add_text_buffer(
-        &mut self,
-        text_buffer: impl IntoCowBuffer<'a>,
-        area: MathRect,
-        fallback_color: Color,
-        vertical_offset: f32,
-        buffer_metadata: usize,
-        clip_to_shape: Option<usize>,
-    ) {
-        self.text_instances.push(TextDrawData::with_buffer(
-            text_buffer,
-            area,
-            fallback_color,
-            vertical_offset,
-            clip_to_shape,
-            buffer_metadata,
-        ));
-    }
-
     /// Renders all items currently in the draw queue.
     ///
     /// This method processes the draw commands for shapes and images, tessellates them,
@@ -954,24 +736,6 @@ impl<'a> Renderer<'a> {
     /// }
     /// ```
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        self.render_internal(None, None, None::<NoopTextDataIter>)
-    }
-
-    pub fn render_with_custom_font_system<'b>(
-        &mut self,
-        font_system: &mut FontSystem,
-        swash_cache: &mut SwashCache,
-        text_instances: Option<impl Iterator<Item = TextDrawData<'b>>>,
-    ) -> Result<(), wgpu::SurfaceError> {
-        self.render_internal(Some(font_system), Some(swash_cache), text_instances)
-    }
-
-    fn render_internal<'b>(
-        &mut self,
-        custom_font_system: Option<&mut FontSystem>,
-        custom_swash_cache: Option<&mut SwashCache>,
-        custom_text_instances: Option<impl Iterator<Item = TextDrawData<'b>>>,
-    ) -> Result<(), wgpu::SurfaceError> {
         self.temp_vertices.clear();
         self.temp_indices.clear();
         self.temp_instance_transforms.clear();
@@ -1295,22 +1059,6 @@ impl<'a> Renderer<'a> {
                 },
                 &mut data,
             );
-
-            // // Preparing text renderer
-            self.prepare_text_buffers(
-                custom_text_instances,
-                custom_font_system,
-                custom_swash_cache,
-            );
-
-            self.text_renderer_wrapper
-                .text_renderer
-                .render(
-                    &self.text_renderer_wrapper.atlas,
-                    &self.glyphon_viewport,
-                    &mut data.0,
-                )
-                .unwrap();
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -1338,82 +1086,6 @@ impl<'a> Renderer<'a> {
         // self.buffers_pool_manager.print_sizes();
 
         Ok(())
-    }
-
-    pub fn prepare_text_buffers<'b>(
-        &mut self,
-        custom_text_instances_iter: Option<impl Iterator<Item = TextDrawData<'b>>>,
-        custom_font_system: Option<&mut FontSystem>,
-        custom_swash_cache: Option<&mut SwashCache>,
-    ) {
-        let font_system = custom_font_system.unwrap_or(&mut self.font_system);
-        let swash_cache = custom_swash_cache.unwrap_or(&mut self.swash_cache);
-
-        if let Some(text_instances_iter) = custom_text_instances_iter {
-            // TODO: make vec a pool
-            let text_areas = text_instances_iter
-                .map(|text_instance| {
-                    self.metadata_to_clips.insert(
-                        text_instance.buffer_metadata,
-                        text_instance.clip_to_shape.unwrap_or_default(),
-                    );
-                    text_instance.into_text_area(self.scale_factor as f32)
-                })
-                .collect::<Vec<_>>();
-
-            self.text_renderer_wrapper
-                .text_renderer
-                .prepare_with_depth(
-                    &self.device,
-                    &self.queue,
-                    font_system,
-                    &mut self.text_renderer_wrapper.atlas,
-                    &self.glyphon_viewport,
-                    text_areas,
-                    swash_cache,
-                    |metadata| {
-                        order_value(
-                            self.metadata_to_clips.get(&metadata).copied().unwrap_or(0),
-                            self.draw_tree.len(),
-                        )
-                    },
-                )
-                .unwrap();
-        } else {
-            // TODO: make vec a pool
-            let text_areas = self
-                .text_instances
-                .iter()
-                .map(|text_instance| {
-                    self.metadata_to_clips.insert(
-                        text_instance.buffer_metadata,
-                        text_instance.clip_to_shape.unwrap_or_default(),
-                    );
-                    text_instance.to_text_area(self.scale_factor as f32)
-                })
-                .collect::<Vec<_>>();
-
-            self.text_renderer_wrapper
-                .text_renderer
-                .prepare_with_depth(
-                    &self.device,
-                    &self.queue,
-                    font_system,
-                    &mut self.text_renderer_wrapper.atlas,
-                    &self.glyphon_viewport,
-                    text_areas,
-                    swash_cache,
-                    |metadata| {
-                        order_value(
-                            self.metadata_to_clips.get(&metadata).copied().unwrap_or(0),
-                            self.draw_tree.len(),
-                        )
-                    },
-                )
-                .unwrap();
-
-            self.text_instances.clear();
-        }
     }
 
     /// Clears all items currently in the draw queue.
@@ -1462,7 +1134,6 @@ impl<'a> Renderer<'a> {
     /// ```
     pub fn clear_draw_queue(&mut self) {
         self.draw_tree.clear();
-        self.text_instances.clear();
         self.metadata_to_clips.clear();
     }
 
@@ -1647,7 +1318,6 @@ impl<'a> Renderer<'a> {
     ///         // Handle window events (stub for doc test)
     ///     }
     /// }
-    /// ```
     pub fn change_scale_factor(&mut self, new_scale_factor: f64) {
         self.scale_factor = new_scale_factor;
         self.resize(self.physical_size)
@@ -1775,14 +1445,6 @@ impl<'a> Renderer<'a> {
             .set_bind_group_layout(texture_bind_group_layout);
         self.texture_crop_render_pipeline = Arc::new(texture_crop_render_pipeline);
         self.texture_always_render_pipeline = Arc::new(texture_always_render_pipeline);
-
-        self.glyphon_viewport.update(
-            &self.queue,
-            Resolution {
-                width: new_physical_size.0,
-                height: new_physical_size.1,
-            },
-        );
     }
 
     pub fn set_vsync(&mut self, vsync: bool) {
@@ -1792,149 +1454,6 @@ impl<'a> Renderer<'a> {
             wgpu::PresentMode::Immediate
         };
         self.surface.configure(&self.device, &self.config);
-    }
-
-    /// Loads fonts from the specified sources.
-    ///
-    /// Loaded fonts can be later used to render text using the [Renderer::add_text] method.
-    ///
-    /// # Parameters
-    ///
-    /// - `fonts`: An iterator of [fontdb::Source] objects representing the font sources to load.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use std::sync::Arc;
-    /// use futures::executor::block_on;
-    /// use winit::application::ApplicationHandler;
-    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
-    /// use winit::window::Window;
-    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
-    /// use grafo::Shape;
-    /// use grafo::Color;
-    /// use grafo::Stroke;
-    /// use grafo::fontdb;
-    ///
-    /// // This is for demonstration purposes only. If you want a working example with winit, please
-    /// // refer to the example in the "examples" folder.
-    ///
-    /// struct App;
-    /// impl ApplicationHandler for App {
-    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-    ///         let window_surface = Arc::new(
-    ///             event_loop.create_window(Window::default_attributes()).unwrap()
-    ///         );
-    ///         let physical_size = (800, 600);
-    ///         let scale_factor = 1.0;
-    ///
-    ///         // Initialize the renderer
-    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
-    ///
-    ///         let roboto_font_ttf = include_bytes!("../examples/assets/Roboto-Regular.ttf").to_vec();
-    ///         let roboto_font_source = fontdb::Source::Binary(Arc::new(roboto_font_ttf));
-    ///         renderer.load_fonts([roboto_font_source].into_iter());
-    ///     }
-    ///
-    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
-    ///         // Handle window events (stub for doc test)
-    ///     }
-    /// }
-    /// ```
-    pub fn load_fonts(&mut self, fonts: impl Iterator<Item = fontdb::Source>) {
-        self.load_fonts_internal(fonts, None)
-    }
-
-    /// Same as [Renderer::load_fonts], but allows to use a custom font system.
-    pub fn load_fonts_with_custom_font_system(
-        &mut self,
-        fonts: impl Iterator<Item = fontdb::Source>,
-        font_system: &mut FontSystem,
-    ) {
-        self.load_fonts_internal(fonts, Some(font_system))
-    }
-
-    fn load_fonts_internal(
-        &mut self,
-        fonts: impl Iterator<Item = fontdb::Source>,
-        font_system: Option<&mut FontSystem>,
-    ) {
-        let font_system = font_system.unwrap_or(&mut self.font_system);
-        let db = font_system.db_mut();
-
-        for source in fonts {
-            db.load_font_source(source);
-        }
-    }
-
-    /// Loads a font from a byte slice.
-    ///
-    /// Loaded fonts can be later used to render text using the [Renderer::add_text] method.
-    ///
-    /// # Parameters
-    ///
-    /// - `font_bytes`: A slice of bytes representing the font file.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use std::sync::Arc;
-    /// use futures::executor::block_on;
-    /// use winit::application::ApplicationHandler;
-    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
-    /// use winit::window::Window;
-    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
-    /// use grafo::Shape;
-    /// use grafo::Color;
-    /// use grafo::Stroke;
-    /// use grafo::fontdb;
-    ///
-    /// // This is for demonstration purposes only. If you want a working example with winit, please
-    /// // refer to the example in the "examples" folder.
-    ///
-    /// struct App;
-    /// impl ApplicationHandler for App {
-    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-    ///         let window_surface = Arc::new(
-    ///             event_loop.create_window(Window::default_attributes()).unwrap()
-    ///         );
-    ///         let physical_size = (800, 600);
-    ///         let scale_factor = 1.0;
-    ///
-    ///         // Initialize the renderer
-    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
-    ///
-    ///         let roboto_font_ttf = include_bytes!("../examples/assets/Roboto-Regular.ttf");
-    ///         renderer.load_font_from_bytes(roboto_font_ttf);
-    ///     }
-    ///
-    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
-    ///         // Handle window events (stub for doc test)
-    ///     }
-    /// }
-    /// ```
-    pub fn load_font_from_bytes(&mut self, font_bytes: &[u8]) {
-        self.load_font_from_bytes_internal(font_bytes, None)
-    }
-
-    /// Same as [Renderer::load_font_from_bytes], but allows to use a custom font system.
-    pub fn load_font_from_bytes_with_custom_font_system(
-        &mut self,
-        font_bytes: &[u8],
-        font_system: &mut FontSystem,
-    ) {
-        self.load_font_from_bytes_internal(font_bytes, Some(font_system))
-    }
-
-    fn load_font_from_bytes_internal(
-        &mut self,
-        font_bytes: &[u8],
-        font_system: Option<&mut FontSystem>,
-    ) {
-        let font_system = font_system.unwrap_or(&mut self.font_system);
-        let db = font_system.db_mut();
-        let source = fontdb::Source::Binary(Arc::new(font_bytes.to_vec()));
-        db.load_font_source(source);
     }
 }
 

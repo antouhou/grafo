@@ -5,8 +5,8 @@
 [![Build and test](https://github.com/antouhou/grafo/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/antouhou/grafo/actions)
 
 Grafo is a GPU-accelerated rendering library for Rust. It is a one-stop solution in case 
-you need a quick and simple way to render shapes, images, and text in your application. It 
-supports features such as masking, clipping, and font loading and rendering.
+you need a quick and simple way to render shapes and images in your application. It 
+supports features such as masking and hierarchical clipping.
 
 The library is designed for flexibility and ease of use, making it suitable for a wide 
 range of applications, from simple graphical interfaces to complex rendering engines.
@@ -15,8 +15,7 @@ range of applications, from simple graphical interfaces to complex rendering eng
 
 * Shape Rendering: Create and render complex vector shapes. 
 * Image Rendering: Render images with support for clipping to shapes. 
-* Text Rendering: Load fonts and render text with customizable layout, alignment, and styling using the 
-[glyphon](https://github.com/grovesNL/glyphon) crate. 
+* (Text rendering was previously integrated; it has now been extracted into a separate crate - https://crates.io/crates/protextinator)
 * Stencil Operations: Advanced stencil operations for clipping and masking.
 
 Grafo [available on crates.io](https://crates.io/crates/grafo), and
@@ -37,8 +36,8 @@ log = "0.4"      # For logging
 
 ### Basic Usage
 
-Below is a simple example demonstrating how to initialize the `Renderer`, add shapes and text, 
-and render a frame using `winit`. For a more comprehensive example, refer to the 
+Below is a simple example demonstrating how to initialize the `Renderer`, add shapes, 
+and render a frame using `winit`. For more examples, refer to the 
 [examples](https://github.com/antouhou/grafo/tree/main/examples) folder in the repository.
 
 ```rust
@@ -112,8 +111,8 @@ pub fn main() {
 - `basic.rs` – draw simple shapes
 - `transforms.rs` – demonstrates enabling per-shape transform inputs (Stage 2 uses identity per-item; Stage 3 adds API usage)
 
-For a detailed example showcasing advanced features like hierarchical clipping, 
-image rendering, and text rendering, please refer to the 
+For a detailed example showcasing advanced features like hierarchical clipping and 
+image rendering, please refer to the 
 [examples](https://github.com/antouhou/grafo/tree/main/examples) directory in the repository.
 
 ### Multi-texturing (Background + Foreground)
