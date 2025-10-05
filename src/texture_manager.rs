@@ -1,6 +1,3 @@
-use crate::util::{normalize_rect, PoolManager};
-use crate::vertex::TexturedVertex;
-use crate::MathRect;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -68,7 +65,6 @@ pub struct TextureManager {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     sampler: Arc<wgpu::Sampler>,
-    bind_group_layout: Arc<RwLock<wgpu::BindGroupLayout>>,
     /// Textures is raw image data, without any screen position information
     texture_storage: Arc<RwLock<HashMap<u64, wgpu::Texture>>>,
     /// Cache for shape texture bind groups keyed by (texture_id, layout_epoch)
@@ -78,17 +74,12 @@ pub struct TextureManager {
 type BindGroupCache = HashMap<(u64, u64), Arc<wgpu::BindGroup>>;
 
 impl TextureManager {
-    pub(crate) fn new(
-        device: Arc<wgpu::Device>,
-        queue: Arc<wgpu::Queue>,
-        bind_group_layout: wgpu::BindGroupLayout,
-    ) -> Self {
+    pub(crate) fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
         let sampler = Self::create_sampler(&device);
         Self {
             device,
             queue,
             sampler: Arc::new(sampler),
-            bind_group_layout: Arc::new(RwLock::new(bind_group_layout)),
             texture_storage: Arc::new(RwLock::new(HashMap::new())),
             shape_bind_group_cache: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -104,10 +95,6 @@ impl TextureManager {
             mipmap_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         })
-    }
-
-    pub(crate) fn set_bind_group_layout(&self, bind_group_layout: wgpu::BindGroupLayout) {
-        *self.bind_group_layout.write().unwrap() = bind_group_layout;
     }
 
     /// Allocates a new RGBA8 texture with the given dimensions without providing any data.
@@ -245,31 +232,6 @@ impl TextureManager {
         );
     }
 
-    fn create_view(texture: &wgpu::Texture) -> wgpu::TextureView {
-        texture.create_view(&wgpu::TextureViewDescriptor::default())
-    }
-
-    fn create_bind_group(
-        &self,
-        texture_bind_group_layout: &wgpu::BindGroupLayout,
-        texture_view: &wgpu::TextureView,
-    ) -> wgpu::BindGroup {
-        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
-            label: Some("diffuse_bind_group"),
-        })
-    }
-
     /// Creates a bind group for the provided `layout` using the stored sampler and
     /// the texture identified by `texture_id`.
     ///
@@ -321,94 +283,6 @@ impl TextureManager {
             .insert((texture_id, layout_epoch), bind_group.clone());
 
         Ok(bind_group)
-    }
-
-    /// This creates vertex buffer for a quad that will be used to draw the texture. Not that
-    ///  there can be any number of those buffers, each representing an area of the screen
-    fn create_vertex_buffer(
-        &self,
-        canvas_physical_size: (u32, u32),
-        logical_area_to_render_texture: &MathRect,
-        scale_factor: f32,
-        buffer_pool: &mut PoolManager,
-    ) -> wgpu::Buffer {
-        let vertex_buffer = buffer_pool
-            .image_buffers_pool
-            .get_vertex_buffer(&self.device);
-
-        let normalized_rect = normalize_rect(
-            logical_area_to_render_texture,
-            canvas_physical_size,
-            scale_factor,
-        );
-        let min_x = normalized_rect.min.x;
-        let min_y = normalized_rect.min.y;
-        let max_x = normalized_rect.max.x;
-        let max_y = normalized_rect.max.y;
-
-        let top_left = [max_x, max_y];
-        let top_right = [min_x, max_y];
-        let bottom_right = [min_x, min_y];
-        let bottom_left = [max_x, min_y];
-
-        let top_left_tex_coords = [1.0, 1.0];
-        let top_right_tex_coords = [0.0, 1.0];
-        let bottom_right_text_coords = [0.0, 0.0];
-        let bottom_left_tex_coords = [1.0, 0.0];
-
-        let quad = [
-            TexturedVertex {
-                position: top_left,
-                tex_coords: top_left_tex_coords,
-            },
-            TexturedVertex {
-                position: top_right,
-                tex_coords: top_right_tex_coords,
-            },
-            TexturedVertex {
-                position: bottom_right,
-                tex_coords: bottom_right_text_coords,
-            },
-            TexturedVertex {
-                position: bottom_left,
-                tex_coords: bottom_left_tex_coords,
-            },
-        ];
-
-        self.queue
-            .write_buffer(&vertex_buffer, 0, bytemuck::cast_slice(&quad));
-
-        vertex_buffer
-    }
-
-    pub(crate) fn create_everything_to_render_texture(
-        &self,
-        texture_id: u64,
-        canvas_physical_size: (u32, u32),
-        logical_screen_area: &MathRect,
-        scale_factor: f32,
-        buffers_pool: &mut PoolManager,
-    ) -> Result<(wgpu::Buffer, wgpu::Buffer, wgpu::BindGroup), TextureManagerError> {
-        let vertex_buffer = self.create_vertex_buffer(
-            canvas_physical_size,
-            logical_screen_area,
-            scale_factor,
-            buffers_pool,
-        );
-
-        let index_buffer = buffers_pool
-            .image_buffers_pool
-            .get_index_buffer(&self.device);
-
-        let texture_storage = &self.texture_storage.read().unwrap();
-        let texture = texture_storage
-            .get(&texture_id)
-            .ok_or(TextureManagerError::TextureNotFound(texture_id))?;
-        let texture_view = Self::create_view(texture);
-        let bind_group_layout = self.bind_group_layout.read().unwrap();
-        let bind_group = self.create_bind_group(&bind_group_layout, &texture_view);
-
-        Ok((vertex_buffer, index_buffer, bind_group))
     }
 
     pub fn is_texture_loaded(&self, texture_id: u64) -> bool {

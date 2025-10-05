@@ -13,8 +13,7 @@ range of applications, from simple graphical interfaces to complex rendering eng
 
 ## Features
 
-* Shape Rendering: Create and render complex vector shapes. 
-* Image Rendering: Render images with support for clipping to shapes. 
+* Shape Rendering: Create and render complex vector shapes (with optional texture layers).
 * (Text rendering was previously integrated; it has now been extracted into a separate crate - https://crates.io/crates/protextinator)
 * Stencil Operations: Advanced stencil operations for clipping and masking.
 
@@ -111,8 +110,8 @@ pub fn main() {
 - `basic.rs` – draw simple shapes
 - `transforms.rs` – demonstrates enabling per-shape transform inputs (Stage 2 uses identity per-item; Stage 3 adds API usage)
 
-For a detailed example showcasing advanced features like hierarchical clipping and 
-image rendering, please refer to the 
+For a detailed example showcasing advanced features like hierarchical clipping and
+multi-layer shape texturing, please refer to the 
 [examples](https://github.com/antouhou/grafo/tree/main/examples) directory in the repository.
 
 ### Multi-texturing (Background + Foreground)

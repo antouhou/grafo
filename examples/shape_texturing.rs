@@ -130,17 +130,6 @@ impl<'a> ApplicationHandler for App<'a> {
                 // Associate the uploaded texture with our shape
                 renderer.set_shape_texture(rect_id, Some(texture_id));
 
-                // Draw also the raw image for comparison (not clipped)
-                let dims = self.rust_logo_png_dimensions;
-                renderer.add_texture_draw_to_queue(
-                    texture_id,
-                    [
-                        (450.0, 100.0),
-                        (450.0 + dims.0 as f32, 100.0 + dims.1 as f32),
-                    ],
-                    None,
-                );
-
                 let timer = Instant::now();
                 match renderer.render() {
                     Ok(_) => {

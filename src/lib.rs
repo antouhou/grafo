@@ -5,7 +5,7 @@
 //! [![Build and test](https://github.com/antouhou/grafo/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/antouhou/grafo/actions)
 //!
 //! Grafo is a GPU-accelerated rendering library for Rust. It is a one-stop solution in case
-//! you need a quick and simple way to render shapes, images, and text in your application. It
+//! you need a quick and simple way to render shapes (with optional texture layers) in your application. It
 //! supports features such as masking, clipping, and font loading and rendering.
 //!
 //! The library is designed for flexibility and ease of use, making it suitable for a wide
@@ -14,7 +14,7 @@
 //! ## Features
 //!
 //! * Shape Rendering: Create and render complex vector shapes.
-//! * Image Rendering: Render images with support for clipping to shapes.
+//! * Shape Texturing: Apply up to two texture layers per shape with hierarchical clipping.
 //! * Stencil Operations: Advanced stencil operations for clipping and masking.
 //!
 //! Grafo [available on crates.io](https://crates.io/crates/grafo), and
@@ -130,7 +130,7 @@
 //! ## Examples
 //!
 //! For a detailed example showcasing advanced features like hierarchical clipping,
-//! image rendering, and text rendering, please refer to the
+//! multi-layer texturing, please refer to the
 //! [examples](https://github.com/antouhou/grafo/tree/main/examples) directory in the repository.
 
 pub use lyon;
@@ -138,7 +138,6 @@ pub use wgpu;
 
 mod color;
 mod debug_tools;
-mod image_draw_data;
 mod pipeline;
 mod renderer;
 mod stroke;

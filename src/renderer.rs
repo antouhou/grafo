@@ -12,10 +12,9 @@ use std::sync::Arc;
 
 pub type MathRect = lyon::math::Box2D;
 
-use crate::image_draw_data::ImageDrawData;
 use crate::pipeline::{
-    create_and_depth_texture, create_pipeline, create_render_pass, create_texture_pipeline,
-    render_buffer_range_to_texture, PipelineType, Uniforms,
+    create_and_depth_texture, create_pipeline, create_render_pass, render_buffer_range_to_texture,
+    PipelineType, Uniforms,
 };
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
 use crate::texture_manager::TextureManager;
@@ -39,10 +38,6 @@ pub enum Pipeline {
     StencilIncrement,
     /// Pipeline for decrementing stencil values.
     StencilDecrement,
-    /// Pipeline for cropping textures based on stencil.
-    TextureCrop,
-    /// Pipeline for always rendering textures without clipping.
-    TextureAlways,
 }
 
 /// Semantic texture layers for a shape. Background is layer 0, Foreground is layer 1.
@@ -84,7 +79,6 @@ pub fn order_value(draw_command_id: usize, draw_commands_total: usize) -> f32 {
 enum DrawCommand {
     Shape(ShapeDrawData),
     CachedShape(CachedShapeDrawData),
-    Image(ImageDrawData),
 }
 
 /// The renderer for the Grafo library. This is the main struct used to render shapes and images.
@@ -186,11 +180,6 @@ pub struct Renderer<'a> {
     // performance_query_set: wgpu::QuerySet,
     // #[cfg(feature = "performance_measurement")]
     // adapter: wgpu::Adapter,
-    /// Render pipeline for cropping textures based on stencil.
-    texture_crop_render_pipeline: Arc<wgpu::RenderPipeline>,
-    /// Render pipeline for always rendering textures without clipping.
-    texture_always_render_pipeline: Arc<wgpu::RenderPipeline>,
-
     temp_vertices: Vec<crate::vertex::CustomVertex>,
     temp_indices: Vec<u16>,
 
@@ -360,17 +349,10 @@ impl<'a> Renderer<'a> {
             PipelineType::EqualDecrementStencil,
         );
 
-        let (
-            texture_bind_group_layout,
-            texture_crop_render_pipeline,
-            texture_always_render_pipeline,
-        ) = create_texture_pipeline(&device, &config);
-
         let device = Arc::new(device);
         let queue = Arc::new(queue);
 
-        let texture_manager =
-            TextureManager::new(device.clone(), queue.clone(), texture_bind_group_layout);
+        let texture_manager = TextureManager::new(device.clone(), queue.clone());
 
         // Create default transparent texture and bind group for shapes
         let (default_shape_texture_bind_group_layer0, shape_texture_bind_group_layout_layer0) =
@@ -419,9 +401,6 @@ impl<'a> Renderer<'a> {
             // performance_query_set: frametime_query_set,
             // #[cfg(feature = "performance_measurement")]
             // adapter,
-            texture_crop_render_pipeline: Arc::new(texture_crop_render_pipeline),
-            texture_always_render_pipeline: Arc::new(texture_always_render_pipeline),
-
             temp_vertices: Vec::new(),
             temp_indices: Vec::new(),
             temp_instance_transforms: Vec::new(),
@@ -652,20 +631,6 @@ impl<'a> Renderer<'a> {
         )
     }
 
-    /// Adds a texture to the draw queue. The texture must be loaded with the [Renderer::texture_manager]
-    /// first.
-    pub fn add_texture_draw_to_queue(
-        &mut self,
-        texture_id: u64,
-        draw_at: [(f32, f32); 2],
-        clip_to_shape: Option<usize>,
-    ) {
-        let draw_command =
-            DrawCommand::Image(ImageDrawData::new(texture_id, draw_at, clip_to_shape));
-
-        self.add_draw_command(draw_command, clip_to_shape);
-    }
-
     /// A texture manager is a helper to allow more granular approach to drawing images. It can
     /// be cloned and passed to a different thread if you want to update texture
     pub fn texture_manager(&self) -> &TextureManager {
@@ -727,9 +692,6 @@ impl<'a> Renderer<'a> {
 
         let tessellator = &mut self.tessellator;
         let buffers_pool_manager = &mut self.buffers_pool_manager;
-        let texture_manager = &self.texture_manager;
-        let physical_size = self.physical_size;
-        let scale_factor = self.scale_factor;
 
         // First pass: tessellate all shapes and aggregate vertex/index and instance data
         for (node_id, draw_command) in self.draw_tree.iter_mut() {
@@ -768,14 +730,6 @@ impl<'a> Renderer<'a> {
                         .unwrap_or_else(InstanceTransform::identity);
                     self.temp_instance_transforms.push(transform);
                     *shape.instance_index_mut() = Some(instance_idx);
-                }
-                DrawCommand::Image(ref mut image) => {
-                    image.prepare(
-                        texture_manager,
-                        physical_size,
-                        scale_factor as f32,
-                        buffers_pool_manager,
-                    );
                 }
                 DrawCommand::CachedShape(cached_shape_data) => {
                     let depth = order_value(node_id, draw_tree_size);
@@ -988,27 +942,6 @@ impl<'a> Renderer<'a> {
                                 &buffers,
                             );
                         }
-                        DrawCommand::Image(image) => {
-                            if image.clip_to_shape.is_some() {
-                                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
-                                // If the image is clipped to a shape, we set up the pipeline
-                                // to crop the image to the shape using the stencil texture
-                                render_pass.set_pipeline(&self.texture_crop_render_pipeline);
-                                render_pass.set_stencil_reference(parent_stencil);
-                                *currently_set_pipeline = Pipeline::TextureCrop;
-                            } else {
-                                // If the image is not clipped to a shape, we set up the pipeline
-                                // to always render the image
-                                render_pass.set_pipeline(&self.texture_always_render_pipeline);
-                                *currently_set_pipeline = Pipeline::TextureAlways;
-                            };
-
-                            render_pass.set_vertex_buffer(0, image.vertex_buffer());
-                            render_pass
-                                .set_index_buffer(image.index_buffer(), wgpu::IndexFormat::Uint16);
-                            render_pass.set_bind_group(0, image.bind_group(), &[]);
-                            render_pass.draw_indexed(0..image.num_indices(), 0, 0..1);
-                        }
                     }
                 },
                 |_shape_id, draw_command, data| {
@@ -1035,9 +968,6 @@ impl<'a> Renderer<'a> {
                                 &buffers,
                             );
                         }
-                        DrawCommand::Image(_) => {
-                            // nothing to do here
-                        }
                     }
                 },
                 &mut data,
@@ -1060,9 +990,6 @@ impl<'a> Renderer<'a> {
                     // Clear the aggregated buffer references
                     shape.index_buffer_range = None;
                     shape.stencil_ref = None;
-                }
-                DrawCommand::Image(ref mut image) => {
-                    image.return_buffers_to_pool(&mut self.buffers_pool_manager);
                 }
             });
 
@@ -1157,7 +1084,6 @@ impl<'a> Renderer<'a> {
             match draw_command {
                 DrawCommand::Shape(shape) => shape.set_transform(t),
                 DrawCommand::CachedShape(cached) => cached.set_transform(t),
-                DrawCommand::Image(_) => {}
             }
         }
     }
@@ -1170,7 +1096,6 @@ impl<'a> Renderer<'a> {
             match draw_command {
                 DrawCommand::Shape(shape) => shape.set_transform(t),
                 DrawCommand::CachedShape(cached) => cached.set_transform(t),
-                DrawCommand::Image(_) => {}
             }
         }
     }
@@ -1195,7 +1120,6 @@ impl<'a> Renderer<'a> {
             match draw_command {
                 DrawCommand::Shape(shape) => shape.set_texture_id(layer, texture_id),
                 DrawCommand::CachedShape(cached) => cached.set_texture_id(layer, texture_id),
-                DrawCommand::Image(_) => {}
             }
         }
     }
@@ -1418,16 +1342,6 @@ impl<'a> Renderer<'a> {
             Arc::new(shape_texture_bind_group_layout_layer1);
         // Bump epoch again since layout may have changed through this pipeline too
         self.shape_texture_layout_epoch = self.shape_texture_layout_epoch.wrapping_add(1);
-
-        let (
-            texture_bind_group_layout,
-            texture_crop_render_pipeline,
-            texture_always_render_pipeline,
-        ) = create_texture_pipeline(&self.device, &self.config);
-        self.texture_manager
-            .set_bind_group_layout(texture_bind_group_layout);
-        self.texture_crop_render_pipeline = Arc::new(texture_crop_render_pipeline);
-        self.texture_always_render_pipeline = Arc::new(texture_always_render_pipeline);
     }
 
     pub fn set_vsync(&mut self, vsync: bool) {
