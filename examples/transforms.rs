@@ -198,8 +198,8 @@ impl<'a> ApplicationHandler for App<'a> {
         self.red_path = build_rect_path();
         self.green_path = build_rect_path();
         self.blue_path = build_rect_path();
-    // Jelly wobble will use a slightly rounded-inspired rectangle (simple rect for now)
-    self.jelly_path = build_rect_path();
+        // Jelly wobble will use a slightly rounded-inspired rectangle (simple rect for now)
+        self.jelly_path = build_rect_path();
         // Build a heart shape path centered near (0,0)
         let mut hb = lyon::path::Path::builder();
         hb.begin(point(0.0, 30.0));
@@ -428,7 +428,12 @@ impl<'a> ApplicationHandler for App<'a> {
                 let wobble_rot = 5.0 * (self.angle * 2.0).sin(); // degrees
                 let jelly_tx = Transform3D::translation(-jelly_pivot.0, -jelly_pivot.1, 0.0)
                     .then(&Transform3D::scale(wobble_x, wobble_y, 1.0))
-                    .then(&Transform3D::rotation(0.0, 0.0, 1.0, Angle::degrees(wobble_rot)))
+                    .then(&Transform3D::rotation(
+                        0.0,
+                        0.0,
+                        1.0,
+                        Angle::degrees(wobble_rot),
+                    ))
                     .then(&Transform3D::translation(jelly_pivot.0, jelly_pivot.1, 0.0))
                     .then(&Transform3D::translation(jelly_pos.0, jelly_pos.1, 0.0));
                 let jelly_hover = is_hover(&self.jelly_path, &jelly_tx, mouse);
@@ -477,7 +482,11 @@ impl<'a> ApplicationHandler for App<'a> {
                 ));
                 let jelly_shape = Shape::Path(grafo::PathShape::new(
                     self.jelly_path.clone(),
-                    if jelly_hover { self.jelly_color.1 } else { self.jelly_color.0 },
+                    if jelly_hover {
+                        self.jelly_color.1
+                    } else {
+                        self.jelly_color.0
+                    },
                     Stroke::new(2.0, Color::BLACK),
                 ));
                 let heart_shape = Shape::Path(grafo::PathShape::new(

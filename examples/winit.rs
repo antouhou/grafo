@@ -153,8 +153,14 @@ impl<'a> ApplicationHandler for App<'a> {
                 let doesnt_fit_id = renderer.add_shape(shape_that_doesnt_fit, Some(blue_id), None);
 
                 // Recreate previous offsets with transforms
-                renderer.set_shape_transform(green_id, grafo::TransformInstance::translation(100.0, 100.0));
-                renderer.set_shape_transform(blue_id, grafo::TransformInstance::translation(150.0, 150.0));
+                renderer.set_shape_transform(
+                    green_id,
+                    grafo::TransformInstance::translation(100.0, 100.0),
+                );
+                renderer.set_shape_transform(
+                    blue_id,
+                    grafo::TransformInstance::translation(150.0, 150.0),
+                );
                 // yellow, white, shape_that_doesnt_fit used (0,0) so identity is fine
                 let _ = (yellow_id, white_id, doesnt_fit_id);
 

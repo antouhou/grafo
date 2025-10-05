@@ -64,7 +64,10 @@ impl CachedShape {
         tessellator_cache_key: Option<u64>,
     ) -> Self {
         let vertices = shape.tessellate(depth, tessellator, pool, tessellator_cache_key);
-        Self { depth, vertex_buffers: vertices }
+        Self {
+            depth,
+            vertex_buffers: vertices,
+        }
     }
 
     pub fn set_depth(&mut self, depth: f32) {
@@ -206,8 +209,9 @@ impl Shape {
         tesselation_cache_key: Option<u64>,
     ) -> VertexBuffers<CustomVertex, u16> {
         match &self {
-            Shape::Path(path_shape) =>
-                path_shape.tessellate(depth, tessellator, buffers_pool, tesselation_cache_key),
+            Shape::Path(path_shape) => {
+                path_shape.tessellate(depth, tessellator, buffers_pool, tesselation_cache_key)
+            }
             Shape::Rect(rect_shape) => {
                 let min_width = rect_shape.rect[0].0;
                 let min_height = rect_shape.rect[0].1;
@@ -543,7 +547,7 @@ impl PathShape {
 /// This struct is used internally by the renderer and typically does not need to be used
 /// directly by library users.
 #[derive(Debug)]
-    pub(crate) struct ShapeDrawData {
+pub(crate) struct ShapeDrawData {
     /// The shape associated with this draw data.
     pub(crate) shape: Shape,
     /// Optional cache key for the shape, used for caching tessellated buffers.
@@ -558,8 +562,10 @@ impl PathShape {
     pub(crate) instance_index: Option<usize>,
     /// Optional per-shape transform applied in clip-space (post-normalization)
     pub(crate) transform: Option<InstanceTransform>,
-    /// Optional texture id associated with this shape (sampled in the shape pipeline)
-    pub(crate) texture_id: Option<u64>,
+    /// Optional texture ids associated with this shape for multi-texturing layers.
+    /// Layer 0: background/base
+    /// Layer 1: foreground/overlay (e.g. text or decals) blended on top
+    pub(crate) texture_ids: [Option<u64>; 2],
 }
 
 impl ShapeDrawData {
@@ -574,7 +580,7 @@ impl ShapeDrawData {
             stencil_ref: None,
             instance_index: None,
             transform: None,
-            texture_id: None,
+            texture_ids: [None, None],
         }
     }
 
@@ -601,8 +607,8 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) instance_index: Option<usize>,
     /// Optional per-shape transform applied in clip-space (post-normalization)
     pub(crate) transform: Option<InstanceTransform>,
-    /// Optional texture id associated with this cached shape
-    pub(crate) texture_id: Option<u64>,
+    /// Optional texture ids associated with this cached shape
+    pub(crate) texture_ids: [Option<u64>; 2],
 }
 
 impl CachedShapeDrawData {
@@ -614,7 +620,7 @@ impl CachedShapeDrawData {
             stencil_ref: None,
             instance_index: None,
             transform: None,
-            texture_id: None,
+            texture_ids: [None, None],
         }
     }
 }
@@ -973,8 +979,8 @@ pub(crate) trait DrawShapeCommand {
     fn instance_index(&self) -> Option<usize>;
     fn transform(&self) -> Option<InstanceTransform>;
     fn set_transform(&mut self, t: InstanceTransform);
-    fn texture_id(&self) -> Option<u64>;
-    fn set_texture_id(&mut self, id: Option<u64>);
+    fn texture_id(&self, layer: usize) -> Option<u64>;
+    fn set_texture_id(&mut self, layer: usize, id: Option<u64>);
 }
 
 impl DrawShapeCommand for ShapeDrawData {
@@ -1014,13 +1020,15 @@ impl DrawShapeCommand for ShapeDrawData {
     }
 
     #[inline]
-    fn texture_id(&self) -> Option<u64> {
-        self.texture_id
+    fn texture_id(&self, layer: usize) -> Option<u64> {
+        self.texture_ids.get(layer).copied().unwrap_or(None)
     }
 
     #[inline]
-    fn set_texture_id(&mut self, id: Option<u64>) {
-        self.texture_id = id;
+    fn set_texture_id(&mut self, layer: usize, id: Option<u64>) {
+        if let Some(slot) = self.texture_ids.get_mut(layer) {
+            *slot = id;
+        }
     }
 }
 
@@ -1061,12 +1069,14 @@ impl DrawShapeCommand for CachedShapeDrawData {
     }
 
     #[inline]
-    fn texture_id(&self) -> Option<u64> {
-        self.texture_id
+    fn texture_id(&self, layer: usize) -> Option<u64> {
+        self.texture_ids.get(layer).copied().unwrap_or(None)
     }
 
     #[inline]
-    fn set_texture_id(&mut self, id: Option<u64>) {
-        self.texture_id = id;
+    fn set_texture_id(&mut self, layer: usize, id: Option<u64>) {
+        if let Some(slot) = self.texture_ids.get_mut(layer) {
+            *slot = id;
+        }
     }
 }

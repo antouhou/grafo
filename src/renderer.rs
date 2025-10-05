@@ -86,6 +86,22 @@ pub enum Pipeline {
     TextureAlways,
 }
 
+/// Semantic texture layers for a shape. Background is layer 0, Foreground is layer 1.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum TextureLayer {
+    Background,
+    Foreground,
+}
+
+impl From<TextureLayer> for usize {
+    fn from(value: TextureLayer) -> Self {
+        match value {
+            TextureLayer::Background => 0,
+            TextureLayer::Foreground => 1,
+        }
+    }
+}
+
 /// Calculates the depth value based on the draw command's ID and the total number of draw commands.
 ///
 /// Depth values are clamped between `0.0000000001` and `0.9999999999` to avoid precision issues.
@@ -217,12 +233,13 @@ pub struct Renderer<'a> {
     and_bind_group: BindGroup,
     /// Render pipeline for the "And" operations.
     and_pipeline: Arc<wgpu::RenderPipeline>,
-    /// Bind group layout for shape textures (group 1)
-    shape_texture_bind_group_layout: Arc<wgpu::BindGroupLayout>,
+    /// Bind group layouts for shape texture layers (groups 1 and 2)
+    shape_texture_bind_group_layout_background: Arc<wgpu::BindGroupLayout>,
+    shape_texture_bind_group_layout_foreground: Arc<wgpu::BindGroupLayout>,
     /// Monotonic counter to invalidate cached shape texture bind groups when the layout changes
     shape_texture_layout_epoch: u64,
-    /// Default white texture bind group (bound when the shape has no texture)
-    default_shape_texture_bind_group: Arc<wgpu::BindGroup>,
+    /// Default transparent texture bind groups for both layers
+    default_shape_texture_bind_groups: [Arc<wgpu::BindGroup>; 2], // [background, foreground]
 
     /// Render pipeline for decrementing stencil values.
     decrementing_pipeline: Arc<wgpu::RenderPipeline>,
@@ -385,7 +402,13 @@ impl<'a> Renderer<'a> {
 
         let text_instances = Vec::new();
 
-        let (and_uniforms, and_bind_group, and_texture_bgl, and_pipeline) = create_pipeline(
+        let (
+            and_uniforms,
+            and_bind_group,
+            and_texture_bgl_layer0,
+            and_texture_bgl_layer1,
+            and_pipeline,
+        ) = create_pipeline(
             canvas_logical_size,
             &device,
             &config,
@@ -395,7 +418,8 @@ impl<'a> Renderer<'a> {
         let (
             decrementing_uniforms,
             decrementing_bind_group,
-            _shape_texture_bind_group_layout_init,
+            _shape_texture_bind_group_layout_init0,
+            _shape_texture_bind_group_layout_init1,
             decrementing_pipeline,
         ) = create_pipeline(
             canvas_logical_size,
@@ -440,8 +464,10 @@ impl<'a> Renderer<'a> {
             TextureManager::new(device.clone(), queue.clone(), texture_bind_group_layout);
 
         // Create default transparent texture and bind group for shapes
-        let (default_shape_texture_bind_group, shape_texture_bind_group_layout) =
-            Self::create_default_shape_texture_bind_group(&device, &queue, &and_texture_bgl);
+        let (default_shape_texture_bind_group_layer0, shape_texture_bind_group_layout_layer0) =
+            Self::create_default_shape_texture_bind_group(&device, &queue, &and_texture_bgl_layer0);
+        let (default_shape_texture_bind_group_layer1, shape_texture_bind_group_layout_layer1) =
+            Self::create_default_shape_texture_bind_group(&device, &queue, &and_texture_bgl_layer1);
 
         Self {
             surface,
@@ -467,9 +493,17 @@ impl<'a> Renderer<'a> {
             and_pipeline: Arc::new(and_pipeline),
             and_uniforms,
             and_bind_group,
-            shape_texture_bind_group_layout: Arc::new(shape_texture_bind_group_layout),
+            shape_texture_bind_group_layout_background: Arc::new(
+                shape_texture_bind_group_layout_layer0,
+            ),
+            shape_texture_bind_group_layout_foreground: Arc::new(
+                shape_texture_bind_group_layout_layer1,
+            ),
             shape_texture_layout_epoch: 0,
-            default_shape_texture_bind_group: Arc::new(default_shape_texture_bind_group),
+            default_shape_texture_bind_groups: [
+                Arc::new(default_shape_texture_bind_group_layer0),
+                Arc::new(default_shape_texture_bind_group_layer1),
+            ],
 
             decrementing_pipeline: Arc::new(decrementing_pipeline),
             decrementing_uniforms,
@@ -668,6 +702,7 @@ impl<'a> Renderer<'a> {
     ///                 Color::rgb(0, 128, 255), // Blue fill
     ///                 Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
     ///             ),
+    ///             None,
     ///             None,
     ///         );
     ///         renderer.set_shape_transform(shape_id, grafo::TransformInstance::identity());
@@ -1127,8 +1162,9 @@ impl<'a> Renderer<'a> {
             and_bind_group: &self.and_bind_group,
             decrementing_pipeline: &self.decrementing_pipeline,
             decrementing_bind_group: &self.decrementing_bind_group,
-            shape_texture_bgl: &self.shape_texture_bind_group_layout,
-            default_shape_texture_bg: &self.default_shape_texture_bind_group,
+            shape_texture_bgl_layer0: &self.shape_texture_bind_group_layout_background,
+            shape_texture_bgl_layer1: &self.shape_texture_bind_group_layout_foreground,
+            default_shape_texture_bgs: &self.default_shape_texture_bind_groups,
             shape_texture_layout_epoch: self.shape_texture_layout_epoch,
             texture_manager: &self.texture_manager,
         };
@@ -1488,13 +1524,36 @@ impl<'a> Renderer<'a> {
     /// Associates a texture with a shape or cached shape by node id.
     /// Pass `None` to remove texture and fall back to solid fill color.
     pub fn set_shape_texture(&mut self, node_id: usize, texture_id: Option<u64>) {
+        self.set_shape_texture_layer(node_id, 0, texture_id);
+    }
+
+    /// Associates a texture with a shape/cached shape for a specific layer (0 or 1)
+    pub fn set_shape_texture_layer(
+        &mut self,
+        node_id: usize,
+        layer: usize,
+        texture_id: Option<u64>,
+    ) {
+        if layer > 1 {
+            return;
+        }
         if let Some(draw_command) = self.draw_tree.get_mut(node_id) {
             match draw_command {
-                DrawCommand::Shape(shape) => shape.set_texture_id(texture_id),
-                DrawCommand::CachedShape(cached) => cached.set_texture_id(texture_id),
+                DrawCommand::Shape(shape) => shape.set_texture_id(layer, texture_id),
+                DrawCommand::CachedShape(cached) => cached.set_texture_id(layer, texture_id),
                 DrawCommand::Image(_) => {}
             }
         }
+    }
+
+    /// Same as `set_shape_texture_layer` but takes a `TextureLayer` enum.
+    pub fn set_shape_texture_on(
+        &mut self,
+        node_id: usize,
+        layer: TextureLayer,
+        texture_id: Option<u64>,
+    ) {
+        self.set_shape_texture_layer(node_id, layer.into(), texture_id);
     }
 
     /// Retrieves the current size of the rendering surface.
@@ -1652,7 +1711,13 @@ impl<'a> Renderer<'a> {
         // Update the render pipeline to match the new size with new uniforms. Uniforms are
         // needed to normalize the coordinates of the shapes
 
-        let (and_uniforms, and_bind_group, and_texture_bgl, and_pipeline) = create_pipeline(
+        let (
+            and_uniforms,
+            and_bind_group,
+            and_texture_bgl_layer0,
+            and_texture_bgl_layer1,
+            and_pipeline,
+        ) = create_pipeline(
             to_logical(new_physical_size, self.scale_factor),
             &self.device,
             &self.config,
@@ -1661,22 +1726,29 @@ impl<'a> Renderer<'a> {
         self.and_uniforms = and_uniforms;
         self.and_bind_group = and_bind_group;
         self.and_pipeline = Arc::new(and_pipeline);
-        self.shape_texture_bind_group_layout = Arc::new(and_texture_bgl);
+        self.shape_texture_bind_group_layout_background = Arc::new(and_texture_bgl_layer0);
+        self.shape_texture_bind_group_layout_foreground = Arc::new(and_texture_bgl_layer1);
         // Invalidate cached bind groups by bumping epoch
         self.shape_texture_layout_epoch = self.shape_texture_layout_epoch.wrapping_add(1);
         // Recreate default transparent shape texture bind group to match new layout
-        let (bg, _layout) = Self::create_default_shape_texture_bind_group(
+        let (bg0, _layout0) = Self::create_default_shape_texture_bind_group(
             &self.device,
             &self.queue,
-            &self.shape_texture_bind_group_layout,
+            &self.shape_texture_bind_group_layout_background,
         );
-        self.default_shape_texture_bind_group = Arc::new(bg);
+        let (bg1, _layout1) = Self::create_default_shape_texture_bind_group(
+            &self.device,
+            &self.queue,
+            &self.shape_texture_bind_group_layout_foreground,
+        );
+        self.default_shape_texture_bind_groups = [Arc::new(bg0), Arc::new(bg1)];
 
         // Update the always decrement pipeline
         let (
             decrementing_uniforms,
             decrementing_bind_group,
-            shape_texture_bind_group_layout,
+            shape_texture_bind_group_layout_layer0,
+            shape_texture_bind_group_layout_layer1,
             decrementing_pipeline,
         ) = create_pipeline(
             to_logical(new_physical_size, self.scale_factor),
@@ -1687,7 +1759,10 @@ impl<'a> Renderer<'a> {
         self.decrementing_uniforms = decrementing_uniforms;
         self.decrementing_bind_group = decrementing_bind_group;
         self.decrementing_pipeline = Arc::new(decrementing_pipeline);
-        self.shape_texture_bind_group_layout = Arc::new(shape_texture_bind_group_layout);
+        self.shape_texture_bind_group_layout_background =
+            Arc::new(shape_texture_bind_group_layout_layer0);
+        self.shape_texture_bind_group_layout_foreground =
+            Arc::new(shape_texture_bind_group_layout_layer1);
         // Bump epoch again since layout may have changed through this pipeline too
         self.shape_texture_layout_epoch = self.shape_texture_layout_epoch.wrapping_add(1);
 
@@ -1875,8 +1950,9 @@ struct Pipelines<'a> {
     and_bind_group: &'a wgpu::BindGroup,
     decrementing_pipeline: &'a wgpu::RenderPipeline,
     decrementing_bind_group: &'a wgpu::BindGroup,
-    shape_texture_bgl: &'a wgpu::BindGroupLayout,
-    default_shape_texture_bg: &'a wgpu::BindGroup,
+    shape_texture_bgl_layer0: &'a wgpu::BindGroupLayout,
+    shape_texture_bgl_layer1: &'a wgpu::BindGroupLayout,
+    default_shape_texture_bgs: &'a [Arc<wgpu::BindGroup>; 2],
     shape_texture_layout_epoch: u64,
     texture_manager: &'a TextureManager,
 }
@@ -1898,8 +1974,9 @@ fn handle_increment_pass<'rp>(
         if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
             render_pass.set_pipeline(pipelines.and_pipeline);
             render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
-            // Bind default shape texture/sampler at group(1)
-            render_pass.set_bind_group(1, pipelines.default_shape_texture_bg, &[]);
+            // Bind default textures for both layers
+            render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bgs[0], &[]);
+            render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bgs[1], &[]);
 
             // Those pipelines use the same vertex buffers
             if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
@@ -1918,15 +1995,21 @@ fn handle_increment_pass<'rp>(
         // Determine the parent stencil from the stack (0 if root)
         let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
 
-        // If shape has its own texture, bind it now; otherwise keep default bound
-        if let Some(tex_id) = shape.texture_id() {
-            if pipelines.texture_manager.is_texture_loaded(tex_id) {
-                if let Ok(bg_arc) = pipelines.texture_manager.get_or_create_shape_bind_group(
-                    pipelines.shape_texture_bgl,
-                    pipelines.shape_texture_layout_epoch,
-                    tex_id,
-                ) {
-                    render_pass.set_bind_group(1, &*bg_arc, &[]);
+        // Bind per-layer textures if present
+        for layer in 0..2 {
+            if let Some(tex_id) = shape.texture_id(layer) {
+                if pipelines.texture_manager.is_texture_loaded(tex_id) {
+                    if let Ok(bg_arc) = pipelines.texture_manager.get_or_create_shape_bind_group(
+                        if layer == 0 {
+                            pipelines.shape_texture_bgl_layer0
+                        } else {
+                            pipelines.shape_texture_bgl_layer1
+                        },
+                        pipelines.shape_texture_layout_epoch,
+                        tex_id,
+                    ) {
+                        render_pass.set_bind_group(1 + layer as u32, &*bg_arc, &[]);
+                    }
                 }
             }
         }
@@ -1972,8 +2055,9 @@ fn handle_decrement_pass<'rp>(
         if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
             render_pass.set_pipeline(pipelines.decrementing_pipeline);
             render_pass.set_bind_group(0, pipelines.decrementing_bind_group, &[]);
-            // Bind default shape texture/sampler at group(1) to satisfy layout
-            render_pass.set_bind_group(1, pipelines.default_shape_texture_bg, &[]);
+            // Bind default textures for both layers to satisfy layout
+            render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bgs[0], &[]);
+            render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bgs[1], &[]);
 
             if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));

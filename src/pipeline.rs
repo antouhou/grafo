@@ -243,7 +243,13 @@ pub fn create_pipeline(
     device: &Device,
     config: &wgpu::SurfaceConfiguration,
     pipeline_type: PipelineType,
-) -> (Uniforms, BindGroup, BindGroupLayout, RenderPipeline) {
+) -> (
+    Uniforms,
+    BindGroup,
+    BindGroupLayout,
+    BindGroupLayout,
+    RenderPipeline,
+) {
     let (depth_stencil_state, targets) = match pipeline_type {
         PipelineType::EqualIncrementStencil => (
             create_equal_increment_depth_state(),
@@ -318,8 +324,8 @@ pub fn create_pipeline(
 
     // Bind group for uniforms
     let bind_group_layout = create_uniform_bind_group_layout(device);
-    // Bind group layout for shape texturing (group(1) in shader)
-    let texture_bind_group_layout =
+    // Bind group layouts for shape texturing layers (group(1) and group(2) in shader)
+    let texture_bind_group_layout_layer0 =
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -339,7 +345,29 @@ pub fn create_pipeline(
                     count: None,
                 },
             ],
-            label: Some("shape_texture_bind_group_layout"),
+            label: Some("shape_texture_bind_group_layout_layer0"),
+        });
+    let texture_bind_group_layout_layer1 =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+            label: Some("shape_texture_bind_group_layout_layer1"),
         });
 
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -359,7 +387,11 @@ pub fn create_pipeline(
 
     let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
-        bind_group_layouts: &[&bind_group_layout, &texture_bind_group_layout],
+        bind_group_layouts: &[
+            &bind_group_layout,
+            &texture_bind_group_layout_layer0,
+            &texture_bind_group_layout_layer1,
+        ],
         push_constant_ranges: &[],
     });
 
@@ -388,7 +420,8 @@ pub fn create_pipeline(
     (
         uniforms,
         bind_group,
-        texture_bind_group_layout,
+        texture_bind_group_layout_layer0,
+        texture_bind_group_layout_layer1,
         render_pipeline,
     )
 }

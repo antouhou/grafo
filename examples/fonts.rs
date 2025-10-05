@@ -87,8 +87,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     Color::rgb(200, 200, 200),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let first_text_background_id = renderer
-                    .add_shape(first_text_background, Some(background_shape_id), None);
+                let first_text_background_id =
+                    renderer.add_shape(first_text_background, Some(background_shape_id), None);
                 let text = "Hello, world!";
                 let text_layout = TextLayout {
                     font_size: 20.0,
@@ -116,8 +116,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     Color::rgb(200, 200, 200),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let second_text_background_id = renderer
-                    .add_shape(second_text_background, Some(background_shape_id), None);
+                let second_text_background_id =
+                    renderer.add_shape(second_text_background, Some(background_shape_id), None);
                 let text_layout2 = TextLayout {
                     font_size: 40.0,
                     line_height: 40.0,
@@ -144,8 +144,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     Color::rgb(200, 200, 200),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let third_text_background_id = renderer
-                    .add_shape(third_text_background, Some(background_shape_id), None);
+                let third_text_background_id =
+                    renderer.add_shape(third_text_background, Some(background_shape_id), None);
                 let text_layout3 = TextLayout {
                     font_size: 40.0,
                     line_height: 40.0,
@@ -172,8 +172,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     Color::rgb(200, 200, 200),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let fourth_text_background_id = renderer
-                    .add_shape(fourth_text_background, Some(background_shape_id), None);
+                let fourth_text_background_id =
+                    renderer.add_shape(fourth_text_background, Some(background_shape_id), None);
                 let text_layout4 = TextLayout {
                     font_size: 40.0,
                     line_height: 40.0,
