@@ -87,18 +87,15 @@ enum DrawCommand {
     Image(ImageDrawData),
 }
 
-/// The renderer for the Grafo library. This is the main struct that is used to render shapes,
-/// images, and text.
+/// The renderer for the Grafo library. This is the main struct used to render shapes and images.
 ///
 /// # Examples
 ///
 /// ```rust,no_run
-/// use grafo::{FontFamily, Renderer};
+/// use grafo::Renderer;
 /// use grafo::Shape;
 /// use grafo::Color;
 /// use grafo::Stroke;
-/// use grafo::{TextAlignment, TextLayout};
-/// use grafo::MathRect;
 /// use wgpu::Surface;
 /// use winit::application::ApplicationHandler;
 /// use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -128,20 +125,6 @@ enum DrawCommand {
 ///         );
 ///         let rect_id = renderer.add_shape(rect, None, None);
 ///         renderer.set_shape_transform(rect_id, grafo::TransformInstance::identity());
-///
-///         // Add some text
-///         let layout = TextLayout {
-///             font_size: 24.0,
-///             line_height: 30.0,
-///             color: Color::rgb(255, 255, 255), // White text
-///             area: MathRect {
-///                 min: (50.0, 50.0).into(),
-///                 max: (400.0, 100.0).into(),
-///             },
-///             horizontal_alignment: TextAlignment::Center,
-///             vertical_alignment: TextAlignment::Center,
-///         };
-///         renderer.add_text("Hello, Grafo!", layout, FontFamily::SansSerif , None, 0);
 ///
 ///         // Render the frame
 ///         match renderer.render() {
@@ -706,7 +689,7 @@ impl<'a> Renderer<'a> {
     /// use winit::application::ApplicationHandler;
     /// use winit::event_loop::{ActiveEventLoop, EventLoop};
     /// use winit::window::Window;
-    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
+    /// use grafo::Renderer;
     /// use grafo::Shape;
     /// use grafo::Color;
     /// use grafo::Stroke;
@@ -725,7 +708,7 @@ impl<'a> Renderer<'a> {
     ///         // Initialize the renderer
     ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
-    ///         // Add shapes, images, and text...
+    ///         // Add shapes and images...
     ///
     ///         // Render the frame
     ///         if let Err(e) = renderer.render() {
@@ -1090,7 +1073,7 @@ impl<'a> Renderer<'a> {
 
     /// Clears all items currently in the draw queue.
     ///
-    /// This method removes all shapes, images, and text instances from the draw queue,
+    /// This method removes all shapes and images from the draw queue,
     /// preparing the renderer for the next frame.
     ///
     /// # Examples
@@ -1101,7 +1084,7 @@ impl<'a> Renderer<'a> {
     /// use winit::application::ApplicationHandler;
     /// use winit::event_loop::{ActiveEventLoop, EventLoop};
     /// use winit::window::Window;
-    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
+    /// use grafo::Renderer;
     /// use grafo::Shape;
     /// use grafo::Color;
     /// use grafo::Stroke;
@@ -1121,7 +1104,7 @@ impl<'a> Renderer<'a> {
     ///         // Initialize the renderer
     ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
     ///
-    ///         // Add shapes, images, and text...
+    ///         // Add shapes and images...
     ///
     ///         // Clear the draw queue
     ///         renderer.clear_draw_queue();
@@ -1241,7 +1224,7 @@ impl<'a> Renderer<'a> {
     /// use winit::application::ApplicationHandler;
     /// use winit::event_loop::{ActiveEventLoop, EventLoop};
     /// use winit::window::Window;
-    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
+    /// use grafo::Renderer;
     /// use grafo::Shape;
     /// use grafo::Color;
     /// use grafo::Stroke;
@@ -1290,7 +1273,7 @@ impl<'a> Renderer<'a> {
     /// use winit::application::ApplicationHandler;
     /// use winit::event_loop::{ActiveEventLoop, EventLoop};
     /// use winit::window::Window;
-    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
+    /// use grafo::Renderer;
     /// use grafo::Shape;
     /// use grafo::Color;
     /// use grafo::Stroke;
@@ -1344,7 +1327,7 @@ impl<'a> Renderer<'a> {
     /// use winit::application::ApplicationHandler;
     /// use winit::event_loop::{ActiveEventLoop, EventLoop};
     /// use winit::window::Window;
-    /// use grafo::{MathRect, Renderer, TextAlignment, TextLayout};
+    /// use grafo::Renderer;
     /// use grafo::Shape;
     /// use grafo::Color;
     /// use grafo::Stroke;
