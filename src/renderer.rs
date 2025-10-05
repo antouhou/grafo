@@ -703,6 +703,7 @@ impl<'a> Renderer<'a> {
     ///                 Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
     ///             ),
     ///             None,
+    ///             None,
     ///         );
     ///         renderer.set_shape_transform(shape_id, grafo::TransformInstance::identity());
     ///     }
