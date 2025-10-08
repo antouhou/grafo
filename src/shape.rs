@@ -597,6 +597,7 @@ impl ShapeDrawData {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct CachedShapeDrawData {
     pub(crate) id: u64,
     pub(crate) index_buffer_range: Option<(usize, usize)>,

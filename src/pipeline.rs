@@ -183,6 +183,7 @@ pub fn create_pipeline(
     pipeline_type: PipelineType,
 ) -> (
     Uniforms,
+    wgpu::Buffer,
     BindGroup,
     BindGroupLayout,
     BindGroupLayout,
@@ -335,6 +336,7 @@ pub fn create_pipeline(
 
     (
         uniforms,
+        uniform_buffer,
         bind_group,
         texture_bind_group_layout_layer0,
         texture_bind_group_layout_layer1,

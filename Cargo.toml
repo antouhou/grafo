@@ -19,6 +19,7 @@ lyon = { version = "1.0"}
 easy-tree = { version = "0.2" }
 log = "0.4"
 lru = "0.15"
+softbuffer = "0.4.6"
 
 [dev-dependencies]
 winit = "0.30"

@@ -76,6 +76,7 @@ pub fn order_value(draw_command_id: usize, draw_commands_total: usize) -> f32 {
 /// Represents a draw command, which can be either a shape or an image.
 ///
 /// This enum is used internally by the `Renderer` to manage different types of draw operations.
+#[derive(Debug)]
 enum DrawCommand {
     Shape(ShapeDrawData),
     CachedShape(CachedShapeDrawData),
@@ -157,6 +158,8 @@ pub struct Renderer<'a> {
 
     /// Uniforms for the "And" rendering pipeline.
     and_uniforms: Uniforms,
+    /// GPU buffer backing the and pipeline uniforms (for cheap updates).
+    and_uniform_buffer: wgpu::Buffer,
     /// Bind group for the "And" rendering pipeline.
     and_bind_group: BindGroup,
     /// Render pipeline for the "And" operations.
@@ -173,6 +176,8 @@ pub struct Renderer<'a> {
     decrementing_pipeline: Arc<wgpu::RenderPipeline>,
     /// Uniforms for the decrementing pipeline.
     decrementing_uniforms: Uniforms,
+    /// GPU buffer backing the decrementing pipeline uniforms.
+    decrementing_uniform_buffer: wgpu::Buffer,
     /// Bind group for the decrementing pipeline.
     decrementing_bind_group: BindGroup,
 
@@ -325,6 +330,7 @@ impl<'a> Renderer<'a> {
 
         let (
             and_uniforms,
+            and_uniform_buffer,
             and_bind_group,
             and_texture_bgl_layer0,
             and_texture_bgl_layer1,
@@ -338,6 +344,7 @@ impl<'a> Renderer<'a> {
 
         let (
             decrementing_uniforms,
+            decrementing_uniform_buffer,
             decrementing_bind_group,
             _shape_texture_bind_group_layout_init0,
             _shape_texture_bind_group_layout_init1,
@@ -377,6 +384,7 @@ impl<'a> Renderer<'a> {
 
             and_pipeline: Arc::new(and_pipeline),
             and_uniforms,
+            and_uniform_buffer,
             and_bind_group,
             shape_texture_bind_group_layout_background: Arc::new(
                 shape_texture_bind_group_layout_layer0,
@@ -392,6 +400,7 @@ impl<'a> Renderer<'a> {
 
             decrementing_pipeline: Arc::new(decrementing_pipeline),
             decrementing_uniforms,
+            decrementing_uniform_buffer,
             decrementing_bind_group,
 
             draw_tree: easy_tree::Tree::new(),
@@ -637,53 +646,8 @@ impl<'a> Renderer<'a> {
         &self.texture_manager
     }
 
-    /// Renders all items currently in the draw queue.
-    ///
-    /// This method processes the draw commands for shapes and images, tessellates them,
-    /// prepares GPU buffers, and executes the rendering pipelines to produce the final frame.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`wgpu::SurfaceError`] if acquiring the next frame fails.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use std::sync::Arc;
-    /// use futures::executor::block_on;
-    /// use winit::application::ApplicationHandler;
-    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
-    /// use winit::window::Window;
-    /// use grafo::Renderer;
-    /// use grafo::Shape;
-    /// use grafo::Color;
-    /// use grafo::Stroke;
-    ///
-    /// // This is for demonstration purposes only. If you want a working example with winit, please
-    /// // refer to the example in the "examples" folder.
-    /// struct App;
-    /// impl ApplicationHandler for App {
-    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-    ///         let window_surface = Arc::new(
-    ///             event_loop.create_window(Window::default_attributes()).unwrap()
-    ///         );
-    ///         let physical_size = (800, 600);
-    ///         let scale_factor = 1.0;
-    ///
-    ///         // Initialize the renderer
-    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
-    ///
-    ///         // Add shapes and images...
-    ///
-    ///         // Render the frame
-    ///         if let Err(e) = renderer.render() {
-    ///             eprintln!("Rendering error: {:?}", e);
-    ///         }
-    ///     }
-    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
-    /// }
-    /// ```
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    /// Prepares all draw commands for rendering by tessellating shapes and building GPU buffers.
+    fn prepare_render(&mut self) {
         self.temp_vertices.clear();
         self.temp_indices.clear();
         self.temp_instance_transforms.clear();
@@ -698,8 +662,6 @@ impl<'a> Renderer<'a> {
             match draw_command {
                 DrawCommand::Shape(ref mut shape) => {
                     let depth = order_value(node_id, draw_tree_size);
-
-                    // Get tessellated buffers using the optimized cache approach
                     let vertex_buffers = shape.tessellate(depth, tessellator, buffers_pool_manager);
 
                     if vertex_buffers.vertices.is_empty() || vertex_buffers.indices.is_empty() {
@@ -844,32 +806,6 @@ impl<'a> Renderer<'a> {
                 }));
         }
 
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("And Command Encoder"),
-            });
-
-        let output = self.surface.get_current_texture()?;
-        let output_texture_view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
-        let depth_texture =
-            create_and_depth_texture(&self.device, (self.physical_size.0, self.physical_size.1));
-
-        let pipelines = Pipelines {
-            and_pipeline: &self.and_pipeline,
-            and_bind_group: &self.and_bind_group,
-            decrementing_pipeline: &self.decrementing_pipeline,
-            decrementing_bind_group: &self.decrementing_bind_group,
-            shape_texture_bgl_layer0: &self.shape_texture_bind_group_layout_background,
-            shape_texture_bgl_layer1: &self.shape_texture_bind_group_layout_foreground,
-            default_shape_texture_bgs: &self.default_shape_texture_bind_groups,
-            shape_texture_layout_epoch: self.shape_texture_layout_epoch,
-            texture_manager: &self.texture_manager,
-        };
-
         // Create/update aggregated instance buffer
         if !self.temp_instance_transforms.is_empty() {
             let required_instance_size = std::mem::size_of_val(&self.temp_instance_transforms[..]);
@@ -893,6 +829,30 @@ impl<'a> Renderer<'a> {
                 );
             }
         }
+    }
+
+    /// Core rendering logic that renders to a texture view.
+    fn render_to_texture_view(&mut self, texture_view: &wgpu::TextureView) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Command Encoder"),
+            });
+
+        let depth_texture =
+            create_and_depth_texture(&self.device, (self.physical_size.0, self.physical_size.1));
+
+        let pipelines = Pipelines {
+            and_pipeline: &self.and_pipeline,
+            and_bind_group: &self.and_bind_group,
+            decrementing_pipeline: &self.decrementing_pipeline,
+            decrementing_bind_group: &self.decrementing_bind_group,
+            shape_texture_bgl_layer0: &self.shape_texture_bind_group_layout_background,
+            shape_texture_bgl_layer1: &self.shape_texture_bind_group_layout_foreground,
+            default_shape_texture_bgs: &self.default_shape_texture_bind_groups,
+            shape_texture_layout_epoch: self.shape_texture_layout_epoch,
+            texture_manager: &self.texture_manager,
+        };
 
         let buffers = Buffers {
             aggregated_vertex_buffer: self.aggregated_vertex_buffer.as_ref().unwrap(),
@@ -905,8 +865,7 @@ impl<'a> Renderer<'a> {
             let depth_texture_view =
                 depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-            let render_pass =
-                create_render_pass(&mut encoder, &output_texture_view, &depth_texture_view);
+            let render_pass = create_render_pass(&mut encoder, texture_view, &depth_texture_view);
 
             // Use a simple stack of stencil references along the traversal path.
             // Top of the stack is the current parent stencil reference.
@@ -975,7 +934,6 @@ impl<'a> Renderer<'a> {
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
-        output.present();
 
         // Clear shape buffer references and return other resources to the pool
         self.draw_tree
@@ -994,8 +952,195 @@ impl<'a> Renderer<'a> {
             });
 
         // self.buffers_pool_manager.print_sizes();
+    }
 
+    /// Renders all items currently in the draw queue to the surface.
+    ///
+    /// This method processes the draw commands for shapes and images, tessellates them,
+    /// prepares GPU buffers, and executes the rendering pipelines to produce the final frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`wgpu::SurfaceError`] if acquiring the next frame fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use futures::executor::block_on;
+    /// use winit::application::ApplicationHandler;
+    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
+    /// use winit::window::Window;
+    /// use grafo::Renderer;
+    /// use grafo::Shape;
+    /// use grafo::Color;
+    /// use grafo::Stroke;
+    ///
+    /// // This is for demonstration purposes only. If you want a working example with winit, please
+    /// // refer to the example in the "examples" folder.
+    /// struct App;
+    /// impl ApplicationHandler for App {
+    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    ///         let window_surface = Arc::new(
+    ///             event_loop.create_window(Window::default_attributes()).unwrap()
+    ///         );
+    ///         let physical_size = (800, 600);
+    ///         let scale_factor = 1.0;
+    ///
+    ///         // Initialize the renderer
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///
+    ///         // Add shapes and images...
+    ///
+    ///         // Render the frame
+    ///         if let Err(e) = renderer.render() {
+    ///             eprintln!("Rendering error: {:?}", e);
+    ///         }
+    ///     }
+    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
+    /// }
+    /// ```
+    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        self.prepare_render();
+
+        let output = self.surface.get_current_texture()?;
+        let output_texture_view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        self.render_to_texture_view(&output_texture_view);
+
+        output.present();
         Ok(())
+    }
+
+    /// Renders all items currently in the draw queue to a buffer.
+    ///
+    /// This method creates an offscreen texture based on the renderer's current scale and size,
+    /// renders to it, and then copies the result to the provided buffer.
+    ///
+    /// # Parameters
+    ///
+    /// - `buffer`: A mutable reference to a `Vec<u8>` where the BGRA pixel data will be written.
+    ///   The buffer will be resized to fit `width * height * 4` bytes.
+    ///   Format is BGRA8UnormSrgb (matching the surface format).
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use futures::executor::block_on;
+    /// use grafo::{Renderer, Shape, Color, Stroke};
+    ///
+    /// // Create a renderer without a window surface
+    /// // Note: You'll need to adjust initialization for offscreen rendering
+    /// let mut buffer = Vec::new();
+    /// // renderer.render_to_buffer(&mut buffer);
+    /// // buffer now contains BGRA8 pixel data
+    /// ```
+    pub fn render_to_buffer(&mut self, buffer: &mut Vec<u8>) {
+        self.prepare_render();
+
+        let (width, height) = self.physical_size;
+
+        // Create offscreen texture with the same format as the pipeline
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("offscreen_render_texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.config.format, // Use the same format as the surface
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        self.render_to_texture_view(&texture_view);
+
+        // wgpu requires bytes_per_row to be aligned to COPY_BYTES_PER_ROW_ALIGNMENT (256 bytes)
+        const COPY_BYTES_PER_ROW_ALIGNMENT: u32 = 256;
+        let unpadded_bytes_per_row = 4 * width;
+        let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(COPY_BYTES_PER_ROW_ALIGNMENT)
+            * COPY_BYTES_PER_ROW_ALIGNMENT;
+
+        // Create buffer to copy texture data into
+        let buffer_size = (padded_bytes_per_row * height) as u64;
+        let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("offscreen_output_buffer"),
+            size: buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        // Copy texture to buffer
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("copy_texture_encoder"),
+            });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &output_buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+
+        // Map the buffer and read data
+        let buffer_slice = output_buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            tx.send(result).unwrap();
+        });
+
+        let _ = self.device.poll(wgpu::MaintainBase::Wait);
+        rx.recv().unwrap().unwrap();
+
+        let data = buffer_slice.get_mapped_range();
+
+        // Remove padding and copy to output buffer
+        let output_size = (unpadded_bytes_per_row * height) as usize;
+        buffer.resize(output_size, 0);
+
+        if padded_bytes_per_row == unpadded_bytes_per_row {
+            // No padding, direct copy
+            buffer.copy_from_slice(&data);
+        } else {
+            // Remove padding from each row
+            for row in 0..height {
+                let padded_offset = (row * padded_bytes_per_row) as usize;
+                let unpadded_offset = (row * unpadded_bytes_per_row) as usize;
+                let row_data =
+                    &data[padded_offset..padded_offset + unpadded_bytes_per_row as usize];
+                buffer[unpadded_offset..unpadded_offset + unpadded_bytes_per_row as usize]
+                    .copy_from_slice(row_data);
+            }
+        }
+
+        drop(data);
+        output_buffer.unmap();
     }
 
     /// Clears all items currently in the draw queue.
@@ -1134,7 +1279,7 @@ impl<'a> Renderer<'a> {
         self.set_shape_texture_layer(node_id, layer.into(), texture_id);
     }
 
-    /// Retrieves the current size of the rendering surface.
+    /// Retrieves the current physical size of the rendering surface.
     ///
     /// # Returns
     ///
@@ -1284,64 +1429,24 @@ impl<'a> Renderer<'a> {
         self.physical_size = new_physical_size;
         self.config.width = new_physical_size.0;
         self.config.height = new_physical_size.1;
+        // Cheap uniform buffer update instead of full pipeline recreation.
+        println!("Scale factor: {}", self.scale_factor);
+        let logical = to_logical(new_physical_size, self.scale_factor);
+        self.and_uniforms.canvas_size = [logical.0, logical.1];
+        self.decrementing_uniforms.canvas_size = [logical.0, logical.1];
+        // Write both uniform buffers.
+        self.queue.write_buffer(
+            &self.and_uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[self.and_uniforms]),
+        );
+        self.queue.write_buffer(
+            &self.decrementing_uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[self.decrementing_uniforms]),
+        );
         self.surface.configure(&self.device, &self.config);
-        // Update the render pipeline to match the new size with new uniforms. Uniforms are
-        // needed to normalize the coordinates of the shapes
-
-        let (
-            and_uniforms,
-            and_bind_group,
-            and_texture_bgl_layer0,
-            and_texture_bgl_layer1,
-            and_pipeline,
-        ) = create_pipeline(
-            to_logical(new_physical_size, self.scale_factor),
-            &self.device,
-            &self.config,
-            PipelineType::EqualIncrementStencil,
-        );
-        self.and_uniforms = and_uniforms;
-        self.and_bind_group = and_bind_group;
-        self.and_pipeline = Arc::new(and_pipeline);
-        self.shape_texture_bind_group_layout_background = Arc::new(and_texture_bgl_layer0);
-        self.shape_texture_bind_group_layout_foreground = Arc::new(and_texture_bgl_layer1);
-        // Invalidate cached bind groups by bumping epoch
-        self.shape_texture_layout_epoch = self.shape_texture_layout_epoch.wrapping_add(1);
-        // Recreate default transparent shape texture bind group to match new layout
-        let (bg0, _layout0) = Self::create_default_shape_texture_bind_group(
-            &self.device,
-            &self.queue,
-            &self.shape_texture_bind_group_layout_background,
-        );
-        let (bg1, _layout1) = Self::create_default_shape_texture_bind_group(
-            &self.device,
-            &self.queue,
-            &self.shape_texture_bind_group_layout_foreground,
-        );
-        self.default_shape_texture_bind_groups = [Arc::new(bg0), Arc::new(bg1)];
-
-        // Update the always decrement pipeline
-        let (
-            decrementing_uniforms,
-            decrementing_bind_group,
-            shape_texture_bind_group_layout_layer0,
-            shape_texture_bind_group_layout_layer1,
-            decrementing_pipeline,
-        ) = create_pipeline(
-            to_logical(new_physical_size, self.scale_factor),
-            &self.device,
-            &self.config,
-            PipelineType::EqualDecrementStencil,
-        );
-        self.decrementing_uniforms = decrementing_uniforms;
-        self.decrementing_bind_group = decrementing_bind_group;
-        self.decrementing_pipeline = Arc::new(decrementing_pipeline);
-        self.shape_texture_bind_group_layout_background =
-            Arc::new(shape_texture_bind_group_layout_layer0);
-        self.shape_texture_bind_group_layout_foreground =
-            Arc::new(shape_texture_bind_group_layout_layer1);
-        // Bump epoch again since layout may have changed through this pipeline too
-        self.shape_texture_layout_epoch = self.shape_texture_layout_epoch.wrapping_add(1);
+        println!("Logical size after resize: {:?}", logical);
     }
 
     pub fn set_vsync(&mut self, vsync: bool) {
