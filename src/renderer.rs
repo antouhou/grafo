@@ -203,6 +203,21 @@ pub struct Renderer<'a> {
     identity_instance_buffer: Option<wgpu::Buffer>,
 
     shape_cache: HashMap<u64, CachedShape>,
+
+    // Cached resources for render_to_argb32 compute swizzle path
+    argb_cs_bgl: Option<wgpu::BindGroupLayout>,
+    argb_cs_pipeline_layout: Option<wgpu::PipelineLayout>,
+    argb_cs_pipeline: Option<wgpu::ComputePipeline>,
+    argb_swizzle_bind_group: Option<wgpu::BindGroup>,
+    argb_params_buffer: Option<wgpu::Buffer>,
+    argb_input_buffer: Option<wgpu::Buffer>,
+    argb_output_storage_buffer: Option<wgpu::Buffer>,
+    argb_readback_buffer: Option<wgpu::Buffer>,
+    argb_input_buffer_size: u64,
+    argb_output_buffer_size: u64,
+    argb_cached_width: u32,
+    argb_cached_height: u32,
+    argb_offscreen_texture: Option<wgpu::Texture>,
 }
 
 impl<'a> Renderer<'a> {
@@ -421,6 +436,21 @@ impl<'a> Renderer<'a> {
             identity_instance_buffer: None,
 
             shape_cache: HashMap::new(),
+
+            // ARGB compute path caches
+            argb_cs_bgl: None,
+            argb_cs_pipeline_layout: None,
+            argb_cs_pipeline: None,
+            argb_swizzle_bind_group: None,
+            argb_params_buffer: None,
+            argb_input_buffer: None,
+            argb_output_storage_buffer: None,
+            argb_readback_buffer: None,
+            argb_input_buffer_size: 0,
+            argb_output_buffer_size: 0,
+            argb_cached_width: 0,
+            argb_cached_height: 0,
+            argb_offscreen_texture: None,
         }
     }
 
@@ -1088,7 +1118,7 @@ impl<'a> Renderer<'a> {
 
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &texture,
+                texture: self.argb_offscreen_texture.as_ref().unwrap(),
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -1143,6 +1173,240 @@ impl<'a> Renderer<'a> {
 
         drop(data);
         output_buffer.unmap();
+    }
+
+    /// Renders the current scene into the provided ARGB32 pixel slice.
+    /// The slice length must be at least width*height; each u32 is 0xAARRGGBB.
+    pub fn render_to_argb32(&mut self, out_pixels: &mut [u32]) {
+        self.prepare_render();
+
+        let (width, height) = self.physical_size;
+        let needed_len = (width as usize) * (height as usize);
+        if out_pixels.len() < needed_len {
+            // TODO: make this method to return a result
+            // Safety: avoid panic; just do nothing if insufficient space
+            warn!("render_to_argb32: output slice too small: {} < {}", out_pixels.len(), needed_len);
+            return;
+        }
+
+        // Recreate caches if size changed
+        let size_changed = self.argb_cached_width != width || self.argb_cached_height != height;
+        if size_changed {
+            self.argb_cached_width = width;
+            self.argb_cached_height = height;
+        }
+
+        // 1) Offscreen BGRA8 texture (cache per size)
+        if size_changed || self.argb_offscreen_texture.is_none() {
+            self.argb_offscreen_texture = Some(self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("offscreen_render_texture_argb"),
+                size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: self.config.format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            }));
+        }
+        let texture_view = self
+            .argb_offscreen_texture
+            .as_ref()
+            .unwrap()
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        self.render_to_texture_view(&texture_view);
+
+        // 2) Copy texture into a padded staging buffer (BGRA bytes)
+        const COPY_BYTES_PER_ROW_ALIGNMENT: u32 = 256;
+        let unpadded_bytes_per_row = 4 * width;
+        let padded_bytes_per_row = unpadded_bytes_per_row
+            .div_ceil(COPY_BYTES_PER_ROW_ALIGNMENT)
+            * COPY_BYTES_PER_ROW_ALIGNMENT;
+        let input_buffer_size = (padded_bytes_per_row as u64) * (height as u64);
+        if size_changed || self.argb_input_buffer.is_none() || self.argb_input_buffer_size < input_buffer_size {
+            self.argb_input_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("argb_input_padded_bytes"),
+                size: input_buffer_size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::STORAGE,
+                mapped_at_creation: false,
+            }));
+            self.argb_input_buffer_size = input_buffer_size;
+        }
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("argb_copy_encoder"),
+            });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: self.argb_offscreen_texture.as_ref().unwrap(),
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: self.argb_input_buffer.as_ref().unwrap(),
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        );
+
+        // 3) Create an output buffer for ARGB32 u32 pixels
+        let output_words = (width as u64) * (height as u64);
+        let output_buffer_size = output_words * 4;
+        if size_changed || self.argb_output_storage_buffer.is_none() || self.argb_output_buffer_size < output_buffer_size {
+            self.argb_output_storage_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("argb_output_u32_storage"),
+                size: output_buffer_size,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            }));
+            self.argb_output_buffer_size = output_buffer_size;
+            // readback buffer should match size too
+            self.argb_readback_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("argb_output_u32_readback"),
+                size: output_buffer_size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            }));
+        }
+
+        // 4) Create compute pipeline for swizzle
+        if self.argb_cs_pipeline.is_none() {
+            let cs_module = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("argb_swizzle_cs"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/argb_swizzle.wgsl").into()),
+            });
+
+            let bind_group_layout = self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("argb_swizzle_bgl"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+            let pipeline_layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("argb_swizzle_pl"),
+                bind_group_layouts: &[&bind_group_layout],
+                push_constant_ranges: &[],
+            });
+            let compute_pipeline = self.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("argb_swizzle_pipeline"),
+                layout: Some(&pipeline_layout),
+                module: &cs_module,
+                entry_point: Some("cs_main"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+            self.argb_cs_bgl = Some(bind_group_layout);
+            self.argb_cs_pipeline_layout = Some(pipeline_layout);
+            self.argb_cs_pipeline = Some(compute_pipeline);
+        }
+
+        // Params buffer (recreate if size changed due to padding)
+    #[repr(C)]
+    #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+    struct ArgbParams { width: u32, height: u32, padded_bpr: u32, _pad: u32 }
+    let params = ArgbParams { width, height, padded_bpr: padded_bytes_per_row, _pad: 0 };
+        let need_new_params = self.argb_params_buffer.is_none();
+        if need_new_params {
+            self.argb_params_buffer = Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("argb_params"),
+                contents: bytemuck::bytes_of(&params),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            }));
+        } else {
+            self.queue.write_buffer(self.argb_params_buffer.as_ref().unwrap(), 0, bytemuck::bytes_of(&params));
+        }
+        // Recreate bind group if any binding target changed
+        if size_changed || self.argb_swizzle_bind_group.is_none() || need_new_params {
+            self.argb_swizzle_bind_group = Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("argb_swizzle_bg"),
+                layout: self.argb_cs_bgl.as_ref().unwrap(),
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: self.argb_input_buffer.as_ref().unwrap().as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 1, resource: self.argb_output_storage_buffer.as_ref().unwrap().as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 2, resource: self.argb_params_buffer.as_ref().unwrap().as_entire_binding() },
+                ],
+            }));
+        }
+
+        // Submit the copy first
+        self.queue.submit(std::iter::once(encoder.finish()));
+
+        // 5) Dispatch compute to swizzle into ARGB32
+        let mut cenc = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("argb_compute_encoder") });
+        {
+            let mut pass = cenc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("argb_swizzle_pass"), timestamp_writes: None });
+            pass.set_pipeline(self.argb_cs_pipeline.as_ref().unwrap());
+            pass.set_bind_group(0, self.argb_swizzle_bind_group.as_ref().unwrap(), &[]);
+            let wg_x = (width + 15) / 16;
+            let wg_y = (height + 15) / 16;
+            pass.dispatch_workgroups(wg_x, wg_y, 1);
+        }
+        self.queue.submit(std::iter::once(cenc.finish()));
+
+        // 6) Copy compute output to a mappable readback buffer and map
+        let mut enc3 = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("argb_readback_copy_encoder") });
+        enc3.copy_buffer_to_buffer(
+            self.argb_output_storage_buffer.as_ref().unwrap(),
+            0,
+            self.argb_readback_buffer.as_ref().unwrap(),
+            0,
+            output_buffer_size,
+        );
+        self.queue.submit(std::iter::once(enc3.finish()));
+
+        let slice = self.argb_readback_buffer.as_ref().unwrap().slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |res| { let _ = tx.send(res); });
+        let _ = self.device.poll(wgpu::MaintainBase::Wait);
+        rx.recv().unwrap().unwrap();
+
+        let data = slice.get_mapped_range();
+        // Copy exactly width*height u32s
+        let src_words: &[u32] = bytemuck::cast_slice(&data);
+        out_pixels[..needed_len].copy_from_slice(&src_words[..needed_len]);
+        drop(data);
+        self.argb_readback_buffer.as_ref().unwrap().unmap();
     }
 
     /// Clears all items currently in the draw queue.

@@ -15,7 +15,7 @@ struct App<'a> {
     softbuffer_surface: Option<softbuffer::Surface<Arc<Window>, Arc<Window>>>,
     pending_resize: Option<(u32, u32)>,
     frame_count: u64,
-    rgba_buffer: Vec<u8>,
+    argb_buffer: Vec<u32>,
 }
 
 impl<'a> Default for App<'a> {
@@ -27,7 +27,7 @@ impl<'a> Default for App<'a> {
             softbuffer_surface: None,
             pending_resize: None,
             frame_count: 0,
-            rgba_buffer: Vec::new(),
+            argb_buffer: Vec::new(),
         }
     }
 }
@@ -168,28 +168,21 @@ impl<'a> ApplicationHandler for App<'a> {
                     grafo::TransformInstance::translation(220.0, 0.0),
                 );
 
-                // Render to GPU offscreen texture and get pixels
+                // Render to GPU offscreen texture and get ARGB32 pixels
                 let render_start = std::time::Instant::now();
-                self.rgba_buffer.clear();
-                renderer_guard.render_to_buffer(&mut self.rgba_buffer);
+                // Ensure buffer capacity for current size
+                let needed_len = (window_size.width as usize) * (window_size.height as usize);
+                if self.argb_buffer.len() < needed_len {
+                    self.argb_buffer.resize(needed_len, 0);
+                }
+                renderer_guard.render_to_argb32(&mut self.argb_buffer);
                 let render_time = render_start.elapsed();
 
-                // Convert BGRA8 to u32 ARGB format for softbuffer
-                // Note: wgpu uses Bgra8UnormSrgb format
+                // Present ARGB u32s via softbuffer
                 let copy_start = std::time::Instant::now();
                 let mut buffer = softbuffer_surface.buffer_mut().unwrap();
-
-                for (i, pixel) in buffer.iter_mut().enumerate() {
-                    let idx = i * 4;
-                    if idx + 3 < self.rgba_buffer.len() {
-                        let b = self.rgba_buffer[idx] as u32;
-                        let g = self.rgba_buffer[idx + 1] as u32;
-                        let r = self.rgba_buffer[idx + 2] as u32;
-                        let a = self.rgba_buffer[idx + 3] as u32;
-                        // Softbuffer expects 0xAARRGGBB format
-                        *pixel = (a << 24) | (r << 16) | (g << 8) | b;
-                    }
-                }
+                let count = buffer.len().min(self.argb_buffer.len());
+                buffer[..count].copy_from_slice(&self.argb_buffer[..count]);
 
                 buffer.present().unwrap();
                 let copy_time = copy_start.elapsed();
