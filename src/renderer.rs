@@ -141,6 +141,7 @@ pub struct Renderer<'a> {
     scale_factor: f64,
 
     // WGPU components
+    instance: wgpu::Instance,
     surface: wgpu::Surface<'a>,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
@@ -368,6 +369,7 @@ impl<'a> Renderer<'a> {
             Self::create_default_shape_texture_bind_group(&device, &queue, &and_texture_bgl_layer1);
 
         Self {
+            instance,
             surface,
             device,
             queue,
@@ -1430,7 +1432,6 @@ impl<'a> Renderer<'a> {
         self.config.width = new_physical_size.0;
         self.config.height = new_physical_size.1;
         // Cheap uniform buffer update instead of full pipeline recreation.
-        println!("Scale factor: {}", self.scale_factor);
         let logical = to_logical(new_physical_size, self.scale_factor);
         self.and_uniforms.canvas_size = [logical.0, logical.1];
         self.decrementing_uniforms.canvas_size = [logical.0, logical.1];
@@ -1446,7 +1447,50 @@ impl<'a> Renderer<'a> {
             bytemuck::cast_slice(&[self.decrementing_uniforms]),
         );
         self.surface.configure(&self.device, &self.config);
-        println!("Logical size after resize: {:?}", logical);
+    }
+
+    /// Sets a new surface for the renderer.
+    ///
+    /// This method allows you to change the rendering target (e.g., switch windows).
+    /// The new surface will be configured with the renderer's current settings.
+    ///
+    /// # Parameters
+    ///
+    /// - `window`: The new surface target to render to.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use futures::executor::block_on;
+    /// use winit::application::ApplicationHandler;
+    /// use winit::event_loop::{ActiveEventLoop, EventLoop};
+    /// use winit::window::Window;
+    /// use grafo::Renderer;
+    ///
+    /// struct App;
+    /// impl ApplicationHandler for App {
+    ///     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    ///         let window1 = Arc::new(
+    ///             event_loop.create_window(Window::default_attributes()).unwrap()
+    ///         );
+    ///         let mut renderer = block_on(Renderer::new(window1, (800, 600), 1.0, true, false));
+    ///
+    ///         // Later, switch to a different window
+    ///         let window2 = Arc::new(
+    ///             event_loop.create_window(Window::default_attributes()).unwrap()
+    ///         );
+    ///         renderer.set_surface(window2);
+    ///     }
+    ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
+    /// }
+    /// ```
+    pub fn set_surface(&mut self, window: impl Into<SurfaceTarget<'static>>) {
+        self.surface = self
+            .instance
+            .create_surface(window)
+            .expect("Failed to create surface");
+        self.surface.configure(&self.device, &self.config);
     }
 
     pub fn set_vsync(&mut self, vsync: bool) {
