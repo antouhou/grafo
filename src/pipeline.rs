@@ -7,8 +7,8 @@
 use crate::vertex::{CustomVertex, InstanceTransform};
 use wgpu::util::DeviceExt;
 use wgpu::{
-    BindGroup, BindGroupLayout, Device, RenderPass, RenderPipeline, StencilFaceState, StoreOp,
-    Texture, TextureView,
+    BindGroup, BindGroupLayout, ComputePipeline, Device, RenderPass, RenderPipeline,
+    StencilFaceState, StoreOp, Texture, TextureView,
 };
 
 /// A structure for coordinate normalization on the GPU. We pass pixel coordinates to the GPU,
@@ -413,4 +413,220 @@ pub fn render_buffer_range_to_texture(
     let index_end = (index_range.0 + index_range.1) as u32;
 
     render_pass.draw_indexed(index_start..index_end, 0, 0..1);
+}
+
+/// Creates an offscreen color texture for rendering and copying.
+pub fn create_offscreen_color_texture(
+    device: &Device,
+    size: (u32, u32),
+    format: wgpu::TextureFormat,
+) -> Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("offscreen_render_texture_argb"),
+        size: wgpu::Extent3d {
+            width: size.0,
+            height: size.1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    })
+}
+
+/// Create compute bind group layout and pipeline for ARGB swizzle from BGRA bytes buffer to ARGB u32s.
+pub fn create_argb_swizzle_pipeline(device: &Device) -> (BindGroupLayout, ComputePipeline) {
+    let cs_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("argb_swizzle_cs"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/argb_swizzle.wgsl").into()),
+    });
+
+    let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("argb_swizzle_bgl"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("argb_swizzle_pl"),
+        bind_group_layouts: &[&bgl],
+        push_constant_ranges: &[],
+    });
+
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("argb_swizzle_pipeline"),
+        layout: Some(&pipeline_layout),
+        module: &cs_module,
+        entry_point: Some("cs_main"),
+        compilation_options: Default::default(),
+        cache: None,
+    });
+
+    (bgl, pipeline)
+}
+
+/// Helper to create the ARGB swizzle bind group given buffers and params buffer.
+pub fn create_argb_swizzle_bind_group(
+    device: &Device,
+    bgl: &BindGroupLayout,
+    input_bytes: &wgpu::Buffer,
+    output_words: &wgpu::Buffer,
+    params: &wgpu::Buffer,
+) -> BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("argb_swizzle_bg"),
+        layout: bgl,
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: input_bytes.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 1, resource: output_words.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 2, resource: params.as_entire_binding() },
+        ],
+    })
+}
+
+/// Compute unpadded and padded bytes-per-row given a width and bytes-per-pixel.
+/// Padded value respects wgpu::COPY_BYTES_PER_ROW_ALIGNMENT (256 bytes).
+pub fn compute_padded_bytes_per_row(width: u32, bytes_per_pixel: u32) -> (u32, u32) {
+    let unpadded = width * bytes_per_pixel;
+    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let padded = ((unpadded + align - 1) / align) * align;
+    (unpadded, padded)
+}
+
+/// Convenience wrapper to create a buffer with a label and usage.
+pub fn create_buffer(
+    device: &Device,
+    label: Option<&str>,
+    size: u64,
+    usage: wgpu::BufferUsages,
+) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label,
+        size,
+        usage,
+        mapped_at_creation: false,
+    })
+}
+
+/// Convenience wrapper to create and initialize a buffer from bytes.
+pub fn create_buffer_init(
+    device: &Device,
+    label: Option<&str>,
+    bytes: &[u8],
+    usage: wgpu::BufferUsages,
+) -> wgpu::Buffer {
+    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label,
+        contents: bytes,
+        usage,
+    })
+}
+
+/// Encode a copy from a texture to a buffer with the provided padded bytes-per-row.
+pub fn encode_copy_texture_to_buffer(
+    encoder: &mut wgpu::CommandEncoder,
+    texture: &wgpu::Texture,
+    buffer: &wgpu::Buffer,
+    width: u32,
+    height: u32,
+    padded_bytes_per_row: u32,
+) {
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded_bytes_per_row),
+                rows_per_image: Some(height),
+            },
+        },
+        wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+    );
+}
+
+/// Create a CPU readback buffer of given size.
+pub fn create_readback_buffer(device: &Device, label: Option<&str>, size: u64) -> wgpu::Buffer {
+    create_buffer(
+        device,
+        label,
+        size,
+        wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+    )
+}
+
+/// Create a storage input buffer (COPY_DST | STORAGE), typically for texture bytes input.
+pub fn create_storage_input_buffer(
+    device: &Device,
+    label: Option<&str>,
+    size: u64,
+) -> wgpu::Buffer {
+    create_buffer(device, label, size, wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::STORAGE)
+}
+
+/// Create a storage output buffer (STORAGE | COPY_SRC), typically for compute outputs.
+pub fn create_storage_output_buffer(
+    device: &Device,
+    label: Option<&str>,
+    size: u64,
+) -> wgpu::Buffer {
+    create_buffer(device, label, size, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC)
+}
+
+/// Parameters for ARGB compute swizzle, shared between modules.
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ArgbParams {
+    pub width: u32,
+    pub height: u32,
+    pub padded_bpr: u32,
+    pub _pad: u32,
+}
+
+/// Create or update a uniform buffer for ArgbParams.
+pub fn create_argb_params_buffer(device: &Device, params: &ArgbParams) -> wgpu::Buffer {
+    create_buffer_init(
+        device,
+        Some("argb_params"),
+        bytemuck::bytes_of(params),
+        wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    )
 }

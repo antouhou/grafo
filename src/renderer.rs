@@ -13,8 +13,11 @@ use std::sync::Arc;
 pub type MathRect = lyon::math::Box2D;
 
 use crate::pipeline::{
-    create_and_depth_texture, create_pipeline, create_render_pass, render_buffer_range_to_texture,
-    PipelineType, Uniforms,
+    compute_padded_bytes_per_row, create_and_depth_texture, create_argb_swizzle_bind_group,
+    create_argb_swizzle_pipeline, create_offscreen_color_texture,
+    create_pipeline, create_readback_buffer, create_render_pass, create_storage_input_buffer,
+    create_storage_output_buffer, encode_copy_texture_to_buffer, ArgbParams,
+    render_buffer_range_to_texture, PipelineType, Uniforms,
 };
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
 use crate::texture_manager::TextureManager;
@@ -206,7 +209,6 @@ pub struct Renderer<'a> {
 
     // Cached resources for render_to_argb32 compute swizzle path
     argb_cs_bgl: Option<wgpu::BindGroupLayout>,
-    argb_cs_pipeline_layout: Option<wgpu::PipelineLayout>,
     argb_cs_pipeline: Option<wgpu::ComputePipeline>,
     argb_swizzle_bind_group: Option<wgpu::BindGroup>,
     argb_params_buffer: Option<wgpu::Buffer>,
@@ -218,6 +220,11 @@ pub struct Renderer<'a> {
     argb_cached_width: u32,
     argb_cached_height: u32,
     argb_offscreen_texture: Option<wgpu::Texture>,
+    // Cached resources for render_to_buffer (BGRA bytes) path
+    rtb_offscreen_texture: Option<wgpu::Texture>,
+    rtb_readback_buffer: Option<wgpu::Buffer>,
+    rtb_cached_width: u32,
+    rtb_cached_height: u32,
 }
 
 impl<'a> Renderer<'a> {
@@ -439,7 +446,6 @@ impl<'a> Renderer<'a> {
 
             // ARGB compute path caches
             argb_cs_bgl: None,
-            argb_cs_pipeline_layout: None,
             argb_cs_pipeline: None,
             argb_swizzle_bind_group: None,
             argb_params_buffer: None,
@@ -451,6 +457,11 @@ impl<'a> Renderer<'a> {
             argb_cached_width: 0,
             argb_cached_height: 0,
             argb_offscreen_texture: None,
+            // render_to_buffer caches
+            rtb_offscreen_texture: None,
+            rtb_readback_buffer: None,
+            rtb_cached_width: 0,
+            rtb_cached_height: 0,
         }
     }
 
@@ -1074,40 +1085,43 @@ impl<'a> Renderer<'a> {
 
         let (width, height) = self.physical_size;
 
-        // Create offscreen texture with the same format as the pipeline
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("offscreen_render_texture"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: self.config.format, // Use the same format as the surface
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
+        // Recreate caches if size changed
+        let size_changed = self.rtb_cached_width != width || self.rtb_cached_height != height;
+        if size_changed {
+            self.rtb_cached_width = width;
+            self.rtb_cached_height = height;
+        }
 
-        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // Create or reuse offscreen texture for BGRA readback
+        if size_changed || self.rtb_offscreen_texture.is_none() {
+            self.rtb_offscreen_texture = Some(create_offscreen_color_texture(
+                &self.device,
+                (width, height),
+                self.config.format,
+            ));
+        }
+        let texture_view = self
+            .rtb_offscreen_texture
+            .as_ref()
+            .unwrap()
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
         self.render_to_texture_view(&texture_view);
 
-        // wgpu requires bytes_per_row to be aligned to COPY_BYTES_PER_ROW_ALIGNMENT (256 bytes)
-        const COPY_BYTES_PER_ROW_ALIGNMENT: u32 = 256;
-        let unpadded_bytes_per_row = 4 * width;
-        let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(COPY_BYTES_PER_ROW_ALIGNMENT)
-            * COPY_BYTES_PER_ROW_ALIGNMENT;
+        // Compute row strides (wgpu requires 256-byte alignment)
+        let (unpadded_bytes_per_row, padded_bytes_per_row) =
+            compute_padded_bytes_per_row(width, 4);
 
-        // Create buffer to copy texture data into
+        // Create or reuse readback buffer to copy texture data into
         let buffer_size = (padded_bytes_per_row * height) as u64;
-        let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("offscreen_output_buffer"),
-            size: buffer_size,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        if size_changed || self.rtb_readback_buffer.as_ref().map(|b| b.size() < buffer_size).unwrap_or(true) {
+            self.rtb_readback_buffer = Some(create_readback_buffer(
+                &self.device,
+                Some("rtb_readback_buffer"),
+                buffer_size,
+            ));
+        }
+        let output_buffer = self.rtb_readback_buffer.as_ref().unwrap();
 
         // Copy texture to buffer
         let mut encoder = self
@@ -1116,32 +1130,19 @@ impl<'a> Renderer<'a> {
                 label: Some("copy_texture_encoder"),
             });
 
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: self.argb_offscreen_texture.as_ref().unwrap(),
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &output_buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded_bytes_per_row),
-                    rows_per_image: Some(height),
-                },
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
+        encode_copy_texture_to_buffer(
+            &mut encoder,
+            self.rtb_offscreen_texture.as_ref().unwrap(),
+            output_buffer,
+            width,
+            height,
+            padded_bytes_per_row,
         );
 
         self.queue.submit(std::iter::once(encoder.finish()));
 
         // Map the buffer and read data
-        let buffer_slice = output_buffer.slice(..);
+    let buffer_slice = output_buffer.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             tx.send(result).unwrap();
@@ -1198,16 +1199,11 @@ impl<'a> Renderer<'a> {
 
         // 1) Offscreen BGRA8 texture (cache per size)
         if size_changed || self.argb_offscreen_texture.is_none() {
-            self.argb_offscreen_texture = Some(self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("offscreen_render_texture_argb"),
-                size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: self.config.format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-                view_formats: &[],
-            }));
+            self.argb_offscreen_texture = Some(create_offscreen_color_texture(
+                &self.device,
+                (width, height),
+                self.config.format,
+            ));
         }
         let texture_view = self
             .argb_offscreen_texture
@@ -1217,19 +1213,14 @@ impl<'a> Renderer<'a> {
         self.render_to_texture_view(&texture_view);
 
         // 2) Copy texture into a padded staging buffer (BGRA bytes)
-        const COPY_BYTES_PER_ROW_ALIGNMENT: u32 = 256;
-        let unpadded_bytes_per_row = 4 * width;
-        let padded_bytes_per_row = unpadded_bytes_per_row
-            .div_ceil(COPY_BYTES_PER_ROW_ALIGNMENT)
-            * COPY_BYTES_PER_ROW_ALIGNMENT;
+        let (_, padded_bytes_per_row) = compute_padded_bytes_per_row(width, 4);
         let input_buffer_size = (padded_bytes_per_row as u64) * (height as u64);
         if size_changed || self.argb_input_buffer.is_none() || self.argb_input_buffer_size < input_buffer_size {
-            self.argb_input_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("argb_input_padded_bytes"),
-                size: input_buffer_size,
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::STORAGE,
-                mapped_at_creation: false,
-            }));
+            self.argb_input_buffer = Some(create_storage_input_buffer(
+                &self.device,
+                Some("argb_input_padded_bytes"),
+                input_buffer_size,
+            ));
             self.argb_input_buffer_size = input_buffer_size;
         }
 
@@ -1239,130 +1230,57 @@ impl<'a> Renderer<'a> {
                 label: Some("argb_copy_encoder"),
             });
 
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: self.argb_offscreen_texture.as_ref().unwrap(),
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: self.argb_input_buffer.as_ref().unwrap(),
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded_bytes_per_row),
-                    rows_per_image: Some(height),
-                },
-            },
-            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        encode_copy_texture_to_buffer(
+            &mut encoder,
+            self.argb_offscreen_texture.as_ref().unwrap(),
+            self.argb_input_buffer.as_ref().unwrap(),
+            width,
+            height,
+            padded_bytes_per_row,
         );
 
         // 3) Create an output buffer for ARGB32 u32 pixels
         let output_words = (width as u64) * (height as u64);
         let output_buffer_size = output_words * 4;
         if size_changed || self.argb_output_storage_buffer.is_none() || self.argb_output_buffer_size < output_buffer_size {
-            self.argb_output_storage_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("argb_output_u32_storage"),
-                size: output_buffer_size,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-                mapped_at_creation: false,
-            }));
+            self.argb_output_storage_buffer = Some(create_storage_output_buffer(
+                &self.device,
+                Some("argb_output_u32_storage"),
+                output_buffer_size,
+            ));
             self.argb_output_buffer_size = output_buffer_size;
             // readback buffer should match size too
-            self.argb_readback_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("argb_output_u32_readback"),
-                size: output_buffer_size,
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            }));
+            self.argb_readback_buffer = Some(create_readback_buffer(
+                &self.device,
+                Some("argb_output_u32_readback"),
+                output_buffer_size,
+            ));
         }
 
         // 4) Create compute pipeline for swizzle
         if self.argb_cs_pipeline.is_none() {
-            let cs_module = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("argb_swizzle_cs"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/argb_swizzle.wgsl").into()),
-            });
-
-            let bind_group_layout = self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("argb_swizzle_bgl"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
-            });
-            let pipeline_layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("argb_swizzle_pl"),
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
-            });
-            let compute_pipeline = self.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("argb_swizzle_pipeline"),
-                layout: Some(&pipeline_layout),
-                module: &cs_module,
-                entry_point: Some("cs_main"),
-                compilation_options: Default::default(),
-                cache: None,
-            });
-            self.argb_cs_bgl = Some(bind_group_layout);
-            self.argb_cs_pipeline_layout = Some(pipeline_layout);
-            self.argb_cs_pipeline = Some(compute_pipeline);
+            let (bgl, pipeline) = create_argb_swizzle_pipeline(&self.device);
+            self.argb_cs_bgl = Some(bgl);
+            self.argb_cs_pipeline = Some(pipeline);
         }
 
         // Params buffer (recreate if size changed due to padding)
-    #[repr(C)]
-    #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-    struct ArgbParams { width: u32, height: u32, padded_bpr: u32, _pad: u32 }
     let params = ArgbParams { width, height, padded_bpr: padded_bytes_per_row, _pad: 0 };
         let need_new_params = self.argb_params_buffer.is_none();
         if need_new_params {
-            self.argb_params_buffer = Some(self.device.create_buffer_init(&BufferInitDescriptor {
-                label: Some("argb_params"),
-                contents: bytemuck::bytes_of(&params),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            }));
+            self.argb_params_buffer = Some(crate::pipeline::create_argb_params_buffer(&self.device, &params));
         } else {
             self.queue.write_buffer(self.argb_params_buffer.as_ref().unwrap(), 0, bytemuck::bytes_of(&params));
         }
         // Recreate bind group if any binding target changed
         if size_changed || self.argb_swizzle_bind_group.is_none() || need_new_params {
-            self.argb_swizzle_bind_group = Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("argb_swizzle_bg"),
-                layout: self.argb_cs_bgl.as_ref().unwrap(),
-                entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: self.argb_input_buffer.as_ref().unwrap().as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 1, resource: self.argb_output_storage_buffer.as_ref().unwrap().as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 2, resource: self.argb_params_buffer.as_ref().unwrap().as_entire_binding() },
-                ],
-            }));
+            self.argb_swizzle_bind_group = Some(create_argb_swizzle_bind_group(
+                &self.device,
+                self.argb_cs_bgl.as_ref().unwrap(),
+                self.argb_input_buffer.as_ref().unwrap(),
+                self.argb_output_storage_buffer.as_ref().unwrap(),
+                self.argb_params_buffer.as_ref().unwrap(),
+            ));
         }
 
         // Submit the copy first
