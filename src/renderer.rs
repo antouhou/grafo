@@ -22,7 +22,8 @@ use crate::pipeline::{
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
-use crate::vertex::InstanceTransform;
+use crate::vertex::{InstanceColor, InstanceTransform};
+use crate::Color;
 use crate::CachedShape;
 use ahash::{HashMap, HashMapExt};
 use log::warn;
@@ -192,18 +193,24 @@ pub struct Renderer<'a> {
     temp_vertices: Vec<crate::vertex::CustomVertex>,
     temp_indices: Vec<u16>,
 
-    /// Per-frame transforms for shapes (one per shape/cached shape draw)
+    /// Per-frame instance transforms for shapes
     temp_instance_transforms: Vec<InstanceTransform>,
+    /// Per-frame instance colors for shapes
+    temp_instance_colors: Vec<InstanceColor>,
 
     /// Reusable aggregated vertex buffer
     aggregated_vertex_buffer: Option<wgpu::Buffer>,
     /// Reusable aggregated index buffer  
     aggregated_index_buffer: Option<wgpu::Buffer>,
-    /// Per-frame instance transforms GPU buffer
-    aggregated_instance_buffer: Option<wgpu::Buffer>,
+    /// Per-frame instance transform GPU buffer
+    aggregated_instance_transform_buffer: Option<wgpu::Buffer>,
+    /// Per-frame instance color GPU buffer
+    aggregated_instance_color_buffer: Option<wgpu::Buffer>,
 
-    /// Identity instance buffer to satisfy transform input until per-shape transforms are wired
-    identity_instance_buffer: Option<wgpu::Buffer>,
+    /// Identity transform instance buffer
+    identity_instance_transform_buffer: Option<wgpu::Buffer>,
+    /// Identity color instance buffer (white)
+    identity_instance_color_buffer: Option<wgpu::Buffer>,
 
     shape_cache: HashMap<u64, CachedShape>,
 
@@ -437,10 +444,13 @@ impl<'a> Renderer<'a> {
             temp_vertices: Vec::new(),
             temp_indices: Vec::new(),
             temp_instance_transforms: Vec::new(),
+            temp_instance_colors: Vec::new(),
             aggregated_vertex_buffer: None,
             aggregated_index_buffer: None,
-            aggregated_instance_buffer: None,
-            identity_instance_buffer: None,
+            aggregated_instance_transform_buffer: None,
+            aggregated_instance_color_buffer: None,
+            identity_instance_transform_buffer: None,
+            identity_instance_color_buffer: None,
 
             shape_cache: HashMap::new(),
 
@@ -693,7 +703,8 @@ impl<'a> Renderer<'a> {
     fn prepare_render(&mut self) {
         self.temp_vertices.clear();
         self.temp_indices.clear();
-        self.temp_instance_transforms.clear();
+    self.temp_instance_transforms.clear();
+    self.temp_instance_colors.clear();
 
         let draw_tree_size = self.draw_tree.len();
 
@@ -728,12 +739,16 @@ impl<'a> Renderer<'a> {
 
                     shape.index_buffer_range = Some((index_start, index_count));
 
-                    // Collect instance transform (identity for now; Stage 3 can expose real transforms)
+                    // Collect per-instance data (transform + fill color or override)
                     let instance_idx = self.temp_instance_transforms.len();
                     let transform = shape
                         .transform()
                         .unwrap_or_else(InstanceTransform::identity);
+                    let color = shape
+                        .instance_color_override()
+                        .unwrap_or([1.0, 1.0, 1.0, 1.0]);
                     self.temp_instance_transforms.push(transform);
+                    self.temp_instance_colors.push(InstanceColor { color });
                     *shape.instance_index_mut() = Some(instance_idx);
                 }
                 DrawCommand::CachedShape(cached_shape_data) => {
@@ -769,12 +784,16 @@ impl<'a> Renderer<'a> {
 
                         cached_shape_data.index_buffer_range = Some((index_start, index_count));
 
-                        // Instance for cached shape (identity for now)
+                        // Instance for cached shape (transform + default or override color)
                         let instance_idx = self.temp_instance_transforms.len();
                         let transform = cached_shape_data
                             .transform()
                             .unwrap_or_else(InstanceTransform::identity);
+                        let color = cached_shape_data
+                            .instance_color_override()
+                            .unwrap_or([1.0, 1.0, 1.0, 1.0]);
                         self.temp_instance_transforms.push(transform);
+                        self.temp_instance_colors.push(InstanceColor { color });
                         *cached_shape_data.instance_index_mut() = Some(instance_idx);
                     } else {
                         println!("Warning: Cached shape not found in cache");
@@ -839,37 +858,62 @@ impl<'a> Renderer<'a> {
         }
 
         // Ensure identity instance buffer exists before we start setting up passes
-        if self.identity_instance_buffer.is_none() {
-            let identity = crate::vertex::InstanceTransform::identity();
-            self.identity_instance_buffer =
+        if self.identity_instance_transform_buffer.is_none() {
+            let identity = InstanceTransform::identity();
+            self.identity_instance_transform_buffer =
                 Some(self.device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Identity Instance Buffer"),
+                    label: Some("Identity Instance Transform Buffer"),
                     contents: bytemuck::cast_slice(&[identity]),
                     usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
                 }));
         }
+        if self.identity_instance_color_buffer.is_none() {
+            let white = InstanceColor::white();
+            self.identity_instance_color_buffer = Some(
+                self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Identity Instance Color Buffer"),
+                    contents: bytemuck::cast_slice(&[white]),
+                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                }),
+            );
+        }
 
-        // Create/update aggregated instance buffer
+        // Create/update aggregated instance transform buffer
         if !self.temp_instance_transforms.is_empty() {
             let required_instance_size = std::mem::size_of_val(&self.temp_instance_transforms[..]);
             let needs_realloc = self
-                .aggregated_instance_buffer
+                .aggregated_instance_transform_buffer
                 .as_ref()
                 .map(|buffer| buffer.size() < required_instance_size as u64)
                 .unwrap_or(true);
             if needs_realloc {
-                self.aggregated_instance_buffer =
+                self.aggregated_instance_transform_buffer =
                     Some(self.device.create_buffer_init(&BufferInitDescriptor {
-                        label: Some("Aggregated Instance Buffer"),
+                        label: Some("Aggregated Instance Transform Buffer"),
                         contents: bytemuck::cast_slice(&self.temp_instance_transforms),
                         usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
                     }));
             } else {
-                self.queue.write_buffer(
-                    self.aggregated_instance_buffer.as_ref().unwrap(),
-                    0,
-                    bytemuck::cast_slice(&self.temp_instance_transforms),
-                );
+                self.queue.write_buffer(self.aggregated_instance_transform_buffer.as_ref().unwrap(), 0, bytemuck::cast_slice(&self.temp_instance_transforms));
+            }
+        }
+        // Create/update aggregated instance color buffer
+        if !self.temp_instance_colors.is_empty() {
+            let required_instance_size = std::mem::size_of_val(&self.temp_instance_colors[..]);
+            let needs_realloc = self
+                .aggregated_instance_color_buffer
+                .as_ref()
+                .map(|buffer| buffer.size() < required_instance_size as u64)
+                .unwrap_or(true);
+            if needs_realloc {
+                self.aggregated_instance_color_buffer =
+                    Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                        label: Some("Aggregated Instance Color Buffer"),
+                        contents: bytemuck::cast_slice(&self.temp_instance_colors),
+                        usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                    }));
+            } else {
+                self.queue.write_buffer(self.aggregated_instance_color_buffer.as_ref().unwrap(), 0, bytemuck::cast_slice(&self.temp_instance_colors));
             }
         }
     }
@@ -900,8 +944,18 @@ impl<'a> Renderer<'a> {
         let buffers = Buffers {
             aggregated_vertex_buffer: self.aggregated_vertex_buffer.as_ref().unwrap(),
             aggregated_index_buffer: self.aggregated_index_buffer.as_ref().unwrap(),
-            identity_instance_buffer: self.identity_instance_buffer.as_ref().unwrap(),
-            aggregated_instance_buffer: self.aggregated_instance_buffer.as_ref(),
+            identity_instance_transform_buffer: self
+                .identity_instance_transform_buffer
+                .as_ref()
+                .unwrap(),
+            identity_instance_color_buffer: self
+                .identity_instance_color_buffer
+                .as_ref()
+                .unwrap(),
+            aggregated_instance_transform_buffer: self
+                .aggregated_instance_transform_buffer
+                .as_ref(),
+            aggregated_instance_color_buffer: self.aggregated_instance_color_buffer.as_ref(),
         };
 
         {
@@ -1463,6 +1517,17 @@ impl<'a> Renderer<'a> {
         self.set_shape_texture_layer(node_id, layer.into(), texture_id);
     }
 
+    /// Sets a per-instance color for a shape/cached shape by node id. Pass None to use shape's fill.
+    pub fn set_shape_color(&mut self, node_id: usize, color: Option<Color>) {
+        if let Some(draw_command) = self.draw_tree.get_mut(node_id) {
+            let color_norm = color.map(|c| c.normalize());
+            match draw_command {
+                DrawCommand::Shape(shape) => shape.set_instance_color_override(color_norm),
+                DrawCommand::CachedShape(cached) => cached.set_instance_color_override(color_norm),
+            }
+        }
+    }
+
     /// Retrieves the current physical size of the rendering surface.
     ///
     /// # Returns
@@ -1688,8 +1753,10 @@ impl<'a> Renderer<'a> {
 struct Buffers<'a> {
     aggregated_vertex_buffer: &'a wgpu::Buffer,
     aggregated_index_buffer: &'a wgpu::Buffer,
-    identity_instance_buffer: &'a wgpu::Buffer,
-    aggregated_instance_buffer: Option<&'a wgpu::Buffer>,
+    identity_instance_transform_buffer: &'a wgpu::Buffer,
+    identity_instance_color_buffer: &'a wgpu::Buffer,
+    aggregated_instance_transform_buffer: Option<&'a wgpu::Buffer>,
+    aggregated_instance_color_buffer: Option<&'a wgpu::Buffer>,
 }
 
 struct Pipelines<'a> {
@@ -1728,8 +1795,9 @@ fn handle_increment_pass<'rp>(
             // Those pipelines use the same vertex buffers
             if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
-                // Bind identity instance transform so shader inputs @location(3..6) are valid
-                render_pass.set_vertex_buffer(1, buffers.identity_instance_buffer.slice(..));
+                // Bind identity instance buffers so shader inputs are valid
+                render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+                render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
@@ -1764,15 +1832,25 @@ fn handle_increment_pass<'rp>(
         // Render increment pass with parent stencil
         // Bind per-instance transform slice if available, else fall back to identity
         if let Some(instance_idx) = shape.instance_index() {
-            if let Some(inst_buf) = buffers.aggregated_instance_buffer {
-                let stride = std::mem::size_of::<InstanceTransform>() as u64;
-                let offset = instance_idx as u64 * stride;
-                render_pass.set_vertex_buffer(1, inst_buf.slice(offset..offset + stride));
+            // Transform slice
+            if let Some(inst_t_buf) = buffers.aggregated_instance_transform_buffer {
+                let stride_t = std::mem::size_of::<InstanceTransform>() as u64;
+                let offset_t = instance_idx as u64 * stride_t;
+                render_pass.set_vertex_buffer(1, inst_t_buf.slice(offset_t..offset_t + stride_t));
             } else {
-                render_pass.set_vertex_buffer(1, buffers.identity_instance_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+            }
+            // Color slice
+            if let Some(inst_c_buf) = buffers.aggregated_instance_color_buffer {
+                let stride_c = std::mem::size_of::<InstanceColor>() as u64;
+                let offset_c = instance_idx as u64 * stride_c;
+                render_pass.set_vertex_buffer(2, inst_c_buf.slice(offset_c..offset_c + stride_c));
+            } else {
+                render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
             }
         } else {
-            render_pass.set_vertex_buffer(1, buffers.identity_instance_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+            render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
         }
         render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
 
@@ -1808,8 +1886,9 @@ fn handle_decrement_pass<'rp>(
 
             if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
-                // Bind identity instance transform so shader inputs @location(3..6) are valid
-                render_pass.set_vertex_buffer(1, buffers.identity_instance_buffer.slice(..));
+                // Bind identity instance buffers so shader inputs are valid
+                render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+                render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
@@ -1824,15 +1903,25 @@ fn handle_decrement_pass<'rp>(
 
         // Bind per-instance transform slice if available, else fall back to identity
         if let Some(instance_idx) = shape.instance_index() {
-            if let Some(inst_buf) = buffers.aggregated_instance_buffer {
-                let stride = std::mem::size_of::<InstanceTransform>() as u64;
-                let offset = instance_idx as u64 * stride;
-                render_pass.set_vertex_buffer(1, inst_buf.slice(offset..offset + stride));
+            // Transform slice
+            if let Some(inst_t_buf) = buffers.aggregated_instance_transform_buffer {
+                let stride_t = std::mem::size_of::<InstanceTransform>() as u64;
+                let offset_t = instance_idx as u64 * stride_t;
+                render_pass.set_vertex_buffer(1, inst_t_buf.slice(offset_t..offset_t + stride_t));
             } else {
-                render_pass.set_vertex_buffer(1, buffers.identity_instance_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+            }
+            // Color slice
+            if let Some(inst_c_buf) = buffers.aggregated_instance_color_buffer {
+                let stride_c = std::mem::size_of::<InstanceColor>() as u64;
+                let offset_c = instance_idx as u64 * stride_c;
+                render_pass.set_vertex_buffer(2, inst_c_buf.slice(offset_c..offset_c + stride_c));
+            } else {
+                render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
             }
         } else {
-            render_pass.set_vertex_buffer(1, buffers.identity_instance_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+            render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
         }
         render_buffer_range_to_texture(index_range, render_pass, this_shape_stencil);
 

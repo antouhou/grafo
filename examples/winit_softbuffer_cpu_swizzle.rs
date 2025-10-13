@@ -130,31 +130,31 @@ impl<'a> ApplicationHandler for App<'a> {
                         (0.0, 0.0),
                         (window_size.width as f32, window_size.height as f32),
                     ],
-                    Color::rgb(255, 255, 200),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                renderer_guard.add_shape(background, None, None);
+                let bg_id = renderer_guard.add_shape(background, None, None);
+                renderer_guard.set_shape_color(bg_id, Some(Color::rgb(255, 255, 200)));
 
                 let red_id = renderer_guard.add_shape(
                     Shape::rect(
                         [(0.0, 0.0), (200.0, 200.0)],
-                        Color::rgb(255, 0, 0),
                         Stroke::new(1.0, Color::rgb(0, 0, 0)),
                     ),
                     None,
                     None,
                 );
+                renderer_guard.set_shape_color(red_id, Some(Color::rgb(255, 0, 0)));
                 renderer_guard.set_shape_transform(red_id, grafo::TransformInstance::identity());
 
                 let blue_id = renderer_guard.add_shape(
                     Shape::rect(
                         [(0.0, 0.0), (200.0, 200.0)],
-                        Color::rgb(0, 0, 255),
                         Stroke::new(1.0, Color::rgb(0, 0, 0)),
                     ),
                     None,
                     None,
                 );
+                renderer_guard.set_shape_color(blue_id, Some(Color::rgb(0, 0, 255)));
                 renderer_guard.set_shape_transform(
                     blue_id,
                     grafo::TransformInstance::translation(220.0, 0.0),

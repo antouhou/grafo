@@ -93,20 +93,19 @@ impl<'a> ApplicationHandler for App<'a> {
                         (0.0, 0.0),
                         (window_size.width as f32, window_size.height as f32),
                     ],
-                    Color::rgb(30, 30, 30),
                     Stroke::new(0.0, Color::rgb(0, 0, 0)),
                 );
+                let background_id = renderer.add_shape(background, None, None);
+                renderer.set_shape_color(background_id, Some(Color::rgb(30, 30, 30)));
 
                 // A white rounded rect that we will texture
                 let textured_rect = Shape::rounded_rect(
                     [(0.0, 0.0), (300.0, 300.0)],
                     BorderRadii::new(20.0),
-                    Color::rgb(255, 255, 255), // white so texture shows un-tinted
                     Stroke::new(2.0, Color::rgb(200, 200, 200)),
                 );
-
-                let background_id = renderer.add_shape(background, None, None);
                 let rect_id = renderer.add_shape(textured_rect, Some(background_id), None);
+                renderer.set_shape_color(rect_id, Some(Color::rgb(255, 255, 255))); // white so texture shows un-tinted
                 // Previously this shape used an offset of (100, 100)
                 renderer.set_shape_transform(
                     rect_id,

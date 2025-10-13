@@ -87,13 +87,46 @@ fn world_to_local_2d(tx: &Transform3D<f32>, world: (f32, f32)) -> Option<(f32, f
     }
     Some((lx / lw, ly / lw))
 }
-use image::ImageReader;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
+
+// Simple helpers to build a few paths for the demo
+fn build_rect_path(w: f32, h: f32) -> Path {
+    let mut pb = Path::builder();
+    pb.begin(point(0.0, 0.0));
+    pb.line_to(point(w, 0.0));
+    pb.line_to(point(w, h));
+    pb.line_to(point(0.0, h));
+    pb.close();
+    pb.build()
+}
+
+fn build_heart_path() -> Path {
+    // A rough heart shape centered around (0,0) extending mostly in +Y
+    let mut hb = Path::builder();
+    hb.begin(point(0.0, 30.0));
+    hb.cubic_bezier_to(point(0.0, 0.0), point(50.0, 0.0), point(50.0, 30.0));
+    hb.cubic_bezier_to(point(50.0, 55.0), point(25.0, 77.0), point(0.0, 92.0));
+    hb.cubic_bezier_to(point(-25.0, 77.0), point(-50.0, 55.0), point(-50.0, 30.0));
+    hb.cubic_bezier_to(point(-50.0, 0.0), point(0.0, 0.0), point(0.0, 30.0));
+    hb.close();
+    hb.build()
+}
+
+fn build_perspective_demo_path() -> Path {
+    // A simple trapezoid to suggest perspective
+    let mut pb = Path::builder();
+    pb.begin(point(-60.0, 0.0));
+    pb.line_to(point(60.0, 0.0));
+    pb.line_to(point(100.0, 40.0));
+    pb.line_to(point(-100.0, 40.0));
+    pb.close();
+    pb.build()
+}
 
 #[derive(Default)]
 struct App<'a> {
@@ -164,8 +197,9 @@ impl<'a> ApplicationHandler for App<'a> {
             false, // transparent
         ));
 
+        // Load a demo texture (Rust logo) and upload it once
         let rust_logo_png_bytes = include_bytes!("assets/rust-logo-256x256-blk.png");
-        let rust_logo_png = ImageReader::new(std::io::Cursor::new(rust_logo_png_bytes))
+        let rust_logo_png = image::ImageReader::new(std::io::Cursor::new(rust_logo_png_bytes))
             .with_guessed_format()
             .unwrap()
             .decode()
@@ -173,57 +207,37 @@ impl<'a> ApplicationHandler for App<'a> {
         let rust_logo_rgba = rust_logo_png.as_rgba8().unwrap();
         let rust_logo_png_dimensions = rust_logo_rgba.dimensions();
         let mut rust_logo_png_bytes = rust_logo_rgba.to_vec();
+        // Premultiply to avoid fringes when minifying near transparent edges
         premultiply_rgba8_srgb_inplace(&mut rust_logo_png_bytes);
+        let rust_logo_texture_id = 1u64;
+        renderer
+            .texture_manager()
+            .allocate_texture_with_data(
+                rust_logo_texture_id,
+                rust_logo_png_dimensions,
+                &rust_logo_png_bytes,
+            );
 
-        self.rust_logo_png_dimensions = rust_logo_png_dimensions;
-        self.rust_logo_png_bytes = rust_logo_png_bytes;
-        self.rust_logo_texture_id = 100;
-        renderer.texture_manager().allocate_texture_with_data(
-            self.rust_logo_texture_id,
-            self.rust_logo_png_dimensions,
-            &self.rust_logo_png_bytes,
-        );
+        // Build demo paths
+        self.red_path = build_rect_path(200.0, 100.0);
+        self.green_path = build_rect_path(200.0, 100.0);
+        self.blue_path = build_rect_path(self.blue_size.0, self.blue_size.1);
+        self.jelly_path = build_rect_path(200.0, 100.0);
+        self.heart_path = build_heart_path();
+        self.perspective_path = build_perspective_demo_path();
 
-        // Prepare lyon paths for rectangles (200x100 at local origin)
-        let build_rect_path = || {
-            let mut pb = lyon::path::Path::builder();
-            pb.begin(point(0.0, 0.0));
-            pb.line_to(point(200.0, 0.0));
-            pb.line_to(point(200.0, 100.0));
-            pb.line_to(point(0.0, 100.0));
-            pb.close();
-            pb.build()
-        };
-
-        self.red_path = build_rect_path();
-        self.green_path = build_rect_path();
-        self.blue_path = build_rect_path();
-        // Jelly wobble will use a slightly rounded-inspired rectangle (simple rect for now)
-        self.jelly_path = build_rect_path();
-        // Build a heart shape path centered near (0,0)
-        let mut hb = lyon::path::Path::builder();
-        hb.begin(point(0.0, 30.0));
-        hb.cubic_bezier_to(point(0.0, 0.0), point(50.0, 0.0), point(50.0, 30.0));
-        hb.cubic_bezier_to(point(50.0, 55.0), point(25.0, 77.0), point(0.0, 100.0));
-        hb.cubic_bezier_to(point(-25.0, 77.0), point(-50.0, 55.0), point(-50.0, 30.0));
-        hb.cubic_bezier_to(point(-50.0, 0.0), point(0.0, 0.0), point(0.0, 30.0));
-        hb.close();
-        self.heart_path = hb.build();
-        // Simple diamond to showcase perspective
-        let mut pb = lyon::path::Path::builder();
-        pb.begin(point(0.0, -60.0));
-        pb.line_to(point(60.0, 0.0));
-        pb.line_to(point(0.0, 60.0));
-        pb.line_to(point(-60.0, 0.0));
-        pb.close();
-        self.perspective_path = pb.build();
+        // Colors for hover states
         self.red_color = (Color::rgb(200, 60, 60), Color::rgb(255, 120, 120));
         self.green_color = (Color::rgb(60, 200, 60), Color::rgb(120, 255, 120));
         self.blue_color = (Color::rgb(60, 60, 200), Color::rgb(120, 120, 255));
         self.heart_color = (Color::rgb(220, 0, 90), Color::rgb(255, 80, 150));
         self.perspective_color = (Color::rgb(255, 180, 0), Color::rgb(255, 220, 120));
 
+        // Save state
         self.scale_factor = scale_factor;
+        self.rust_logo_png_dimensions = rust_logo_png_dimensions;
+        self.rust_logo_png_bytes = rust_logo_png_bytes;
+        self.rust_logo_texture_id = rust_logo_texture_id;
         self.window = Some(window);
         self.renderer = Some(renderer);
     }
@@ -342,10 +356,10 @@ impl<'a> ApplicationHandler for App<'a> {
                 let logical_h = window.inner_size().height as f32 / self.scale_factor as f32;
                 let background = Shape::rect(
                     [(0.0, 0.0), (logical_w, logical_h)],
-                    Color::BLACK,
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                renderer.add_shape(background, None, None);
+                let background_id = renderer.add_shape(background, None, None);
+                renderer.set_shape_color(background_id, Some(Color::BLACK));
 
                 // Compute transforms in euclid space (same as before)
                 let red_tx = Transform3D::rotation(0.0, 0.0, 1.0, Angle::degrees(45.0))
@@ -455,56 +469,26 @@ impl<'a> ApplicationHandler for App<'a> {
                 // Re-add shapes each frame using lyon paths for hit testing and dynamic color
                 let red_shape = Shape::Path(grafo::PathShape::new(
                     self.red_path.clone(),
-                    if red_hover {
-                        self.red_color.1
-                    } else {
-                        self.red_color.0
-                    },
                     Stroke::new(2.0, Color::BLACK),
                 ));
                 let green_shape = Shape::Path(grafo::PathShape::new(
                     self.green_path.clone(),
-                    if green_hover {
-                        self.green_color.1
-                    } else {
-                        self.green_color.0
-                    },
                     Stroke::new(2.0, Color::BLACK),
                 ));
                 let blue_shape = Shape::Path(grafo::PathShape::new(
                     self.blue_path.clone(),
-                    if blue_hover {
-                        self.blue_color.1
-                    } else {
-                        self.blue_color.0
-                    },
                     Stroke::new(2.0, Color::BLACK),
                 ));
                 let jelly_shape = Shape::Path(grafo::PathShape::new(
                     self.jelly_path.clone(),
-                    if jelly_hover {
-                        self.jelly_color.1
-                    } else {
-                        self.jelly_color.0
-                    },
                     Stroke::new(2.0, Color::BLACK),
                 ));
                 let heart_shape = Shape::Path(grafo::PathShape::new(
                     self.heart_path.clone(),
-                    if heart_hover {
-                        self.heart_color.1
-                    } else {
-                        self.heart_color.0
-                    },
                     Stroke::new(2.0, Color::BLACK),
                 ));
                 let perspective_shape = Shape::Path(grafo::PathShape::new(
                     self.perspective_path.clone(),
-                    if perspective_hover {
-                        self.perspective_color.1
-                    } else {
-                        self.perspective_color.0
-                    },
                     Stroke::new(2.0, Color::BLACK),
                 ));
 
@@ -515,6 +499,37 @@ impl<'a> ApplicationHandler for App<'a> {
                 let heart = renderer.add_shape(heart_shape, None, None);
                 let perspective = renderer.add_shape(perspective_shape, None, None);
 
+                // Set per-instance colors
+                renderer.set_shape_color(
+                    red,
+                    Some(if red_hover { self.red_color.1 } else { self.red_color.0 }),
+                );
+                renderer.set_shape_color(
+                    green,
+                    Some(if green_hover { self.green_color.1 } else { self.green_color.0 }),
+                );
+                renderer.set_shape_color(
+                    blue,
+                    Some(if blue_hover { self.blue_color.1 } else { self.blue_color.0 }),
+                );
+                renderer.set_shape_color(
+                    jelly,
+                    Some(if jelly_hover { self.jelly_color.1 } else { self.jelly_color.0 }),
+                );
+                renderer.set_shape_color(
+                    heart,
+                    Some(if heart_hover { self.heart_color.1 } else { self.heart_color.0 }),
+                );
+                renderer.set_shape_color(
+                    perspective,
+                    Some(if perspective_hover {
+                        self.perspective_color.1
+                    } else {
+                        self.perspective_color.0
+                    }),
+                );
+
+                // Give the blue shape a texture
                 renderer.set_shape_texture(blue, Some(self.rust_logo_texture_id));
 
                 renderer.set_shape_transform(red, transform_instance_from_euclid(red_tx));

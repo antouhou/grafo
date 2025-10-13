@@ -1,20 +1,18 @@
 //! The `shape` module provides structures and methods for creating and managing graphical shapes
 //! within the Grafo library. It supports both simple and complex shapes, including rectangles and
-//! custom paths with fill and stroke properties.
+//! custom paths with stroke properties. Fill color is per-instance and set via the renderer.
 //!
 //! # Examples
 //!
 //! Creating and using different shapes:
 //!
 //! ```rust
-//! use grafo::Color;
 //! use grafo::Stroke;
 //! use grafo::{Shape, ShapeBuilder, BorderRadii};
 //!
 //! // Create a simple rectangle
 //! let rect = Shape::rect(
 //!     [(0.0, 0.0), (100.0, 50.0)],
-//!     Color::rgb(255, 0, 0), // Red fill
 //!     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
 //! );
 //!
@@ -22,13 +20,11 @@
 //! let rounded_rect = Shape::rounded_rect(
 //!     [(0.0, 0.0), (100.0, 50.0)],
 //!     BorderRadii::new(10.0),
-//!     Color::rgba(0, 255, 0, 128), // Semi-transparent green fill
 //!     Stroke::new(1.5, Color::BLACK), // Black stroke with width 1.5
 //! );
 //!
 //! // Build a custom shape using ShapeBuilder
 //! let custom_shape = Shape::builder()
-//!     .fill(Color::rgb(0, 0, 255)) // Blue fill
 //!     .stroke(Stroke::new(3.0, Color::BLACK)) // Black stroke with width 3.0
 //!     .begin((0.0, 0.0))
 //!     .line_to((50.0, 10.0))
@@ -87,20 +83,17 @@ impl CachedShape {
 /// # Examples
 ///
 /// ```rust
-/// use grafo::Color;
 /// use grafo::Stroke;
 /// use grafo::{Shape, BorderRadii};
 ///
 /// // Create a simple rectangle
 /// let rect = Shape::rect(
 ///     [(0.0, 0.0), (100.0, 50.0)],
-///     Color::rgb(255, 0, 0), // Red fill
 ///     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
 /// );
 ///
 /// // Create a custom path shape
 /// let custom_path = Shape::builder()
-///     .fill(Color::rgb(0, 255, 0))
 ///     .stroke(Stroke::new(1.0, Color::BLACK))
 ///     .begin((0.0, 0.0))
 ///     .line_to((50.0, 10.0))
@@ -130,13 +123,12 @@ impl Shape {
         ShapeBuilder::new()
     }
 
-    /// Creates a simple rectangle shape with the specified coordinates, fill color, and stroke.
+    /// Creates a simple rectangle shape with the specified coordinates and stroke.
     ///
     /// # Parameters
     ///
     /// - `rect`: An array containing two tuples representing the top-left and bottom-right
     ///   coordinates of the rectangle.
-    /// - `fill_color`: The fill color of the rectangle.
     /// - `stroke`: The stroke properties of the rectangle.
     ///
     /// # Examples
@@ -152,8 +144,8 @@ impl Shape {
     ///     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
     /// );
     /// ```
-    pub fn rect(rect: [(f32, f32); 2], fill_color: Color, stroke: Stroke) -> Shape {
-        let rect_shape = RectShape::new(rect, fill_color, stroke);
+    pub fn rect(rect: [(f32, f32); 2], stroke: Stroke) -> Shape {
+        let rect_shape = RectShape::new(rect, stroke);
         Shape::Rect(rect_shape)
     }
 
@@ -164,7 +156,6 @@ impl Shape {
     /// - `rect`: An array containing two tuples representing the top-left and bottom-right
     ///   coordinates of the rectangle.
     /// - `border_radii`: The radii for each corner of the rectangle.
-    /// - `fill_color`: The fill color of the rectangle.
     /// - `stroke`: The stroke properties of the rectangle.
     ///
     /// # Examples
@@ -184,7 +175,6 @@ impl Shape {
     pub fn rounded_rect(
         rect: [(f32, f32); 2],
         border_radii: BorderRadii,
-        fill_color: Color,
         stroke: Stroke,
     ) -> Shape {
         let mut path_builder = lyon::path::Path::builder();
@@ -195,7 +185,6 @@ impl Shape {
 
         let path_shape = PathShape {
             path,
-            fill: fill_color,
             stroke,
         };
         Shape::Path(path_shape)
@@ -218,8 +207,6 @@ impl Shape {
                 let max_width = rect_shape.rect[1].0;
                 let max_height = rect_shape.rect[1].1;
 
-                let color = rect_shape.fill.normalize();
-
                 // Compute UVs mapping the rectangle to [0,1] in local space
                 let w = (max_width - min_width).max(1e-6);
                 let h = (max_height - min_height).max(1e-6);
@@ -229,37 +216,31 @@ impl Shape {
                 let quad = [
                     CustomVertex {
                         position: [min_width, min_height],
-                        color,
                         tex_coords: uv(min_width, min_height),
                         order: depth,
                     },
                     CustomVertex {
                         position: [max_width, min_height],
-                        color,
                         tex_coords: uv(max_width, min_height),
                         order: depth,
                     },
                     CustomVertex {
                         position: [min_width, max_height],
-                        color,
                         tex_coords: uv(min_width, max_height),
                         order: depth,
                     },
                     CustomVertex {
                         position: [min_width, max_height],
-                        color,
                         tex_coords: uv(min_width, max_height),
                         order: depth,
                     },
                     CustomVertex {
                         position: [max_width, min_height],
-                        color,
                         tex_coords: uv(max_width, min_height),
                         order: depth,
                     },
                     CustomVertex {
                         position: [max_width, max_height],
-                        color,
                         tex_coords: uv(max_width, max_height),
                         order: depth,
                     },
@@ -297,19 +278,16 @@ impl From<RectShape> for Shape {
 ///
 /// - `rect`: An array containing two tuples representing the top-left and bottom-right
 ///   coordinates of the rectangle.
-/// - `fill`: The fill color of the rectangle.
 /// - `stroke`: The stroke properties of the rectangle.
 ///
 /// # Examples
 ///
 /// ```rust
 /// use grafo::RectShape;
-/// use grafo::Color;
 /// use grafo::Stroke;
 ///
 /// let rect_shape = RectShape::new(
 ///     [(0.0, 0.0), (100.0, 50.0)],
-///     Color::rgb(255, 0, 0), // Red fill
 ///     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
 /// );
 /// ```
@@ -318,42 +296,37 @@ pub struct RectShape {
     /// An array containing two tuples representing the top-left and bottom-right coordinates
     /// of the rectangle.
     pub(crate) rect: [(f32, f32); 2],
-    /// The fill color of the rectangle.
-    pub(crate) fill: Color,
     /// The stroke properties of the rectangle.
     #[allow(unused)]
     pub(crate) stroke: Stroke,
 }
 
 impl RectShape {
-    /// Creates a new `RectShape` with the specified coordinates, fill color, and stroke.
+    /// Creates a new `RectShape` with the specified coordinates and stroke.
     ///
     /// # Parameters
     ///
     /// - `rect`: An array containing two tuples representing the top-left and bottom-right
     ///   coordinates of the rectangle.
-    /// - `fill`: The fill color of the rectangle.
     /// - `stroke`: The stroke properties of the rectangle.
     ///
     /// # Examples
     ///
     /// ```rust
     /// use grafo::RectShape;
-    /// use grafo::Color;
     /// use grafo::Stroke;
     ///
     /// let rect_shape = RectShape::new(
     ///     [(0.0, 0.0), (100.0, 50.0)],
-    ///     Color::rgb(255, 0, 0), // Red fill
     ///     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
     /// );
     /// ```
-    pub fn new(rect: [(f32, f32); 2], fill: Color, stroke: Stroke) -> Self {
-        Self { rect, fill, stroke }
+    pub fn new(rect: [(f32, f32); 2], stroke: Stroke) -> Self {
+        Self { rect, stroke }
     }
 }
 
-/// Represents a custom path shape with a fill color and stroke.
+/// Represents a custom path shape with stroke.
 ///
 /// You typically do not need to use `PathShape` directly; instead, use the [`Shape::builder`]
 /// method to construct complex shapes.
@@ -361,14 +334,12 @@ impl RectShape {
 /// # Fields
 ///
 /// - `path`: The geometric path defining the shape.
-/// - `fill`: The fill color of the shape.
 /// - `stroke`: The stroke properties of the shape.
 ///
 /// # Examples
 ///
 /// ```rust
 /// use grafo::{Shape, PathShape};
-/// use grafo::Color;
 /// use grafo::Stroke;
 ///
 /// // Replace this with your own path
@@ -376,7 +347,6 @@ impl RectShape {
 ///
 /// let path_shape = PathShape::new(
 ///     path,
-///     Color::rgb(0, 255, 0), // Green fill
 ///     Stroke::new(1.0, Color::BLACK), // Black stroke with width 1.0
 /// );
 ///
@@ -386,8 +356,6 @@ impl RectShape {
 pub struct PathShape {
     /// The geometric path defining the shape.
     pub(crate) path: lyon::path::Path,
-    /// The fill color of the shape.
-    pub(crate) fill: Color,
     /// The stroke properties of the shape.
     #[allow(unused)]
     pub(crate) stroke: Stroke,
@@ -395,12 +363,11 @@ pub struct PathShape {
 
 struct VertexConverter {
     depth: f32,
-    color: [f32; 4],
 }
 
 impl VertexConverter {
-    fn new(depth: f32, color: [f32; 4]) -> Self {
-        Self { depth, color }
+    fn new(depth: f32) -> Self {
+        Self { depth }
     }
 }
 
@@ -409,34 +376,31 @@ impl FillVertexConstructor<CustomVertex> for VertexConverter {
         CustomVertex {
             position: vertex.position().to_array(),
             order: self.depth,
-            color: self.color,
             tex_coords: [0.0, 0.0],
         }
     }
 }
 
 impl PathShape {
-    /// Creates a new `PathShape` with the specified path, fill color, and stroke.
+    /// Creates a new `PathShape` with the specified path and stroke.
     ///
     /// # Parameters
     ///
     /// - `path`: The geometric path defining the shape.
-    /// - `fill`: The fill color of the shape.
     /// - `stroke`: The stroke properties of the shape.
     ///
     /// # Examples
     ///
     /// ```rust
     /// use grafo::PathShape;
-    /// use grafo::Color;
     /// use grafo::Stroke;
     /// use lyon::path::Path;
     ///
     /// let path = Path::builder().build();
-    /// let path_shape = PathShape::new(path, Color::rgb(0, 255, 0), Stroke::default());
+    /// let path_shape = PathShape::new(path, Stroke::default());
     /// ```
-    pub fn new(path: lyon::path::Path, fill: Color, stroke: Stroke) -> Self {
-        Self { path, fill, stroke }
+    pub fn new(path: lyon::path::Path, stroke: Stroke) -> Self {
+        Self { path, stroke }
     }
 
     /// Tessellates the path shape into vertex and index buffers for rendering.
@@ -497,8 +461,7 @@ impl PathShape {
     ) {
         let options = FillOptions::default();
 
-        let color = self.fill.normalize();
-        let vertex_converter = VertexConverter::new(depth, color);
+    let vertex_converter = VertexConverter::new(depth);
 
         tessellator
             .tessellate_path(
@@ -566,6 +529,8 @@ pub(crate) struct ShapeDrawData {
     /// Layer 0: background/base
     /// Layer 1: foreground/overlay (e.g. text or decals) blended on top
     pub(crate) texture_ids: [Option<u64>; 2],
+    /// Optional per-instance color override (normalized [0,1]). If None, use shape's fill.
+    pub(crate) color_override: Option<[f32; 4]>,
 }
 
 impl ShapeDrawData {
@@ -581,6 +546,7 @@ impl ShapeDrawData {
             instance_index: None,
             transform: None,
             texture_ids: [None, None],
+            color_override: None,
         }
     }
 
@@ -610,6 +576,8 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) transform: Option<InstanceTransform>,
     /// Optional texture ids associated with this cached shape
     pub(crate) texture_ids: [Option<u64>; 2],
+    /// Optional per-instance color override (normalized [0,1]). If None, use cached shape default.
+    pub(crate) color_override: Option<[f32; 4]>,
 }
 
 impl CachedShapeDrawData {
@@ -622,6 +590,7 @@ impl CachedShapeDrawData {
             instance_index: None,
             transform: None,
             texture_ids: [None, None],
+            color_override: None,
         }
     }
 }
@@ -649,8 +618,6 @@ impl CachedShapeDrawData {
 /// ```
 #[derive(Clone)]
 pub struct ShapeBuilder {
-    /// The fill color of the shape.
-    color: Color,
     /// The stroke properties of the shape.
     stroke: Stroke,
     /// The path builder used to construct the shape's geometric path.
@@ -683,33 +650,9 @@ impl ShapeBuilder {
     /// ```
     pub fn new() -> Self {
         Self {
-            color: Color::rgb(0, 0, 0),
             stroke: Stroke::new(1.0, Color::rgb(0, 0, 0)),
             path_builder: lyon::path::Path::builder(),
         }
-    }
-
-    /// Sets the fill color of the shape.
-    ///
-    /// # Parameters
-    ///
-    /// - `color`: The desired fill color.
-    ///
-    /// # Returns
-    ///
-    /// The updated `ShapeBuilder` instance.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::Color;
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let builder = ShapeBuilder::new().fill(Color::rgb(255, 0, 0)); // Red fill
-    /// ```
-    pub fn fill(mut self, color: Color) -> Self {
-        self.color = color;
-        self
     }
 
     /// Sets the stroke properties of the shape.
@@ -873,7 +816,6 @@ impl ShapeBuilder {
         let path = self.path_builder.build();
         Shape::Path(PathShape {
             path,
-            fill: self.color,
             stroke: self.stroke,
         })
     }
@@ -982,6 +924,8 @@ pub(crate) trait DrawShapeCommand {
     fn set_transform(&mut self, t: InstanceTransform);
     fn texture_id(&self, layer: usize) -> Option<u64>;
     fn set_texture_id(&mut self, layer: usize, id: Option<u64>);
+    fn instance_color_override(&self) -> Option<[f32; 4]>;
+    fn set_instance_color_override(&mut self, color: Option<[f32; 4]>);
 }
 
 impl DrawShapeCommand for ShapeDrawData {
@@ -1031,6 +975,16 @@ impl DrawShapeCommand for ShapeDrawData {
             *slot = id;
         }
     }
+
+    #[inline]
+    fn instance_color_override(&self) -> Option<[f32; 4]> {
+        self.color_override
+    }
+
+    #[inline]
+    fn set_instance_color_override(&mut self, color: Option<[f32; 4]>) {
+        self.color_override = color;
+    }
 }
 
 impl DrawShapeCommand for CachedShapeDrawData {
@@ -1079,5 +1033,15 @@ impl DrawShapeCommand for CachedShapeDrawData {
         if let Some(slot) = self.texture_ids.get_mut(layer) {
             *slot = id;
         }
+    }
+
+    #[inline]
+    fn instance_color_override(&self) -> Option<[f32; 4]> {
+        self.color_override
+    }
+
+    #[inline]
+    fn set_instance_color_override(&mut self, color: Option<[f32; 4]>) {
+        self.color_override = color;
     }
 }

@@ -1,8 +1,10 @@
+// Vertex input: per-vertex position/order/uv and per-instance color+transform
 struct VertexInput {
     @location(0) position: vec2<f32>,
-    @location(1) color: vec4<f32>,
     // Per-vertex render order value (not true geometric depth)
     @location(2) order: f32,
+    // Per-instance solid color (was per-vertex before)
+    @location(1) color: vec4<f32>,
     // Per-instance transform matrix columns (column-major)
     @location(3) t_col0: vec4<f32>,
     @location(4) t_col1: vec4<f32>,
