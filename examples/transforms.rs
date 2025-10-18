@@ -210,13 +210,11 @@ impl<'a> ApplicationHandler for App<'a> {
         // Premultiply to avoid fringes when minifying near transparent edges
         premultiply_rgba8_srgb_inplace(&mut rust_logo_png_bytes);
         let rust_logo_texture_id = 1u64;
-        renderer
-            .texture_manager()
-            .allocate_texture_with_data(
-                rust_logo_texture_id,
-                rust_logo_png_dimensions,
-                &rust_logo_png_bytes,
-            );
+        renderer.texture_manager().allocate_texture_with_data(
+            rust_logo_texture_id,
+            rust_logo_png_dimensions,
+            &rust_logo_png_bytes,
+        );
 
         // Build demo paths
         self.red_path = build_rect_path(200.0, 100.0);
@@ -502,23 +500,43 @@ impl<'a> ApplicationHandler for App<'a> {
                 // Set per-instance colors
                 renderer.set_shape_color(
                     red,
-                    Some(if red_hover { self.red_color.1 } else { self.red_color.0 }),
+                    Some(if red_hover {
+                        self.red_color.1
+                    } else {
+                        self.red_color.0
+                    }),
                 );
                 renderer.set_shape_color(
                     green,
-                    Some(if green_hover { self.green_color.1 } else { self.green_color.0 }),
+                    Some(if green_hover {
+                        self.green_color.1
+                    } else {
+                        self.green_color.0
+                    }),
                 );
                 renderer.set_shape_color(
                     blue,
-                    Some(if blue_hover { self.blue_color.1 } else { self.blue_color.0 }),
+                    Some(if blue_hover {
+                        self.blue_color.1
+                    } else {
+                        self.blue_color.0
+                    }),
                 );
                 renderer.set_shape_color(
                     jelly,
-                    Some(if jelly_hover { self.jelly_color.1 } else { self.jelly_color.0 }),
+                    Some(if jelly_hover {
+                        self.jelly_color.1
+                    } else {
+                        self.jelly_color.0
+                    }),
                 );
                 renderer.set_shape_color(
                     heart,
-                    Some(if heart_hover { self.heart_color.1 } else { self.heart_color.0 }),
+                    Some(if heart_hover {
+                        self.heart_color.1
+                    } else {
+                        self.heart_color.0
+                    }),
                 );
                 renderer.set_shape_color(
                     perspective,

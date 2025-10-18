@@ -172,21 +172,14 @@ impl Shape {
     ///     Stroke::new(1.5, Color::BLACK), // Black stroke with width 1.5
     /// );
     /// ```
-    pub fn rounded_rect(
-        rect: [(f32, f32); 2],
-        border_radii: BorderRadii,
-        stroke: Stroke,
-    ) -> Shape {
+    pub fn rounded_rect(rect: [(f32, f32); 2], border_radii: BorderRadii, stroke: Stroke) -> Shape {
         let mut path_builder = lyon::path::Path::builder();
         let box2d = lyon::math::Box2D::new(rect[0].into(), rect[1].into());
 
         path_builder.add_rounded_rectangle(&box2d, &border_radii.into(), Winding::Positive);
         let path = path_builder.build();
 
-        let path_shape = PathShape {
-            path,
-            stroke,
-        };
+        let path_shape = PathShape { path, stroke };
         Shape::Path(path_shape)
     }
 
@@ -461,7 +454,7 @@ impl PathShape {
     ) {
         let options = FillOptions::default();
 
-    let vertex_converter = VertexConverter::new(depth);
+        let vertex_converter = VertexConverter::new(depth);
 
         tessellator
             .tessellate_path(

@@ -162,12 +162,16 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 // Render to BGRA byte buffer
                 let needed_bytes = (window_size.width as usize) * (window_size.height as usize) * 4;
-                if self.bgra_bytes.len() < needed_bytes { self.bgra_bytes.resize(needed_bytes, 0); }
+                if self.bgra_bytes.len() < needed_bytes {
+                    self.bgra_bytes.resize(needed_bytes, 0);
+                }
                 renderer_guard.render_to_buffer(&mut self.bgra_bytes);
 
                 // CPU swizzle BGRA8 -> ARGB32 u32s for softbuffer
                 let needed_words = (window_size.width as usize) * (window_size.height as usize);
-                if self.argb_buffer.len() < needed_words { self.argb_buffer.resize(needed_words, 0); }
+                if self.argb_buffer.len() < needed_words {
+                    self.argb_buffer.resize(needed_words, 0);
+                }
                 for i in 0..needed_words {
                     let b = self.bgra_bytes[i * 4 + 0] as u32;
                     let g = self.bgra_bytes[i * 4 + 1] as u32;

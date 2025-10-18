@@ -106,7 +106,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 );
                 let rect_id = renderer.add_shape(textured_rect, Some(background_id), None);
                 renderer.set_shape_color(rect_id, Some(Color::rgb(255, 255, 255))); // white so texture shows un-tinted
-                // Previously this shape used an offset of (100, 100)
+                                                                                    // Previously this shape used an offset of (100, 100)
                 renderer.set_shape_transform(
                     rect_id,
                     grafo::TransformInstance::translation(100.0, 100.0),

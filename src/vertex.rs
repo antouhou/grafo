@@ -31,8 +31,8 @@ impl CustomVertex {
                 // Tex Coords (kept at a higher location to not clash with instance attrs)
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32x2,
-                    offset: (std::mem::size_of::<[f32; 2]>()
-                        + std::mem::size_of::<f32>()) as wgpu::BufferAddress,
+                    offset: (std::mem::size_of::<[f32; 2]>() + std::mem::size_of::<f32>())
+                        as wgpu::BufferAddress,
                     shader_location: 7,
                 },
             ],
@@ -49,20 +49,20 @@ pub struct InstanceColor {
 
 impl InstanceColor {
     pub fn white() -> Self {
-        Self { color: [1.0, 1.0, 1.0, 1.0] }
+        Self {
+            color: [1.0, 1.0, 1.0, 1.0],
+        }
     }
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<InstanceColor>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x4,
-                    offset: 0,
-                    shader_location: 1,
-                },
-            ],
+            attributes: &[wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x4,
+                offset: 0,
+                shader_location: 1,
+            }],
         }
     }
 }

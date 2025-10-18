@@ -319,7 +319,11 @@ pub fn create_pipeline(
             module: &shader,
             entry_point: Some("vs_main"),
             compilation_options: Default::default(),
-            buffers: &[CustomVertex::desc(), InstanceTransform::desc(), InstanceColor::desc()],
+            buffers: &[
+                CustomVertex::desc(),
+                InstanceTransform::desc(),
+                InstanceColor::desc(),
+            ],
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
@@ -510,9 +514,18 @@ pub fn create_argb_swizzle_bind_group(
         label: Some("argb_swizzle_bg"),
         layout: bgl,
         entries: &[
-            wgpu::BindGroupEntry { binding: 0, resource: input_bytes.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 1, resource: output_words.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 2, resource: params.as_entire_binding() },
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: input_bytes.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: output_words.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: params.as_entire_binding(),
+            },
         ],
     })
 }
@@ -522,7 +535,7 @@ pub fn create_argb_swizzle_bind_group(
 pub fn compute_padded_bytes_per_row(width: u32, bytes_per_pixel: u32) -> (u32, u32) {
     let unpadded = width * bytes_per_pixel;
     let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-    let padded = ((unpadded + align - 1) / align) * align;
+    let padded = unpadded.div_ceil(align) * align;
     (unpadded, padded)
 }
 
@@ -579,7 +592,11 @@ pub fn encode_copy_texture_to_buffer(
                 rows_per_image: Some(height),
             },
         },
-        wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
     );
 }
 
@@ -599,7 +616,12 @@ pub fn create_storage_input_buffer(
     label: Option<&str>,
     size: u64,
 ) -> wgpu::Buffer {
-    create_buffer(device, label, size, wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::STORAGE)
+    create_buffer(
+        device,
+        label,
+        size,
+        wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::STORAGE,
+    )
 }
 
 /// Create a storage output buffer (STORAGE | COPY_SRC), typically for compute outputs.
@@ -608,7 +630,12 @@ pub fn create_storage_output_buffer(
     label: Option<&str>,
     size: u64,
 ) -> wgpu::Buffer {
-    create_buffer(device, label, size, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC)
+    create_buffer(
+        device,
+        label,
+        size,
+        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+    )
 }
 
 /// Parameters for ARGB compute swizzle, shared between modules.

@@ -14,17 +14,17 @@ pub type MathRect = lyon::math::Box2D;
 
 use crate::pipeline::{
     compute_padded_bytes_per_row, create_and_depth_texture, create_argb_swizzle_bind_group,
-    create_argb_swizzle_pipeline, create_offscreen_color_texture,
-    create_pipeline, create_readback_buffer, create_render_pass, create_storage_input_buffer,
-    create_storage_output_buffer, encode_copy_texture_to_buffer, ArgbParams,
-    render_buffer_range_to_texture, PipelineType, Uniforms,
+    create_argb_swizzle_pipeline, create_offscreen_color_texture, create_pipeline,
+    create_readback_buffer, create_render_pass, create_storage_input_buffer,
+    create_storage_output_buffer, encode_copy_texture_to_buffer, render_buffer_range_to_texture,
+    ArgbParams, PipelineType, Uniforms,
 };
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
 use crate::vertex::{InstanceColor, InstanceTransform};
-use crate::Color;
 use crate::CachedShape;
+use crate::Color;
 use ahash::{HashMap, HashMapExt};
 use log::warn;
 use lyon::tessellation::FillTessellator;
@@ -703,8 +703,8 @@ impl<'a> Renderer<'a> {
     fn prepare_render(&mut self) {
         self.temp_vertices.clear();
         self.temp_indices.clear();
-    self.temp_instance_transforms.clear();
-    self.temp_instance_colors.clear();
+        self.temp_instance_transforms.clear();
+        self.temp_instance_colors.clear();
 
         let draw_tree_size = self.draw_tree.len();
 
@@ -869,13 +869,12 @@ impl<'a> Renderer<'a> {
         }
         if self.identity_instance_color_buffer.is_none() {
             let white = InstanceColor::white();
-            self.identity_instance_color_buffer = Some(
-                self.device.create_buffer_init(&BufferInitDescriptor {
+            self.identity_instance_color_buffer =
+                Some(self.device.create_buffer_init(&BufferInitDescriptor {
                     label: Some("Identity Instance Color Buffer"),
                     contents: bytemuck::cast_slice(&[white]),
                     usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-                }),
-            );
+                }));
         }
 
         // Create/update aggregated instance transform buffer
@@ -894,7 +893,11 @@ impl<'a> Renderer<'a> {
                         usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
                     }));
             } else {
-                self.queue.write_buffer(self.aggregated_instance_transform_buffer.as_ref().unwrap(), 0, bytemuck::cast_slice(&self.temp_instance_transforms));
+                self.queue.write_buffer(
+                    self.aggregated_instance_transform_buffer.as_ref().unwrap(),
+                    0,
+                    bytemuck::cast_slice(&self.temp_instance_transforms),
+                );
             }
         }
         // Create/update aggregated instance color buffer
@@ -913,7 +916,11 @@ impl<'a> Renderer<'a> {
                         usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
                     }));
             } else {
-                self.queue.write_buffer(self.aggregated_instance_color_buffer.as_ref().unwrap(), 0, bytemuck::cast_slice(&self.temp_instance_colors));
+                self.queue.write_buffer(
+                    self.aggregated_instance_color_buffer.as_ref().unwrap(),
+                    0,
+                    bytemuck::cast_slice(&self.temp_instance_colors),
+                );
             }
         }
     }
@@ -948,10 +955,7 @@ impl<'a> Renderer<'a> {
                 .identity_instance_transform_buffer
                 .as_ref()
                 .unwrap(),
-            identity_instance_color_buffer: self
-                .identity_instance_color_buffer
-                .as_ref()
-                .unwrap(),
+            identity_instance_color_buffer: self.identity_instance_color_buffer.as_ref().unwrap(),
             aggregated_instance_transform_buffer: self
                 .aggregated_instance_transform_buffer
                 .as_ref(),
@@ -1163,12 +1167,17 @@ impl<'a> Renderer<'a> {
         self.render_to_texture_view(&texture_view);
 
         // Compute row strides (wgpu requires 256-byte alignment)
-        let (unpadded_bytes_per_row, padded_bytes_per_row) =
-            compute_padded_bytes_per_row(width, 4);
+        let (unpadded_bytes_per_row, padded_bytes_per_row) = compute_padded_bytes_per_row(width, 4);
 
         // Create or reuse readback buffer to copy texture data into
         let buffer_size = (padded_bytes_per_row * height) as u64;
-        if size_changed || self.rtb_readback_buffer.as_ref().map(|b| b.size() < buffer_size).unwrap_or(true) {
+        if size_changed
+            || self
+                .rtb_readback_buffer
+                .as_ref()
+                .map(|b| b.size() < buffer_size)
+                .unwrap_or(true)
+        {
             self.rtb_readback_buffer = Some(create_readback_buffer(
                 &self.device,
                 Some("rtb_readback_buffer"),
@@ -1196,7 +1205,7 @@ impl<'a> Renderer<'a> {
         self.queue.submit(std::iter::once(encoder.finish()));
 
         // Map the buffer and read data
-    let buffer_slice = output_buffer.slice(..);
+        let buffer_slice = output_buffer.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             tx.send(result).unwrap();
@@ -1240,7 +1249,11 @@ impl<'a> Renderer<'a> {
         if out_pixels.len() < needed_len {
             // TODO: make this method to return a result
             // Safety: avoid panic; just do nothing if insufficient space
-            warn!("render_to_argb32: output slice too small: {} < {}", out_pixels.len(), needed_len);
+            warn!(
+                "render_to_argb32: output slice too small: {} < {}",
+                out_pixels.len(),
+                needed_len
+            );
             return;
         }
 
@@ -1269,7 +1282,10 @@ impl<'a> Renderer<'a> {
         // 2) Copy texture into a padded staging buffer (BGRA bytes)
         let (_, padded_bytes_per_row) = compute_padded_bytes_per_row(width, 4);
         let input_buffer_size = (padded_bytes_per_row as u64) * (height as u64);
-        if size_changed || self.argb_input_buffer.is_none() || self.argb_input_buffer_size < input_buffer_size {
+        if size_changed
+            || self.argb_input_buffer.is_none()
+            || self.argb_input_buffer_size < input_buffer_size
+        {
             self.argb_input_buffer = Some(create_storage_input_buffer(
                 &self.device,
                 Some("argb_input_padded_bytes"),
@@ -1296,7 +1312,10 @@ impl<'a> Renderer<'a> {
         // 3) Create an output buffer for ARGB32 u32 pixels
         let output_words = (width as u64) * (height as u64);
         let output_buffer_size = output_words * 4;
-        if size_changed || self.argb_output_storage_buffer.is_none() || self.argb_output_buffer_size < output_buffer_size {
+        if size_changed
+            || self.argb_output_storage_buffer.is_none()
+            || self.argb_output_buffer_size < output_buffer_size
+        {
             self.argb_output_storage_buffer = Some(create_storage_output_buffer(
                 &self.device,
                 Some("argb_output_u32_storage"),
@@ -1319,12 +1338,24 @@ impl<'a> Renderer<'a> {
         }
 
         // Params buffer (recreate if size changed due to padding)
-    let params = ArgbParams { width, height, padded_bpr: padded_bytes_per_row, _pad: 0 };
+        let params = ArgbParams {
+            width,
+            height,
+            padded_bpr: padded_bytes_per_row,
+            _pad: 0,
+        };
         let need_new_params = self.argb_params_buffer.is_none();
         if need_new_params {
-            self.argb_params_buffer = Some(crate::pipeline::create_argb_params_buffer(&self.device, &params));
+            self.argb_params_buffer = Some(crate::pipeline::create_argb_params_buffer(
+                &self.device,
+                &params,
+            ));
         } else {
-            self.queue.write_buffer(self.argb_params_buffer.as_ref().unwrap(), 0, bytemuck::bytes_of(&params));
+            self.queue.write_buffer(
+                self.argb_params_buffer.as_ref().unwrap(),
+                0,
+                bytemuck::bytes_of(&params),
+            );
         }
         // Recreate bind group if any binding target changed
         if size_changed || self.argb_swizzle_bind_group.is_none() || need_new_params {
@@ -1343,13 +1374,18 @@ impl<'a> Renderer<'a> {
         // 5) Dispatch compute to swizzle into ARGB32
         let mut cenc = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("argb_compute_encoder") });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("argb_compute_encoder"),
+            });
         {
-            let mut pass = cenc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("argb_swizzle_pass"), timestamp_writes: None });
+            let mut pass = cenc.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("argb_swizzle_pass"),
+                timestamp_writes: None,
+            });
             pass.set_pipeline(self.argb_cs_pipeline.as_ref().unwrap());
             pass.set_bind_group(0, self.argb_swizzle_bind_group.as_ref().unwrap(), &[]);
-            let wg_x = (width + 15) / 16;
-            let wg_y = (height + 15) / 16;
+            let wg_x = width.div_ceil(16);
+            let wg_y = height.div_ceil(16);
             pass.dispatch_workgroups(wg_x, wg_y, 1);
         }
         self.queue.submit(std::iter::once(cenc.finish()));
@@ -1357,7 +1393,9 @@ impl<'a> Renderer<'a> {
         // 6) Copy compute output to a mappable readback buffer and map
         let mut enc3 = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("argb_readback_copy_encoder") });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("argb_readback_copy_encoder"),
+            });
         enc3.copy_buffer_to_buffer(
             self.argb_output_storage_buffer.as_ref().unwrap(),
             0,
@@ -1369,7 +1407,9 @@ impl<'a> Renderer<'a> {
 
         let slice = self.argb_readback_buffer.as_ref().unwrap().slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |res| { let _ = tx.send(res); });
+        slice.map_async(wgpu::MapMode::Read, move |res| {
+            let _ = tx.send(res);
+        });
         let _ = self.device.poll(wgpu::MaintainBase::Wait);
         rx.recv().unwrap().unwrap();
 
@@ -1796,7 +1836,8 @@ fn handle_increment_pass<'rp>(
             if !matches!(currently_set_pipeline, Pipeline::StencilDecrement) {
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
                 // Bind identity instance buffers so shader inputs are valid
-                render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+                render_pass
+                    .set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
@@ -1838,7 +1879,8 @@ fn handle_increment_pass<'rp>(
                 let offset_t = instance_idx as u64 * stride_t;
                 render_pass.set_vertex_buffer(1, inst_t_buf.slice(offset_t..offset_t + stride_t));
             } else {
-                render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+                render_pass
+                    .set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
             }
             // Color slice
             if let Some(inst_c_buf) = buffers.aggregated_instance_color_buffer {
@@ -1887,7 +1929,8 @@ fn handle_decrement_pass<'rp>(
             if !matches!(currently_set_pipeline, Pipeline::StencilIncrement) {
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
                 // Bind identity instance buffers so shader inputs are valid
-                render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+                render_pass
+                    .set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
@@ -1909,7 +1952,8 @@ fn handle_decrement_pass<'rp>(
                 let offset_t = instance_idx as u64 * stride_t;
                 render_pass.set_vertex_buffer(1, inst_t_buf.slice(offset_t..offset_t + stride_t));
             } else {
-                render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+                render_pass
+                    .set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
             }
             // Color slice
             if let Some(inst_c_buf) = buffers.aggregated_instance_color_buffer {
