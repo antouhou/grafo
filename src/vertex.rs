@@ -6,7 +6,6 @@ use bytemuck::{Pod, Zeroable};
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct CustomVertex {
     pub(crate) position: [f32; 2],
-    pub(crate) color: [f32; 4], // RGBA color
     pub(crate) order: f32,
     pub(crate) tex_coords: [f32; 2],
 }
@@ -23,25 +22,47 @@ impl CustomVertex {
                     offset: 0,
                     shader_location: 0,
                 },
-                // Color
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x4,
-                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                },
                 // Render order (forwarded to position.z)
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32,
-                    offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
+                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
                     shader_location: 2,
                 },
                 // Tex Coords (kept at a higher location to not clash with instance attrs)
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32x2,
-                    offset: std::mem::size_of::<[f32; 7]>() as wgpu::BufferAddress,
+                    offset: (std::mem::size_of::<[f32; 2]>() + std::mem::size_of::<f32>())
+                        as wgpu::BufferAddress,
                     shader_location: 7,
                 },
             ],
+        }
+    }
+}
+
+/// Per-instance color payload
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct InstanceColor {
+    pub color: [f32; 4],
+}
+
+impl InstanceColor {
+    pub fn white() -> Self {
+        Self {
+            color: [1.0, 1.0, 1.0, 1.0],
+        }
+    }
+
+    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<InstanceColor>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x4,
+                offset: 0,
+                shader_location: 1,
+            }],
         }
     }
 }
@@ -224,36 +245,6 @@ impl InstanceTransform {
                     format: wgpu::VertexFormat::Float32x4,
                     offset: 48,
                     shader_location: 6,
-                },
-            ],
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub struct TexturedVertex {
-    pub(crate) position: [f32; 2],
-    pub(crate) tex_coords: [f32; 2],
-}
-
-impl TexturedVertex {
-    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<TexturedVertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                // Position
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x2,
-                    offset: 0,
-                    shader_location: 0,
-                },
-                // Tex Coords
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x2,
-                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
-                    shader_location: 1,
                 },
             ],
         }

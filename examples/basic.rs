@@ -37,10 +37,10 @@ impl<'a> ApplicationHandler for App<'a> {
         // Define a simple rectangle shape
         let rect = Shape::rect(
             [(100.0, 100.0), (300.0, 200.0)],
-            Color::rgb(0, 128, 255),        // Blue fill
-            Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+            Stroke::new(2.0, Color::BLACK),
         );
-        renderer.add_shape(rect, None, None);
+        let id = renderer.add_shape(rect, None, None);
+        renderer.set_shape_color(id, Some(Color::rgb(0, 128, 255)));
 
         self.window = Some(window);
         self.renderer = Some(renderer);
@@ -72,17 +72,17 @@ impl<'a> ApplicationHandler for App<'a> {
                 // Define a simple rectangle shape
                 let rect = Shape::rect(
                     [(100.0, 100.0), (300.0, 200.0)],
-                    Color::rgb(0, 128, 255),        // Blue fill
-                    Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+                    Stroke::new(2.0, Color::BLACK),
                 );
-                renderer.add_shape(rect, None, None);
+                let id = renderer.add_shape(rect, None, None);
+                renderer.set_shape_color(id, Some(Color::rgb(0, 128, 255)));
 
                 let rect = Shape::rect(
                     [(500.0, 100.0), (600.0, 200.0)],
-                    Color::rgb(0, 128, 0),          // Blue fill
-                    Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+                    Stroke::new(2.0, Color::BLACK),
                 );
-                renderer.add_shape(rect, None, None);
+                let id2 = renderer.add_shape(rect, None, None);
+                renderer.set_shape_color(id2, Some(Color::rgb(0, 128, 0)));
 
                 match renderer.render() {
                     Ok(_) => {

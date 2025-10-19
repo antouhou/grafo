@@ -5,7 +5,7 @@
 //! [![Build and test](https://github.com/antouhou/grafo/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/antouhou/grafo/actions)
 //!
 //! Grafo is a GPU-accelerated rendering library for Rust. It is a one-stop solution in case
-//! you need a quick and simple way to render shapes, images, and text in your application. It
+//! you need a quick and simple way to render shapes (with optional texture layers) in your application. It
 //! supports features such as masking, clipping, and font loading and rendering.
 //!
 //! The library is designed for flexibility and ease of use, making it suitable for a wide
@@ -14,9 +14,7 @@
 //! ## Features
 //!
 //! * Shape Rendering: Create and render complex vector shapes.
-//! * Image Rendering: Render images with support for clipping to shapes.
-//! * Text Rendering: Load fonts and render text with customizable layout, alignment, and styling using the
-//!   [glyphon](https://github.com/grovesNL/glyphon) crate.
+//! * Shape Texturing: Apply up to two texture layers per shape with hierarchical clipping.
 //! * Stencil Operations: Advanced stencil operations for clipping and masking.
 //!
 //! Grafo [available on crates.io](https://crates.io/crates/grafo), and
@@ -81,10 +79,11 @@
 //!         // Define a simple rectangle shape
 //!         let rect = Shape::rect(
 //!             [(0.0, 0.0), (200.0, 100.0)],
-//!             Color::rgb(0, 128, 255), // Blue fill
 //!             Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
 //!         );
 //!         let rect_id = renderer.add_shape(rect, None, None);
+//!         // Set per-instance fill color
+//!         renderer.set_shape_color(rect_id, Some(Color::rgb(0, 128, 255)));
 //!         renderer.set_shape_transform(rect_id, grafo::TransformInstance::identity());
 //!
 //!         self.window = Some(window);
@@ -132,19 +131,14 @@
 //! ## Examples
 //!
 //! For a detailed example showcasing advanced features like hierarchical clipping,
-//! image rendering, and text rendering, please refer to the
+//! multi-layer texturing, please refer to the
 //! [examples](https://github.com/antouhou/grafo/tree/main/examples) directory in the repository.
 
-pub use glyphon;
-pub use glyphon::fontdb;
-pub use glyphon::fontdb::Family as FontFamily;
-pub use glyphon::fontdb::Source as FontSource;
 pub use lyon;
 pub use wgpu;
 
 mod color;
 mod debug_tools;
-mod image_draw_data;
 mod pipeline;
 mod renderer;
 mod stroke;
@@ -153,7 +147,6 @@ mod vertex;
 
 mod cache;
 mod shape;
-mod text;
 mod texture_manager;
 
 pub use color::Color;
@@ -162,7 +155,6 @@ pub use renderer::Renderer;
 pub use renderer::TextureLayer;
 pub use shape::*;
 pub use stroke::Stroke;
-pub use text::*;
 pub use texture_manager::premultiply_rgba8_srgb_inplace;
 pub use texture_manager::TextureManager;
 pub use vertex::InstanceTransform as TransformInstance;

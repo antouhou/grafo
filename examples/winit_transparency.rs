@@ -69,19 +69,19 @@ impl<'a> ApplicationHandler for App<'a> {
                 // Create a simple rectangle to test rendering
                 let rect = Shape::rect(
                     [(100.0, 100.0), (300.0, 200.0)],
-                    Color::rgb(255, 100, 50),       // Orange fill
-                    Stroke::new(3.0, Color::BLACK), // Black stroke
+                    Stroke::new(3.0, Color::BLACK),
                 );
-                renderer.add_shape(rect, None, None);
+                let id = renderer.add_shape(rect, None, None);
+                renderer.set_shape_color(id, Some(Color::rgb(255, 100, 50)));
 
                 // Create a rounded rectangle to test different shapes
                 let rounded_rect = Shape::rounded_rect(
                     [(350.0, 250.0), (450.0, 350.0)],
-                    BorderRadii::new(50.0),    // Makes it circular
-                    Color::rgb(100, 200, 255), // Light blue fill
-                    Stroke::new(2.0, Color::rgb(0, 100, 200)), // Darker blue stroke
+                    BorderRadii::new(50.0),
+                    Stroke::new(2.0, Color::rgb(0, 100, 200)),
                 );
-                renderer.add_shape(rounded_rect, None, None);
+                let rid = renderer.add_shape(rounded_rect, None, None);
+                renderer.set_shape_color(rid, Some(Color::rgb(100, 200, 255)));
 
                 // Render the frame
                 match renderer.render() {

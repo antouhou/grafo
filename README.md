@@ -4,22 +4,19 @@
 [![Grafo documentation](https://docs.rs/grafo/badge.svg)](https://docs.rs/grafo)
 [![Build and test](https://github.com/antouhou/grafo/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/antouhou/grafo/actions)
 
-Grafo is a GPU-accelerated rendering library for Rust. It is a one-stop solution in case 
-you need a quick and simple way to render shapes, images, and text in your application. It 
-supports features such as masking, clipping, and font loading and rendering.
+Grafo is a GPU-accelerated rendering library for Rust. It’s a quick way to render shapes and images, with masking and hierarchical clipping built in.
 
 The library is designed for flexibility and ease of use, making it suitable for a wide 
 range of applications, from simple graphical interfaces to complex rendering engines.
 
 ## Features
 
-* Shape Rendering: Create and render complex vector shapes. 
-* Image Rendering: Render images with support for clipping to shapes. 
-* Text Rendering: Load fonts and render text with customizable layout, alignment, and styling using the 
-[glyphon](https://github.com/grovesNL/glyphon) crate. 
+* Shape Rendering: Create and render vector shapes (with optional texture layers).
+* (Text rendering was previously integrated; it has now been extracted into a separate crate - https://crates.io/crates/protextinator)
 * Stencil Operations: Advanced stencil operations for clipping and masking.
+* Per-instance data: Set transform and color per shape instance (no fill color stored on geometry).
 
-Grafo [available on crates.io](https://crates.io/crates/grafo), and
+Grafo is [available on crates.io](https://crates.io/crates/grafo), and
 [API Documentation is available on docs.rs](https://docs.rs/grafo/).
 
 ## Getting Started
@@ -28,128 +25,81 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-grafo = "0.1.0" 
-winit = "0.27"   # For window creation and event handling
-image = "0.24"   # For image processing
-env_logger = "0.10" # For logging
-log = "0.4"      # For logging
+grafo = "0.10"
+winit = "0.30"      # For window creation and event handling
+image = "0.25"      # For image decoding (textures)
+env_logger = "0.11" # For logging
+log = "0.4"         # For logging
 ```
 
 ### Basic Usage
 
-Below is a simple example demonstrating how to initialize the `Renderer`, add shapes and text, 
-and render a frame using `winit`. For a more comprehensive example, refer to the 
-[examples](https://github.com/antouhou/grafo/tree/main/examples) folder in the repository.
+Below is a minimal snippet showing how to create a shape, set per-instance color and transform, and render. For a complete runnable window using `winit` 0.30 (ApplicationHandler API), see `examples/basic.rs`.
 
 ```rust
-use futures::executor::block_on;
-use grafo::{BorderRadii, Shape};
-use grafo::{Color, Stroke};
-use std::sync::Arc;
-use winit::event::{Event, WindowEvent};
-use winit::event_loop::EventLoop;
-use winit::window::WindowBuilder;
+use grafo::{Shape, Color, Stroke};
 
-pub fn main() {
-    env_logger::init();
-    let event_loop = EventLoop::new().expect("to start an event loop");
-    let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+// Create a rectangle shape (no fill color on the shape itself)
+let rect = Shape::rect(
+    [(0.0, 0.0), (200.0, 100.0)],
+    Stroke::new(2.0, Color::BLACK),
+);
+let id = renderer.add_shape(rect, None, None);
 
-    let window_size = window.inner_size();
-    let scale_factor = window.scale_factor();
-    let physical_size = (window_size.width, window_size.height);
+// Set per-instance properties
+renderer.set_shape_color(id, Some(Color::rgb(0, 128, 255))); // Blue fill
+renderer.set_shape_transform(id, grafo::TransformInstance::translation(100.0, 100.0));
 
-    // Initialize the renderer
-    let mut renderer = block_on(grafo::Renderer::new(
-        window.clone(),
-        physical_size,
-        scale_factor,
-        true,
-        false,
-    ));
-
-    // Define a simple rectangle shape
-    let rect = Shape::rect(
-        [(0.0, 0.0), (200.0, 100.0)],
-        Color::rgb(0, 128, 255), // Blue fill
-        Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
-    );
-    let rect_id = renderer.add_shape(rect, None, None);
-    // Position using a transform instead of legacy offsets
-    renderer.set_shape_transform(rect_id, grafo::TransformInstance::translation(100.0, 100.0));
-
-    // Start the event loop
-    event_loop.run(move |event, event_loop_window_target| match event {
-        Event::WindowEvent {
-            ref event,
-            window_id,
-        } if window_id == window.id() => match event {
-            WindowEvent::CloseRequested => event_loop_window_target.exit(),
-            WindowEvent::Resized(physical_size) => {
-                let new_size = (physical_size.width, physical_size.height);
-                renderer.resize(new_size);
-                window.request_redraw();
-            }
-            WindowEvent::RedrawRequested => {
-                match renderer.render() {
-                    Ok(_) => {
-                        renderer.clear_draw_queue();
-                    }
-                    Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size()),
-                    Err(wgpu::SurfaceError::OutOfMemory) => event_loop_window_target.exit(),
-                    Err(e) => eprintln!("{:?}", e),
-                }
-            }
-            _ => {}
-        },
-        _ => {}
-    });
-}
+// Render one frame (typical winit loop would call this on RedrawRequested)
+renderer.render().unwrap();
+renderer.clear_draw_queue();
 ```
 
 ## Examples
 
-- `basic.rs` – draw simple shapes
-- `transforms.rs` – demonstrates enabling per-shape transform inputs (Stage 2 uses identity per-item; Stage 3 adds API usage)
+- `basic.rs` – draw simple shapes (winit 0.30 ApplicationHandler)
+- `transforms.rs` – demonstrates per-instance transform and color, perspective, and hit-testing
 
-For a detailed example showcasing advanced features like hierarchical clipping, 
-image rendering, and text rendering, please refer to the 
+For a detailed example showcasing advanced features like hierarchical clipping and
+multi-layer shape texturing, please refer to the 
 [examples](https://github.com/antouhou/grafo/tree/main/examples) directory in the repository.
 
 ### Multi-texturing (Background + Foreground)
 
-Shapes now support up to two texture layers that are composited with the shape fill using premultiplied alpha:
+Shapes support up to two texture layers that are composited with per-instance color using premultiplied alpha:
 
 1. Background layer (index 0 / `TextureLayer::Background`)
 2. Foreground layer (index 1 / `TextureLayer::Foreground`)
 
 Composition order (bottom to top):
 
-`final = foreground + (background + fill * (1 - background.a)) * (1 - foreground.a)`
+`final = foreground + (background + color * (1 - background.a)) * (1 - foreground.a)`
 
 API:
 
 ```rust
 use grafo::{Renderer, Shape, Color, Stroke, TextureLayer};
 
-// After loading/allocating textures via renderer.texture_manager()
+// After allocating textures via renderer.texture_manager()
 let id = renderer.add_shape(
-    Shape::rect([(0.0,0.0),(300.0,200.0)], Color::rgb(40,40,40), Stroke::new(1.0, Color::BLACK)),
+    Shape::rect([(0.0,0.0),(300.0,200.0)], Stroke::new(1.0, Color::BLACK)),
     None,
     None,
 );
+renderer.set_shape_color(id, Some(Color::rgb(40, 40, 40))); // base color under textures
 renderer.set_shape_texture_on(id, TextureLayer::Background, Some(bg_tex_id));
 renderer.set_shape_texture_on(id, TextureLayer::Foreground, Some(fg_tex_id));
 
-// Or legacy single-layer helper (maps to Background):
+// Single-layer helper (Background):
 renderer.set_shape_texture(id, Some(bg_tex_id));
+renderer.set_shape_color(id, Some(Color::WHITE)); // ensure texture colors are preserved
 ```
 
 See `examples/multi_texture.rs` for a runnable demo that generates procedural background & foreground textures.
 
 ### Positioning shapes
 
-You can use per-shape transforms to position shapes on the screen. Common helpers:
+Use per-shape transforms to position shapes. Common helpers:
 
 - Translate: `TransformInstance::translation(tx, ty)`
 - Scale: `TransformInstance::scale(sx, sy)`

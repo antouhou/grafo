@@ -98,59 +98,59 @@ impl<'a> ApplicationHandler for App<'a> {
                         (0.0, 0.0),
                         (window_size.width as f32, window_size.height as f32),
                     ],
-                    Color::rgb(255, 255, 200),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
+                let background_id = renderer.add_shape(background, None, None);
+                renderer.set_shape_color(background_id, Some(Color::rgb(255, 255, 200)));
 
                 let red = Shape::rounded_rect(
                     [(0.0, 0.0), (200.0, 200.0)],
                     BorderRadii::new(0.0),
-                    Color::rgb(255, 0, 0),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
+                let red_id = renderer.add_shape(red, Some(background_id), None);
+                renderer.set_shape_color(red_id, Some(Color::rgb(255, 0, 0)));
 
                 let green = Shape::rounded_rect(
                     [(0.0, 0.0), (200.0, 200.0)],
                     BorderRadii::new(0.0),
-                    Color::rgb(0, 255, 0),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
+                let green_id = renderer.add_shape(green, Some(red_id), None);
+                renderer.set_shape_color(green_id, Some(Color::rgb(0, 255, 0)));
 
                 let blue = Shape::rounded_rect(
                     [(0.0, 0.0), (200.0, 200.0)],
                     BorderRadii::new(10.0),
-                    Color::rgb(0, 0, 255),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
+                let blue_id = renderer.add_shape(blue, Some(green_id), None);
+                renderer.set_shape_color(blue_id, Some(Color::rgb(0, 0, 255)));
 
                 let yellow = Shape::rounded_rect(
                     [(0.0, 0.0), (150.0, 150.0)],
                     BorderRadii::new(0.0),
-                    Color::rgb(255, 255, 0),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
+                let yellow_id = renderer.add_shape(yellow, Some(green_id), None);
+                renderer.set_shape_color(yellow_id, Some(Color::rgb(255, 255, 0)));
 
                 let white = Shape::rounded_rect(
                     [(0.0, 0.0), (20.0, 20.0)],
                     BorderRadii::new(0.0),
-                    Color::rgb(255, 255, 255),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
+                let white_id = renderer.add_shape(white, Some(red_id), None);
+                renderer.set_shape_color(white_id, Some(Color::rgb(255, 255, 255)));
 
                 let shape_that_doesnt_fit = Shape::rounded_rect(
                     [(0.0, 0.0), (20.0, 20.0)],
                     BorderRadii::new(0.0),
-                    Color::rgb(255, 255, 255),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-
-                let background_id = renderer.add_shape(background, None, None);
-                let red_id = renderer.add_shape(red, Some(background_id), None);
-                let green_id = renderer.add_shape(green, Some(red_id), None);
-                let blue_id = renderer.add_shape(blue, Some(green_id), None);
-                let yellow_id = renderer.add_shape(yellow, Some(green_id), None);
-                let white_id = renderer.add_shape(white, Some(red_id), None);
                 let doesnt_fit_id = renderer.add_shape(shape_that_doesnt_fit, Some(blue_id), None);
+
+                // ids were created above
 
                 // Recreate previous offsets with transforms
                 renderer.set_shape_transform(
@@ -176,39 +176,42 @@ impl<'a> ApplicationHandler for App<'a> {
                         &self.rust_logo_png_bytes,
                     )
                     .unwrap();
-                renderer.add_texture_draw_to_queue(
-                    texture_id,
+                // Replace legacy image draws with textured shapes (rectangles) for demonstration
+                let img_rect1 = Shape::rect(
                     [
-                        (100.0, 100.0),
+                        (0.0, 0.0),
                         (
-                            100.0 + self.rust_logo_png_dimensions_f32.0,
-                            100.0 + self.rust_logo_png_dimensions_f32.1,
+                            self.rust_logo_png_dimensions_f32.0,
+                            self.rust_logo_png_dimensions_f32.1,
                         ),
                     ],
-                    Some(red_id),
+                    Stroke::new(0.0, Color::rgb(0, 0, 0)),
                 );
+                let img_rect2 = img_rect1.clone();
+                let img_rect3 = img_rect1.clone();
 
-                renderer.add_texture_draw_to_queue(
-                    texture_id,
-                    [
-                        (200.0, 200.0),
-                        (
-                            200.0 + self.rust_logo_png_dimensions_f32.0,
-                            200.0 + self.rust_logo_png_dimensions_f32.1,
-                        ),
-                    ],
-                    Some(background_id),
+                let img_rect1_id = renderer.add_shape(img_rect1, Some(red_id), None);
+                let img_rect2_id = renderer.add_shape(img_rect2, Some(background_id), None);
+                let img_rect3_id = renderer.add_shape(img_rect3, None, None);
+
+                renderer.set_shape_texture(img_rect1_id, Some(texture_id));
+                renderer.set_shape_texture(img_rect2_id, Some(texture_id));
+                renderer.set_shape_texture(img_rect3_id, Some(texture_id));
+                renderer.set_shape_color(img_rect1_id, Some(Color::rgb(255, 255, 255)));
+                renderer.set_shape_color(img_rect2_id, Some(Color::rgb(255, 255, 255)));
+                renderer.set_shape_color(img_rect3_id, Some(Color::rgb(255, 255, 255)));
+
+                renderer.set_shape_transform(
+                    img_rect1_id,
+                    grafo::TransformInstance::translation(100.0, 100.0),
                 );
-                renderer.add_texture_draw_to_queue(
-                    texture_id,
-                    [
-                        (400.0, 400.0),
-                        (
-                            400.0 + self.rust_logo_png_dimensions_f32.0,
-                            400.0 + self.rust_logo_png_dimensions_f32.0,
-                        ),
-                    ],
-                    None,
+                renderer.set_shape_transform(
+                    img_rect2_id,
+                    grafo::TransformInstance::translation(200.0, 200.0),
+                );
+                renderer.set_shape_transform(
+                    img_rect3_id,
+                    grafo::TransformInstance::translation(400.0, 400.0),
                 );
 
                 let timer = Instant::now();

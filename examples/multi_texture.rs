@@ -46,12 +46,12 @@ impl ApplicationHandler for App {
         let shape_id = renderer.add_shape(
             Shape::rect(
                 [(100.0, 100.0), (500.0, 400.0)],
-                Color::rgb(200, 200, 200),
                 Stroke::new(1.0, Color::BLACK),
             ),
             None,
             None,
         );
+        renderer.set_shape_color(shape_id, Some(Color::rgb(200, 200, 200)));
 
         // Allocate two textures (background checker, foreground circle mask for demo)
         let tex_mgr = renderer.texture_manager();
