@@ -9,6 +9,7 @@
 //! ```rust
 //! use grafo::Stroke;
 //! use grafo::{Shape, ShapeBuilder, BorderRadii};
+//! use grafo::Color;
 //!
 //! // Create a simple rectangle
 //! let rect = Shape::rect(
@@ -85,6 +86,7 @@ impl CachedShape {
 /// ```rust
 /// use grafo::Stroke;
 /// use grafo::{Shape, BorderRadii};
+/// use grafo::Color;
 ///
 /// // Create a simple rectangle
 /// let rect = Shape::rect(
@@ -140,7 +142,6 @@ impl Shape {
     ///
     /// let rect = Shape::rect(
     ///     [(0.0, 0.0), (100.0, 50.0)],
-    ///     Color::rgb(255, 0, 0), // Red fill
     ///     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
     /// );
     /// ```
@@ -168,7 +169,6 @@ impl Shape {
     /// let rounded_rect = Shape::rounded_rect(
     ///     [(0.0, 0.0), (100.0, 50.0)],
     ///     BorderRadii::new(10.0),
-    ///     Color::rgba(0, 255, 0, 128), // Semi-transparent green fill
     ///     Stroke::new(1.5, Color::BLACK), // Black stroke with width 1.5
     /// );
     /// ```
@@ -278,6 +278,7 @@ impl From<RectShape> for Shape {
 /// ```rust
 /// use grafo::RectShape;
 /// use grafo::Stroke;
+/// use grafo::Color;
 ///
 /// let rect_shape = RectShape::new(
 ///     [(0.0, 0.0), (100.0, 50.0)],
@@ -308,6 +309,7 @@ impl RectShape {
     /// ```rust
     /// use grafo::RectShape;
     /// use grafo::Stroke;
+    /// use grafo::Color;
     ///
     /// let rect_shape = RectShape::new(
     ///     [(0.0, 0.0), (100.0, 50.0)],
@@ -334,6 +336,7 @@ impl RectShape {
 /// ```rust
 /// use grafo::{Shape, PathShape};
 /// use grafo::Stroke;
+/// use grafo::Color;
 ///
 /// // Replace this with your own path
 /// let path = lyon::path::Path::builder().build();
@@ -601,7 +604,7 @@ impl CachedShapeDrawData {
 /// use grafo::ShapeBuilder;
 ///
 /// let custom_shape = ShapeBuilder::new()
-///     .fill(Color::rgb(0, 0, 255)) // Blue fill
+///     // Fill is set per-instance via the renderer (renderer.set_shape_color)
 ///     .stroke(Stroke::new(3.0, Color::BLACK)) // Black stroke with width 3.0
 ///     .begin((0.0, 0.0))
 ///     .line_to((50.0, 10.0))

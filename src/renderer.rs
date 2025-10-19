@@ -119,10 +119,11 @@ enum DrawCommand {
 ///         // Add a rectangle shape
 ///         let rect = Shape::rect(
 ///             [(0.0, 0.0), (200.0, 100.0)],
-///             Color::rgb(0, 128, 255), // Blue fill
 ///             Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
 ///         );
 ///         let rect_id = renderer.add_shape(rect, None, None);
+///         // Blue fill
+///         renderer.set_shape_color(rect_id, Some(Color::rgb(0, 128, 255)));
 ///         renderer.set_shape_transform(rect_id, grafo::TransformInstance::identity());
 ///
 ///         // Render the frame
@@ -643,12 +644,13 @@ impl<'a> Renderer<'a> {
     ///         let shape_id = renderer.add_shape(
     ///             Shape::rect(
     ///                 [(0.0, 100.0), (100.0, 100.0)],
-    ///                 Color::rgb(0, 128, 255), // Blue fill
     ///                 Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
     ///             ),
     ///             None,
     ///             None,
     ///         );
+    ///         // Blue fill
+    ///         renderer.set_shape_color(shape_id, Some(Color::rgb(0, 128, 255)));
     ///         renderer.set_shape_transform(shape_id, grafo::TransformInstance::identity());
     ///     }
     ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
@@ -1134,7 +1136,7 @@ impl<'a> Renderer<'a> {
     ///
     /// // Create a renderer without a window surface
     /// // Note: You'll need to adjust initialization for offscreen rendering
-    /// let mut buffer = Vec::new();
+    /// let mut buffer: Vec<u8> = Vec::new();
     /// // renderer.render_to_buffer(&mut buffer);
     /// // buffer now contains BGRA8 pixel data
     /// ```
