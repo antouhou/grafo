@@ -1869,6 +1869,12 @@ fn handle_increment_pass<'rp>(
                         render_pass.set_bind_group(1 + layer as u32, &*bg_arc, &[]);
                     }
                 }
+            } else {
+                render_pass.set_bind_group(
+                    1 + layer as u32,
+                    &*pipelines.default_shape_texture_bgs[layer],
+                    &[],
+                );
             }
         }
 
