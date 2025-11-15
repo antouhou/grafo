@@ -74,6 +74,9 @@ pub struct InstanceTransform {
     pub col1: [f32; 4],
     pub col2: [f32; 4],
     pub col3: [f32; 4],
+    pub perspective_distance: f32,
+    pub offset: [f32; 2],
+    pub _padding: f32,
 }
 
 impl InstanceTransform {
@@ -83,6 +86,9 @@ impl InstanceTransform {
             col1: [0.0, 1.0, 0.0, 0.0],
             col2: [0.0, 0.0, 1.0, 0.0],
             col3: [0.0, 0.0, 0.0, 1.0],
+            perspective_distance: 0.0,
+            offset: [0.0, 0.0],
+            _padding: 0.0,
         }
     }
 
@@ -93,6 +99,9 @@ impl InstanceTransform {
             col1: [0.0, 1.0, 0.0, 0.0],
             col2: [0.0, 0.0, 1.0, 0.0],
             col3: [tx, ty, 0.0, 1.0],
+            perspective_distance: 0.0,
+            offset: [0.0, 0.0],
+            _padding: 0.0,
         }
     }
 
@@ -103,6 +112,9 @@ impl InstanceTransform {
             col1: [0.0, 1.0, 0.0, 0.0],
             col2: [0.0, 0.0, 1.0, 0.0],
             col3: [tx, ty, tz, 1.0],
+            perspective_distance: 0.0,
+            offset: [0.0, 0.0],
+            _padding: 0.0,
         }
     }
 
@@ -113,6 +125,9 @@ impl InstanceTransform {
             col1: [0.0, sy, 0.0, 0.0],
             col2: [0.0, 0.0, 1.0, 0.0],
             col3: [0.0, 0.0, 0.0, 1.0],
+            perspective_distance: 0.0,
+            offset: [0.0, 0.0],
+            _padding: 0.0,
         }
     }
 
@@ -123,6 +138,9 @@ impl InstanceTransform {
             col1: [0.0, sy, 0.0, 0.0],
             col2: [0.0, 0.0, sz, 0.0],
             col3: [0.0, 0.0, 0.0, 1.0],
+            perspective_distance: 0.0,
+            offset: [0.0, 0.0],
+            _padding: 0.0,
         }
     }
 
@@ -136,6 +154,9 @@ impl InstanceTransform {
             col1: [-s, c, 0.0, 0.0],
             col2: [0.0, 0.0, 1.0, 0.0],
             col3: [0.0, 0.0, 0.0, 1.0],
+            perspective_distance: 0.0,
+            offset: [0.0, 0.0],
+            _padding: 0.0,
         }
     }
 
@@ -155,6 +176,9 @@ impl InstanceTransform {
             col1: [c, d, 0.0, 0.0],
             col2: [0.0, 0.0, 1.0, 0.0],
             col3: [tx, ty, 0.0, 1.0],
+            perspective_distance: 0.0,
+            offset: [0.0, 0.0],
+            _padding: 0.0,
         }
     }
 
@@ -202,6 +226,9 @@ impl InstanceTransform {
             col1: c1,
             col2: c2,
             col3: c3,
+            perspective_distance: self.perspective_distance,
+            offset: self.offset,
+            _padding: 0.0,
         }
     }
 
@@ -217,6 +244,9 @@ impl InstanceTransform {
             col1: cols[1],
             col2: cols[2],
             col3: cols[3],
+            perspective_distance: 0.0,
+            offset: [0.0, 0.0],
+            _padding: 0.0,
         }
     }
 
@@ -245,6 +275,18 @@ impl InstanceTransform {
                     format: wgpu::VertexFormat::Float32x4,
                     offset: 48,
                     shader_location: 6,
+                },
+                // perspective_distance
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 64,
+                    shader_location: 8,
+                },
+                // offset (vec2)
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: 68,
+                    shader_location: 9,
                 },
             ],
         }

@@ -1504,6 +1504,9 @@ impl<'a> Renderer<'a> {
             col1: cols[1],
             col2: cols[2],
             col3: cols[3],
+            perspective_distance: 0.0,
+            offset: [0.0, 0.0],
+            _padding: 0.0,
         };
         if let Some(draw_command) = self.draw_tree.get_mut(node_id) {
             match draw_command {
