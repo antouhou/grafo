@@ -10,17 +10,12 @@ use winit::window::{Window, WindowId};
 // Helper to convert euclid Transform3D to grafo's GPU instance layout
 fn transform_instance_from_euclid(
     m: Transform3D<f32>,
-    perspective_distance: f32,
-    offset: [f32; 2],
 ) -> grafo::TransformInstance {
     grafo::TransformInstance {
         col0: [m.m11, m.m21, m.m31, m.m14],
         col1: [m.m12, m.m22, m.m32, m.m24],
         col2: [m.m13, m.m23, m.m33, m.m34],
         col3: [m.m41, m.m42, m.m43, m.m44],
-        perspective_distance,
-        offset,
-        _padding: 0.0,
     }
 }
 
@@ -93,13 +88,17 @@ impl<'a> ApplicationHandler for App<'a> {
         let transform = center_shape.then(&rotate_x);
 
         // Set perspective distance to 500 (matching CSS perspective: 500px)
-        // Use offset to position the shape at screen center after perspective is applied
+        // Use viewport position to position the shape at screen center after perspective is applied
         let perspective_distance = 500.0;
         let (width, height) = renderer.size();
-        let offset = [width as f32 / 2.0, height as f32 / 2.0];
+        let viewport_position = [width as f32 / 2.0, height as f32 / 2.0];
 
-        let instance = transform_instance_from_euclid(transform, perspective_distance, offset);
+        let instance = transform_instance_from_euclid(transform);
         renderer.set_shape_transform(rect_id, instance);
+        
+        // Set the perspective and viewport position using the new API
+        renderer.set_shape_camera_perspective(rect_id, perspective_distance);
+        renderer.set_shape_viewport_position(rect_id, viewport_position[0], viewport_position[1]);
 
         self.rect_id = Some(rect_id);
         self.renderer = Some(renderer);
@@ -133,10 +132,14 @@ impl<'a> ApplicationHandler for App<'a> {
                     
                     let perspective_distance = 500.0;
                     let (width, height) = renderer.size();
-                    let offset = [width as f32 / 2.0, height as f32 / 2.0];
+                    let viewport_position = [width as f32 / 2.0, height as f32 / 2.0];
                     
-                    let instance = transform_instance_from_euclid(transform, perspective_distance, offset);
+                    let instance = transform_instance_from_euclid(transform);
                     renderer.set_shape_transform(rect_id, instance);
+                    
+                    // Set the perspective and viewport position using the new API
+                    renderer.set_shape_camera_perspective(rect_id, perspective_distance);
+                    renderer.set_shape_viewport_position(rect_id, viewport_position[0], viewport_position[1]);
                     
                     if let Some(window) = &self.window {
                         window.request_redraw();

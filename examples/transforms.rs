@@ -23,9 +23,6 @@ fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstan
         col1: [m.m12, m.m22, m.m32, m.m24],
         col2: [m.m13, m.m23, m.m33, m.m34],
         col3: [m.m41, m.m42, m.m43, m.m44],
-        perspective_distance: 0.0,
-        offset: [0.0, 0.0],
-        _padding: 0.0,
     }
 }
 

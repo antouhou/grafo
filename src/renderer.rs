@@ -22,7 +22,7 @@ use crate::pipeline::{
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
-use crate::vertex::{InstanceColor, InstanceTransform};
+use crate::vertex::{InstanceColor, InstanceTransform, InstanceRenderParams};
 use crate::CachedShape;
 use crate::Color;
 use ahash::{HashMap, HashMapExt};
@@ -198,6 +198,8 @@ pub struct Renderer<'a> {
     temp_instance_transforms: Vec<InstanceTransform>,
     /// Per-frame instance colors for shapes
     temp_instance_colors: Vec<InstanceColor>,
+    /// Per-frame instance render params for shapes
+    temp_instance_render_params: Vec<InstanceRenderParams>,
 
     /// Reusable aggregated vertex buffer
     aggregated_vertex_buffer: Option<wgpu::Buffer>,
@@ -207,11 +209,15 @@ pub struct Renderer<'a> {
     aggregated_instance_transform_buffer: Option<wgpu::Buffer>,
     /// Per-frame instance color GPU buffer
     aggregated_instance_color_buffer: Option<wgpu::Buffer>,
+    /// Per-frame instance render params GPU buffer
+    aggregated_instance_render_params_buffer: Option<wgpu::Buffer>,
 
     /// Identity transform instance buffer
     identity_instance_transform_buffer: Option<wgpu::Buffer>,
     /// Identity color instance buffer (white)
     identity_instance_color_buffer: Option<wgpu::Buffer>,
+    /// Identity render params instance buffer (default values)
+    identity_instance_render_params_buffer: Option<wgpu::Buffer>,
 
     shape_cache: HashMap<u64, CachedShape>,
 
@@ -446,12 +452,15 @@ impl<'a> Renderer<'a> {
             temp_indices: Vec::new(),
             temp_instance_transforms: Vec::new(),
             temp_instance_colors: Vec::new(),
+            temp_instance_render_params: Vec::new(),
             aggregated_vertex_buffer: None,
             aggregated_index_buffer: None,
             aggregated_instance_transform_buffer: None,
             aggregated_instance_color_buffer: None,
+            aggregated_instance_render_params_buffer: None,
             identity_instance_transform_buffer: None,
             identity_instance_color_buffer: None,
+            identity_instance_render_params_buffer: None,
 
             shape_cache: HashMap::new(),
 
@@ -707,6 +716,7 @@ impl<'a> Renderer<'a> {
         self.temp_indices.clear();
         self.temp_instance_transforms.clear();
         self.temp_instance_colors.clear();
+        self.temp_instance_render_params.clear();
 
         let draw_tree_size = self.draw_tree.len();
 
@@ -741,7 +751,7 @@ impl<'a> Renderer<'a> {
 
                     shape.index_buffer_range = Some((index_start, index_count));
 
-                    // Collect per-instance data (transform + fill color or override)
+                    // Collect per-instance data (transform + fill color or override + render params)
                     let instance_idx = self.temp_instance_transforms.len();
                     let transform = shape
                         .transform()
@@ -749,8 +759,12 @@ impl<'a> Renderer<'a> {
                     let color = shape
                         .instance_color_override()
                         .unwrap_or([1.0, 1.0, 1.0, 1.0]);
+                    let render_params = shape
+                        .render_params()
+                        .unwrap_or_default();
                     self.temp_instance_transforms.push(transform);
                     self.temp_instance_colors.push(InstanceColor { color });
+                    self.temp_instance_render_params.push(render_params);
                     *shape.instance_index_mut() = Some(instance_idx);
                 }
                 DrawCommand::CachedShape(cached_shape_data) => {
@@ -786,7 +800,7 @@ impl<'a> Renderer<'a> {
 
                         cached_shape_data.index_buffer_range = Some((index_start, index_count));
 
-                        // Instance for cached shape (transform + default or override color)
+                        // Instance for cached shape (transform + default or override color + render params)
                         let instance_idx = self.temp_instance_transforms.len();
                         let transform = cached_shape_data
                             .transform()
@@ -794,8 +808,12 @@ impl<'a> Renderer<'a> {
                         let color = cached_shape_data
                             .instance_color_override()
                             .unwrap_or([1.0, 1.0, 1.0, 1.0]);
+                        let render_params = cached_shape_data
+                            .render_params()
+                            .unwrap_or_default();
                         self.temp_instance_transforms.push(transform);
                         self.temp_instance_colors.push(InstanceColor { color });
+                        self.temp_instance_render_params.push(render_params);
                         *cached_shape_data.instance_index_mut() = Some(instance_idx);
                     } else {
                         println!("Warning: Cached shape not found in cache");
@@ -878,6 +896,15 @@ impl<'a> Renderer<'a> {
                     usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
                 }));
         }
+        if self.identity_instance_render_params_buffer.is_none() {
+            let default_params = InstanceRenderParams::default();
+            self.identity_instance_render_params_buffer =
+                Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Identity Instance Render Params Buffer"),
+                    contents: bytemuck::cast_slice(&[default_params]),
+                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                }));
+        }
 
         // Create/update aggregated instance transform buffer
         if !self.temp_instance_transforms.is_empty() {
@@ -925,6 +952,30 @@ impl<'a> Renderer<'a> {
                 );
             }
         }
+        
+        // Create/update aggregated instance render params buffer
+        if !self.temp_instance_render_params.is_empty() {
+            let required_instance_size = std::mem::size_of_val(&self.temp_instance_render_params[..]);
+            let needs_realloc = self
+                .aggregated_instance_render_params_buffer
+                .as_ref()
+                .map(|buffer| buffer.size() < required_instance_size as u64)
+                .unwrap_or(true);
+            if needs_realloc {
+                self.aggregated_instance_render_params_buffer =
+                    Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                        label: Some("Aggregated Instance Render Params Buffer"),
+                        contents: bytemuck::cast_slice(&self.temp_instance_render_params),
+                        usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                    }));
+            } else {
+                self.queue.write_buffer(
+                    self.aggregated_instance_render_params_buffer.as_ref().unwrap(),
+                    0,
+                    bytemuck::cast_slice(&self.temp_instance_render_params),
+                );
+            }
+        }
     }
 
     /// Core rendering logic that renders to a texture view.
@@ -958,10 +1009,17 @@ impl<'a> Renderer<'a> {
                 .as_ref()
                 .unwrap(),
             identity_instance_color_buffer: self.identity_instance_color_buffer.as_ref().unwrap(),
+            identity_instance_render_params_buffer: self
+                .identity_instance_render_params_buffer
+                .as_ref()
+                .unwrap(),
             aggregated_instance_transform_buffer: self
                 .aggregated_instance_transform_buffer
                 .as_ref(),
             aggregated_instance_color_buffer: self.aggregated_instance_color_buffer.as_ref(),
+            aggregated_instance_render_params_buffer: self
+                .aggregated_instance_render_params_buffer
+                .as_ref(),
         };
 
         {
@@ -1504,9 +1562,6 @@ impl<'a> Renderer<'a> {
             col1: cols[1],
             col2: cols[2],
             col3: cols[3],
-            perspective_distance: 0.0,
-            offset: [0.0, 0.0],
-            _padding: 0.0,
         };
         if let Some(draw_command) = self.draw_tree.get_mut(node_id) {
             match draw_command {
@@ -1569,6 +1624,57 @@ impl<'a> Renderer<'a> {
             match draw_command {
                 DrawCommand::Shape(shape) => shape.set_instance_color_override(color_norm),
                 DrawCommand::CachedShape(cached) => cached.set_instance_color_override(color_norm),
+            }
+        }
+    }
+
+    /// Sets the camera perspective distance for a shape. Smaller values create stronger perspective effect.
+    /// Pass 0.0 to disable perspective.
+    pub fn set_shape_camera_perspective(&mut self, node_id: usize, distance: f32) {
+        if let Some(draw_command) = self.draw_tree.get_mut(node_id) {
+            let current_params = match draw_command {
+                DrawCommand::Shape(shape) => shape.render_params().unwrap_or_default(),
+                DrawCommand::CachedShape(cached) => cached.render_params().unwrap_or_default(),
+            };
+            
+            let new_params = InstanceRenderParams {
+                camera_perspective: distance,
+                ..current_params
+            };
+            
+            match draw_command {
+                DrawCommand::Shape(shape) => shape.set_render_params(new_params),
+                DrawCommand::CachedShape(cached) => cached.set_render_params(new_params),
+            }
+        }
+    }
+
+    /// Sets the viewport position offset for a shape in pixel space.
+    pub fn set_shape_viewport_position(&mut self, node_id: usize, x: f32, y: f32) {
+        if let Some(draw_command) = self.draw_tree.get_mut(node_id) {
+            let current_params = match draw_command {
+                DrawCommand::Shape(shape) => shape.render_params().unwrap_or_default(),
+                DrawCommand::CachedShape(cached) => cached.render_params().unwrap_or_default(),
+            };
+            
+            let new_params = InstanceRenderParams {
+                viewport_position: [x, y],
+                ..current_params
+            };
+            
+            match draw_command {
+                DrawCommand::Shape(shape) => shape.set_render_params(new_params),
+                DrawCommand::CachedShape(cached) => cached.set_render_params(new_params),
+            }
+        }
+    }
+
+    /// Sets both camera perspective and viewport position for a shape.
+    pub fn set_shape_render_params(&mut self, node_id: usize, params: InstanceRenderParams) {
+        if let Some(draw_command) = self.draw_tree.get_mut(node_id) {
+            match draw_command {
+                DrawCommand::Shape(shape) => shape.set_render_params(params),
+                DrawCommand::CachedShape(cached) => cached.set_render_params(params),
             }
         }
     }
@@ -1800,8 +1906,10 @@ struct Buffers<'a> {
     aggregated_index_buffer: &'a wgpu::Buffer,
     identity_instance_transform_buffer: &'a wgpu::Buffer,
     identity_instance_color_buffer: &'a wgpu::Buffer,
+    identity_instance_render_params_buffer: &'a wgpu::Buffer,
     aggregated_instance_transform_buffer: Option<&'a wgpu::Buffer>,
     aggregated_instance_color_buffer: Option<&'a wgpu::Buffer>,
+    aggregated_instance_render_params_buffer: Option<&'a wgpu::Buffer>,
 }
 
 struct Pipelines<'a> {
@@ -1844,6 +1952,7 @@ fn handle_increment_pass<'rp>(
                 render_pass
                     .set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+                render_pass.set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
@@ -1901,9 +2010,18 @@ fn handle_increment_pass<'rp>(
             } else {
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
             }
+            // Render params slice
+            if let Some(inst_r_buf) = buffers.aggregated_instance_render_params_buffer {
+                let stride_r = std::mem::size_of::<InstanceRenderParams>() as u64;
+                let offset_r = instance_idx as u64 * stride_r;
+                render_pass.set_vertex_buffer(3, inst_r_buf.slice(offset_r..offset_r + stride_r));
+            } else {
+                render_pass.set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
+            }
         } else {
             render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
             render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+            render_pass.set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
         }
         render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
 
@@ -1943,6 +2061,7 @@ fn handle_decrement_pass<'rp>(
                 render_pass
                     .set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+                render_pass.set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
@@ -1974,9 +2093,18 @@ fn handle_decrement_pass<'rp>(
             } else {
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
             }
+            // Render params slice
+            if let Some(inst_r_buf) = buffers.aggregated_instance_render_params_buffer {
+                let stride_r = std::mem::size_of::<InstanceRenderParams>() as u64;
+                let offset_r = instance_idx as u64 * stride_r;
+                render_pass.set_vertex_buffer(3, inst_r_buf.slice(offset_r..offset_r + stride_r));
+            } else {
+                render_pass.set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
+            }
         } else {
             render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
             render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+            render_pass.set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
         }
         render_buffer_range_to_texture(index_range, render_pass, this_shape_stencil);
 

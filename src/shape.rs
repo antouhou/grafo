@@ -35,7 +35,7 @@
 //! ```
 
 use crate::util::PoolManager;
-use crate::vertex::{CustomVertex, InstanceTransform};
+use crate::vertex::{CustomVertex, InstanceTransform, InstanceRenderParams};
 use crate::{Color, Stroke};
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, VertexBuffers,
@@ -521,6 +521,8 @@ pub(crate) struct ShapeDrawData {
     pub(crate) instance_index: Option<usize>,
     /// Optional per-shape transform applied in clip-space (post-normalization)
     pub(crate) transform: Option<InstanceTransform>,
+    /// Optional per-shape rendering parameters (camera perspective, viewport position)
+    pub(crate) render_params: Option<InstanceRenderParams>,
     /// Optional texture ids associated with this shape for multi-texturing layers.
     /// Layer 0: background/base
     /// Layer 1: foreground/overlay (e.g. text or decals) blended on top
@@ -541,6 +543,7 @@ impl ShapeDrawData {
             stencil_ref: None,
             instance_index: None,
             transform: None,
+            render_params: None,
             texture_ids: [None, None],
             color_override: None,
         }
@@ -570,6 +573,8 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) instance_index: Option<usize>,
     /// Optional per-shape transform applied in clip-space (post-normalization)
     pub(crate) transform: Option<InstanceTransform>,
+    /// Optional per-shape rendering parameters (camera perspective, viewport position)
+    pub(crate) render_params: Option<InstanceRenderParams>,
     /// Optional texture ids associated with this cached shape
     pub(crate) texture_ids: [Option<u64>; 2],
     /// Optional per-instance color override (normalized [0,1]). If None, use cached shape default.
@@ -585,6 +590,7 @@ impl CachedShapeDrawData {
             stencil_ref: None,
             instance_index: None,
             transform: None,
+            render_params: None,
             texture_ids: [None, None],
             color_override: None,
         }
@@ -918,6 +924,8 @@ pub(crate) trait DrawShapeCommand {
     fn instance_index(&self) -> Option<usize>;
     fn transform(&self) -> Option<InstanceTransform>;
     fn set_transform(&mut self, t: InstanceTransform);
+    fn render_params(&self) -> Option<InstanceRenderParams>;
+    fn set_render_params(&mut self, params: InstanceRenderParams);
     fn texture_id(&self, layer: usize) -> Option<u64>;
     fn set_texture_id(&mut self, layer: usize, id: Option<u64>);
     fn instance_color_override(&self) -> Option<[f32; 4]>;
@@ -958,6 +966,16 @@ impl DrawShapeCommand for ShapeDrawData {
     #[inline]
     fn set_transform(&mut self, t: InstanceTransform) {
         self.transform = Some(t);
+    }
+
+    #[inline]
+    fn render_params(&self) -> Option<InstanceRenderParams> {
+        self.render_params
+    }
+
+    #[inline]
+    fn set_render_params(&mut self, params: InstanceRenderParams) {
+        self.render_params = Some(params);
     }
 
     #[inline]
@@ -1017,6 +1035,16 @@ impl DrawShapeCommand for CachedShapeDrawData {
     #[inline]
     fn set_transform(&mut self, t: InstanceTransform) {
         self.transform = Some(t);
+    }
+
+    #[inline]
+    fn render_params(&self) -> Option<InstanceRenderParams> {
+        self.render_params
+    }
+
+    #[inline]
+    fn set_render_params(&mut self, params: InstanceRenderParams) {
+        self.render_params = Some(params);
     }
 
     #[inline]

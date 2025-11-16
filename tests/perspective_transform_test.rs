@@ -1,8 +1,8 @@
 use std::f32::consts::PI;
 use euclid::{Transform3D, Angle};
-use grafo::TransformInstance;
+use grafo::{TransformInstance, InstanceRenderParams};
 
-/// Converts euclid's Transform3D to grafo's TransformInstance format.
+/// Converts euclid's Transform3D to grafo's InstanceTransform format.
 /// Euclid stores translation in the last ROW (m41, m42, m43) with column-major notation.
 /// Our WGSL uses column-major matrices multiplied by column vectors: model * vec4(x, y, z, 1).
 /// Therefore, translation must be in the LAST COLUMN (col3.xyz). Map as follows:
@@ -17,9 +17,6 @@ fn transform_instance_from_euclid(m: Transform3D<f32, (), ()>) -> TransformInsta
         col1: [m.m12, m.m22, m.m32, m.m24],
         col2: [m.m13, m.m23, m.m33, m.m34],
         col3: [m.m41, m.m42, m.m43, m.m44],
-        perspective_distance: 0.0,
-        offset: [0.0, 0.0],
-        _padding: 0.0,
     }
 }
 
@@ -102,8 +99,7 @@ fn apply_transform_with_perspective(
 /// # Arguments
 /// * `position` - The input position in pixel space (x, y)
 /// * `transform` - The per-instance transformation matrix (rotation, scale, etc.)
-/// * `perspective_distance` - Perspective distance (0.0 means no perspective)
-/// * `offset` - Optional 2D offset applied after all transforms
+/// * `render_params` - The render parameters including perspective_distance and viewport_position
 /// * `canvas_size` - The canvas size in pixels [width, height]
 ///
 /// # Returns
@@ -111,17 +107,16 @@ fn apply_transform_with_perspective(
 fn shader_vertex_transform(
     position: [f32; 2],
     transform: &TransformInstance,
-    perspective_distance: f32,
-    offset: Option<[f32; 2]>,
+    render_params: &InstanceRenderParams,
     canvas_size: [f32; 2],
 ) -> [f32; 2] {
     // Apply the per-instance transform in pixel space first
     let p = mul_vec4(transform, [position[0], position[1], 0.0, 1.0]);
     
     // Apply perspective if specified (acting on the z-coordinate from transform)
-    let w = if perspective_distance > 0.0 {
+    let w = if render_params.camera_perspective > 0.0 {
         // CSS-style perspective: w' = 1 + z/d
-        1.0 + p[2] / perspective_distance
+        1.0 + p[2] / render_params.camera_perspective
     } else {
         // No perspective, use w from transform
         p[3]
@@ -132,11 +127,9 @@ fn shader_vertex_transform(
     let mut px = p[0] * invw; // pixel-space x after perspective
     let mut py = p[1] * invw; // pixel-space y after perspective
     
-    // Apply optional offset in pixel space
-    if let Some([ox, oy]) = offset {
-        px += ox;
-        py += oy;
-    }
+    // Apply viewport position in pixel space
+    px += render_params.viewport_position[0];
+    py += render_params.viewport_position[1];
     
     // Then convert to NDC (Normalized Device Coordinates)
     // NDC is a cube with corners (-1, -1, -1) and (1, 1, 1).
@@ -379,10 +372,11 @@ mod tests {
         
         // Identity transform
         let identity = TransformInstance::identity();
+        let no_effects = InstanceRenderParams::default();
         
         // Test center of canvas should map to (0, 0) in NDC
         let center = [400.0, 300.0];
-        let ndc = shader_vertex_transform(center, &identity, 0.0, None, canvas_size);
+        let ndc = shader_vertex_transform(center, &identity, &no_effects, canvas_size);
         
         let epsilon = 0.001;
         assert!(
@@ -393,7 +387,7 @@ mod tests {
         
         // Test top-left corner should map to (-1, 1) in NDC
         let top_left = [0.0, 0.0];
-        let ndc_tl = shader_vertex_transform(top_left, &identity, 0.0, None, canvas_size);
+        let ndc_tl = shader_vertex_transform(top_left, &identity, &no_effects, canvas_size);
         assert!(
             (ndc_tl[0] + 1.0).abs() < epsilon && (ndc_tl[1] - 1.0).abs() < epsilon,
             "Top-left should map to NDC (-1, 1), got ({}, {})",
@@ -402,7 +396,7 @@ mod tests {
         
         // Test bottom-right corner should map to (1, -1) in NDC
         let bottom_right = [800.0, 600.0];
-        let ndc_br = shader_vertex_transform(bottom_right, &identity, 0.0, None, canvas_size);
+        let ndc_br = shader_vertex_transform(bottom_right, &identity, &no_effects, canvas_size);
         assert!(
             (ndc_br[0] - 1.0).abs() < epsilon && (ndc_br[1] + 1.0).abs() < epsilon,
             "Bottom-right should map to NDC (1, -1), got ({}, {})",
@@ -417,26 +411,30 @@ mod tests {
 
     #[test]
     fn test_shader_vertex_transform_with_offset() {
-        // Test that offset is applied in pixel space before NDC conversion
+        // Test that viewport_position is applied in pixel space before NDC conversion
         let canvas_size = [800.0, 600.0];
         let identity = TransformInstance::identity();
         
-        // Start at origin, apply 400px right and 300px down offset
+        // Start at origin, apply 400px right and 300px down viewport position
         let position = [0.0, 0.0];
-        let offset = Some([400.0, 300.0]);
+        let render_params = InstanceRenderParams {
+            camera_perspective: 0.0,
+            viewport_position: [400.0, 300.0],
+            _padding: 0.0,
+        };
         
         // Should end up at canvas center, which is NDC (0, 0)
-        let ndc = shader_vertex_transform(position, &identity, 0.0, offset, canvas_size);
+        let ndc = shader_vertex_transform(position, &identity, &render_params, canvas_size);
         
         let epsilon = 0.001;
         assert!(
             ndc[0].abs() < epsilon && ndc[1].abs() < epsilon,
-            "Origin + offset (400, 300) should map to NDC (0, 0), got ({}, {})",
+            "Origin + viewport_position (400, 300) should map to NDC (0, 0), got ({}, {})",
             ndc[0], ndc[1]
         );
         
-        println!("\nOffset test:");
-        println!("  Position (0, 0) + offset (400, 300) -> NDC ({:.3}, {:.3})", ndc[0], ndc[1]);
+        println!("\nViewport position test:");
+        println!("  Position (0, 0) + viewport_position (400, 300) -> NDC ({:.3}, {:.3})", ndc[0], ndc[1]);
     }
 
     #[test]
@@ -460,14 +458,17 @@ mod tests {
         ];
         
         // Apply using shader_vertex_transform with separate perspective
-        let offset = Some([400.0, 300.0]);
+        let render_params = InstanceRenderParams {
+            camera_perspective: perspective_dist,
+            viewport_position: [400.0, 300.0],
+            _padding: 0.0,
+        };
         let ndc_corners: Vec<[f32; 2]> = corners
             .iter()
             .map(|&corner| shader_vertex_transform(
                 corner,
                 &rotation_transform,
-                perspective_dist,
-                offset,
+                &render_params,
                 canvas_size
             ))
             .collect();
@@ -535,15 +536,19 @@ mod tests {
             [50.0, 50.0],
         ];
         
-        let offset = [400.0, 300.0];
+        let viewport_position = [400.0, 300.0];
         
         for &corner in &corners {
             // Method 1: Use shader_vertex_transform
+            let render_params = InstanceRenderParams {
+                camera_perspective: perspective_dist,
+                viewport_position,
+                _padding: 0.0,
+            };
             let ndc_shader = shader_vertex_transform(
                 corner,
                 &transform,
-                perspective_dist,
-                Some(offset),
+                &render_params,
                 canvas_size
             );
             
@@ -553,7 +558,7 @@ mod tests {
                 corner,
                 rotation_euclid,
                 perspective_dist,
-                Some(offset)
+                Some(viewport_position)
             );
             
             // Convert pixel position to NDC manually
@@ -578,7 +583,7 @@ mod tests {
 
     #[test]
     fn test_shader_vertex_transform_offset_preserves_ratio() {
-        // Test that offset doesn't affect perspective ratios
+        // Test that viewport_position doesn't affect perspective ratios
         let canvas_size = [800.0, 600.0];
         let angle_rad = Angle::degrees(45.0);
         let perspective_dist = 500.0;
@@ -593,16 +598,26 @@ mod tests {
             [50.0, 50.0],
         ];
         
-        // Test with no offset
+        // Test with no viewport_position
+        let render_params_no_offset = InstanceRenderParams {
+            camera_perspective: perspective_dist,
+            viewport_position: [0.0, 0.0],
+            _padding: 0.0,
+        };
         let ndc_no_offset: Vec<[f32; 2]> = corners
             .iter()
-            .map(|&corner| shader_vertex_transform(corner, &transform, perspective_dist, None, canvas_size))
+            .map(|&corner| shader_vertex_transform(corner, &transform, &render_params_no_offset, canvas_size))
             .collect();
         
-        // Test with offset
+        // Test with viewport_position
+        let render_params_with_offset = InstanceRenderParams {
+            camera_perspective: perspective_dist,
+            viewport_position: [200.0, 150.0],
+            _padding: 0.0,
+        };
         let ndc_with_offset: Vec<[f32; 2]> = corners
             .iter()
-            .map(|&corner| shader_vertex_transform(corner, &transform, perspective_dist, Some([200.0, 150.0]), canvas_size))
+            .map(|&corner| shader_vertex_transform(corner, &transform, &render_params_with_offset, canvas_size))
             .collect();
         
         // Calculate widths and heights for both
@@ -614,23 +629,23 @@ mod tests {
         let width_bottom_with_offset = ndc_with_offset[3][0] - ndc_with_offset[2][0];
         let height_left_with_offset = ndc_with_offset[2][1] - ndc_with_offset[0][1];
         
-        // Widths and heights should be identical (offset doesn't change shape)
+        // Widths and heights should be identical (viewport_position doesn't change shape)
         let epsilon = 0.001;
         
         assert!(
             (width_top_no_offset - width_top_with_offset).abs() < epsilon,
-            "Top width should be identical with/without offset"
+            "Top width should be identical with/without viewport_position"
         );
         assert!(
             (width_bottom_no_offset - width_bottom_with_offset).abs() < epsilon,
-            "Bottom width should be identical with/without offset"
+            "Bottom width should be identical with/without viewport_position"
         );
         assert!(
             (height_left_no_offset - height_left_with_offset).abs() < epsilon,
-            "Left height should be identical with/without offset"
+            "Left height should be identical with/without viewport_position"
         );
         
-        println!("\n✓ Offset preserves perspective ratios in NDC space");
+        println!("\n✓ Viewport position preserves perspective ratios in NDC space");
         println!("  Top width: {:.6} (both)", width_top_no_offset);
         println!("  Bottom width: {:.6} (both)", width_bottom_no_offset);
         println!("  Height: {:.6} (both)", height_left_no_offset);
@@ -650,16 +665,21 @@ mod tests {
         let transform = transform_instance_from_euclid(combined);
         
         let position = [-50.0, -50.0];
-        let offset_px = [400.0, 300.0];
+        let viewport_position = [400.0, 300.0];
         
         // Method 1: Use shader_vertex_transform with pre-baked perspective (no separate perspective param)
-        let ndc_shader = shader_vertex_transform(position, &transform, 0.0, Some(offset_px), canvas_size);
+        let render_params = InstanceRenderParams {
+            camera_perspective: 0.0, // No additional perspective since it's pre-baked
+            viewport_position,
+            _padding: 0.0,
+        };
+        let ndc_shader = shader_vertex_transform(position, &transform, &render_params, canvas_size);
         
         // Method 2: Manual calculation with pre-baked perspective
         let p = mul_vec4(&transform, [position[0], position[1], 0.0, 1.0]);
         let invw = 1.0 / f32::max(p[3].abs(), 1e-6);
-        let px = p[0] * invw + offset_px[0];
-        let py = p[1] * invw + offset_px[1];
+        let px = p[0] * invw + viewport_position[0];
+        let py = p[1] * invw + viewport_position[1];
         let ndc_x_manual = 2.0 * px / canvas_size[0] - 1.0;
         let ndc_y_manual = 1.0 - 2.0 * py / canvas_size[1];
         

@@ -12,10 +12,10 @@ struct VertexInput {
     @location(6) t_col3: vec4<f32>,
     // Optional texture coordinates for shape texturing
     @location(7) tex_coords: vec2<f32>,
-    // Per-instance perspective distance
-    @location(8) perspective_distance: f32,
-    // Per-instance offset
-    @location(9) offset: vec2<f32>,
+    // Per-instance camera perspective
+    @location(8) camera_perspective: f32,
+    // Per-instance viewport position
+    @location(9) viewport_position: vec2<f32>,
 };
 
 struct VertexOutput {
@@ -63,9 +63,9 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     
     // Apply perspective if specified (acting on the z-coordinate from transform)
     var w: f32;
-    if input.perspective_distance > 0.0 {
+    if input.camera_perspective > 0.0 {
         // CSS-style perspective: w' = 1 + z/d
-        w = 1.0 + p.z / input.perspective_distance;
+        w = 1.0 + p.z / input.camera_perspective;
     } else {
         // No perspective, use w from transform
         w = p.w;
@@ -76,9 +76,9 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     var px = p.x * invw; // pixel-space x after perspective
     var py = p.y * invw; // pixel-space y after perspective
     
-    // Apply offset in pixel space
-    px += input.offset.x;
-    py += input.offset.y;
+    // Apply viewport position in pixel space
+    px += input.viewport_position.x;
+    py += input.viewport_position.y;
 
     // Then convert to NDC (Normalized Device Coordinates)
     // NDC is a cube with corners (-1, -1, -1) and (1, 1, 1).
