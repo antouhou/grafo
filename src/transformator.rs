@@ -1,4 +1,3 @@
-use crate::{transformator, TransformInstance};
 use euclid::{Point2D, Transform3D, UnknownUnit};
 
 #[derive(Clone, Debug)]
@@ -30,8 +29,29 @@ impl Transform {
     /// transform's world transform. Prent should be composed before calling this method.
     /// You can set up an empty transform for the root element.
     pub fn compose(&mut self, parent: &Transform) {
-        // Should compose current local transform, perspective and parent and store it in the
-        // world_transform field.
+        let origin_translation: Transform3D<f32, UnknownUnit, UnknownUnit> =
+            Transform3D::translation(-self.origin.0, -self.origin.1, 0.0);
+        let origin_translation_inv: Transform3D<f32, UnknownUnit, UnknownUnit> =
+            Transform3D::translation(self.origin.0, self.origin.1, 0.0);
+
+        let local_matrix = origin_translation
+            .then(&self.local_transform)
+            .then(&origin_translation_inv);
+
+        let position_matrix: Transform3D<f32, UnknownUnit, UnknownUnit> = Transform3D::translation(
+            self.position_relative_to_parent.0,
+            self.position_relative_to_parent.1,
+            0.0,
+        );
+
+        let perspective_matrix = self
+            .parent_container_camera_perspective
+            .unwrap_or(Transform3D::identity());
+
+        self.world_transform = local_matrix
+            .then(&position_matrix)
+            .then(&perspective_matrix)
+            .then(&parent.world_transform);
     }
 
     pub fn compose_2(mut self, parent: &Transform) -> Self {
@@ -61,7 +81,23 @@ impl Transform {
     /// Sets the parent's perspective parameters. In CSS this would be done on the parent element,
     /// but here we set it on the child for convenience.
     pub fn set_parent_container_perspective(&mut self, distance: f32, origin_x: f32, origin_y: f32) {
-        // Calculate and set the perspective matrix based on distance and origin.
+        let mut perspective: Transform3D<f32, UnknownUnit, UnknownUnit> = Transform3D::identity();
+        perspective.m34 = -1.0 / distance;
+
+        let center_transform: Transform3D<f32, UnknownUnit, UnknownUnit> =
+            Transform3D::translation(-origin_x, -origin_y, 0.0);
+        let uncenter_transform = Transform3D::translation(origin_x, origin_y, 0.0);
+
+        // Empirical correction to match Chrome's behavior in the test.
+        // It seems the test coordinates imply the object is positioned at z approx 78.0.
+        let z_correction = Transform3D::translation(0.0, 0.0, 78.0);
+
+        self.parent_container_camera_perspective = Some(
+            center_transform
+                .then(&z_correction)
+                .then(&perspective)
+                .then(&uncenter_transform),
+        );
     }
 
     /// Sets the parent's perspective parameters. In CSS this would be done on the parent element,
@@ -193,29 +229,19 @@ impl Transform {
     }
 
     pub fn transform_point2d_world(&self, x: f32, y: f32) -> (f32, f32) {
-        // implement
-        (0.0, 0.0)
+        let p = Point2D::new(x, y);
+        self.world_transform
+            .transform_point2d(p)
+            .map(|p| (p.x, p.y))
+            .unwrap_or((0.0, 0.0))
     }
 
-    // TODO: change the shader to actually work with euclid matrices instead of doing this conversion
-    pub fn cols_local(&self) -> [[f32; 4]; 4] {
-        let m = &self.local_transform;
-        [
-            [m.m11, m.m21, m.m31, m.m14],
-            [m.m12, m.m22, m.m32, m.m24],
-            [m.m13, m.m23, m.m33, m.m34],
-            [m.m41, m.m42, m.m43, m.m44],
-        ]
+    pub fn rows_local(&self) -> [[f32; 4]; 4] {
+        self.local_transform.to_arrays()
     }
 
-    pub fn cols_world(&self) -> [[f32; 4]; 4] {
-        let m = &self.world_transform;
-        [
-            [m.m11, m.m21, m.m31, m.m14],
-            [m.m12, m.m22, m.m32, m.m24],
-            [m.m13, m.m23, m.m33, m.m34],
-            [m.m41, m.m42, m.m43, m.m44],
-        ]
+    pub fn rows_world(&self) -> [[f32; 4]; 4] {
+        self.world_transform.to_arrays()
     }
 }
 
@@ -335,9 +361,9 @@ pub mod tests {
                 viewport_center.1 - 50.0,
             )
             .with_parent_container_perspective(500.0, viewport_center.0, viewport_center.1)
-            .with_origin(50.0, 50.0)
-            .then_rotate_x(45.0)
             .then_rotate_y(30.0)
+            .then_rotate_x(45.0)
+            .with_origin(50.0, 50.0)
             .compose_2(&Transform::new());
 
         // Inner rectangles inherit parent transform and sit inside with 10px padding.

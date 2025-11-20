@@ -5,17 +5,13 @@ struct VertexInput {
     @location(2) order: f32,
     // Per-instance solid color (was per-vertex before)
     @location(1) color: vec4<f32>,
-    // Per-instance transform matrix columns (column-major)
-    @location(3) t_col0: vec4<f32>,
-    @location(4) t_col1: vec4<f32>,
-    @location(5) t_col2: vec4<f32>,
-    @location(6) t_col3: vec4<f32>,
+    // Per-instance transform matrix rows (row-major from euclid)
+    @location(3) t_row0: vec4<f32>,
+    @location(4) t_row1: vec4<f32>,
+    @location(5) t_row2: vec4<f32>,
+    @location(6) t_row3: vec4<f32>,
     // Optional texture coordinates for shape texturing
     @location(7) tex_coords: vec2<f32>,
-    // Per-instance camera perspective
-    @location(8) camera_perspective: f32,
-    // Per-instance viewport position
-    @location(9) camera_perspective_origin: vec2<f32>,
 };
 
 struct VertexOutput {
@@ -55,44 +51,20 @@ fn to_srgb(color: vec3<f32>) -> vec3<f32> {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    // Build the transform matrix
-    let model: mat4x4<f32> = mat4x4<f32>(input.t_col0, input.t_col1, input.t_col2, input.t_col3);
+    // Build the transform matrix from row-major CPU data.
+    // Euclid's to_arrays() gives us rows, and WGSL mat4x4 constructor treats each vec4 as a column.
+    // So we pass rows as if they were columns, which gives us the transpose.
+    // Then matrix * vector will work correctly for row-major semantics.
+    let model: mat4x4<f32> = mat4x4<f32>(input.t_row0, input.t_row1, input.t_row2, input.t_row3);
 
-    // Apply the per-instance transform in pixel space first
+    // Apply the per-instance transform in pixel space.
     let p = model * vec4<f32>(input.position, 0.0, 1.0);
     
-    // Apply perspective if specified (acting on the z-coordinate from transform)
-    var w: f32;
-    var px: f32 = p.x;
-    var py: f32 = p.y;
-    if input.camera_perspective > 0.0 {
-        // CSS-style perspective: w' = 1 + z/d
-        // w = 1.0 + p.z / input.camera_perspective;
-
-        let cx = input.camera_perspective_origin.x; // canvas-space origin
-        let cy = input.camera_perspective_origin.y;
-
-        let x_rel = p.x - cx;
-        let y_rel = p.y - cy;
-
-        w = 1.0 + p.z / input.camera_perspective;
-        let invw = 1.0 / max(abs(w), 1e-6);
-
-        px = x_rel * invw + cx;
-        py = y_rel * invw + cy;
-    } else {
-        // No perspective, use w from transform
-        w = p.w;
-    }
-    
-//    // Homogeneous divide to account for perspective. Clamp w to avoid infinities.
-//    let invw = 1.0 / max(abs(w), 1e-6);
-//    var px = p.x * invw; // pixel-space x after perspective
-//    var py = p.y * invw; // pixel-space y after perspective
-    
-    // Apply viewport position in pixel space
-//    px += input.viewport_position.x;
-//    py += input.viewport_position.y;
+    // Perform homogeneous divide to handle perspective projection
+    let w = p.w;
+    let invw = 1.0 / max(abs(w), 1e-6);
+    let px = p.x * invw;
+    let py = p.y * invw;
 
     // Then convert to NDC (Normalized Device Coordinates)
     // NDC is a cube with corners (-1, -1, -1) and (1, 1, 1).

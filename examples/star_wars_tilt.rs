@@ -1,6 +1,6 @@
 use euclid::{default::Transform3D, Angle, Point2D, UnknownUnit};
 use futures::executor::block_on;
-use grafo::{transformator, Color, InstanceRenderParams, Shape, Stroke};
+use grafo::{transformator, Color, Shape, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -9,12 +9,7 @@ use winit::window::{Window, WindowId};
 
 // Helper to convert euclid Transform3D to grafo's GPU instance layout
 fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstance {
-    grafo::TransformInstance {
-        col0: [m.m11, m.m21, m.m31, m.m14],
-        col1: [m.m12, m.m22, m.m32, m.m24],
-        col2: [m.m13, m.m23, m.m33, m.m34],
-        col3: [m.m41, m.m42, m.m43, m.m44],
-    }
+    grafo::TransformInstance::from_rows(m.to_arrays())
 }
 
 struct App<'a> {
@@ -155,8 +150,9 @@ impl<'a> ApplicationHandler for App<'a> {
                             viewport_center.0,
                             viewport_center.1,
                         )
+                        // TODO: important! Order of rotations matters!
+                        .then_rotate_y(30.0)
                         .then_rotate_x(45.0)
-                        // .then_rotate_y(30.0)
                         .with_origin(50.0, 50.0)
                         .compose_2(&transformator::Transform::new());
 
@@ -168,11 +164,15 @@ impl<'a> ApplicationHandler for App<'a> {
 
                     let child1 = transformator::Transform::new()
                         .with_position_relative_to_parent(10.0, 10.0)
+                        .then_rotate_y(20.0)
+                        .with_origin(17.5, 40.0)
                         .compose_2(&parent_local);
                     renderer.set_transformator(inner_rect_1, &child1);
 
                     let child2 = transformator::Transform::new()
-                        .with_position_relative_to_parent(55.0, 10.0) // 10 + 35 + 10
+                        .with_position_relative_to_parent(55.0, 10.0)
+                        .then_rotate_y(20.0)
+                        .with_origin(17.5, 40.0)
                         .compose_2(&parent_local);
                     renderer.set_transformator(inner_rect_2, &child2);
 
