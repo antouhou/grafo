@@ -23,7 +23,7 @@ struct App<'a> {
     rect_id: Option<usize>,
     inner_rect_1: Option<usize>,
     inner_rect_2: Option<usize>,
-    mouse_position: Point2D<f32, UnknownUnit>
+    mouse_position: Point2D<f32, UnknownUnit>,
 }
 
 impl<'a> App<'a> {
@@ -150,7 +150,11 @@ impl<'a> ApplicationHandler for App<'a> {
                             viewport_center.0 - 50.0,
                             viewport_center.1 - 50.0,
                         )
-                        .with_parent_container_perspective(500.0, viewport_center.0, viewport_center.1)
+                        .with_parent_container_perspective(
+                            500.0,
+                            viewport_center.0,
+                            viewport_center.1,
+                        )
                         .then_rotate_x(45.0)
                         // .then_rotate_y(30.0)
                         .with_origin(50.0, 50.0)
