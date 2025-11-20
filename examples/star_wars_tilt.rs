@@ -8,9 +8,7 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
 // Helper to convert euclid Transform3D to grafo's GPU instance layout
-fn transform_instance_from_euclid(
-    m: Transform3D<f32>,
-) -> grafo::TransformInstance {
+fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstance {
     grafo::TransformInstance {
         col0: [m.m11, m.m21, m.m31, m.m14],
         col1: [m.m12, m.m22, m.m32, m.m24],
@@ -85,10 +83,14 @@ impl<'a> ApplicationHandler for App<'a> {
                     // Create shape if it doesn't exist yet
                     if self.rect_id.is_none() {
                         // We need some background TODO: mention this in the docs
-                        renderer.add_shape(Shape::rect(
-                            [(0.0, 0.0), (width as f32, height as f32)],
-                            Stroke::new(2.0, Color::BLACK),
-                        ), None, None);
+                        renderer.add_shape(
+                            Shape::rect(
+                                [(0.0, 0.0), (width as f32, height as f32)],
+                                Stroke::new(2.0, Color::BLACK),
+                            ),
+                            None,
+                            None,
+                        );
 
                         // Create a 100x100 rectangle (matching the HTML)
                         // Gold color (#FFD700 = rgb(255, 215, 0)) with white border (2px)
@@ -104,10 +106,8 @@ impl<'a> ApplicationHandler for App<'a> {
 
                         self.rect_id = Some(rect_id);
 
-                        let inner_rect_shape = Shape::rect(
-                            [(0.0, 0.0), (35.0, 80.0)],
-                            Stroke::new(1.0, Color::BLACK),
-                        );
+                        let inner_rect_shape =
+                            Shape::rect([(0.0, 0.0), (35.0, 80.0)], Stroke::new(1.0, Color::BLACK));
 
                         // TODO: clip
                         let inner_rect_1 = renderer.add_shape(inner_rect_shape.clone(), None, None);
@@ -127,7 +127,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         height as f32 / scale_factor as f32,
                     );
                     let viewport_center = (width as f32 / 2.0, height as f32 / 2.0);
-                    
+
                     let rect_id = self.rect_id.unwrap();
                     let inner_rect_1 = self.inner_rect_1.unwrap();
                     let inner_rect_2 = self.inner_rect_2.unwrap();
@@ -143,7 +143,10 @@ impl<'a> ApplicationHandler for App<'a> {
 
                     // Parent transform replicating the CSS 3D container
                     let parent_local = transformator::Transform::new()
-                        .with_position_relative_to_parent(viewport_center.0 - 50.0, viewport_center.1 - 50.0)
+                        .with_position_relative_to_parent(
+                            viewport_center.0 - 50.0,
+                            viewport_center.1 - 50.0,
+                        )
                         .with_camera_perspective_origin(viewport_center.0, viewport_center.1)
                         .with_perspective_distance(500.0)
                         .with_origin(50.0, 50.0)
@@ -157,13 +160,19 @@ impl<'a> ApplicationHandler for App<'a> {
                     // Layout: padding(10) + rect(35) + gap(10) + rect(35) + padding(10) = 100 total width.
                     // Vertical: padding(10) + height(80) + padding(10) = 100 total height.
 
-                    let pos_absoulte = (viewport_center.0 - 50.0 + 10.0, viewport_center.1 - 50.0 + 10.0);
+                    let pos_absoulte = (
+                        viewport_center.0 - 50.0 + 10.0,
+                        viewport_center.1 - 50.0 + 10.0,
+                    );
 
                     let child1 = transformator::Transform::new()
                         .with_position_relative_to_parent(10.0, 10.0)
-                        // .with_camera_perspective_origin(pos_absoulte.0 + 17.5, pos_absoulte.1 + 40.0)
-                        // .with_origin(17.5, 40.0)
-                        // .with_perspective_distance(500.0)
+                        .with_camera_perspective_origin(
+                            pos_absoulte.0 + 17.5,
+                            pos_absoulte.1 + 40.0,
+                        )
+                        .with_origin(17.5, 40.0)
+                        .with_perspective_distance(500.0)
                         .then_rotate_y(30.0)
                         .compose_2(&parent_local);
                     renderer.set_transformator(inner_rect_1, &child1);
@@ -179,14 +188,15 @@ impl<'a> ApplicationHandler for App<'a> {
             WindowEvent::Resized(new_size) => {
                 if let Some(renderer) = &mut self.renderer {
                     renderer.resize((new_size.width, new_size.height));
-                    
+
                     if let Some(window) = &self.window {
                         window.request_redraw();
                     }
                 }
             }
             WindowEvent::ScaleFactorChanged {
-                scale_factor, inner_size_writer
+                scale_factor,
+                inner_size_writer,
             } => {
                 if let Some(renderer) = &mut self.renderer {
                     println!("Change scale factor to {}", scale_factor);

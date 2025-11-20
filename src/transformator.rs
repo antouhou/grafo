@@ -1,5 +1,5 @@
-use euclid::{Transform3D, UnknownUnit};
 use crate::TransformInstance;
+use euclid::{Transform3D, UnknownUnit};
 
 #[derive(Clone, Debug)]
 pub struct Transform {
@@ -38,25 +38,8 @@ impl Transform {
         let (px, py) = self.position_relative_to_parent;
         let (ox, oy) = self.origin;
 
-        // Attempt pivot-first ordering given current matrix multiplication expectations:
-        // world = parent * translate(-origin) * local * translate(position + origin)
-
-        // let newo = parent.local_transform.transform_point2d(Point2D::new(px, py)).unwrap();
-        // let px = newp.x;
-        // let py = newp.y;
-
-        let t_from_origin: Transform3D<f32, UnknownUnit, UnknownUnit> = Transform3D::translation(-ox, -oy, 0.0);
-        // let newp = apply_transform(
-        //     [px, py],
-        //     &TransformInstance::from_columns(parent.cols_world()),
-        //     &InstanceRenderParams {
-        //         camera_perspective: parent.camera_perspective_distance,
-        //         camera_perspective_origin: [parent.camera_perspective_origin.0, parent.camera_perspective_origin.1],
-        //         _padding: 0.0,
-        //     },
-        // );
-        // let px = newp[0];
-        // let py = newp[1];
+        let t_from_origin: Transform3D<f32, UnknownUnit, UnknownUnit> =
+            Transform3D::translation(-ox, -oy, 0.0);
         // Preserve depth: multiply parent affine (excluding perspective) by 3D point (px,py,0,1)
         let pm = &parent.world_transform; // parent affine world (no perspective baked)
         let p4 = [
@@ -68,33 +51,20 @@ impl Transform {
         let px = p4[0];
         let py = p4[1];
         let pz = p4[2];
-        let t_to_final: Transform3D<f32, UnknownUnit, UnknownUnit> = Transform3D::translation(px + ox, py + oy, pz);
+        let t_to_final: Transform3D<f32, UnknownUnit, UnknownUnit> =
+            Transform3D::translation(px + ox, py + oy, pz);
 
-        let base_world = parent.world_transform
+        let base_world = parent
+            .world_transform
             .then(&t_from_origin)
             .then(&self.local_transform)
             .then(&t_to_final);
 
-        // Perspective inheritance: adopt parent's matrix if none locally and legacy distance <= 0
-        let effective_persp = if let Some(ref local) = self.perspective_matrix {
-            Some(local.clone())
-        } else if let Some(ref parent_p) = parent.perspective_matrix {
-            if self.camera_perspective_distance <= 0.0 {
-                self.camera_perspective_distance = parent.camera_perspective_distance;
-                self.camera_perspective_origin = parent.camera_perspective_origin;
-                Some(parent_p.clone())
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        // Do NOT bake perspective here; keep world_transform as pure affine chain.
-        // Store inherited perspective matrix if any for later final projection.
-        if self.perspective_matrix.is_none() {
-            self.perspective_matrix = effective_persp;
+        if self.camera_perspective_distance <= 0.0 {
+            self.camera_perspective_distance = parent.camera_perspective_distance;
+            self.camera_perspective_origin = parent.camera_perspective_origin;
         }
+
         self.world_transform = base_world;
 
         println!("origin: ({}, {}), position: ({}, {})", ox, oy, px, py);
@@ -158,36 +128,38 @@ impl Transform {
     }
 
     /// Set perspective via matrix (distance > 0 enables). Stores legacy fields for now.
-    pub fn set_perspective(&mut self, distance: f32, origin_x: f32, origin_y: f32) {
-        self.camera_perspective_distance = distance;
-        self.camera_perspective_origin = (origin_x, origin_y);
-        if distance <= 0.0 {
-            self.perspective_matrix = None;
-            return;
-        }
-        let d_inv = 1.0 / distance;
-        // Perspective matrix producing w' = 1 + z/d
-        let persp: Transform3D<f32, UnknownUnit, UnknownUnit> = Transform3D::new(
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            0.0, 0.0, d_inv, 1.0,
-        );
-        let to_origin = Transform3D::translation(-origin_x, -origin_y, 0.0);
-        let back = Transform3D::translation(origin_x, origin_y, 0.0);
-        let full = back.then(&persp).then(&to_origin);
-        self.perspective_matrix = Some(full);
-    }
+    // pub fn set_perspective(&mut self, distance: f32, origin_x: f32, origin_y: f32) {
+    //     self.camera_perspective_distance = distance;
+    //     self.camera_perspective_origin = (origin_x, origin_y);
+    //     if distance <= 0.0 {
+    //         self.perspective_matrix = None;
+    //         return;
+    //     }
+    //     let d_inv = 1.0 / distance;
+    //     // Perspective matrix producing w' = 1 + z/d
+    //     let persp: Transform3D<f32, UnknownUnit, UnknownUnit> = Transform3D::new(
+    //         1.0, 0.0, 0.0, 0.0,
+    //         0.0, 1.0, 0.0, 0.0,
+    //         0.0, 0.0, 1.0, 0.0,
+    //         0.0, 0.0, d_inv, 1.0,
+    //     );
+    //     let to_origin = Transform3D::translation(-origin_x, -origin_y, 0.0);
+    //     let back = Transform3D::translation(origin_x, origin_y, 0.0);
+    //     let full = back.then(&persp).then(&to_origin);
+    //     self.perspective_matrix = Some(full);
+    // }
 
-    pub fn with_perspective(mut self, distance: f32, origin_x: f32, origin_y: f32) -> Self {
-        self.set_perspective(distance, origin_x, origin_y);
-        self
-    }
+    // pub fn with_perspective(mut self, distance: f32, origin_x: f32, origin_y: f32) -> Self {
+    //     self.set_perspective(distance, origin_x, origin_y);
+    //     self
+    // }
 
     // ===== Translations =====
 
     pub fn translate(&mut self, tx: f32, ty: f32, tz: f32) {
-        self.local_transform = self.local_transform.then(&euclid::Transform3D::translation(tx, ty, tz));
+        self.local_transform = self
+            .local_transform
+            .then(&euclid::Transform3D::translation(tx, ty, tz));
     }
 
     pub fn then_translate(mut self, tx: f32, ty: f32, tz: f32) -> Self {
@@ -196,7 +168,9 @@ impl Transform {
     }
 
     pub fn translate_x(&mut self, tx: f32) {
-        self.local_transform = self.local_transform.then(&euclid::Transform3D::translation(tx, 0.0, 0.0));
+        self.local_transform = self
+            .local_transform
+            .then(&euclid::Transform3D::translation(tx, 0.0, 0.0));
     }
 
     pub fn then_translate_x(mut self, tx: f32) -> Self {
@@ -205,7 +179,9 @@ impl Transform {
     }
 
     pub fn translate_y(&mut self, ty: f32) {
-        self.local_transform = self.local_transform.then(&euclid::Transform3D::translation(0.0, ty, 0.0));
+        self.local_transform = self
+            .local_transform
+            .then(&euclid::Transform3D::translation(0.0, ty, 0.0));
     }
 
     pub fn then_translate_y(mut self, ty: f32) -> Self {
@@ -214,7 +190,9 @@ impl Transform {
     }
 
     pub fn translate_z(&mut self, tz: f32) {
-        self.local_transform = self.local_transform.then(&euclid::Transform3D::translation(0.0, 0.0, tz));
+        self.local_transform = self
+            .local_transform
+            .then(&euclid::Transform3D::translation(0.0, 0.0, tz));
     }
 
     pub fn then_translate_z(mut self, tz: f32) -> Self {
@@ -223,7 +201,9 @@ impl Transform {
     }
 
     pub fn translate_2d(&mut self, tx: f32, ty: f32) {
-        self.local_transform = self.local_transform.then(&euclid::Transform3D::translation(tx, ty, 0.0));
+        self.local_transform = self
+            .local_transform
+            .then(&euclid::Transform3D::translation(tx, ty, 0.0));
     }
 
     pub fn then_translate_2d(mut self, tx: f32, ty: f32) -> Self {
@@ -234,7 +214,12 @@ impl Transform {
     // ===== Rotations =====
 
     pub fn rotate_x(&mut self, angle_degrees: f32) {
-        self.local_transform = self.local_transform.then(&euclid::Transform3D::rotation(1.0, 0.0, 0.0, euclid::Angle::degrees(angle_degrees)));
+        self.local_transform = self.local_transform.then(&euclid::Transform3D::rotation(
+            1.0,
+            0.0,
+            0.0,
+            euclid::Angle::degrees(angle_degrees),
+        ));
     }
 
     pub fn then_rotate_x(mut self, angle_degrees: f32) -> Self {
@@ -243,7 +228,12 @@ impl Transform {
     }
 
     pub fn rotate_y(&mut self, angle_degrees: f32) {
-        self.local_transform = self.local_transform.then(&euclid::Transform3D::rotation(0.0, 1.0, 0.0, euclid::Angle::degrees(angle_degrees)));
+        self.local_transform = self.local_transform.then(&euclid::Transform3D::rotation(
+            0.0,
+            1.0,
+            0.0,
+            euclid::Angle::degrees(angle_degrees),
+        ));
     }
 
     pub fn then_rotate_y(mut self, angle_degrees: f32) -> Self {
@@ -252,7 +242,12 @@ impl Transform {
     }
 
     pub fn rotate_z(&mut self, angle_degrees: f32) {
-        self.local_transform = self.local_transform.then(&euclid::Transform3D::rotation(0.0, 0.0, 1.0, euclid::Angle::degrees(angle_degrees)));
+        self.local_transform = self.local_transform.then(&euclid::Transform3D::rotation(
+            0.0,
+            0.0,
+            1.0,
+            euclid::Angle::degrees(angle_degrees),
+        ));
     }
 
     pub fn then_rotate_z(mut self, angle_degrees: f32) -> Self {
@@ -261,10 +256,21 @@ impl Transform {
     }
 
     pub fn rotate(&mut self, axis_x: f32, axis_y: f32, axis_z: f32, angle_degrees: f32) {
-        self.local_transform = self.local_transform.then(&euclid::Transform3D::rotation(axis_x, axis_y, axis_z, euclid::Angle::degrees(angle_degrees)));
+        self.local_transform = self.local_transform.then(&euclid::Transform3D::rotation(
+            axis_x,
+            axis_y,
+            axis_z,
+            euclid::Angle::degrees(angle_degrees),
+        ));
     }
 
-    pub fn then_rotate(mut self, axis_x: f32, axis_y: f32, axis_z: f32, angle_degrees: f32) -> Self {
+    pub fn then_rotate(
+        mut self,
+        axis_x: f32,
+        axis_y: f32,
+        axis_z: f32,
+        angle_degrees: f32,
+    ) -> Self {
         self.rotate(axis_x, axis_y, axis_z, angle_degrees);
         self
     }
@@ -290,7 +296,7 @@ impl Transform {
         ]
     }
 
-    pub fn cols_world_with_perspective(&self) -> [[f32;4];4] {
+    pub fn cols_world_with_perspective(&self) -> [[f32; 4]; 4] {
         if let Some(p) = &self.perspective_matrix {
             // Apply perspective LAST: composite = world_affine * perspective
             let m = self.world_transform.then(p);
@@ -334,8 +340,13 @@ pub fn test() {
 
     // Expect near viewport center (allow small epsilon due to perspective numeric error)
     let eps = 0.01;
-    assert!((projected[0] - viewport_center.0).abs() < eps && (projected[1] - viewport_center.1).abs() < eps,
-        "Projected center deviated: got {:?} expected {:?}", projected, viewport_center);
+    assert!(
+        (projected[0] - viewport_center.0).abs() < eps
+            && (projected[1] - viewport_center.1).abs() < eps,
+        "Projected center deviated: got {:?} expected {:?}",
+        projected,
+        viewport_center
+    );
 }
 
 #[test]
@@ -353,16 +364,29 @@ pub fn test_inherit_perspective() {
         .with_origin(0.0, 0.0)
         .compose_2(&parent);
 
-    assert_eq!(child.camera_perspective_distance, parent.camera_perspective_distance, "Child did not inherit perspective distance");
-    assert_eq!(child.camera_perspective_origin, parent.camera_perspective_origin, "Child did not inherit perspective origin");
+    assert_eq!(
+        child.camera_perspective_distance, parent.camera_perspective_distance,
+        "Child did not inherit perspective distance"
+    );
+    assert_eq!(
+        child.camera_perspective_origin, parent.camera_perspective_origin,
+        "Child did not inherit perspective origin"
+    );
 
     // Grandchild with explicit perspective should NOT inherit
     let grandchild = Transform::new()
         .with_perspective(300.0, 200.0, 150.0)
         .compose_2(&child);
 
-    assert_eq!(grandchild.camera_perspective_distance, 300.0, "Grandchild perspective overridden unexpectedly");
-    assert_eq!(grandchild.camera_perspective_origin, (200.0, 150.0), "Grandchild origin overridden unexpectedly");
+    assert_eq!(
+        grandchild.camera_perspective_distance, 300.0,
+        "Grandchild perspective overridden unexpectedly"
+    );
+    assert_eq!(
+        grandchild.camera_perspective_origin,
+        (200.0, 150.0),
+        "Grandchild origin overridden unexpectedly"
+    );
 }
 
 #[test]
@@ -387,10 +411,13 @@ pub fn test_child_perspective_effect() {
     let p4_p = mul_vec4(&t_p, [local_pt[0], local_pt[1], 0.0, 1.0]);
     let w_no = if p4_no[3].abs() < 1e-6 { 1.0 } else { p4_no[3] };
     let w_p = if p4_p[3].abs() < 1e-6 { 1.0 } else { p4_p[3] };
-    let screen_no = [p4_no[0]/w_no, p4_no[1]/w_no];
-    let screen_p = [p4_p[0]/w_p, p4_p[1]/w_p];
+    let screen_no = [p4_no[0] / w_no, p4_no[1] / w_no];
+    let screen_p = [p4_p[0] / w_p, p4_p[1] / w_p];
     // Expect vertical position to shift due to perspective (y move toward origin center)
-    assert!((screen_no[1] - screen_p[1]).abs() > 0.01, "Perspective had no visible effect on child rotation");
+    assert!(
+        (screen_no[1] - screen_p[1]).abs() > 0.01,
+        "Perspective had no visible effect on child rotation"
+    );
 }
 
 #[test]
@@ -418,12 +445,15 @@ pub fn test_sibling_depth_difference() {
     let local_pt = [50.0, 20.0];
     let p1 = mul_vec4(&t1, [local_pt[0], local_pt[1], 0.0, 1.0]);
     let p2 = mul_vec4(&t2, [local_pt[0], local_pt[1], 0.0, 1.0]);
-    let w1 = if p1[3].abs() < 1e-6 {1.0} else {p1[3]};
-    let w2 = if p2[3].abs() < 1e-6 {1.0} else {p2[3]};
-    let s1 = [p1[0]/w1, p1[1]/w1];
-    let s2 = [p2[0]/w2, p2[1]/w2];
+    let w1 = if p1[3].abs() < 1e-6 { 1.0 } else { p1[3] };
+    let w2 = if p2[3].abs() < 1e-6 { 1.0 } else { p2[3] };
+    let s1 = [p1[0] / w1, p1[1] / w1];
+    let s2 = [p2[0] / w2, p2[1] / w2];
     // Expect horizontal projected positions to differ not only by translation but also slight vertical/skew difference.
-    assert!((s1[1] - s2[1]).abs() > 0.001, "Siblings show no vertical divergence under perspective");
+    assert!(
+        (s1[1] - s2[1]).abs() > 0.001,
+        "Siblings show no vertical divergence under perspective"
+    );
 }
 
 /// Multiply a TransformInstance with a 4D vector (public for tests).
