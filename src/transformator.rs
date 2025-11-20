@@ -473,11 +473,13 @@ pub mod tests {
         let child1 = Transform::new()
             .with_position_relative_to_parent(10.0, 10.0)
             .then_rotate_y(20.0)
+            .with_origin(17.5, 40.0)
             .compose_2(&parent);
 
         let child2 = Transform::new()
             .with_position_relative_to_parent(55.0, 10.0) // 10 + 35 + 10
             .then_rotate_y(20.0)
+            .with_origin(17.5, 40.0)
             .compose_2(&parent);
 
         // VERY Rough (+- 5 pixels) estimations measured by hovering the mouse in Chrome for the
