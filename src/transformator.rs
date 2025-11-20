@@ -379,100 +379,307 @@ pub fn mul_vec4(t: &TransformInstance, v: [f32; 4]) -> [f32; 4] {
     ]
 }
 
-#[test]
-pub fn test_a() {
-    let viewport_center = (400.0, 300.0);
-    let rect_size = (100.0, 100.0);
-    let inner_rect_size = (35.0, 80.0);
+pub mod tests {
+    use crate::transformator::Transform;
 
-    let parent = Transform::new()
-        .with_position_relative_to_parent(
-            viewport_center.0 - 50.0,
-            viewport_center.1 - 50.0,
-        )
-        .with_parent_container_perspective(500.0, viewport_center.0, viewport_center.1)
-        .with_origin(50.0, 50.0)
-        .then_rotate_x(45.0)
-        .compose_2(&Transform::new());
+    #[test]
+    pub fn test_a() {
+        // This test rotates the main rectangle around both X and Y axes and checks that inner rects
+        //  are correctly transformed as well.
+        let viewport_center = (400.0, 300.0);
+        let rect_size = (100.0, 100.0);
+        let inner_rect_size = (35.0, 80.0);
 
-    // Inner rectangles inherit parent transform and sit inside with 10px padding.
-    // Layout: padding(10) + rect(35) + gap(10) + rect(35) + padding(10) = 100 total width.
-    // Vertical: padding(10) + height(80) + padding(10) = 100 total height.
+        let parent = Transform::new()
+            .with_position_relative_to_parent(
+                viewport_center.0 - 50.0,
+                viewport_center.1 - 50.0,
+            )
+            .with_parent_container_perspective(500.0, viewport_center.0, viewport_center.1)
+            .with_origin(50.0, 50.0)
+            .then_rotate_x(45.0)
+            .compose_2(&Transform::new());
 
-    let child1 = Transform::new()
-        .with_position_relative_to_parent(10.0, 10.0)
-        .compose_2(&parent);
+        // Inner rectangles inherit parent transform and sit inside with 10px padding.
+        // Layout: padding(10) + rect(35) + gap(10) + rect(35) + padding(10) = 100 total width.
+        // Vertical: padding(10) + height(80) + padding(10) = 100 total height.
 
-    let child2 = Transform::new()
-        .with_position_relative_to_parent(55.0, 10.0) // 10 + 35 + 10
-        .compose_2(&parent);
+        let child1 = Transform::new()
+            .with_position_relative_to_parent(10.0, 10.0)
+            .compose_2(&parent);
 
-    // VERY Rough (+- 5 pixels) estimations measured by hovering the mouse in Chrome for the
-    // equivalent CSS-transformed elements. Points are clockwise.
-    let rect_corners_after_transform_expected = [
-        // Top left
-        (346.0, 264.0),
-        (455.0, 264.0),
-        (465.0, 348.0),
-        (336.0, 348.0),
-    ];
+        let child2 = Transform::new()
+            .with_position_relative_to_parent(55.0, 10.0) // 10 + 35 + 10
+            .compose_2(&parent);
 
-    let inner_rect_after_transform_expected = [
-        // Child 1 top-left
-        (355.0, 270.0),
-        (395.0, 270.0),
-        (394.0, 338.0),
-        (348.0, 338.0),
-    ];
+        // VERY Rough (+- 5 pixels) estimations measured by hovering the mouse in Chrome for the
+        // equivalent CSS-transformed elements. Points are clockwise.
+        let rect_corners_after_transform_expected = [
+            // Top left
+            (346.0, 264.0),
+            (455.0, 264.0),
+            (465.0, 348.0),
+            (336.0, 348.0),
+        ];
 
-    let inner_rect2_after_transform_expected = [
-        // Child 2 top-left
-        (406.0, 270.0),
-        (446.0, 270.0),
-        (453.0, 338.0),
-        (405.0, 338.0),
-    ];
+        let inner_rect_after_transform_expected = [
+            // Child 1 top-left
+            (355.0, 270.0),
+            (395.0, 270.0),
+            (394.0, 338.0),
+            (348.0, 338.0),
+        ];
 
-    let actual_rect_corners = [
-        parent.transform_point2d_world(0.0, 0.0),
-        parent.transform_point2d_world(100.0, 0.0),
-        parent.transform_point2d_world(100.0, 100.0),
-        parent.transform_point2d_world(0.0, 100.0),
-    ];
-    println!("Actual rect corners: {:?}", actual_rect_corners);
+        let inner_rect2_after_transform_expected = [
+            // Child 2 top-left
+            (406.0, 270.0),
+            (446.0, 270.0),
+            (453.0, 338.0),
+            (405.0, 338.0),
+        ];
 
-    for (actual, expected) in actual_rect_corners.iter().zip(rect_corners_after_transform_expected.iter()) {
-        let dx = (actual.0 - expected.0).abs();
-        let dy = (actual.1 - expected.1).abs();
-        assert!(dx < 5.0 && dy < 5.0, "Parent rect corner deviated: got {:?}, expected {:?}, delta=({},{})", actual, expected, dx, dy);
+        let actual_rect_corners = [
+            parent.transform_point2d_world(0.0, 0.0),
+            parent.transform_point2d_world(rect_size.0, 0.0),
+            parent.transform_point2d_world(rect_size.0, rect_size.1),
+            parent.transform_point2d_world(0.0, rect_size.1),
+        ];
+        println!("Actual rect corners: {:?}", actual_rect_corners);
+
+        for (actual, expected) in actual_rect_corners.iter().zip(rect_corners_after_transform_expected.iter()) {
+            let dx = (actual.0 - expected.0).abs();
+            let dy = (actual.1 - expected.1).abs();
+            assert!(dx < 5.0 && dy < 5.0, "Parent rect corner deviated: got {:?}, expected {:?}, delta=({},{})", actual, expected, dx, dy);
+        }
+
+        let inner_rect1_corners = [
+            child1.transform_point2d_world(0.0, 0.0),
+            child1.transform_point2d_world(inner_rect_size.0, 0.0),
+            child1.transform_point2d_world(inner_rect_size.0, inner_rect_size.1),
+            child1.transform_point2d_world(0.0, inner_rect_size.1),
+        ];
+        println!("Child 1 rect corners: {:?}", inner_rect1_corners);
+
+        for (actual, expected) in inner_rect1_corners.iter().zip(inner_rect_after_transform_expected.iter()) {
+            let dx = (actual.0 - expected.0).abs();
+            let dy = (actual.1 - expected.1).abs();
+            assert!(dx < 5.0 && dy < 5.0, "Child 1 rect corner deviated: got {:?}, expected {:?}, delta=({},{})", actual, expected, dx, dy);
+        }
+
+        let inner_rect2_corners = [
+            child2.transform_point2d_world(0.0, 0.0),
+            child2.transform_point2d_world(inner_rect_size.0, 0.0),
+            child2.transform_point2d_world(inner_rect_size.0, inner_rect_size.1),
+            child2.transform_point2d_world(0.0, inner_rect_size.1),
+        ];
+        println!("Child 2 rect corners: {:?}", inner_rect2_corners);
+
+        for (actual, expected) in inner_rect2_corners.iter().zip(inner_rect2_after_transform_expected.iter()) {
+            let dx = (actual.0 - expected.0).abs();
+            let dy = (actual.1 - expected.1).abs();
+            assert!(dx < 5.0 && dy < 5.0, "Child 2 rect corner deviated: got {:?}, expected {:?}, delta=({},{})", actual, expected, dx, dy);
+        }
     }
 
-    let inner_rect1_corners = [
-        child1.transform_point2d_world(0.0, 0.0),
-        child1.transform_point2d_world(inner_rect_size.0, 0.0),
-        child1.transform_point2d_world(inner_rect_size.0, inner_rect_size.1),
-        child1.transform_point2d_world(0.0, inner_rect_size.1),
-    ];
-    println!("Child 1 rect corners: {:?}", inner_rect1_corners);
+    #[test]
+    pub fn test_b() {
+        // This test rotates the main rectangle around both X and Y axes and checks that inner rects
+        //  are correctly transformed as well.
+        let viewport_center = (400.0, 300.0);
+        let rect_size = (100.0, 100.0);
+        let inner_rect_size = (35.0, 80.0);
 
-    for (actual, expected) in inner_rect1_corners.iter().zip(inner_rect_after_transform_expected.iter()) {
-        let dx = (actual.0 - expected.0).abs();
-        let dy = (actual.1 - expected.1).abs();
-        assert!(dx < 5.0 && dy < 5.0, "Child 1 rect corner deviated: got {:?}, expected {:?}, delta=({},{})", actual, expected, dx, dy);
+        let parent = Transform::new()
+            .with_position_relative_to_parent(
+                viewport_center.0 - 50.0,
+                viewport_center.1 - 50.0,
+            )
+            .with_parent_container_perspective(500.0, viewport_center.0, viewport_center.1)
+            .with_origin(50.0, 50.0)
+            .then_rotate_x(45.0)
+            .then_rotate_y(30.0)
+            .compose_2(&Transform::new());
+
+        // Inner rectangles inherit parent transform and sit inside with 10px padding.
+        // Layout: padding(10) + rect(35) + gap(10) + rect(35) + padding(10) = 100 total width.
+        // Vertical: padding(10) + height(80) + padding(10) = 100 total height.
+
+        let child1 = Transform::new()
+            .with_position_relative_to_parent(10.0, 10.0)
+            .compose_2(&parent);
+
+        let child2 = Transform::new()
+            .with_position_relative_to_parent(55.0, 10.0) // 10 + 35 + 10
+            .compose_2(&parent);
+
+        // VERY Rough (+- 5 pixels) estimations measured by hovering the mouse in Chrome for the
+        // equivalent CSS-transformed elements. Points are clockwise.
+        let rect_corners_after_transform_expected = [
+            // Top left
+            (352.0, 242.0),
+            (446.0, 285.0),
+            (455.0, 369.0),
+            (342.0, 327.0),
+        ];
+
+        let inner_rect_after_transform_expected = [
+            // Child 1 top-left
+            (360.0, 253.0),
+            (395.0, 268.0),
+            (395.0, 338.0),
+            (353.0, 321.0),
+        ];
+
+        let inner_rect2_after_transform_expected = [
+            // Child 2 top-left
+            (405.0, 272.0),
+            (439.0, 287.0),
+            (446.0, 356.0),
+            (405.0, 341.0),
+        ];
+
+        let actual_rect_corners = [
+            parent.transform_point2d_world(0.0, 0.0),
+            parent.transform_point2d_world(rect_size.0, 0.0),
+            parent.transform_point2d_world(rect_size.0, rect_size.1),
+            parent.transform_point2d_world(0.0, rect_size.1),
+        ];
+        println!("Actual rect corners: {:?}", actual_rect_corners);
+
+        for (actual, expected) in actual_rect_corners.iter().zip(rect_corners_after_transform_expected.iter()) {
+            let dx = (actual.0 - expected.0).abs();
+            let dy = (actual.1 - expected.1).abs();
+            assert!(dx < 5.0 && dy < 5.0, "Parent rect corner deviated: got {:?}, expected {:?}, delta=({},{})", actual, expected, dx, dy);
+        }
+
+        let inner_rect1_corners = [
+            child1.transform_point2d_world(0.0, 0.0),
+            child1.transform_point2d_world(inner_rect_size.0, 0.0),
+            child1.transform_point2d_world(inner_rect_size.0, inner_rect_size.1),
+            child1.transform_point2d_world(0.0, inner_rect_size.1),
+        ];
+        println!("Child 1 rect corners: {:?}", inner_rect1_corners);
+
+        for (actual, expected) in inner_rect1_corners.iter().zip(inner_rect_after_transform_expected.iter()) {
+            let dx = (actual.0 - expected.0).abs();
+            let dy = (actual.1 - expected.1).abs();
+            assert!(dx < 5.0 && dy < 5.0, "Child 1 rect corner deviated: got {:?}, expected {:?}, delta=({},{})", actual, expected, dx, dy);
+        }
+
+        let inner_rect2_corners = [
+            child2.transform_point2d_world(0.0, 0.0),
+            child2.transform_point2d_world(inner_rect_size.0, 0.0),
+            child2.transform_point2d_world(inner_rect_size.0, inner_rect_size.1),
+            child2.transform_point2d_world(0.0, inner_rect_size.1),
+        ];
+        println!("Child 2 rect corners: {:?}", inner_rect2_corners);
+
+        for (actual, expected) in inner_rect2_corners.iter().zip(inner_rect2_after_transform_expected.iter()) {
+            let dx = (actual.0 - expected.0).abs();
+            let dy = (actual.1 - expected.1).abs();
+            assert!(dx < 5.0 && dy < 5.0, "Child 2 rect corner deviated: got {:?}, expected {:?}, delta=({},{})", actual, expected, dx, dy);
+        }
     }
 
-    let inner_rect2_corners = [
-        child2.transform_point2d_world(0.0, 0.0),
-        child2.transform_point2d_world(inner_rect_size.0, 0.0),
-        child2.transform_point2d_world(inner_rect_size.0, inner_rect_size.1),
-        child2.transform_point2d_world(0.0, inner_rect_size.1),
-    ];
-    println!("Child 2 rect corners: {:?}", inner_rect2_corners);
+    #[test]
+    pub fn test_c() {
+        // This test rotates the main rectangle around both X and Y. It then rotates the inner rectangles around
+        // Y axes to check that all rotations compose correctly.
+        let viewport_center = (400.0, 300.0);
+        let rect_size = (100.0, 100.0);
+        let inner_rect_size = (35.0, 80.0);
 
-    for (actual, expected) in inner_rect2_corners.iter().zip(inner_rect2_after_transform_expected.iter()) {
-        let dx = (actual.0 - expected.0).abs();
-        let dy = (actual.1 - expected.1).abs();
-        assert!(dx < 5.0 && dy < 5.0, "Child 2 rect corner deviated: got {:?}, expected {:?}, delta=({},{})", actual, expected, dx, dy);
+        let parent = Transform::new()
+            .with_position_relative_to_parent(
+                viewport_center.0 - 50.0,
+                viewport_center.1 - 50.0,
+            )
+            .with_parent_container_perspective(500.0, viewport_center.0, viewport_center.1)
+            .with_origin(50.0, 50.0)
+            .then_rotate_x(45.0)
+            .then_rotate_y(30.0)
+            .compose_2(&Transform::new());
+
+        // Inner rectangles inherit parent transform and sit inside with 10px padding.
+        // Layout: padding(10) + rect(35) + gap(10) + rect(35) + padding(10) = 100 total width.
+        // Vertical: padding(10) + height(80) + padding(10) = 100 total height.
+
+        let child1 = Transform::new()
+            .with_position_relative_to_parent(10.0, 10.0)
+            .then_rotate_y(20.0)
+            .compose_2(&parent);
+
+        let child2 = Transform::new()
+            .with_position_relative_to_parent(55.0, 10.0) // 10 + 35 + 10
+            .then_rotate_y(20.0)
+            .compose_2(&parent);
+
+        // VERY Rough (+- 5 pixels) estimations measured by hovering the mouse in Chrome for the
+        // equivalent CSS-transformed elements. Points are clockwise.
+        let rect_corners_after_transform_expected = [
+            // Top left
+            (352.0, 242.0),
+            (446.0, 285.0),
+            (455.0, 369.0),
+            (342.0, 327.0),
+        ];
+
+        let inner_rect_after_transform_expected = [
+            // Child 1 top-left
+            (364.0, 248.0),
+            (391.0, 272.0),
+            (390.0, 343.0),
+            (358.0, 317.0),
+        ];
+
+        let inner_rect2_after_transform_expected = [
+            // Child 2 top-left
+            (410.0, 269.0),
+            (436.0, 292.0),
+            (441.0, 363.0),
+            (410.0, 339.0),
+        ];
+
+        let actual_rect_corners = [
+            parent.transform_point2d_world(0.0, 0.0),
+            parent.transform_point2d_world(rect_size.0, 0.0),
+            parent.transform_point2d_world(rect_size.0, rect_size.1),
+            parent.transform_point2d_world(0.0, rect_size.1),
+        ];
+        println!("Actual rect corners: {:?}", actual_rect_corners);
+
+        for (actual, expected) in actual_rect_corners.iter().zip(rect_corners_after_transform_expected.iter()) {
+            let dx = (actual.0 - expected.0).abs();
+            let dy = (actual.1 - expected.1).abs();
+            assert!(dx < 5.0 && dy < 5.0, "Parent rect corner deviated: got {:?}, expected {:?}, delta=({},{})", actual, expected, dx, dy);
+        }
+
+        let inner_rect1_corners = [
+            child1.transform_point2d_world(0.0, 0.0),
+            child1.transform_point2d_world(inner_rect_size.0, 0.0),
+            child1.transform_point2d_world(inner_rect_size.0, inner_rect_size.1),
+            child1.transform_point2d_world(0.0, inner_rect_size.1),
+        ];
+        println!("Child 1 rect corners: {:?}", inner_rect1_corners);
+
+        for (actual, expected) in inner_rect1_corners.iter().zip(inner_rect_after_transform_expected.iter()) {
+            let dx = (actual.0 - expected.0).abs();
+            let dy = (actual.1 - expected.1).abs();
+            assert!(dx < 5.0 && dy < 5.0, "Child 1 rect corner deviated: got {:?}, expected {:?}, delta=({},{})", actual, expected, dx, dy);
+        }
+
+        let inner_rect2_corners = [
+            child2.transform_point2d_world(0.0, 0.0),
+            child2.transform_point2d_world(inner_rect_size.0, 0.0),
+            child2.transform_point2d_world(inner_rect_size.0, inner_rect_size.1),
+            child2.transform_point2d_world(0.0, inner_rect_size.1),
+        ];
+        println!("Child 2 rect corners: {:?}", inner_rect2_corners);
+
+        for (actual, expected) in inner_rect2_corners.iter().zip(inner_rect2_after_transform_expected.iter()) {
+            let dx = (actual.0 - expected.0).abs();
+            let dy = (actual.1 - expected.1).abs();
+            assert!(dx < 5.0 && dy < 5.0, "Child 2 rect corner deviated: got {:?}, expected {:?}, delta=({},{})", actual, expected, dx, dy);
+        }
     }
 }
-
