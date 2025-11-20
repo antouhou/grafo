@@ -35,7 +35,7 @@
 //! ```
 
 use crate::util::PoolManager;
-use crate::vertex::{CustomVertex, InstanceTransform, InstanceRenderParams};
+use crate::vertex::{CustomVertex, InstanceRenderParams, InstanceTransform};
 use crate::{Color, Stroke};
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, VertexBuffers,

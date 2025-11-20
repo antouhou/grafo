@@ -1,4 +1,4 @@
-use euclid::{default::Transform3D, Angle};
+use euclid::{default::Transform3D, Angle, Point2D, UnknownUnit};
 use futures::executor::block_on;
 use grafo::{transformator, Color, InstanceRenderParams, Shape, Stroke};
 use std::sync::Arc;
@@ -23,6 +23,7 @@ struct App<'a> {
     rect_id: Option<usize>,
     inner_rect_1: Option<usize>,
     inner_rect_2: Option<usize>,
+    mouse_position: Point2D<f32, UnknownUnit>
 }
 
 impl<'a> App<'a> {
@@ -33,6 +34,7 @@ impl<'a> App<'a> {
             rect_id: None,
             inner_rect_1: None,
             inner_rect_2: None,
+            mouse_position: Point2D::new(0.0, 0.0),
         }
     }
 }
@@ -78,6 +80,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
+                println!("Mouse position: {:?}", self.mouse_position);
                 if let Some(renderer) = &mut self.renderer {
                     let (width, height) = renderer.size();
                     // Create shape if it doesn't exist yet
@@ -147,11 +150,10 @@ impl<'a> ApplicationHandler for App<'a> {
                             viewport_center.0 - 50.0,
                             viewport_center.1 - 50.0,
                         )
-                        .with_camera_perspective_origin(viewport_center.0, viewport_center.1)
-                        .with_perspective_distance(500.0)
-                        .with_origin(50.0, 50.0)
+                        .with_parent_container_perspective(500.0, viewport_center.0, viewport_center.1)
                         .then_rotate_x(45.0)
-                        .then_rotate_y(30.0)
+                        // .then_rotate_y(30.0)
+                        .with_origin(50.0, 50.0)
                         .compose_2(&transformator::Transform::new());
 
                     renderer.set_transformator(rect_id, &parent_local);
@@ -160,20 +162,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     // Layout: padding(10) + rect(35) + gap(10) + rect(35) + padding(10) = 100 total width.
                     // Vertical: padding(10) + height(80) + padding(10) = 100 total height.
 
-                    let pos_absoulte = (
-                        viewport_center.0 - 50.0 + 10.0,
-                        viewport_center.1 - 50.0 + 10.0,
-                    );
-
                     let child1 = transformator::Transform::new()
                         .with_position_relative_to_parent(10.0, 10.0)
-                        .with_camera_perspective_origin(
-                            pos_absoulte.0 + 17.5,
-                            pos_absoulte.1 + 40.0,
-                        )
-                        .with_origin(17.5, 40.0)
-                        .with_perspective_distance(500.0)
-                        .then_rotate_y(30.0)
                         .compose_2(&parent_local);
                     renderer.set_transformator(inner_rect_1, &child1);
 
@@ -205,6 +195,12 @@ impl<'a> ApplicationHandler for App<'a> {
                     if let Some(window) = &self.window {
                         window.request_redraw();
                     }
+                }
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.mouse_position = Point2D::new(position.x as f32, position.y as f32);
+                if let Some(window) = &self.window {
+                    window.request_redraw();
                 }
             }
             _ => {}

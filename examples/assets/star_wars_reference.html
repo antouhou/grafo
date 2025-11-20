@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Star Wars Tilt Reference</title>
+    <script>
+        window.addEventListener("mousemove", (event) => {
+            console.log("x:", event.clientX, "y:", event.clientY);
+        });
+    </script>
     <style>
         body {
             margin: 0;
@@ -14,17 +19,19 @@
             align-items: center;
             background-color: #000;
             perspective: 500px;
+            perspective-origin: center;
         }
         
         .container {
             width: 100px;
             height: 100px;
             background-color: #FFD700;
-            border: 2px solid #FFF;
             transform: rotateX(45deg);
             transform-style: preserve-3d;
+            /*transform-box: view-box;*/
             display: flex;
             flex-direction: row;
+            /*box-sizing: border-box;*/
             padding: 10px;
             gap: 10px;
         }
@@ -32,8 +39,7 @@
         .inner-div {
             flex: 1;
             background-color: #FF6B6B;
-            border: 1px solid #FFF;
-            transform: rotateY(45deg);
+            /*transform: rotateY(45deg);*/
             /*transform-style: preserve-3d;*/
         }
     </style>

@@ -22,9 +22,9 @@ use crate::pipeline::{
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
-use crate::vertex::{InstanceColor, InstanceTransform, InstanceRenderParams};
-use crate::{transformator, CachedShape};
+use crate::vertex::{InstanceColor, InstanceRenderParams, InstanceTransform};
 use crate::Color;
+use crate::{transformator, CachedShape};
 use ahash::{HashMap, HashMapExt};
 use log::warn;
 use lyon::tessellation::FillTessellator;
@@ -759,9 +759,7 @@ impl<'a> Renderer<'a> {
                     let color = shape
                         .instance_color_override()
                         .unwrap_or([1.0, 1.0, 1.0, 1.0]);
-                    let render_params = shape
-                        .render_params()
-                        .unwrap_or_default();
+                    let render_params = shape.render_params().unwrap_or_default();
                     self.temp_instance_transforms.push(transform);
                     self.temp_instance_colors.push(InstanceColor { color });
                     self.temp_instance_render_params.push(render_params);
@@ -808,9 +806,7 @@ impl<'a> Renderer<'a> {
                         let color = cached_shape_data
                             .instance_color_override()
                             .unwrap_or([1.0, 1.0, 1.0, 1.0]);
-                        let render_params = cached_shape_data
-                            .render_params()
-                            .unwrap_or_default();
+                        let render_params = cached_shape_data.render_params().unwrap_or_default();
                         self.temp_instance_transforms.push(transform);
                         self.temp_instance_colors.push(InstanceColor { color });
                         self.temp_instance_render_params.push(render_params);
@@ -952,10 +948,11 @@ impl<'a> Renderer<'a> {
                 );
             }
         }
-        
+
         // Create/update aggregated instance render params buffer
         if !self.temp_instance_render_params.is_empty() {
-            let required_instance_size = std::mem::size_of_val(&self.temp_instance_render_params[..]);
+            let required_instance_size =
+                std::mem::size_of_val(&self.temp_instance_render_params[..]);
             let needs_realloc = self
                 .aggregated_instance_render_params_buffer
                 .as_ref()
@@ -970,7 +967,9 @@ impl<'a> Renderer<'a> {
                     }));
             } else {
                 self.queue.write_buffer(
-                    self.aggregated_instance_render_params_buffer.as_ref().unwrap(),
+                    self.aggregated_instance_render_params_buffer
+                        .as_ref()
+                        .unwrap(),
                     0,
                     bytemuck::cast_slice(&self.temp_instance_render_params),
                 );
@@ -1589,11 +1588,14 @@ impl<'a> Renderer<'a> {
             return;
         }
         self.set_shape_transform_cols(node_id, transformator.cols_world());
-        self.set_shape_camera_perspective_distance(node_id, transformator.camera_perspective_distance);
+        self.set_shape_camera_perspective_distance(
+            node_id,
+            transformator.parent_container_camera_perspective_distance,
+        );
         self.set_shape_camera_perspective_origin(
             node_id,
-            transformator.camera_perspective_origin.0,
-            transformator.camera_perspective_origin.1,
+            transformator.parent_container_camera_perspective_origin.0,
+            transformator.parent_container_camera_perspective_origin.1,
         );
     }
 
@@ -1650,12 +1652,12 @@ impl<'a> Renderer<'a> {
                 DrawCommand::Shape(shape) => shape.render_params().unwrap_or_default(),
                 DrawCommand::CachedShape(cached) => cached.render_params().unwrap_or_default(),
             };
-            
+
             let new_params = InstanceRenderParams {
                 camera_perspective: distance,
                 ..current_params
             };
-            
+
             match draw_command {
                 DrawCommand::Shape(shape) => shape.set_render_params(new_params),
                 DrawCommand::CachedShape(cached) => cached.set_render_params(new_params),
@@ -1670,12 +1672,12 @@ impl<'a> Renderer<'a> {
                 DrawCommand::Shape(shape) => shape.render_params().unwrap_or_default(),
                 DrawCommand::CachedShape(cached) => cached.render_params().unwrap_or_default(),
             };
-            
+
             let new_params = InstanceRenderParams {
                 camera_perspective_origin: [x, y],
                 ..current_params
             };
-            
+
             match draw_command {
                 DrawCommand::Shape(shape) => shape.set_render_params(new_params),
                 DrawCommand::CachedShape(cached) => cached.set_render_params(new_params),
@@ -1966,7 +1968,8 @@ fn handle_increment_pass<'rp>(
                 render_pass
                     .set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
-                render_pass.set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
+                render_pass
+                    .set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
@@ -2030,12 +2033,14 @@ fn handle_increment_pass<'rp>(
                 let offset_r = instance_idx as u64 * stride_r;
                 render_pass.set_vertex_buffer(3, inst_r_buf.slice(offset_r..offset_r + stride_r));
             } else {
-                render_pass.set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
+                render_pass
+                    .set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
             }
         } else {
             render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
             render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
-            render_pass.set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
+            render_pass
+                .set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
         }
         render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
 
@@ -2075,7 +2080,8 @@ fn handle_decrement_pass<'rp>(
                 render_pass
                     .set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
-                render_pass.set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
+                render_pass
+                    .set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
@@ -2113,12 +2119,14 @@ fn handle_decrement_pass<'rp>(
                 let offset_r = instance_idx as u64 * stride_r;
                 render_pass.set_vertex_buffer(3, inst_r_buf.slice(offset_r..offset_r + stride_r));
             } else {
-                render_pass.set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
+                render_pass
+                    .set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
             }
         } else {
             render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
             render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
-            render_pass.set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
+            render_pass
+                .set_vertex_buffer(3, buffers.identity_instance_render_params_buffer.slice(..));
         }
         render_buffer_range_to_texture(index_range, render_pass, this_shape_stencil);
 

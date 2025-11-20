@@ -158,5 +158,5 @@ pub use shape::*;
 pub use stroke::Stroke;
 pub use texture_manager::premultiply_rgba8_srgb_inplace;
 pub use texture_manager::TextureManager;
-pub use vertex::InstanceTransform as TransformInstance;
 pub use vertex::InstanceRenderParams;
+pub use vertex::InstanceTransform as TransformInstance;

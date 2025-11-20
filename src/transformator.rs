@@ -1,5 +1,6 @@
-use crate::TransformInstance;
-use euclid::{Transform3D, UnknownUnit};
+use crate::{transformator, TransformInstance};
+use euclid::{Point2D, Transform3D, UnknownUnit};
+use crate::vertex::InstanceTransform;
 
 #[derive(Clone, Debug)]
 pub struct Transform {
@@ -8,11 +9,11 @@ pub struct Transform {
     /// Fully composed world transform including all parent transforms (may include perspective)
     pub world_transform: Transform3D<f32, UnknownUnit, UnknownUnit>,
     /// Legacy CSS-like perspective distance (kept temporarily for compatibility)
-    pub camera_perspective_distance: f32,
+    pub parent_container_camera_perspective_distance: f32,
     /// Origin relative to the shape (pivot)
     pub origin: (f32, f32),
     /// Legacy perspective origin (canvas-space)
-    pub camera_perspective_origin: (f32, f32),
+    pub parent_container_camera_perspective_origin: (f32, f32),
     pub position_relative_to_parent: (f32, f32),
     /// Optional perspective matrix (with origin translations) replacing manual parameters.
     pub perspective_matrix: Option<Transform3D<f32, UnknownUnit, UnknownUnit>>,
@@ -23,9 +24,9 @@ impl Transform {
         Self {
             local_transform: Transform3D::identity(),
             world_transform: Transform3D::identity(),
-            camera_perspective_distance: 0.0,
+            parent_container_camera_perspective_distance: 0.0,
             origin: (0.0, 0.0),
-            camera_perspective_origin: (0.0, 0.0),
+            parent_container_camera_perspective_origin: (0.0, 0.0),
             position_relative_to_parent: (0.0, 0.0),
             perspective_matrix: None,
         }
@@ -60,9 +61,9 @@ impl Transform {
             .then(&self.local_transform)
             .then(&t_to_final);
 
-        if self.camera_perspective_distance <= 0.0 {
-            self.camera_perspective_distance = parent.camera_perspective_distance;
-            self.camera_perspective_origin = parent.camera_perspective_origin;
+        if self.parent_container_camera_perspective_distance <= 0.0 {
+            self.parent_container_camera_perspective_distance = parent.parent_container_camera_perspective_distance;
+            self.parent_container_camera_perspective_origin = parent.parent_container_camera_perspective_origin;
         }
 
         self.world_transform = base_world;
@@ -72,11 +73,11 @@ impl Transform {
         // Perspective inheritance (CSS-like): if this transform has no perspective (==0)
         // inherit the nearest ancestor's perspective & origin. Do not override if we already have one.
         // Legacy path: parent has a perspective distance but no perspective_matrix (examples using with_perspective_distance)
-        if self.camera_perspective_distance <= 0.0 && parent.camera_perspective_distance > 0.0 {
+        if self.parent_container_camera_perspective_distance <= 0.0 && parent.parent_container_camera_perspective_distance > 0.0 {
             // Only inherit if we didn't already set perspective (matrix or distance)
             if self.perspective_matrix.is_none() && parent.perspective_matrix.is_none() {
-                self.camera_perspective_distance = parent.camera_perspective_distance;
-                self.camera_perspective_origin = parent.camera_perspective_origin;
+                self.parent_container_camera_perspective_distance = parent.parent_container_camera_perspective_distance;
+                self.parent_container_camera_perspective_origin = parent.parent_container_camera_perspective_origin;
                 println!("Inherited legacy perspective distance/origin from parent");
             } else if self.perspective_matrix.is_none() && parent.perspective_matrix.is_some() {
                 println!("Perspective matrix inherited (will be applied last) ");
@@ -98,12 +99,12 @@ impl Transform {
         self
     }
 
-    pub fn set_perspective_distance(&mut self, distance: f32) {
-        self.camera_perspective_distance = distance;
+    pub fn set_parent_container_perspective_distance(&mut self, distance: f32) {
+        self.parent_container_camera_perspective_distance = distance;
     }
 
     pub fn with_perspective_distance(mut self, distance: f32) -> Self {
-        self.set_perspective_distance(distance);
+        self.set_parent_container_perspective_distance(distance);
         self
     }
 
@@ -117,13 +118,27 @@ impl Transform {
         self
     }
 
-    pub fn set_camera_perspective_origin(&mut self, x: f32, y: f32) {
-        self.camera_perspective_origin.0 = x;
-        self.camera_perspective_origin.1 = y;
+    pub fn set_parent_container_camera_perspective_origin(&mut self, x: f32, y: f32) {
+        self.parent_container_camera_perspective_origin.0 = x;
+        self.parent_container_camera_perspective_origin.1 = y;
     }
 
     pub fn with_camera_perspective_origin(mut self, x: f32, y: f32) -> Self {
-        self.set_camera_perspective_origin(x, y);
+        self.set_parent_container_camera_perspective_origin(x, y);
+        self
+    }
+
+    /// Sets the parent's perspective parameters. In CSS this would be done on the parent element,
+    /// but here we set it on the child for convenience.
+    pub fn set_parent_container_perspective(&mut self, distance: f32, origin_x: f32, origin_y: f32) {
+        self.set_parent_container_perspective_distance(distance);
+        self.set_parent_container_camera_perspective_origin(origin_x, origin_y);
+    }
+
+    /// Sets the parent's perspective parameters. In CSS this would be done on the parent element,
+    /// but here we set it on the child for convenience.
+    pub fn with_parent_container_perspective(mut self, distance: f32, origin_x: f32, origin_y: f32) -> Self {
+        self.set_parent_container_perspective(distance, origin_x, origin_y);
         self
     }
 
@@ -275,6 +290,41 @@ impl Transform {
         self
     }
 
+    pub fn transform_point_world(&self, x: f32, y: f32, z: f32) -> (f32, f32, f32) {
+        let m = &self.world_transform;
+        let p4 = [
+            m.m11 * x + m.m12 * y + m.m13 * z + m.m14,
+            m.m21 * x + m.m22 * y + m.m23 * z + m.m24,
+            m.m31 * x + m.m32 * y + m.m33 * z + m.m34,
+            m.m41 * x + m.m42 * y + m.m43 * z + m.m44,
+        ];
+        let w = if p4[3].abs() < 1e-6 { 1.0 } else { p4[3] };
+        (p4[0] / w, p4[1] / w, p4[2] / w)
+    }
+
+    pub fn transform_point2d_world(&self, x: f32, y: f32) -> (f32, f32) {
+        let model = self.cols_world();
+
+        // Apply the per-instance transform in pixel space first
+        let p = mul_vec4(&InstanceTransform::from_columns(model), [x, y, 0.0, 1.0]);
+
+        // p = (x', y', z', w') after affine
+        let mut px = p[0];
+        let mut py = p[1];
+        if self.parent_container_camera_perspective_distance > 0.0 {
+            let cx = self.parent_container_camera_perspective_origin.0;
+            let cy = self.parent_container_camera_perspective_origin.1;
+            let x_rel = px - cx;
+            let y_rel = py - cy;
+            // w' = 1 + z / d (z is p[2])
+            let w_persp = 1.0 + p[2] / self.parent_container_camera_perspective_distance;
+            let invw = 1.0 / f32::max(w_persp.abs(), 1e-6);
+            px = x_rel * invw + cx;
+            py = y_rel * invw + cy;
+        }
+        (px, py)
+    }
+
     // TODO: change the shader to actually work with euclid matrices instead of doing this conversion
     pub fn cols_local(&self) -> [[f32; 4]; 4] {
         let m = &self.local_transform;
@@ -319,143 +369,6 @@ impl Transform {
     }
 }
 
-#[test]
-pub fn test() {
-    let viewport_center = (400.0, 300.0);
-    let transform = Transform::new()
-        .with_position_relative_to_parent(viewport_center.0 - 50.0, viewport_center.1 - 50.0)
-        .with_perspective(500.0, viewport_center.0, viewport_center.1)
-        .with_origin(50.0, 50.0)
-        .then_rotate_x(45.0)
-        // Use viewport position to position the shape at screen center after perspective is applied.
-        .compose_2(&Transform::new());
-    // Apply perspective last (like CSS): use helper.
-    let world_cols = transform.cols_world_with_perspective();
-    let tinst = TransformInstance::from_columns(world_cols);
-    let center_local = [50.0, 50.0];
-    let p4 = mul_vec4(&tinst, [center_local[0], center_local[1], 0.0, 1.0]);
-    let w = if p4[3].abs() < 1e-6 { 1.0 } else { p4[3] };
-    let projected = [p4[0] / w, p4[1] / w];
-    println!("projected center = {:?} (w={})", projected, w);
-
-    // Expect near viewport center (allow small epsilon due to perspective numeric error)
-    let eps = 0.01;
-    assert!(
-        (projected[0] - viewport_center.0).abs() < eps
-            && (projected[1] - viewport_center.1).abs() < eps,
-        "Projected center deviated: got {:?} expected {:?}",
-        projected,
-        viewport_center
-    );
-}
-
-#[test]
-pub fn test_inherit_perspective() {
-    // Parent with perspective
-    let parent = Transform::new()
-        .with_position_relative_to_parent(0.0, 0.0)
-        .with_perspective(600.0, 400.0, 300.0)
-        .with_origin(0.0, 0.0)
-        .compose_2(&Transform::new());
-
-    // Child without perspective should inherit
-    let child = Transform::new()
-        .with_position_relative_to_parent(10.0, 20.0)
-        .with_origin(0.0, 0.0)
-        .compose_2(&parent);
-
-    assert_eq!(
-        child.camera_perspective_distance, parent.camera_perspective_distance,
-        "Child did not inherit perspective distance"
-    );
-    assert_eq!(
-        child.camera_perspective_origin, parent.camera_perspective_origin,
-        "Child did not inherit perspective origin"
-    );
-
-    // Grandchild with explicit perspective should NOT inherit
-    let grandchild = Transform::new()
-        .with_perspective(300.0, 200.0, 150.0)
-        .compose_2(&child);
-
-    assert_eq!(
-        grandchild.camera_perspective_distance, 300.0,
-        "Grandchild perspective overridden unexpectedly"
-    );
-    assert_eq!(
-        grandchild.camera_perspective_origin,
-        (200.0, 150.0),
-        "Grandchild origin overridden unexpectedly"
-    );
-}
-
-#[test]
-pub fn test_child_perspective_effect() {
-    // Parent sets perspective; child rotates causing z variation which should be projected.
-    let parent = Transform::new()
-        .with_perspective(800.0, 400.0, 300.0)
-        .compose_2(&Transform::new());
-
-    let child = Transform::new()
-        .with_position_relative_to_parent(100.0, 100.0)
-        .with_origin(50.0, 50.0)
-        .then_rotate_x(60.0) // large rotation for visible perspective skew
-        .compose_2(&parent);
-
-    let cols_no_persp = child.cols_world(); // affine only
-    let cols_with_persp = child.cols_world_with_perspective(); // with perspective
-    let t_no = TransformInstance::from_columns(cols_no_persp);
-    let t_p = TransformInstance::from_columns(cols_with_persp);
-    let local_pt = [50.0, 10.0]; // point with some y to produce z after rotation
-    let p4_no = mul_vec4(&t_no, [local_pt[0], local_pt[1], 0.0, 1.0]);
-    let p4_p = mul_vec4(&t_p, [local_pt[0], local_pt[1], 0.0, 1.0]);
-    let w_no = if p4_no[3].abs() < 1e-6 { 1.0 } else { p4_no[3] };
-    let w_p = if p4_p[3].abs() < 1e-6 { 1.0 } else { p4_p[3] };
-    let screen_no = [p4_no[0] / w_no, p4_no[1] / w_no];
-    let screen_p = [p4_p[0] / w_p, p4_p[1] / w_p];
-    // Expect vertical position to shift due to perspective (y move toward origin center)
-    assert!(
-        (screen_no[1] - screen_p[1]).abs() > 0.01,
-        "Perspective had no visible effect on child rotation"
-    );
-}
-
-#[test]
-pub fn test_sibling_depth_difference() {
-    let parent = Transform::new()
-        .with_position_relative_to_parent(0.0, 0.0)
-        .with_perspective(700.0, 400.0, 300.0)
-        .then_rotate_x(45.0)
-        .then_rotate_y(35.0)
-        .compose_2(&Transform::new());
-
-    let sibling1 = Transform::new()
-        .with_position_relative_to_parent(10.0, 10.0)
-        .with_origin(50.0, 50.0)
-        .compose_2(&parent);
-    let sibling2 = Transform::new()
-        .with_position_relative_to_parent(60.0, 10.0) // farther along X
-        .with_origin(50.0, 50.0)
-        .compose_2(&parent);
-
-    let c1_cols = sibling1.cols_world_with_perspective();
-    let c2_cols = sibling2.cols_world_with_perspective();
-    let t1 = TransformInstance::from_columns(c1_cols);
-    let t2 = TransformInstance::from_columns(c2_cols);
-    let local_pt = [50.0, 20.0];
-    let p1 = mul_vec4(&t1, [local_pt[0], local_pt[1], 0.0, 1.0]);
-    let p2 = mul_vec4(&t2, [local_pt[0], local_pt[1], 0.0, 1.0]);
-    let w1 = if p1[3].abs() < 1e-6 { 1.0 } else { p1[3] };
-    let w2 = if p2[3].abs() < 1e-6 { 1.0 } else { p2[3] };
-    let s1 = [p1[0] / w1, p1[1] / w1];
-    let s2 = [p2[0] / w2, p2[1] / w2];
-    // Expect horizontal projected positions to differ not only by translation but also slight vertical/skew difference.
-    assert!(
-        (s1[1] - s2[1]).abs() > 0.001,
-        "Siblings show no vertical divergence under perspective"
-    );
-}
-
 /// Multiply a TransformInstance with a 4D vector (public for tests).
 pub fn mul_vec4(t: &TransformInstance, v: [f32; 4]) -> [f32; 4] {
     [
@@ -465,3 +378,101 @@ pub fn mul_vec4(t: &TransformInstance, v: [f32; 4]) -> [f32; 4] {
         t.col0[3] * v[0] + t.col1[3] * v[1] + t.col2[3] * v[2] + t.col3[3] * v[3],
     ]
 }
+
+#[test]
+pub fn test_a() {
+    let viewport_center = (400.0, 300.0);
+    let rect_size = (100.0, 100.0);
+    let inner_rect_size = (35.0, 80.0);
+
+    let parent = Transform::new()
+        .with_position_relative_to_parent(
+            viewport_center.0 - 50.0,
+            viewport_center.1 - 50.0,
+        )
+        .with_parent_container_perspective(500.0, viewport_center.0, viewport_center.1)
+        .with_origin(50.0, 50.0)
+        .then_rotate_x(45.0)
+        .compose_2(&Transform::new());
+
+    // Inner rectangles inherit parent transform and sit inside with 10px padding.
+    // Layout: padding(10) + rect(35) + gap(10) + rect(35) + padding(10) = 100 total width.
+    // Vertical: padding(10) + height(80) + padding(10) = 100 total height.
+
+    let child1 = Transform::new()
+        .with_position_relative_to_parent(10.0, 10.0)
+        .compose_2(&parent);
+
+    let child2 = Transform::new()
+        .with_position_relative_to_parent(55.0, 10.0) // 10 + 35 + 10
+        .compose_2(&parent);
+
+    // VERY Rough (+- 5 pixels) estimations measured by hovering the mouse in Chrome for the
+    // equivalent CSS-transformed elements. Points are clockwise.
+    let rect_corners_after_transform_expected = [
+        // Top left
+        (346.0, 264.0),
+        (455.0, 264.0),
+        (465.0, 348.0),
+        (336.0, 348.0),
+    ];
+
+    let inner_rect_after_transform_expected = [
+        // Child 1 top-left
+        (355.0, 270.0),
+        (395.0, 270.0),
+        (394.0, 338.0),
+        (348.0, 338.0),
+    ];
+
+    let inner_rect2_after_transform_expected = [
+        // Child 2 top-left
+        (406.0, 270.0),
+        (446.0, 270.0),
+        (453.0, 338.0),
+        (405.0, 338.0),
+    ];
+
+    let actual_rect_corners = [
+        parent.transform_point2d_world(0.0, 0.0),
+        parent.transform_point2d_world(100.0, 0.0),
+        parent.transform_point2d_world(100.0, 100.0),
+        parent.transform_point2d_world(0.0, 100.0),
+    ];
+    println!("Actual rect corners: {:?}", actual_rect_corners);
+
+    for (actual, expected) in actual_rect_corners.iter().zip(rect_corners_after_transform_expected.iter()) {
+        let dx = (actual.0 - expected.0).abs();
+        let dy = (actual.1 - expected.1).abs();
+        assert!(dx < 5.0 && dy < 5.0, "Parent rect corner deviated: got {:?}, expected {:?}, delta=({},{})", actual, expected, dx, dy);
+    }
+
+    let inner_rect1_corners = [
+        child1.transform_point2d_world(0.0, 0.0),
+        child1.transform_point2d_world(inner_rect_size.0, 0.0),
+        child1.transform_point2d_world(inner_rect_size.0, inner_rect_size.1),
+        child1.transform_point2d_world(0.0, inner_rect_size.1),
+    ];
+    println!("Child 1 rect corners: {:?}", inner_rect1_corners);
+
+    for (actual, expected) in inner_rect1_corners.iter().zip(inner_rect_after_transform_expected.iter()) {
+        let dx = (actual.0 - expected.0).abs();
+        let dy = (actual.1 - expected.1).abs();
+        assert!(dx < 5.0 && dy < 5.0, "Child 1 rect corner deviated: got {:?}, expected {:?}, delta=({},{})", actual, expected, dx, dy);
+    }
+
+    let inner_rect2_corners = [
+        child2.transform_point2d_world(0.0, 0.0),
+        child2.transform_point2d_world(inner_rect_size.0, 0.0),
+        child2.transform_point2d_world(inner_rect_size.0, inner_rect_size.1),
+        child2.transform_point2d_world(0.0, inner_rect_size.1),
+    ];
+    println!("Child 2 rect corners: {:?}", inner_rect2_corners);
+
+    for (actual, expected) in inner_rect2_corners.iter().zip(inner_rect2_after_transform_expected.iter()) {
+        let dx = (actual.0 - expected.0).abs();
+        let dy = (actual.1 - expected.1).abs();
+        assert!(dx < 5.0 && dy < 5.0, "Child 2 rect corner deviated: got {:?}, expected {:?}, delta=({},{})", actual, expected, dx, dy);
+    }
+}
+
