@@ -1587,16 +1587,16 @@ impl<'a> Renderer<'a> {
         if !exists {
             return;
         }
-        self.set_shape_transform_cols(node_id, transformator.cols_world());
-        self.set_shape_camera_perspective_distance(
-            node_id,
-            transformator.parent_container_camera_perspective_distance,
-        );
-        self.set_shape_camera_perspective_origin(
-            node_id,
-            transformator.parent_container_camera_perspective_origin.0,
-            transformator.parent_container_camera_perspective_origin.1,
-        );
+        // self.set_shape_transform_cols(node_id, transformator.cols_world());
+        // self.set_shape_camera_perspective_distance(
+        //     node_id,
+        //     transformator.parent_container_camera_perspective_distance,
+        // );
+        // self.set_shape_camera_perspective_origin(
+        //     node_id,
+        //     transformator.parent_container_camera_perspective_origin.0,
+        //     transformator.parent_container_camera_perspective_origin.1,
+        // );
     }
 
     /// Associates a texture with a shape or cached shape by node id.

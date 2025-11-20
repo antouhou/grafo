@@ -1,6 +1,5 @@
 use crate::{transformator, TransformInstance};
 use euclid::{Point2D, Transform3D, UnknownUnit};
-use crate::vertex::InstanceTransform;
 
 #[derive(Clone, Debug)]
 pub struct Transform {
@@ -8,15 +7,12 @@ pub struct Transform {
     pub local_transform: Transform3D<f32, UnknownUnit, UnknownUnit>,
     /// Fully composed world transform including all parent transforms (may include perspective)
     pub world_transform: Transform3D<f32, UnknownUnit, UnknownUnit>,
-    /// Legacy CSS-like perspective distance (kept temporarily for compatibility)
-    pub parent_container_camera_perspective_distance: f32,
     /// Origin relative to the shape (pivot)
     pub origin: (f32, f32),
-    /// Legacy perspective origin (canvas-space)
-    pub parent_container_camera_perspective_origin: (f32, f32),
+    /// Layout position relative to the parent
     pub position_relative_to_parent: (f32, f32),
-    /// Optional perspective matrix (with origin translations) replacing manual parameters.
-    pub perspective_matrix: Option<Transform3D<f32, UnknownUnit, UnknownUnit>>,
+    /// Optional perspective matrix of the current element's parent
+    pub parent_container_camera_perspective: Option<Transform3D<f32, UnknownUnit, UnknownUnit>>,
 }
 
 impl Transform {
@@ -24,11 +20,9 @@ impl Transform {
         Self {
             local_transform: Transform3D::identity(),
             world_transform: Transform3D::identity(),
-            parent_container_camera_perspective_distance: 0.0,
             origin: (0.0, 0.0),
-            parent_container_camera_perspective_origin: (0.0, 0.0),
             position_relative_to_parent: (0.0, 0.0),
-            perspective_matrix: None,
+            parent_container_camera_perspective: None,
         }
     }
 
@@ -36,53 +30,8 @@ impl Transform {
     /// transform's world transform. Prent should be composed before calling this method.
     /// You can set up an empty transform for the root element.
     pub fn compose(&mut self, parent: &Transform) {
-        let (px, py) = self.position_relative_to_parent;
-        let (ox, oy) = self.origin;
-
-        let t_from_origin: Transform3D<f32, UnknownUnit, UnknownUnit> =
-            Transform3D::translation(-ox, -oy, 0.0);
-        // Preserve depth: multiply parent affine (excluding perspective) by 3D point (px,py,0,1)
-        let pm = &parent.world_transform; // parent affine world (no perspective baked)
-        let p4 = [
-            pm.m11 * px + pm.m12 * py + pm.m13 * 0.0 + pm.m14,
-            pm.m21 * px + pm.m22 * py + pm.m23 * 0.0 + pm.m24,
-            pm.m31 * px + pm.m32 * py + pm.m33 * 0.0 + pm.m34,
-            pm.m41 * px + pm.m42 * py + pm.m43 * 0.0 + pm.m44,
-        ];
-        let px = p4[0];
-        let py = p4[1];
-        let pz = p4[2];
-        let t_to_final: Transform3D<f32, UnknownUnit, UnknownUnit> =
-            Transform3D::translation(px + ox, py + oy, pz);
-
-        let base_world = parent
-            .world_transform
-            .then(&t_from_origin)
-            .then(&self.local_transform)
-            .then(&t_to_final);
-
-        if self.parent_container_camera_perspective_distance <= 0.0 {
-            self.parent_container_camera_perspective_distance = parent.parent_container_camera_perspective_distance;
-            self.parent_container_camera_perspective_origin = parent.parent_container_camera_perspective_origin;
-        }
-
-        self.world_transform = base_world;
-
-        println!("origin: ({}, {}), position: ({}, {})", ox, oy, px, py);
-
-        // Perspective inheritance (CSS-like): if this transform has no perspective (==0)
-        // inherit the nearest ancestor's perspective & origin. Do not override if we already have one.
-        // Legacy path: parent has a perspective distance but no perspective_matrix (examples using with_perspective_distance)
-        if self.parent_container_camera_perspective_distance <= 0.0 && parent.parent_container_camera_perspective_distance > 0.0 {
-            // Only inherit if we didn't already set perspective (matrix or distance)
-            if self.perspective_matrix.is_none() && parent.perspective_matrix.is_none() {
-                self.parent_container_camera_perspective_distance = parent.parent_container_camera_perspective_distance;
-                self.parent_container_camera_perspective_origin = parent.parent_container_camera_perspective_origin;
-                println!("Inherited legacy perspective distance/origin from parent");
-            } else if self.perspective_matrix.is_none() && parent.perspective_matrix.is_some() {
-                println!("Perspective matrix inherited (will be applied last) ");
-            }
-        }
+        // Should compose current local transform, perspective and parent and store it in the
+        // world_transform field.
     }
 
     pub fn compose_2(mut self, parent: &Transform) -> Self {
@@ -99,15 +48,6 @@ impl Transform {
         self
     }
 
-    pub fn set_parent_container_perspective_distance(&mut self, distance: f32) {
-        self.parent_container_camera_perspective_distance = distance;
-    }
-
-    pub fn with_perspective_distance(mut self, distance: f32) -> Self {
-        self.set_parent_container_perspective_distance(distance);
-        self
-    }
-
     pub fn set_position_relative_to_parent(&mut self, x: f32, y: f32) {
         self.position_relative_to_parent.0 = x;
         self.position_relative_to_parent.1 = y;
@@ -118,21 +58,10 @@ impl Transform {
         self
     }
 
-    pub fn set_parent_container_camera_perspective_origin(&mut self, x: f32, y: f32) {
-        self.parent_container_camera_perspective_origin.0 = x;
-        self.parent_container_camera_perspective_origin.1 = y;
-    }
-
-    pub fn with_camera_perspective_origin(mut self, x: f32, y: f32) -> Self {
-        self.set_parent_container_camera_perspective_origin(x, y);
-        self
-    }
-
     /// Sets the parent's perspective parameters. In CSS this would be done on the parent element,
     /// but here we set it on the child for convenience.
     pub fn set_parent_container_perspective(&mut self, distance: f32, origin_x: f32, origin_y: f32) {
-        self.set_parent_container_perspective_distance(distance);
-        self.set_parent_container_camera_perspective_origin(origin_x, origin_y);
+        // Calculate and set the perspective matrix based on distance and origin.
     }
 
     /// Sets the parent's perspective parameters. In CSS this would be done on the parent element,
@@ -141,33 +70,6 @@ impl Transform {
         self.set_parent_container_perspective(distance, origin_x, origin_y);
         self
     }
-
-    /// Set perspective via matrix (distance > 0 enables). Stores legacy fields for now.
-    // pub fn set_perspective(&mut self, distance: f32, origin_x: f32, origin_y: f32) {
-    //     self.camera_perspective_distance = distance;
-    //     self.camera_perspective_origin = (origin_x, origin_y);
-    //     if distance <= 0.0 {
-    //         self.perspective_matrix = None;
-    //         return;
-    //     }
-    //     let d_inv = 1.0 / distance;
-    //     // Perspective matrix producing w' = 1 + z/d
-    //     let persp: Transform3D<f32, UnknownUnit, UnknownUnit> = Transform3D::new(
-    //         1.0, 0.0, 0.0, 0.0,
-    //         0.0, 1.0, 0.0, 0.0,
-    //         0.0, 0.0, 1.0, 0.0,
-    //         0.0, 0.0, d_inv, 1.0,
-    //     );
-    //     let to_origin = Transform3D::translation(-origin_x, -origin_y, 0.0);
-    //     let back = Transform3D::translation(origin_x, origin_y, 0.0);
-    //     let full = back.then(&persp).then(&to_origin);
-    //     self.perspective_matrix = Some(full);
-    // }
-
-    // pub fn with_perspective(mut self, distance: f32, origin_x: f32, origin_y: f32) -> Self {
-    //     self.set_perspective(distance, origin_x, origin_y);
-    //     self
-    // }
 
     // ===== Translations =====
 
@@ -290,39 +192,9 @@ impl Transform {
         self
     }
 
-    pub fn transform_point_world(&self, x: f32, y: f32, z: f32) -> (f32, f32, f32) {
-        let m = &self.world_transform;
-        let p4 = [
-            m.m11 * x + m.m12 * y + m.m13 * z + m.m14,
-            m.m21 * x + m.m22 * y + m.m23 * z + m.m24,
-            m.m31 * x + m.m32 * y + m.m33 * z + m.m34,
-            m.m41 * x + m.m42 * y + m.m43 * z + m.m44,
-        ];
-        let w = if p4[3].abs() < 1e-6 { 1.0 } else { p4[3] };
-        (p4[0] / w, p4[1] / w, p4[2] / w)
-    }
-
     pub fn transform_point2d_world(&self, x: f32, y: f32) -> (f32, f32) {
-        let model = self.cols_world();
-
-        // Apply the per-instance transform in pixel space first
-        let p = mul_vec4(&InstanceTransform::from_columns(model), [x, y, 0.0, 1.0]);
-
-        // p = (x', y', z', w') after affine
-        let mut px = p[0];
-        let mut py = p[1];
-        if self.parent_container_camera_perspective_distance > 0.0 {
-            let cx = self.parent_container_camera_perspective_origin.0;
-            let cy = self.parent_container_camera_perspective_origin.1;
-            let x_rel = px - cx;
-            let y_rel = py - cy;
-            // w' = 1 + z / d (z is p[2])
-            let w_persp = 1.0 + p[2] / self.parent_container_camera_perspective_distance;
-            let invw = 1.0 / f32::max(w_persp.abs(), 1e-6);
-            px = x_rel * invw + cx;
-            py = y_rel * invw + cy;
-        }
-        (px, py)
+        // implement
+        (0.0, 0.0)
     }
 
     // TODO: change the shader to actually work with euclid matrices instead of doing this conversion
@@ -345,38 +217,6 @@ impl Transform {
             [m.m41, m.m42, m.m43, m.m44],
         ]
     }
-
-    pub fn cols_world_with_perspective(&self) -> [[f32; 4]; 4] {
-        if let Some(p) = &self.perspective_matrix {
-            // Apply perspective LAST: composite = world_affine * perspective
-            let m = self.world_transform.then(p);
-            // Standard column-major: col0=(m11,m21,m31,m41), etc.
-            [
-                [m.m11, m.m21, m.m31, m.m41],
-                [m.m12, m.m22, m.m32, m.m42],
-                [m.m13, m.m23, m.m33, m.m43],
-                [m.m14, m.m24, m.m34, m.m44],
-            ]
-        } else {
-            let m = &self.world_transform;
-            [
-                [m.m11, m.m21, m.m31, m.m41],
-                [m.m12, m.m22, m.m32, m.m42],
-                [m.m13, m.m23, m.m33, m.m43],
-                [m.m14, m.m24, m.m34, m.m44],
-            ]
-        }
-    }
-}
-
-/// Multiply a TransformInstance with a 4D vector (public for tests).
-pub fn mul_vec4(t: &TransformInstance, v: [f32; 4]) -> [f32; 4] {
-    [
-        t.col0[0] * v[0] + t.col1[0] * v[1] + t.col2[0] * v[2] + t.col3[0] * v[3],
-        t.col0[1] * v[0] + t.col1[1] * v[1] + t.col2[1] * v[2] + t.col3[1] * v[3],
-        t.col0[2] * v[0] + t.col1[2] * v[1] + t.col2[2] * v[2] + t.col3[2] * v[3],
-        t.col0[3] * v[0] + t.col1[3] * v[1] + t.col2[3] * v[2] + t.col3[3] * v[3],
-    ]
 }
 
 pub mod tests {
