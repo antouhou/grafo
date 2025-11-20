@@ -15,7 +15,7 @@ struct VertexInput {
     // Per-instance camera perspective
     @location(8) camera_perspective: f32,
     // Per-instance viewport position
-    @location(9) viewport_position: vec2<f32>,
+    @location(9) camera_perspective_origin: vec2<f32>,
 };
 
 struct VertexOutput {
@@ -69,8 +69,8 @@ fn vs_main(input: VertexInput) -> VertexOutput {
         // CSS-style perspective: w' = 1 + z/d
         // w = 1.0 + p.z / input.camera_perspective;
 
-        let cx = input.viewport_position.x; // canvas-space origin
-        let cy = input.viewport_position.y;
+        let cx = input.camera_perspective_origin.x; // canvas-space origin
+        let cy = input.camera_perspective_origin.y;
 
         let x_rel = p.x - cx;
         let y_rel = p.y - cy;

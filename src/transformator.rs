@@ -32,25 +32,18 @@ impl Transform {
     /// transform's world transform. Prent should be composed before calling this method.
     /// You can set up an empty transform for the root element.
     pub fn compose(&mut self, parent: &Transform) {
-        // let parent_viewport = parent.camera_perspective_origin;
-        // let local_viewport = self.camera_perspective_origin;
-        // Calculate local layout position relative to parent by subtracting parent's viewport position
-        // from the local viewport position
-        // println!("Local viewport: {}, {}", local_viewport.0, local_viewport.1);
-        // println!("Parent viewport: {}, {}", parent_viewport.0, parent_viewport.1);
         let (px, py) = self.position_relative_to_parent;
         let (ox, oy) = self.origin;
 
-        println!("px, py: {}, {}", px, py);
+        // Attempt pivot-first ordering given current matrix multiplication expectations:
+        // world = parent * translate(-origin) * local * translate(position + origin)
+        let t_from_origin: Transform3D<f32, UnknownUnit, UnknownUnit> = Transform3D::translation(-ox, -oy, 0.0);
+        let t_to_final: Transform3D<f32, UnknownUnit, UnknownUnit> = Transform3D::translation(px + ox, py + oy, 0.0);
 
-        let to_pivot    = Transform3D::translation(px + ox, py + oy, 0.0);
-        let from_pivot  = Transform3D::translation(-ox, -oy, 0.0);
-
-        self.world_transform =
-            parent.world_transform
-                .then(&to_pivot)
-                .then(&self.local_transform)  // local transform
-                .then(&from_pivot);
+        self.world_transform = parent.world_transform
+            .then(&t_from_origin)
+            .then(&self.local_transform)
+            .then(&t_to_final);
     }
 
     pub fn compose_2(mut self, parent: &Transform) -> Self {
@@ -205,7 +198,6 @@ impl Transform {
 
 #[test]
 pub fn test() {
-    let size = (100.0, 100.0);
     let viewport_center = (400.0, 300.0);
     let transform = Transform::new()
         .with_position_relative_to_parent(viewport_center.0 - 50.0, viewport_center.1 - 50.0)
@@ -238,6 +230,13 @@ pub fn test() {
         }
     );
     println!("{:?}", point);
+
+    // Assert center stability with and without perspective.
+    let eps = 0.0001;
+    assert!((p[0] - viewport_center.0).abs() < eps && (p[1] - viewport_center.1).abs() < eps,
+        "Center moved without perspective: got {:?} expected {:?}", p, viewport_center);
+    assert!((point[0] - viewport_center.0).abs() < eps && (point[1] - viewport_center.1).abs() < eps,
+        "Center moved with perspective: got {:?} expected {:?}", point, viewport_center);
 }
 
 /// Multiplies a TransformInstance with a 4D vector
