@@ -148,7 +148,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         .with_perspective_distance(500.0)
                         .with_origin(50.0, 50.0)
                         .then_rotate_x(45.0)
-                        // .then_rotate_y(30.0)
+                        .then_rotate_y(30.0)
                         .compose_2(&transformator::Transform::new());
 
                     renderer.set_transformator(rect_id, &parent_local);
