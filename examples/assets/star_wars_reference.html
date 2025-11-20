@@ -23,10 +23,25 @@
             border: 2px solid #FFF;
             transform: rotateX(45deg);
             transform-style: preserve-3d;
+            display: flex;
+            flex-direction: row;
+            padding: 10px;
+            gap: 10px;
+        }
+        
+        .inner-div {
+            flex: 1;
+            background-color: #FF6B6B;
+            border: 1px solid #FFF;
+            transform: rotateY(45deg);
+            /*transform-style: preserve-3d;*/
         }
     </style>
 </head>
 <body>
-    <div class="container"></div>
+    <div class="container">
+        <div class="inner-div"></div>
+        <div class="inner-div"></div>
+    </div>
 </body>
 </html>

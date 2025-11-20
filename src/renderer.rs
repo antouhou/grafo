@@ -23,7 +23,7 @@ use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
 use crate::vertex::{InstanceColor, InstanceTransform, InstanceRenderParams};
-use crate::CachedShape;
+use crate::{transformator, CachedShape};
 use crate::Color;
 use ahash::{HashMap, HashMapExt};
 use log::warn;
@@ -1583,6 +1583,20 @@ impl<'a> Renderer<'a> {
         }
     }
 
+    pub fn set_transformator(&mut self, node_id: usize, transformator: &transformator::Transform) {
+        let exists = self.draw_tree.get(node_id).is_some();
+        if !exists {
+            return;
+        }
+        self.set_shape_transform_cols(node_id, transformator.cols_world());
+        self.set_shape_camera_perspective(node_id, transformator.perspective_distance);
+        self.set_shape_viewport_position(
+            node_id,
+            transformator.camera_perspective_origin.0,
+            transformator.camera_perspective_origin.1,
+        );
+    }
+
     /// Associates a texture with a shape or cached shape by node id.
     /// Pass `None` to remove texture and fall back to solid fill color.
     pub fn set_shape_texture(&mut self, node_id: usize, texture_id: Option<u64>) {
@@ -1658,7 +1672,7 @@ impl<'a> Renderer<'a> {
             };
             
             let new_params = InstanceRenderParams {
-                viewport_position: [x, y],
+                camera_perspective_origin: [x, y],
                 ..current_params
             };
             

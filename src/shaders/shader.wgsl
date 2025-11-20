@@ -63,22 +63,36 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     
     // Apply perspective if specified (acting on the z-coordinate from transform)
     var w: f32;
+    var px: f32 = p.x;
+    var py: f32 = p.y;
     if input.camera_perspective > 0.0 {
         // CSS-style perspective: w' = 1 + z/d
+        // w = 1.0 + p.z / input.camera_perspective;
+
+        let cx = input.viewport_position.x; // canvas-space origin
+        let cy = input.viewport_position.y;
+
+        let x_rel = p.x - cx;
+        let y_rel = p.y - cy;
+
         w = 1.0 + p.z / input.camera_perspective;
+        let invw = 1.0 / max(abs(w), 1e-6);
+
+        px = x_rel * invw + cx;
+        py = y_rel * invw + cy;
     } else {
         // No perspective, use w from transform
         w = p.w;
     }
     
-    // Homogeneous divide to account for perspective. Clamp w to avoid infinities.
-    let invw = 1.0 / max(abs(w), 1e-6);
-    var px = p.x * invw; // pixel-space x after perspective
-    var py = p.y * invw; // pixel-space y after perspective
+//    // Homogeneous divide to account for perspective. Clamp w to avoid infinities.
+//    let invw = 1.0 / max(abs(w), 1e-6);
+//    var px = p.x * invw; // pixel-space x after perspective
+//    var py = p.y * invw; // pixel-space y after perspective
     
     // Apply viewport position in pixel space
-    px += input.viewport_position.x;
-    py += input.viewport_position.y;
+//    px += input.viewport_position.x;
+//    py += input.viewport_position.y;
 
     // Then convert to NDC (Normalized Device Coordinates)
     // NDC is a cube with corners (-1, -1, -1) and (1, 1, 1).

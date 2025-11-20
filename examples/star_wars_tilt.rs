@@ -1,6 +1,6 @@
 use euclid::{default::Transform3D, Angle};
 use futures::executor::block_on;
-use grafo::{Color, Shape, Stroke};
+use grafo::{transformator, Color, InstanceRenderParams, Shape, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -23,6 +23,8 @@ struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
     rect_id: Option<usize>,
+    inner_rect_1: Option<usize>,
+    inner_rect_2: Option<usize>,
 }
 
 impl<'a> App<'a> {
@@ -31,6 +33,8 @@ impl<'a> App<'a> {
             window: None,
             renderer: None,
             rect_id: None,
+            inner_rect_1: None,
+            inner_rect_2: None,
         }
     }
 }
@@ -52,7 +56,7 @@ impl<'a> ApplicationHandler for App<'a> {
 
         self.window = Some(window.clone());
 
-        let mut renderer = block_on(grafo::Renderer::new(
+        let renderer = block_on(grafo::Renderer::new(
             window.clone(),
             physical_size,
             scale_factor,
@@ -60,47 +64,6 @@ impl<'a> ApplicationHandler for App<'a> {
             false,
         ));
 
-        // Create a 100x100 rectangle (matching the HTML)
-        // Gold color (#FFD700 = rgb(255, 215, 0)) with white border (2px)
-        let rect_shape = Shape::rect(
-            [(0.0, 0.0), (100.0, 100.0)],
-            Stroke::new(2.0, Color::WHITE),
-        );
-
-        let rect_id = renderer.add_shape(rect_shape, None, None);
-        
-        // Set the fill color to gold
-        renderer.set_shape_color(rect_id, Some(Color::rgb(255, 215, 0)));
-
-        // Position the rectangle at center of screen (400, 300)
-        // In the HTML, the rectangle is rotated 45 degrees around the X axis (rotateX(45deg))
-        // and the container has perspective: 500px
-        //
-        // To replicate this:
-        // 1. Center the rectangle's origin (translate by -50, -50 to center the 100x100 rect)
-        // 2. Apply rotateX(45deg)
-        // 3. Set perspective_distance to 500
-        // 4. Use offset to position at screen center
-
-        let center_shape = Transform3D::translation(-50.0, -50.0, 0.0);
-        let rotate_x = Transform3D::rotation(1.0, 0.0, 0.0, Angle::degrees(45.0));
-
-        let transform = center_shape.then(&rotate_x);
-
-        // Set perspective distance to 500 (matching CSS perspective: 500px)
-        // Use viewport position to position the shape at screen center after perspective is applied
-        let perspective_distance = 500.0;
-        let (width, height) = renderer.size();
-        let viewport_position = [width as f32 / 2.0, height as f32 / 2.0];
-
-        let instance = transform_instance_from_euclid(transform);
-        renderer.set_shape_transform(rect_id, instance);
-        
-        // Set the perspective and viewport position using the new API
-        renderer.set_shape_camera_perspective(rect_id, perspective_distance);
-        renderer.set_shape_viewport_position(rect_id, viewport_position[0], viewport_position[1]);
-
-        self.rect_id = Some(rect_id);
         self.renderer = Some(renderer);
 
         window.request_redraw();
@@ -118,28 +81,89 @@ impl<'a> ApplicationHandler for App<'a> {
             }
             WindowEvent::RedrawRequested => {
                 if let Some(renderer) = &mut self.renderer {
+                    // Create shape if it doesn't exist yet
+                    if self.rect_id.is_none() {
+                        // Create a 100x100 rectangle (matching the HTML)
+                        // Gold color (#FFD700 = rgb(255, 215, 0)) with white border (2px)
+                        let rect_shape = Shape::rect(
+                            [(0.0, 0.0), (100.0, 100.0)],
+                            Stroke::new(2.0, Color::WHITE),
+                        );
+
+                        let rect_id = renderer.add_shape(rect_shape, None, None);
+
+                        // Set the fill color to gold
+                        renderer.set_shape_color(rect_id, Some(Color::rgb(255, 215, 0)));
+
+                        self.rect_id = Some(rect_id);
+
+                        let inner_rect_shape = Shape::rect(
+                            [(0.0, 0.0), (35.0, 80.0)],
+                            Stroke::new(1.0, Color::BLACK),
+                        );
+
+                        // TODO: clip
+                        let inner_rect_1 = renderer.add_shape(inner_rect_shape.clone(), None, None);
+                        renderer.set_shape_color(inner_rect_1, Some(Color::rgb(125, 0, 0)));
+                        self.inner_rect_1 = Some(inner_rect_1);
+
+                        // TODO: clip
+                        let inner_rect_2 = renderer.add_shape(inner_rect_shape, None, None);
+                        renderer.set_shape_color(inner_rect_2, Some(Color::rgb(0, 125, 0)));
+                        self.inner_rect_2 = Some(inner_rect_2);
+                    }
+
+                    let (width, height) = renderer.size();
+                    let viewport_center = (width as f32 / 2.0, height as f32 / 2.0);
+                    
+                    let rect_id = self.rect_id.unwrap();
+                    let inner_rect_1 = self.inner_rect_1.unwrap();
+                    let inner_rect_2 = self.inner_rect_2.unwrap();
+                    // Position the rectangle at center of screen (400, 300)
+                    // In the HTML, the rectangle is rotated 45 degrees around the X axis (rotateX(45deg))
+                    // and the container has perspective: 500px
+                    //
+                    // To replicate this:
+                    // 1. Center the rectangle's origin
+                    // 2. Apply rotateX(45deg)
+                    // 3. Set perspective_distance to 500
+                    // 4. Use offset to position at screen center
+
+                    let parent_screen_position = (viewport_center.0 - 50.0, viewport_center.1 - 17.5);
+
+                    let parent_local = transformator::Transform::new()
+                        .with_position_relative_to_parent(viewport_center.0 - 50.0, viewport_center.1 - 50.0)
+                        .with_camera_perspective_origin(viewport_center.0, viewport_center.1)
+                        .with_perspective_distance(500.0)
+                        .with_origin(50.0, 50.0)
+                        .then_rotate_x(45.0)
+                        // Use viewport position to position the shape at screen center after perspective is applied.
+                        .compose_2(&transformator::Transform::new());
+
+                    renderer.set_transformator(rect_id, &parent_local);
+                    let child_local = transformator::Transform::new()
+                        .then_rotate_y(30.0)
+                        .with_origin(17.5, 40.0)
+                        .with_perspective_distance(0.0)
+                        .with_camera_perspective_origin(parent_screen_position.0 + 10.0, parent_screen_position.1 + 10.0);
+                        // Absolute position within the screen according to the layout
+                        // .with_viewport_position(transformer.viewport_position.0 + 10.0, transformer.viewport_position.1 + 10.0)
+                        // .then_rotate_y(30.0)
+                        // .inherit(&transformer);
+
+                    renderer.set_transformator(inner_rect_1, &child_local);
+                    let mut transformer_2 = parent_local.clone();
+                    // transformer_2.translate_2d(55.0, 10.0);
+                    transformer_2.set_origin(55.0 + 17.4, 10.0 + 40.0);
+                    transformer_2.rotate_y(30.0);
+                    renderer.set_transformator(inner_rect_2, &transformer_2);
+
                     renderer.render().unwrap();
                 }
             }
             WindowEvent::Resized(new_size) => {
-                if let (Some(renderer), Some(rect_id)) = (&mut self.renderer, self.rect_id) {
+                if let Some(renderer) = &mut self.renderer {
                     renderer.resize((new_size.width, new_size.height));
-                    
-                    // Update transform with new center position
-                    let center_shape = Transform3D::translation(-50.0, -50.0, 0.0);
-                    let rotate_x = Transform3D::rotation(1.0, 0.0, 0.0, Angle::degrees(45.0));
-                    let transform = center_shape.then(&rotate_x);
-                    
-                    let perspective_distance = 500.0;
-                    let (width, height) = renderer.size();
-                    let viewport_position = [width as f32 / 2.0, height as f32 / 2.0];
-                    
-                    let instance = transform_instance_from_euclid(transform);
-                    renderer.set_shape_transform(rect_id, instance);
-                    
-                    // Set the perspective and viewport position using the new API
-                    renderer.set_shape_camera_perspective(rect_id, perspective_distance);
-                    renderer.set_shape_viewport_position(rect_id, viewport_position[0], viewport_position[1]);
                     
                     if let Some(window) = &self.window {
                         window.request_redraw();

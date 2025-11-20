@@ -148,6 +148,7 @@ mod vertex;
 mod cache;
 mod shape;
 mod texture_manager;
+pub mod transformator;
 
 pub use color::Color;
 pub use renderer::MathRect;

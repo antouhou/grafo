@@ -128,8 +128,8 @@ fn shader_vertex_transform(
     let mut py = p[1] * invw; // pixel-space y after perspective
     
     // Apply viewport position in pixel space
-    px += render_params.viewport_position[0];
-    py += render_params.viewport_position[1];
+    px += render_params.camera_perspective_origin[0];
+    py += render_params.camera_perspective_origin[1];
     
     // Then convert to NDC (Normalized Device Coordinates)
     // NDC is a cube with corners (-1, -1, -1) and (1, 1, 1).
@@ -419,7 +419,7 @@ mod tests {
         let position = [0.0, 0.0];
         let render_params = InstanceRenderParams {
             camera_perspective: 0.0,
-            viewport_position: [400.0, 300.0],
+            camera_perspective_origin: [400.0, 300.0],
             _padding: 0.0,
         };
         
@@ -460,7 +460,7 @@ mod tests {
         // Apply using shader_vertex_transform with separate perspective
         let render_params = InstanceRenderParams {
             camera_perspective: perspective_dist,
-            viewport_position: [400.0, 300.0],
+            camera_perspective_origin: [400.0, 300.0],
             _padding: 0.0,
         };
         let ndc_corners: Vec<[f32; 2]> = corners
@@ -542,7 +542,7 @@ mod tests {
             // Method 1: Use shader_vertex_transform
             let render_params = InstanceRenderParams {
                 camera_perspective: perspective_dist,
-                viewport_position,
+                camera_perspective_origin: viewport_position,
                 _padding: 0.0,
             };
             let ndc_shader = shader_vertex_transform(
@@ -601,7 +601,7 @@ mod tests {
         // Test with no viewport_position
         let render_params_no_offset = InstanceRenderParams {
             camera_perspective: perspective_dist,
-            viewport_position: [0.0, 0.0],
+            camera_perspective_origin: [0.0, 0.0],
             _padding: 0.0,
         };
         let ndc_no_offset: Vec<[f32; 2]> = corners
@@ -612,7 +612,7 @@ mod tests {
         // Test with viewport_position
         let render_params_with_offset = InstanceRenderParams {
             camera_perspective: perspective_dist,
-            viewport_position: [200.0, 150.0],
+            camera_perspective_origin: [200.0, 150.0],
             _padding: 0.0,
         };
         let ndc_with_offset: Vec<[f32; 2]> = corners
@@ -670,7 +670,7 @@ mod tests {
         // Method 1: Use shader_vertex_transform with pre-baked perspective (no separate perspective param)
         let render_params = InstanceRenderParams {
             camera_perspective: 0.0, // No additional perspective since it's pre-baked
-            viewport_position,
+            camera_perspective_origin: viewport_position,
             _padding: 0.0,
         };
         let ndc_shader = shader_vertex_transform(position, &transform, &render_params, canvas_size);

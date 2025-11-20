@@ -81,7 +81,7 @@ pub struct InstanceTransform {
 #[derive(Copy, Clone, Debug, Pod, Zeroable, Default)]
 pub struct InstanceRenderParams {
     pub camera_perspective: f32,
-    pub viewport_position: [f32; 2],
+    pub camera_perspective_origin: [f32; 2],
     pub _padding: f32,
 }
 
@@ -89,7 +89,7 @@ impl InstanceRenderParams {
     pub fn default() -> Self {
         Self {
             camera_perspective: 0.0,
-            viewport_position: [0.0, 0.0],
+            camera_perspective_origin: [0.0, 0.0],
             _padding: 0.0,
         }
     }
@@ -97,7 +97,7 @@ impl InstanceRenderParams {
     pub fn with_perspective(camera_perspective: f32) -> Self {
         Self {
             camera_perspective,
-            viewport_position: [0.0, 0.0],
+            camera_perspective_origin: [0.0, 0.0],
             _padding: 0.0,
         }
     }
@@ -105,7 +105,7 @@ impl InstanceRenderParams {
     pub fn with_viewport_position(x: f32, y: f32) -> Self {
         Self {
             camera_perspective: 0.0,
-            viewport_position: [x, y],
+            camera_perspective_origin: [x, y],
             _padding: 0.0,
         }
     }
@@ -113,7 +113,7 @@ impl InstanceRenderParams {
     pub fn with_both(camera_perspective: f32, viewport_x: f32, viewport_y: f32) -> Self {
         Self {
             camera_perspective,
-            viewport_position: [viewport_x, viewport_y],
+            camera_perspective_origin: [viewport_x, viewport_y],
             _padding: 0.0,
         }
     }

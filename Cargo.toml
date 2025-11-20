@@ -20,13 +20,13 @@ easy-tree = { version = "0.2" }
 log = "0.4"
 lru = "0.15"
 softbuffer = "0.4.6"
+euclid = "0.22"
 
 [dev-dependencies]
 winit = "0.30"
 env_logger = "0.11"
 futures = "0.3"
 image = "0.25"
-euclid = "0.22"
 
 [features]
 performance_measurement = []
