@@ -1589,8 +1589,8 @@ impl<'a> Renderer<'a> {
             return;
         }
         self.set_shape_transform_cols(node_id, transformator.cols_world());
-        self.set_shape_camera_perspective(node_id, transformator.perspective_distance);
-        self.set_shape_viewport_position(
+        self.set_shape_camera_perspective_distance(node_id, transformator.camera_perspective_distance);
+        self.set_shape_camera_perspective_origin(
             node_id,
             transformator.camera_perspective_origin.0,
             transformator.camera_perspective_origin.1,
@@ -1644,7 +1644,7 @@ impl<'a> Renderer<'a> {
 
     /// Sets the camera perspective distance for a shape. Smaller values create stronger perspective effect.
     /// Pass 0.0 to disable perspective.
-    pub fn set_shape_camera_perspective(&mut self, node_id: usize, distance: f32) {
+    pub fn set_shape_camera_perspective_distance(&mut self, node_id: usize, distance: f32) {
         if let Some(draw_command) = self.draw_tree.get_mut(node_id) {
             let current_params = match draw_command {
                 DrawCommand::Shape(shape) => shape.render_params().unwrap_or_default(),
@@ -1664,7 +1664,7 @@ impl<'a> Renderer<'a> {
     }
 
     /// Sets the viewport position offset for a shape in pixel space.
-    pub fn set_shape_viewport_position(&mut self, node_id: usize, x: f32, y: f32) {
+    pub fn set_shape_camera_perspective_origin(&mut self, node_id: usize, x: f32, y: f32) {
         if let Some(draw_command) = self.draw_tree.get_mut(node_id) {
             let current_params = match draw_command {
                 DrawCommand::Shape(shape) => shape.render_params().unwrap_or_default(),

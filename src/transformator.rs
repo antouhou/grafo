@@ -8,7 +8,7 @@ pub struct Transform {
     /// Fully composed world transform including all parent transforms
     pub world_transform: Transform3D<f32, UnknownUnit, UnknownUnit>,
     /// In CSS that's usually a parent's perspective property
-    pub perspective_distance: f32,
+    pub camera_perspective_distance: f32,
     /// Origin relative to the shape
     pub origin: (f32, f32),
     /// TODO: figure that one out
@@ -21,7 +21,7 @@ impl Transform {
         Self {
             local_transform: Transform3D::identity(),
             world_transform: Transform3D::identity(),
-            perspective_distance: 0.0,
+            camera_perspective_distance: 0.0,
             origin: (0.0, 0.0),
             camera_perspective_origin: (0.0, 0.0),
             position_relative_to_parent: (0.0, 0.0),
@@ -61,7 +61,7 @@ impl Transform {
     }
 
     pub fn set_perspective_distance(&mut self, distance: f32) {
-        self.perspective_distance = distance;
+        self.camera_perspective_distance = distance;
     }
 
     pub fn with_perspective_distance(mut self, distance: f32) -> Self {
@@ -224,7 +224,7 @@ pub fn test() {
         [50.0, 50.0],
         &TransformInstance::from_columns(transform.cols_world()),
         &InstanceRenderParams {
-            camera_perspective: transform.perspective_distance,
+            camera_perspective: transform.camera_perspective_distance,
             camera_perspective_origin: [transform.camera_perspective_origin.0, transform.camera_perspective_origin.1],
             _padding: 0.0,
         }

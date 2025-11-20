@@ -129,34 +129,32 @@ impl<'a> ApplicationHandler for App<'a> {
                     // 3. Set perspective_distance to 500
                     // 4. Use offset to position at screen center
 
-                    let parent_screen_position = (viewport_center.0 - 50.0, viewport_center.1 - 17.5);
-
+                    // Parent transform replicating the CSS 3D container
                     let parent_local = transformator::Transform::new()
                         .with_position_relative_to_parent(viewport_center.0 - 50.0, viewport_center.1 - 50.0)
                         .with_camera_perspective_origin(viewport_center.0, viewport_center.1)
                         .with_perspective_distance(500.0)
                         .with_origin(50.0, 50.0)
                         .then_rotate_x(45.0)
-                        // Use viewport position to position the shape at screen center after perspective is applied.
                         .compose_2(&transformator::Transform::new());
 
                     renderer.set_transformator(rect_id, &parent_local);
-                    let child_local = transformator::Transform::new()
-                        .then_rotate_y(30.0)
-                        .with_origin(17.5, 40.0)
-                        .with_perspective_distance(0.0)
-                        .with_camera_perspective_origin(parent_screen_position.0 + 10.0, parent_screen_position.1 + 10.0);
-                        // Absolute position within the screen according to the layout
-                        // .with_viewport_position(transformer.viewport_position.0 + 10.0, transformer.viewport_position.1 + 10.0)
-                        // .then_rotate_y(30.0)
-                        // .inherit(&transformer);
 
-                    renderer.set_transformator(inner_rect_1, &child_local);
-                    let mut transformer_2 = parent_local.clone();
-                    // transformer_2.translate_2d(55.0, 10.0);
-                    transformer_2.set_origin(55.0 + 17.4, 10.0 + 40.0);
-                    transformer_2.rotate_y(30.0);
-                    renderer.set_transformator(inner_rect_2, &transformer_2);
+                    // Inner rectangles inherit parent transform and sit inside with 10px padding.
+                    // Layout: padding(10) + rect(35) + gap(10) + rect(35) + padding(10) = 100 total width.
+                    // Vertical: padding(10) + height(80) + padding(10) = 100 total height.
+
+                    let child1 = transformator::Transform::new()
+                        .with_position_relative_to_parent(10.0, 10.0) // top-left inside parent
+                        .with_origin(0.0, 0.0)
+                        .compose_2(&parent_local);
+                    renderer.set_transformator(inner_rect_1, &child1);
+
+                    let child2 = transformator::Transform::new()
+                        .with_position_relative_to_parent(55.0, 10.0) // 10 + 35 + 10
+                        .with_origin(0.0, 0.0)
+                        .compose_2(&parent_local);
+                    renderer.set_transformator(inner_rect_2, &child2);
 
                     renderer.render().unwrap();
                 }
