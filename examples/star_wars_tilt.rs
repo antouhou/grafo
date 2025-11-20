@@ -81,8 +81,15 @@ impl<'a> ApplicationHandler for App<'a> {
             }
             WindowEvent::RedrawRequested => {
                 if let Some(renderer) = &mut self.renderer {
+                    let (width, height) = renderer.size();
                     // Create shape if it doesn't exist yet
                     if self.rect_id.is_none() {
+                        // We need some background TODO: mention this in the docs
+                        renderer.add_shape(Shape::rect(
+                            [(0.0, 0.0), (width as f32, height as f32)],
+                            Stroke::new(2.0, Color::BLACK),
+                        ), None, None);
+
                         // Create a 100x100 rectangle (matching the HTML)
                         // Gold color (#FFD700 = rgb(255, 215, 0)) with white border (2px)
                         let rect_shape = Shape::rect(
@@ -113,7 +120,12 @@ impl<'a> ApplicationHandler for App<'a> {
                         self.inner_rect_2 = Some(inner_rect_2);
                     }
 
+                    let scale_factor = renderer.scale_factor();
                     let (width, height) = renderer.size();
+                    let (width, height) = (
+                        width as f32 / scale_factor as f32,
+                        height as f32 / scale_factor as f32,
+                    );
                     let viewport_center = (width as f32 / 2.0, height as f32 / 2.0);
                     
                     let rect_id = self.rect_id.unwrap();
@@ -136,6 +148,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         .with_perspective_distance(500.0)
                         .with_origin(50.0, 50.0)
                         .then_rotate_x(45.0)
+                        // .then_rotate_y(30.0)
                         .compose_2(&transformator::Transform::new());
 
                     renderer.set_transformator(rect_id, &parent_local);
@@ -144,15 +157,19 @@ impl<'a> ApplicationHandler for App<'a> {
                     // Layout: padding(10) + rect(35) + gap(10) + rect(35) + padding(10) = 100 total width.
                     // Vertical: padding(10) + height(80) + padding(10) = 100 total height.
 
+                    let pos_absoulte = (viewport_center.0 - 50.0 + 10.0, viewport_center.1 - 50.0 + 10.0);
+
                     let child1 = transformator::Transform::new()
-                        .with_position_relative_to_parent(10.0, 10.0) // top-left inside parent
-                        .with_origin(0.0, 0.0)
+                        .with_position_relative_to_parent(10.0, 10.0)
+                        // .with_camera_perspective_origin(pos_absoulte.0 + 17.5, pos_absoulte.1 + 40.0)
+                        // .with_origin(17.5, 40.0)
+                        // .with_perspective_distance(500.0)
+                        .then_rotate_y(30.0)
                         .compose_2(&parent_local);
                     renderer.set_transformator(inner_rect_1, &child1);
 
                     let child2 = transformator::Transform::new()
                         .with_position_relative_to_parent(55.0, 10.0) // 10 + 35 + 10
-                        .with_origin(0.0, 0.0)
                         .compose_2(&parent_local);
                     renderer.set_transformator(inner_rect_2, &child2);
 
@@ -163,6 +180,18 @@ impl<'a> ApplicationHandler for App<'a> {
                 if let Some(renderer) = &mut self.renderer {
                     renderer.resize((new_size.width, new_size.height));
                     
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+            }
+            WindowEvent::ScaleFactorChanged {
+                scale_factor, inner_size_writer
+            } => {
+                if let Some(renderer) = &mut self.renderer {
+                    println!("Change scale factor to {}", scale_factor);
+                    renderer.change_scale_factor(scale_factor);
+
                     if let Some(window) = &self.window {
                         window.request_redraw();
                     }
