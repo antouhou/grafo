@@ -1,4 +1,4 @@
-use euclid::{default::Transform3D, Angle, Point2D, UnknownUnit};
+use euclid::{Point2D, UnknownUnit};
 use futures::executor::block_on;
 use grafo::{transformator, Color, Shape, Stroke};
 use std::sync::Arc;
@@ -7,11 +7,6 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
-// Helper to convert euclid Transform3D to grafo's GPU instance layout
-fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstance {
-    grafo::TransformInstance::from_rows(m.to_arrays())
-}
-
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
@@ -19,6 +14,10 @@ struct App<'a> {
     inner_rect_1: Option<usize>,
     inner_rect_2: Option<usize>,
     mouse_position: Point2D<f32, UnknownUnit>,
+    // Track which shapes are being hovered
+    parent_hovered: bool,
+    child1_hovered: bool,
+    child2_hovered: bool,
 }
 
 impl<'a> App<'a> {
@@ -30,6 +29,9 @@ impl<'a> App<'a> {
             inner_rect_1: None,
             inner_rect_2: None,
             mouse_position: Point2D::new(0.0, 0.0),
+            parent_hovered: false,
+            child1_hovered: false,
+            child2_hovered: false,
         }
     }
 }
@@ -75,7 +77,6 @@ impl<'a> ApplicationHandler for App<'a> {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                println!("Mouse position: {:?}", self.mouse_position);
                 if let Some(renderer) = &mut self.renderer {
                     let (width, height) = renderer.size();
                     // Create shape if it doesn't exist yet
@@ -129,6 +130,10 @@ impl<'a> ApplicationHandler for App<'a> {
                     let rect_id = self.rect_id.unwrap();
                     let inner_rect_1 = self.inner_rect_1.unwrap();
                     let inner_rect_2 = self.inner_rect_2.unwrap();
+
+                    // Mouse position in logical coordinates
+                    let mouse_x = self.mouse_position.x / scale_factor as f32;
+                    let mouse_y = self.mouse_position.y / scale_factor as f32;
                     // Position the rectangle at center of screen (400, 300)
                     // In the HTML, the rectangle is rotated 45 degrees around the X axis (rotateX(45deg))
                     // and the container has perspective: 500px
@@ -176,6 +181,64 @@ impl<'a> ApplicationHandler for App<'a> {
                         .compose_2(&parent_local);
                     renderer.set_transformator(inner_rect_2, &child2);
 
+                    // Hit testing: transform mouse position to local coordinates for each shape
+                    // Check children first (they're on top)
+                    let child1_local = child1.project_screen_point_to_local_2d((mouse_x, mouse_y));
+                    let child1_hit = if let Some((lx, ly)) = child1_local {
+                        lx >= 0.0 && lx <= 35.0 && ly >= 0.0 && ly <= 80.0
+                    } else {
+                        false
+                    };
+
+                    let child2_local = child2.project_screen_point_to_local_2d((mouse_x, mouse_y));
+                    let child2_hit = if let Some((lx, ly)) = child2_local {
+                        lx >= 0.0 && lx <= 35.0 && ly >= 0.0 && ly <= 80.0
+                    } else {
+                        false
+                    };
+
+                    let parent_local_coords =
+                        parent_local.project_screen_point_to_local_2d((mouse_x, mouse_y));
+                    let parent_hit = if !child1_hit && !child2_hit {
+                        if let Some((lx, ly)) = parent_local_coords {
+                            lx >= 0.0 && lx <= 100.0 && ly >= 0.0 && ly <= 100.0
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    // Update hover states
+                    self.parent_hovered = parent_hit;
+                    self.child1_hovered = child1_hit;
+                    self.child2_hovered = child2_hit;
+
+                    // Update colors based on hover state
+                    if self.parent_hovered {
+                        renderer.set_shape_color(rect_id, Some(Color::rgb(255, 235, 100)));
+                    // Brighter gold
+                    } else {
+                        renderer.set_shape_color(rect_id, Some(Color::rgb(255, 215, 0)));
+                        // Normal gold
+                    }
+
+                    if self.child1_hovered {
+                        renderer.set_shape_color(inner_rect_1, Some(Color::rgb(200, 50, 50)));
+                    // Brighter red
+                    } else {
+                        renderer.set_shape_color(inner_rect_1, Some(Color::rgb(125, 0, 0)));
+                        // Normal red
+                    }
+
+                    if self.child2_hovered {
+                        renderer.set_shape_color(inner_rect_2, Some(Color::rgb(50, 200, 50)));
+                    // Brighter green
+                    } else {
+                        renderer.set_shape_color(inner_rect_2, Some(Color::rgb(0, 125, 0)));
+                        // Normal green
+                    }
+
                     renderer.render().unwrap();
                 }
             }
@@ -190,7 +253,7 @@ impl<'a> ApplicationHandler for App<'a> {
             }
             WindowEvent::ScaleFactorChanged {
                 scale_factor,
-                inner_size_writer,
+                inner_size_writer: _,
             } => {
                 if let Some(renderer) = &mut self.renderer {
                     println!("Change scale factor to {}", scale_factor);

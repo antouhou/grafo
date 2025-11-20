@@ -925,7 +925,6 @@ impl<'a> Renderer<'a> {
                 );
             }
         }
-
     }
 
     /// Core rendering logic that renders to a texture view.
@@ -1531,7 +1530,10 @@ impl<'a> Renderer<'a> {
         if !exists {
             return;
         }
-        self.set_shape_transform(node_id, InstanceTransform::from_rows(transformator.rows_world()));
+        self.set_shape_transform(
+            node_id,
+            InstanceTransform::from_rows(transformator.rows_world()),
+        );
     }
 
     /// Associates a texture with a shape or cached shape by node id.

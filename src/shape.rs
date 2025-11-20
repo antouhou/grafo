@@ -960,7 +960,6 @@ impl DrawShapeCommand for ShapeDrawData {
         self.transform = Some(t);
     }
 
-
     #[inline]
     fn texture_id(&self, layer: usize) -> Option<u64> {
         self.texture_ids.get(layer).copied().unwrap_or(None)
@@ -1019,7 +1018,6 @@ impl DrawShapeCommand for CachedShapeDrawData {
     fn set_transform(&mut self, t: InstanceTransform) {
         self.transform = Some(t);
     }
-
 
     #[inline]
     fn texture_id(&self, layer: usize) -> Option<u64> {
