@@ -6,7 +6,6 @@ use bytemuck::{Pod, Zeroable};
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct CustomVertex {
     pub(crate) position: [f32; 2],
-    pub(crate) order: f32,
     pub(crate) tex_coords: [f32; 2],
 }
 
@@ -22,17 +21,10 @@ impl CustomVertex {
                     offset: 0,
                     shader_location: 0,
                 },
-                // Render order (forwarded to position.z)
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32,
-                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
-                    shader_location: 2,
-                },
-                // Tex Coords (kept at a higher location to not clash with instance attrs)
+                // Tex Coords
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32x2,
-                    offset: (std::mem::size_of::<[f32; 2]>() + std::mem::size_of::<f32>())
-                        as wgpu::BufferAddress,
+                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
                     shader_location: 7,
                 },
             ],

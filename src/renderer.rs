@@ -60,23 +60,6 @@ impl From<TextureLayer> for usize {
     }
 }
 
-/// Calculates the depth value based on the draw command's ID and the total number of draw commands.
-///
-/// Depth values are clamped between `0.0000000001` and `0.9999999999` to avoid precision issues.
-///
-/// # Parameters
-///
-/// - `draw_command_id`: The identifier of the current draw command.
-/// - `draw_commands_total`: The total number of draw commands.
-///
-/// # Returns
-///
-/// A `f32` representing the normalized depth value.
-#[inline(always)]
-pub fn order_value(draw_command_id: usize, draw_commands_total: usize) -> f32 {
-    (1.0 - (draw_command_id as f32 / draw_commands_total as f32)).clamp(0.0000000001, 0.9999999999)
-}
-
 /// Represents a draw command, which can be either a shape or an image.
 ///
 /// This enum is used internally by the `Renderer` to manage different types of draw operations.
@@ -676,7 +659,6 @@ impl<'a> Renderer<'a> {
     ) {
         let cached_shape = CachedShape::new(
             shape.as_ref(),
-            0.0,
             &mut self.tessellator,
             &mut self.buffers_pool_manager,
             tessellation_cache_key,
@@ -707,18 +689,15 @@ impl<'a> Renderer<'a> {
         self.temp_indices.clear();
         self.temp_instance_transforms.clear();
         self.temp_instance_colors.clear();
-
-        let draw_tree_size = self.draw_tree.len();
-
+        
         let tessellator = &mut self.tessellator;
         let buffers_pool_manager = &mut self.buffers_pool_manager;
 
         // First pass: tessellate all shapes and aggregate vertex/index and instance data
-        for (node_id, draw_command) in self.draw_tree.iter_mut() {
+        for (_node_id, draw_command) in self.draw_tree.iter_mut() {
             match draw_command {
                 DrawCommand::Shape(ref mut shape) => {
-                    let depth = order_value(node_id, draw_tree_size);
-                    let vertex_buffers = shape.tessellate(depth, tessellator, buffers_pool_manager);
+                    let vertex_buffers = shape.tessellate(tessellator, buffers_pool_manager);
 
                     if vertex_buffers.vertices.is_empty() || vertex_buffers.indices.is_empty() {
                         shape.is_empty = true;
@@ -754,18 +733,12 @@ impl<'a> Renderer<'a> {
                     *shape.instance_index_mut() = Some(instance_idx);
                 }
                 DrawCommand::CachedShape(cached_shape_data) => {
-                    let depth = order_value(node_id, draw_tree_size);
-
                     if let Some(cached_shape) = self.shape_cache.get_mut(&cached_shape_data.id) {
                         if cached_shape.vertex_buffers.vertices.is_empty()
                             || cached_shape.vertex_buffers.indices.is_empty()
                         {
                             cached_shape_data.is_empty = true;
                             continue;
-                        }
-
-                        if depth != cached_shape.depth {
-                            cached_shape.set_depth(depth);
                         }
 
                         let vertex_start = self.temp_vertices.len();

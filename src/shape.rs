@@ -44,7 +44,6 @@ use lyon::path::Winding;
 use lyon::tessellation::FillVertexConstructor;
 
 pub(crate) struct CachedShape {
-    pub depth: f32,
     pub vertex_buffers: VertexBuffers<CustomVertex, u16>,
 }
 
@@ -55,22 +54,13 @@ impl CachedShape {
     /// shape and should be based on the shape properties, and not the shape identifier
     pub fn new(
         shape: &Shape,
-        depth: f32,
         tessellator: &mut FillTessellator,
         pool: &mut PoolManager,
         tessellator_cache_key: Option<u64>,
     ) -> Self {
-        let vertices = shape.tessellate(depth, tessellator, pool, tessellator_cache_key);
+        let vertices = shape.tessellate(tessellator, pool, tessellator_cache_key);
         Self {
-            depth,
             vertex_buffers: vertices,
-        }
-    }
-
-    pub fn set_depth(&mut self, depth: f32) {
-        self.depth = depth;
-        for vertex in self.vertex_buffers.vertices.iter_mut() {
-            vertex.order = depth;
         }
     }
 }
@@ -185,14 +175,13 @@ impl Shape {
 
     pub(crate) fn tessellate(
         &self,
-        depth: f32,
         tessellator: &mut FillTessellator,
         buffers_pool: &mut PoolManager,
         tesselation_cache_key: Option<u64>,
     ) -> VertexBuffers<CustomVertex, u16> {
         match &self {
             Shape::Path(path_shape) => {
-                path_shape.tessellate(depth, tessellator, buffers_pool, tesselation_cache_key)
+                path_shape.tessellate(tessellator, buffers_pool, tesselation_cache_key)
             }
             Shape::Rect(rect_shape) => {
                 let min_width = rect_shape.rect[0].0;
@@ -210,32 +199,26 @@ impl Shape {
                     CustomVertex {
                         position: [min_width, min_height],
                         tex_coords: uv(min_width, min_height),
-                        order: depth,
                     },
                     CustomVertex {
                         position: [max_width, min_height],
                         tex_coords: uv(max_width, min_height),
-                        order: depth,
                     },
                     CustomVertex {
                         position: [min_width, max_height],
                         tex_coords: uv(min_width, max_height),
-                        order: depth,
                     },
                     CustomVertex {
                         position: [min_width, max_height],
                         tex_coords: uv(min_width, max_height),
-                        order: depth,
                     },
                     CustomVertex {
                         position: [max_width, min_height],
                         tex_coords: uv(max_width, min_height),
-                        order: depth,
                     },
                     CustomVertex {
                         position: [max_width, max_height],
                         tex_coords: uv(max_width, max_height),
-                        order: depth,
                     },
                 ];
                 let indices = [0u16, 1, 2, 3, 4, 5];
@@ -357,13 +340,11 @@ pub struct PathShape {
     pub(crate) stroke: Stroke,
 }
 
-struct VertexConverter {
-    depth: f32,
-}
+struct VertexConverter {}
 
 impl VertexConverter {
-    fn new(depth: f32) -> Self {
-        Self { depth }
+    fn new() -> Self {
+        Self { }
     }
 }
 
@@ -371,7 +352,6 @@ impl FillVertexConstructor<CustomVertex> for VertexConverter {
     fn new_vertex(&mut self, vertex: FillVertex) -> CustomVertex {
         CustomVertex {
             position: vertex.position().to_array(),
-            order: self.depth,
             tex_coords: [0.0, 0.0],
         }
     }
@@ -411,7 +391,6 @@ impl PathShape {
     /// ```
     pub(crate) fn tessellate(
         &self,
-        depth: f32,
         tessellator: &mut FillTessellator,
         buffers_pool: &mut PoolManager,
         tesselation_cache_key: Option<u64>,
@@ -426,7 +405,7 @@ impl PathShape {
                 let mut buffers: VertexBuffers<CustomVertex, u16> =
                     buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
 
-                self.tesselate_into_buffers(&mut buffers, depth, tessellator);
+                self.tesselate_into_buffers(&mut buffers, tessellator);
                 buffers_pool
                     .tessellation_cache
                     .insert_vertex_buffers(cache_key, buffers.clone());
@@ -437,7 +416,7 @@ impl PathShape {
             let mut buffers: VertexBuffers<CustomVertex, u16> =
                 buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
 
-            self.tesselate_into_buffers(&mut buffers, depth, tessellator);
+            self.tesselate_into_buffers(&mut buffers, tessellator);
 
             buffers
         };
@@ -452,12 +431,11 @@ impl PathShape {
     fn tesselate_into_buffers(
         &self,
         buffers: &mut VertexBuffers<CustomVertex, u16>,
-        depth: f32,
         tessellator: &mut FillTessellator,
     ) {
         let options = FillOptions::default();
 
-        let vertex_converter = VertexConverter::new(depth);
+        let vertex_converter = VertexConverter::new();
 
         tessellator
             .tessellate_path(
@@ -550,12 +528,11 @@ impl ShapeDrawData {
     #[inline(always)]
     pub(crate) fn tessellate(
         &mut self,
-        depth: f32,
         tessellator: &mut FillTessellator,
         buffers_pool: &mut PoolManager,
     ) -> VertexBuffers<CustomVertex, u16> {
         self.shape
-            .tessellate(depth, tessellator, buffers_pool, self.cache_key)
+            .tessellate(tessellator, buffers_pool, self.cache_key)
     }
 }
 
