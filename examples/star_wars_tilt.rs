@@ -95,7 +95,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         // Gold color (#FFD700 = rgb(255, 215, 0)) with white border (2px)
                         let rect_shape = Shape::rect(
                             [(0.0, 0.0), (100.0, 100.0)],
-                            Stroke::new(2.0, Color::WHITE),
+                            Stroke::new(2.0, Color::BLACK),
                         );
 
                         let rect_id = renderer.add_shape(rect_shape, None, None);
