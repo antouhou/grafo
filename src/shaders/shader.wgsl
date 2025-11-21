@@ -65,13 +65,18 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     let invw = 1.0 / max(abs(w), 1e-6);
     let px = p.x * invw;
     let py = p.y * invw;
+    let pz = p.z * invw;
 
     // Then convert to NDC (Normalized Device Coordinates)
     // NDC is a cube with corners (-1, -1, -1) and (1, 1, 1).
     let ndc_x = 2.0 * px / uniforms.canvas_size.x - 1.0;
     let ndc_y = 1.0 - 2.0 * py / uniforms.canvas_size.y;
-    // Keep ordering controlled by the provided per-vertex order attribute.
-    output.position = vec4<f32>(ndc_x, ndc_y, input.order, 1.0);
+    // Map pz to [0, 1] depth range. Scale determines the Z range that maps to full depth.
+    // Clamp to ensure we stay within valid depth bounds.
+    // Larger Z -> smaller depth (closer to camera)
+    let scale = 1000.0;  // Z range of [-scale, +scale] maps to [1, 0]
+    let depth = clamp(0.5 - pz / scale, 0.0, 1.0);
+    output.position = vec4<f32>(ndc_x, ndc_y, depth, 1.0);
     output.color = input.color;
     output.tex_coords = input.tex_coords;
     return output;
@@ -90,4 +95,66 @@ fn fs_main(@location(0) color: vec4<f32>, @location(1) tex_coords: vec2<f32>) ->
     let base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
     let final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
     return final_pma;
+}
+
+// Weighted Blended OIT accumulation pass
+struct WBOITOutput {
+    @location(0) accum: vec4<f32>,
+    @location(1) reveal: f32,
+}
+
+@fragment
+fn fs_wboit_accum(@builtin(position) frag_coord: vec4<f32>, @location(0) color: vec4<f32>, @location(1) tex_coords: vec2<f32>) -> WBOITOutput {
+    // Convert shape fill color from sRGB to linear
+    let fill_lin = vec4<f32>(to_linear(color.rgb), color.a);
+    // Sample layer0 and layer1
+    let layer0_pma = textureSample(t_shape_layer0, s_shape_layer0, tex_coords);
+    let layer1_pma = textureSample(t_shape_layer1, s_shape_layer1, tex_coords);
+    // Convert fill to premultiplied
+    let fill_pma = vec4<f32>(fill_lin.rgb * fill_lin.a, fill_lin.a);
+    // Compose
+    let base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
+    let final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
+    
+    // Weighted OIT weight function
+    // Higher weight for fragments closer to camera and more opaque
+    let z = frag_coord.z;
+    let a = final_pma.a;
+    let weight = max(min(1.0, max(max(final_pma.r, final_pma.g), max(final_pma.b, final_pma.a)) * 10.0), a) * 
+                 clamp(0.03 / (1e-5 + pow(abs(z) / 200.0, 4.0)), 1e-2, 3e3);
+    
+    var output: WBOITOutput;
+    // Accumulate weighted premultiplied color
+    output.accum = vec4<f32>(final_pma.rgb * weight, a * weight);
+    // Accumulate revealage (for final blend)
+    output.reveal = a;
+    return output;
+}
+
+// Composite pass to combine accumulated buffers
+@vertex
+fn vs_composite(@builtin(vertex_index) vertex_index: u32) -> @builtin(position) vec4<f32> {
+    // Full-screen triangle
+    let x = f32((vertex_index << 1u) & 2u);
+    let y = f32(vertex_index & 2u);
+    return vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
+}
+
+@group(0) @binding(0) var accum_texture: texture_2d<f32>;
+@group(0) @binding(1) var reveal_texture: texture_2d<f32>;
+
+@fragment
+fn fs_composite(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
+    let coords = vec2<i32>(frag_coord.xy);
+    let accum = textureLoad(accum_texture, coords, 0);
+    let reveal = textureLoad(reveal_texture, coords, 0).r;
+    
+    // Suppress overflow
+    let reveal_clamped = clamp(reveal, 1e-4, 1.0);
+    
+    // Final composite
+    let avg_color = accum.rgb / max(accum.a, 1e-5);
+    let avg_alpha = 1.0 - reveal_clamped;
+    
+    return vec4<f32>(avg_color * avg_alpha, avg_alpha);
 }

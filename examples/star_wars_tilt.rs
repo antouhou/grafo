@@ -82,26 +82,27 @@ impl<'a> ApplicationHandler for App<'a> {
                     // Create shape if it doesn't exist yet
                     if self.rect_id.is_none() {
                         // We need some background TODO: mention this in the docs
-                        renderer.add_shape(
+                        let background = renderer.add_shape(
                             Shape::rect(
                                 [(0.0, 0.0), (width as f32, height as f32)],
-                                Stroke::new(2.0, Color::BLACK),
+                                Stroke::new(2.0, Color::TRANSPARENT),
                             ),
                             None,
                             None,
                         );
+                        renderer.set_shape_color(background, Some(Color::rgb(30, 30, 30)));
 
                         // Create a 100x100 rectangle (matching the HTML)
                         // Gold color (#FFD700 = rgb(255, 215, 0)) with white border (2px)
                         let rect_shape = Shape::rect(
                             [(0.0, 0.0), (100.0, 100.0)],
-                            Stroke::new(2.0, Color::BLACK),
+                            Stroke::new(2.0, Color::TRANSPARENT),
                         );
 
                         let rect_id = renderer.add_shape(rect_shape, None, None);
 
                         // Set the fill color to gold
-                        renderer.set_shape_color(rect_id, Some(Color::rgb(255, 215, 0)));
+                        renderer.set_shape_color(rect_id, Some(Color::TRANSPARENT));
 
                         self.rect_id = Some(rect_id);
 
@@ -216,10 +217,10 @@ impl<'a> ApplicationHandler for App<'a> {
 
                     // Update colors based on hover state
                     if self.parent_hovered {
-                        renderer.set_shape_color(rect_id, Some(Color::rgb(255, 235, 100)));
+                        renderer.set_shape_color(rect_id, Some(Color::rgba(255, 235, 100, 200)));
                     // Brighter gold
                     } else {
-                        renderer.set_shape_color(rect_id, Some(Color::rgb(255, 215, 0)));
+                        renderer.set_shape_color(rect_id, Some(Color::rgba(255, 215, 0, 200)));
                         // Normal gold
                     }
 

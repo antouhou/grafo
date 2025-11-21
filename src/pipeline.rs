@@ -84,7 +84,7 @@ pub fn create_equal_increment_depth_state() -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format: wgpu::TextureFormat::Depth24PlusStencil8,
         depth_write_enabled: true,
-        depth_compare: wgpu::CompareFunction::Always,
+        depth_compare: wgpu::CompareFunction::LessEqual,
         stencil: create_equal_increment_stencil_state(),
         bias: wgpu::DepthBiasState::default(),
     }
