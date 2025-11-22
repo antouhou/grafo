@@ -22,7 +22,7 @@ use crate::pipeline::{
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
-use crate::vertex::{InstanceColor, InstanceTransform};
+use crate::vertex::{InstanceColor, InstanceMetadata, InstanceTransform};
 use crate::Color;
 use crate::{transformator, CachedShape};
 use ahash::{HashMap, HashMapExt};
@@ -181,6 +181,8 @@ pub struct Renderer<'a> {
     temp_instance_transforms: Vec<InstanceTransform>,
     /// Per-frame instance colors for shapes
     temp_instance_colors: Vec<InstanceColor>,
+    /// Per-frame instance metadata (draw order) for shapes
+    temp_instance_metadata: Vec<InstanceMetadata>,
 
     /// Reusable aggregated vertex buffer
     aggregated_vertex_buffer: Option<wgpu::Buffer>,
@@ -190,11 +192,15 @@ pub struct Renderer<'a> {
     aggregated_instance_transform_buffer: Option<wgpu::Buffer>,
     /// Per-frame instance color GPU buffer
     aggregated_instance_color_buffer: Option<wgpu::Buffer>,
+    /// Per-frame instance metadata GPU buffer
+    aggregated_instance_metadata_buffer: Option<wgpu::Buffer>,
 
     /// Identity transform instance buffer
     identity_instance_transform_buffer: Option<wgpu::Buffer>,
     /// Identity color instance buffer (white)
     identity_instance_color_buffer: Option<wgpu::Buffer>,
+    /// Identity metadata instance buffer (0.0)
+    identity_instance_metadata_buffer: Option<wgpu::Buffer>,
 
     shape_cache: HashMap<u64, CachedShape>,
 
@@ -429,12 +435,15 @@ impl<'a> Renderer<'a> {
             temp_indices: Vec::new(),
             temp_instance_transforms: Vec::new(),
             temp_instance_colors: Vec::new(),
+            temp_instance_metadata: Vec::new(),
             aggregated_vertex_buffer: None,
             aggregated_index_buffer: None,
             aggregated_instance_transform_buffer: None,
             aggregated_instance_color_buffer: None,
+            aggregated_instance_metadata_buffer: None,
             identity_instance_transform_buffer: None,
             identity_instance_color_buffer: None,
+            identity_instance_metadata_buffer: None,
 
             shape_cache: HashMap::new(),
 
@@ -618,7 +627,7 @@ impl<'a> Renderer<'a> {
     ///         let window_surface = Arc::new(
     ///             event_loop.create_window(Window::default_attributes()).unwrap()
     ///         );
-    ///         let physical_size = (800, 600);
+    ///
     ///         let scale_factor = 1.0;
     ///
     ///         // Initialize the renderer
@@ -689,6 +698,7 @@ impl<'a> Renderer<'a> {
         self.temp_indices.clear();
         self.temp_instance_transforms.clear();
         self.temp_instance_colors.clear();
+        self.temp_instance_metadata.clear();
         
         let tessellator = &mut self.tessellator;
         let buffers_pool_manager = &mut self.buffers_pool_manager;
@@ -730,6 +740,9 @@ impl<'a> Renderer<'a> {
                         .unwrap_or([1.0, 1.0, 1.0, 1.0]);
                     self.temp_instance_transforms.push(transform);
                     self.temp_instance_colors.push(InstanceColor { color });
+                    self.temp_instance_metadata.push(InstanceMetadata {
+                        draw_order: instance_idx as f32,
+                    });
                     *shape.instance_index_mut() = Some(instance_idx);
                 }
                 DrawCommand::CachedShape(cached_shape_data) => {
@@ -769,6 +782,9 @@ impl<'a> Renderer<'a> {
                             .unwrap_or([1.0, 1.0, 1.0, 1.0]);
                         self.temp_instance_transforms.push(transform);
                         self.temp_instance_colors.push(InstanceColor { color });
+                        self.temp_instance_metadata.push(InstanceMetadata {
+                            draw_order: instance_idx as f32,
+                        });
                         *cached_shape_data.instance_index_mut() = Some(instance_idx);
                     } else {
                         println!("Warning: Cached shape not found in cache");
@@ -851,6 +867,15 @@ impl<'a> Renderer<'a> {
                     usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
                 }));
         }
+        if self.identity_instance_metadata_buffer.is_none() {
+            let metadata = InstanceMetadata::default();
+            self.identity_instance_metadata_buffer =
+                Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Identity Instance Metadata Buffer"),
+                    contents: bytemuck::cast_slice(&[metadata]),
+                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                }));
+        }
 
         // Create/update aggregated instance transform buffer
         if !self.temp_instance_transforms.is_empty() {
@@ -898,6 +923,29 @@ impl<'a> Renderer<'a> {
                 );
             }
         }
+        // Create/update aggregated instance metadata buffer
+        if !self.temp_instance_metadata.is_empty() {
+            let required_instance_size = std::mem::size_of_val(&self.temp_instance_metadata[..]);
+            let needs_realloc = self
+                .aggregated_instance_metadata_buffer
+                .as_ref()
+                .map(|buffer| buffer.size() < required_instance_size as u64)
+                .unwrap_or(true);
+            if needs_realloc {
+                self.aggregated_instance_metadata_buffer =
+                    Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                        label: Some("Aggregated Instance Metadata Buffer"),
+                        contents: bytemuck::cast_slice(&self.temp_instance_metadata),
+                        usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                    }));
+            } else {
+                self.queue.write_buffer(
+                    self.aggregated_instance_metadata_buffer.as_ref().unwrap(),
+                    0,
+                    bytemuck::cast_slice(&self.temp_instance_metadata),
+                );
+            }
+        }
     }
 
     /// Core rendering logic that renders to a texture view.
@@ -931,10 +979,12 @@ impl<'a> Renderer<'a> {
                 .as_ref()
                 .unwrap(),
             identity_instance_color_buffer: self.identity_instance_color_buffer.as_ref().unwrap(),
+            identity_instance_metadata_buffer: self.identity_instance_metadata_buffer.as_ref().unwrap(),
             aggregated_instance_transform_buffer: self
                 .aggregated_instance_transform_buffer
                 .as_ref(),
             aggregated_instance_color_buffer: self.aggregated_instance_color_buffer.as_ref(),
+            aggregated_instance_metadata_buffer: self.aggregated_instance_metadata_buffer.as_ref(),
         };
 
         {
@@ -1593,7 +1643,6 @@ impl<'a> Renderer<'a> {
     ///         let size = renderer.size();
     ///         println!("Rendering surface size: {}x{}", size.0, size.1);
     ///     }
-    ///
     ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
     ///         // Handle window events (stub for doc test)
     ///     }
@@ -1642,11 +1691,11 @@ impl<'a> Renderer<'a> {
     ///         // Change the scale factor to 2.0 for high-DPI rendering
     ///         renderer.change_scale_factor(2.0);
     ///     }
-    ///
     ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
     ///         // Handle window events (stub for doc test)
     ///     }
     /// }
+    /// ```
     pub fn change_scale_factor(&mut self, new_scale_factor: f64) {
         self.scale_factor = new_scale_factor;
         self.resize(self.physical_size)
@@ -1696,7 +1745,6 @@ impl<'a> Renderer<'a> {
     ///         // Resize the renderer to 1024x768 pixels
     ///         renderer.resize((1024, 768));
     ///     }
-    ///
     ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
     ///         // Handle window events (stub for doc test)
     ///     }
@@ -1783,8 +1831,10 @@ struct Buffers<'a> {
     aggregated_index_buffer: &'a wgpu::Buffer,
     identity_instance_transform_buffer: &'a wgpu::Buffer,
     identity_instance_color_buffer: &'a wgpu::Buffer,
+    identity_instance_metadata_buffer: &'a wgpu::Buffer,
     aggregated_instance_transform_buffer: Option<&'a wgpu::Buffer>,
     aggregated_instance_color_buffer: Option<&'a wgpu::Buffer>,
+    aggregated_instance_metadata_buffer: Option<&'a wgpu::Buffer>,
 }
 
 struct Pipelines<'a> {
@@ -1827,6 +1877,7 @@ fn handle_increment_pass<'rp>(
                 render_pass
                     .set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+                render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
                 // (render params buffer removed)
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
@@ -1883,12 +1934,21 @@ fn handle_increment_pass<'rp>(
                 let offset_c = instance_idx as u64 * stride_c;
                 render_pass.set_vertex_buffer(2, inst_c_buf.slice(offset_c..offset_c + stride_c));
             } else {
-                render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+                                              render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
             }
-            // (render params slice removed)
+            // Metadata slice
+            if let Some(inst_m_buf) = buffers.aggregated_instance_metadata_buffer {
+                let stride_m = std::mem::size_of::<InstanceMetadata>() as u64;
+                let offset_m = instance_idx as u64 * stride_m;
+                render_pass.set_vertex_buffer(3, inst_m_buf.slice(offset_m..offset_m + stride_m));
+            } else {
+                render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
+            }
+            // (render params buffer removed)
         } else {
             render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
             render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+            render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
             // (render params fallback removed)
         }
         render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
@@ -1929,6 +1989,7 @@ fn handle_decrement_pass<'rp>(
                 render_pass
                     .set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+                render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
                 // (render params buffer removed)
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
@@ -1961,11 +2022,19 @@ fn handle_decrement_pass<'rp>(
             } else {
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
             }
+            // Metadata slice
+            if let Some(inst_m_buf) = buffers.aggregated_instance_metadata_buffer {
+                let stride_m = std::mem::size_of::<InstanceMetadata>() as u64;
+                let offset_m = instance_idx as u64 * stride_m;
+                render_pass.set_vertex_buffer(3, inst_m_buf.slice(offset_m..offset_m + stride_m));
+            } else {
+                render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
+            }
             // (render params slice removed)
         } else {
             render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
             render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
-            // (render params fallback removed)
+            render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
         }
         render_buffer_range_to_texture(index_range, render_pass, this_shape_stencil);
 

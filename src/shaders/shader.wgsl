@@ -10,6 +10,8 @@ struct VertexInput {
     @location(4) t_row1: vec4<f32>,
     @location(5) t_row2: vec4<f32>,
     @location(6) t_row3: vec4<f32>,
+    // Per-instance draw order for Z-fighting resolution
+    @location(7) draw_order: f32,
 };
 
 struct VertexOutput {
@@ -74,7 +76,13 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     // Larger Z -> smaller depth (closer to camera)
     let scale = 1000.0;  // Z range of [-scale, +scale] maps to [1, 0]
     let depth = clamp(0.5 - pz / scale, 0.0, 1.0);
-    output.position = vec4<f32>(ndc_x, ndc_y, depth, 1.0);
+    
+    // Apply a tiny depth bias based on draw order to resolve Z-fighting for coplanar shapes.
+    // Later shapes (higher draw_order) get a smaller depth value (closer to camera).
+    let bias = input.draw_order * 0.00001;
+    let biased_depth = clamp(depth - bias, 0.0, 1.0);
+    
+    output.position = vec4<f32>(ndc_x, ndc_y, biased_depth, 1.0);
     output.color = input.color;
     output.tex_coords = input.tex_coords;
     return output;

@@ -239,3 +239,29 @@ impl InstanceTransform {
         }
     }
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct InstanceMetadata {
+    pub draw_order: f32,
+}
+
+impl Default for InstanceMetadata {
+    fn default() -> Self {
+        Self { draw_order: 0.0 }
+    }
+}
+
+impl InstanceMetadata {
+    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<InstanceMetadata>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32,
+                offset: 0,
+                shader_location: 7,
+            }],
+        }
+    }
+}
