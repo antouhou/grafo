@@ -1,10 +1,10 @@
 // Vertex input: per-vertex position/uv and per-instance color+transform
 struct VertexInput {
     @location(0) position: vec2<f32>,
-    // Optional texture coordinates for shape texturing
-    @location(7) tex_coords: vec2<f32>,
-    // Per-instance solid color (was per-vertex before)
+    // Per-instance solid color
     @location(1) color: vec4<f32>,
+    // Optional texture coordinates for shape texturing
+    @location(2) tex_coords: vec2<f32>,
     // Per-instance transform matrix rows (row-major from euclid)
     @location(3) t_row0: vec4<f32>,
     @location(4) t_row1: vec4<f32>,

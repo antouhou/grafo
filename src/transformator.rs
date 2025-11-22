@@ -1,6 +1,9 @@
-use euclid::{Transform3D, UnknownUnit};
+use euclid::{Angle, Transform3D, UnknownUnit};
+#[cfg(feature = "serialization")]
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Transform {
     /// Local transform relative to parent
     pub local_transform: Transform3D<f32, UnknownUnit, UnknownUnit>,
@@ -119,14 +122,23 @@ impl Transform {
 
     // ===== Translations =====
 
-    pub fn translate(&mut self, tx: f32, ty: f32, tz: f32) {
+    pub fn translate(&mut self, tx: f32, ty: f32) {
+        self.translate_3d(tx, ty, 0.0);
+    }
+
+    pub fn then_translate(mut self, tx: f32, ty: f32) -> Self {
+        self.translate(tx, ty);
+        self
+    }
+
+    pub fn translate_3d(&mut self, tx: f32, ty: f32, tz: f32) {
         self.local_transform = self
             .local_transform
             .then(&euclid::Transform3D::translation(tx, ty, tz));
     }
 
-    pub fn then_translate(mut self, tx: f32, ty: f32, tz: f32) -> Self {
-        self.translate(tx, ty, tz);
+    pub fn then_translate_3d(mut self, tx: f32, ty: f32, tz: f32) -> Self {
+        self.translate_3d(tx, ty, tz);
         self
     }
 
@@ -176,55 +188,55 @@ impl Transform {
 
     // ===== Rotations =====
 
-    pub fn rotate_x(&mut self, angle_degrees: f32) {
+    pub fn rotate_x(angle: Angle<f32>) -> Self {
+        Transform::new().then_rotate_x(angle)
+    }
+
+    pub fn then_rotate_x(mut self, angle: Angle<f32>) -> Self {
         self.local_transform = self.local_transform.then(&euclid::Transform3D::rotation(
             1.0,
             0.0,
             0.0,
-            euclid::Angle::degrees(angle_degrees),
+            angle,
         ));
-    }
-
-    pub fn then_rotate_x(mut self, angle_degrees: f32) -> Self {
-        self.rotate_x(angle_degrees);
         self
     }
 
-    pub fn rotate_y(&mut self, angle_degrees: f32) {
+    pub fn rotate_y(angle: Angle<f32>) -> Self {
+        Transform::new().then_rotate_y(angle)
+    }
+
+    pub fn then_rotate_y(mut self, angle: Angle<f32>) -> Self {
         self.local_transform = self.local_transform.then(&euclid::Transform3D::rotation(
             0.0,
             1.0,
             0.0,
-            euclid::Angle::degrees(angle_degrees),
+            angle,
         ));
-    }
-
-    pub fn then_rotate_y(mut self, angle_degrees: f32) -> Self {
-        self.rotate_y(angle_degrees);
         self
     }
 
-    pub fn rotate_z(&mut self, angle_degrees: f32) {
+    pub fn rotate_z(angle: Angle<f32>) -> Self {
+        Transform::new().then_rotate_z(angle)
+    }
+
+    pub fn then_rotate_z(mut self, angle: Angle<f32>) -> Self {
         self.local_transform = self.local_transform.then(&euclid::Transform3D::rotation(
             0.0,
             0.0,
             1.0,
-            euclid::Angle::degrees(angle_degrees),
+            angle,
         ));
-    }
-
-    pub fn then_rotate_z(mut self, angle_degrees: f32) -> Self {
-        self.rotate_z(angle_degrees);
         self
     }
 
-    pub fn rotate(&mut self, axis_x: f32, axis_y: f32, axis_z: f32, angle_degrees: f32) {
-        self.local_transform = self.local_transform.then(&euclid::Transform3D::rotation(
+    pub fn rotate(axis_x: f32, axis_y: f32, axis_z: f32, angle: Angle<f32>) -> Self {
+        Self::new().then_rotate(
             axis_x,
             axis_y,
             axis_z,
-            euclid::Angle::degrees(angle_degrees),
-        ));
+            angle,
+        )
     }
 
     pub fn then_rotate(
@@ -232,9 +244,31 @@ impl Transform {
         axis_x: f32,
         axis_y: f32,
         axis_z: f32,
-        angle_degrees: f32,
+        angle: Angle<f32>,
     ) -> Self {
-        self.rotate(axis_x, axis_y, axis_z, angle_degrees);
+        self.local_transform = self.local_transform.then_rotate(axis_x, axis_y, axis_z, angle);
+        self
+    }
+
+    pub fn scale(sx: f32, sy: f32) -> Self {
+        Transform::new().then_scale(sx, sy)
+    }
+
+    pub fn then_scale(mut self, sx: f32, sy: f32) -> Self {
+        self.local_transform = self
+            .local_transform
+            .then(&euclid::Transform3D::scale(sx, sy, 1.0));
+        self
+    }
+
+    pub fn scale_3d(sx: f32, sy: f32, sz: f32) -> Self {
+        Transform::new().then_scale_3d(sx, sy, sz)
+    }
+
+    pub fn then_scale_3d(mut self, sx: f32, sy: f32, sz: f32) -> Self {
+        self.local_transform = self
+            .local_transform
+            .then(&euclid::Transform3D::scale(sx, sy, sz));
         self
     }
 
