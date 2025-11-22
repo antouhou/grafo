@@ -67,6 +67,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     let py = p.y * invw;
     let pz = p.z * invw;
 
+
     // Then convert to NDC (Normalized Device Coordinates)
     // NDC is a cube with corners (-1, -1, -1) and (1, 1, 1).
     let ndc_x = 2.0 * px / uniforms.canvas_size.x - 1.0;
@@ -75,7 +76,16 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     // Clamp to ensure we stay within valid depth bounds.
     // Larger Z -> smaller depth (closer to camera)
     let scale = 1000.0;  // Z range of [-scale, +scale] maps to [1, 0]
-    let depth = clamp(0.5 - pz / scale, 0.0, 1.0);
+    var depth = clamp(0.5 - pz / scale, 0.0, 1.0);
+
+    // TODO: a bit of a hacky hack to avoid intersection between shapes that do and shapes that doesn't use perspective.
+    //  The basic idea is that shapes with pz=0 are the shapes that are likely don't use perspective, so we push them to
+    //  the far plane. This is not a very good solution, and likely will cause some confusion in certain cases, for
+    //  example when the user explicitly wants a shape to intersect another shape at z=0. I'm a bit too lazy to fix
+    //  this properly right now, so leaving a TODO here.
+    if pz == 0.0 {
+        depth = 1.0; // Place at far plane if Z is exactly zero
+    }
     
     // Apply a tiny depth bias based on draw order to resolve Z-fighting for coplanar shapes.
     // Later shapes (higher draw_order) get a smaller depth value (closer to camera).
