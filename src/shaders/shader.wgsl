@@ -67,7 +67,6 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     let py = p.y * invw;
     let pz = p.z * invw;
 
-
     // Then convert to NDC (Normalized Device Coordinates)
     // NDC is a cube with corners (-1, -1, -1) and (1, 1, 1).
     let ndc_x = 2.0 * px / uniforms.canvas_size.x - 1.0;
