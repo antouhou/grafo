@@ -31,7 +31,7 @@ jobs:
       - name: Install Clippy
         run: rustup component add clippy
       - name: Run linter
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --locked -- -D warnings
   format:
     runs-on: ubuntu-latest
     steps:
@@ -60,4 +60,4 @@ jobs:
       - shell: bash
         env:
           CARGO_TOKEN: ${{ secrets.CARGO_TOKEN }}
-        run: cargo login "$CARGO_TOKEN" && cargo publish
+        run: cargo login "$CARGO_TOKEN" && cargo publish --locked
