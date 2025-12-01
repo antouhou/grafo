@@ -1597,8 +1597,6 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    // Removed perspective-specific setters; perspective is baked into world transform now.
-
     /// Retrieves the current physical size of the rendering surface.
     ///
     /// # Returns
@@ -1872,7 +1870,6 @@ fn handle_increment_pass<'rp>(
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
                 render_pass
                     .set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
-                // (render params buffer removed)
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
@@ -1939,12 +1936,10 @@ fn handle_increment_pass<'rp>(
                 render_pass
                     .set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
             }
-            // (render params buffer removed)
         } else {
             render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
             render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
             render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
-            // (render params fallback removed)
         }
         render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
 
@@ -1986,7 +1981,6 @@ fn handle_decrement_pass<'rp>(
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
                 render_pass
                     .set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
-                // (render params buffer removed)
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
@@ -2027,7 +2021,6 @@ fn handle_decrement_pass<'rp>(
                 render_pass
                     .set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
             }
-            // (render params slice removed)
         } else {
             render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
             render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));

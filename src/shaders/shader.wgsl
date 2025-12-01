@@ -57,7 +57,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     // Then matrix * vector will work correctly for row-major semantics.
     let model: mat4x4<f32> = mat4x4<f32>(input.t_row0, input.t_row1, input.t_row2, input.t_row3);
 
-    // Apply the per-instance transform in pixel space.
+    // Apply the per-instance transform in pixel space
     let p = model * vec4<f32>(input.position, 0.0, 1.0);
     
     // Perform homogeneous divide to handle perspective projection

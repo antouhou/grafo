@@ -10,7 +10,7 @@ use lyon::path::Path;
 
 // Local converter from euclid to grafo's GPU instance layout so we keep euclid out of the main crate.
 fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstance {
-    // Euclid's to_arrays() returns row-major [[f32; 4]; 4] which matches our new layout
+    // Euclid's to_arrays() returns row-major [[f32; 4]; 4]
     grafo::TransformInstance::from_rows(m.to_arrays())
 }
 
