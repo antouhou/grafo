@@ -1,17 +1,17 @@
-// Vertex input: per-vertex position/order/uv and per-instance color+transform
+// Vertex input: per-vertex position/uv and per-instance color+transform
 struct VertexInput {
     @location(0) position: vec2<f32>,
-    // Per-vertex render order value (not true geometric depth)
-    @location(2) order: f32,
-    // Per-instance solid color (was per-vertex before)
+    // Per-instance solid color
     @location(1) color: vec4<f32>,
-    // Per-instance transform matrix columns (column-major)
-    @location(3) t_col0: vec4<f32>,
-    @location(4) t_col1: vec4<f32>,
-    @location(5) t_col2: vec4<f32>,
-    @location(6) t_col3: vec4<f32>,
     // Optional texture coordinates for shape texturing
-    @location(7) tex_coords: vec2<f32>,
+    @location(2) tex_coords: vec2<f32>,
+    // Per-instance transform matrix rows (row-major from euclid)
+    @location(3) t_row0: vec4<f32>,
+    @location(4) t_row1: vec4<f32>,
+    @location(5) t_row2: vec4<f32>,
+    @location(6) t_row3: vec4<f32>,
+    // Per-instance draw order for Z-fighting resolution
+    @location(7) draw_order: f32,
 };
 
 struct VertexOutput {
@@ -51,22 +51,56 @@ fn to_srgb(color: vec3<f32>) -> vec3<f32> {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    // Build the transform matrix
-    let model: mat4x4<f32> = mat4x4<f32>(input.t_col0, input.t_col1, input.t_col2, input.t_col3);
+    // Build the transform matrix from row-major CPU data.
+    // Euclid's to_arrays() gives us rows, and WGSL mat4x4 constructor treats each vec4 as a column.
+    // So we pass rows as if they were columns, which gives us the transpose.
+    // Then matrix * vector will work correctly for row-major semantics.
+    let model: mat4x4<f32> = mat4x4<f32>(input.t_row0, input.t_row1, input.t_row2, input.t_row3);
 
-    // Apply the per-instance transform in pixel space first (allowing full projective transforms)
+    // Apply the per-instance transform in pixel space
     let p = model * vec4<f32>(input.position, 0.0, 1.0);
-    // Homogeneous divide to account for perspective. Clamp w to avoid infinities.
-    let invw = 1.0 / max(abs(p.w), 1e-6);
-    let px = p.x * invw; // pixel-space x after perspective
-    let py = p.y * invw; // pixel-space y after perspective
+    
+    // Perform homogeneous divide to handle perspective projection
+    let w = p.w;
+    let invw = 1.0 / max(abs(w), 1e-6);
+    let px = p.x * invw;
+    let py = p.y * invw;
+    let pz = p.z * invw;
 
     // Then convert to NDC (Normalized Device Coordinates)
     // NDC is a cube with corners (-1, -1, -1) and (1, 1, 1).
     let ndc_x = 2.0 * px / uniforms.canvas_size.x - 1.0;
     let ndc_y = 1.0 - 2.0 * py / uniforms.canvas_size.y;
-    // Keep ordering controlled by the provided per-vertex order attribute.
-    output.position = vec4<f32>(ndc_x, ndc_y, input.order, 1.0);
+    // Map pz to [0, 1] depth range. Scale determines the Z range that maps to full depth.
+    // Clamp to ensure we stay within valid depth bounds.
+    // Larger Z -> smaller depth (closer to camera)
+    let scale = 1000.0;  // Z range of [-scale, +scale] maps to [1, 0]
+    var depth = clamp(0.5 - pz / scale, 0.0, 1.0);
+
+    // TODO: a bit of a hacky hack to avoid intersection between shapes that do and shapes that doesn't use perspective.
+    //  The basic idea is that shapes with pz=0 are the shapes that are likely don't use perspective, so we push them to
+    //  the far plane. This is not a very good solution, and likely will cause some confusion in certain cases, for
+    //  example when the user explicitly wants a shape to intersect another shape at z=0. I'm a bit too lazy to fix
+    //  this properly right now, so leaving a TODO here.
+    if pz == 0.0 {
+        depth = 1.0; // Place at far plane if Z is exactly zero
+    }
+    
+    // Apply a tiny depth bias based on draw order to resolve Z-fighting for coplanar shapes.
+    // Later shapes (higher draw_order) get a smaller depth value (closer to camera).
+    let bias = input.draw_order * 0.00001;
+    let biased_depth = clamp(depth - bias, 0.0, 1.0);
+
+    // Biased depth here is a remnant of old code that used to actually do z sorting. I needed to add some transparency
+    //  effects later on, and I figured that the easiest way would be just to disable depth compare function in the
+    //  pipeline, and just use fs_main to do color compositing. That has one downside: as the compositing does not rely
+    //  on the Z buffer, but rather on the draw order, if two shapes intersect, the one drawn later will
+    //  always appear on top, even though part of it should be behind the other shape. A proper solution would be to implement
+    //  some other algoritm to handle that, like depth peeling or weighted blended order-independent transparency, but
+    //  I don't have a particular use case for it right now, so I'm leaving it as is.
+    //  If you want to enable intersection without transparency, change the pipeline to enable depth test/write with
+    //  less-equal function. (set depth_compare: wgpu::CompareFunction::LessEqual on the stencil/depth state)
+    output.position = vec4<f32>(ndc_x, ndc_y, biased_depth, 1.0);
     output.color = input.color;
     output.tex_coords = input.tex_coords;
     return output;

@@ -22,7 +22,7 @@ use crate::pipeline::{
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
-use crate::vertex::{InstanceColor, InstanceTransform};
+use crate::vertex::{InstanceColor, InstanceMetadata, InstanceTransform};
 use crate::CachedShape;
 use crate::Color;
 use ahash::{HashMap, HashMapExt};
@@ -58,23 +58,6 @@ impl From<TextureLayer> for usize {
             TextureLayer::Foreground => 1,
         }
     }
-}
-
-/// Calculates the depth value based on the draw command's ID and the total number of draw commands.
-///
-/// Depth values are clamped between `0.0000000001` and `0.9999999999` to avoid precision issues.
-///
-/// # Parameters
-///
-/// - `draw_command_id`: The identifier of the current draw command.
-/// - `draw_commands_total`: The total number of draw commands.
-///
-/// # Returns
-///
-/// A `f32` representing the normalized depth value.
-#[inline(always)]
-pub fn order_value(draw_command_id: usize, draw_commands_total: usize) -> f32 {
-    (1.0 - (draw_command_id as f32 / draw_commands_total as f32)).clamp(0.0000000001, 0.9999999999)
 }
 
 /// Represents a draw command, which can be either a shape or an image.
@@ -198,6 +181,8 @@ pub struct Renderer<'a> {
     temp_instance_transforms: Vec<InstanceTransform>,
     /// Per-frame instance colors for shapes
     temp_instance_colors: Vec<InstanceColor>,
+    /// Per-frame instance metadata (draw order) for shapes
+    temp_instance_metadata: Vec<InstanceMetadata>,
 
     /// Reusable aggregated vertex buffer
     aggregated_vertex_buffer: Option<wgpu::Buffer>,
@@ -207,11 +192,15 @@ pub struct Renderer<'a> {
     aggregated_instance_transform_buffer: Option<wgpu::Buffer>,
     /// Per-frame instance color GPU buffer
     aggregated_instance_color_buffer: Option<wgpu::Buffer>,
+    /// Per-frame instance metadata GPU buffer
+    aggregated_instance_metadata_buffer: Option<wgpu::Buffer>,
 
     /// Identity transform instance buffer
     identity_instance_transform_buffer: Option<wgpu::Buffer>,
     /// Identity color instance buffer (white)
     identity_instance_color_buffer: Option<wgpu::Buffer>,
+    /// Identity metadata instance buffer (0.0)
+    identity_instance_metadata_buffer: Option<wgpu::Buffer>,
 
     shape_cache: HashMap<u64, CachedShape>,
 
@@ -446,12 +435,15 @@ impl<'a> Renderer<'a> {
             temp_indices: Vec::new(),
             temp_instance_transforms: Vec::new(),
             temp_instance_colors: Vec::new(),
+            temp_instance_metadata: Vec::new(),
             aggregated_vertex_buffer: None,
             aggregated_index_buffer: None,
             aggregated_instance_transform_buffer: None,
             aggregated_instance_color_buffer: None,
+            aggregated_instance_metadata_buffer: None,
             identity_instance_transform_buffer: None,
             identity_instance_color_buffer: None,
+            identity_instance_metadata_buffer: None,
 
             shape_cache: HashMap::new(),
 
@@ -635,8 +627,9 @@ impl<'a> Renderer<'a> {
     ///         let window_surface = Arc::new(
     ///             event_loop.create_window(Window::default_attributes()).unwrap()
     ///         );
-    ///         let physical_size = (800, 600);
+    ///
     ///         let scale_factor = 1.0;
+    ///         let physical_size = (800, 600);
     ///
     ///         // Initialize the renderer
     ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
@@ -676,7 +669,6 @@ impl<'a> Renderer<'a> {
     ) {
         let cached_shape = CachedShape::new(
             shape.as_ref(),
-            0.0,
             &mut self.tessellator,
             &mut self.buffers_pool_manager,
             tessellation_cache_key,
@@ -707,18 +699,16 @@ impl<'a> Renderer<'a> {
         self.temp_indices.clear();
         self.temp_instance_transforms.clear();
         self.temp_instance_colors.clear();
-
-        let draw_tree_size = self.draw_tree.len();
+        self.temp_instance_metadata.clear();
 
         let tessellator = &mut self.tessellator;
         let buffers_pool_manager = &mut self.buffers_pool_manager;
 
         // First pass: tessellate all shapes and aggregate vertex/index and instance data
-        for (node_id, draw_command) in self.draw_tree.iter_mut() {
+        for (_node_id, draw_command) in self.draw_tree.iter_mut() {
             match draw_command {
                 DrawCommand::Shape(ref mut shape) => {
-                    let depth = order_value(node_id, draw_tree_size);
-                    let vertex_buffers = shape.tessellate(depth, tessellator, buffers_pool_manager);
+                    let vertex_buffers = shape.tessellate(tessellator, buffers_pool_manager);
 
                     if vertex_buffers.vertices.is_empty() || vertex_buffers.indices.is_empty() {
                         shape.is_empty = true;
@@ -751,21 +741,18 @@ impl<'a> Renderer<'a> {
                         .unwrap_or([1.0, 1.0, 1.0, 1.0]);
                     self.temp_instance_transforms.push(transform);
                     self.temp_instance_colors.push(InstanceColor { color });
+                    self.temp_instance_metadata.push(InstanceMetadata {
+                        draw_order: instance_idx as f32,
+                    });
                     *shape.instance_index_mut() = Some(instance_idx);
                 }
                 DrawCommand::CachedShape(cached_shape_data) => {
-                    let depth = order_value(node_id, draw_tree_size);
-
                     if let Some(cached_shape) = self.shape_cache.get_mut(&cached_shape_data.id) {
                         if cached_shape.vertex_buffers.vertices.is_empty()
                             || cached_shape.vertex_buffers.indices.is_empty()
                         {
                             cached_shape_data.is_empty = true;
                             continue;
-                        }
-
-                        if depth != cached_shape.depth {
-                            cached_shape.set_depth(depth);
                         }
 
                         let vertex_start = self.temp_vertices.len();
@@ -796,6 +783,9 @@ impl<'a> Renderer<'a> {
                             .unwrap_or([1.0, 1.0, 1.0, 1.0]);
                         self.temp_instance_transforms.push(transform);
                         self.temp_instance_colors.push(InstanceColor { color });
+                        self.temp_instance_metadata.push(InstanceMetadata {
+                            draw_order: instance_idx as f32,
+                        });
                         *cached_shape_data.instance_index_mut() = Some(instance_idx);
                     } else {
                         println!("Warning: Cached shape not found in cache");
@@ -878,6 +868,15 @@ impl<'a> Renderer<'a> {
                     usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
                 }));
         }
+        if self.identity_instance_metadata_buffer.is_none() {
+            let metadata = InstanceMetadata::default();
+            self.identity_instance_metadata_buffer =
+                Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Identity Instance Metadata Buffer"),
+                    contents: bytemuck::cast_slice(&[metadata]),
+                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                }));
+        }
 
         // Create/update aggregated instance transform buffer
         if !self.temp_instance_transforms.is_empty() {
@@ -925,6 +924,29 @@ impl<'a> Renderer<'a> {
                 );
             }
         }
+        // Create/update aggregated instance metadata buffer
+        if !self.temp_instance_metadata.is_empty() {
+            let required_instance_size = std::mem::size_of_val(&self.temp_instance_metadata[..]);
+            let needs_realloc = self
+                .aggregated_instance_metadata_buffer
+                .as_ref()
+                .map(|buffer| buffer.size() < required_instance_size as u64)
+                .unwrap_or(true);
+            if needs_realloc {
+                self.aggregated_instance_metadata_buffer =
+                    Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                        label: Some("Aggregated Instance Metadata Buffer"),
+                        contents: bytemuck::cast_slice(&self.temp_instance_metadata),
+                        usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                    }));
+            } else {
+                self.queue.write_buffer(
+                    self.aggregated_instance_metadata_buffer.as_ref().unwrap(),
+                    0,
+                    bytemuck::cast_slice(&self.temp_instance_metadata),
+                );
+            }
+        }
     }
 
     /// Core rendering logic that renders to a texture view.
@@ -958,10 +980,15 @@ impl<'a> Renderer<'a> {
                 .as_ref()
                 .unwrap(),
             identity_instance_color_buffer: self.identity_instance_color_buffer.as_ref().unwrap(),
+            identity_instance_metadata_buffer: self
+                .identity_instance_metadata_buffer
+                .as_ref()
+                .unwrap(),
             aggregated_instance_transform_buffer: self
                 .aggregated_instance_transform_buffer
                 .as_ref(),
             aggregated_instance_color_buffer: self.aggregated_instance_color_buffer.as_ref(),
+            aggregated_instance_metadata_buffer: self.aggregated_instance_metadata_buffer.as_ref(),
         };
 
         {
@@ -1496,14 +1523,14 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    /// Sets a 4x4 column-major transform for a shape or cached shape.
-    /// The transform is applied in clip space AFTER pixel-to-NDC normalization in the shader.
-    pub fn set_shape_transform_cols(&mut self, node_id: usize, cols: [[f32; 4]; 4]) {
+    /// Sets a 4x4 row-major transform for a shape or cached shape.
+    /// The transform is applied in pixel space before pixel-to-NDC normalization in the shader.
+    pub fn set_shape_transform_rows(&mut self, node_id: usize, rows: [[f32; 4]; 4]) {
         let t = InstanceTransform {
-            col0: cols[0],
-            col1: cols[1],
-            col2: cols[2],
-            col3: cols[3],
+            row0: rows[0],
+            row1: rows[1],
+            row2: rows[2],
+            row3: rows[3],
         };
         if let Some(draw_command) = self.draw_tree.get_mut(node_id) {
             match draw_command {
@@ -1607,7 +1634,6 @@ impl<'a> Renderer<'a> {
     ///         let size = renderer.size();
     ///         println!("Rendering surface size: {}x{}", size.0, size.1);
     ///     }
-    ///
     ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
     ///         // Handle window events (stub for doc test)
     ///     }
@@ -1656,11 +1682,11 @@ impl<'a> Renderer<'a> {
     ///         // Change the scale factor to 2.0 for high-DPI rendering
     ///         renderer.change_scale_factor(2.0);
     ///     }
-    ///
     ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
     ///         // Handle window events (stub for doc test)
     ///     }
     /// }
+    /// ```
     pub fn change_scale_factor(&mut self, new_scale_factor: f64) {
         self.scale_factor = new_scale_factor;
         self.resize(self.physical_size)
@@ -1710,7 +1736,6 @@ impl<'a> Renderer<'a> {
     ///         // Resize the renderer to 1024x768 pixels
     ///         renderer.resize((1024, 768));
     ///     }
-    ///
     ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
     ///         // Handle window events (stub for doc test)
     ///     }
@@ -1797,8 +1822,10 @@ struct Buffers<'a> {
     aggregated_index_buffer: &'a wgpu::Buffer,
     identity_instance_transform_buffer: &'a wgpu::Buffer,
     identity_instance_color_buffer: &'a wgpu::Buffer,
+    identity_instance_metadata_buffer: &'a wgpu::Buffer,
     aggregated_instance_transform_buffer: Option<&'a wgpu::Buffer>,
     aggregated_instance_color_buffer: Option<&'a wgpu::Buffer>,
+    aggregated_instance_metadata_buffer: Option<&'a wgpu::Buffer>,
 }
 
 struct Pipelines<'a> {
@@ -1841,6 +1868,8 @@ fn handle_increment_pass<'rp>(
                 render_pass
                     .set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+                render_pass
+                    .set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
@@ -1869,6 +1898,12 @@ fn handle_increment_pass<'rp>(
                         render_pass.set_bind_group(1 + layer as u32, &*bg_arc, &[]);
                     }
                 }
+            } else {
+                render_pass.set_bind_group(
+                    1 + layer as u32,
+                    &*pipelines.default_shape_texture_bgs[layer],
+                    &[],
+                );
             }
         }
 
@@ -1892,9 +1927,19 @@ fn handle_increment_pass<'rp>(
             } else {
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
             }
+            // Metadata slice
+            if let Some(inst_m_buf) = buffers.aggregated_instance_metadata_buffer {
+                let stride_m = std::mem::size_of::<InstanceMetadata>() as u64;
+                let offset_m = instance_idx as u64 * stride_m;
+                render_pass.set_vertex_buffer(3, inst_m_buf.slice(offset_m..offset_m + stride_m));
+            } else {
+                render_pass
+                    .set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
+            }
         } else {
             render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
             render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+            render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
         }
         render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
 
@@ -1934,6 +1979,8 @@ fn handle_decrement_pass<'rp>(
                 render_pass
                     .set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+                render_pass
+                    .set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
@@ -1965,9 +2012,19 @@ fn handle_decrement_pass<'rp>(
             } else {
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
             }
+            // Metadata slice
+            if let Some(inst_m_buf) = buffers.aggregated_instance_metadata_buffer {
+                let stride_m = std::mem::size_of::<InstanceMetadata>() as u64;
+                let offset_m = instance_idx as u64 * stride_m;
+                render_pass.set_vertex_buffer(3, inst_m_buf.slice(offset_m..offset_m + stride_m));
+            } else {
+                render_pass
+                    .set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
+            }
         } else {
             render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
             render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+            render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
         }
         render_buffer_range_to_texture(index_range, render_pass, this_shape_stencil);
 

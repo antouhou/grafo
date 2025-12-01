@@ -1,6 +1,6 @@
 [package]
 name = "grafo"
-version = "0.10.0"
+version = "0.11.0"
 edition = "2021"
 description = "A GPU-accelerated rendering library for Rust"
 keywords = ["rendering", "vector_graphics", "gui", "graphics", "image"]
@@ -26,7 +26,8 @@ winit = "0.30"
 env_logger = "0.11"
 futures = "0.3"
 image = "0.25"
-euclid = "0.22"
+transformator = "0.1.1"
+euclid = "0.22.11"
 
 [features]
 performance_measurement = []

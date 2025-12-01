@@ -10,20 +10,8 @@ use lyon::path::Path;
 
 // Local converter from euclid to grafo's GPU instance layout so we keep euclid out of the main crate.
 fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstance {
-    // Euclid stores translation in the last ROW (m41, m42, m43) with column-major notation.
-    // Our WGSL uses column-major matrices multiplied by column vectors: model * vec4(x, y, z, 1).
-    // Therefore, translation must be in the LAST COLUMN (col3.xyz). Map as follows:
-    //   col0 = [m11, m21, m31, m14]
-    //   col1 = [m12, m22, m32, m24]
-    //   col2 = [m13, m23, m33, m34]
-    //   col3 = [m41, m42, m43, m44]
-    // For typical affine transforms, m14/m24/m34 are 0.
-    grafo::TransformInstance {
-        col0: [m.m11, m.m21, m.m31, m.m14],
-        col1: [m.m12, m.m22, m.m32, m.m24],
-        col2: [m.m13, m.m23, m.m33, m.m34],
-        col3: [m.m41, m.m42, m.m43, m.m44],
-    }
+    // Euclid's to_arrays() returns row-major [[f32; 4]; 4]
+    grafo::TransformInstance::from_rows(m.to_arrays())
 }
 
 // Convert world point (in pixels) into shape-local coordinates using the same 2D affine
