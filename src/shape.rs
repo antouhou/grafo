@@ -344,7 +344,7 @@ struct VertexConverter {}
 
 impl VertexConverter {
     fn new() -> Self {
-        Self { }
+        Self {}
     }
 }
 

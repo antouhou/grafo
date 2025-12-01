@@ -23,8 +23,8 @@ use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
 use crate::vertex::{InstanceColor, InstanceMetadata, InstanceTransform};
+use crate::CachedShape;
 use crate::Color;
-use crate::{transformator, CachedShape};
 use ahash::{HashMap, HashMapExt};
 use log::warn;
 use lyon::tessellation::FillTessellator;
@@ -629,6 +629,7 @@ impl<'a> Renderer<'a> {
     ///         );
     ///
     ///         let scale_factor = 1.0;
+    ///         let physical_size = (800, 600);
     ///
     ///         // Initialize the renderer
     ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
@@ -699,7 +700,7 @@ impl<'a> Renderer<'a> {
         self.temp_instance_transforms.clear();
         self.temp_instance_colors.clear();
         self.temp_instance_metadata.clear();
-        
+
         let tessellator = &mut self.tessellator;
         let buffers_pool_manager = &mut self.buffers_pool_manager;
 
@@ -979,7 +980,10 @@ impl<'a> Renderer<'a> {
                 .as_ref()
                 .unwrap(),
             identity_instance_color_buffer: self.identity_instance_color_buffer.as_ref().unwrap(),
-            identity_instance_metadata_buffer: self.identity_instance_metadata_buffer.as_ref().unwrap(),
+            identity_instance_metadata_buffer: self
+                .identity_instance_metadata_buffer
+                .as_ref()
+                .unwrap(),
             aggregated_instance_transform_buffer: self
                 .aggregated_instance_transform_buffer
                 .as_ref(),
@@ -1548,17 +1552,6 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    pub fn set_transformator(&mut self, node_id: usize, transformator: &transformator::Transform) {
-        let exists = self.draw_tree.get(node_id).is_some();
-        if !exists {
-            return;
-        }
-        self.set_shape_transform(
-            node_id,
-            InstanceTransform::from_rows(transformator.rows_world()),
-        );
-    }
-
     /// Associates a texture with a shape or cached shape by node id.
     /// Pass `None` to remove texture and fall back to solid fill color.
     pub fn set_shape_texture(&mut self, node_id: usize, texture_id: Option<u64>) {
@@ -1877,7 +1870,8 @@ fn handle_increment_pass<'rp>(
                 render_pass
                     .set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
-                render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
+                render_pass
+                    .set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
                 // (render params buffer removed)
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
@@ -1934,7 +1928,7 @@ fn handle_increment_pass<'rp>(
                 let offset_c = instance_idx as u64 * stride_c;
                 render_pass.set_vertex_buffer(2, inst_c_buf.slice(offset_c..offset_c + stride_c));
             } else {
-                                              render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+                render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
             }
             // Metadata slice
             if let Some(inst_m_buf) = buffers.aggregated_instance_metadata_buffer {
@@ -1942,7 +1936,8 @@ fn handle_increment_pass<'rp>(
                 let offset_m = instance_idx as u64 * stride_m;
                 render_pass.set_vertex_buffer(3, inst_m_buf.slice(offset_m..offset_m + stride_m));
             } else {
-                render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
+                render_pass
+                    .set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
             }
             // (render params buffer removed)
         } else {
@@ -1989,7 +1984,8 @@ fn handle_decrement_pass<'rp>(
                 render_pass
                     .set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
                 render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
-                render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
+                render_pass
+                    .set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
                 // (render params buffer removed)
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
@@ -2028,7 +2024,8 @@ fn handle_decrement_pass<'rp>(
                 let offset_m = instance_idx as u64 * stride_m;
                 render_pass.set_vertex_buffer(3, inst_m_buf.slice(offset_m..offset_m + stride_m));
             } else {
-                render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
+                render_pass
+                    .set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
             }
             // (render params slice removed)
         } else {

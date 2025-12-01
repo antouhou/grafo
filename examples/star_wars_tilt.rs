@@ -1,8 +1,8 @@
 use euclid::{Point2D, UnknownUnit};
 use futures::executor::block_on;
-use grafo::{transformator, Color, Shape, Stroke};
+use grafo::{Color, Shape, Stroke};
 use std::sync::Arc;
-use lyon::math::Angle;
+use transformator;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -158,12 +158,12 @@ impl<'a> ApplicationHandler for App<'a> {
                             viewport_center.1,
                         )
                         // TODO: important! Order of rotations matters!
-                        .then_rotate_y(Angle::degrees(30.0))
-                        .then_rotate_x(Angle::degrees(45.0))
+                        .then_rotate_y_deg(30.0)
+                        .then_rotate_x_deg(45.0)
                         .with_origin(50.0, 50.0)
                         .compose_2(&transformator::Transform::new());
 
-                    renderer.set_transformator(rect_id, &parent_local);
+                    renderer.set_shape_transform_rows(rect_id, parent_local.rows_world());
 
                     // Inner rectangles inherit parent transform and sit inside with 10px padding.
                     // Layout: padding(10) + rect(35) + gap(10) + rect(35) + padding(10) = 100 total width.
@@ -171,17 +171,17 @@ impl<'a> ApplicationHandler for App<'a> {
 
                     let child1 = transformator::Transform::new()
                         .with_position_relative_to_parent(10.0, 10.0)
-                        .then_rotate_y(Angle::degrees(20.0))
+                        .then_rotate_y_deg(20.0)
                         .with_origin(17.5, 40.0)
                         .compose_2(&parent_local);
-                    renderer.set_transformator(inner_rect_1, &child1);
+                    renderer.set_shape_transform_rows(inner_rect_1, child1.rows_world());
 
                     let child2 = transformator::Transform::new()
                         .with_position_relative_to_parent(55.0, 10.0)
-                        .then_rotate_y(Angle::degrees(20.0))
+                        .then_rotate_y_deg(20.0)
                         .with_origin(17.5, 40.0)
                         .compose_2(&parent_local);
-                    renderer.set_transformator(inner_rect_2, &child2);
+                    renderer.set_shape_transform_rows(inner_rect_2, child2.rows_world());
 
                     // Hit testing: transform mouse position to local coordinates for each shape
                     // Check children first (they're on top)

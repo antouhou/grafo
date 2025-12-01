@@ -90,7 +90,16 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     // Later shapes (higher draw_order) get a smaller depth value (closer to camera).
     let bias = input.draw_order * 0.00001;
     let biased_depth = clamp(depth - bias, 0.0, 1.0);
-    
+
+    // Biased depth here is a remnant of old code that used to actually do z sorting. I needed to add some transparency
+    //  effects later on, and I figured that the easiest way would be just to disable depth compare function in the
+    //  pipeline, and just use fs_main to do color compositing. That has one downside: as the compositing does not rely
+    //  on the Z buffer, but rather on the draw order, if two shapes intersect, the one drawn later will
+    //  always appear on top, even though part of it should be behind the other shape. A proper solution would be to implement
+    //  some other algoritm to handle that, like depth peeling or weighted blended order-independent transparency, but
+    //  I don't have a particular use case for it right now, so I'm leaving it as is.
+    //  If you want to enable intersection without transparency, change the pipeline to enable depth test/write with
+    //  less-equal function. (set depth_compare: wgpu::CompareFunction::LessEqual on the stencil/depth state)
     output.position = vec4<f32>(ndc_x, ndc_y, biased_depth, 1.0);
     output.color = input.color;
     output.tex_coords = input.tex_coords;
