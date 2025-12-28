@@ -85,6 +85,18 @@ impl TextureManager {
         }
     }
 
+    pub fn clear(&self) {
+        self.texture_storage.write().unwrap().clear();
+        self.shape_bind_group_cache.write().unwrap().clear();
+    }
+
+    pub fn size(&self) -> (usize, usize) {
+        (
+            self.texture_storage.read().unwrap().len(),
+            self.shape_bind_group_cache.read().unwrap().len(),
+        )
+    }
+
     fn create_sampler(device: &wgpu::Device) -> wgpu::Sampler {
         device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -203,6 +215,17 @@ impl TextureManager {
         );
 
         Ok(())
+    }
+
+    /// Removes the texture identified by `texture_id` from the manager.
+    pub fn remove_texture(&self, texture_id: u64) {
+        let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
+        // If the binding cache contains entries for this texture_id, remove them
+        // as the texture is being removed, and the old bind groups are no longer valid.
+        bind_group_cache
+            .retain(|(cached_texture_id, _shape_id), _bind_group| *cached_texture_id != texture_id);
+
+        self.texture_storage.write().unwrap().remove(&texture_id);
     }
 
     fn write_image_bytes_to_texture(

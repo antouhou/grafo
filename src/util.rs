@@ -1,6 +1,7 @@
 use crate::cache::Cache;
 use crate::vertex::CustomVertex;
 use lyon::tessellation::VertexBuffers;
+use std::num::NonZeroUsize;
 
 pub fn normalize_rgba_color(color: &[u8; 4]) -> [f32; 4] {
     [
@@ -22,6 +23,10 @@ impl LyonVertexBuffersPool {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.vertex_buffers.len()
+    }
+
     pub fn get_vertex_buffers(&mut self) -> VertexBuffers<CustomVertex, u16> {
         if let Some(vertex_buffers) = self.vertex_buffers.pop() {
             vertex_buffers
@@ -37,19 +42,18 @@ pub(crate) struct PoolManager {
 }
 
 impl PoolManager {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(tesselation_cache_size: NonZeroUsize) -> Self {
         Self {
             lyon_vertex_buffers_pool: LyonVertexBuffersPool::new(),
-            tessellation_cache: Cache::new(),
+            tessellation_cache: Cache::new(tesselation_cache_size),
         }
     }
 
-    // pub fn print_sizes(&self) {
-    //     println!("Vertex buffers: {}", self.vertex_buffer_pool.buffers.len());
-    //     println!("Index buffers: {}", self.index_buffer_pool.buffers.len());
-    //     println!("Lyon vertex buffers: {}", self.lyon_vertex_buffers_pool.vertex_buffers.len());
-    //     // println!("Tessellation cache: {}", self.tessellation_cache.len());
-    // }
+    pub fn print_sizes(&self) {
+        println!("Pool sizes:");
+        println!("Vertex buffers: {}", self.lyon_vertex_buffers_pool.len());
+        println!("Index buffers: {}", self.tessellation_cache.len());
+    }
 }
 
 #[inline(always)]

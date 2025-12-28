@@ -8,6 +8,7 @@
 //! }
 //! ```
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 pub type MathRect = lyon::math::Box2D;
@@ -30,6 +31,9 @@ use log::warn;
 use lyon::tessellation::FillTessellator;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{BindGroup, BufferUsages, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
+
+// TODO: move to the config/constructor
+const MAX_CACHED_SHAPES: usize = 1024;
 
 /// Represents different rendering pipelines used by the `Renderer`.
 ///
@@ -202,6 +206,9 @@ pub struct Renderer<'a> {
     /// Identity metadata instance buffer (0.0)
     identity_instance_metadata_buffer: Option<wgpu::Buffer>,
 
+    /// Loaded shapes to reuse later during rendering without loading/tessellating again.
+    /// This is not an LRU cache because it's not a simple cache: evicting a shape from it also
+    /// results in the shape not being rendered anymore.
     shape_cache: HashMap<u64, CachedShape>,
 
     // Cached resources for render_to_argb32 compute swizzle path
@@ -401,7 +408,10 @@ impl<'a> Renderer<'a> {
 
             texture_manager,
 
-            buffers_pool_manager: PoolManager::new(),
+            // TODO: make reconfigurable
+            buffers_pool_manager: PoolManager::new(
+                NonZeroUsize::new(MAX_CACHED_SHAPES).expect("Cache size to be greater than 0"),
+            ),
 
             and_pipeline: Arc::new(and_pipeline),
             and_uniforms,
@@ -466,6 +476,145 @@ impl<'a> Renderer<'a> {
             rtb_cached_width: 0,
             rtb_cached_height: 0,
         }
+    }
+
+    pub fn print_memory_usage_info(&self) {
+        println!("=== Memory Usage Info ===");
+
+        // Shape and draw data
+        println!("Cached shapes: {}", self.shape_cache.len());
+        println!("Draw tree size: {}", self.draw_tree.len());
+        println!(
+            "Metadata to clips mappings: {}",
+            self.metadata_to_clips.len()
+        );
+
+        // Temporary CPU vectors
+        println!("\n--- Temporary Vectors ---");
+        println!(
+            "Temp vertices: {} items, {} capacity, ~{} bytes",
+            self.temp_vertices.len(),
+            self.temp_vertices.capacity(),
+            self.temp_vertices.capacity() * std::mem::size_of::<crate::vertex::CustomVertex>()
+        );
+        println!(
+            "Temp indices: {} items, {} capacity, ~{} bytes",
+            self.temp_indices.len(),
+            self.temp_indices.capacity(),
+            self.temp_indices.capacity() * std::mem::size_of::<u16>()
+        );
+        println!(
+            "Temp instance transforms: {} items, {} capacity, ~{} bytes",
+            self.temp_instance_transforms.len(),
+            self.temp_instance_transforms.capacity(),
+            self.temp_instance_transforms.capacity()
+                * std::mem::size_of::<crate::vertex::InstanceTransform>()
+        );
+        println!(
+            "Temp instance colors: {} items, {} capacity, ~{} bytes",
+            self.temp_instance_colors.len(),
+            self.temp_instance_colors.capacity(),
+            self.temp_instance_colors.capacity()
+                * std::mem::size_of::<crate::vertex::InstanceColor>()
+        );
+        println!(
+            "Temp instance metadata: {} items, {} capacity, ~{} bytes",
+            self.temp_instance_metadata.len(),
+            self.temp_instance_metadata.capacity(),
+            self.temp_instance_metadata.capacity()
+                * std::mem::size_of::<crate::vertex::InstanceMetadata>()
+        );
+
+        // GPU buffers
+        println!("\n--- GPU Buffers ---");
+        if let Some(buf) = &self.aggregated_vertex_buffer {
+            println!("Aggregated vertex buffer: {} bytes", buf.size());
+        }
+        if let Some(buf) = &self.aggregated_index_buffer {
+            println!("Aggregated index buffer: {} bytes", buf.size());
+        }
+        if let Some(buf) = &self.aggregated_instance_transform_buffer {
+            println!("Aggregated instance transform buffer: {} bytes", buf.size());
+        }
+        if let Some(buf) = &self.aggregated_instance_color_buffer {
+            println!("Aggregated instance color buffer: {} bytes", buf.size());
+        }
+        if let Some(buf) = &self.aggregated_instance_metadata_buffer {
+            println!("Aggregated instance metadata buffer: {} bytes", buf.size());
+        }
+        if let Some(buf) = &self.identity_instance_transform_buffer {
+            println!("Identity instance transform buffer: {} bytes", buf.size());
+        }
+        if let Some(buf) = &self.identity_instance_color_buffer {
+            println!("Identity instance color buffer: {} bytes", buf.size());
+        }
+        if let Some(buf) = &self.identity_instance_metadata_buffer {
+            println!("Identity instance metadata buffer: {} bytes", buf.size());
+        }
+
+        // ARGB compute path buffers
+        println!("\n--- ARGB Compute Buffers ---");
+        if let Some(buf) = &self.argb_input_buffer {
+            println!(
+                "ARGB input buffer: {} bytes (cached size: {})",
+                buf.size(),
+                self.argb_input_buffer_size
+            );
+        }
+        if let Some(buf) = &self.argb_output_storage_buffer {
+            println!(
+                "ARGB output storage buffer: {} bytes (cached size: {})",
+                buf.size(),
+                self.argb_output_buffer_size
+            );
+        }
+        if let Some(buf) = &self.argb_readback_buffer {
+            println!("ARGB readback buffer: {} bytes", buf.size());
+        }
+        if let Some(buf) = &self.argb_params_buffer {
+            println!("ARGB params buffer: {} bytes", buf.size());
+        }
+        if let Some(tex) = &self.argb_offscreen_texture {
+            let size = tex.size();
+            println!(
+                "ARGB offscreen texture: {}x{} (cached: {}x{})",
+                size.width, size.height, self.argb_cached_width, self.argb_cached_height
+            );
+        }
+
+        // Render-to-buffer caches
+        println!("\n--- Render-to-Buffer Caches ---");
+        if let Some(tex) = &self.rtb_offscreen_texture {
+            let size = tex.size();
+            println!(
+                "RTB offscreen texture: {}x{} (cached: {}x{})",
+                size.width, size.height, self.rtb_cached_width, self.rtb_cached_height
+            );
+        }
+        if let Some(buf) = &self.rtb_readback_buffer {
+            println!("RTB readback buffer: {} bytes", buf.size());
+        }
+
+        // Uniform buffers
+        println!("\n--- Uniform Buffers ---");
+        println!(
+            "AND uniform buffer: {} bytes",
+            self.and_uniform_buffer.size()
+        );
+        println!(
+            "Decrementing uniform buffer: {} bytes",
+            self.decrementing_uniform_buffer.size()
+        );
+
+        // Texture manager
+        println!("\n--- Texture Manager ---");
+        println!("{:?}", self.texture_manager.size());
+
+        // Pool manager
+        println!("\n--- Buffer Pool Manager ---");
+        self.buffers_pool_manager.print_sizes();
+
+        println!("=========================");
     }
 
     fn create_default_shape_texture_bind_group(
@@ -1948,7 +2097,8 @@ fn handle_increment_pass<'rp>(
         *shape.stencil_ref_mut() = Some(this_stencil);
         stencil_stack.push(this_stencil);
     } else {
-        warn!("Shape with no index buffer range found, skipping increment pass");
+        // TODO: bring back the warning later
+        // warn!("Shape with no index buffer range found, skipping increment pass");
     }
 }
 
@@ -2032,6 +2182,7 @@ fn handle_decrement_pass<'rp>(
             stencil_stack.pop();
         }
     } else {
-        warn!("Shape with no index buffer range found, skipping decrement pass");
+        // TODO: bring back the warning later
+        // warn!("Shape with no index buffer range found, skipping decrement pass");
     }
 }
