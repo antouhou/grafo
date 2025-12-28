@@ -1,16 +1,21 @@
 use crate::vertex::CustomVertex;
 use lru::LruCache;
 use lyon::tessellation::VertexBuffers;
+use std::num::NonZeroUsize;
 
 pub(crate) struct Cache {
     tessellation_cache: LruCache<u64, VertexBuffers<CustomVertex, u16>>,
 }
 
 impl Cache {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(size: NonZeroUsize) -> Self {
         Self {
-            tessellation_cache: LruCache::unbounded(),
+            tessellation_cache: LruCache::new(size),
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.tessellation_cache.len()
     }
 
     pub(crate) fn get_vertex_buffers(
