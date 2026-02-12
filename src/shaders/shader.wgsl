@@ -28,6 +28,8 @@ struct VertexOutput {
 // This is a struct that will be used for position normalization
 struct Uniforms {
     canvas_size: vec2<f32>,
+    scale_factor: f32,
+    _padding: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -92,9 +94,12 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
         if (screen_len > 1e-8) {
             let unit_dir = screen_dir / screen_len;
-            // Offset by 1.0 logical pixel outward
-            final_px = px + unit_dir.x * 1.0;
-            final_py = py + unit_dir.y * 1.0;
+            // Offset by 0.5 physical pixels outward. This centers the AA band on the shape
+            // boundary (~0.5px inside + 0.5px outside), which avoids bloating thin features
+            // (a 1px line stays ~2px instead of 3px with a full-pixel fringe).
+            let fringe_width = 0.5 / uniforms.scale_factor;
+            final_px = px + unit_dir.x * fringe_width;
+            final_py = py + unit_dir.y * fringe_width;
         }
     }
 

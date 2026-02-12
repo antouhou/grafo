@@ -405,13 +405,15 @@ fn find_boundary_edges(indices: &[u16]) -> Vec<(u16, u16, u16)> {
 
     edge_map
         .into_iter()
-        .filter_map(|((i, j), (count, opp))| {
-            if count == 1 {
-                Some((i, j, opp))
-            } else {
-                None
-            }
-        })
+        .filter_map(
+            |((i, j), (count, opp))| {
+                if count == 1 {
+                    Some((i, j, opp))
+                } else {
+                    None
+                }
+            },
+        )
         .collect()
 }
 
@@ -482,7 +484,7 @@ fn generate_aa_fringe(vertices: &mut Vec<CustomVertex>, indices: &mut Vec<u16>) 
     for (&vi, &normal) in &vertex_normals {
         let src = &vertices[vi as usize];
         let outer_vertex = CustomVertex {
-            position: src.position,   // same position; shader applies the offset
+            position: src.position, // same position; shader applies the offset
             tex_coords: src.tex_coords,
             normal,
             coverage: 0.0,

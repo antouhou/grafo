@@ -364,6 +364,7 @@ impl<'a> Renderer<'a> {
             and_pipeline,
         ) = create_pipeline(
             canvas_logical_size,
+            scale_factor,
             &device,
             &config,
             PipelineType::EqualIncrementStencil,
@@ -378,6 +379,7 @@ impl<'a> Renderer<'a> {
             decrementing_pipeline,
         ) = create_pipeline(
             canvas_logical_size,
+            scale_factor,
             &device,
             &config,
             PipelineType::EqualDecrementStencil,
@@ -1903,7 +1905,9 @@ impl<'a> Renderer<'a> {
         // Cheap uniform buffer update instead of full pipeline recreation.
         let logical = to_logical(new_physical_size, self.scale_factor);
         self.and_uniforms.canvas_size = [logical.0, logical.1];
+        self.and_uniforms.scale_factor = self.scale_factor as f32;
         self.decrementing_uniforms.canvas_size = [logical.0, logical.1];
+        self.decrementing_uniforms.scale_factor = self.scale_factor as f32;
         // Write both uniform buffers.
         self.queue.write_buffer(
             &self.and_uniform_buffer,
