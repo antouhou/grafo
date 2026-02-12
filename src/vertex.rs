@@ -7,6 +7,10 @@ use bytemuck::{Pod, Zeroable};
 pub struct CustomVertex {
     pub(crate) position: [f32; 2],
     pub(crate) tex_coords: [f32; 2],
+    /// Outward boundary normal in model space (used for AA fringe offset in the shader)
+    pub(crate) normal: [f32; 2],
+    /// Coverage factor: 1.0 for interior/boundary vertices, 0.0 for outer fringe vertices
+    pub(crate) coverage: f32,
 }
 
 impl CustomVertex {
@@ -26,6 +30,18 @@ impl CustomVertex {
                     format: wgpu::VertexFormat::Float32x2,
                     offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
                     shader_location: 2,
+                },
+                // AA Normal (outward boundary direction in model space)
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: (std::mem::size_of::<[f32; 2]>() * 2) as wgpu::BufferAddress,
+                    shader_location: 8,
+                },
+                // AA Coverage (1.0 = interior, 0.0 = outer fringe)
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: (std::mem::size_of::<[f32; 2]>() * 3) as wgpu::BufferAddress,
+                    shader_location: 9,
                 },
             ],
         }

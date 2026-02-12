@@ -866,6 +866,9 @@ impl<'a> Renderer<'a> {
 
                     let vertex_start = self.temp_vertices.len();
                     let index_start = self.temp_indices.len();
+                    if vertex_start > u16::MAX as usize {
+                        warn!("Aggregated vertex count ({}) exceeds u16 limit. Rendering artifacts may occur.", vertex_start);
+                    }
                     let vertex_offset = vertex_start as u16;
 
                     self.temp_vertices
@@ -906,6 +909,9 @@ impl<'a> Renderer<'a> {
 
                         let vertex_start = self.temp_vertices.len();
                         let index_start = self.temp_indices.len();
+                        if vertex_start > u16::MAX as usize {
+                            warn!("Aggregated vertex count ({}) exceeds u16 limit. Rendering artifacts may occur.", vertex_start);
+                        }
                         let vertex_offset = vertex_start as u16;
 
                         let vertex_buffers = &cached_shape.vertex_buffers;

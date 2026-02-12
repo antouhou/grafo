@@ -12,12 +12,17 @@ struct VertexInput {
     @location(6) t_row3: vec4<f32>,
     // Per-instance draw order for Z-fighting resolution
     @location(7) draw_order: f32,
+    // AA: outward boundary normal in model space
+    @location(8) normal: vec2<f32>,
+    // AA: coverage factor (1.0 = interior, 0.0 = outer fringe)
+    @location(9) coverage: f32,
 };
 
 struct VertexOutput {
     @invariant @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
     @location(1) tex_coords: vec2<f32>,
+    @location(2) coverage: f32,
 };
 
 // This is a struct that will be used for position normalization
@@ -67,10 +72,36 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     let py = p.y * invw;
     let pz = p.z * invw;
 
+    // AA fringe offset: push outer fringe vertices outward by 1 logical pixel in screen space.
+    // Only applied to fringe vertices (coverage < 1.0). This ensures the fringe width is
+    // uniform regardless of perspective transforms.
+    var final_px = px;
+    var final_py = py;
+
+    if (input.coverage < 1.0) {
+        // Transform a point slightly offset along the normal through the same model matrix
+        let epsilon = 0.01;
+        let p2 = model * vec4<f32>(input.position + input.normal * epsilon, 0.0, 1.0);
+        let invw2 = 1.0 / max(abs(p2.w), 1e-6);
+        let px2 = p2.x * invw2;
+        let py2 = p2.y * invw2;
+
+        // Screen-space direction of the normal
+        let screen_dir = vec2<f32>(px2 - px, py2 - py);
+        let screen_len = length(screen_dir);
+
+        if (screen_len > 1e-8) {
+            let unit_dir = screen_dir / screen_len;
+            // Offset by 1.0 logical pixel outward
+            final_px = px + unit_dir.x * 1.0;
+            final_py = py + unit_dir.y * 1.0;
+        }
+    }
+
     // Then convert to NDC (Normalized Device Coordinates)
     // NDC is a cube with corners (-1, -1, -1) and (1, 1, 1).
-    let ndc_x = 2.0 * px / uniforms.canvas_size.x - 1.0;
-    let ndc_y = 1.0 - 2.0 * py / uniforms.canvas_size.y;
+    let ndc_x = 2.0 * final_px / uniforms.canvas_size.x - 1.0;
+    let ndc_y = 1.0 - 2.0 * final_py / uniforms.canvas_size.y;
     // Map pz to [0, 1] depth range. Scale determines the Z range that maps to full depth.
     // Clamp to ensure we stay within valid depth bounds.
     // Larger Z -> smaller depth (closer to camera)
@@ -103,11 +134,16 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     output.position = vec4<f32>(ndc_x, ndc_y, biased_depth, 1.0);
     output.color = input.color;
     output.tex_coords = input.tex_coords;
+    output.coverage = input.coverage;
     return output;
 }
 
 @fragment
-fn fs_main(@location(0) color: vec4<f32>, @location(1) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
+fn fs_main(
+    @location(0) color: vec4<f32>,
+    @location(1) tex_coords: vec2<f32>,
+    @location(2) coverage: f32,
+) -> @location(0) vec4<f32> {
     // Convert shape fill color from sRGB to linear
     let fill_lin = vec4<f32>(to_linear(color.rgb), color.a);
     // Sample layer0 and layer1 (Rgba8UnormSrgb -> linear automatically). Data is premultiplied.
@@ -118,5 +154,9 @@ fn fs_main(@location(0) color: vec4<f32>, @location(1) tex_coords: vec2<f32>) ->
     // Compose: base = texture layer 0 over shape fill, then layer 1 over result.
     let base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
     let final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
-    return final_pma;
+
+    // Apply AA coverage: scale premultiplied color by coverage factor.
+    // With premultiplied alpha blending (src: One, dst: OneMinusSrcAlpha),
+    // multiplying all four channels by coverage correctly fades the fringe to transparent.
+    return final_pma * coverage;
 }
