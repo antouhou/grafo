@@ -32,7 +32,10 @@ impl<'a> ApplicationHandler for App<'a> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
-                .create_window(Window::default_attributes().with_title("Grafo MSAA Demo — Press SPACE to toggle"))
+                .create_window(
+                    Window::default_attributes()
+                        .with_title("Grafo MSAA Demo — Press SPACE to toggle"),
+                )
                 .unwrap(),
         );
 

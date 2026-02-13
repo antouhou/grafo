@@ -757,7 +757,15 @@ impl<'a> Renderer<'a> {
         vsync: bool,
         msaa_samples: u32,
     ) -> Self {
-        Self::new(window, physical_size, scale_factor, vsync, true, msaa_samples).await
+        Self::new(
+            window,
+            physical_size,
+            scale_factor,
+            vsync,
+            true,
+            msaa_samples,
+        )
+        .await
     }
 
     /// Adds a shape to the draw queue.
@@ -1129,8 +1137,11 @@ impl<'a> Renderer<'a> {
                 label: Some("Render Command Encoder"),
             });
 
-        let depth_texture =
-            create_and_depth_texture(&self.device, (self.physical_size.0, self.physical_size.1), self.msaa_sample_count);
+        let depth_texture = create_and_depth_texture(
+            &self.device,
+            (self.physical_size.0, self.physical_size.1),
+            self.msaa_sample_count,
+        );
 
         let pipelines = Pipelines {
             and_pipeline: &self.and_pipeline,
@@ -1167,7 +1178,12 @@ impl<'a> Renderer<'a> {
             let depth_texture_view =
                 depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-            let render_pass = create_render_pass(&mut encoder, self.msaa_color_texture_view.as_ref(), texture_view, &depth_texture_view);
+            let render_pass = create_render_pass(
+                &mut encoder,
+                self.msaa_color_texture_view.as_ref(),
+                texture_view,
+                &depth_texture_view,
+            );
 
             // Use a simple stack of stencil references along the traversal path.
             // Top of the stack is the current parent stencil reference.
