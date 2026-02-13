@@ -74,6 +74,7 @@
 //!             scale_factor,
 //!             true,  // vsync
 //!             false, // transparent
+//!             1,     // msaa_samples (1 = off)
 //!         ));
 //!
 //!         // Define a simple rectangle shape

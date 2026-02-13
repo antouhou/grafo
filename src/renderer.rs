@@ -15,8 +15,8 @@ pub type MathRect = lyon::math::Box2D;
 
 use crate::pipeline::{
     compute_padded_bytes_per_row, create_and_depth_texture, create_argb_swizzle_bind_group,
-    create_argb_swizzle_pipeline, create_offscreen_color_texture, create_pipeline,
-    create_readback_buffer, create_render_pass, create_storage_input_buffer,
+    create_argb_swizzle_pipeline, create_msaa_color_texture, create_offscreen_color_texture,
+    create_pipeline, create_readback_buffer, create_render_pass, create_storage_input_buffer,
     create_storage_output_buffer, encode_copy_texture_to_buffer, render_buffer_range_to_texture,
     ArgbParams, PipelineType, Uniforms,
 };
@@ -101,7 +101,7 @@ enum DrawCommand {
 ///         let scale_factor = 1.0;
 ///
 ///         // Initialize the renderer
-///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false, 1));
 ///
 ///         // Add a rectangle shape
 ///         let rect = Shape::rect(
@@ -229,6 +229,14 @@ pub struct Renderer<'a> {
     rtb_readback_buffer: Option<wgpu::Buffer>,
     rtb_cached_width: u32,
     rtb_cached_height: u32,
+
+    /// Current MSAA sample count (1 = off, 4 = 4x, etc.)
+    msaa_sample_count: u32,
+
+    /// The multisampled color texture (None when sample_count == 1)
+    msaa_color_texture: Option<wgpu::Texture>,
+    /// View of the MSAA color texture
+    msaa_color_texture_view: Option<wgpu::TextureView>,
 }
 
 impl<'a> Renderer<'a> {
@@ -262,7 +270,7 @@ impl<'a> Renderer<'a> {
     ///         let scale_factor = 1.0;
     ///
     ///         // Initialize the renderer
-    ///         let renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false, 1));
     ///     }
     ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
     /// }
@@ -273,6 +281,7 @@ impl<'a> Renderer<'a> {
         scale_factor: f64,
         vsync: bool,
         transparent: bool,
+        msaa_samples: u32,
     ) -> Self {
         let size = physical_size;
         let canvas_logical_size = to_logical(size, scale_factor);
@@ -355,6 +364,9 @@ impl<'a> Renderer<'a> {
         };
         surface.configure(&device, &config);
 
+        // Validate MSAA sample count
+        let msaa_sample_count = Self::validate_sample_count_static(msaa_samples);
+
         let (
             and_uniforms,
             and_uniform_buffer,
@@ -367,6 +379,7 @@ impl<'a> Renderer<'a> {
             &device,
             &config,
             PipelineType::EqualIncrementStencil,
+            msaa_sample_count,
         );
 
         let (
@@ -381,6 +394,7 @@ impl<'a> Renderer<'a> {
             &device,
             &config,
             PipelineType::EqualDecrementStencil,
+            msaa_sample_count,
         );
 
         let device = Arc::new(device);
@@ -394,7 +408,7 @@ impl<'a> Renderer<'a> {
         let (default_shape_texture_bind_group_layer1, shape_texture_bind_group_layout_layer1) =
             Self::create_default_shape_texture_bind_group(&device, &queue, &and_texture_bgl_layer1);
 
-        Self {
+        let mut renderer = Self {
             instance,
             surface,
             device,
@@ -475,7 +489,14 @@ impl<'a> Renderer<'a> {
             rtb_readback_buffer: None,
             rtb_cached_width: 0,
             rtb_cached_height: 0,
-        }
+
+            msaa_sample_count,
+            msaa_color_texture: None,
+            msaa_color_texture_view: None,
+        };
+
+        renderer.recreate_msaa_texture();
+        renderer
     }
 
     pub fn print_memory_usage_info(&self) {
@@ -722,7 +743,8 @@ impl<'a> Renderer<'a> {
     ///             window.clone(),
     ///             physical_size,
     ///             scale_factor,
-    ///             true
+    ///             true,
+    ///             1,
     ///         ));
     ///     }
     ///     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {}
@@ -733,8 +755,17 @@ impl<'a> Renderer<'a> {
         physical_size: (u32, u32),
         scale_factor: f64,
         vsync: bool,
+        msaa_samples: u32,
     ) -> Self {
-        Self::new(window, physical_size, scale_factor, vsync, true).await
+        Self::new(
+            window,
+            physical_size,
+            scale_factor,
+            vsync,
+            true,
+            msaa_samples,
+        )
+        .await
     }
 
     /// Adds a shape to the draw queue.
@@ -781,7 +812,7 @@ impl<'a> Renderer<'a> {
     ///         let physical_size = (800, 600);
     ///
     ///         // Initialize the renderer
-    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false, 1));
     ///
     ///         let shape_id = renderer.add_shape(
     ///             Shape::rect(
@@ -1106,8 +1137,11 @@ impl<'a> Renderer<'a> {
                 label: Some("Render Command Encoder"),
             });
 
-        let depth_texture =
-            create_and_depth_texture(&self.device, (self.physical_size.0, self.physical_size.1));
+        let depth_texture = create_and_depth_texture(
+            &self.device,
+            (self.physical_size.0, self.physical_size.1),
+            self.msaa_sample_count,
+        );
 
         let pipelines = Pipelines {
             and_pipeline: &self.and_pipeline,
@@ -1144,7 +1178,12 @@ impl<'a> Renderer<'a> {
             let depth_texture_view =
                 depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-            let render_pass = create_render_pass(&mut encoder, texture_view, &depth_texture_view);
+            let render_pass = create_render_pass(
+                &mut encoder,
+                self.msaa_color_texture_view.as_ref(),
+                texture_view,
+                &depth_texture_view,
+            );
 
             // Use a simple stack of stencil references along the traversal path.
             // Top of the stack is the current parent stencil reference.
@@ -1267,7 +1306,7 @@ impl<'a> Renderer<'a> {
     ///         let scale_factor = 1.0;
     ///
     ///         // Initialize the renderer
-    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false, 1));
     ///
     ///         // Add shapes and images...
     ///
@@ -1630,7 +1669,7 @@ impl<'a> Renderer<'a> {
     ///         let scale_factor = 1.0;
     ///
     ///         // Initialize the renderer
-    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false, 1));
     ///
     ///         // Add shapes and images...
     ///
@@ -1778,7 +1817,7 @@ impl<'a> Renderer<'a> {
     ///         let scale_factor = 1.0;
     ///
     ///         // Initialize the renderer
-    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false, 1));
     ///
     ///         let size = renderer.size();
     ///         println!("Rendering surface size: {}x{}", size.0, size.1);
@@ -1826,7 +1865,7 @@ impl<'a> Renderer<'a> {
     ///         let scale_factor = 1.0;
     ///
     ///         // Initialize the renderer
-    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false, 1));
     ///
     ///         // Change the scale factor to 2.0 for high-DPI rendering
     ///         renderer.change_scale_factor(2.0);
@@ -1880,7 +1919,7 @@ impl<'a> Renderer<'a> {
     ///         let scale_factor = 1.0;
     ///
     ///         // Initialize the renderer
-    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false));
+    ///         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false, 1));
     ///
     ///         // Resize the renderer to 1024x768 pixels
     ///         renderer.resize((1024, 768));
@@ -1910,6 +1949,124 @@ impl<'a> Renderer<'a> {
             bytemuck::cast_slice(&[self.decrementing_uniforms]),
         );
         self.surface.configure(&self.device, &self.config);
+        self.recreate_msaa_texture();
+    }
+
+    /// Returns the current MSAA sample count.
+    pub fn msaa_samples(&self) -> u32 {
+        self.msaa_sample_count
+    }
+
+    /// Changes the MSAA sample count. Recreates pipelines and MSAA textures.
+    /// Accepted values: 1, 4 (and 8 if the GPU supports it).
+    /// Invalid values are clamped to the nearest supported value.
+    pub fn set_msaa_samples(&mut self, samples: u32) {
+        let validated = Self::validate_sample_count_static(samples);
+        if validated == self.msaa_sample_count {
+            return; // No change needed
+        }
+        self.msaa_sample_count = validated;
+        self.recreate_pipelines();
+        self.recreate_msaa_texture();
+    }
+
+    /// Validates and clamps the requested sample count to a supported value.
+    fn validate_sample_count_static(requested: u32) -> u32 {
+        // wgpu supports 1 and 4 on all backends. 8 may be supported on some.
+        // We accept 1 and 4 as safe defaults.
+        match requested {
+            0 | 1 => 1,
+            2..=4 => 4,
+            _ => {
+                log::warn!(
+                    "Requested MSAA sample count {} is not widely supported, clamping to 4",
+                    requested
+                );
+                4
+            }
+        }
+    }
+
+    /// Recreates the MSAA color texture and view to match the current size/format.
+    /// Called when size or sample count changes.
+    fn recreate_msaa_texture(&mut self) {
+        if self.msaa_sample_count > 1 {
+            let tex = create_msaa_color_texture(
+                &self.device,
+                self.physical_size,
+                self.config.format,
+                self.msaa_sample_count,
+            );
+            let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+            self.msaa_color_texture = Some(tex);
+            self.msaa_color_texture_view = Some(view);
+        } else {
+            self.msaa_color_texture = None;
+            self.msaa_color_texture_view = None;
+        }
+    }
+
+    /// Recreates both render pipelines with the current MSAA sample count.
+    fn recreate_pipelines(&mut self) {
+        let canvas_logical_size = to_logical(self.physical_size, self.scale_factor);
+
+        let (
+            and_uniforms,
+            and_uniform_buffer,
+            and_bind_group,
+            and_texture_bgl_layer0,
+            and_texture_bgl_layer1,
+            and_pipeline,
+        ) = create_pipeline(
+            canvas_logical_size,
+            &self.device,
+            &self.config,
+            PipelineType::EqualIncrementStencil,
+            self.msaa_sample_count,
+        );
+
+        let (
+            decrementing_uniforms,
+            decrementing_uniform_buffer,
+            decrementing_bind_group,
+            _,
+            _,
+            decrementing_pipeline,
+        ) = create_pipeline(
+            canvas_logical_size,
+            &self.device,
+            &self.config,
+            PipelineType::EqualDecrementStencil,
+            self.msaa_sample_count,
+        );
+
+        self.and_pipeline = Arc::new(and_pipeline);
+        self.and_uniforms = and_uniforms;
+        self.and_uniform_buffer = and_uniform_buffer;
+        self.and_bind_group = and_bind_group;
+
+        self.decrementing_pipeline = Arc::new(decrementing_pipeline);
+        self.decrementing_uniforms = decrementing_uniforms;
+        self.decrementing_uniform_buffer = decrementing_uniform_buffer;
+        self.decrementing_bind_group = decrementing_bind_group;
+
+        // Update texture bind group layouts (they come from pipeline creation)
+        self.shape_texture_bind_group_layout_background = Arc::new(and_texture_bgl_layer0);
+        self.shape_texture_bind_group_layout_foreground = Arc::new(and_texture_bgl_layer1);
+        self.shape_texture_layout_epoch += 1;
+
+        // Recreate default texture bind groups with new layouts
+        let (default_bg0, _) = Self::create_default_shape_texture_bind_group(
+            &self.device,
+            &self.queue,
+            &self.shape_texture_bind_group_layout_background,
+        );
+        let (default_bg1, _) = Self::create_default_shape_texture_bind_group(
+            &self.device,
+            &self.queue,
+            &self.shape_texture_bind_group_layout_foreground,
+        );
+        self.default_shape_texture_bind_groups = [Arc::new(default_bg0), Arc::new(default_bg1)];
     }
 
     /// Sets a new surface for the renderer.
@@ -1937,7 +2094,7 @@ impl<'a> Renderer<'a> {
     ///         let window1 = Arc::new(
     ///             event_loop.create_window(Window::default_attributes()).unwrap()
     ///         );
-    ///         let mut renderer = block_on(Renderer::new(window1, (800, 600), 1.0, true, false));
+    ///         let mut renderer = block_on(Renderer::new(window1, (800, 600), 1.0, true, false, 1));
     ///
     ///         // Later, switch to a different window
     ///         let window2 = Arc::new(

@@ -35,6 +35,7 @@ impl<'a> ApplicationHandler for App<'a> {
             physical_size,
             scale_factor,
             true, // vsync
+            1,    // msaa_samples
         ));
 
         self.window = Some(window);

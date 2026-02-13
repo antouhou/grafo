@@ -40,6 +40,7 @@ impl ApplicationHandler for App {
             scale_factor,
             true,
             false,
+            1, // msaa_samples
         ));
 
         // Create a simple rectangle shape
