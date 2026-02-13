@@ -1,6 +1,6 @@
 /// MSAA example: Toggle MSAA with spacebar to see anti-aliasing effect.
 ///
-/// Renders several shapes (rectangles, rounded rects, circles) so you can visually
+/// Renders a triangle and a rounded rectangle so you can visually
 /// compare edge quality between MSAA off (1x) and MSAA on (4x).
 use futures::executor::block_on;
 use grafo::{BorderRadii, Shape};
@@ -100,21 +100,31 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                // Draw a rotated rectangle to clearly show aliasing differences
-                let rect = Shape::rect(
-                    [(80.0, 80.0), (280.0, 200.0)],
-                    Stroke::new(2.0, Color::BLACK),
+                let background = Shape::rect(
+                    [(0.0, 0.0), (800.0, 600.0)],
+                    Stroke::new(2.0, Color::rgb(255, 0, 0)),
                 );
-                let id = renderer.add_shape(rect, None, None);
+                let back_id = renderer.add_shape(background, None, None);
+                renderer.set_shape_color(back_id, Some(Color::BLACK));
+
+                // Draw a triangle — diagonal edges show aliasing clearly
+                let triangle = Shape::builder()
+                    .stroke(Stroke::new(2.0, Color::BLACK))
+                    .begin((200.0, 80.0))
+                    .line_to((80.0, 350.0))
+                    .line_to((320.0, 350.0))
+                    .close()
+                    .build();
+                let id = renderer.add_shape(triangle, Some(0), None);
                 renderer.set_shape_color(id, Some(Color::rgb(0, 128, 255)));
 
-                // Draw a rounded rectangle
+                // Draw a rounded rectangle — curved edges benefit from MSAA
                 let rounded_rect = Shape::rounded_rect(
-                    [(320.0, 80.0), (520.0, 200.0)],
-                    BorderRadii::new(20.0),
-                    Stroke::new(2.0, Color::BLACK),
+                    [(380.0, 100.0), (620.0, 330.0)],
+                    BorderRadii::new(30.0),
+                    Stroke::new(2.0, Color::rgb(255, 0, 0)),
                 );
-                let id2 = renderer.add_shape(rounded_rect, None, None);
+                let id2 = renderer.add_shape(rounded_rect, Some(0), None);
                 renderer.set_shape_color(id2, Some(Color::rgb(255, 100, 50)));
 
                 // Draw a circle (approximated with a rounded rect)
@@ -123,7 +133,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     BorderRadii::new(80.0),
                     Stroke::new(2.0, Color::BLACK),
                 );
-                let id3 = renderer.add_shape(circle, None, None);
+                let id3 = renderer.add_shape(circle, Some(0), None);
                 renderer.set_shape_color(id3, Some(Color::rgb(50, 200, 100)));
 
                 // Draw a small detailed shape - thin diagonal lines are great for MSAA testing
