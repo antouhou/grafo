@@ -32,6 +32,7 @@ impl<'a> ApplicationHandler for App<'a> {
             scale_factor,
             true,  // vsync
             false, // transparent
+            1,     // msaa_samples
         ));
 
         // Define a simple rectangle shape

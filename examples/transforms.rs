@@ -183,6 +183,7 @@ impl<'a> ApplicationHandler for App<'a> {
             scale_factor,
             true,  // vsync
             false, // transparent
+            1,     // msaa_samples
         ));
 
         // Load a demo texture (Rust logo) and upload it once

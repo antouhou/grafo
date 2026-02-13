@@ -55,6 +55,7 @@ impl<'a> ApplicationHandler for App<'a> {
             scale_factor,
             false, // vsync doesn't matter for offscreen rendering
             false, // not transparent
+            1,     // msaa_samples
         ));
 
         // Create softbuffer for CPU presentation
