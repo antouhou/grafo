@@ -56,6 +56,7 @@ impl<'a> ApplicationHandler for App<'a> {
             scale_factor,
             true,
             true,
+            1, // msaa_samples
         ));
 
         self.window = Some(window);

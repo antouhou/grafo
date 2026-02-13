@@ -189,6 +189,7 @@ pub fn create_pipeline(
     device: &Device,
     config: &wgpu::SurfaceConfiguration,
     pipeline_type: PipelineType,
+    sample_count: u32,
 ) -> (
     Uniforms,
     wgpu::Buffer,
@@ -346,7 +347,11 @@ pub fn create_pipeline(
         }),
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: Some(depth_stencil_state),
-        multisample: wgpu::MultisampleState::default(),
+        multisample: wgpu::MultisampleState {
+            count: sample_count,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
         multiview: None,
         cache: None,
     });
@@ -363,14 +368,21 @@ pub fn create_pipeline(
 
 pub fn create_render_pass<'a, 'b: 'a>(
     encoder: &'a mut wgpu::CommandEncoder,
+    msaa_texture_view: Option<&'b TextureView>,
     output_texture_view: &'b TextureView,
     depth_texture_view: &'b TextureView,
 ) -> RenderPass<'a> {
+    let (view, resolve_target) = if let Some(msaa_view) = msaa_texture_view {
+        (msaa_view, Some(output_texture_view))
+    } else {
+        (output_texture_view, None)
+    };
+
     let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: None,
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            view: output_texture_view,
-            resolve_target: None,
+            view,
+            resolve_target,
             ops: wgpu::Operations {
                 load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                 store: StoreOp::Store,
@@ -394,7 +406,7 @@ pub fn create_render_pass<'a, 'b: 'a>(
     render_pass
 }
 
-pub fn create_and_depth_texture(device: &Device, size: (u32, u32)) -> Texture {
+pub fn create_and_depth_texture(device: &Device, size: (u32, u32), sample_count: u32) -> Texture {
     let size = wgpu::Extent3d {
         width: size.0,
         height: size.1,
@@ -405,7 +417,7 @@ pub fn create_and_depth_texture(device: &Device, size: (u32, u32)) -> Texture {
         label: None,
         size,
         mip_level_count: 1,
-        sample_count: 1,
+        sample_count,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Depth24PlusStencil8,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT
@@ -669,4 +681,28 @@ pub fn create_argb_params_buffer(device: &Device, params: &ArgbParams) -> wgpu::
         bytemuck::bytes_of(params),
         wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     )
+}
+
+/// Creates a multisampled color texture for MSAA rendering.
+/// When sample_count == 1, this should not be called (no MSAA texture needed).
+pub fn create_msaa_color_texture(
+    device: &Device,
+    size: (u32, u32),
+    format: wgpu::TextureFormat,
+    sample_count: u32,
+) -> Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("msaa_color_texture"),
+        size: wgpu::Extent3d {
+            width: size.0,
+            height: size.1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    })
 }
