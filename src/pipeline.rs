@@ -17,12 +17,21 @@ use wgpu::{
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Uniforms {
     pub canvas_size: [f32; 2],
+    /// Display scale factor (e.g. 2.0 for Retina). Used by the AA fringe shader
+    /// to offset by exactly 1 physical pixel.
+    pub scale_factor: f32,
+    /// AA fringe offset in physical pixels. Controls how far the anti-aliasing
+    /// fringe extends outward from shape edges. Default is 0.5. Set to 0.0 to
+    /// disable the AA fringe entirely.
+    pub fringe_width: f32,
 }
 
 impl Uniforms {
-    pub fn new(width: f32, height: f32) -> Self {
+    pub fn new(width: f32, height: f32, scale_factor: f32, fringe_width: f32) -> Self {
         Self {
             canvas_size: [width, height],
+            scale_factor,
+            fringe_width,
         }
     }
 }
@@ -178,6 +187,8 @@ pub enum PipelineType {
 
 pub fn create_pipeline(
     canvas_logical_size: (f32, f32),
+    scale_factor: f64,
+    fringe_width: f32,
     device: &Device,
     config: &wgpu::SurfaceConfiguration,
     pipeline_type: PipelineType,
@@ -232,7 +243,12 @@ pub fn create_pipeline(
             })],
         ),
     };
-    let uniforms = Uniforms::new(canvas_logical_size.0, canvas_logical_size.1);
+    let uniforms = Uniforms::new(
+        canvas_logical_size.0,
+        canvas_logical_size.1,
+        scale_factor as f32,
+        fringe_width,
+    );
 
     let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: None,

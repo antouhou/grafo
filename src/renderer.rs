@@ -132,6 +132,10 @@ pub struct Renderer<'a> {
     /// Scale factor of the window (e.g., for high-DPI displays).
     scale_factor: f64,
 
+    /// AA fringe offset in physical pixels. Controls how far the anti-aliasing
+    /// fringe extends outward from shape edges. Default is 0.5.
+    fringe_width: f32,
+
     // WGPU components
     instance: wgpu::Instance,
     surface: wgpu::Surface<'a>,
@@ -239,7 +243,11 @@ pub struct Renderer<'a> {
     msaa_color_texture_view: Option<wgpu::TextureView>,
 }
 
+/// Default AA fringe width in physical pixels.
+const DEFAULT_FRINGE_WIDTH: f32 = 0.5;
+
 impl<'a> Renderer<'a> {
+    const DEFAULT_FRINGE_WIDTH: f32 = DEFAULT_FRINGE_WIDTH;
     /// Creates a new `Renderer` instance.
     ///
     /// # Parameters
@@ -376,6 +384,8 @@ impl<'a> Renderer<'a> {
             and_pipeline,
         ) = create_pipeline(
             canvas_logical_size,
+            scale_factor,
+            Self::DEFAULT_FRINGE_WIDTH,
             &device,
             &config,
             PipelineType::EqualIncrementStencil,
@@ -391,6 +401,8 @@ impl<'a> Renderer<'a> {
             decrementing_pipeline,
         ) = create_pipeline(
             canvas_logical_size,
+            scale_factor,
+            Self::DEFAULT_FRINGE_WIDTH,
             &device,
             &config,
             PipelineType::EqualDecrementStencil,
@@ -417,6 +429,8 @@ impl<'a> Renderer<'a> {
             physical_size: size,
 
             scale_factor,
+
+            fringe_width: Self::DEFAULT_FRINGE_WIDTH,
 
             tessellator: FillTessellator::new(),
 
@@ -897,6 +911,9 @@ impl<'a> Renderer<'a> {
 
                     let vertex_start = self.temp_vertices.len();
                     let index_start = self.temp_indices.len();
+                    if vertex_start > u16::MAX as usize {
+                        warn!("Aggregated vertex count ({}) exceeds u16 limit. Rendering artifacts may occur.", vertex_start);
+                    }
                     let vertex_offset = vertex_start as u16;
 
                     self.temp_vertices
@@ -937,6 +954,9 @@ impl<'a> Renderer<'a> {
 
                         let vertex_start = self.temp_vertices.len();
                         let index_start = self.temp_indices.len();
+                        if vertex_start > u16::MAX as usize {
+                            warn!("Aggregated vertex count ({}) exceeds u16 limit. Rendering artifacts may occur.", vertex_start);
+                        }
                         let vertex_offset = vertex_start as u16;
 
                         let vertex_buffers = &cached_shape.vertex_buffers;
@@ -1884,6 +1904,24 @@ impl<'a> Renderer<'a> {
         self.scale_factor
     }
 
+    /// Sets the AA fringe width in physical pixels.
+    ///
+    /// Controls how far the anti-aliasing fringe extends outward from shape edges.
+    /// - `0.0` disables the fringe entirely (sharp aliased edges).
+    /// - `0.5` (default) gives a subtle half-pixel fringe.
+    /// - Larger values produce softer/blurrier edges.
+    ///
+    /// Takes effect on the next `resize` or `render` call that writes uniforms.
+    pub fn set_fringe_width(&mut self, fringe_width: f32) {
+        self.fringe_width = fringe_width;
+        self.resize(self.physical_size);
+    }
+
+    /// Returns the current AA fringe width in physical pixels.
+    pub fn fringe_width(&self) -> f32 {
+        self.fringe_width
+    }
+
     /// Resizes the renderer to the specified physical size.
     ///
     /// This method updates the renderer's configuration to match the new window size,
@@ -1936,7 +1974,11 @@ impl<'a> Renderer<'a> {
         // Cheap uniform buffer update instead of full pipeline recreation.
         let logical = to_logical(new_physical_size, self.scale_factor);
         self.and_uniforms.canvas_size = [logical.0, logical.1];
+        self.and_uniforms.scale_factor = self.scale_factor as f32;
+        self.and_uniforms.fringe_width = self.fringe_width;
         self.decrementing_uniforms.canvas_size = [logical.0, logical.1];
+        self.decrementing_uniforms.scale_factor = self.scale_factor as f32;
+        self.decrementing_uniforms.fringe_width = self.fringe_width;
         // Write both uniform buffers.
         self.queue.write_buffer(
             &self.and_uniform_buffer,
@@ -2019,6 +2061,8 @@ impl<'a> Renderer<'a> {
             and_pipeline,
         ) = create_pipeline(
             canvas_logical_size,
+            self.scale_factor,
+            self.fringe_width,
             &self.device,
             &self.config,
             PipelineType::EqualIncrementStencil,
@@ -2034,6 +2078,8 @@ impl<'a> Renderer<'a> {
             decrementing_pipeline,
         ) = create_pipeline(
             canvas_logical_size,
+            self.scale_factor,
+            self.fringe_width,
             &self.device,
             &self.config,
             PipelineType::EqualDecrementStencil,

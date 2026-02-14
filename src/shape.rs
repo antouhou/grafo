@@ -37,6 +37,7 @@
 use crate::util::PoolManager;
 use crate::vertex::{CustomVertex, InstanceTransform};
 use crate::{Color, Stroke};
+use ahash::AHashMap;
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, VertexBuffers,
 };
@@ -199,26 +200,38 @@ impl Shape {
                     CustomVertex {
                         position: [min_width, min_height],
                         tex_coords: uv(min_width, min_height),
+                        normal: [0.0, 0.0],
+                        coverage: 1.0,
                     },
                     CustomVertex {
                         position: [max_width, min_height],
                         tex_coords: uv(max_width, min_height),
+                        normal: [0.0, 0.0],
+                        coverage: 1.0,
                     },
                     CustomVertex {
                         position: [min_width, max_height],
                         tex_coords: uv(min_width, max_height),
+                        normal: [0.0, 0.0],
+                        coverage: 1.0,
                     },
                     CustomVertex {
                         position: [min_width, max_height],
                         tex_coords: uv(min_width, max_height),
+                        normal: [0.0, 0.0],
+                        coverage: 1.0,
                     },
                     CustomVertex {
                         position: [max_width, min_height],
                         tex_coords: uv(max_width, min_height),
+                        normal: [0.0, 0.0],
+                        coverage: 1.0,
                     },
                     CustomVertex {
                         position: [max_width, max_height],
                         tex_coords: uv(max_width, max_height),
+                        normal: [0.0, 0.0],
+                        coverage: 1.0,
                     },
                 ];
                 let indices = [0u16, 1, 2, 3, 4, 5];
@@ -227,6 +240,9 @@ impl Shape {
 
                 vertex_buffers.vertices.extend(quad);
                 vertex_buffers.indices.extend(indices);
+
+                // Generate AA fringe geometry for the rect
+                generate_aa_fringe(&mut vertex_buffers.vertices, &mut vertex_buffers.indices);
 
                 vertex_buffers
             }
@@ -353,6 +369,175 @@ impl FillVertexConstructor<CustomVertex> for VertexConverter {
         CustomVertex {
             position: vertex.position().to_array(),
             tex_coords: [0.0, 0.0],
+            normal: [0.0, 0.0],
+            coverage: 1.0,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Anti-Aliasing: Inflated-Geometry Fringe Generation
+// ---------------------------------------------------------------------------
+
+/// Identifies boundary edges (edges belonging to only one triangle) from a triangle index buffer.
+///
+/// Returns a list of `(vertex_a, vertex_b, opposite_vertex)` tuples. The `opposite_vertex` is
+/// the third vertex of the triangle that owns the edge — it is used to determine which side
+/// of the edge faces outward (away from the triangle interior).
+fn find_boundary_edges(indices: &[u16]) -> Vec<(u16, u16, u16)> {
+    // Map canonical edge (min, max) -> (use_count, opposite_vertex_of_first_triangle)
+    let mut edge_map: AHashMap<(u16, u16), (usize, u16)> = AHashMap::new();
+
+    for tri in indices.chunks_exact(3) {
+        let a = tri[0];
+        let b = tri[1];
+        let c = tri[2];
+
+        // For each of the three edges, record or increment
+        for &(i, j, opp) in &[(a, b, c), (b, c, a), (c, a, b)] {
+            let key = (i.min(j), i.max(j));
+            edge_map
+                .entry(key)
+                .and_modify(|(count, _)| *count += 1)
+                .or_insert((1, opp));
+        }
+    }
+
+    edge_map
+        .into_iter()
+        .filter_map(
+            |((i, j), (count, opp))| {
+                if count == 1 {
+                    Some((i, j, opp))
+                } else {
+                    None
+                }
+            },
+        )
+        .collect()
+}
+
+/// Generates a thin fringe of antialiasing triangles around shape boundaries.
+///
+/// For each boundary edge, two triangles are added, forming a quad that fades from
+/// `coverage = 1.0` (at the original boundary) to `coverage = 0.0` (at the outer fringe).
+/// The actual screen-space offset is computed in the vertex shader, so the fringe positions
+/// in the buffer are identical to the source boundary vertices — only the `normal` and
+/// `coverage` fields differ.
+fn generate_aa_fringe(vertices: &mut Vec<CustomVertex>, indices: &mut Vec<u16>) {
+    let boundary_edges = find_boundary_edges(indices);
+
+    if boundary_edges.is_empty() {
+        return;
+    }
+
+    // --- Step 1: Compute per-boundary-vertex averaged outward (miter) normals ---
+
+    // Collect which vertices are on the boundary and accumulate their outward normals
+    let mut vertex_normals: AHashMap<u16, [f32; 2]> = AHashMap::new();
+
+    for &(a, b, opp) in &boundary_edges {
+        let pa = vertices[a as usize].position;
+        let pb = vertices[b as usize].position;
+        let po = vertices[opp as usize].position;
+
+        // Edge direction
+        let dx = pb[0] - pa[0];
+        let dy = pb[1] - pa[1];
+        let edge_len = (dx * dx + dy * dy).sqrt();
+        if edge_len < 1e-10 {
+            continue; // Skip degenerate zero-length edges
+        }
+
+        // Two candidate perpendicular normals
+        let n1 = [-dy / edge_len, dx / edge_len];
+        let n2 = [dy / edge_len, -dx / edge_len];
+
+        // Pick the one pointing away from the opposite vertex
+        // dot(n, opp - a) < 0 means n points away from the interior
+        let to_opp = [po[0] - pa[0], po[1] - pa[1]];
+        let dot1 = n1[0] * to_opp[0] + n1[1] * to_opp[1];
+        let outward = if dot1 < 0.0 { n1 } else { n2 };
+
+        // Accumulate normals for both edge vertices
+        for &vi in &[a, b] {
+            let entry = vertex_normals.entry(vi).or_insert([0.0, 0.0]);
+            entry[0] += outward[0];
+            entry[1] += outward[1];
+        }
+    }
+
+    // Normalize the accumulated normals (miter direction)
+    for normal in vertex_normals.values_mut() {
+        let len = (normal[0] * normal[0] + normal[1] * normal[1]).sqrt();
+        if len > 1e-10 {
+            normal[0] /= len;
+            normal[1] /= len;
+        }
+    }
+
+    // --- Step 2: Create outer fringe (duplicate) vertices ---
+
+    // Map: original boundary vertex index -> new outer fringe vertex index
+    let mut outer_map: AHashMap<u16, u16> = AHashMap::new();
+
+    for (&vi, &normal) in &vertex_normals {
+        let src = &vertices[vi as usize];
+        let outer_vertex = CustomVertex {
+            position: src.position, // same position; shader applies the offset
+            tex_coords: src.tex_coords,
+            normal,
+            coverage: 0.0,
+        };
+        let new_idx = vertices.len() as u16;
+        vertices.push(outer_vertex);
+        outer_map.insert(vi, new_idx);
+    }
+
+    // --- Step 3: Emit fringe quads (two triangles per boundary edge) ---
+
+    for &(a, b, opp) in &boundary_edges {
+        let a_outer = match outer_map.get(&a) {
+            Some(&idx) => idx,
+            None => continue, // degenerate edge skipped earlier
+        };
+        let b_outer = match outer_map.get(&b) {
+            Some(&idx) => idx,
+            None => continue,
+        };
+
+        // Determine the correct winding order for the fringe quad.
+        // The fill triangle (a, b, opp) has a specific winding. The fringe quad should
+        // extend outward with consistent winding.
+        //
+        // We use the cross-product of the fill triangle to determine winding, then
+        // construct the fringe triangles accordingly.
+        let pa = vertices[a as usize].position;
+        let pb = vertices[b as usize].position;
+        let po = vertices[opp as usize].position;
+
+        // Cross product of (b-a) x (opp-a) to determine fill winding
+        let cross = (pb[0] - pa[0]) * (po[1] - pa[1]) - (pb[1] - pa[1]) * (po[0] - pa[0]);
+
+        if cross >= 0.0 {
+            // CCW fill triangle: edge a->b is on the left side, fringe extends right
+            // Fringe quad: a, b, a', then b, b', a'
+            indices.push(a);
+            indices.push(b);
+            indices.push(a_outer);
+
+            indices.push(b);
+            indices.push(b_outer);
+            indices.push(a_outer);
+        } else {
+            // CW fill triangle: reverse the fringe winding
+            indices.push(a);
+            indices.push(a_outer);
+            indices.push(b);
+
+            indices.push(b);
+            indices.push(a_outer);
+            indices.push(b_outer);
         }
     }
 }
@@ -476,6 +661,10 @@ impl PathShape {
                 v.tex_coords = [u, vcoord];
             }
         }
+
+        // Generate AA fringe geometry after UVs are computed so fringe vertices
+        // inherit the correct tex_coords from their source boundary vertices.
+        generate_aa_fringe(&mut buffers.vertices, &mut buffers.indices);
     }
 }
 
