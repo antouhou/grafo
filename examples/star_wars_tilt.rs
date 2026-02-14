@@ -60,7 +60,7 @@ impl<'a> ApplicationHandler for App<'a> {
             scale_factor,
             true,
             false,
-            4, // msaa_samples
+            1, // msaa_samples
         ));
 
         self.renderer = Some(renderer);

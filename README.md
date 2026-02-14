@@ -15,6 +15,7 @@ range of applications, from simple graphical interfaces to complex rendering eng
 * (Text rendering was previously integrated; it has now been extracted into a separate crate - https://crates.io/crates/protextinator)
 * Stencil Operations: Advanced stencil operations for clipping and masking.
 * Per-instance data: Set transform and color per shape instance (no fill color stored on geometry).
+* Antialiasing: You can choose between built-in support of inflated geometry or MSAA
 
 Grafo is [available on crates.io](https://crates.io/crates/grafo), and
 [API Documentation is available on docs.rs](https://docs.rs/grafo/).
