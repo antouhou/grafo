@@ -29,7 +29,8 @@ struct VertexOutput {
 struct Uniforms {
     canvas_size: vec2<f32>,
     scale_factor: f32,
-    _padding: f32,
+    /// AA fringe offset in physical pixels (default 0.5). Set to 0 to disable fringe.
+    fringe_width: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -94,10 +95,10 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
         if (screen_len > 1e-8) {
             let unit_dir = screen_dir / screen_len;
-            // Offset by 0.5 physical pixels outward. This centers the AA band on the shape
-            // boundary (~0.5px inside + 0.5px outside), which avoids bloating thin features
+            // Offset outward by the configured fringe width (in physical pixels).
+            // This centers the AA band on the shape boundary, avoiding bloating thin features
             // (a 1px line stays ~2px instead of 3px with a full-pixel fringe).
-            let fringe_width = 0.5 / uniforms.scale_factor;
+            let fringe_width = uniforms.fringe_width / uniforms.scale_factor;
             final_px = px + unit_dir.x * fringe_width;
             final_py = py + unit_dir.y * fringe_width;
         }
