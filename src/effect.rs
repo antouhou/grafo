@@ -6,7 +6,7 @@
 //!
 //! The system separates **loading** (compile once) from **attaching** (use per node, cheap):
 //! - `load_effect()` compiles a WGSL effect shader into a GPU pipeline, cached by `effect_id`.
-//! - `set_node_effect()` attaches a loaded effect to a specific draw tree node with per-instance parameters.
+//! - `set_group_effect()` attaches a loaded effect to a specific draw tree node with per-instance parameters.
 //!
 //! Multiple nodes can share the same loaded effect (same compiled pipeline), each with different parameters.
 

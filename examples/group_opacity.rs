@@ -141,7 +141,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 // Attach 50% opacity to group1
                 let opacity: f32 = 0.5;
                 renderer
-                    .set_node_effect(group1, OPACITY_EFFECT, bytemuck::bytes_of(&opacity))
+                    .set_group_effect(group1, OPACITY_EFFECT, bytemuck::bytes_of(&opacity))
                     .expect("Failed to set effect");
 
                 // ── Group 2: 80% opacity ─────────────────────────────────
@@ -161,7 +161,7 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 let opacity2: f32 = 0.8;
                 renderer
-                    .set_node_effect(group2, OPACITY_EFFECT, bytemuck::bytes_of(&opacity2))
+                    .set_group_effect(group2, OPACITY_EFFECT, bytemuck::bytes_of(&opacity2))
                     .expect("Failed to set effect");
 
                 // ── Render ───────────────────────────────────────────────
