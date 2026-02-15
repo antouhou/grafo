@@ -616,9 +616,9 @@ dependencies = [
 
 [[package]]
 name = "easy-tree"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05fda4988f15130ba24748b5d359fcd2f588a0896b2f4c6947ce36b3f779e496"
+checksum = "43f560da9bebb976828efaccac969205c68852b12cf9f88d3a4a6bcd8f7fca34"
 
 [[package]]
 name = "either"
@@ -2257,7 +2257,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

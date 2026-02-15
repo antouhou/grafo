@@ -140,6 +140,7 @@ pub use wgpu;
 
 mod color;
 mod debug_tools;
+mod effect;
 mod pipeline;
 mod renderer;
 mod stroke;
@@ -151,6 +152,7 @@ mod shape;
 mod texture_manager;
 
 pub use color::Color;
+pub use effect::EffectError;
 pub use renderer::MathRect;
 pub use renderer::Renderer;
 pub use renderer::TextureLayer;
