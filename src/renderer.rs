@@ -1439,75 +1439,121 @@ impl<'a> Renderer<'a> {
                     &subtree_tex.color_view
                 };
 
-                // Create effect output texture (non-MSAA, for reading in Phase 2)
-                let effect_out_tex = self.device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("effect_output"),
-                    size: wgpu::Extent3d {
-                        width,
-                        height,
-                        depth_or_array_layers: 1,
-                    },
+                // Step 3: Apply effect passes (ping-pong for multi-pass)
+                let loaded = self.loaded_effects.get(&effect_id).unwrap();
+                let num_passes = loaded.passes.len();
+                let tex_format = self.config.format;
+
+                // Effect work texture A (always needed)
+                let effect_tex_a = self.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("effect_work_a"),
+                    size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
-                    format: self.config.format,
+                    format: tex_format,
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                         | wgpu::TextureUsages::TEXTURE_BINDING,
                     view_formats: &[],
                 });
-                let effect_out_view =
-                    effect_out_tex.create_view(&wgpu::TextureViewDescriptor::default());
+                let effect_view_a =
+                    effect_tex_a.create_view(&wgpu::TextureViewDescriptor::default());
 
-                // Run effect shader pass
-                {
-                    let loaded = self.loaded_effects.get(&effect_id).unwrap();
+                // Effect work texture B (only for multi-pass ping-pong)
+                let effect_tex_b = if num_passes > 1 {
+                    Some(self.device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some("effect_work_b"),
+                        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: tex_format,
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                            | wgpu::TextureUsages::TEXTURE_BINDING,
+                        view_formats: &[],
+                    }))
+                } else {
+                    None
+                };
+                let effect_view_b = effect_tex_b
+                    .as_ref()
+                    .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()));
+
+                // Execute each pass, ping-ponging between work textures.
+                // Pass 0 reads the subtree result; subsequent passes read the previous output.
+                let mut prev_input_view: &wgpu::TextureView = source_view;
+
+                for (pass_idx, effect_pass) in loaded.passes.iter().enumerate() {
+                    let output_view = if pass_idx % 2 == 0 {
+                        &effect_view_a
+                    } else {
+                        effect_view_b.as_ref().unwrap()
+                    };
+
                     let input_bg = effect::create_texture_sample_bind_group(
                         &self.device,
                         &loaded.input_bind_group_layout,
-                        source_view,
-                        Some("effect_input_bg"),
+                        prev_input_view,
+                        Some("effect_pass_input_bg"),
                     );
 
-                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("effect_apply_pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &effect_out_view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
+                    {
+                        let pass_label = format!("effect_apply_pass_{pass_idx}");
+                        let mut pass =
+                            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                label: Some(&pass_label),
+                                color_attachments: &[Some(
+                                    wgpu::RenderPassColorAttachment {
+                                        view: output_view,
+                                        resolve_target: None,
+                                        ops: wgpu::Operations {
+                                            load: wgpu::LoadOp::Clear(
+                                                wgpu::Color::TRANSPARENT,
+                                            ),
+                                            store: wgpu::StoreOp::Store,
+                                        },
+                                    },
+                                )],
+                                depth_stencil_attachment: None,
+                                timestamp_writes: None,
+                                occlusion_query_set: None,
+                            });
 
-                    pass.set_pipeline(&loaded.pipeline);
-                    pass.set_bind_group(0, &input_bg, &[]);
+                        pass.set_pipeline(&effect_pass.pipeline);
+                        pass.set_bind_group(0, &input_bg, &[]);
 
-                    // Bind user params if present
-                    if let Some(instance) = self.node_effects.get(&node_id) {
-                        if let Some(ref params_bg) = instance.params_bind_group {
-                            pass.set_bind_group(1, params_bg, &[]);
+                        // Bind user params if this pass uses them
+                        if effect_pass.has_params {
+                            if let Some(instance) = self.node_effects.get(&node_id) {
+                                if let Some(ref params_bg) = instance.params_bind_group {
+                                    pass.set_bind_group(1, params_bg, &[]);
+                                }
+                            }
                         }
+
+                        pass.draw(0..3, 0..1);
                     }
 
-                    pass.draw(0..3, 0..1); // Fullscreen triangle
+                    prev_input_view = output_view;
                 }
 
                 // Step 4: Create composite bind group for Phase 2
+                // prev_input_view points to the final pass's output
                 let composite_bgl = self.composite_bgl.as_ref().unwrap();
                 let composite_bg = effect::create_texture_sample_bind_group(
                     &self.device,
                     composite_bgl,
-                    &effect_out_view,
+                    prev_input_view,
                     Some("effect_composite_bg"),
                 );
 
                 effect_results.insert(node_id, composite_bg);
                 textures_to_recycle.push(subtree_tex);
-                effect_output_textures.push(effect_out_tex);
+                // Keep work textures alive until Phase 2 compositing
+                effect_output_textures.push(effect_tex_a);
+                if let Some(tex_b) = effect_tex_b {
+                    effect_output_textures.push(tex_b);
+                }
             }
         }
 
@@ -2169,23 +2215,28 @@ impl<'a> Renderer<'a> {
 
     // ── Effect system public API ──────────────────────────────────────────
 
-    /// Loads and compiles an effect shader. The compiled pipeline is cached and
-    /// can be reused by many nodes. Call this once per unique effect.
+    /// Loads and compiles an effect from one or more WGSL pass shaders.
+    /// The compiled pipelines are cached and can be reused by many nodes.
+    /// Call this once per unique effect.
     ///
     /// # Parameters
     /// - `effect_id`: A user-chosen identifier for this effect (like shape cache keys).
-    /// - `wgsl_source`: WGSL fragment shader source. Must define `effect_main`.
-    ///   The engine provides `t_input` (texture) and `s_input` (sampler) at group(0).
-    ///   User params go in group(1) binding(0) as a uniform buffer.
+    /// - `pass_sources`: One or more WGSL fragment shader sources, one per pass.
+    ///   Each must define `fn effect_main`. Passes execute sequentially;
+    ///   each reads the previous pass's output via `t_input` / `s_input` (group 0).
+    ///   User params go in group(1) binding(0) — shared across all passes.
+    ///
+    ///   For single-pass effects, pass a one-element slice: `&[my_wgsl]`.
+    ///   For multi-pass (e.g., separable blur), pass multiple: `&[h_blur, v_blur]`.
     ///
     /// # Returns
-    /// `Ok(())` if compilation succeeds, `Err(EffectError)` otherwise.
+    /// `Ok(())` if all passes compile successfully, `Err(EffectError)` otherwise.
     pub fn load_effect(
         &mut self,
         effect_id: u64,
-        wgsl_source: &str,
+        pass_sources: &[&str],
     ) -> Result<(), EffectError> {
-        let loaded = compile_effect_pipeline(&self.device, wgsl_source, self.config.format)?;
+        let loaded = compile_effect_pipeline(&self.device, pass_sources, self.config.format)?;
         self.loaded_effects.insert(effect_id, loaded);
         Ok(())
     }

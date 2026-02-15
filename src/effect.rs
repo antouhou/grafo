@@ -11,7 +11,7 @@
 //! Multiple nodes can share the same loaded effect (same compiled pipeline), each with different parameters.
 
 use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::hash::{Hash};
 
 // ── Error type ───────────────────────────────────────────────────────────────
 
@@ -83,19 +83,25 @@ fn fs_composite(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 
 // ── Loaded effect (compiled pipeline) ────────────────────────────────────────
 
+/// A single compiled pass within a multi-pass effect.
+pub(crate) struct LoadedEffectPass {
+    /// The compiled render pipeline for this pass's fullscreen quad.
+    pub pipeline: wgpu::RenderPipeline,
+    /// Whether this pass references @group(1) (user params).
+    pub has_params: bool,
+}
+
 /// A loaded (compiled) effect. Stored in a cache on the Renderer, keyed by effect_id.
 /// Multiple nodes can reference the same LoadedEffect.
-#[allow(dead_code)]
+/// Supports single-pass and multi-pass effects (e.g., separable Gaussian blur).
 pub(crate) struct LoadedEffect {
-    /// The compiled render pipeline for the fullscreen quad effect pass.
-    pub pipeline: wgpu::RenderPipeline,
-    /// Bind group layout for the input texture (group 0): texture + sampler.
+    /// Compiled passes, executed sequentially with ping-pong textures.
+    pub passes: Vec<LoadedEffectPass>,
+    /// A bind group layout for the input texture (group 0): texture and sampler.
     pub input_bind_group_layout: wgpu::BindGroupLayout,
     /// Bind group layout for the user's parameter uniform (group 1).
-    /// None if the effect has no user params.
+    /// None if no pass uses user params. Shared across all passes that reference it.
     pub params_bind_group_layout: Option<wgpu::BindGroupLayout>,
-    /// Hash of the WGSL source, used to detect if recompilation is needed.
-    pub shader_hash: u64,
 }
 
 // ── Per-node effect instance ─────────────────────────────────────────────────
@@ -117,15 +123,9 @@ pub(crate) struct EffectInstance {
 // ── Offscreen texture pool ───────────────────────────────────────────────────
 
 /// A pooled offscreen texture with color, depth/stencil, and optional MSAA resolve resources.
-#[allow(dead_code)]
 pub(crate) struct PooledTexture {
-    pub color_texture: wgpu::Texture,
     pub color_view: wgpu::TextureView,
-    pub depth_stencil_texture: wgpu::Texture,
     pub depth_stencil_view: wgpu::TextureView,
-    /// MSAA resolve target (only present when sample_count > 1).
-    /// The effect shader reads from this resolved (non-MSAA) texture.
-    pub resolve_texture: Option<wgpu::Texture>,
     pub resolve_view: Option<wgpu::TextureView>,
     pub width: u32,
     pub height: u32,
@@ -173,15 +173,6 @@ impl OffscreenTexturePool {
         }
     }
 
-    /// Release oversized or stale textures to free GPU memory.
-    /// Keeps at most `max_available` textures in the pool.
-    #[allow(dead_code)]
-    pub fn trim(&mut self, max_available: usize) {
-        if self.available.len() > max_available {
-            self.available.truncate(max_available);
-        }
-    }
-
     fn create_pooled_texture(
         device: &wgpu::Device,
         width: u32,
@@ -223,7 +214,7 @@ impl OffscreenTexturePool {
             depth_stencil_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // When MSAA is enabled, create a resolve target (non-MSAA) for effects to read from
-        let (resolve_texture, resolve_view) = if sample_count > 1 {
+        let resolve_view = if sample_count > 1 {
             let resolve_tex = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("effect_offscreen_resolve"),
                 size: wgpu::Extent3d {
@@ -240,17 +231,17 @@ impl OffscreenTexturePool {
                 view_formats: &[],
             });
             let resolve_v = resolve_tex.create_view(&wgpu::TextureViewDescriptor::default());
-            (Some(resolve_tex), Some(resolve_v))
+            Some(resolve_v)
         } else {
-            (None, None)
+            None
         };
 
         PooledTexture {
-            color_texture,
+            // color_texture,
             color_view,
-            depth_stencil_texture,
+            // depth_stencil_texture,
             depth_stencil_view,
-            resolve_texture,
+            // resolve_texture,
             resolve_view,
             width,
             height,
@@ -307,13 +298,6 @@ pub(crate) fn create_effect_params_bind_group_layout(
     })
 }
 
-/// Hash WGSL source string for change detection.
-pub(crate) fn hash_wgsl(source: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    source.hash(&mut hasher);
-    hasher.finish()
-}
-
 /// Concatenate built-in vertex shader + preamble + user fragment shader into a single WGSL module.
 pub(crate) fn build_effect_wgsl(user_fragment_source: &str) -> String {
     format!(
@@ -331,90 +315,114 @@ pub(crate) fn has_user_params(user_fragment_source: &str) -> bool {
     user_fragment_source.contains("@group(1)")
 }
 
-/// Compile an effect pipeline from WGSL source.
+/// Compile a (possibly multi-pass) effect from WGSL source(s).
 ///
-/// Returns the pipeline and bind group layouts, or an error if compilation fails.
+/// Each entry in `pass_sources` is a WGSL fragment shader for one pass.
+/// Passes execute sequentially; each reads the previous pass's output via `t_input`.
+/// All passes share the same user-params uniform layout (group 1) when present.
+///
+/// For single-pass effects, pass a one-element slice.
 pub(crate) fn compile_effect_pipeline(
     device: &wgpu::Device,
-    wgsl_source: &str,
+    pass_sources: &[&str],
     format: wgpu::TextureFormat,
 ) -> Result<LoadedEffect, EffectError> {
-    let full_wgsl = build_effect_wgsl(wgsl_source);
-    let shader_hash = hash_wgsl(wgsl_source);
-
-    // Attempt to compile the shader module. wgpu will panic on invalid WGSL by default,
-    // so we use create_shader_module and catch via validation.
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("effect_shader"),
-        source: wgpu::ShaderSource::Wgsl(full_wgsl.into()),
-    });
+    if pass_sources.is_empty() {
+        return Err(EffectError::InvalidParams(
+            "At least one effect pass is required".into(),
+        ));
+    }
 
     let input_bgl = create_effect_input_bind_group_layout(device);
 
-    let has_params = has_user_params(wgsl_source);
-    let params_bgl = if has_params {
+    // Create the params BGL once if ANY pass uses @group(1)
+    let any_has_params = pass_sources.iter().any(|s| has_user_params(s));
+    let params_bgl = if any_has_params {
         Some(create_effect_params_bind_group_layout(device))
     } else {
         None
     };
 
-    let bind_group_layouts: Vec<&wgpu::BindGroupLayout> = if let Some(ref pbgl) = params_bgl {
-        vec![&input_bgl, pbgl]
-    } else {
-        vec![&input_bgl]
-    };
+    let mut hasher = DefaultHasher::new();
+    let mut passes = Vec::with_capacity(pass_sources.len());
 
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("effect_pipeline_layout"),
-        bind_group_layouts: &bind_group_layouts,
-        push_constant_ranges: &[],
-    });
+    for (i, &source) in pass_sources.iter().enumerate() {
+        source.hash(&mut hasher);
+        let full_wgsl = build_effect_wgsl(source);
+        let pass_has_params = has_user_params(source);
 
-    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("effect_pipeline"),
-        layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: Some("vs_quad"),
-            compilation_options: Default::default(),
-            buffers: &[], // Fullscreen triangle — no vertex buffers
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some("effect_main"),
-            compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend: Some(wgpu::BlendState {
-                    color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::One,
-                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                    alpha: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::One,
-                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                }),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-        }),
-        primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleList,
-            ..Default::default()
-        },
-        depth_stencil: None, // Effect apply pass has no stencil
-        multisample: wgpu::MultisampleState::default(),
-        multiview: None,
-        cache: None,
-    });
+        let shader_label = format!("effect_pass{i}_shader");
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(&shader_label),
+            source: wgpu::ShaderSource::Wgsl(full_wgsl.into()),
+        });
+
+        // Each pass gets its own pipeline layout — only include group(1)
+        // if this particular pass references it.
+        let bind_group_layouts: Vec<&wgpu::BindGroupLayout> = if pass_has_params {
+            vec![&input_bgl, params_bgl.as_ref().unwrap()]
+        } else {
+            vec![&input_bgl]
+        };
+
+        let layout_label = format!("effect_pass{i}_layout");
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some(&layout_label),
+            bind_group_layouts: &bind_group_layouts,
+            push_constant_ranges: &[],
+        });
+
+        let pipeline_label = format!("effect_pass{i}_pipeline");
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(&pipeline_label),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_quad"),
+                compilation_options: Default::default(),
+                buffers: &[], // Fullscreen triangle — no vertex buffers
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("effect_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None, // Effect apply pass has no stencil
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        passes.push(LoadedEffectPass {
+            pipeline,
+            has_params: pass_has_params,
+        });
+    }
 
     Ok(LoadedEffect {
-        pipeline,
+        passes,
         input_bind_group_layout: input_bgl,
         params_bind_group_layout: params_bgl,
-        shader_hash,
     })
 }
 

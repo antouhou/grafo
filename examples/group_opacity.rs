@@ -73,7 +73,7 @@ impl<'a> ApplicationHandler for App<'a> {
         "#;
 
         renderer
-            .load_effect(OPACITY_EFFECT, opacity_wgsl)
+            .load_effect(OPACITY_EFFECT, &[opacity_wgsl])
             .expect("Failed to compile opacity effect");
         self.effect_loaded = true;
 
