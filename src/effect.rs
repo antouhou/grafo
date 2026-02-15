@@ -11,7 +11,7 @@
 //! Multiple nodes can share the same loaded effect (same compiled pipeline), each with different parameters.
 
 use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash};
+use std::hash::Hash;
 
 // ── Error type ───────────────────────────────────────────────────────────────
 
@@ -31,7 +31,9 @@ pub enum EffectError {
 impl std::fmt::Display for EffectError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EffectError::CompilationFailed(msg) => write!(f, "Effect WGSL compilation failed: {msg}"),
+            EffectError::CompilationFailed(msg) => {
+                write!(f, "Effect WGSL compilation failed: {msg}")
+            }
             EffectError::EffectNotLoaded(id) => write!(f, "Effect {id} has not been loaded"),
             EffectError::NodeNotFound(id) => write!(f, "Node {id} not found in draw tree"),
             EffectError::InvalidParams(msg) => write!(f, "Invalid effect parameters: {msg}"),
@@ -300,9 +302,7 @@ pub(crate) fn create_effect_params_bind_group_layout(
 
 /// Concatenate built-in vertex shader + preamble + user fragment shader into a single WGSL module.
 pub(crate) fn build_effect_wgsl(user_fragment_source: &str) -> String {
-    format!(
-        "{FULLSCREEN_QUAD_VS}\n{EFFECT_FS_PREAMBLE}\n{user_fragment_source}"
-    )
+    format!("{FULLSCREEN_QUAD_VS}\n{EFFECT_FS_PREAMBLE}\n{user_fragment_source}")
 }
 
 /// Build the composite WGSL module (fullscreen VS + passthrough FS).

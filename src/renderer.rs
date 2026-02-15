@@ -13,16 +13,16 @@ use std::sync::Arc;
 
 pub type MathRect = lyon::math::Box2D;
 
+use crate::effect::{
+    self, compile_composite_pipeline, compile_effect_pipeline, create_params_bind_group,
+    EffectError, EffectInstance, LoadedEffect, OffscreenTexturePool,
+};
 use crate::pipeline::{
     compute_padded_bytes_per_row, create_and_depth_texture, create_argb_swizzle_bind_group,
     create_argb_swizzle_pipeline, create_msaa_color_texture, create_offscreen_color_texture,
     create_pipeline, create_readback_buffer, create_render_pass, create_storage_input_buffer,
     create_storage_output_buffer, encode_copy_texture_to_buffer, render_buffer_range_to_texture,
     ArgbParams, PipelineType, Uniforms,
-};
-use crate::effect::{
-    self, compile_composite_pipeline, compile_effect_pipeline, create_params_bind_group,
-    EffectError, EffectInstance, LoadedEffect, OffscreenTexturePool,
 };
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
 use crate::texture_manager::TextureManager;
@@ -1275,41 +1275,35 @@ impl<'a> Renderer<'a> {
                 // Step 2: Render the subtree to the offscreen texture
                 {
                     let (view, resolve_target) = if subtree_tex.sample_count > 1 {
-                        (
-                            &subtree_tex.color_view,
-                            subtree_tex.resolve_view.as_ref(),
-                        )
+                        (&subtree_tex.color_view, subtree_tex.resolve_view.as_ref())
                     } else {
                         (&subtree_tex.color_view, None)
                     };
 
-                    let render_pass =
-                        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                            label: Some("effect_subtree_pass"),
-                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view,
-                                resolve_target,
-                                ops: wgpu::Operations {
-                                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                                    store: wgpu::StoreOp::Store,
-                                },
-                            })],
-                            depth_stencil_attachment: Some(
-                                wgpu::RenderPassDepthStencilAttachment {
-                                    view: &subtree_tex.depth_stencil_view,
-                                    depth_ops: Some(wgpu::Operations {
-                                        load: wgpu::LoadOp::Clear(1.0),
-                                        store: wgpu::StoreOp::Store,
-                                    }),
-                                    stencil_ops: Some(wgpu::Operations {
-                                        load: wgpu::LoadOp::Clear(0),
-                                        store: wgpu::StoreOp::Store,
-                                    }),
-                                },
-                            ),
-                            timestamp_writes: None,
-                            occlusion_query_set: None,
-                        });
+                    let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("effect_subtree_pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view,
+                            resolve_target,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &subtree_tex.depth_stencil_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(1.0),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(0),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
 
                     let stencil_stack: Vec<u32> = Vec::new();
                     let current_pipeline = Pipeline::None;
@@ -1317,12 +1311,7 @@ impl<'a> Renderer<'a> {
                     // (to skip their children since they were already pre-rendered)
                     let skip_count: u32 = 0;
 
-                    let mut data = (
-                        render_pass,
-                        stencil_stack,
-                        current_pipeline,
-                        skip_count,
-                    );
+                    let mut data = (render_pass, stencil_stack, current_pipeline, skip_count);
 
                     // Capture effect_results by reference for inner-effect compositing
                     let effect_results_ref = &effect_results;
@@ -1341,8 +1330,7 @@ impl<'a> Renderer<'a> {
                             if shape_id != node_id {
                                 if let Some(result_bg) = effect_results_ref.get(&shape_id) {
                                     // Draw the pre-composited effect as a textured quad
-                                    let parent_stencil =
-                                        stencil_stack.last().copied().unwrap_or(0);
+                                    let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
                                     if let (Some(cpipe), Some(_cbgl)) =
                                         (composite_pipeline_ref, composite_bgl_ref)
                                     {
@@ -1447,7 +1435,11 @@ impl<'a> Renderer<'a> {
                 // Effect work texture A (always needed)
                 let effect_tex_a = self.device.create_texture(&wgpu::TextureDescriptor {
                     label: Some("effect_work_a"),
-                    size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
@@ -1463,7 +1455,11 @@ impl<'a> Renderer<'a> {
                 let effect_tex_b = if num_passes > 1 {
                     Some(self.device.create_texture(&wgpu::TextureDescriptor {
                         label: Some("effect_work_b"),
-                        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                        size: wgpu::Extent3d {
+                            width,
+                            height,
+                            depth_or_array_layers: 1,
+                        },
                         mip_level_count: 1,
                         sample_count: 1,
                         dimension: wgpu::TextureDimension::D2,
@@ -1499,25 +1495,20 @@ impl<'a> Renderer<'a> {
 
                     {
                         let pass_label = format!("effect_apply_pass_{pass_idx}");
-                        let mut pass =
-                            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: Some(&pass_label),
-                                color_attachments: &[Some(
-                                    wgpu::RenderPassColorAttachment {
-                                        view: output_view,
-                                        resolve_target: None,
-                                        ops: wgpu::Operations {
-                                            load: wgpu::LoadOp::Clear(
-                                                wgpu::Color::TRANSPARENT,
-                                            ),
-                                            store: wgpu::StoreOp::Store,
-                                        },
-                                    },
-                                )],
-                                depth_stencil_attachment: None,
-                                timestamp_writes: None,
-                                occlusion_query_set: None,
-                            });
+                        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some(&pass_label),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: output_view,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                                    store: wgpu::StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: None,
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                        });
 
                         pass.set_pipeline(&effect_pass.pipeline);
                         pass.set_bind_group(0, &input_bg, &[]);
@@ -2249,9 +2240,9 @@ impl<'a> Renderer<'a> {
     /// - `node_id`: The draw tree node to attach the effect to.
     /// - `effect_id`: The effect to use (must have been loaded with `load_effect`).
     /// - `params`: Raw bytes for the uniform buffer (group 1, binding 0).
-    ///             Must match the struct layout declared in the effect's WGSL.
-    ///             Pass `&[]` if the effect has no parameters. If you have a Rust struct, using
-    ///             `bytemuck::bytes_of(&my_struct)` quite often works well for this.
+    ///   Must match the struct layout declared in the effect's WGSL.
+    ///   Pass `&[]` if the effect has no parameters. If you have a Rust struct, using
+    ///   `bytemuck::bytes_of(&my_struct)` quite often works well for this.
     pub fn set_node_effect(
         &mut self,
         node_id: usize,
@@ -2338,8 +2329,7 @@ impl<'a> Renderer<'a> {
 
             if let Some(loaded) = self.loaded_effects.get(&instance.effect_id) {
                 if let Some(ref params_bgl) = loaded.params_bind_group_layout {
-                    let bind_group =
-                        create_params_bind_group(&self.device, params_bgl, &buffer);
+                    let bind_group = create_params_bind_group(&self.device, params_bgl, &buffer);
                     instance.params_bind_group = Some(bind_group);
                 }
             }
@@ -2367,8 +2357,7 @@ impl<'a> Renderer<'a> {
     /// Ensures the composite pipeline is created (lazily initialized).
     fn ensure_composite_pipeline(&mut self) {
         if self.composite_pipeline.is_none() {
-            let (pipeline, bgl) =
-                compile_composite_pipeline(&self.device, self.config.format);
+            let (pipeline, bgl) = compile_composite_pipeline(&self.device, self.config.format);
             self.composite_pipeline = Some(pipeline);
             self.composite_bgl = Some(bgl);
         }

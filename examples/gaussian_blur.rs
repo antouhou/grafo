@@ -124,10 +124,7 @@ impl<'a> ApplicationHandler for App<'a> {
 
         // Load the two-pass Gaussian blur effect
         renderer
-            .load_effect(
-                BLUR_EFFECT,
-                &[HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL],
-            )
+            .load_effect(BLUR_EFFECT, &[HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL])
             .expect("Failed to compile blur effect");
 
         self.window = Some(window);
