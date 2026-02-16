@@ -160,12 +160,7 @@ impl OffscreenTexturePool {
     /// Drop all pooled textures whose dimensions, or sample count don't match
     /// the current active configuration, and enforce the maximum pool size.
     /// Call this when size, format, or MSAA settings change (e.g. on resize).
-    pub fn trim(
-        &mut self,
-        width: u32,
-        height: u32,
-        sample_count: u32,
-    ) {
+    pub fn trim(&mut self, width: u32, height: u32, sample_count: u32) {
         self.available
             .retain(|t| t.width == width && t.height == height && t.sample_count == sample_count);
         // Enforce max pool size — drop oldest excess textures
