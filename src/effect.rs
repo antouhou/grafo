@@ -155,6 +155,7 @@ impl OffscreenTexturePool {
     /// immediately, and the pool is capped at `MAX_POOL_SIZE`.
     pub fn recycle(&mut self, textures: Vec<PooledTexture>) {
         self.available.extend(textures);
+        self.available.truncate(MAX_POOL_SIZE);
     }
 
     /// Drop all pooled textures whose dimensions, or sample count don't match
