@@ -140,6 +140,9 @@ pub(crate) struct OffscreenTexturePool {
     available: Vec<PooledTexture>,
 }
 
+/// Maximum number of textures to keep in the pool.
+const MAX_POOL_SIZE: usize = 8;
+
 impl OffscreenTexturePool {
     pub fn new() -> Self {
         Self {
@@ -148,8 +151,27 @@ impl OffscreenTexturePool {
     }
 
     /// Return textures for reuse in future frames.
+    /// Textures that don't match the given active configuration are dropped
+    /// immediately, and the pool is capped at `MAX_POOL_SIZE`.
     pub fn recycle(&mut self, textures: Vec<PooledTexture>) {
         self.available.extend(textures);
+    }
+
+    /// Drop all pooled textures whose dimensions, or sample count don't match
+    /// the current active configuration, and enforce the maximum pool size.
+    /// Call this when size, format, or MSAA settings change (e.g. on resize).
+    pub fn trim(
+        &mut self,
+        width: u32,
+        height: u32,
+        sample_count: u32,
+    ) {
+        self.available
+            .retain(|t| t.width == width && t.height == height && t.sample_count == sample_count);
+        // Enforce max pool size — drop oldest excess textures
+        if self.available.len() > MAX_POOL_SIZE {
+            self.available.truncate(MAX_POOL_SIZE);
+        }
     }
 
     /// Acquire a texture matching the given dimensions and sample count.

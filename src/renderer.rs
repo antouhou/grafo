@@ -1346,22 +1346,21 @@ impl<'a> Renderer<'a> {
 
                     let stencil_stack: Vec<u32> = Vec::new();
                     let current_pipeline = Pipeline::None;
-                    // skip_count tracks the depth of nested effect nodes we're inside
+                    // skipped_stack tracks which specific effect nodes we're inside
                     // (to skip their children since they were already pre-rendered)
-                    let skip_count: u32 = 0;
+                    let skipped_stack: Vec<usize> = Vec::new();
 
-                    let mut data = (render_pass, stencil_stack, current_pipeline, skip_count);
+                    let mut data = (render_pass, stencil_stack, current_pipeline, skipped_stack);
 
                     // Capture effect_results by reference for inner-effect compositing
                     let effect_results_ref = &effect_results;
-                    let group_effects_ref = &self.group_effects;
                     let composite_pipeline_ref = self.composite_pipeline.as_ref();
                     let composite_bgl_ref = self.composite_bgl.as_ref();
 
                     self.draw_tree.traverse_subtree_mut(
                         node_id,
                         |shape_id, draw_command, data| {
-                            let (render_pass, stencil_stack, currently_set_pipeline, skip_count) =
+                            let (render_pass, stencil_stack, currently_set_pipeline, skipped_stack) =
                                 data;
 
                             // Check if this child node has a pre-composited effect result
@@ -1379,12 +1378,12 @@ impl<'a> Renderer<'a> {
                                         render_pass.draw(0..3, 0..1);
                                         *currently_set_pipeline = Pipeline::None;
                                     }
-                                    *skip_count += 1;
+                                    skipped_stack.push(shape_id);
                                     return;
                                 }
                             }
 
-                            if *skip_count > 0 {
+                            if !skipped_stack.is_empty() {
                                 return;
                             }
 
@@ -1412,21 +1411,16 @@ impl<'a> Renderer<'a> {
                             }
                         },
                         |shape_id, draw_command, data| {
-                            let (render_pass, stencil_stack, currently_set_pipeline, skip_count) =
+                            let (render_pass, stencil_stack, currently_set_pipeline, skipped_stack) =
                                 data;
 
                             // Check if this was a skipped effect node
-                            if shape_id != node_id
-                                && (effect_results_ref.contains_key(&shape_id)
-                                    || group_effects_ref.contains_key(&shape_id))
-                            {
-                                if *skip_count > 0 {
-                                    *skip_count -= 1;
-                                }
+                            if skipped_stack.last().copied() == Some(shape_id) {
+                                skipped_stack.pop();
                                 return;
                             }
 
-                            if *skip_count > 0 {
+                            if !skipped_stack.is_empty() {
                                 return;
                             }
 
@@ -1618,19 +1612,21 @@ impl<'a> Renderer<'a> {
 
                     // Pack the mutable state into a tuple so both closures can
                     // access it through the shared &mut S parameter.
-                    // (skip_count, stencil_stack, event_list)
-                    let mut plan_state: (u32, Vec<u32>, Vec<TraversalEvent>) =
-                        (0, Vec::new(), Vec::new());
+                    // (skipped_stack, stencil_stack, event_list)
+                    let mut plan_state: (Vec<usize>, Vec<u32>, Vec<TraversalEvent>) =
+                        (Vec::new(), Vec::new(), Vec::new());
 
                     self.draw_tree.traverse_mut(
                         |node_id, _draw_command, state| {
-                            let (skip_count, stencil_stack, events) = state;
+                            let (skipped_stack, stencil_stack, events) = state;
                             // Track skipped effect nodes
                             if effect_results_ref.contains_key(&node_id) {
-                                *skip_count += 1;
+                                skipped_stack.push(node_id);
                             }
 
-                            if *skip_count > 0 && !effect_results_ref.contains_key(&node_id) {
+                            if !skipped_stack.is_empty()
+                                && !effect_results_ref.contains_key(&node_id)
+                            {
                                 return;
                             }
 
@@ -1642,18 +1638,16 @@ impl<'a> Renderer<'a> {
                             events.push(TraversalEvent::Pre(node_id));
                         },
                         |node_id, _draw_command, state| {
-                            let (skip_count, stencil_stack, events) = state;
-                            if effect_results_ref.contains_key(&node_id) {
-                                if *skip_count > 0 {
-                                    *skip_count -= 1;
-                                }
+                            let (skipped_stack, stencil_stack, events) = state;
+                            if skipped_stack.last().copied() == Some(node_id) {
+                                skipped_stack.pop();
                                 // Pop the stencil for this node
                                 stencil_stack.pop();
                                 events.push(TraversalEvent::Post(node_id));
                                 return;
                             }
 
-                            if *skip_count > 0 {
+                            if !skipped_stack.is_empty() {
                                 return;
                             }
 
@@ -1836,6 +1830,19 @@ impl<'a> Renderer<'a> {
 
                     // ── Process backdrop effect at segment boundary ───────
                     if let Some(bd_node_id) = backdrop_node_id {
+                        // If this is the first segment and no normal events were processed
+                        // (event_idx == segment_end at the start), the attachments haven't
+                        // been cleared yet. Issue a clear pass so the snapshot copy reads
+                        // initialized data.
+                        if is_first_segment {
+                            create_render_pass(
+                                &mut encoder,
+                                self.msaa_color_texture_view.as_ref(),
+                                texture_view,
+                                &depth_texture_view,
+                            );
+                        }
+
                         // 1. Copy the current output → snapshot
                         let snapshot_tex = self.backdrop_snapshot_texture.as_ref().unwrap();
                         let src_texture =
@@ -2176,19 +2183,20 @@ impl<'a> Renderer<'a> {
 
                 let stencil_stack: Vec<u32> = Vec::new();
                 let current_pipeline = Pipeline::None;
-                let skip_count: u32 = 0;
+                let skipped_stack: Vec<usize> = Vec::new();
 
-                let mut data = (render_pass, stencil_stack, current_pipeline, skip_count);
+                let mut data = (render_pass, stencil_stack, current_pipeline, skipped_stack);
 
                 let effect_results_ref = &effect_results;
                 let composite_pipeline_ref = self.composite_pipeline.as_ref();
 
                 self.draw_tree.traverse_mut(
-                    |_shape_id, draw_command, data| {
-                        let (render_pass, stencil_stack, currently_set_pipeline, skip_count) = data;
+                    |shape_id, draw_command, data| {
+                        let (render_pass, stencil_stack, currently_set_pipeline, skipped_stack) =
+                            data;
 
                         // Check if this node has a pre-composited effect result
-                        if let Some(result_bg) = effect_results_ref.get(&_shape_id) {
+                        if let Some(result_bg) = effect_results_ref.get(&shape_id) {
                             let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
                             if let Some(cpipe) = composite_pipeline_ref {
                                 render_pass.set_pipeline(cpipe);
@@ -2197,11 +2205,11 @@ impl<'a> Renderer<'a> {
                                 render_pass.draw(0..3, 0..1);
                                 *currently_set_pipeline = Pipeline::None;
                             }
-                            *skip_count += 1;
+                            skipped_stack.push(shape_id);
                             return;
                         }
 
-                        if *skip_count > 0 {
+                        if !skipped_stack.is_empty() {
                             return;
                         }
 
@@ -2229,16 +2237,15 @@ impl<'a> Renderer<'a> {
                         }
                     },
                     |_shape_id, draw_command, data| {
-                        let (render_pass, stencil_stack, currently_set_pipeline, skip_count) = data;
+                        let (render_pass, stencil_stack, currently_set_pipeline, skipped_stack) =
+                            data;
 
-                        if effect_results_ref.contains_key(&_shape_id) {
-                            if *skip_count > 0 {
-                                *skip_count -= 1;
-                            }
+                        if skipped_stack.last().copied() == Some(_shape_id) {
+                            skipped_stack.pop();
                             return;
                         }
 
-                        if *skip_count > 0 {
+                        if !skipped_stack.is_empty() {
                             return;
                         }
 
@@ -2872,6 +2879,23 @@ impl<'a> Renderer<'a> {
             return Err(EffectError::EffectNotLoaded(effect_id));
         }
 
+        // Validate that params presence matches the effect's declared layout
+        if let Some(loaded) = self.loaded_effects.get(&effect_id) {
+            if loaded.params_bind_group_layout.is_some() && params.is_empty() {
+                return Err(EffectError::InvalidParams(format!(
+                    "effect {} expects parameters but none were provided",
+                    effect_id
+                )));
+            }
+            if loaded.params_bind_group_layout.is_none() && !params.is_empty() {
+                return Err(EffectError::InvalidParams(format!(
+                    "effect {} does not accept parameters but {} bytes were provided",
+                    effect_id,
+                    params.len()
+                )));
+            }
+        }
+
         let mut instance = EffectInstance {
             effect_id,
             params: params.to_vec(),
@@ -2911,6 +2935,23 @@ impl<'a> Renderer<'a> {
             .group_effects
             .get_mut(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
+
+        // Validate that params presence matches the effect's declared layout
+        if let Some(loaded) = self.loaded_effects.get(&instance.effect_id) {
+            if loaded.params_bind_group_layout.is_some() && params.is_empty() {
+                return Err(EffectError::InvalidParams(format!(
+                    "effect {} expects parameters but none were provided",
+                    instance.effect_id
+                )));
+            }
+            if loaded.params_bind_group_layout.is_none() && !params.is_empty() {
+                return Err(EffectError::InvalidParams(format!(
+                    "effect {} does not accept parameters but {} bytes were provided",
+                    instance.effect_id,
+                    params.len()
+                )));
+            }
+        }
 
         instance.params = params.to_vec();
 
@@ -2980,6 +3021,23 @@ impl<'a> Renderer<'a> {
             return Err(EffectError::EffectNotLoaded(effect_id));
         }
 
+        // Validate that params presence matches the effect's declared layout
+        if let Some(loaded) = self.loaded_effects.get(&effect_id) {
+            if loaded.params_bind_group_layout.is_some() && params.is_empty() {
+                return Err(EffectError::InvalidParams(format!(
+                    "effect {} expects parameters but none were provided",
+                    effect_id
+                )));
+            }
+            if loaded.params_bind_group_layout.is_none() && !params.is_empty() {
+                return Err(EffectError::InvalidParams(format!(
+                    "effect {} does not accept parameters but {} bytes were provided",
+                    effect_id,
+                    params.len()
+                )));
+            }
+        }
+
         let mut instance = EffectInstance {
             effect_id,
             params: params.to_vec(),
@@ -3019,6 +3077,23 @@ impl<'a> Renderer<'a> {
             .backdrop_effects
             .get_mut(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
+
+        // Validate that params presence matches the effect's declared layout
+        if let Some(loaded) = self.loaded_effects.get(&instance.effect_id) {
+            if loaded.params_bind_group_layout.is_some() && params.is_empty() {
+                return Err(EffectError::InvalidParams(format!(
+                    "effect {} expects parameters but none were provided",
+                    instance.effect_id
+                )));
+            }
+            if loaded.params_bind_group_layout.is_none() && !params.is_empty() {
+                return Err(EffectError::InvalidParams(format!(
+                    "effect {} does not accept parameters but {} bytes were provided",
+                    instance.effect_id,
+                    params.len()
+                )));
+            }
+        }
 
         instance.params = params.to_vec();
 
@@ -3140,10 +3215,15 @@ impl<'a> Renderer<'a> {
         if self.stencil_only_pipeline.is_some() {
             return;
         }
+        // Reuse the main pipeline's bind group layouts
+        let uniform_bgl = self.and_pipeline.get_bind_group_layout(0);
         let pipeline = crate::pipeline::create_stencil_only_pipeline(
             &self.device,
             self.config.format,
             self.msaa_sample_count,
+            &uniform_bgl,
+            &self.shape_texture_bind_group_layout_background,
+            &self.shape_texture_bind_group_layout_foreground,
         );
         self.stencil_only_pipeline = Some(pipeline);
     }
@@ -3154,14 +3234,15 @@ impl<'a> Renderer<'a> {
         if self.backdrop_color_pipeline.is_some() {
             return;
         }
-        let canvas_logical_size = to_logical(self.physical_size, self.scale_factor);
+        // Reuse the main pipeline's bind group layouts
+        let uniform_bgl = self.and_pipeline.get_bind_group_layout(0);
         let pipeline = crate::pipeline::create_stencil_keep_color_pipeline(
-            canvas_logical_size,
-            self.scale_factor,
-            self.fringe_width,
             &self.device,
-            &self.config,
+            self.config.format,
             self.msaa_sample_count,
+            &uniform_bgl,
+            &self.shape_texture_bind_group_layout_background,
+            &self.shape_texture_bind_group_layout_foreground,
         );
         self.backdrop_color_pipeline = Some(pipeline);
     }
@@ -3390,6 +3471,12 @@ impl<'a> Renderer<'a> {
         );
         self.surface.configure(&self.device, &self.config);
         self.recreate_msaa_texture();
+        // Trim the offscreen texture pool — drop textures that no longer match
+        self.offscreen_texture_pool.trim(
+            new_physical_size.0,
+            new_physical_size.1,
+            self.msaa_sample_count,
+        );
     }
 
     /// Returns the current MSAA sample count.
@@ -3450,6 +3537,12 @@ impl<'a> Renderer<'a> {
         // Invalidate backdrop pipelines (MSAA sample count may have changed)
         self.stencil_only_pipeline = None;
         self.backdrop_color_pipeline = None;
+        // Trim the offscreen texture pool — drop textures with stale sample count
+        self.offscreen_texture_pool.trim(
+            self.physical_size.0,
+            self.physical_size.1,
+            self.msaa_sample_count,
+        );
     }
 
     /// Recreates both render pipelines with the current MSAA sample count.

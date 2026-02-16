@@ -718,40 +718,18 @@ pub fn create_stencil_only_pipeline(
     device: &Device,
     format: wgpu::TextureFormat,
     sample_count: u32,
+    uniform_bgl: &wgpu::BindGroupLayout,
+    texture_bgl_layer0: &wgpu::BindGroupLayout,
+    texture_bgl_layer1: &wgpu::BindGroupLayout,
 ) -> RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("stencil_only_shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
     });
 
-    let bind_group_layout = create_uniform_bind_group_layout(device);
-
-    // Need the same texture bind group layouts to match the shader
-    let texture_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    multisampled: false,
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                count: None,
-            },
-        ],
-        label: Some("stencil_only_texture_bgl"),
-    });
-
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("stencil_only_pipeline_layout"),
-        bind_group_layouts: &[&bind_group_layout, &texture_bgl, &texture_bgl],
+        bind_group_layouts: &[uniform_bgl, texture_bgl_layer0, texture_bgl_layer1],
         push_constant_ranges: &[],
     });
 
@@ -795,44 +773,21 @@ pub fn create_stencil_only_pipeline(
 /// Same as the StencilIncrement pipeline but with pass_op = Keep.
 /// Used for Step 3 of the three-step backdrop draw to avoid double stencil increment.
 pub fn create_stencil_keep_color_pipeline(
-    canvas_logical_size: (f32, f32),
-    scale_factor: f64,
-    fringe_width: f32,
     device: &Device,
-    config: &wgpu::SurfaceConfiguration,
+    format: wgpu::TextureFormat,
     sample_count: u32,
+    uniform_bgl: &wgpu::BindGroupLayout,
+    texture_bgl_layer0: &wgpu::BindGroupLayout,
+    texture_bgl_layer1: &wgpu::BindGroupLayout,
 ) -> RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("stencil_keep_color_shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
     });
 
-    let bind_group_layout = create_uniform_bind_group_layout(device);
-    let texture_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    multisampled: false,
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                count: None,
-            },
-        ],
-        label: Some("stencil_keep_color_texture_bgl"),
-    });
-
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("stencil_keep_color_pipeline_layout"),
-        bind_group_layouts: &[&bind_group_layout, &texture_bgl, &texture_bgl],
+        bind_group_layouts: &[uniform_bgl, texture_bgl_layer0, texture_bgl_layer1],
         push_constant_ranges: &[],
     });
 
@@ -863,7 +818,7 @@ pub fn create_stencil_keep_color_pipeline(
             entry_point: Some("fs_main"),
             compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
-                format: config.format,
+                format,
                 blend: Some(wgpu::BlendState {
                     color: wgpu::BlendComponent {
                         src_factor: wgpu::BlendFactor::One,
