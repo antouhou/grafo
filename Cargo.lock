@@ -980,6 +980,7 @@ dependencies = [
  "log",
  "lru",
  "lyon",
+ "regex",
  "softbuffer",
  "transformator",
  "wgpu",

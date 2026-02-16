@@ -328,8 +328,22 @@ pub(crate) fn build_composite_wgsl() -> String {
 }
 
 /// Checks if user WGSL source declares a `@group(1)` binding (params uniform).
+///
+/// Strips WGSL line (`//`) and block (`/* … */`) comments first, then matches
+/// `@group(1)` with optional whitespace so that `@group( 1 )` and similar
+/// variants are detected while occurrences inside comments are ignored.
 pub(crate) fn has_user_params(user_fragment_source: &str) -> bool {
-    user_fragment_source.contains("@group(1)")
+    // Strip block comments (/* ... */), then line comments (// ... \n).
+    let no_block = regex::Regex::new(r"(?s)/\*.*?\*/")
+        .unwrap()
+        .replace_all(user_fragment_source, "");
+    let stripped = regex::Regex::new(r"//[^\n]*")
+        .unwrap()
+        .replace_all(&no_block, "");
+
+    regex::Regex::new(r"@group\s*\(\s*1\s*\)")
+        .unwrap()
+        .is_match(&stripped)
 }
 
 /// Compile a (possibly multi-pass) effect from WGSL source(s).
@@ -530,18 +544,9 @@ pub(crate) fn create_texture_sample_bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     texture_view: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
     label: Option<&str>,
 ) -> wgpu::BindGroup {
-    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-        address_mode_u: wgpu::AddressMode::ClampToEdge,
-        address_mode_v: wgpu::AddressMode::ClampToEdge,
-        address_mode_w: wgpu::AddressMode::ClampToEdge,
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::FilterMode::Linear,
-        ..Default::default()
-    });
-
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label,
         layout,
@@ -552,7 +557,7 @@ pub(crate) fn create_texture_sample_bind_group(
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::Sampler(&sampler),
+                resource: wgpu::BindingResource::Sampler(sampler),
             },
         ],
     })

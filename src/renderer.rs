@@ -1523,6 +1523,7 @@ impl<'a> Renderer<'a> {
                         &self.device,
                         &loaded.input_bind_group_layout,
                         prev_input_view,
+                        self.effect_sampler.as_ref().unwrap(),
                         Some("effect_pass_input_bg"),
                     );
 
@@ -1568,6 +1569,7 @@ impl<'a> Renderer<'a> {
                     &self.device,
                     composite_bgl,
                     prev_input_view,
+                    self.effect_sampler.as_ref().unwrap(),
                     Some("effect_composite_bg"),
                 );
 
@@ -1929,6 +1931,7 @@ impl<'a> Renderer<'a> {
                                 &self.device,
                                 &loaded.input_bind_group_layout,
                                 prev_input_view,
+                                self.effect_sampler.as_ref().unwrap(),
                                 Some("backdrop_effect_pass_input_bg"),
                             );
 
@@ -1977,6 +1980,7 @@ impl<'a> Renderer<'a> {
                             &self.device,
                             composite_bgl,
                             prev_input_view,
+                            self.effect_sampler.as_ref().unwrap(),
                             Some("backdrop_composite_bg"),
                         );
 
