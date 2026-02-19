@@ -126,8 +126,10 @@ pub(crate) struct EffectInstance {
 
 /// A pooled offscreen texture with color, depth/stencil, and optional MSAA resolve resources.
 pub(crate) struct PooledTexture {
+    pub color_texture: wgpu::Texture,
     pub color_view: wgpu::TextureView,
     pub depth_stencil_view: wgpu::TextureView,
+    pub resolve_texture: Option<wgpu::Texture>,
     pub resolve_view: Option<wgpu::TextureView>,
     pub width: u32,
     pub height: u32,
@@ -211,7 +213,9 @@ impl OffscreenTexturePool {
             sample_count,
             dimension: wgpu::TextureDimension::D2,
             format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
         let color_view = color_texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -234,7 +238,7 @@ impl OffscreenTexturePool {
             depth_stencil_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // When MSAA is enabled, create a resolve target (non-MSAA) for effects to read from
-        let resolve_view = if sample_count > 1 {
+        let (resolve_texture, resolve_view) = if sample_count > 1 {
             let resolve_tex = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("effect_offscreen_resolve"),
                 size: wgpu::Extent3d {
@@ -247,21 +251,21 @@ impl OffscreenTexturePool {
                 dimension: wgpu::TextureDimension::D2,
                 format,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
                 view_formats: &[],
             });
             let resolve_v = resolve_tex.create_view(&wgpu::TextureViewDescriptor::default());
-            Some(resolve_v)
+            (Some(resolve_tex), Some(resolve_v))
         } else {
-            None
+            (None, None)
         };
 
         PooledTexture {
-            // color_texture,
+            color_texture,
             color_view,
-            // depth_stencil_texture,
             depth_stencil_view,
-            // resolve_texture,
+            resolve_texture,
             resolve_view,
             width,
             height,
