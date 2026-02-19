@@ -1312,7 +1312,127 @@ impl<'a> Renderer<'a> {
                 );
 
                 // Step 2: Render the subtree to the offscreen texture
-                {
+                let subtree_needs_backdrop =
+                    subtree_has_backdrop_effects(&self.draw_tree, &self.backdrop_effects, node_id);
+
+                if subtree_needs_backdrop {
+                    // ── Segment-based path: subtree contains backdrop effects ──
+                    //
+                    // Use the same planning traverse + segment-based render loop
+                    // that Phase 2 uses, but targeting the offscreen texture.
+                    //
+                    // IMPORTANT: Backdrop effects inside the group need to see the
+                    // scene content *behind* the group (not the group's own offscreen
+                    // which starts empty). We pre-render everything except this group's
+                    // subtree into a "behind" texture and use it as the copy source
+                    // for backdrop snapshots.
+
+                    // Pre-render the scene content behind this group
+                    let behind_tex = self.offscreen_texture_pool.acquire(
+                        &self.device,
+                        width,
+                        height,
+                        self.config.format,
+                        self.msaa_sample_count,
+                    );
+                    let behind_depth = create_and_depth_texture(
+                        &self.device,
+                        (width, height),
+                        self.msaa_sample_count,
+                    );
+                    let behind_depth_view =
+                        behind_depth.create_view(&wgpu::TextureViewDescriptor::default());
+
+                    let (behind_color_view, behind_resolve_target) = if behind_tex.sample_count > 1
+                    {
+                        (
+                            &behind_tex.color_view,
+                            Some(behind_tex.resolve_view.as_ref().unwrap() as &wgpu::TextureView),
+                        )
+                    } else {
+                        (&behind_tex.color_view as &wgpu::TextureView, None)
+                    };
+
+                    render_scene_behind_group(
+                        &mut self.draw_tree,
+                        &mut encoder,
+                        &effect_results,
+                        node_id,
+                        behind_color_view,
+                        behind_resolve_target,
+                        &behind_depth_view,
+                        self.composite_pipeline.as_ref(),
+                        &pipelines,
+                        &buffers,
+                    );
+
+                    // The backdrop copy source is the resolved behind texture
+                    let behind_copy_source = if behind_tex.sample_count > 1 {
+                        behind_tex.resolve_texture.as_ref().unwrap()
+                    } else {
+                        &behind_tex.color_texture
+                    };
+
+                    // Now render the group subtree to its own offscreen texture
+                    let (events, stencil_refs, parent_stencils) =
+                        plan_traversal(&mut self.draw_tree, &effect_results, Some(node_id));
+
+                    let (subtree_color_view, subtree_resolve_target) = if subtree_tex.sample_count
+                        > 1
+                    {
+                        (
+                            &subtree_tex.color_view,
+                            Some(subtree_tex.resolve_view.as_ref().unwrap() as &wgpu::TextureView),
+                        )
+                    } else {
+                        (&subtree_tex.color_view, None)
+                    };
+
+                    let backdrop_ctx = BackdropContext {
+                        backdrop_effects: &self.backdrop_effects,
+                        loaded_effects: &self.loaded_effects,
+                        composite_pipeline: self.composite_pipeline.as_ref().unwrap(),
+                        composite_bgl: self.composite_bgl.as_ref().unwrap(),
+                        effect_sampler: self.effect_sampler.as_ref().unwrap(),
+                        stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
+                        backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
+                        and_bind_group: &self.and_bind_group,
+                        default_shape_texture_bind_groups: &self.default_shape_texture_bind_groups,
+                        device: &self.device,
+                        physical_size: self.physical_size,
+                        config_format: self.config.format,
+                        backdrop_snapshot_texture: self.backdrop_snapshot_texture.as_ref().unwrap(),
+                        backdrop_snapshot_view: self.backdrop_snapshot_view.as_ref().unwrap(),
+                        texture_manager: &self.texture_manager,
+                        shape_texture_bind_group_layout_background: &self
+                            .shape_texture_bind_group_layout_background,
+                        shape_texture_bind_group_layout_foreground: &self
+                            .shape_texture_bind_group_layout_foreground,
+                        shape_texture_layout_epoch: self.shape_texture_layout_epoch,
+                    };
+
+                    let work_textures = render_segments(
+                        &mut self.draw_tree,
+                        &mut encoder,
+                        &events,
+                        &stencil_refs,
+                        &parent_stencils,
+                        &effect_results,
+                        subtree_color_view,
+                        subtree_resolve_target,
+                        &subtree_tex.depth_stencil_view,
+                        behind_copy_source,
+                        true, // clear_first
+                        &pipelines,
+                        &buffers,
+                        &backdrop_ctx,
+                    );
+
+                    // Keep backdrop work textures alive until compositing is done
+                    effect_output_textures.extend(work_textures);
+                    textures_to_recycle.push(behind_tex);
+                } else {
+                    // ── Fast path: no backdrop effects in subtree ──────────
                     let (view, resolve_target) = if subtree_tex.sample_count > 1 {
                         (&subtree_tex.color_view, subtree_tex.resolve_view.as_ref())
                     } else {
@@ -1605,573 +1725,62 @@ impl<'a> Renderer<'a> {
                 // ── Two-step approach (backdrop effects present) ──────────
 
                 // Step A: Planning traverse — compute stencil refs, build an event list
-                let mut stencil_refs: HashMap<usize, u32> = HashMap::new();
-                let mut parent_stencils: HashMap<usize, u32> = HashMap::new();
-
-                let events: Vec<TraversalEvent>;
-                {
-                    let effect_results_ref = &effect_results;
-
-                    // Pack the mutable state into a tuple so both closures can
-                    // access it through the shared &mut S parameter.
-                    // (skipped_stack, stencil_stack, event_list)
-                    let mut plan_state: (Vec<usize>, Vec<u32>, Vec<TraversalEvent>) =
-                        (Vec::new(), Vec::new(), Vec::new());
-
-                    self.draw_tree.traverse_mut(
-                        |node_id, _draw_command, state| {
-                            let (skipped_stack, stencil_stack, events) = state;
-                            // Track skipped effect nodes
-                            if effect_results_ref.contains_key(&node_id) {
-                                skipped_stack.push(node_id);
-                            }
-
-                            if !skipped_stack.is_empty()
-                                && !effect_results_ref.contains_key(&node_id)
-                            {
-                                return;
-                            }
-
-                            let parent = stencil_stack.last().copied().unwrap_or(0);
-                            let this_stencil = parent + 1;
-                            parent_stencils.insert(node_id, parent);
-                            stencil_refs.insert(node_id, this_stencil);
-                            stencil_stack.push(this_stencil);
-                            events.push(TraversalEvent::Pre(node_id));
-                        },
-                        |node_id, _draw_command, state| {
-                            let (skipped_stack, stencil_stack, events) = state;
-                            if skipped_stack.last().copied() == Some(node_id) {
-                                skipped_stack.pop();
-                                // Pop the stencil for this node
-                                stencil_stack.pop();
-                                events.push(TraversalEvent::Post(node_id));
-                                return;
-                            }
-
-                            if !skipped_stack.is_empty() {
-                                return;
-                            }
-
-                            stencil_stack.pop();
-                            events.push(TraversalEvent::Post(node_id));
-                        },
-                        &mut plan_state,
-                    );
-                    events = plan_state.2;
-                }
+                let (events, stencil_refs, parent_stencils) =
+                    plan_traversal(&mut self.draw_tree, &effect_results, None);
 
                 // Step B: Segment-based render loop
-                //
-                // We split the event list into segments separated by backdrop
-                // effect Pre events. Each segment gets its own scoped render
-                // pass so that the encoder borrow is released between segments,
-                // allowing copy and compute commands between passes.
-                let mut event_idx = 0;
-                let mut is_first_segment = true;
-                let mut currently_set_pipeline = Pipeline::None;
-                let (width, height) = self.physical_size;
-                let mut backdrop_work_textures: Vec<wgpu::Texture> = Vec::new();
-
-                let (color_view, color_resolve_target) =
+                let (phase2_color_view, phase2_resolve_target) =
                     if let Some(msaa_v) = self.msaa_color_texture_view.as_ref() {
-                        (msaa_v as &wgpu::TextureView, Some(texture_view))
+                        (
+                            msaa_v as &wgpu::TextureView,
+                            Some(texture_view as &wgpu::TextureView),
+                        )
                     } else {
-                        (texture_view, None)
+                        (texture_view as &wgpu::TextureView, None)
                     };
 
-                while event_idx < events.len() {
-                    // Find the next backdrop break in [event_idx..)
-                    let mut segment_end = events.len();
-                    let mut backdrop_node_id: Option<usize> = None;
-                    for (idx, event) in events.iter().enumerate().skip(event_idx) {
-                        if let TraversalEvent::Pre(nid) = event {
-                            if self.backdrop_effects.contains_key(nid) {
-                                segment_end = idx;
-                                backdrop_node_id = Some(*nid);
-                                break;
-                            }
-                        }
-                    }
+                let backdrop_ctx = BackdropContext {
+                    backdrop_effects: &self.backdrop_effects,
+                    loaded_effects: &self.loaded_effects,
+                    composite_pipeline: self.composite_pipeline.as_ref().unwrap(),
+                    composite_bgl: self.composite_bgl.as_ref().unwrap(),
+                    effect_sampler: self.effect_sampler.as_ref().unwrap(),
+                    stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
+                    backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
+                    and_bind_group: &self.and_bind_group,
+                    default_shape_texture_bind_groups: &self.default_shape_texture_bind_groups,
+                    device: &self.device,
+                    physical_size: self.physical_size,
+                    config_format: self.config.format,
+                    backdrop_snapshot_texture: self.backdrop_snapshot_texture.as_ref().unwrap(),
+                    backdrop_snapshot_view: self.backdrop_snapshot_view.as_ref().unwrap(),
+                    texture_manager: &self.texture_manager,
+                    shape_texture_bind_group_layout_background: &self
+                        .shape_texture_bind_group_layout_background,
+                    shape_texture_bind_group_layout_foreground: &self
+                        .shape_texture_bind_group_layout_foreground,
+                    shape_texture_layout_epoch: self.shape_texture_layout_epoch,
+                };
 
-                    // ── Process normal events [event_idx..segment_end] ───
-                    if event_idx < segment_end {
-                        {
-                            let mut render_pass = if is_first_segment {
-                                create_render_pass(
-                                    &mut encoder,
-                                    self.msaa_color_texture_view.as_ref(),
-                                    texture_view,
-                                    &depth_texture_view,
-                                )
-                            } else {
-                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                    label: Some("phase2_load_pass"),
-                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                        view: color_view,
-                                        resolve_target: color_resolve_target,
-                                        ops: wgpu::Operations {
-                                            load: wgpu::LoadOp::Load,
-                                            store: wgpu::StoreOp::Store,
-                                        },
-                                    })],
-                                    depth_stencil_attachment: Some(
-                                        wgpu::RenderPassDepthStencilAttachment {
-                                            view: &depth_texture_view,
-                                            depth_ops: Some(wgpu::Operations {
-                                                load: wgpu::LoadOp::Load,
-                                                store: wgpu::StoreOp::Store,
-                                            }),
-                                            stencil_ops: Some(wgpu::Operations {
-                                                load: wgpu::LoadOp::Load,
-                                                store: wgpu::StoreOp::Store,
-                                            }),
-                                        },
-                                    ),
-                                    timestamp_writes: None,
-                                    occlusion_query_set: None,
-                                })
-                            };
+                let src_texture =
+                    output_texture.expect("output_texture required for backdrop effects");
 
-                            for event in events.iter().take(segment_end).skip(event_idx) {
-                                match event {
-                                    TraversalEvent::Pre(node_id) => {
-                                        let node_id = *node_id;
-
-                                        // Effect-result compositing
-                                        if let Some(result_bg) = effect_results.get(&node_id) {
-                                            let parent_stencil =
-                                                parent_stencils.get(&node_id).copied().unwrap_or(0);
-                                            if let Some(cpipe) = self.composite_pipeline.as_ref() {
-                                                render_pass.set_pipeline(cpipe);
-                                                render_pass.set_bind_group(0, result_bg, &[]);
-                                                render_pass.set_stencil_reference(parent_stencil);
-                                                render_pass.draw(0..3, 0..1);
-                                                currently_set_pipeline = Pipeline::None;
-                                            }
-                                            continue;
-                                        }
-
-                                        // Normal shape — increment + draw
-                                        if let Some(draw_cmd) = self.draw_tree.get_mut(node_id) {
-                                            let parent_stencil =
-                                                parent_stencils.get(&node_id).copied().unwrap_or(0);
-                                            let this_stencil =
-                                                stencil_refs.get(&node_id).copied().unwrap_or(1);
-
-                                            match draw_cmd {
-                                                DrawCommand::Shape(shape) => {
-                                                    handle_increment_pass(
-                                                        &mut render_pass,
-                                                        &mut currently_set_pipeline,
-                                                        &mut vec![parent_stencil],
-                                                        shape,
-                                                        &pipelines,
-                                                        &buffers,
-                                                    );
-                                                    *shape.stencil_ref_mut() = Some(this_stencil);
-                                                }
-                                                DrawCommand::CachedShape(shape) => {
-                                                    handle_increment_pass(
-                                                        &mut render_pass,
-                                                        &mut currently_set_pipeline,
-                                                        &mut vec![parent_stencil],
-                                                        shape,
-                                                        &pipelines,
-                                                        &buffers,
-                                                    );
-                                                    *shape.stencil_ref_mut() = Some(this_stencil);
-                                                }
-                                            }
-                                        }
-                                    }
-                                    TraversalEvent::Post(node_id) => {
-                                        let node_id = *node_id;
-
-                                        if effect_results.contains_key(&node_id) {
-                                            continue;
-                                        }
-
-                                        if let Some(draw_cmd) = self.draw_tree.get_mut(node_id) {
-                                            let this_stencil =
-                                                stencil_refs.get(&node_id).copied().unwrap_or(1);
-
-                                            match draw_cmd {
-                                                DrawCommand::Shape(shape) => {
-                                                    *shape.stencil_ref_mut() = Some(this_stencil);
-                                                    handle_decrement_pass(
-                                                        &mut render_pass,
-                                                        &mut currently_set_pipeline,
-                                                        &mut vec![this_stencil],
-                                                        shape,
-                                                        &pipelines,
-                                                        &buffers,
-                                                    );
-                                                }
-                                                DrawCommand::CachedShape(shape) => {
-                                                    *shape.stencil_ref_mut() = Some(this_stencil);
-                                                    handle_decrement_pass(
-                                                        &mut render_pass,
-                                                        &mut currently_set_pipeline,
-                                                        &mut vec![this_stencil],
-                                                        shape,
-                                                        &pipelines,
-                                                        &buffers,
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } // render_pass dropped — encoder borrow released
-                        is_first_segment = false;
-                    }
-
-                    event_idx = segment_end;
-
-                    // ── Process backdrop effect at segment boundary ───────
-                    if let Some(bd_node_id) = backdrop_node_id {
-                        // If this is the first segment and no normal events were processed
-                        // (event_idx == segment_end at the start), the attachments haven't
-                        // been cleared yet. Issue a clear pass so the snapshot copy reads
-                        // initialized data.
-                        if is_first_segment {
-                            create_render_pass(
-                                &mut encoder,
-                                self.msaa_color_texture_view.as_ref(),
-                                texture_view,
-                                &depth_texture_view,
-                            );
-                        }
-
-                        // 1. Copy the current output → snapshot
-                        let snapshot_tex = self.backdrop_snapshot_texture.as_ref().unwrap();
-                        let src_texture =
-                            output_texture.expect("output_texture required for backdrop effects");
-                        encoder.copy_texture_to_texture(
-                            wgpu::TexelCopyTextureInfo {
-                                texture: src_texture,
-                                mip_level: 0,
-                                origin: wgpu::Origin3d::ZERO,
-                                aspect: wgpu::TextureAspect::All,
-                            },
-                            wgpu::TexelCopyTextureInfo {
-                                texture: snapshot_tex,
-                                mip_level: 0,
-                                origin: wgpu::Origin3d::ZERO,
-                                aspect: wgpu::TextureAspect::All,
-                            },
-                            wgpu::Extent3d {
-                                width,
-                                height,
-                                depth_or_array_layers: 1,
-                            },
-                        );
-
-                        // 2. Run effect shader passes (ping-pong)
-                        let effect_instance = self.backdrop_effects.get(&bd_node_id).unwrap();
-                        let effect_id = effect_instance.effect_id;
-                        let loaded = self.loaded_effects.get(&effect_id).unwrap();
-                        let num_passes = loaded.passes.len();
-                        let tex_format = self.config.format;
-
-                        let effect_tex_a = self.device.create_texture(&wgpu::TextureDescriptor {
-                            label: Some("backdrop_effect_work_a"),
-                            size: wgpu::Extent3d {
-                                width,
-                                height,
-                                depth_or_array_layers: 1,
-                            },
-                            mip_level_count: 1,
-                            sample_count: 1,
-                            dimension: wgpu::TextureDimension::D2,
-                            format: tex_format,
-                            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                                | wgpu::TextureUsages::TEXTURE_BINDING,
-                            view_formats: &[],
-                        });
-                        let effect_view_a =
-                            effect_tex_a.create_view(&wgpu::TextureViewDescriptor::default());
-
-                        let effect_tex_b = if num_passes > 1 {
-                            Some(self.device.create_texture(&wgpu::TextureDescriptor {
-                                label: Some("backdrop_effect_work_b"),
-                                size: wgpu::Extent3d {
-                                    width,
-                                    height,
-                                    depth_or_array_layers: 1,
-                                },
-                                mip_level_count: 1,
-                                sample_count: 1,
-                                dimension: wgpu::TextureDimension::D2,
-                                format: tex_format,
-                                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                                view_formats: &[],
-                            }))
-                        } else {
-                            None
-                        };
-                        let effect_view_b = effect_tex_b
-                            .as_ref()
-                            .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()));
-
-                        let snapshot_view = self.backdrop_snapshot_view.as_ref().unwrap();
-                        let mut prev_input_view: &wgpu::TextureView = snapshot_view;
-
-                        for (pass_idx, effect_pass) in loaded.passes.iter().enumerate() {
-                            let output_view = if pass_idx % 2 == 0 {
-                                &effect_view_a
-                            } else {
-                                effect_view_b.as_ref().unwrap()
-                            };
-
-                            let input_bg = effect::create_texture_sample_bind_group(
-                                &self.device,
-                                &loaded.input_bind_group_layout,
-                                prev_input_view,
-                                self.effect_sampler.as_ref().unwrap(),
-                                Some("backdrop_effect_pass_input_bg"),
-                            );
-
-                            {
-                                let pass_label = format!("backdrop_effect_apply_pass_{pass_idx}");
-                                let mut pass =
-                                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                        label: Some(&pass_label),
-                                        color_attachments: &[Some(
-                                            wgpu::RenderPassColorAttachment {
-                                                view: output_view,
-                                                resolve_target: None,
-                                                ops: wgpu::Operations {
-                                                    load: wgpu::LoadOp::Clear(
-                                                        wgpu::Color::TRANSPARENT,
-                                                    ),
-                                                    store: wgpu::StoreOp::Store,
-                                                },
-                                            },
-                                        )],
-                                        depth_stencil_attachment: None,
-                                        timestamp_writes: None,
-                                        occlusion_query_set: None,
-                                    });
-
-                                pass.set_pipeline(&effect_pass.pipeline);
-                                pass.set_bind_group(0, &input_bg, &[]);
-
-                                if effect_pass.has_params {
-                                    if let Some(instance) = self.backdrop_effects.get(&bd_node_id) {
-                                        if let Some(ref params_bg) = instance.params_bind_group {
-                                            pass.set_bind_group(1, params_bg, &[]);
-                                        }
-                                    }
-                                }
-
-                                pass.draw(0..3, 0..1);
-                            } // effect pass dropped
-
-                            prev_input_view = output_view;
-                        }
-
-                        // Create a composite bind group for the backdrop result
-                        let composite_bgl = self.composite_bgl.as_ref().unwrap();
-                        let backdrop_composite_bg = effect::create_texture_sample_bind_group(
-                            &self.device,
-                            composite_bgl,
-                            prev_input_view,
-                            self.effect_sampler.as_ref().unwrap(),
-                            Some("backdrop_composite_bg"),
-                        );
-
-                        // Keep work textures alive
-                        backdrop_work_textures.push(effect_tex_a);
-                        if let Some(tex_b) = effect_tex_b {
-                            backdrop_work_textures.push(tex_b);
-                        }
-
-                        // 3. Three-step draw for backdrop shape (own pass)
-                        {
-                            let mut render_pass =
-                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                    label: Some("backdrop_shape_pass"),
-                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                        view: color_view,
-                                        resolve_target: color_resolve_target,
-                                        ops: wgpu::Operations {
-                                            load: wgpu::LoadOp::Load,
-                                            store: wgpu::StoreOp::Store,
-                                        },
-                                    })],
-                                    depth_stencil_attachment: Some(
-                                        wgpu::RenderPassDepthStencilAttachment {
-                                            view: &depth_texture_view,
-                                            depth_ops: Some(wgpu::Operations {
-                                                load: wgpu::LoadOp::Load,
-                                                store: wgpu::StoreOp::Store,
-                                            }),
-                                            stencil_ops: Some(wgpu::Operations {
-                                                load: wgpu::LoadOp::Load,
-                                                store: wgpu::StoreOp::Store,
-                                            }),
-                                        },
-                                    ),
-                                    timestamp_writes: None,
-                                    occlusion_query_set: None,
-                                });
-
-                            let parent_stencil =
-                                parent_stencils.get(&bd_node_id).copied().unwrap_or(0);
-                            let this_stencil = stencil_refs.get(&bd_node_id).copied().unwrap_or(1);
-
-                            // Step 1: Stencil-only increment
-                            if let Some(draw_cmd) = self.draw_tree.get_mut(bd_node_id) {
-                                let stencil_only_pipe =
-                                    self.stencil_only_pipeline.as_ref().unwrap();
-                                render_pass.set_pipeline(stencil_only_pipe);
-                                render_pass.set_bind_group(0, &self.and_bind_group, &[]);
-                                render_pass.set_bind_group(
-                                    1,
-                                    &*self.default_shape_texture_bind_groups[0],
-                                    &[],
-                                );
-                                render_pass.set_bind_group(
-                                    2,
-                                    &*self.default_shape_texture_bind_groups[1],
-                                    &[],
-                                );
-                                render_pass.set_vertex_buffer(
-                                    0,
-                                    buffers.aggregated_vertex_buffer.slice(..),
-                                );
-                                render_pass.set_index_buffer(
-                                    buffers.aggregated_index_buffer.slice(..),
-                                    wgpu::IndexFormat::Uint16,
-                                );
-
-                                let shape_index_range = match draw_cmd {
-                                    DrawCommand::Shape(s) => {
-                                        Self::bind_instance_buffers(&mut render_pass, s, &buffers);
-                                        s.index_buffer_range()
-                                    }
-                                    DrawCommand::CachedShape(s) => {
-                                        Self::bind_instance_buffers(&mut render_pass, s, &buffers);
-                                        s.index_buffer_range()
-                                    }
-                                };
-
-                                if let Some(shape_idx_range) = shape_index_range {
-                                    render_pass.set_stencil_reference(parent_stencil);
-                                    let start = shape_idx_range.0 as u32;
-                                    let end = (shape_idx_range.0 + shape_idx_range.1) as u32;
-                                    render_pass.draw_indexed(start..end, 0, 0..1);
-                                }
-
-                                // Set stencil ref on the shape
-                                match draw_cmd {
-                                    DrawCommand::Shape(s) => {
-                                        *s.stencil_ref_mut() = Some(this_stencil);
-                                    }
-                                    DrawCommand::CachedShape(s) => {
-                                        *s.stencil_ref_mut() = Some(this_stencil);
-                                    }
-                                }
-                            }
-
-                            // Step 2: Backdrop quad (composite pipeline)
-                            {
-                                let cpipe = self.composite_pipeline.as_ref().unwrap();
-                                render_pass.set_pipeline(cpipe);
-                                render_pass.set_bind_group(0, &backdrop_composite_bg, &[]);
-                                render_pass.set_stencil_reference(this_stencil);
-                                render_pass.draw(0..3, 0..1);
-                            }
-
-                            // Step 3: Shape color pass (Keep pipeline)
-                            if let Some(draw_cmd) = self.draw_tree.get_mut(bd_node_id) {
-                                let color_pipe = self.backdrop_color_pipeline.as_ref().unwrap();
-                                render_pass.set_pipeline(color_pipe);
-                                render_pass.set_bind_group(0, &self.and_bind_group, &[]);
-                                render_pass.set_bind_group(
-                                    1,
-                                    &*self.default_shape_texture_bind_groups[0],
-                                    &[],
-                                );
-                                render_pass.set_bind_group(
-                                    2,
-                                    &*self.default_shape_texture_bind_groups[1],
-                                    &[],
-                                );
-                                render_pass.set_vertex_buffer(
-                                    0,
-                                    buffers.aggregated_vertex_buffer.slice(..),
-                                );
-                                render_pass.set_index_buffer(
-                                    buffers.aggregated_index_buffer.slice(..),
-                                    wgpu::IndexFormat::Uint16,
-                                );
-
-                                let tex_ids = match draw_cmd {
-                                    DrawCommand::Shape(s) => {
-                                        Self::bind_instance_buffers(&mut render_pass, s, &buffers);
-                                        [s.texture_id(0), s.texture_id(1)]
-                                    }
-                                    DrawCommand::CachedShape(s) => {
-                                        Self::bind_instance_buffers(&mut render_pass, s, &buffers);
-                                        [s.texture_id(0), s.texture_id(1)]
-                                    }
-                                };
-
-                                for (layer, &tex_id) in tex_ids.iter().enumerate() {
-                                    if let Some(tex_id) = tex_id {
-                                        if self.texture_manager.is_texture_loaded(tex_id) {
-                                            if let Ok(bg_arc) = self
-                                                .texture_manager
-                                                .get_or_create_shape_bind_group(
-                                                    if layer == 0 {
-                                                        &self.shape_texture_bind_group_layout_background
-                                                    } else {
-                                                        &self.shape_texture_bind_group_layout_foreground
-                                                    },
-                                                    self.shape_texture_layout_epoch,
-                                                    tex_id,
-                                                )
-                                            {
-                                                render_pass.set_bind_group(
-                                                    1 + layer as u32,
-                                                    &*bg_arc,
-                                                    &[],
-                                                );
-                                            }
-                                        }
-                                    } else {
-                                        render_pass.set_bind_group(
-                                            1 + layer as u32,
-                                            &*self.default_shape_texture_bind_groups[layer],
-                                            &[],
-                                        );
-                                    }
-                                }
-
-                                let shape_index_range = match draw_cmd {
-                                    DrawCommand::Shape(s) => s.index_buffer_range(),
-                                    DrawCommand::CachedShape(s) => s.index_buffer_range(),
-                                };
-
-                                if let Some(shape_idx_range) = shape_index_range {
-                                    render_pass.set_stencil_reference(this_stencil);
-                                    let start = shape_idx_range.0 as u32;
-                                    let end = (shape_idx_range.0 + shape_idx_range.1) as u32;
-                                    render_pass.draw_indexed(start..end, 0, 0..1);
-                                }
-                            }
-                        } // backdrop render_pass dropped
-
-                        currently_set_pipeline = Pipeline::None;
-                        is_first_segment = false;
-                        event_idx += 1; // skip past the backdrop Pre event
-                    }
-                }
+                let backdrop_work_textures = render_segments(
+                    &mut self.draw_tree,
+                    &mut encoder,
+                    &events,
+                    &stencil_refs,
+                    &parent_stencils,
+                    &effect_results,
+                    phase2_color_view,
+                    phase2_resolve_target,
+                    &depth_texture_view,
+                    src_texture,
+                    true, // clear_first
+                    &pipelines,
+                    &buffers,
+                    &backdrop_ctx,
+                );
 
                 // Drop backdrop work textures
                 drop(backdrop_work_textures);
@@ -2854,6 +2463,11 @@ impl<'a> Renderer<'a> {
         effect_id: u64,
         pass_sources: &[&str],
     ) -> Result<(), EffectError> {
+        println!(
+            "Loading effect {} with {} passes",
+            effect_id,
+            pass_sources.len()
+        );
         let loaded = compile_effect_pipeline(&self.device, pass_sources, self.config.format)?;
         self.loaded_effects.insert(effect_id, loaded);
         Ok(())
@@ -3249,43 +2863,6 @@ impl<'a> Renderer<'a> {
             &self.shape_texture_bind_group_layout_foreground,
         );
         self.backdrop_color_pipeline = Some(pipeline);
-    }
-
-    /// Binds per-instance vertex buffers (transform, color, metadata) for a shape.
-    fn bind_instance_buffers(
-        render_pass: &mut wgpu::RenderPass<'_>,
-        shape: &impl DrawShapeCommand,
-        buffers: &Buffers,
-    ) {
-        if let Some(instance_idx) = shape.instance_index() {
-            if let Some(inst_transform_buf) = buffers.aggregated_instance_transform_buffer {
-                let stride = std::mem::size_of::<InstanceTransform>() as u64;
-                let offset = instance_idx as u64 * stride;
-                render_pass.set_vertex_buffer(1, inst_transform_buf.slice(offset..offset + stride));
-            } else {
-                render_pass
-                    .set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
-            }
-            if let Some(inst_c_buf) = buffers.aggregated_instance_color_buffer {
-                let stride = std::mem::size_of::<InstanceColor>() as u64;
-                let offset = instance_idx as u64 * stride;
-                render_pass.set_vertex_buffer(2, inst_c_buf.slice(offset..offset + stride));
-            } else {
-                render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
-            }
-            if let Some(inst_metadata_buf) = buffers.aggregated_instance_metadata_buffer {
-                let stride = std::mem::size_of::<InstanceMetadata>() as u64;
-                let offset = instance_idx as u64 * stride;
-                render_pass.set_vertex_buffer(3, inst_metadata_buf.slice(offset..offset + stride));
-            } else {
-                render_pass
-                    .set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
-            }
-        } else {
-            render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
-            render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
-            render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
-        }
     }
 
     /// Retrieves the current physical size of the rendering surface.
@@ -3893,6 +3470,870 @@ fn handle_decrement_pass<'rp>(
         // TODO: bring back the warning later
         // warn!("Shape with no index buffer range found, skipping decrement pass");
     }
+}
+
+/// Check whether any descendant of `root_id` (exclusive) has a backdrop effect.
+///
+/// Returns `true` if any child, grandchild, etc. of the given root node has a
+/// backdrop effect attached. Used to decide whether Phase 1 subtree rendering
+/// needs the segment-based render loop with pass-breaking support.
+fn subtree_has_backdrop_effects(
+    tree: &easy_tree::Tree<DrawCommand>,
+    backdrop_effects: &HashMap<usize, EffectInstance>,
+    root_id: usize,
+) -> bool {
+    if backdrop_effects.is_empty() {
+        return false;
+    }
+    fn scan(
+        tree: &easy_tree::Tree<DrawCommand>,
+        backdrop_effects: &HashMap<usize, EffectInstance>,
+        node_id: usize,
+    ) -> bool {
+        for &child_id in tree.children(node_id) {
+            if backdrop_effects.contains_key(&child_id) {
+                return true;
+            }
+            if scan(tree, backdrop_effects, child_id) {
+                return true;
+            }
+        }
+        false
+    }
+    scan(tree, backdrop_effects, root_id)
+}
+
+/// Context bundle for the segment-based render loop. Groups all the read-only
+/// references from `Renderer` that `render_segments` needs, avoiding borrow
+/// conflicts with the mutable `draw_tree` reference.
+struct BackdropContext<'a> {
+    backdrop_effects: &'a HashMap<usize, EffectInstance>,
+    loaded_effects: &'a HashMap<u64, LoadedEffect>,
+    composite_pipeline: &'a wgpu::RenderPipeline,
+    composite_bgl: &'a wgpu::BindGroupLayout,
+    effect_sampler: &'a wgpu::Sampler,
+    stencil_only_pipeline: &'a wgpu::RenderPipeline,
+    backdrop_color_pipeline: &'a wgpu::RenderPipeline,
+    and_bind_group: &'a wgpu::BindGroup,
+    default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
+    device: &'a wgpu::Device,
+    physical_size: (u32, u32),
+    config_format: wgpu::TextureFormat,
+    backdrop_snapshot_texture: &'a wgpu::Texture,
+    backdrop_snapshot_view: &'a wgpu::TextureView,
+    texture_manager: &'a TextureManager,
+    shape_texture_bind_group_layout_background: &'a wgpu::BindGroupLayout,
+    shape_texture_bind_group_layout_foreground: &'a wgpu::BindGroupLayout,
+    shape_texture_layout_epoch: u64,
+}
+
+/// Build a flat event list with stencil refs for a traversal, suitable for
+/// the segment-based render loop.
+///
+/// When `subtree_root` is `None`, traverses the entire tree.
+/// When `subtree_root` is `Some(node_id)`, traverses only that subtree.
+///
+/// Group-effect nodes whose results are already in `effect_results` are included
+/// in the event list (so they can be composited as quads), but their children are
+/// skipped.
+///
+/// Returns `(events, stencil_refs, parent_stencils)`.
+fn plan_traversal(
+    draw_tree: &mut easy_tree::Tree<DrawCommand>,
+    effect_results: &HashMap<usize, wgpu::BindGroup>,
+    subtree_root: Option<usize>,
+) -> (
+    Vec<TraversalEvent>,
+    HashMap<usize, u32>,
+    HashMap<usize, u32>,
+) {
+    let mut stencil_refs: HashMap<usize, u32> = HashMap::new();
+    let mut parent_stencils: HashMap<usize, u32> = HashMap::new();
+
+    // Pack the mutable state into a tuple so both closures can
+    // access it through the shared &mut S parameter.
+    // (skipped_stack, stencil_stack, event_list)
+    let mut plan_state: (Vec<usize>, Vec<u32>, Vec<TraversalEvent>) =
+        (Vec::new(), Vec::new(), Vec::new());
+
+    let pre_fn = |node_id: usize,
+                  _draw_command: &mut DrawCommand,
+                  state: &mut (Vec<usize>, Vec<u32>, Vec<TraversalEvent>)| {
+        let (skipped_stack, stencil_stack, events) = state;
+        // Track skipped effect nodes
+        if effect_results.contains_key(&node_id) {
+            skipped_stack.push(node_id);
+        }
+
+        if !skipped_stack.is_empty() && !effect_results.contains_key(&node_id) {
+            return;
+        }
+
+        let parent = stencil_stack.last().copied().unwrap_or(0);
+        let this_stencil = parent + 1;
+        parent_stencils.insert(node_id, parent);
+        stencil_refs.insert(node_id, this_stencil);
+        stencil_stack.push(this_stencil);
+        events.push(TraversalEvent::Pre(node_id));
+    };
+
+    let post_fn = |node_id: usize,
+                   _draw_command: &mut DrawCommand,
+                   state: &mut (Vec<usize>, Vec<u32>, Vec<TraversalEvent>)| {
+        let (skipped_stack, stencil_stack, events) = state;
+        if skipped_stack.last().copied() == Some(node_id) {
+            skipped_stack.pop();
+            // Pop the stencil for this node
+            stencil_stack.pop();
+            events.push(TraversalEvent::Post(node_id));
+            return;
+        }
+
+        if !skipped_stack.is_empty() {
+            return;
+        }
+
+        stencil_stack.pop();
+        events.push(TraversalEvent::Post(node_id));
+    };
+
+    match subtree_root {
+        Some(root_id) => {
+            draw_tree.traverse_subtree_mut(root_id, pre_fn, post_fn, &mut plan_state);
+        }
+        None => {
+            draw_tree.traverse_mut(pre_fn, post_fn, &mut plan_state);
+        }
+    }
+
+    let events = plan_state.2;
+    (events, stencil_refs, parent_stencils)
+}
+
+/// Execute the segment-based render loop, processing normal shapes and
+/// backdrop effects with pass-breaking.
+///
+/// This is the core rendering workhorse — used both for Phase 2 (main output)
+/// and for Phase 1 subtrees that contain backdrop effects.
+///
+/// The event list is split into segments separated by backdrop-effect `Pre` events.
+/// Each segment gets its own scoped render pass. Between segments, the current
+/// render target content is copied to a snapshot texture, the effect shader is
+/// applied (ping-pong passes), and the result is composited back via a three-step
+/// draw (stencil-only → backdrop quad → shape color).
+///
+/// Returns the allocated work textures that must be kept alive until compositing
+/// is complete.
+#[allow(clippy::too_many_arguments)]
+fn render_segments(
+    draw_tree: &mut easy_tree::Tree<DrawCommand>,
+    encoder: &mut wgpu::CommandEncoder,
+    events: &[TraversalEvent],
+    stencil_refs: &HashMap<usize, u32>,
+    parent_stencils: &HashMap<usize, u32>,
+    effect_results: &HashMap<usize, wgpu::BindGroup>,
+    // Target texture setup
+    color_view: &wgpu::TextureView,
+    color_resolve_target: Option<&wgpu::TextureView>,
+    depth_stencil_view: &wgpu::TextureView,
+    // The non-MSAA texture to copy FROM for backdrop snapshots.
+    copy_source_texture: &wgpu::Texture,
+    clear_first: bool,
+    pipelines: &Pipelines,
+    buffers: &Buffers,
+    backdrop_ctx: &BackdropContext,
+) -> Vec<wgpu::Texture> {
+    let mut event_idx = 0;
+    let mut is_first_segment = clear_first;
+    let mut currently_set_pipeline = Pipeline::None;
+    let (width, height) = backdrop_ctx.physical_size;
+    let mut backdrop_work_textures: Vec<wgpu::Texture> = Vec::new();
+
+    while event_idx < events.len() {
+        // Find the next backdrop break in [event_idx..)
+        let mut segment_end = events.len();
+        let mut backdrop_node_id: Option<usize> = None;
+        for (idx, event) in events.iter().enumerate().skip(event_idx) {
+            if let TraversalEvent::Pre(nid) = event {
+                if backdrop_ctx.backdrop_effects.contains_key(nid) {
+                    segment_end = idx;
+                    backdrop_node_id = Some(*nid);
+                    break;
+                }
+            }
+        }
+
+        // ── Process normal events [event_idx..segment_end] ───
+        if event_idx < segment_end {
+            {
+                let mut render_pass = if is_first_segment {
+                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("segment_clear_pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: color_view,
+                            resolve_target: color_resolve_target,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: depth_stencil_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(1.0),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(0),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    })
+                } else {
+                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("segment_load_pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: color_view,
+                            resolve_target: color_resolve_target,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: depth_stencil_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            }),
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    })
+                };
+
+                for event in events.iter().take(segment_end).skip(event_idx) {
+                    match event {
+                        TraversalEvent::Pre(node_id) => {
+                            let node_id = *node_id;
+
+                            // Effect-result compositing
+                            if let Some(result_bg) = effect_results.get(&node_id) {
+                                let parent_stencil =
+                                    parent_stencils.get(&node_id).copied().unwrap_or(0);
+                                render_pass.set_pipeline(backdrop_ctx.composite_pipeline);
+                                render_pass.set_bind_group(0, result_bg, &[]);
+                                render_pass.set_stencil_reference(parent_stencil);
+                                render_pass.draw(0..3, 0..1);
+                                currently_set_pipeline = Pipeline::None;
+                                continue;
+                            }
+
+                            // Normal shape — increment + draw
+                            if let Some(draw_cmd) = draw_tree.get_mut(node_id) {
+                                let parent_stencil =
+                                    parent_stencils.get(&node_id).copied().unwrap_or(0);
+                                let this_stencil = stencil_refs.get(&node_id).copied().unwrap_or(1);
+
+                                match draw_cmd {
+                                    DrawCommand::Shape(shape) => {
+                                        handle_increment_pass(
+                                            &mut render_pass,
+                                            &mut currently_set_pipeline,
+                                            &mut vec![parent_stencil],
+                                            shape,
+                                            pipelines,
+                                            buffers,
+                                        );
+                                        *shape.stencil_ref_mut() = Some(this_stencil);
+                                    }
+                                    DrawCommand::CachedShape(shape) => {
+                                        handle_increment_pass(
+                                            &mut render_pass,
+                                            &mut currently_set_pipeline,
+                                            &mut vec![parent_stencil],
+                                            shape,
+                                            pipelines,
+                                            buffers,
+                                        );
+                                        *shape.stencil_ref_mut() = Some(this_stencil);
+                                    }
+                                }
+                            }
+                        }
+                        TraversalEvent::Post(node_id) => {
+                            let node_id = *node_id;
+
+                            if effect_results.contains_key(&node_id) {
+                                continue;
+                            }
+
+                            if let Some(draw_cmd) = draw_tree.get_mut(node_id) {
+                                let this_stencil = stencil_refs.get(&node_id).copied().unwrap_or(1);
+
+                                match draw_cmd {
+                                    DrawCommand::Shape(shape) => {
+                                        *shape.stencil_ref_mut() = Some(this_stencil);
+                                        handle_decrement_pass(
+                                            &mut render_pass,
+                                            &mut currently_set_pipeline,
+                                            &mut vec![this_stencil],
+                                            shape,
+                                            pipelines,
+                                            buffers,
+                                        );
+                                    }
+                                    DrawCommand::CachedShape(shape) => {
+                                        *shape.stencil_ref_mut() = Some(this_stencil);
+                                        handle_decrement_pass(
+                                            &mut render_pass,
+                                            &mut currently_set_pipeline,
+                                            &mut vec![this_stencil],
+                                            shape,
+                                            pipelines,
+                                            buffers,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } // render_pass dropped — encoder borrow released
+            is_first_segment = false;
+        }
+
+        event_idx = segment_end;
+
+        // ── Process backdrop effect at segment boundary ───────
+        if let Some(bd_node_id) = backdrop_node_id {
+            // If this is the first segment and no normal events were processed
+            // (event_idx == segment_end at the start), the attachments haven't been
+            // cleared yet. Issue a clear pass so the snapshot copy reads initialized data.
+            if is_first_segment {
+                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("segment_initial_clear"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: color_view,
+                        resolve_target: color_resolve_target,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: depth_stencil_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                // render_pass dropped immediately — clears the attachments
+            }
+
+            // 1. Copy the current output → snapshot
+            let snapshot_tex = backdrop_ctx.backdrop_snapshot_texture;
+            encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: copy_source_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: snapshot_tex,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+
+            // 2. Run effect shader passes (ping-pong)
+            let effect_instance = backdrop_ctx.backdrop_effects.get(&bd_node_id).unwrap();
+            let effect_id = effect_instance.effect_id;
+            let loaded = backdrop_ctx.loaded_effects.get(&effect_id).unwrap();
+            let num_passes = loaded.passes.len();
+            let tex_format = backdrop_ctx.config_format;
+
+            let effect_tex_a = backdrop_ctx
+                .device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("backdrop_effect_work_a"),
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: tex_format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                });
+            let effect_view_a = effect_tex_a.create_view(&wgpu::TextureViewDescriptor::default());
+
+            let effect_tex_b = if num_passes > 1 {
+                Some(
+                    backdrop_ctx
+                        .device
+                        .create_texture(&wgpu::TextureDescriptor {
+                            label: Some("backdrop_effect_work_b"),
+                            size: wgpu::Extent3d {
+                                width,
+                                height,
+                                depth_or_array_layers: 1,
+                            },
+                            mip_level_count: 1,
+                            sample_count: 1,
+                            dimension: wgpu::TextureDimension::D2,
+                            format: tex_format,
+                            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                                | wgpu::TextureUsages::TEXTURE_BINDING,
+                            view_formats: &[],
+                        }),
+                )
+            } else {
+                None
+            };
+            let effect_view_b = effect_tex_b
+                .as_ref()
+                .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()));
+
+            let snapshot_view = backdrop_ctx.backdrop_snapshot_view;
+            let mut prev_input_view: &wgpu::TextureView = snapshot_view;
+
+            for (pass_idx, effect_pass) in loaded.passes.iter().enumerate() {
+                let output_view = if pass_idx % 2 == 0 {
+                    &effect_view_a
+                } else {
+                    effect_view_b.as_ref().unwrap()
+                };
+
+                let input_bg = effect::create_texture_sample_bind_group(
+                    backdrop_ctx.device,
+                    &loaded.input_bind_group_layout,
+                    prev_input_view,
+                    backdrop_ctx.effect_sampler,
+                    Some("backdrop_effect_pass_input_bg"),
+                );
+
+                {
+                    let pass_label = format!("backdrop_effect_apply_pass_{pass_idx}");
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some(&pass_label),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: output_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+
+                    pass.set_pipeline(&effect_pass.pipeline);
+                    pass.set_bind_group(0, &input_bg, &[]);
+
+                    if effect_pass.has_params {
+                        if let Some(instance) = backdrop_ctx.backdrop_effects.get(&bd_node_id) {
+                            if let Some(ref params_bg) = instance.params_bind_group {
+                                pass.set_bind_group(1, params_bg, &[]);
+                            }
+                        }
+                    }
+
+                    pass.draw(0..3, 0..1);
+                } // effect pass dropped
+
+                prev_input_view = output_view;
+            }
+
+            // Create a composite bind group for the backdrop result
+            let backdrop_composite_bg = effect::create_texture_sample_bind_group(
+                backdrop_ctx.device,
+                backdrop_ctx.composite_bgl,
+                prev_input_view,
+                backdrop_ctx.effect_sampler,
+                Some("backdrop_composite_bg"),
+            );
+
+            // Keep work textures alive
+            backdrop_work_textures.push(effect_tex_a);
+            if let Some(tex_b) = effect_tex_b {
+                backdrop_work_textures.push(tex_b);
+            }
+
+            // 3. Three-step draw for backdrop shape (own pass)
+            {
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("backdrop_shape_pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: color_view,
+                        resolve_target: color_resolve_target,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: depth_stencil_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        }),
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                let parent_stencil = parent_stencils.get(&bd_node_id).copied().unwrap_or(0);
+                let this_stencil = stencil_refs.get(&bd_node_id).copied().unwrap_or(1);
+
+                // Step 1: Stencil-only increment
+                if let Some(draw_cmd) = draw_tree.get_mut(bd_node_id) {
+                    render_pass.set_pipeline(backdrop_ctx.stencil_only_pipeline);
+                    render_pass.set_bind_group(0, backdrop_ctx.and_bind_group, &[]);
+                    render_pass.set_bind_group(
+                        1,
+                        &*backdrop_ctx.default_shape_texture_bind_groups[0],
+                        &[],
+                    );
+                    render_pass.set_bind_group(
+                        2,
+                        &*backdrop_ctx.default_shape_texture_bind_groups[1],
+                        &[],
+                    );
+                    render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(
+                        buffers.aggregated_index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint16,
+                    );
+
+                    let shape_index_range = match draw_cmd {
+                        DrawCommand::Shape(s) => {
+                            bind_instance_buffers(&mut render_pass, s, buffers);
+                            s.index_buffer_range()
+                        }
+                        DrawCommand::CachedShape(s) => {
+                            bind_instance_buffers(&mut render_pass, s, buffers);
+                            s.index_buffer_range()
+                        }
+                    };
+
+                    if let Some(shape_idx_range) = shape_index_range {
+                        render_pass.set_stencil_reference(parent_stencil);
+                        let start = shape_idx_range.0 as u32;
+                        let end = (shape_idx_range.0 + shape_idx_range.1) as u32;
+                        render_pass.draw_indexed(start..end, 0, 0..1);
+                    }
+
+                    // Set stencil ref on the shape
+                    match draw_cmd {
+                        DrawCommand::Shape(s) => {
+                            *s.stencil_ref_mut() = Some(this_stencil);
+                        }
+                        DrawCommand::CachedShape(s) => {
+                            *s.stencil_ref_mut() = Some(this_stencil);
+                        }
+                    }
+                }
+
+                // Step 2: Backdrop quad (composite pipeline)
+                {
+                    render_pass.set_pipeline(backdrop_ctx.composite_pipeline);
+                    render_pass.set_bind_group(0, &backdrop_composite_bg, &[]);
+                    render_pass.set_stencil_reference(this_stencil);
+                    render_pass.draw(0..3, 0..1);
+                }
+
+                // Step 3: Shape color pass (Keep pipeline)
+                if let Some(draw_cmd) = draw_tree.get_mut(bd_node_id) {
+                    render_pass.set_pipeline(backdrop_ctx.backdrop_color_pipeline);
+                    render_pass.set_bind_group(0, backdrop_ctx.and_bind_group, &[]);
+                    render_pass.set_bind_group(
+                        1,
+                        &*backdrop_ctx.default_shape_texture_bind_groups[0],
+                        &[],
+                    );
+                    render_pass.set_bind_group(
+                        2,
+                        &*backdrop_ctx.default_shape_texture_bind_groups[1],
+                        &[],
+                    );
+                    render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(
+                        buffers.aggregated_index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint16,
+                    );
+
+                    let tex_ids = match draw_cmd {
+                        DrawCommand::Shape(s) => {
+                            bind_instance_buffers(&mut render_pass, s, buffers);
+                            [s.texture_id(0), s.texture_id(1)]
+                        }
+                        DrawCommand::CachedShape(s) => {
+                            bind_instance_buffers(&mut render_pass, s, buffers);
+                            [s.texture_id(0), s.texture_id(1)]
+                        }
+                    };
+
+                    for (layer, &tex_id) in tex_ids.iter().enumerate() {
+                        if let Some(tex_id) = tex_id {
+                            if backdrop_ctx.texture_manager.is_texture_loaded(tex_id) {
+                                if let Ok(bg_arc) =
+                                    backdrop_ctx.texture_manager.get_or_create_shape_bind_group(
+                                        if layer == 0 {
+                                            backdrop_ctx.shape_texture_bind_group_layout_background
+                                        } else {
+                                            backdrop_ctx.shape_texture_bind_group_layout_foreground
+                                        },
+                                        backdrop_ctx.shape_texture_layout_epoch,
+                                        tex_id,
+                                    )
+                                {
+                                    render_pass.set_bind_group(1 + layer as u32, &*bg_arc, &[]);
+                                }
+                            }
+                        } else {
+                            render_pass.set_bind_group(
+                                1 + layer as u32,
+                                &*backdrop_ctx.default_shape_texture_bind_groups[layer],
+                                &[],
+                            );
+                        }
+                    }
+
+                    let shape_index_range = match draw_cmd {
+                        DrawCommand::Shape(s) => s.index_buffer_range(),
+                        DrawCommand::CachedShape(s) => s.index_buffer_range(),
+                    };
+
+                    if let Some(shape_idx_range) = shape_index_range {
+                        render_pass.set_stencil_reference(this_stencil);
+                        let start = shape_idx_range.0 as u32;
+                        let end = (shape_idx_range.0 + shape_idx_range.1) as u32;
+                        render_pass.draw_indexed(start..end, 0, 0..1);
+                    }
+                }
+            } // backdrop render_pass dropped
+
+            currently_set_pipeline = Pipeline::None;
+            is_first_segment = false;
+            event_idx += 1; // skip past the backdrop Pre event
+        }
+    }
+
+    backdrop_work_textures
+}
+
+/// Bind per-instance vertex buffers (transform, color, metadata) for a shape.
+/// Free-function version used by `render_segments`.
+fn bind_instance_buffers(
+    render_pass: &mut wgpu::RenderPass<'_>,
+    shape: &impl DrawShapeCommand,
+    buffers: &Buffers,
+) {
+    if let Some(instance_idx) = shape.instance_index() {
+        if let Some(inst_transform_buf) = buffers.aggregated_instance_transform_buffer {
+            let stride = std::mem::size_of::<InstanceTransform>() as u64;
+            let offset = instance_idx as u64 * stride;
+            render_pass.set_vertex_buffer(1, inst_transform_buf.slice(offset..offset + stride));
+        } else {
+            render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+        }
+        if let Some(inst_c_buf) = buffers.aggregated_instance_color_buffer {
+            let stride = std::mem::size_of::<InstanceColor>() as u64;
+            let offset = instance_idx as u64 * stride;
+            render_pass.set_vertex_buffer(2, inst_c_buf.slice(offset..offset + stride));
+        } else {
+            render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+        }
+        if let Some(inst_metadata_buf) = buffers.aggregated_instance_metadata_buffer {
+            let stride = std::mem::size_of::<InstanceMetadata>() as u64;
+            let offset = instance_idx as u64 * stride;
+            render_pass.set_vertex_buffer(3, inst_metadata_buf.slice(offset..offset + stride));
+        } else {
+            render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
+        }
+    } else {
+        render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+        render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+        render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
+    }
+}
+
+/// Render the entire scene **except** a given subtree to an offscreen texture.
+///
+/// This produces the "behind" content that backdrop effects inside a group
+/// need to sample from. The result represents what would be visible behind
+/// the group in the final composited output.
+///
+/// Already-composited group effect results (`effect_results`) are drawn as
+/// fullscreen quads; the excluded subtree (`exclude_subtree_id`) and its
+/// descendants are skipped entirely.
+#[allow(clippy::too_many_arguments)]
+fn render_scene_behind_group(
+    draw_tree: &mut easy_tree::Tree<DrawCommand>,
+    encoder: &mut wgpu::CommandEncoder,
+    effect_results: &HashMap<usize, wgpu::BindGroup>,
+    exclude_subtree_id: usize,
+    color_view: &wgpu::TextureView,
+    color_resolve_target: Option<&wgpu::TextureView>,
+    depth_stencil_view: &wgpu::TextureView,
+    composite_pipeline: Option<&wgpu::RenderPipeline>,
+    pipelines: &Pipelines,
+    buffers: &Buffers,
+) {
+    let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("behind_group_pass"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: color_view,
+            resolve_target: color_resolve_target,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+            view: depth_stencil_view,
+            depth_ops: Some(wgpu::Operations {
+                load: wgpu::LoadOp::Clear(1.0),
+                store: wgpu::StoreOp::Store,
+            }),
+            stencil_ops: Some(wgpu::Operations {
+                load: wgpu::LoadOp::Clear(0),
+                store: wgpu::StoreOp::Store,
+            }),
+        }),
+        timestamp_writes: None,
+        occlusion_query_set: None,
+    });
+
+    let stencil_stack: Vec<u32> = Vec::new();
+    let current_pipeline = Pipeline::None;
+    let skipped_stack: Vec<usize> = Vec::new();
+
+    let mut data = (render_pass, stencil_stack, current_pipeline, skipped_stack);
+
+    let effect_results_ref = effect_results;
+    let exclude_id = exclude_subtree_id;
+
+    draw_tree.traverse_mut(
+        |shape_id, draw_command, data| {
+            let (render_pass, stencil_stack, currently_set_pipeline, skipped_stack) = data;
+
+            // Skip the excluded subtree entirely
+            if shape_id == exclude_id {
+                skipped_stack.push(shape_id);
+                return;
+            }
+
+            // Check if this node has a pre-composited effect result
+            if let Some(result_bg) = effect_results_ref.get(&shape_id) {
+                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                if let Some(cpipe) = composite_pipeline {
+                    render_pass.set_pipeline(cpipe);
+                    render_pass.set_bind_group(0, result_bg, &[]);
+                    render_pass.set_stencil_reference(parent_stencil);
+                    render_pass.draw(0..3, 0..1);
+                    *currently_set_pipeline = Pipeline::None;
+                }
+                skipped_stack.push(shape_id);
+                return;
+            }
+
+            if !skipped_stack.is_empty() {
+                return;
+            }
+
+            match draw_command {
+                DrawCommand::Shape(shape) => {
+                    handle_increment_pass(
+                        render_pass,
+                        currently_set_pipeline,
+                        stencil_stack,
+                        shape,
+                        pipelines,
+                        buffers,
+                    );
+                }
+                DrawCommand::CachedShape(shape) => {
+                    handle_increment_pass(
+                        render_pass,
+                        currently_set_pipeline,
+                        stencil_stack,
+                        shape,
+                        pipelines,
+                        buffers,
+                    );
+                }
+            }
+        },
+        |shape_id, draw_command, data| {
+            let (render_pass, stencil_stack, currently_set_pipeline, skipped_stack) = data;
+
+            if skipped_stack.last().copied() == Some(shape_id) {
+                skipped_stack.pop();
+                return;
+            }
+
+            if !skipped_stack.is_empty() {
+                return;
+            }
+
+            match draw_command {
+                DrawCommand::Shape(shape) => {
+                    handle_decrement_pass(
+                        render_pass,
+                        currently_set_pipeline,
+                        stencil_stack,
+                        shape,
+                        pipelines,
+                        buffers,
+                    );
+                }
+                DrawCommand::CachedShape(shape) => {
+                    handle_decrement_pass(
+                        render_pass,
+                        currently_set_pipeline,
+                        stencil_stack,
+                        shape,
+                        pipelines,
+                        buffers,
+                    );
+                }
+            }
+        },
+        &mut data,
+    );
+    // render_pass is dropped here
 }
 
 /// Compute the depth of a node in the tree by walking parent pointers.
