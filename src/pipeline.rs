@@ -382,32 +382,60 @@ pub fn create_render_pass<'a, 'b: 'a>(
         (output_texture_view, None)
     };
 
-    let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: None,
+    let render_pass = begin_render_pass_with_load_ops(
+        encoder,
+        None,
+        view,
+        resolve_target,
+        depth_texture_view,
+        RenderPassLoadOperations {
+            color_load_op: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+            depth_load_op: wgpu::LoadOp::Clear(1.0),
+            stencil_load_op: wgpu::LoadOp::Clear(0),
+        },
+    );
+
+    render_pass
+}
+
+pub struct RenderPassLoadOperations {
+    pub color_load_op: wgpu::LoadOp<wgpu::Color>,
+    pub depth_load_op: wgpu::LoadOp<f32>,
+    pub stencil_load_op: wgpu::LoadOp<u32>,
+}
+
+pub fn begin_render_pass_with_load_ops<'a, 'b: 'a>(
+    encoder: &'a mut wgpu::CommandEncoder,
+    label: Option<&'a str>,
+    color_texture_view: &'b TextureView,
+    resolve_target: Option<&'b TextureView>,
+    depth_texture_view: &'b TextureView,
+    load_operations: RenderPassLoadOperations,
+) -> RenderPass<'a> {
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label,
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            view,
+            view: color_texture_view,
             resolve_target,
             ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                load: load_operations.color_load_op,
                 store: StoreOp::Store,
             },
         })],
         depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
             view: depth_texture_view,
             depth_ops: Some(wgpu::Operations {
-                load: wgpu::LoadOp::Clear(1.0), // Clear to maximum depth
+                load: load_operations.depth_load_op,
                 store: StoreOp::Store,
             }),
             stencil_ops: Some(wgpu::Operations {
-                load: wgpu::LoadOp::Clear(0), // Clear to 0
+                load: load_operations.stencil_load_op,
                 store: StoreOp::Store,
             }),
         }),
         timestamp_writes: None,
         occlusion_query_set: None,
-    });
-
-    render_pass
+    })
 }
 
 pub fn create_and_depth_texture(device: &Device, size: (u32, u32), sample_count: u32) -> Texture {
