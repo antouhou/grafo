@@ -626,7 +626,9 @@ impl PathShape {
             buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
         self.tesselate_into_buffers(&mut buffers, tessellator);
 
-        if !buffers.indices.len().is_multiple_of(2) {
+        #[allow(clippy::manual_is_multiple_of)]
+        let needs_index_padding = buffers.indices.len() % 2 != 0;
+        if needs_index_padding {
             buffers.indices.push(0);
         }
 

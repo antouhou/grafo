@@ -7,6 +7,19 @@ pub(super) struct AppliedEffectOutput {
     pub(super) secondary_work_texture: Option<wgpu::Texture>,
 }
 
+impl AppliedEffectOutput {
+    pub(super) fn push_work_textures_into(
+        self,
+        output_textures: &mut Vec<wgpu::Texture>,
+    ) -> wgpu::BindGroup {
+        output_textures.push(self.primary_work_texture);
+        if let Some(secondary_work_texture) = self.secondary_work_texture {
+            output_textures.push(secondary_work_texture);
+        }
+        self.composite_bind_group
+    }
+}
+
 pub(super) struct EffectPassRunConfig<'a> {
     pub(super) loaded_effect: &'a LoadedEffect,
     pub(super) params_bind_group: Option<&'a wgpu::BindGroup>,
@@ -326,8 +339,7 @@ pub(super) fn render_segments(
     let mut is_first_segment = clear_first;
     let mut currently_set_pipeline = crate::renderer::types::Pipeline::None;
     let (width, height) = backdrop_ctx.physical_size;
-    let mut stencil_stack = std::mem::take(stencil_stack_scratch);
-    stencil_stack.clear();
+    stencil_stack_scratch.clear();
     backdrop_work_textures.clear();
 
     while event_idx < events.len() {
@@ -394,15 +406,15 @@ pub(super) fn render_segments(
                                 parent_stencils.get(&node_id).copied().unwrap_or(0);
                             let this_stencil = stencil_refs.get(&node_id).copied().unwrap_or(1);
 
-                            stencil_stack.clear();
-                            stencil_stack.push(parent_stencil);
+                            stencil_stack_scratch.clear();
+                            stencil_stack_scratch.push(parent_stencil);
 
                             match draw_command {
                                 DrawCommand::Shape(shape) => {
                                     handle_increment_pass(
                                         &mut render_pass,
                                         &mut currently_set_pipeline,
-                                        &mut stencil_stack,
+                                        stencil_stack_scratch,
                                         shape,
                                         pipelines,
                                         buffers,
@@ -413,7 +425,7 @@ pub(super) fn render_segments(
                                     handle_increment_pass(
                                         &mut render_pass,
                                         &mut currently_set_pipeline,
-                                        &mut stencil_stack,
+                                        stencil_stack_scratch,
                                         shape,
                                         pipelines,
                                         buffers,
@@ -433,8 +445,8 @@ pub(super) fn render_segments(
                         if let Some(draw_command) = draw_tree.get_mut(node_id) {
                             let this_stencil = stencil_refs.get(&node_id).copied().unwrap_or(1);
 
-                            stencil_stack.clear();
-                            stencil_stack.push(this_stencil);
+                            stencil_stack_scratch.clear();
+                            stencil_stack_scratch.push(this_stencil);
 
                             match draw_command {
                                 DrawCommand::Shape(shape) => {
@@ -442,7 +454,7 @@ pub(super) fn render_segments(
                                     handle_decrement_pass(
                                         &mut render_pass,
                                         &mut currently_set_pipeline,
-                                        &mut stencil_stack,
+                                        stencil_stack_scratch,
                                         shape,
                                         pipelines,
                                         buffers,
@@ -453,7 +465,7 @@ pub(super) fn render_segments(
                                     handle_decrement_pass(
                                         &mut render_pass,
                                         &mut currently_set_pipeline,
-                                        &mut stencil_stack,
+                                        stencil_stack_scratch,
                                         shape,
                                         pipelines,
                                         buffers,
@@ -530,11 +542,8 @@ pub(super) fn render_segments(
                     label_prefix: "backdrop_effect",
                 },
             );
-            let backdrop_composite_bind_group = effect_output.composite_bind_group;
-            backdrop_work_textures.push(effect_output.primary_work_texture);
-            if let Some(secondary_work_texture) = effect_output.secondary_work_texture {
-                backdrop_work_textures.push(secondary_work_texture);
-            }
+            let backdrop_composite_bind_group =
+                effect_output.push_work_textures_into(backdrop_work_textures);
 
             let mut render_pass = crate::pipeline::begin_render_pass_with_load_ops(
                 encoder,
@@ -661,8 +670,6 @@ pub(super) fn render_segments(
             event_idx += 1;
         }
     }
-    stencil_stack.clear();
-    *stencil_stack_scratch = stencil_stack;
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -693,13 +700,16 @@ pub(super) fn render_scene_behind_group(
         },
     );
 
-    let mut stencil_stack = std::mem::take(stencil_stack_scratch);
-    stencil_stack.clear();
+    stencil_stack_scratch.clear();
     let current_pipeline = crate::renderer::types::Pipeline::None;
-    let mut skipped_stack = std::mem::take(skipped_stack_scratch);
-    skipped_stack.clear();
+    skipped_stack_scratch.clear();
 
-    let mut data = (render_pass, stencil_stack, current_pipeline, skipped_stack);
+    let mut data = (
+        render_pass,
+        stencil_stack_scratch,
+        current_pipeline,
+        skipped_stack_scratch,
+    );
 
     let effect_results_ref = effect_results;
     let exclude_id = exclude_subtree_id;
@@ -790,8 +800,4 @@ pub(super) fn render_scene_behind_group(
         },
         &mut data,
     );
-
-    let (_, stencil_stack, _, skipped_stack) = data;
-    *stencil_stack_scratch = stencil_stack;
-    *skipped_stack_scratch = skipped_stack;
 }

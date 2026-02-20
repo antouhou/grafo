@@ -209,6 +209,9 @@ impl<'a> Renderer<'a> {
     }
 
     pub(super) fn trim_scratch_on_resize_or_policy(&mut self) {
+        // This is safe to call frequently: `shrink_to` is effectively a no-op
+        // when capacities are below thresholds, so this acts as amortized
+        // memory hygiene for long-running sessions.
         self.scratch.trim_to_policy();
     }
 }

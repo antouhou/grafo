@@ -128,6 +128,8 @@ pub(super) struct RendererScratch {
     pub(super) stencil_stack: Vec<u32>,
     pub(super) skipped_stack: Vec<usize>,
     pub(super) backdrop_work_textures: Vec<wgpu::Texture>,
+    /// Reused across readback calls; intentionally not cleared on `begin_frame`
+    /// because readback may run after render submission and reuse prior capacity.
     pub(super) readback_bytes: Vec<u8>,
     pub(super) traversal_scratch: TraversalScratch,
 }
@@ -156,6 +158,8 @@ impl RendererScratch {
         self.skipped_stack.clear();
         self.backdrop_work_textures.clear();
         self.traversal_scratch.begin();
+        // Keep readback bytes length/capacity untouched to preserve reuse across
+        // `render_to_buffer`/`render_to_argb32` calls that are not tied to frame start.
     }
 
     pub(super) fn trim_to_policy(&mut self) {
@@ -177,13 +181,13 @@ impl RendererScratch {
     }
 }
 
-fn trim_vector_if_needed<T>(values: &mut Vec<T>, max_capacity: usize) {
+pub(super) fn trim_vector_if_needed<T>(values: &mut Vec<T>, max_capacity: usize) {
     if values.capacity() > max_capacity {
         values.shrink_to(max_capacity);
     }
 }
 
-fn trim_hash_map_if_needed<K, V>(values: &mut HashMap<K, V>, max_capacity: usize)
+pub(super) fn trim_hash_map_if_needed<K, V>(values: &mut HashMap<K, V>, max_capacity: usize)
 where
     K: Eq + std::hash::Hash,
 {

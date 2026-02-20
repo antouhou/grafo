@@ -48,6 +48,7 @@ impl<'a> Renderer<'a> {
         self.metadata_to_clips.clear();
         self.group_effects.clear();
         self.backdrop_effects.clear();
+        // Keep scratch storage bounded even if queue contents fluctuate frame-to-frame.
         self.trim_scratch_on_resize_or_policy();
     }
 

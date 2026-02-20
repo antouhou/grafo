@@ -1,4 +1,4 @@
-use super::types::TraversalEvent;
+use super::types::{trim_hash_map_if_needed, trim_vector_if_needed, TraversalEvent};
 use super::*;
 
 const MAX_TRAVERSAL_EVENTS_CAPACITY: usize = 32_768;
@@ -45,21 +45,6 @@ impl TraversalScratch {
 
     pub(super) fn parent_stencils(&self) -> &HashMap<usize, u32> {
         &self.parent_stencils
-    }
-}
-
-fn trim_vector_if_needed<T>(values: &mut Vec<T>, max_capacity: usize) {
-    if values.capacity() > max_capacity {
-        values.shrink_to(max_capacity);
-    }
-}
-
-fn trim_hash_map_if_needed<K, V>(values: &mut HashMap<K, V>, max_capacity: usize)
-where
-    K: Eq + std::hash::Hash,
-{
-    if values.capacity() > max_capacity {
-        values.shrink_to(max_capacity);
     }
 }
 

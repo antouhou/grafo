@@ -379,11 +379,9 @@ impl<'a> Renderer<'a> {
                     },
                 );
 
-                effect_results.insert(node_id, effect_output.composite_bind_group);
-                effect_output_textures.push(effect_output.primary_work_texture);
-                if let Some(secondary_work_texture) = effect_output.secondary_work_texture {
-                    effect_output_textures.push(secondary_work_texture);
-                }
+                let composite_bind_group =
+                    effect_output.push_work_textures_into(&mut effect_output_textures);
+                effect_results.insert(node_id, composite_bind_group);
                 textures_to_recycle.push(subtree_texture);
             }
         }
