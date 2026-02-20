@@ -1,5 +1,10 @@
 use super::*;
 
+fn overwrite_effect_params(storage: &mut Vec<u8>, params: &[u8]) {
+    storage.clear();
+    storage.extend_from_slice(params);
+}
+
 fn validate_params_expectation(
     effect_id: u64,
     expects_params: bool,
@@ -83,7 +88,7 @@ fn update_effect_instance_params(
     params: &[u8],
     params_buffer_label: &'static str,
 ) {
-    instance.params = params.to_vec();
+    overwrite_effect_params(&mut instance.params, params);
 
     if params.is_empty() {
         return;

@@ -48,6 +48,7 @@ impl<'a> Renderer<'a> {
         self.metadata_to_clips.clear();
         self.group_effects.clear();
         self.backdrop_effects.clear();
+        self.trim_scratch_on_resize_or_policy();
     }
 
     fn add_draw_command(

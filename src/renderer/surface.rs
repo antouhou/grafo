@@ -56,6 +56,7 @@ impl<'a> Renderer<'a> {
             new_physical_size.1,
             self.msaa_sample_count,
         );
+        self.trim_scratch_on_resize_or_policy();
     }
 
     pub fn msaa_samples(&self) -> u32 {
@@ -113,6 +114,7 @@ impl<'a> Renderer<'a> {
             self.physical_size.1,
             self.msaa_sample_count,
         );
+        self.trim_scratch_on_resize_or_policy();
     }
 
     pub fn set_surface(&mut self, window: impl Into<SurfaceTarget<'static>>) {

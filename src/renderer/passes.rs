@@ -3,7 +3,8 @@ use super::*;
 
 pub(super) struct AppliedEffectOutput {
     pub(super) composite_bind_group: wgpu::BindGroup,
-    pub(super) work_textures: Vec<wgpu::Texture>,
+    pub(super) primary_work_texture: wgpu::Texture,
+    pub(super) secondary_work_texture: Option<wgpu::Texture>,
 }
 
 pub(super) struct EffectPassRunConfig<'a> {
@@ -119,14 +120,10 @@ pub(super) fn apply_effect_passes(
         Some(&format!("{}_composite_bg", config.label_prefix)),
     );
 
-    let mut work_textures = vec![effect_texture_a];
-    if let Some(effect_texture_b) = effect_texture_b {
-        work_textures.push(effect_texture_b);
-    }
-
     AppliedEffectOutput {
         composite_bind_group,
-        work_textures,
+        primary_work_texture: effect_texture_a,
+        secondary_work_texture: effect_texture_b,
     }
 }
 
@@ -322,13 +319,16 @@ pub(super) fn render_segments(
     pipelines: &crate::renderer::types::Pipelines,
     buffers: &crate::renderer::types::Buffers,
     backdrop_ctx: &crate::renderer::types::BackdropContext,
-) -> Vec<wgpu::Texture> {
+    backdrop_work_textures: &mut Vec<wgpu::Texture>,
+    stencil_stack_scratch: &mut Vec<u32>,
+) {
     let mut event_idx = 0;
     let mut is_first_segment = clear_first;
     let mut currently_set_pipeline = crate::renderer::types::Pipeline::None;
     let (width, height) = backdrop_ctx.physical_size;
-    let mut backdrop_work_textures: Vec<wgpu::Texture> = Vec::new();
-    let mut stencil_stack: Vec<u32> = Vec::new();
+    let mut stencil_stack = std::mem::take(stencil_stack_scratch);
+    stencil_stack.clear();
+    backdrop_work_textures.clear();
 
     while event_idx < events.len() {
         let mut segment_end = events.len();
@@ -531,7 +531,10 @@ pub(super) fn render_segments(
                 },
             );
             let backdrop_composite_bind_group = effect_output.composite_bind_group;
-            backdrop_work_textures.extend(effect_output.work_textures);
+            backdrop_work_textures.push(effect_output.primary_work_texture);
+            if let Some(secondary_work_texture) = effect_output.secondary_work_texture {
+                backdrop_work_textures.push(secondary_work_texture);
+            }
 
             let mut render_pass = crate::pipeline::begin_render_pass_with_load_ops(
                 encoder,
@@ -658,8 +661,8 @@ pub(super) fn render_segments(
             event_idx += 1;
         }
     }
-
-    backdrop_work_textures
+    stencil_stack.clear();
+    *stencil_stack_scratch = stencil_stack;
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -674,6 +677,8 @@ pub(super) fn render_scene_behind_group(
     composite_pipeline: Option<&wgpu::RenderPipeline>,
     pipelines: &crate::renderer::types::Pipelines,
     buffers: &crate::renderer::types::Buffers,
+    stencil_stack_scratch: &mut Vec<u32>,
+    skipped_stack_scratch: &mut Vec<usize>,
 ) {
     let render_pass = crate::pipeline::begin_render_pass_with_load_ops(
         encoder,
@@ -688,9 +693,11 @@ pub(super) fn render_scene_behind_group(
         },
     );
 
-    let stencil_stack: Vec<u32> = Vec::new();
+    let mut stencil_stack = std::mem::take(stencil_stack_scratch);
+    stencil_stack.clear();
     let current_pipeline = crate::renderer::types::Pipeline::None;
-    let skipped_stack: Vec<usize> = Vec::new();
+    let mut skipped_stack = std::mem::take(skipped_stack_scratch);
+    skipped_stack.clear();
 
     let mut data = (render_pass, stencil_stack, current_pipeline, skipped_stack);
 
@@ -783,4 +790,8 @@ pub(super) fn render_scene_behind_group(
         },
         &mut data,
     );
+
+    let (_, stencil_stack, _, skipped_stack) = data;
+    *stencil_stack_scratch = stencil_stack;
+    *skipped_stack_scratch = skipped_stack;
 }

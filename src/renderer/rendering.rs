@@ -4,7 +4,7 @@ use crate::renderer::passes::{
     render_segments, EffectPassRunConfig,
 };
 use crate::renderer::traversal::{
-    compute_node_depth, plan_traversal, subtree_has_backdrop_effects,
+    compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects,
 };
 
 impl<'a> Renderer<'a> {
@@ -13,6 +13,17 @@ impl<'a> Renderer<'a> {
         texture_view: &wgpu::TextureView,
         output_texture: Option<&wgpu::Texture>,
     ) {
+        self.begin_frame_scratch();
+
+        let mut traversal_scratch = std::mem::take(&mut self.scratch.traversal_scratch);
+        let mut effect_results = std::mem::take(&mut self.scratch.effect_results);
+        let mut effect_node_ids = std::mem::take(&mut self.scratch.effect_node_ids);
+        let mut textures_to_recycle = std::mem::take(&mut self.scratch.textures_to_recycle);
+        let mut effect_output_textures = std::mem::take(&mut self.scratch.effect_output_textures);
+        let mut stencil_stack = std::mem::take(&mut self.scratch.stencil_stack);
+        let mut skipped_stack = std::mem::take(&mut self.scratch.skipped_stack);
+        let mut backdrop_work_textures = std::mem::take(&mut self.scratch.backdrop_work_textures);
+
         let has_group_effects = !self.group_effects.is_empty();
         let has_backdrop_effects = !self.backdrop_effects.is_empty();
 
@@ -65,12 +76,8 @@ impl<'a> Renderer<'a> {
             aggregated_instance_metadata_buffer: self.aggregated_instance_metadata_buffer.as_ref(),
         };
 
-        let mut effect_results: HashMap<usize, wgpu::BindGroup> = HashMap::new();
-        let mut textures_to_recycle: Vec<effect::PooledTexture> = Vec::new();
-        let mut effect_output_textures: Vec<wgpu::Texture> = Vec::new();
-
         if has_group_effects {
-            let mut effect_node_ids: Vec<(usize, usize)> = Vec::new();
+            effect_node_ids.clear();
             for &node_id in self.group_effects.keys() {
                 if self.draw_tree.get(node_id).is_some() {
                     let depth = compute_node_depth(&self.draw_tree, node_id);
@@ -140,6 +147,8 @@ impl<'a> Renderer<'a> {
                         self.composite_pipeline.as_ref(),
                         &pipelines,
                         &buffers,
+                        &mut stencil_stack,
+                        &mut skipped_stack,
                     );
 
                     let behind_copy_source = if behind_texture.sample_count > 1 {
@@ -148,8 +157,12 @@ impl<'a> Renderer<'a> {
                         &behind_texture.color_texture
                     };
 
-                    let (events, stencil_refs, parent_stencils) =
-                        plan_traversal(&mut self.draw_tree, &effect_results, Some(node_id));
+                    plan_traversal_in_place(
+                        &mut self.draw_tree,
+                        &effect_results,
+                        Some(node_id),
+                        &mut traversal_scratch,
+                    );
 
                     let (subtree_color_view, subtree_resolve_target) =
                         if subtree_texture.sample_count > 1 {
@@ -185,12 +198,12 @@ impl<'a> Renderer<'a> {
                         shape_texture_layout_epoch: self.shape_texture_layout_epoch,
                     };
 
-                    let work_textures = render_segments(
+                    render_segments(
                         &mut self.draw_tree,
                         &mut encoder,
-                        &events,
-                        &stencil_refs,
-                        &parent_stencils,
+                        traversal_scratch.events(),
+                        traversal_scratch.stencil_refs(),
+                        traversal_scratch.parent_stencils(),
                         &effect_results,
                         subtree_color_view,
                         subtree_resolve_target,
@@ -200,9 +213,11 @@ impl<'a> Renderer<'a> {
                         &pipelines,
                         &buffers,
                         &backdrop_ctx,
+                        &mut backdrop_work_textures,
+                        &mut stencil_stack,
                     );
 
-                    effect_output_textures.extend(work_textures);
+                    effect_output_textures.append(&mut backdrop_work_textures);
                     textures_to_recycle.push(behind_texture);
                 } else {
                     let (view, resolve_target) = if subtree_texture.sample_count > 1 {
@@ -239,11 +254,15 @@ impl<'a> Renderer<'a> {
                         occlusion_query_set: None,
                     });
 
-                    let stencil_stack: Vec<u32> = Vec::new();
+                    stencil_stack.clear();
+                    skipped_stack.clear();
                     let current_pipeline = crate::renderer::types::Pipeline::None;
-                    let skipped_stack: Vec<usize> = Vec::new();
-
-                    let mut data = (render_pass, stencil_stack, current_pipeline, skipped_stack);
+                    let mut data = (
+                        render_pass,
+                        &mut stencil_stack,
+                        current_pipeline,
+                        &mut skipped_stack,
+                    );
 
                     let effect_results_ref = &effect_results;
                     let composite_pipeline_ref = self.composite_pipeline.as_ref();
@@ -256,7 +275,8 @@ impl<'a> Renderer<'a> {
 
                             if shape_id != node_id {
                                 if let Some(result_bg) = effect_results_ref.get(&shape_id) {
-                                    let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                                    let parent_stencil =
+                                        stencil_stack.last().copied().unwrap_or(0);
                                     if let Some(composite_pipeline) = composite_pipeline_ref {
                                         render_pass.set_pipeline(composite_pipeline);
                                         render_pass.set_bind_group(0, result_bg, &[]);
@@ -360,7 +380,10 @@ impl<'a> Renderer<'a> {
                 );
 
                 effect_results.insert(node_id, effect_output.composite_bind_group);
-                effect_output_textures.extend(effect_output.work_textures);
+                effect_output_textures.push(effect_output.primary_work_texture);
+                if let Some(secondary_work_texture) = effect_output.secondary_work_texture {
+                    effect_output_textures.push(secondary_work_texture);
+                }
                 textures_to_recycle.push(subtree_texture);
             }
         }
@@ -375,8 +398,12 @@ impl<'a> Renderer<'a> {
                 depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
             if has_backdrop_effects {
-                let (events, stencil_refs, parent_stencils) =
-                    plan_traversal(&mut self.draw_tree, &effect_results, None);
+                plan_traversal_in_place(
+                    &mut self.draw_tree,
+                    &effect_results,
+                    None,
+                    &mut traversal_scratch,
+                );
 
                 let (phase2_color_view, phase2_resolve_target) =
                     if let Some(msaa_view) = self.msaa_color_texture_view.as_ref() {
@@ -414,12 +441,12 @@ impl<'a> Renderer<'a> {
                 let src_texture =
                     output_texture.expect("output_texture required for backdrop effects");
 
-                let backdrop_work_textures = render_segments(
+                render_segments(
                     &mut self.draw_tree,
                     &mut encoder,
-                    &events,
-                    &stencil_refs,
-                    &parent_stencils,
+                    traversal_scratch.events(),
+                    traversal_scratch.stencil_refs(),
+                    traversal_scratch.parent_stencils(),
                     &effect_results,
                     phase2_color_view,
                     phase2_resolve_target,
@@ -429,9 +456,11 @@ impl<'a> Renderer<'a> {
                     &pipelines,
                     &buffers,
                     &backdrop_ctx,
+                    &mut backdrop_work_textures,
+                    &mut stencil_stack,
                 );
 
-                drop(backdrop_work_textures);
+                backdrop_work_textures.clear();
             } else {
                 let render_pass = create_render_pass(
                     &mut encoder,
@@ -440,11 +469,15 @@ impl<'a> Renderer<'a> {
                     &depth_texture_view,
                 );
 
-                let stencil_stack: Vec<u32> = Vec::new();
+                stencil_stack.clear();
+                skipped_stack.clear();
                 let current_pipeline = crate::renderer::types::Pipeline::None;
-                let skipped_stack: Vec<usize> = Vec::new();
-
-                let mut data = (render_pass, stencil_stack, current_pipeline, skipped_stack);
+                let mut data = (
+                    render_pass,
+                    &mut stencil_stack,
+                    current_pipeline,
+                    &mut skipped_stack,
+                );
 
                 let effect_results_ref = &effect_results;
                 let composite_pipeline_ref = self.composite_pipeline.as_ref();
@@ -537,12 +570,22 @@ impl<'a> Renderer<'a> {
 
         self.queue.submit(std::iter::once(encoder.finish()));
 
-        self.offscreen_texture_pool.recycle(textures_to_recycle);
-        drop(effect_output_textures);
+        self.offscreen_texture_pool
+            .recycle(&mut textures_to_recycle);
+        effect_output_textures.clear();
 
         self.draw_tree
             .iter_mut()
             .for_each(|(_, draw_command)| draw_command.clear_frame_state());
+
+        self.scratch.traversal_scratch = traversal_scratch;
+        self.scratch.effect_results = effect_results;
+        self.scratch.effect_node_ids = effect_node_ids;
+        self.scratch.textures_to_recycle = textures_to_recycle;
+        self.scratch.effect_output_textures = effect_output_textures;
+        self.scratch.stencil_stack = stencil_stack;
+        self.scratch.skipped_stack = skipped_stack;
+        self.scratch.backdrop_work_textures = backdrop_work_textures;
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
