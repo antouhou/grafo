@@ -125,9 +125,9 @@ impl<'a> Renderer<'a> {
 
     pub fn set_vsync(&mut self, vsync: bool) {
         self.config.present_mode = if vsync {
-            wgpu::PresentMode::Fifo
+            wgpu::PresentMode::AutoVsync
         } else {
-            wgpu::PresentMode::Immediate
+            wgpu::PresentMode::AutoNoVsync
         };
         self.surface.configure(&self.device, &self.config);
     }
