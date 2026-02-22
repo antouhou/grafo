@@ -1,6 +1,6 @@
 [package]
 name = "grafo"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2021"
 description = "A GPU-accelerated rendering library for Rust"
 keywords = ["rendering", "vector_graphics", "gui", "graphics", "image"]
