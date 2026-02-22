@@ -567,61 +567,6 @@ impl<'a> ApplicationHandler for App<'a> {
     }
 }
 
-// Helper methods to tweak orbit/camera and blue shape settings for experimentation.
-impl<'a> App<'a> {
-    /// Set absolute yaw in degrees (adds to the base 45°).
-    pub fn set_orbit_yaw_deg(&mut self, deg: f32) {
-        self.orbit_yaw_deg = deg;
-    }
-
-    /// Set absolute pitch in degrees (will be clamped to [-80, 80]).
-    pub fn set_orbit_pitch_deg(&mut self, deg: f32) {
-        self.orbit_pitch_deg = deg.clamp(-80.0, 80.0);
-    }
-
-    /// Increment yaw by delta degrees.
-    pub fn add_orbit_yaw_deg(&mut self, delta: f32) {
-        self.orbit_yaw_deg = (self.orbit_yaw_deg + delta) % 360.0;
-    }
-
-    /// Increment pitch by delta degrees (clamped to [-80, 80]).
-    pub fn add_orbit_pitch_deg(&mut self, delta: f32) {
-        self.orbit_pitch_deg = (self.orbit_pitch_deg + delta).clamp(-80.0, 80.0);
-    }
-
-    /// Reset yaw/pitch to 0.
-    pub fn reset_orbit(&mut self) {
-        self.orbit_yaw_deg = 0.0;
-        self.orbit_pitch_deg = 0.0;
-    }
-
-    /// Set orbit mouse sensitivity in degrees per logical pixel.
-    pub fn set_orbit_sensitivity(&mut self, sensitivity: f32) {
-        self.orbit_sensitivity = sensitivity.max(0.0);
-    }
-
-    /// Set perspective distance for the blue shape (smaller => stronger perspective).
-    pub fn set_blue_perspective_distance(&mut self, d: f32) {
-        // Avoid zero/negative distances which would break the projection
-        self.blue_perspective_d = d.max(1.0);
-    }
-
-    /// Follow mouse for perspective origin (true) or use the shape center (false).
-    pub fn set_blue_follow_mouse(&mut self, enabled: bool) {
-        self.blue_follow_mouse = enabled;
-    }
-
-    /// Set the world position (top-left) of the blue rectangle.
-    pub fn set_blue_position(&mut self, x: f32, y: f32) {
-        self.blue_pos = (x, y);
-    }
-
-    /// Set the local size of the blue rectangle.
-    pub fn set_blue_size(&mut self, width: f32, height: f32) {
-        self.blue_size = (width.max(1.0), height.max(1.0));
-    }
-}
-
 pub fn main() {
     env_logger::init();
     let event_loop = EventLoop::new().expect("To create the event loop");
