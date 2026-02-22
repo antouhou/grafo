@@ -176,6 +176,9 @@ impl RendererScratch {
             &mut self.backdrop_work_textures,
             MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY,
         );
+        if self.readback_bytes.len() > MAX_READBACK_BYTES_CAPACITY {
+            self.readback_bytes.truncate(MAX_READBACK_BYTES_CAPACITY);
+        }
         trim_vector_if_needed(&mut self.readback_bytes, MAX_READBACK_BYTES_CAPACITY);
         self.traversal_scratch.trim_to_policy();
     }
@@ -256,5 +259,17 @@ mod tests {
 
         scratch.trim_to_policy();
         assert!(scratch.effect_node_ids.capacity() <= super::MAX_EFFECT_NODE_IDS_CAPACITY);
+    }
+
+    #[test]
+    fn renderer_scratch_trims_readback_bytes_length_before_shrinking() {
+        let mut scratch = RendererScratch::new();
+        scratch
+            .readback_bytes
+            .resize(super::MAX_READBACK_BYTES_CAPACITY + 1_024, 0);
+
+        scratch.trim_to_policy();
+
+        assert!(scratch.readback_bytes.len() <= super::MAX_READBACK_BYTES_CAPACITY);
     }
 }

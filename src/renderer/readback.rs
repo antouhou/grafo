@@ -128,6 +128,13 @@ impl<'a> Renderer<'a> {
 
         let mut readback_bytes = std::mem::take(&mut self.scratch.readback_bytes);
         Self::map_readback_buffer_into(&self.device, output_buffer, &mut readback_bytes);
+        let required_readback_len = (height as usize)
+            .checked_mul(padded_bytes_per_row as usize)
+            .unwrap_or(usize::MAX);
+        if readback_bytes.is_empty() || readback_bytes.len() < required_readback_len {
+            self.scratch.readback_bytes = readback_bytes;
+            return;
+        }
         copy_padded_readback_rows(
             &readback_bytes,
             height,
