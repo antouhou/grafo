@@ -3,7 +3,21 @@ use super::*;
 
 pub(super) struct AppliedEffectOutput {
     pub(super) composite_bind_group: wgpu::BindGroup,
-    pub(super) work_textures: Vec<wgpu::Texture>,
+    pub(super) primary_work_texture: wgpu::Texture,
+    pub(super) secondary_work_texture: Option<wgpu::Texture>,
+}
+
+impl AppliedEffectOutput {
+    pub(super) fn push_work_textures_into(
+        self,
+        output_textures: &mut Vec<wgpu::Texture>,
+    ) -> wgpu::BindGroup {
+        output_textures.push(self.primary_work_texture);
+        if let Some(secondary_work_texture) = self.secondary_work_texture {
+            output_textures.push(secondary_work_texture);
+        }
+        self.composite_bind_group
+    }
 }
 
 pub(super) struct EffectPassRunConfig<'a> {
@@ -119,14 +133,10 @@ pub(super) fn apply_effect_passes(
         Some(&format!("{}_composite_bg", config.label_prefix)),
     );
 
-    let mut work_textures = vec![effect_texture_a];
-    if let Some(effect_texture_b) = effect_texture_b {
-        work_textures.push(effect_texture_b);
-    }
-
     AppliedEffectOutput {
         composite_bind_group,
-        work_textures,
+        primary_work_texture: effect_texture_a,
+        secondary_work_texture: effect_texture_b,
     }
 }
 
@@ -322,13 +332,15 @@ pub(super) fn render_segments(
     pipelines: &crate::renderer::types::Pipelines,
     buffers: &crate::renderer::types::Buffers,
     backdrop_ctx: &crate::renderer::types::BackdropContext,
-) -> Vec<wgpu::Texture> {
+    backdrop_work_textures: &mut Vec<wgpu::Texture>,
+    stencil_stack_scratch: &mut Vec<u32>,
+) {
     let mut event_idx = 0;
     let mut is_first_segment = clear_first;
     let mut currently_set_pipeline = crate::renderer::types::Pipeline::None;
     let (width, height) = backdrop_ctx.physical_size;
-    let mut backdrop_work_textures: Vec<wgpu::Texture> = Vec::new();
-    let mut stencil_stack: Vec<u32> = Vec::new();
+    stencil_stack_scratch.clear();
+    backdrop_work_textures.clear();
 
     while event_idx < events.len() {
         let mut segment_end = events.len();
@@ -394,15 +406,15 @@ pub(super) fn render_segments(
                                 parent_stencils.get(&node_id).copied().unwrap_or(0);
                             let this_stencil = stencil_refs.get(&node_id).copied().unwrap_or(1);
 
-                            stencil_stack.clear();
-                            stencil_stack.push(parent_stencil);
+                            stencil_stack_scratch.clear();
+                            stencil_stack_scratch.push(parent_stencil);
 
                             match draw_command {
                                 DrawCommand::Shape(shape) => {
                                     handle_increment_pass(
                                         &mut render_pass,
                                         &mut currently_set_pipeline,
-                                        &mut stencil_stack,
+                                        stencil_stack_scratch,
                                         shape,
                                         pipelines,
                                         buffers,
@@ -413,7 +425,7 @@ pub(super) fn render_segments(
                                     handle_increment_pass(
                                         &mut render_pass,
                                         &mut currently_set_pipeline,
-                                        &mut stencil_stack,
+                                        stencil_stack_scratch,
                                         shape,
                                         pipelines,
                                         buffers,
@@ -433,8 +445,8 @@ pub(super) fn render_segments(
                         if let Some(draw_command) = draw_tree.get_mut(node_id) {
                             let this_stencil = stencil_refs.get(&node_id).copied().unwrap_or(1);
 
-                            stencil_stack.clear();
-                            stencil_stack.push(this_stencil);
+                            stencil_stack_scratch.clear();
+                            stencil_stack_scratch.push(this_stencil);
 
                             match draw_command {
                                 DrawCommand::Shape(shape) => {
@@ -442,7 +454,7 @@ pub(super) fn render_segments(
                                     handle_decrement_pass(
                                         &mut render_pass,
                                         &mut currently_set_pipeline,
-                                        &mut stencil_stack,
+                                        stencil_stack_scratch,
                                         shape,
                                         pipelines,
                                         buffers,
@@ -453,7 +465,7 @@ pub(super) fn render_segments(
                                     handle_decrement_pass(
                                         &mut render_pass,
                                         &mut currently_set_pipeline,
-                                        &mut stencil_stack,
+                                        stencil_stack_scratch,
                                         shape,
                                         pipelines,
                                         buffers,
@@ -530,8 +542,8 @@ pub(super) fn render_segments(
                     label_prefix: "backdrop_effect",
                 },
             );
-            let backdrop_composite_bind_group = effect_output.composite_bind_group;
-            backdrop_work_textures.extend(effect_output.work_textures);
+            let backdrop_composite_bind_group =
+                effect_output.push_work_textures_into(backdrop_work_textures);
 
             let mut render_pass = crate::pipeline::begin_render_pass_with_load_ops(
                 encoder,
@@ -658,8 +670,6 @@ pub(super) fn render_segments(
             event_idx += 1;
         }
     }
-
-    backdrop_work_textures
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -674,6 +684,8 @@ pub(super) fn render_scene_behind_group(
     composite_pipeline: Option<&wgpu::RenderPipeline>,
     pipelines: &crate::renderer::types::Pipelines,
     buffers: &crate::renderer::types::Buffers,
+    stencil_stack_scratch: &mut Vec<u32>,
+    skipped_stack_scratch: &mut Vec<usize>,
 ) {
     let render_pass = crate::pipeline::begin_render_pass_with_load_ops(
         encoder,
@@ -688,11 +700,16 @@ pub(super) fn render_scene_behind_group(
         },
     );
 
-    let stencil_stack: Vec<u32> = Vec::new();
+    stencil_stack_scratch.clear();
     let current_pipeline = crate::renderer::types::Pipeline::None;
-    let skipped_stack: Vec<usize> = Vec::new();
+    skipped_stack_scratch.clear();
 
-    let mut data = (render_pass, stencil_stack, current_pipeline, skipped_stack);
+    let mut data = (
+        render_pass,
+        stencil_stack_scratch,
+        current_pipeline,
+        skipped_stack_scratch,
+    );
 
     let effect_results_ref = effect_results;
     let exclude_id = exclude_subtree_id;

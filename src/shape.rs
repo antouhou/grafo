@@ -43,9 +43,39 @@ use lyon::lyon_tessellation::{
 };
 use lyon::path::Winding;
 use lyon::tessellation::FillVertexConstructor;
+use std::sync::Arc;
 
 pub(crate) struct CachedShape {
-    pub vertex_buffers: VertexBuffers<CustomVertex, u16>,
+    pub vertex_buffers: Arc<VertexBuffers<CustomVertex, u16>>,
+}
+
+pub(crate) enum TessellatedGeometry {
+    Owned(VertexBuffers<CustomVertex, u16>),
+    Shared(Arc<VertexBuffers<CustomVertex, u16>>),
+}
+
+impl TessellatedGeometry {
+    pub(crate) fn vertices(&self) -> &[CustomVertex] {
+        match self {
+            Self::Owned(vertex_buffers) => &vertex_buffers.vertices,
+            Self::Shared(vertex_buffers) => &vertex_buffers.vertices,
+        }
+    }
+
+    pub(crate) fn indices(&self) -> &[u16] {
+        match self {
+            Self::Owned(vertex_buffers) => &vertex_buffers.indices,
+            Self::Shared(vertex_buffers) => &vertex_buffers.indices,
+        }
+    }
+
+    /// Returns the vertex buffers if they are owned, or `None` if they are shared (cached).
+    pub(crate) fn into_owned(self) -> Option<VertexBuffers<CustomVertex, u16>> {
+        match self {
+            Self::Owned(vertex_buffers) => Some(vertex_buffers),
+            Self::Shared(_) => None,
+        }
+    }
 }
 
 impl CachedShape {
@@ -59,7 +89,10 @@ impl CachedShape {
         pool: &mut PoolManager,
         tessellator_cache_key: Option<u64>,
     ) -> Self {
-        let vertices = shape.tessellate(tessellator, pool, tessellator_cache_key);
+        let vertices = match shape.tessellate(tessellator, pool, tessellator_cache_key) {
+            TessellatedGeometry::Owned(vertex_buffers) => Arc::new(vertex_buffers),
+            TessellatedGeometry::Shared(vertex_buffers) => vertex_buffers,
+        };
         Self {
             vertex_buffers: vertices,
         }
@@ -179,7 +212,7 @@ impl Shape {
         tessellator: &mut FillTessellator,
         buffers_pool: &mut PoolManager,
         tesselation_cache_key: Option<u64>,
-    ) -> VertexBuffers<CustomVertex, u16> {
+    ) -> TessellatedGeometry {
         match &self {
             Shape::Path(path_shape) => {
                 path_shape.tessellate(tessellator, buffers_pool, tesselation_cache_key)
@@ -244,7 +277,7 @@ impl Shape {
                 // Generate AA fringe geometry for the rect
                 generate_aa_fringe(&mut vertex_buffers.vertices, &mut vertex_buffers.indices);
 
-                vertex_buffers
+                TessellatedGeometry::Owned(vertex_buffers)
             }
         }
     }
@@ -579,38 +612,35 @@ impl PathShape {
         tessellator: &mut FillTessellator,
         buffers_pool: &mut PoolManager,
         tesselation_cache_key: Option<u64>,
-    ) -> VertexBuffers<CustomVertex, u16> {
-        let mut buffers = if let Some(cache_key) = tesselation_cache_key {
-            if let Some(buffers) = buffers_pool
+    ) -> TessellatedGeometry {
+        if let Some(cache_key) = tesselation_cache_key {
+            if let Some(cached_vertex_buffers) = buffers_pool
                 .tessellation_cache
                 .get_vertex_buffers(&cache_key)
             {
-                buffers
-            } else {
-                let mut buffers: VertexBuffers<CustomVertex, u16> =
-                    buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
-
-                self.tesselate_into_buffers(&mut buffers, tessellator);
-                buffers_pool
-                    .tessellation_cache
-                    .insert_vertex_buffers(cache_key, buffers.clone());
-
-                buffers
+                return TessellatedGeometry::Shared(cached_vertex_buffers);
             }
-        } else {
-            let mut buffers: VertexBuffers<CustomVertex, u16> =
-                buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
+        }
 
-            self.tesselate_into_buffers(&mut buffers, tessellator);
+        let mut buffers: VertexBuffers<CustomVertex, u16> =
+            buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
+        self.tesselate_into_buffers(&mut buffers, tessellator);
 
-            buffers
-        };
-
-        if buffers.indices.len() % 2 != 0 {
+        #[allow(clippy::manual_is_multiple_of)]
+        let needs_index_padding = buffers.indices.len() % 2 != 0;
+        if needs_index_padding {
             buffers.indices.push(0);
         }
 
-        buffers
+        if let Some(cache_key) = tesselation_cache_key {
+            let shared_vertex_buffers = Arc::new(buffers);
+            buffers_pool
+                .tessellation_cache
+                .insert_vertex_buffers(cache_key, shared_vertex_buffers.clone());
+            TessellatedGeometry::Shared(shared_vertex_buffers)
+        } else {
+            TessellatedGeometry::Owned(buffers)
+        }
     }
 
     fn tesselate_into_buffers(
@@ -719,7 +749,7 @@ impl ShapeDrawData {
         &mut self,
         tessellator: &mut FillTessellator,
         buffers_pool: &mut PoolManager,
-    ) -> VertexBuffers<CustomVertex, u16> {
+    ) -> TessellatedGeometry {
         self.shape
             .tessellate(tessellator, buffers_pool, self.cache_key)
     }

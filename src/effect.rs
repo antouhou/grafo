@@ -12,6 +12,7 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hash;
+use std::sync::OnceLock;
 
 // ── Error type ───────────────────────────────────────────────────────────────
 
@@ -155,8 +156,8 @@ impl OffscreenTexturePool {
     /// Return textures for reuse in future frames.
     /// Textures that don't match the given active configuration are dropped
     /// immediately, and the pool is capped at `MAX_POOL_SIZE`.
-    pub fn recycle(&mut self, textures: Vec<PooledTexture>) {
-        self.available.extend(textures);
+    pub fn recycle(&mut self, textures: &mut Vec<PooledTexture>) {
+        self.available.append(textures);
         self.available.truncate(MAX_POOL_SIZE);
     }
 
@@ -338,17 +339,26 @@ pub(crate) fn build_composite_wgsl() -> String {
 /// `@group(1)` with optional whitespace so that `@group( 1 )` and similar
 /// variants are detected while occurrences inside comments are ignored.
 pub(crate) fn has_user_params(user_fragment_source: &str) -> bool {
-    // Strip block comments (/* ... */), then line comments (// ... \n).
-    let no_block = regex::Regex::new(r"(?s)/\*.*?\*/")
-        .unwrap()
-        .replace_all(user_fragment_source, "");
-    let stripped = regex::Regex::new(r"//[^\n]*")
-        .unwrap()
-        .replace_all(&no_block, "");
+    fn block_comment_regex() -> &'static regex::Regex {
+        static BLOCK_COMMENT_REGEX: OnceLock<regex::Regex> = OnceLock::new();
+        BLOCK_COMMENT_REGEX.get_or_init(|| regex::Regex::new(r"(?s)/\*.*?\*/").unwrap())
+    }
 
-    regex::Regex::new(r"@group\s*\(\s*1\s*\)")
-        .unwrap()
-        .is_match(&stripped)
+    fn line_comment_regex() -> &'static regex::Regex {
+        static LINE_COMMENT_REGEX: OnceLock<regex::Regex> = OnceLock::new();
+        LINE_COMMENT_REGEX.get_or_init(|| regex::Regex::new(r"//[^\n]*").unwrap())
+    }
+
+    fn user_params_group_regex() -> &'static regex::Regex {
+        static USER_PARAMS_GROUP_REGEX: OnceLock<regex::Regex> = OnceLock::new();
+        USER_PARAMS_GROUP_REGEX.get_or_init(|| regex::Regex::new(r"@group\s*\(\s*1\s*\)").unwrap())
+    }
+
+    // Strip block comments (/* ... */), then line comments (// ... \n).
+    let no_block = block_comment_regex().replace_all(user_fragment_source, "");
+    let stripped = line_comment_regex().replace_all(&no_block, "");
+
+    user_params_group_regex().is_match(&stripped)
 }
 
 /// Compile a (possibly multi-pass) effect from WGSL source(s).
@@ -395,18 +405,22 @@ pub(crate) fn compile_effect_pipeline(
 
         // Each pass gets its own pipeline layout — only include group(1)
         // if this particular pass references it.
-        let bind_group_layouts: Vec<&wgpu::BindGroupLayout> = if pass_has_params {
-            vec![&input_bgl, params_bgl.as_ref().unwrap()]
-        } else {
-            vec![&input_bgl]
-        };
-
         let layout_label = format!("effect_pass{i}_layout");
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some(&layout_label),
-            bind_group_layouts: &bind_group_layouts,
-            push_constant_ranges: &[],
-        });
+        let pipeline_layout = if pass_has_params {
+            let bind_group_layouts = [&input_bgl, params_bgl.as_ref().unwrap()];
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some(&layout_label),
+                bind_group_layouts: &bind_group_layouts,
+                push_constant_ranges: &[],
+            })
+        } else {
+            let bind_group_layouts = [&input_bgl];
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some(&layout_label),
+                bind_group_layouts: &bind_group_layouts,
+                push_constant_ranges: &[],
+            })
+        };
 
         let pipeline_label = format!("effect_pass{i}_pipeline");
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {

@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
-use ahash::HashMap;
+use ahash::{HashMap, HashMapExt};
 
-use crate::effect::{EffectInstance, LoadedEffect};
+use crate::effect::{self, EffectInstance, LoadedEffect};
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, ShapeDrawData};
 use crate::texture_manager::TextureManager;
 use crate::vertex::InstanceTransform;
+
+use super::traversal::TraversalScratch;
 
 #[derive(Debug)]
 pub(super) enum DrawCommand {
@@ -110,6 +112,93 @@ pub(super) struct BackdropContext<'a> {
     pub(super) shape_texture_layout_epoch: u64,
 }
 
+const MAX_EFFECT_RESULTS_CAPACITY: usize = 4_096;
+const MAX_EFFECT_NODE_IDS_CAPACITY: usize = 4_096;
+const MAX_TEXTURE_RECYCLE_CAPACITY: usize = 1_024;
+const MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY: usize = 2_048;
+const MAX_STENCIL_STACK_CAPACITY: usize = 16_384;
+const MAX_SKIPPED_STACK_CAPACITY: usize = 16_384;
+const MAX_READBACK_BYTES_CAPACITY: usize = 64 * 1024 * 1024;
+
+pub(super) struct RendererScratch {
+    pub(super) effect_results: HashMap<usize, wgpu::BindGroup>,
+    pub(super) effect_node_ids: Vec<(usize, usize)>,
+    pub(super) textures_to_recycle: Vec<effect::PooledTexture>,
+    pub(super) effect_output_textures: Vec<wgpu::Texture>,
+    pub(super) stencil_stack: Vec<u32>,
+    pub(super) skipped_stack: Vec<usize>,
+    pub(super) backdrop_work_textures: Vec<wgpu::Texture>,
+    /// Reused across readback calls; intentionally not cleared on `begin_frame`
+    /// because readback may run after render submission and reuse prior capacity.
+    pub(super) readback_bytes: Vec<u8>,
+    pub(super) traversal_scratch: TraversalScratch,
+}
+
+impl RendererScratch {
+    pub(super) fn new() -> Self {
+        Self {
+            effect_results: HashMap::new(),
+            effect_node_ids: Vec::new(),
+            textures_to_recycle: Vec::new(),
+            effect_output_textures: Vec::new(),
+            stencil_stack: Vec::new(),
+            skipped_stack: Vec::new(),
+            backdrop_work_textures: Vec::new(),
+            readback_bytes: Vec::new(),
+            traversal_scratch: TraversalScratch::new(),
+        }
+    }
+
+    pub(super) fn begin_frame(&mut self) {
+        self.effect_results.clear();
+        self.effect_node_ids.clear();
+        self.textures_to_recycle.clear();
+        self.effect_output_textures.clear();
+        self.stencil_stack.clear();
+        self.skipped_stack.clear();
+        self.backdrop_work_textures.clear();
+        self.traversal_scratch.begin();
+        // Keep readback bytes length/capacity untouched to preserve reuse across
+        // `render_to_buffer`/`render_to_argb32` calls that are not tied to frame start.
+    }
+
+    pub(super) fn trim_to_policy(&mut self) {
+        trim_hash_map_if_needed(&mut self.effect_results, MAX_EFFECT_RESULTS_CAPACITY);
+        trim_vector_if_needed(&mut self.effect_node_ids, MAX_EFFECT_NODE_IDS_CAPACITY);
+        trim_vector_if_needed(&mut self.textures_to_recycle, MAX_TEXTURE_RECYCLE_CAPACITY);
+        trim_vector_if_needed(
+            &mut self.effect_output_textures,
+            MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY,
+        );
+        trim_vector_if_needed(&mut self.stencil_stack, MAX_STENCIL_STACK_CAPACITY);
+        trim_vector_if_needed(&mut self.skipped_stack, MAX_SKIPPED_STACK_CAPACITY);
+        trim_vector_if_needed(
+            &mut self.backdrop_work_textures,
+            MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY,
+        );
+        if self.readback_bytes.len() > MAX_READBACK_BYTES_CAPACITY {
+            self.readback_bytes.truncate(MAX_READBACK_BYTES_CAPACITY);
+        }
+        trim_vector_if_needed(&mut self.readback_bytes, MAX_READBACK_BYTES_CAPACITY);
+        self.traversal_scratch.trim_to_policy();
+    }
+}
+
+pub(super) fn trim_vector_if_needed<T>(values: &mut Vec<T>, max_capacity: usize) {
+    if values.capacity() > max_capacity {
+        values.shrink_to(max_capacity);
+    }
+}
+
+pub(super) fn trim_hash_map_if_needed<K, V>(values: &mut HashMap<K, V>, max_capacity: usize)
+where
+    K: Eq + std::hash::Hash,
+{
+    if values.capacity() > max_capacity {
+        values.shrink_to(max_capacity);
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct BufferSizingDecision {
     pub(super) should_reallocate: bool,
@@ -129,7 +218,7 @@ pub(super) fn decide_buffer_sizing(
 
 #[cfg(test)]
 mod tests {
-    use super::decide_buffer_sizing;
+    use super::{decide_buffer_sizing, RendererScratch};
 
     #[test]
     fn decide_buffer_sizing_reallocates_when_missing() {
@@ -147,5 +236,40 @@ mod tests {
     fn decide_buffer_sizing_keeps_buffer_when_large_enough() {
         let decision = decide_buffer_sizing(Some(512), 128);
         assert!(!decision.should_reallocate);
+    }
+
+    #[test]
+    fn renderer_scratch_begin_frame_clears_lengths() {
+        let mut scratch = RendererScratch::new();
+        scratch.effect_node_ids.extend([(1, 1), (2, 2)]);
+        scratch.readback_bytes.extend([1, 2, 3, 4]);
+        scratch.begin_frame();
+
+        assert!(scratch.effect_node_ids.is_empty());
+        assert_eq!(scratch.readback_bytes.len(), 4);
+    }
+
+    #[test]
+    fn renderer_scratch_trims_large_capacities() {
+        let mut scratch = RendererScratch::new();
+        scratch
+            .effect_node_ids
+            .resize(super::MAX_EFFECT_NODE_IDS_CAPACITY + 2_048, (0, 0));
+        scratch.effect_node_ids.clear();
+
+        scratch.trim_to_policy();
+        assert!(scratch.effect_node_ids.capacity() <= super::MAX_EFFECT_NODE_IDS_CAPACITY);
+    }
+
+    #[test]
+    fn renderer_scratch_trims_readback_bytes_length_before_shrinking() {
+        let mut scratch = RendererScratch::new();
+        scratch
+            .readback_bytes
+            .resize(super::MAX_READBACK_BYTES_CAPACITY + 1_024, 0);
+
+        scratch.trim_to_policy();
+
+        assert!(scratch.readback_bytes.len() <= super::MAX_READBACK_BYTES_CAPACITY);
     }
 }

@@ -206,6 +206,7 @@ impl<'a> Renderer<'a> {
             backdrop_snapshot_view: None,
             stencil_only_pipeline: None,
             backdrop_color_pipeline: None,
+            scratch: RendererScratch::new(),
         };
 
         renderer.recreate_msaa_texture();

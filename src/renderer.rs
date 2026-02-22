@@ -26,7 +26,7 @@ use crate::vertex::{InstanceColor, InstanceMetadata, InstanceTransform};
 use crate::CachedShape;
 use crate::Color;
 
-use self::types::DrawCommand;
+use self::types::{DrawCommand, RendererScratch};
 
 mod construction;
 mod draw_queue;
@@ -193,6 +193,9 @@ pub struct Renderer<'a> {
     /// Shape color pipeline with stencil Keep: draws color but doesn't modify stencil.
     /// Used for Step 3 of the three-step backdrop draw.
     backdrop_color_pipeline: Option<wgpu::RenderPipeline>,
+
+    // ── Reusable scratch state ───────────────────────────────────────────
+    scratch: RendererScratch,
 }
 
 /// Default AA fringe width in physical pixels.
@@ -200,4 +203,15 @@ const DEFAULT_FRINGE_WIDTH: f32 = 0.5;
 
 impl<'a> Renderer<'a> {
     const DEFAULT_FRINGE_WIDTH: f32 = DEFAULT_FRINGE_WIDTH;
+
+    pub(super) fn begin_frame_scratch(&mut self) {
+        self.scratch.begin_frame();
+    }
+
+    pub(super) fn trim_scratch_on_resize_or_policy(&mut self) {
+        // This is safe to call frequently: `shrink_to` is effectively a no-op
+        // when capacities are below thresholds, so this acts as amortized
+        // memory hygiene for long-running sessions.
+        self.scratch.trim_to_policy();
+    }
 }

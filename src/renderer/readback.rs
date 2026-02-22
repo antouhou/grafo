@@ -1,7 +1,37 @@
 use super::*;
 
+fn copy_padded_readback_rows(
+    data: &[u8],
+    height: u32,
+    unpadded_bytes_per_row: u32,
+    padded_bytes_per_row: u32,
+    output: &mut Vec<u8>,
+) {
+    let output_size = (unpadded_bytes_per_row * height) as usize;
+    output.resize(output_size, 0);
+
+    if padded_bytes_per_row == unpadded_bytes_per_row {
+        output.copy_from_slice(data);
+        return;
+    }
+
+    for row in 0..height {
+        let padded_offset = (row * padded_bytes_per_row) as usize;
+        let unpadded_offset = (row * unpadded_bytes_per_row) as usize;
+        let row_data = &data[padded_offset..padded_offset + unpadded_bytes_per_row as usize];
+        output[unpadded_offset..unpadded_offset + unpadded_bytes_per_row as usize]
+            .copy_from_slice(row_data);
+    }
+}
+
 impl<'a> Renderer<'a> {
-    fn map_readback_buffer_to_vec(&self, buffer: &wgpu::Buffer) -> Vec<u8> {
+    fn map_readback_buffer_into(
+        device: &wgpu::Device,
+        buffer: &wgpu::Buffer,
+        mapped_bytes: &mut Vec<u8>,
+    ) {
+        mapped_bytes.clear();
+
         let buffer_slice = buffer.slice(..);
         let (sender, receiver) = std::sync::mpsc::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
@@ -10,26 +40,25 @@ impl<'a> Renderer<'a> {
             }
         });
 
-        let _ = self.device.poll(wgpu::MaintainBase::Wait);
+        let _ = device.poll(wgpu::MaintainBase::Wait);
 
         let map_result = match receiver.recv() {
             Ok(result) => result,
             Err(error) => {
                 log::warn!("Failed to receive mapped buffer result: {}", error);
-                return Vec::new();
+                return;
             }
         };
 
         if let Err(error) = map_result {
             log::warn!("Failed to map readback buffer: {:?}", error);
-            return Vec::new();
+            return;
         }
 
         let mapped_range = buffer_slice.get_mapped_range();
-        let mapped_bytes = mapped_range.to_vec();
+        mapped_bytes.extend_from_slice(&mapped_range);
         drop(mapped_range);
         buffer.unmap();
-        mapped_bytes
     }
 
     pub fn render_to_buffer(&mut self, buffer: &mut Vec<u8>) {
@@ -97,22 +126,22 @@ impl<'a> Renderer<'a> {
 
         self.queue.submit(std::iter::once(encoder.finish()));
 
-        let data = self.map_readback_buffer_to_vec(output_buffer);
-        let output_size = (unpadded_bytes_per_row * height) as usize;
-        buffer.resize(output_size, 0);
-
-        if padded_bytes_per_row == unpadded_bytes_per_row {
-            buffer.copy_from_slice(&data);
-        } else {
-            for row in 0..height {
-                let padded_offset = (row * padded_bytes_per_row) as usize;
-                let unpadded_offset = (row * unpadded_bytes_per_row) as usize;
-                let row_data =
-                    &data[padded_offset..padded_offset + unpadded_bytes_per_row as usize];
-                buffer[unpadded_offset..unpadded_offset + unpadded_bytes_per_row as usize]
-                    .copy_from_slice(row_data);
-            }
+        let mut readback_bytes = std::mem::take(&mut self.scratch.readback_bytes);
+        Self::map_readback_buffer_into(&self.device, output_buffer, &mut readback_bytes);
+        let required_readback_len = (height as usize).saturating_mul(padded_bytes_per_row as usize);
+        if readback_bytes.is_empty() || readback_bytes.len() < required_readback_len {
+            self.scratch.readback_bytes = readback_bytes;
+            return;
         }
+        copy_padded_readback_rows(
+            &readback_bytes,
+            height,
+            unpadded_bytes_per_row,
+            padded_bytes_per_row,
+            buffer,
+        );
+
+        self.scratch.readback_bytes = readback_bytes;
     }
 
     pub fn render_to_argb32(&mut self, out_pixels: &mut [u32]) {
@@ -272,12 +301,42 @@ impl<'a> Renderer<'a> {
         self.queue
             .submit(std::iter::once(readback_encoder.finish()));
 
-        let data = self.map_readback_buffer_to_vec(self.argb_readback_buffer.as_ref().unwrap());
-        if data.is_empty() {
+        let mut readback_bytes = std::mem::take(&mut self.scratch.readback_bytes);
+        Self::map_readback_buffer_into(
+            &self.device,
+            self.argb_readback_buffer.as_ref().unwrap(),
+            &mut readback_bytes,
+        );
+        if readback_bytes.is_empty() {
+            self.scratch.readback_bytes = readback_bytes;
             return;
         }
 
-        let src_words: &[u32] = bytemuck::cast_slice(&data);
+        let src_words: &[u32] = bytemuck::cast_slice(&readback_bytes);
         out_pixels[..needed_len].copy_from_slice(&src_words[..needed_len]);
+        self.scratch.readback_bytes = readback_bytes;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::copy_padded_readback_rows;
+
+    #[test]
+    fn copy_padded_readback_rows_handles_unpadded_data() {
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        let mut output = Vec::new();
+
+        copy_padded_readback_rows(&data, 2, 4, 4, &mut output);
+        assert_eq!(output, data);
+    }
+
+    #[test]
+    fn copy_padded_readback_rows_strips_padding() {
+        let data = vec![1, 2, 3, 4, 9, 9, 9, 9, 5, 6, 7, 8, 8, 8, 8, 8];
+        let mut output = Vec::new();
+
+        copy_padded_readback_rows(&data, 2, 4, 8, &mut output);
+        assert_eq!(output, vec![1, 2, 3, 4, 5, 6, 7, 8]);
     }
 }
