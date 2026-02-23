@@ -206,6 +206,8 @@ impl<'a> Renderer<'a> {
             backdrop_snapshot_view: None,
             stencil_only_pipeline: None,
             backdrop_color_pipeline: None,
+            #[cfg(feature = "render_metrics")]
+            render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),
             scratch: RendererScratch::new(),
         };
 

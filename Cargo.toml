@@ -32,3 +32,4 @@ euclid = "0.22.11"
 
 [features]
 performance_measurement = []
+render_metrics = []

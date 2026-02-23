@@ -26,11 +26,15 @@ use crate::vertex::{InstanceColor, InstanceMetadata, InstanceTransform};
 use crate::CachedShape;
 use crate::Color;
 
+#[cfg(feature = "render_metrics")]
+use self::metrics::RenderLoopMetricsTracker;
 use self::types::{DrawCommand, RendererScratch};
 
 mod construction;
 mod draw_queue;
 mod effects;
+#[cfg(feature = "render_metrics")]
+mod metrics;
 mod passes;
 mod preparation;
 mod readback;
@@ -193,6 +197,10 @@ pub struct Renderer<'a> {
     /// Shape color pipeline with stencil Keep: draws color but doesn't modify stencil.
     /// Used for Step 3 of the three-step backdrop draw.
     backdrop_color_pipeline: Option<wgpu::RenderPipeline>,
+
+    #[cfg(feature = "render_metrics")]
+    /// Tracking for cumulative render-loop timing metrics.
+    render_loop_metrics_tracker: RenderLoopMetricsTracker,
 
     // ── Reusable scratch state ───────────────────────────────────────────
     scratch: RendererScratch,

@@ -1,0 +1,1 @@
+- Avoid heap allocations in the render method/loop. Try to resuse values allocated on the heap as much as possible in general.

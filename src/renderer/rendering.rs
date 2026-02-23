@@ -587,6 +587,8 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        #[cfg(feature = "render_metrics")]
+        let frame_render_loop_started_at = std::time::Instant::now();
         self.prepare_render();
 
         let output = self.surface.get_current_texture()?;
@@ -597,6 +599,12 @@ impl<'a> Renderer<'a> {
         self.render_to_texture_view(&output_texture_view, Some(&output.texture));
 
         output.present();
+        #[cfg(feature = "render_metrics")]
+        {
+            let frame_presented_at = std::time::Instant::now();
+            self.render_loop_metrics_tracker
+                .record_presented_frame(frame_render_loop_started_at, frame_presented_at);
+        }
         Ok(())
     }
 }

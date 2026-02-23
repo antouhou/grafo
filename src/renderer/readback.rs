@@ -62,6 +62,9 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn render_to_buffer(&mut self, buffer: &mut Vec<u8>) {
+        #[cfg(feature = "render_metrics")]
+        let frame_render_loop_started_at = std::time::Instant::now();
+
         self.prepare_render();
 
         let (width, height) = self.physical_size;
@@ -142,9 +145,19 @@ impl<'a> Renderer<'a> {
         );
 
         self.scratch.readback_bytes = readback_bytes;
+
+        #[cfg(feature = "render_metrics")]
+        {
+            let frame_presented_at = std::time::Instant::now();
+            self.render_loop_metrics_tracker
+                .record_presented_frame(frame_render_loop_started_at, frame_presented_at);
+        }
     }
 
     pub fn render_to_argb32(&mut self, out_pixels: &mut [u32]) {
+        #[cfg(feature = "render_metrics")]
+        let frame_render_loop_started_at = std::time::Instant::now();
+
         self.prepare_render();
 
         let (width, height) = self.physical_size;
@@ -315,6 +328,13 @@ impl<'a> Renderer<'a> {
         let src_words: &[u32] = bytemuck::cast_slice(&readback_bytes);
         out_pixels[..needed_len].copy_from_slice(&src_words[..needed_len]);
         self.scratch.readback_bytes = readback_bytes;
+
+        #[cfg(feature = "render_metrics")]
+        {
+            let frame_presented_at = std::time::Instant::now();
+            self.render_loop_metrics_tracker
+                .record_presented_frame(frame_render_loop_started_at, frame_presented_at);
+        }
     }
 }
 
