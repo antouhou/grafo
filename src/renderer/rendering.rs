@@ -638,19 +638,25 @@ impl<'a> Renderer<'a> {
         output.present();
         #[cfg(feature = "render_metrics")]
         {
-            let frame_presented_at = std::time::Instant::now();
+            let after_present = std::time::Instant::now();
+            // Force GPU completion to measure actual GPU execution time.
+            let _ = self.device.poll(wgpu::MaintainBase::Wait);
+            let after_gpu_wait = std::time::Instant::now();
+
             let prepare_dur = after_prepare.saturating_duration_since(frame_render_loop_started_at);
             let encode_submit_dur = after_submit.saturating_duration_since(after_prepare);
-            let present_dur = frame_presented_at.saturating_duration_since(after_submit);
-            let total_dur = frame_presented_at.saturating_duration_since(frame_render_loop_started_at);
+            let present_dur = after_present.saturating_duration_since(after_submit);
+            let gpu_wait_dur = after_gpu_wait.saturating_duration_since(after_present);
+            let total_dur = after_gpu_wait.saturating_duration_since(frame_render_loop_started_at);
             self.last_phase_timings = crate::renderer::metrics::PhaseTimings {
                 prepare: prepare_dur,
                 encode_and_submit: encode_submit_dur,
                 present_or_readback: present_dur,
+                gpu_wait: gpu_wait_dur,
                 total: total_dur,
             };
             self.render_loop_metrics_tracker
-                .record_presented_frame(frame_render_loop_started_at, frame_presented_at);
+                .record_presented_frame(frame_render_loop_started_at, after_gpu_wait);
         }
         Ok(())
     }

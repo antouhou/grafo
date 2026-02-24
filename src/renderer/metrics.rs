@@ -15,7 +15,10 @@ pub struct PhaseTimings {
     pub encode_and_submit: Duration,
     /// Time spent on presentation or readback (present, or map + poll + copy for offscreen).
     pub present_or_readback: Duration,
-    /// Total frame time (sum of all phases).
+    /// Time spent waiting for the GPU to finish all submitted work (`device.poll(Wait)`).
+    /// This reveals actual GPU execution time that is otherwise hidden by async submit.
+    pub gpu_wait: Duration,
+    /// Total frame time (sum of all phases including GPU wait).
     pub total: Duration,
 }
 

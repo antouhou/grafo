@@ -23,8 +23,8 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
 /// Fixed benchmark parameters
-const BENCH_WIDTH: u32 = 1600;
-const BENCH_HEIGHT: u32 = 1200;
+const BENCH_WIDTH: u32 = 2560;
+const BENCH_HEIGHT: u32 = 1600;
 const WARMUP_FRAMES: u64 = 30;
 const BENCH_FRAMES: u64 = 500;
 
@@ -35,12 +35,58 @@ const ROWS_PER_CONTAINER: usize = 4;
 const CELLS_PER_ROW: usize = 5;
 const CIRCLES_IN_SIDEBAR: usize = 4;
 
+/// Textured elements matching real-world usage.
+const TEXTURED_ELEMENTS: usize = 25;
+const TEXTURE_SIZE: u32 = 250;
+
 // Cache keys for geometry
 const CACHE_KEY_CONTAINER: u64 = 1;
 const CACHE_KEY_ROW: u64 = 2;
 const CACHE_KEY_CELL: u64 = 3;
 const CACHE_KEY_SIDEBAR: u64 = 4;
 const CACHE_KEY_CIRCLE: u64 = 5;
+const CACHE_KEY_TEXTURED: u64 = 6;
+
+/// Base texture ID; actual IDs are TEXTURE_ID_BASE..TEXTURE_ID_BASE+TEXTURED_ELEMENTS.
+const TEXTURE_ID_BASE: u64 = 100;
+
+/// Create procedural textures and load the textured shape geometry.
+fn load_textures_and_shapes(renderer: &mut grafo::Renderer<'_>) {
+    // Generate a checkerboard RGBA texture (TEXTURE_SIZE × TEXTURE_SIZE)
+    let tex_w = TEXTURE_SIZE;
+    let tex_h = TEXTURE_SIZE;
+    let mut rgba = vec![0u8; (tex_w * tex_h * 4) as usize];
+    for y in 0..tex_h {
+        for x in 0..tex_w {
+            let idx = ((y * tex_w + x) * 4) as usize;
+            let checker = ((x / 16) + (y / 16)) % 2 == 0;
+            let v = if checker { 200u8 } else { 80u8 };
+            rgba[idx] = v;
+            rgba[idx + 1] = v / 2;
+            rgba[idx + 2] = 255 - v;
+            rgba[idx + 3] = 255;
+        }
+    }
+
+    // Allocate TEXTURED_ELEMENTS distinct textures (same pixel data, different IDs)
+    for i in 0..TEXTURED_ELEMENTS {
+        let tex_id = TEXTURE_ID_BASE + i as u64;
+        renderer
+            .texture_manager()
+            .allocate_texture(tex_id, (tex_w, tex_h));
+        renderer
+            .texture_manager()
+            .load_data_into_texture(tex_id, (tex_w, tex_h), &rgba)
+            .unwrap();
+    }
+
+    // Textured rect shape (250×250)
+    let textured_rect = Shape::rect(
+        [(0.0, 0.0), (TEXTURE_SIZE as f32, TEXTURE_SIZE as f32)],
+        Stroke::default(),
+    );
+    renderer.load_shape(textured_rect, CACHE_KEY_TEXTURED, Some(CACHE_KEY_TEXTURED));
+}
 
 fn load_shape_geometries(renderer: &mut grafo::Renderer<'_>) {
     let container = Shape::rect(
@@ -143,6 +189,20 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
         total_shapes += 1;
     }
 
+    // Textured elements — 25 shapes with distinct textures, some overlapping
+    // Laid out in a 5×5 grid starting below the containers, partially overlapping by 30px
+    for i in 0..TEXTURED_ELEMENTS {
+        let tex_id = renderer.add_cached_shape_to_the_render_queue(CACHE_KEY_TEXTURED, None);
+        renderer.set_shape_texture(tex_id, Some(TEXTURE_ID_BASE + i as u64));
+        let col = i % 5;
+        let row = i / 5;
+        // Overlap: offset by 220px instead of 250px so they overlap by 30px
+        let tx = 10.0 + col as f32 * 220.0;
+        let ty = 520.0 + row as f32 * 220.0;
+        renderer.set_shape_transform(tex_id, TransformInstance::translation(tx, ty));
+        total_shapes += 1;
+    }
+
     total_shapes
 }
 
@@ -178,6 +238,7 @@ fn print_phase_breakdown(
     phase_prepare: Vec<Duration>,
     phase_encode_submit: Vec<Duration>,
     phase_present: Vec<Duration>,
+    phase_gpu_wait: Vec<Duration>,
 ) {
     fn summarize(label: &str, mut durations: Vec<Duration>) {
         durations.sort();
@@ -199,6 +260,7 @@ fn print_phase_breakdown(
     summarize("prepare:", phase_prepare);
     summarize("encode+submit:", phase_encode_submit);
     summarize("present:", phase_present);
+    summarize("gpu_wait:", phase_gpu_wait);
 }
 
 #[cfg(feature = "render_metrics")]
@@ -248,6 +310,8 @@ struct BenchApp<'a> {
     static_phase_encode_submit: Vec<Duration>,
     #[cfg(feature = "render_metrics")]
     static_phase_present: Vec<Duration>,
+    #[cfg(feature = "render_metrics")]
+    static_phase_gpu_wait: Vec<Duration>,
     // Dynamic bench data
     dynamic_frame_times: Vec<Duration>,
     dynamic_rebuild_times: Vec<Duration>,
@@ -258,6 +322,8 @@ struct BenchApp<'a> {
     dynamic_phase_encode_submit: Vec<Duration>,
     #[cfg(feature = "render_metrics")]
     dynamic_phase_present: Vec<Duration>,
+    #[cfg(feature = "render_metrics")]
+    dynamic_phase_gpu_wait: Vec<Duration>,
 }
 
 impl<'a> Default for BenchApp<'a> {
@@ -276,6 +342,8 @@ impl<'a> Default for BenchApp<'a> {
             static_phase_encode_submit: Vec::with_capacity(BENCH_FRAMES as usize),
             #[cfg(feature = "render_metrics")]
             static_phase_present: Vec::with_capacity(BENCH_FRAMES as usize),
+            #[cfg(feature = "render_metrics")]
+            static_phase_gpu_wait: Vec::with_capacity(BENCH_FRAMES as usize),
             dynamic_frame_times: Vec::with_capacity(BENCH_FRAMES as usize),
             dynamic_rebuild_times: Vec::with_capacity(BENCH_FRAMES as usize),
             dynamic_bench_start: None,
@@ -285,6 +353,8 @@ impl<'a> Default for BenchApp<'a> {
             dynamic_phase_encode_submit: Vec::with_capacity(BENCH_FRAMES as usize),
             #[cfg(feature = "render_metrics")]
             dynamic_phase_present: Vec::with_capacity(BENCH_FRAMES as usize),
+            #[cfg(feature = "render_metrics")]
+            dynamic_phase_gpu_wait: Vec::with_capacity(BENCH_FRAMES as usize),
         }
     }
 }
@@ -304,6 +374,7 @@ impl<'a> BenchApp<'a> {
                 std::mem::take(&mut self.static_phase_prepare),
                 std::mem::take(&mut self.static_phase_encode_submit),
                 std::mem::take(&mut self.static_phase_present),
+                std::mem::take(&mut self.static_phase_gpu_wait),
             );
             print_metrics(renderer);
         }
@@ -338,6 +409,7 @@ impl<'a> BenchApp<'a> {
                 std::mem::take(&mut self.dynamic_phase_prepare),
                 std::mem::take(&mut self.dynamic_phase_encode_submit),
                 std::mem::take(&mut self.dynamic_phase_present),
+                std::mem::take(&mut self.dynamic_phase_gpu_wait),
             );
             print_metrics(renderer);
         }
@@ -367,6 +439,7 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
         ));
 
         load_shape_geometries(&mut renderer);
+        load_textures_and_shapes(&mut renderer);
         self.total_shapes = build_scene(&mut renderer);
         eprintln!(
             "Benchmark: {} shapes, {}x{}, {} warmup + {} measured frames per test",
@@ -420,6 +493,7 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                                 self.static_phase_prepare.push(pt.prepare);
                                 self.static_phase_encode_submit.push(pt.encode_and_submit);
                                 self.static_phase_present.push(pt.present_or_readback);
+                                self.static_phase_gpu_wait.push(pt.gpu_wait);
                             }
                         }
 
@@ -467,6 +541,7 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                                 self.dynamic_phase_prepare.push(pt.prepare);
                                 self.dynamic_phase_encode_submit.push(pt.encode_and_submit);
                                 self.dynamic_phase_present.push(pt.present_or_readback);
+                                self.dynamic_phase_gpu_wait.push(pt.gpu_wait);
                             }
 
                             renderer.clear_draw_queue();

@@ -163,6 +163,7 @@ impl<'a> Renderer<'a> {
                 prepare: prepare_dur,
                 encode_and_submit: encode_submit_dur,
                 present_or_readback: readback_dur,
+                gpu_wait: std::time::Duration::ZERO, // readback already includes GPU wait via poll
                 total: total_dur,
             };
             self.render_loop_metrics_tracker
