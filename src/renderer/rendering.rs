@@ -539,7 +539,7 @@ impl<'a> Renderer<'a> {
                             return;
                         }
 
-                        // O3+O4: Leaf nodes — try to batch consecutive compatible leaves
+                        // Leaf nodes — try to batch consecutive compatible leaves
                         // into a single multi-instance draw call.
                         if draw_command.is_leaf() {
                             let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
@@ -620,8 +620,8 @@ impl<'a> Renderer<'a> {
                                 &buffers,
                             );
 
-                            // S5: If this parent doesn't clip children, draw it like
-                            // a leaf and push the *same* parent stencil so children
+                            // If this parent doesn't clip children, draw it like
+                            // a leaf and push the same parent stencil so children
                             // inherit the grandparent's clip region.
                             if !draw_command.clips_children() {
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
@@ -700,13 +700,13 @@ impl<'a> Renderer<'a> {
                             return;
                         }
 
-                        // O3: Leaf nodes already drew with Keep — skip decrement entirely
+                        // Leaf nodes already drew with Keep — skip decrement entirely.
                         if draw_command.is_leaf() {
                             return;
                         }
 
-                        // S5: Non-clipping parents pushed a stencil entry but never
-                        // incremented — just pop and skip the decrement pass entirely.
+                        // Non-clipping parents pushed a stencil entry but never
+                        // incremented — just pop and skip the decrement pass.
                         if !draw_command.clips_children() {
                             stencil_stack.pop();
                             return;

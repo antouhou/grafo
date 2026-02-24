@@ -329,7 +329,7 @@ pub(super) fn handle_decrement_pass<'rp>(
     }
 }
 
-/// O3: Leaf-node draw — single draw call with stencil Equal + Keep.
+/// Leaf-node draw — single draw call with stencil Equal + Keep.
 /// For nodes without children, the increment + decrement pair cancels out,
 /// so we can skip both and just draw at the parent's stencil reference.
 pub(super) fn handle_leaf_draw_pass<'rp>(
