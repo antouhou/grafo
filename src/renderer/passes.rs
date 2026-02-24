@@ -316,6 +316,67 @@ pub(super) fn handle_decrement_pass<'rp>(
     }
 }
 
+/// O3: Leaf-node draw — single draw call with stencil Equal + Keep.
+/// For nodes without children, the increment + decrement pair cancels out,
+/// so we can skip both and just draw at the parent's stencil reference.
+pub(super) fn handle_leaf_draw_pass<'rp>(
+    render_pass: &mut wgpu::RenderPass<'rp>,
+    currently_set_pipeline: &mut crate::renderer::types::Pipeline,
+    stencil_stack: &[u32],
+    shape: &mut (impl DrawShapeCommand + ?Sized),
+    pipelines: &crate::renderer::types::Pipelines,
+    buffers: &crate::renderer::types::Buffers,
+) {
+    if let Some(index_range) = shape.index_buffer_range() {
+        if shape.is_empty() {
+            return;
+        }
+
+        if !matches!(
+            currently_set_pipeline,
+            crate::renderer::types::Pipeline::LeafDraw
+        ) {
+            render_pass.set_pipeline(pipelines.leaf_draw_pipeline);
+            render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
+            render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
+            render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+
+            if !matches!(
+                currently_set_pipeline,
+                crate::renderer::types::Pipeline::StencilIncrement
+                    | crate::renderer::types::Pipeline::StencilDecrement
+            ) {
+                render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    buffers.aggregated_index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint16,
+                );
+            }
+
+            *currently_set_pipeline = crate::renderer::types::Pipeline::LeafDraw;
+        }
+
+        bind_shape_texture_layers(
+            render_pass,
+            [shape.texture_id(0), shape.texture_id(1)],
+            pipelines.texture_manager,
+            pipelines.shape_texture_bind_group_layout_background,
+            pipelines.shape_texture_bind_group_layout_foreground,
+            pipelines.default_shape_texture_bind_groups,
+            pipelines.shape_texture_layout_epoch,
+        );
+
+        bind_instance_buffers(render_pass, shape, buffers);
+
+        let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+        render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
+
+        // Leaf node: stencil was not modified, so record the parent stencil as this node's ref
+        // (children would read parent_stencil + 1, but leaves have no children).
+        *shape.stencil_ref_mut() = Some(parent_stencil);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_segments(
     draw_tree: &mut easy_tree::Tree<DrawCommand>,

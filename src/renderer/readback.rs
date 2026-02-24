@@ -67,6 +67,9 @@ impl<'a> Renderer<'a> {
 
         self.prepare_render();
 
+        #[cfg(feature = "render_metrics")]
+        let after_prepare = std::time::Instant::now();
+
         let (width, height) = self.physical_size;
 
         let size_changed = self.rtb_cached_width != width || self.rtb_cached_height != height;
@@ -129,6 +132,9 @@ impl<'a> Renderer<'a> {
 
         self.queue.submit(std::iter::once(encoder.finish()));
 
+        #[cfg(feature = "render_metrics")]
+        let after_submit = std::time::Instant::now();
+
         let mut readback_bytes = std::mem::take(&mut self.scratch.readback_bytes);
         Self::map_readback_buffer_into(&self.device, output_buffer, &mut readback_bytes);
         let required_readback_len = (height as usize).saturating_mul(padded_bytes_per_row as usize);
@@ -149,6 +155,16 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         {
             let frame_presented_at = std::time::Instant::now();
+            let prepare_dur = after_prepare.saturating_duration_since(frame_render_loop_started_at);
+            let encode_submit_dur = after_submit.saturating_duration_since(after_prepare);
+            let readback_dur = frame_presented_at.saturating_duration_since(after_submit);
+            let total_dur = frame_presented_at.saturating_duration_since(frame_render_loop_started_at);
+            self.last_phase_timings = crate::renderer::metrics::PhaseTimings {
+                prepare: prepare_dur,
+                encode_and_submit: encode_submit_dur,
+                present_or_readback: readback_dur,
+                total: total_dur,
+            };
             self.render_loop_metrics_tracker
                 .record_presented_frame(frame_render_loop_started_at, frame_presented_at);
         }

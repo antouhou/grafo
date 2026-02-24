@@ -60,8 +60,16 @@ impl<'a> Renderer<'a> {
         if self.draw_tree.is_empty() {
             self.draw_tree.add_node(draw_command)
         } else if let Some(clip_to_shape) = clip_to_shape {
+            // Mark the parent as non-leaf since it now has a child.
+            if let Some(parent) = self.draw_tree.get_mut(clip_to_shape) {
+                parent.set_not_leaf();
+            }
             self.draw_tree.add_child(clip_to_shape, draw_command)
         } else {
+            // Adding to root — mark root as non-leaf.
+            if let Some(root) = self.draw_tree.get_mut(0) {
+                root.set_not_leaf();
+            }
             self.draw_tree.add_child_to_root(draw_command)
         }
     }

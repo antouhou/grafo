@@ -3,6 +3,22 @@ use std::time::{Duration, Instant};
 
 use super::Renderer;
 
+/// Per-phase timing breakdown for a single frame.
+///
+/// Provides wall-clock durations for each phase of the render loop.
+/// Available when the `render_metrics` feature is enabled.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PhaseTimings {
+    /// Time spent in `prepare_render()` — CPU-side buffer aggregation and GPU upload.
+    pub prepare: Duration,
+    /// Time spent encoding GPU commands and submitting them (`render_to_texture_view` + `queue.submit`).
+    pub encode_and_submit: Duration,
+    /// Time spent on presentation or readback (present, or map + poll + copy for offscreen).
+    pub present_or_readback: Duration,
+    /// Total frame time (sum of all phases).
+    pub total: Duration,
+}
+
 const ROLLING_WINDOW_DURATION: Duration = Duration::from_secs(1);
 const MAX_ROLLING_WINDOW_SAMPLE_COUNT: usize = 16_384;
 
@@ -185,6 +201,11 @@ impl<'a> Renderer<'a> {
     /// Resets all render-loop metrics to start a new measurement window.
     pub fn reset_render_loop_metrics(&mut self) {
         self.render_loop_metrics_tracker.reset();
+    }
+
+    /// Returns the per-phase timing breakdown for the most recently rendered frame.
+    pub fn last_phase_timings(&self) -> PhaseTimings {
+        self.last_phase_timings
     }
 }
 

@@ -295,6 +295,12 @@ impl From<RectShape> for Shape {
     }
 }
 
+impl AsRef<Shape> for Shape {
+    fn as_ref(&self) -> &Shape {
+        self
+    }
+}
+
 /// Represents a simple rectangular shape with a fill color and stroke.
 ///
 /// You typically do not need to use `RectShape` directly; instead, use the [`Shape::rect`] method.
@@ -724,6 +730,8 @@ pub(crate) struct ShapeDrawData {
     pub(crate) texture_ids: [Option<u64>; 2],
     /// Optional per-instance color override (normalized [0,1]). If None, use shape's fill.
     pub(crate) color_override: Option<[f32; 4]>,
+    /// Whether this node is a leaf in the draw tree (no children).
+    pub(crate) is_leaf: bool,
 }
 
 impl ShapeDrawData {
@@ -740,6 +748,7 @@ impl ShapeDrawData {
             transform: None,
             texture_ids: [None, None],
             color_override: None,
+            is_leaf: true,
         }
     }
 
@@ -770,6 +779,8 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) texture_ids: [Option<u64>; 2],
     /// Optional per-instance color override (normalized [0,1]). If None, use cached shape default.
     pub(crate) color_override: Option<[f32; 4]>,
+    /// Whether this node is a leaf in the draw tree (no children).
+    pub(crate) is_leaf: bool,
 }
 
 impl CachedShapeDrawData {
@@ -783,6 +794,7 @@ impl CachedShapeDrawData {
             transform: None,
             texture_ids: [None, None],
             color_override: None,
+            is_leaf: true,
         }
     }
 }

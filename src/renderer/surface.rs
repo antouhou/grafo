@@ -50,6 +50,7 @@ impl<'a> Renderer<'a> {
 
         self.surface.configure(&self.device, &self.config);
         self.recreate_msaa_texture();
+        self.recreate_depth_stencil_texture();
 
         self.offscreen_texture_pool.trim(
             new_physical_size.0,
@@ -115,6 +116,18 @@ impl<'a> Renderer<'a> {
             self.msaa_sample_count,
         );
         self.trim_scratch_on_resize_or_policy();
+    }
+
+    /// Recreate the cached depth/stencil texture to match current physical size and MSAA settings.
+    pub(super) fn recreate_depth_stencil_texture(&mut self) {
+        let texture = create_and_depth_texture(
+            &self.device,
+            self.physical_size,
+            self.msaa_sample_count,
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.depth_stencil_texture = Some(texture);
+        self.depth_stencil_view = Some(view);
     }
 
     pub fn set_surface(&mut self, window: impl Into<SurfaceTarget<'static>>) {

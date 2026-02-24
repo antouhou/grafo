@@ -117,6 +117,15 @@ impl<'a> Renderer<'a> {
             msaa_sample_count,
         );
 
+        let leaf_draw_pipeline = crate::pipeline::create_stencil_keep_color_pipeline(
+            &device,
+            config.format,
+            msaa_sample_count,
+            &and_pipeline.get_bind_group_layout(0),
+            &and_texture_bgl_layer0,
+            &and_texture_bgl_layer1,
+        );
+
         let device = Arc::new(device);
         let queue = Arc::new(queue);
 
@@ -195,6 +204,8 @@ impl<'a> Renderer<'a> {
             msaa_sample_count,
             msaa_color_texture: None,
             msaa_color_texture_view: None,
+            depth_stencil_texture: None,
+            depth_stencil_view: None,
             loaded_effects: HashMap::new(),
             group_effects: HashMap::new(),
             backdrop_effects: HashMap::new(),
@@ -206,12 +217,16 @@ impl<'a> Renderer<'a> {
             backdrop_snapshot_view: None,
             stencil_only_pipeline: None,
             backdrop_color_pipeline: None,
+            leaf_draw_pipeline: Arc::new(leaf_draw_pipeline),
             #[cfg(feature = "render_metrics")]
             render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),
+            #[cfg(feature = "render_metrics")]
+            last_phase_timings: Default::default(),
             scratch: RendererScratch::new(),
         };
 
         renderer.recreate_msaa_texture();
+        renderer.recreate_depth_stencil_texture();
         renderer
     }
 
@@ -500,5 +515,14 @@ impl<'a> Renderer<'a> {
 
         self.composite_pipeline = None;
         self.composite_bgl = None;
+
+        self.leaf_draw_pipeline = Arc::new(crate::pipeline::create_stencil_keep_color_pipeline(
+            &self.device,
+            self.config.format,
+            self.msaa_sample_count,
+            &self.and_pipeline.get_bind_group_layout(0),
+            &self.shape_texture_bind_group_layout_background,
+            &self.shape_texture_bind_group_layout_foreground,
+        ));
     }
 }

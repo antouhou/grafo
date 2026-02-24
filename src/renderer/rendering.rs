@@ -1,7 +1,7 @@
 use super::*;
 use crate::renderer::passes::{
-    apply_effect_passes, handle_decrement_pass, handle_increment_pass, render_scene_behind_group,
-    render_segments, EffectPassRunConfig,
+    apply_effect_passes, handle_decrement_pass, handle_increment_pass, handle_leaf_draw_pass,
+    render_scene_behind_group, render_segments, EffectPassRunConfig,
 };
 use crate::renderer::traversal::{
     compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects,
@@ -37,6 +37,11 @@ impl<'a> Renderer<'a> {
             self.ensure_backdrop_color_pipeline();
         }
 
+        // O1: Ensure depth/stencil texture exists (lazy init on first frame)
+        if self.depth_stencil_view.is_none() {
+            self.recreate_depth_stencil_texture();
+        }
+
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -48,6 +53,7 @@ impl<'a> Renderer<'a> {
             and_bind_group: &self.and_bind_group,
             decrementing_pipeline: &self.decrementing_pipeline,
             decrementing_bind_group: &self.decrementing_bind_group,
+            leaf_draw_pipeline: &self.leaf_draw_pipeline,
             shape_texture_bind_group_layout_background: &self
                 .shape_texture_bind_group_layout_background,
             shape_texture_bind_group_layout_foreground: &self
@@ -387,13 +393,7 @@ impl<'a> Renderer<'a> {
         }
 
         {
-            let depth_texture = create_and_depth_texture(
-                &self.device,
-                (self.physical_size.0, self.physical_size.1),
-                self.msaa_sample_count,
-            );
-            let depth_texture_view =
-                depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let depth_texture_view = self.depth_stencil_view.as_ref().unwrap();
 
             if has_backdrop_effects {
                 plan_traversal_in_place(
@@ -502,26 +502,52 @@ impl<'a> Renderer<'a> {
                             return;
                         }
 
-                        match draw_command {
-                            DrawCommand::Shape(shape) => {
-                                handle_increment_pass(
-                                    render_pass,
-                                    currently_set_pipeline,
-                                    stencil_stack,
-                                    shape,
-                                    &pipelines,
-                                    &buffers,
-                                );
+                        // O3: Leaf nodes use stencil Keep — one draw, no decrement needed
+                        if draw_command.is_leaf() {
+                            match draw_command {
+                                DrawCommand::Shape(shape) => {
+                                    handle_leaf_draw_pass(
+                                        render_pass,
+                                        currently_set_pipeline,
+                                        stencil_stack,
+                                        shape,
+                                        &pipelines,
+                                        &buffers,
+                                    );
+                                }
+                                DrawCommand::CachedShape(shape) => {
+                                    handle_leaf_draw_pass(
+                                        render_pass,
+                                        currently_set_pipeline,
+                                        stencil_stack,
+                                        shape,
+                                        &pipelines,
+                                        &buffers,
+                                    );
+                                }
                             }
-                            DrawCommand::CachedShape(shape) => {
-                                handle_increment_pass(
-                                    render_pass,
-                                    currently_set_pipeline,
-                                    stencil_stack,
-                                    shape,
-                                    &pipelines,
-                                    &buffers,
-                                );
+                        } else {
+                            match draw_command {
+                                DrawCommand::Shape(shape) => {
+                                    handle_increment_pass(
+                                        render_pass,
+                                        currently_set_pipeline,
+                                        stencil_stack,
+                                        shape,
+                                        &pipelines,
+                                        &buffers,
+                                    );
+                                }
+                                DrawCommand::CachedShape(shape) => {
+                                    handle_increment_pass(
+                                        render_pass,
+                                        currently_set_pipeline,
+                                        stencil_stack,
+                                        shape,
+                                        &pipelines,
+                                        &buffers,
+                                    );
+                                }
                             }
                         }
                     },
@@ -535,6 +561,11 @@ impl<'a> Renderer<'a> {
                         }
 
                         if !skipped_stack.is_empty() {
+                            return;
+                        }
+
+                        // O3: Leaf nodes already drew with Keep — skip decrement entirely
+                        if draw_command.is_leaf() {
                             return;
                         }
 
@@ -591,6 +622,9 @@ impl<'a> Renderer<'a> {
         let frame_render_loop_started_at = std::time::Instant::now();
         self.prepare_render();
 
+        #[cfg(feature = "render_metrics")]
+        let after_prepare = std::time::Instant::now();
+
         let output = self.surface.get_current_texture()?;
         let output_texture_view = output
             .texture
@@ -598,10 +632,23 @@ impl<'a> Renderer<'a> {
 
         self.render_to_texture_view(&output_texture_view, Some(&output.texture));
 
+        #[cfg(feature = "render_metrics")]
+        let after_submit = std::time::Instant::now();
+
         output.present();
         #[cfg(feature = "render_metrics")]
         {
             let frame_presented_at = std::time::Instant::now();
+            let prepare_dur = after_prepare.saturating_duration_since(frame_render_loop_started_at);
+            let encode_submit_dur = after_submit.saturating_duration_since(after_prepare);
+            let present_dur = frame_presented_at.saturating_duration_since(after_submit);
+            let total_dur = frame_presented_at.saturating_duration_since(frame_render_loop_started_at);
+            self.last_phase_timings = crate::renderer::metrics::PhaseTimings {
+                prepare: prepare_dur,
+                encode_and_submit: encode_submit_dur,
+                present_or_readback: present_dur,
+                total: total_dur,
+            };
             self.render_loop_metrics_tracker
                 .record_presented_frame(frame_render_loop_started_at, frame_presented_at);
         }

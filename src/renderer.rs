@@ -34,7 +34,7 @@ mod construction;
 mod draw_queue;
 mod effects;
 #[cfg(feature = "render_metrics")]
-mod metrics;
+pub mod metrics;
 mod passes;
 mod preparation;
 mod readback;
@@ -169,6 +169,12 @@ pub struct Renderer<'a> {
     /// View of the MSAA color texture.
     msaa_color_texture_view: Option<wgpu::TextureView>,
 
+    /// Cached depth/stencil texture, reused across frames.
+    /// Recreated on resize or MSAA sample count change.
+    depth_stencil_texture: Option<wgpu::Texture>,
+    /// View of the cached depth/stencil texture.
+    depth_stencil_view: Option<wgpu::TextureView>,
+
     // ── Effect system ──────────────────────────────────────────────────
     /// Loaded (compiled) effects, keyed by user-provided effect_id.
     loaded_effects: HashMap<u64, LoadedEffect>,
@@ -198,9 +204,17 @@ pub struct Renderer<'a> {
     /// Used for Step 3 of the three-step backdrop draw.
     backdrop_color_pipeline: Option<wgpu::RenderPipeline>,
 
+    /// Pipeline for rendering leaf nodes (no children) with stencil Equal + Keep.
+    /// Avoids the redundant increment + decrement pair for childless shapes.
+    leaf_draw_pipeline: Arc<wgpu::RenderPipeline>,
+
     #[cfg(feature = "render_metrics")]
     /// Tracking for cumulative render-loop timing metrics.
     render_loop_metrics_tracker: RenderLoopMetricsTracker,
+
+    #[cfg(feature = "render_metrics")]
+    /// Per-phase timing breakdown for the most recently rendered frame.
+    last_phase_timings: self::metrics::PhaseTimings,
 
     // ── Reusable scratch state ───────────────────────────────────────────
     scratch: RendererScratch,

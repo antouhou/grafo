@@ -16,6 +16,24 @@ pub(super) enum DrawCommand {
 }
 
 impl DrawCommand {
+    /// Whether this node is a leaf (has no children in the draw tree).
+    /// Starts as `true`; set to `false` when a child is added.
+    pub(super) fn is_leaf(&self) -> bool {
+        match self {
+            DrawCommand::Shape(s) => s.is_leaf,
+            DrawCommand::CachedShape(s) => s.is_leaf,
+        }
+    }
+
+    pub(super) fn set_not_leaf(&mut self) {
+        match self {
+            DrawCommand::Shape(s) => s.is_leaf = false,
+            DrawCommand::CachedShape(s) => s.is_leaf = false,
+        }
+    }
+}
+
+impl DrawCommand {
     pub(super) fn set_transform(&mut self, transform: InstanceTransform) {
         match self {
             DrawCommand::Shape(shape) => shape.set_transform(transform),
@@ -66,6 +84,7 @@ pub(super) enum Pipeline {
     None,
     StencilIncrement,
     StencilDecrement,
+    LeafDraw,
 }
 
 pub(super) struct Buffers<'a> {
@@ -84,6 +103,7 @@ pub(super) struct Pipelines<'a> {
     pub(super) and_bind_group: &'a wgpu::BindGroup,
     pub(super) decrementing_pipeline: &'a wgpu::RenderPipeline,
     pub(super) decrementing_bind_group: &'a wgpu::BindGroup,
+    pub(super) leaf_draw_pipeline: &'a wgpu::RenderPipeline,
     pub(super) shape_texture_bind_group_layout_background: &'a wgpu::BindGroupLayout,
     pub(super) shape_texture_bind_group_layout_foreground: &'a wgpu::BindGroupLayout,
     pub(super) default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
