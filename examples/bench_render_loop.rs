@@ -122,7 +122,6 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
 
     for c in 0..CONTAINERS {
         let container_id = renderer.add_cached_shape_to_the_render_queue(CACHE_KEY_CONTAINER, None);
-        renderer.set_shape_clips_children(container_id, false);
         renderer.set_shape_color(
             container_id,
             Some(container_colors[c % container_colors.len()]),
@@ -134,7 +133,6 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
         for r in 0..ROWS_PER_CONTAINER {
             let row_id =
                 renderer.add_cached_shape_to_the_render_queue(CACHE_KEY_ROW, Some(container_id));
-            renderer.set_shape_clips_children(row_id, false);
             renderer.set_shape_color(row_id, Some(Color::rgb(200, 200, 210)));
             let ry = 10.0 + r as f32 * 120.0;
             renderer
@@ -160,7 +158,6 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
     // Sidebar with circles
     let sidebar_x = 10.0 + CONTAINERS as f32 * 250.0;
     let sidebar_id = renderer.add_cached_shape_to_the_render_queue(CACHE_KEY_SIDEBAR, None);
-    renderer.set_shape_clips_children(sidebar_id, false);
     renderer.set_shape_color(sidebar_id, Some(Color::rgb(50, 50, 70)));
     renderer.set_shape_transform(sidebar_id, TransformInstance::translation(sidebar_x, 10.0));
     total_shapes += 1;
@@ -268,6 +265,14 @@ fn print_metrics(renderer: &grafo::Renderer<'_>) {
         "Cumulative avg:  {:.3}ms",
         renderer.average_render_loop_duration().as_secs_f64() * 1000.0
     );
+    let pc = renderer.last_pipeline_switch_counts();
+    println!("--- pipeline switches (last frame) ---");
+    println!("  StencilIncrement: {}", pc.to_stencil_increment);
+    println!("  StencilDecrement: {}", pc.to_stencil_decrement);
+    println!("  LeafDraw:         {}", pc.to_leaf_draw);
+    println!("  Composite:        {}", pc.to_composite);
+    println!("  Total switches:   {}", pc.total_switches);
+    println!("  Scissor clips:    {}", pc.scissor_clips);
 }
 
 // ── Event-loop–driven benchmark ──────────────────────────────────────────────

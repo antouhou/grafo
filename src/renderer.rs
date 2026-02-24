@@ -221,6 +221,10 @@ pub struct Renderer<'a> {
     /// Per-phase timing breakdown for the most recently rendered frame.
     last_phase_timings: self::metrics::PhaseTimings,
 
+    #[cfg(feature = "render_metrics")]
+    /// Per-frame pipeline switch counts for the most recently rendered frame.
+    last_pipeline_switch_counts: self::metrics::PipelineSwitchCounts,
+
     // ── Reusable scratch state ───────────────────────────────────────────
     scratch: RendererScratch,
 }

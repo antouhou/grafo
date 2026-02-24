@@ -47,6 +47,10 @@ use std::sync::Arc;
 
 pub(crate) struct CachedShape {
     pub vertex_buffers: Arc<VertexBuffers<CustomVertex, u16>>,
+    /// Whether the original shape was an axis-aligned rectangle.
+    pub(crate) is_rect: bool,
+    /// The local-space bounding rect when `is_rect` is true.
+    pub(crate) rect_bounds: Option<[(f32, f32); 2]>,
 }
 
 pub(crate) enum TessellatedGeometry {
@@ -89,12 +93,18 @@ impl CachedShape {
         pool: &mut PoolManager,
         tessellator_cache_key: Option<u64>,
     ) -> Self {
+        let (is_rect, rect_bounds) = match shape {
+            Shape::Rect(r) => (true, Some(r.rect)),
+            _ => (false, None),
+        };
         let vertices = match shape.tessellate(tessellator, pool, tessellator_cache_key) {
             TessellatedGeometry::Owned(vertex_buffers) => Arc::new(vertex_buffers),
             TessellatedGeometry::Shared(vertex_buffers) => vertex_buffers,
         };
         Self {
             vertex_buffers: vertices,
+            is_rect,
+            rect_bounds,
         }
     }
 }
@@ -735,11 +745,15 @@ pub(crate) struct ShapeDrawData {
     /// When `false`, skip stencil increment/decrement for this parent
     /// (children render without being clipped to this shape).
     pub(crate) clips_children: bool,
+    /// Whether the underlying shape is an axis-aligned rectangle (`Shape::Rect`).
+    /// Used to enable scissor-based clipping instead of stencil for rect parents.
+    pub(crate) is_rect: bool,
 }
 
 impl ShapeDrawData {
     pub fn new(shape: impl Into<Shape>, cache_key: Option<u64>) -> Self {
         let shape = shape.into();
+        let is_rect = matches!(shape, Shape::Rect(_));
 
         ShapeDrawData {
             shape,
@@ -753,6 +767,7 @@ impl ShapeDrawData {
             color_override: None,
             is_leaf: true,
             clips_children: true,
+            is_rect,
         }
     }
 
@@ -788,6 +803,11 @@ pub(crate) struct CachedShapeDrawData {
     /// When `false`, skip stencil increment/decrement for this parent
     /// (children render without being clipped to this shape).
     pub(crate) clips_children: bool,
+    /// Whether the underlying shape is an axis-aligned rectangle.
+    /// Used to enable scissor-based clipping instead of stencil for rect parents.
+    pub(crate) is_rect: bool,
+    /// The local-space bounding rect when `is_rect` is true, for scissor computation.
+    pub(crate) rect_bounds: Option<[(f32, f32); 2]>,
 }
 
 impl CachedShapeDrawData {
@@ -803,6 +823,16 @@ impl CachedShapeDrawData {
             color_override: None,
             is_leaf: true,
             clips_children: true,
+            is_rect: false,
+            rect_bounds: None,
+        }
+    }
+
+    pub fn new_rect(id: u64, rect_bounds: [(f32, f32); 2]) -> Self {
+        Self {
+            is_rect: true,
+            rect_bounds: Some(rect_bounds),
+            ..Self::new(id)
         }
     }
 }
@@ -1140,6 +1170,8 @@ pub(crate) trait DrawShapeCommand {
     fn set_instance_color_override(&mut self, color: Option<[f32; 4]>);
     fn clips_children(&self) -> bool;
     fn set_clips_children(&mut self, clips: bool);
+    fn is_rect(&self) -> bool;
+    fn rect_bounds(&self) -> Option<[(f32, f32); 2]>;
 }
 
 impl DrawShapeCommand for ShapeDrawData {
@@ -1209,6 +1241,19 @@ impl DrawShapeCommand for ShapeDrawData {
     fn set_clips_children(&mut self, clips: bool) {
         self.clips_children = clips;
     }
+
+    #[inline]
+    fn is_rect(&self) -> bool {
+        self.is_rect
+    }
+
+    #[inline]
+    fn rect_bounds(&self) -> Option<[(f32, f32); 2]> {
+        match &self.shape {
+            Shape::Rect(r) => Some(r.rect),
+            _ => None,
+        }
+    }
 }
 
 impl DrawShapeCommand for CachedShapeDrawData {
@@ -1277,5 +1322,15 @@ impl DrawShapeCommand for CachedShapeDrawData {
     #[inline]
     fn set_clips_children(&mut self, clips: bool) {
         self.clips_children = clips;
+    }
+
+    #[inline]
+    fn is_rect(&self) -> bool {
+        self.is_rect
+    }
+
+    #[inline]
+    fn rect_bounds(&self) -> Option<[(f32, f32); 2]> {
+        self.rect_bounds
     }
 }

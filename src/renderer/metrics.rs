@@ -3,6 +3,39 @@ use std::time::{Duration, Instant};
 
 use super::Renderer;
 
+/// Per-frame pipeline switch counts for diagnosing GPU state-change overhead.
+///
+/// Each field counts how many times the corresponding `set_pipeline` call was issued
+/// during a single frame. `scissor_clips` counts how many times a scissor rect was
+/// used *instead* of a stencil increment/decrement pair.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PipelineSwitchCounts {
+    /// Number of switches to the stencil-increment pipeline.
+    pub to_stencil_increment: u32,
+    /// Number of switches to the stencil-decrement pipeline.
+    pub to_stencil_decrement: u32,
+    /// Number of switches to the leaf-draw pipeline.
+    pub to_leaf_draw: u32,
+    /// Number of switches to the composite (effect) pipeline, which resets tracking.
+    pub to_composite: u32,
+    /// Total GPU pipeline switches (`set_pipeline` calls).
+    pub total_switches: u32,
+    /// Number of parent shapes clipped via scissor rect instead of stencil.
+    pub scissor_clips: u32,
+}
+
+impl PipelineSwitchCounts {
+    /// Merge another frame's counts into this accumulator.
+    pub fn accumulate(&mut self, other: &Self) {
+        self.to_stencil_increment += other.to_stencil_increment;
+        self.to_stencil_decrement += other.to_stencil_decrement;
+        self.to_leaf_draw += other.to_leaf_draw;
+        self.to_composite += other.to_composite;
+        self.total_switches += other.total_switches;
+        self.scissor_clips += other.scissor_clips;
+    }
+}
+
 /// Per-phase timing breakdown for a single frame.
 ///
 /// Provides wall-clock durations for each phase of the render loop.
@@ -209,6 +242,14 @@ impl<'a> Renderer<'a> {
     /// Returns the per-phase timing breakdown for the most recently rendered frame.
     pub fn last_phase_timings(&self) -> PhaseTimings {
         self.last_phase_timings
+    }
+
+    /// Returns the pipeline switch counts for the most recently rendered frame.
+    ///
+    /// Shows how many times each GPU pipeline was bound, and how many parent shapes
+    /// used scissor clipping instead of stencil increment/decrement.
+    pub fn last_pipeline_switch_counts(&self) -> PipelineSwitchCounts {
+        self.last_pipeline_switch_counts
     }
 }
 

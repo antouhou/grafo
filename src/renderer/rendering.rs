@@ -1,8 +1,8 @@
 use super::*;
 use crate::renderer::passes::{
     apply_effect_passes, flush_pending_leaf_batch, handle_decrement_pass, handle_increment_pass,
-    handle_leaf_draw_pass, render_scene_behind_group, render_segments, try_batch_leaf,
-    EffectPassRunConfig, PendingLeafBatch,
+    handle_leaf_draw_pass, intersect_scissor, render_scene_behind_group, render_segments,
+    try_batch_leaf, try_scissor_for_rect, EffectPassRunConfig, PendingLeafBatch,
 };
 use crate::renderer::traversal::{
     compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects,
@@ -23,6 +23,7 @@ impl<'a> Renderer<'a> {
         let mut effect_output_textures = std::mem::take(&mut self.scratch.effect_output_textures);
         let mut stencil_stack = std::mem::take(&mut self.scratch.stencil_stack);
         let mut skipped_stack = std::mem::take(&mut self.scratch.skipped_stack);
+        let mut scissor_stack = std::mem::take(&mut self.scratch.scissor_stack);
         let mut backdrop_work_textures = std::mem::take(&mut self.scratch.backdrop_work_textures);
 
         let has_group_effects = !self.group_effects.is_empty();
@@ -42,6 +43,9 @@ impl<'a> Renderer<'a> {
         if self.depth_stencil_view.is_none() {
             self.recreate_depth_stencil_texture();
         }
+
+        #[cfg(feature = "render_metrics")]
+        let mut frame_pipeline_counts = crate::renderer::metrics::PipelineSwitchCounts::default();
 
         let mut encoder = self
             .device
@@ -94,6 +98,8 @@ impl<'a> Renderer<'a> {
             effect_node_ids.sort_by(|left, right| right.1.cmp(&left.1));
 
             let (width, height) = self.physical_size;
+            let physical_size = self.physical_size;
+            let scale_factor = self.scale_factor;
 
             for &(node_id, _depth) in &effect_node_ids {
                 let effect_instance = match self.group_effects.get(&node_id) {
@@ -156,6 +162,8 @@ impl<'a> Renderer<'a> {
                         &buffers,
                         &mut stencil_stack,
                         &mut skipped_stack,
+                        self.scale_factor,
+                        self.physical_size,
                     );
 
                     let behind_copy_source = if behind_texture.sample_count > 1 {
@@ -194,6 +202,7 @@ impl<'a> Renderer<'a> {
                         default_shape_texture_bind_groups: &self.default_shape_texture_bind_groups,
                         device: &self.device,
                         physical_size: self.physical_size,
+                        scale_factor: self.scale_factor,
                         config_format: self.config.format,
                         backdrop_snapshot_texture: self.backdrop_snapshot_texture.as_ref().unwrap(),
                         backdrop_snapshot_view: self.backdrop_snapshot_view.as_ref().unwrap(),
@@ -263,7 +272,10 @@ impl<'a> Renderer<'a> {
 
                     stencil_stack.clear();
                     skipped_stack.clear();
-                    let current_pipeline = crate::renderer::types::Pipeline::None;
+                    scissor_stack.clear();
+                    let subtree_viewport = (0u32, 0u32, width, height);
+                    scissor_stack.push(subtree_viewport);
+                    let current_pipeline = crate::renderer::types::PipelineTracker::new();
                     let bound_texture_state = crate::renderer::types::BoundTextureState::default();
                     let mut data = (
                         render_pass,
@@ -271,6 +283,7 @@ impl<'a> Renderer<'a> {
                         current_pipeline,
                         &mut skipped_stack,
                         bound_texture_state,
+                        &mut scissor_stack,
                     );
 
                     let effect_results_ref = &effect_results;
@@ -285,6 +298,7 @@ impl<'a> Renderer<'a> {
                                 currently_set_pipeline,
                                 skipped_stack,
                                 bound_texture_state,
+                                scissor_stack,
                             ) = data;
 
                             if shape_id != node_id {
@@ -295,8 +309,8 @@ impl<'a> Renderer<'a> {
                                         render_pass.set_bind_group(0, result_bg, &[]);
                                         render_pass.set_stencil_reference(parent_stencil);
                                         render_pass.draw(0..3, 0..1);
-                                        *currently_set_pipeline =
-                                            crate::renderer::types::Pipeline::None;
+                                        currently_set_pipeline
+                                            .switch_to(crate::renderer::types::Pipeline::None);
                                         bound_texture_state.invalidate();
                                     }
                                     skipped_stack.push(shape_id);
@@ -306,6 +320,26 @@ impl<'a> Renderer<'a> {
 
                             if !skipped_stack.is_empty() {
                                 return;
+                            }
+
+                            // Scissor optimization for rect parents in effect subtrees.
+                            if !draw_command.is_leaf() && draw_command.clips_children() {
+                                if let Some(scissor_rect) =
+                                    try_scissor_for_rect(draw_command, scale_factor, physical_size)
+                                {
+                                    let current_scissor =
+                                        scissor_stack.last().copied().unwrap_or(subtree_viewport);
+                                    let clipped = intersect_scissor(current_scissor, scissor_rect);
+                                    scissor_stack.push(clipped);
+                                    render_pass.set_scissor_rect(
+                                        clipped.0, clipped.1, clipped.2, clipped.3,
+                                    );
+                                    let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                                    stencil_stack.push(parent_stencil);
+                                    #[cfg(feature = "render_metrics")]
+                                    currently_set_pipeline.record_scissor_clip();
+                                    return;
+                                }
                             }
 
                             match draw_command {
@@ -340,6 +374,7 @@ impl<'a> Renderer<'a> {
                                 currently_set_pipeline,
                                 skipped_stack,
                                 bound_texture_state,
+                                scissor_stack,
                             ) = data;
 
                             if skipped_stack.last().copied() == Some(shape_id) {
@@ -348,6 +383,20 @@ impl<'a> Renderer<'a> {
                             }
 
                             if !skipped_stack.is_empty() {
+                                return;
+                            }
+
+                            // Scissor optimization: pop scissor for rect parents.
+                            if !draw_command.is_leaf()
+                                && draw_command.clips_children()
+                                && try_scissor_for_rect(draw_command, scale_factor, physical_size)
+                                    .is_some()
+                            {
+                                scissor_stack.pop();
+                                let prev =
+                                    scissor_stack.last().copied().unwrap_or(subtree_viewport);
+                                render_pass.set_scissor_rect(prev.0, prev.1, prev.2, prev.3);
+                                stencil_stack.pop();
                                 return;
                             }
 
@@ -378,6 +427,12 @@ impl<'a> Renderer<'a> {
                         },
                         &mut data,
                     );
+
+                    #[cfg(feature = "render_metrics")]
+                    {
+                        let (_, _, ref pipeline_tracker, _, _, _) = data;
+                        frame_pipeline_counts.accumulate(&pipeline_tracker.counts);
+                    }
                 }
 
                 let source_view = if subtree_texture.sample_count > 1 {
@@ -443,6 +498,7 @@ impl<'a> Renderer<'a> {
                     default_shape_texture_bind_groups: &self.default_shape_texture_bind_groups,
                     device: &self.device,
                     physical_size: self.physical_size,
+                    scale_factor: self.scale_factor,
                     config_format: self.config.format,
                     backdrop_snapshot_texture: self.backdrop_snapshot_texture.as_ref().unwrap(),
                     backdrop_snapshot_view: self.backdrop_snapshot_view.as_ref().unwrap(),
@@ -487,9 +543,15 @@ impl<'a> Renderer<'a> {
 
                 stencil_stack.clear();
                 skipped_stack.clear();
-                let current_pipeline = crate::renderer::types::Pipeline::None;
+                // Initialize scissor stack with the full viewport.
+                scissor_stack.clear();
+                let viewport_scissor = (0u32, 0u32, self.physical_size.0, self.physical_size.1);
+                scissor_stack.push(viewport_scissor);
+                let current_pipeline = crate::renderer::types::PipelineTracker::new();
                 let bound_texture_state = crate::renderer::types::BoundTextureState::default();
                 let pending_leaf_batch = PendingLeafBatch::default();
+                let scale_factor = self.scale_factor;
+                let physical_size = self.physical_size;
                 let mut data = (
                     render_pass,
                     &mut stencil_stack,
@@ -497,6 +559,7 @@ impl<'a> Renderer<'a> {
                     &mut skipped_stack,
                     bound_texture_state,
                     pending_leaf_batch,
+                    &mut scissor_stack,
                 );
 
                 let effect_results_ref = &effect_results;
@@ -511,6 +574,7 @@ impl<'a> Renderer<'a> {
                             skipped_stack,
                             bound_texture_state,
                             pending_batch,
+                            scissor_stack,
                         ) = data;
 
                         if let Some(result_bind_group) = effect_results_ref.get(&shape_id) {
@@ -528,7 +592,8 @@ impl<'a> Renderer<'a> {
                                 render_pass.set_bind_group(0, result_bind_group, &[]);
                                 render_pass.set_stencil_reference(parent_stencil);
                                 render_pass.draw(0..3, 0..1);
-                                *currently_set_pipeline = crate::renderer::types::Pipeline::None;
+                                currently_set_pipeline
+                                    .switch_to(crate::renderer::types::Pipeline::None);
                                 bound_texture_state.invalidate();
                             }
                             skipped_stack.push(shape_id);
@@ -539,7 +604,7 @@ impl<'a> Renderer<'a> {
                             return;
                         }
 
-                        // Leaf nodes — try to batch consecutive compatible leaves
+                        // O3+O4: Leaf nodes — try to batch consecutive compatible leaves
                         // into a single multi-instance draw call.
                         if draw_command.is_leaf() {
                             let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
@@ -620,8 +685,8 @@ impl<'a> Renderer<'a> {
                                 &buffers,
                             );
 
-                            // If this parent doesn't clip children, draw it like
-                            // a leaf and push the same parent stencil so children
+                            // S5: If this parent doesn't clip children, draw it like
+                            // a leaf and push the *same* parent stencil so children
                             // inherit the grandparent's clip region.
                             if !draw_command.clips_children() {
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
@@ -653,7 +718,53 @@ impl<'a> Renderer<'a> {
                                 }
                                 // Push same stencil so children use grandparent's clip.
                                 stencil_stack.push(parent_stencil);
+                            } else if let Some(scissor_rect) =
+                                try_scissor_for_rect(draw_command, scale_factor, physical_size)
+                            {
+                                // Scissor optimization: rect parent with axis-aligned transform.
+                                // Use hardware scissor instead of stencil increment/decrement.
+                                let current_scissor =
+                                    scissor_stack.last().copied().unwrap_or(viewport_scissor);
+                                let clipped = intersect_scissor(current_scissor, scissor_rect);
+                                scissor_stack.push(clipped);
+                                render_pass
+                                    .set_scissor_rect(clipped.0, clipped.1, clipped.2, clipped.3);
+                                #[cfg(feature = "render_metrics")]
+                                currently_set_pipeline.record_scissor_clip();
+
+                                // Draw the rect itself as a visible shape (like a leaf).
+                                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                                match draw_command {
+                                    DrawCommand::Shape(shape) => {
+                                        *shape.stencil_ref_mut() = Some(parent_stencil);
+                                        handle_leaf_draw_pass(
+                                            render_pass,
+                                            currently_set_pipeline,
+                                            bound_texture_state,
+                                            stencil_stack,
+                                            shape,
+                                            &pipelines,
+                                            &buffers,
+                                        );
+                                    }
+                                    DrawCommand::CachedShape(shape) => {
+                                        *shape.stencil_ref_mut() = Some(parent_stencil);
+                                        handle_leaf_draw_pass(
+                                            render_pass,
+                                            currently_set_pipeline,
+                                            bound_texture_state,
+                                            stencil_stack,
+                                            shape,
+                                            &pipelines,
+                                            &buffers,
+                                        );
+                                    }
+                                }
+                                // Push a dummy stencil entry so the stack stays balanced
+                                // (post-visit will pop it). Children use the parent's stencil ref.
+                                stencil_stack.push(parent_stencil);
                             } else {
+                                // Complex shape or non-axis-aligned rect: stencil as before.
                                 match draw_command {
                                     DrawCommand::Shape(shape) => {
                                         handle_increment_pass(
@@ -689,6 +800,7 @@ impl<'a> Renderer<'a> {
                             skipped_stack,
                             bound_texture_state,
                             pending_batch,
+                            scissor_stack,
                         ) = data;
 
                         if skipped_stack.last().copied() == Some(shape_id) {
@@ -700,14 +812,27 @@ impl<'a> Renderer<'a> {
                             return;
                         }
 
-                        // Leaf nodes already drew with Keep — skip decrement entirely.
+                        // O3: Leaf nodes already drew with Keep — skip decrement entirely
                         if draw_command.is_leaf() {
                             return;
                         }
 
-                        // Non-clipping parents pushed a stencil entry but never
-                        // incremented — just pop and skip the decrement pass.
+                        // S5: Non-clipping parents pushed a stencil entry but never
+                        // incremented — just pop and skip the decrement pass entirely.
                         if !draw_command.clips_children() {
+                            stencil_stack.pop();
+                            return;
+                        }
+
+                        // Scissor optimization: if pre-visit used scissor for this node,
+                        // pop the scissor stack and restore the previous scissor rect.
+                        // This is deterministic: the same conditions evaluated in pre-visit
+                        // will produce the same result here.
+                        if try_scissor_for_rect(draw_command, scale_factor, physical_size).is_some()
+                        {
+                            scissor_stack.pop();
+                            let prev = scissor_stack.last().copied().unwrap_or(viewport_scissor);
+                            render_pass.set_scissor_rect(prev.0, prev.1, prev.2, prev.3);
                             stencil_stack.pop();
                             return;
                         }
@@ -758,6 +883,7 @@ impl<'a> Renderer<'a> {
                         _,
                         bound_texture_state,
                         pending_batch,
+                        _,
                     ) = &mut data;
                     flush_pending_leaf_batch(
                         pending_batch,
@@ -767,6 +893,11 @@ impl<'a> Renderer<'a> {
                         &pipelines,
                         &buffers,
                     );
+                }
+                #[cfg(feature = "render_metrics")]
+                {
+                    let (_, _, ref pipeline_tracker, _, _, _, _) = data;
+                    frame_pipeline_counts.accumulate(&pipeline_tracker.counts);
                 }
             }
         }
@@ -788,7 +919,13 @@ impl<'a> Renderer<'a> {
         self.scratch.effect_output_textures = effect_output_textures;
         self.scratch.stencil_stack = stencil_stack;
         self.scratch.skipped_stack = skipped_stack;
+        self.scratch.scissor_stack = scissor_stack;
         self.scratch.backdrop_work_textures = backdrop_work_textures;
+
+        #[cfg(feature = "render_metrics")]
+        {
+            self.last_pipeline_switch_counts = frame_pipeline_counts;
+        }
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {

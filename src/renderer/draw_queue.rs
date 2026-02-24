@@ -33,10 +33,20 @@ impl<'a> Renderer<'a> {
         cache_key: u64,
         clip_to_shape: Option<usize>,
     ) -> usize {
-        self.add_draw_command(
-            DrawCommand::CachedShape(CachedShapeDrawData::new(cache_key)),
-            clip_to_shape,
-        )
+        let draw_data = if let Some(cached) = self.shape_cache.get(&cache_key) {
+            if cached.is_rect {
+                if let Some(bounds) = cached.rect_bounds {
+                    CachedShapeDrawData::new_rect(cache_key, bounds)
+                } else {
+                    CachedShapeDrawData::new(cache_key)
+                }
+            } else {
+                CachedShapeDrawData::new(cache_key)
+            }
+        } else {
+            CachedShapeDrawData::new(cache_key)
+        };
+        self.add_draw_command(DrawCommand::CachedShape(draw_data), clip_to_shape)
     }
 
     pub fn texture_manager(&self) -> &TextureManager {
@@ -132,17 +142,6 @@ impl<'a> Renderer<'a> {
         let normalized_color = color.map(|value| value.normalize());
         self.mutate_draw_command(node_id, |draw_command| {
             draw_command.set_instance_color_override(normalized_color)
-        });
-    }
-
-    /// Set whether this shape clips its children using the stencil buffer.
-    ///
-    /// When `true` (the default), children of this shape are only visible within
-    /// the parent's geometry. Set to `false` to let children render without
-    /// stencil clipping, saving an increment + decrement pass pair.
-    pub fn set_shape_clips_children(&mut self, node_id: usize, clips: bool) {
-        self.mutate_draw_command(node_id, |draw_command| {
-            draw_command.set_clips_children(clips);
         });
     }
 }

@@ -73,6 +73,20 @@ impl DrawCommand {
         }
     }
 
+    pub(super) fn is_rect(&self) -> bool {
+        match self {
+            DrawCommand::Shape(shape) => shape.is_rect(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.is_rect(),
+        }
+    }
+
+    pub(super) fn rect_bounds(&self) -> Option<[(f32, f32); 2]> {
+        match self {
+            DrawCommand::Shape(shape) => shape.rect_bounds(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.rect_bounds(),
+        }
+    }
+
     pub(super) fn clear_frame_state(&mut self) {
         match self {
             DrawCommand::Shape(shape) => {
@@ -99,6 +113,48 @@ pub(super) enum Pipeline {
     StencilIncrement,
     StencilDecrement,
     LeafDraw,
+}
+
+/// Wraps [`Pipeline`] tracking with optional per-frame switch counters.
+///
+/// When the `render_metrics` feature is enabled the tracker also counts
+/// every GPU `set_pipeline` call and every scissor-clip substitution so
+/// the numbers can be queried after the frame.
+pub(super) struct PipelineTracker {
+    pub(super) current: Pipeline,
+    #[cfg(feature = "render_metrics")]
+    pub(super) counts: super::metrics::PipelineSwitchCounts,
+}
+
+impl PipelineTracker {
+    pub(super) fn new() -> Self {
+        Self {
+            current: Pipeline::None,
+            #[cfg(feature = "render_metrics")]
+            counts: super::metrics::PipelineSwitchCounts::default(),
+        }
+    }
+
+    /// Record a real GPU pipeline switch (only when the pipeline actually changes).
+    pub(super) fn switch_to(&mut self, pipeline: Pipeline) {
+        self.current = pipeline;
+        #[cfg(feature = "render_metrics")]
+        {
+            self.counts.total_switches += 1;
+            match pipeline {
+                Pipeline::StencilIncrement => self.counts.to_stencil_increment += 1,
+                Pipeline::StencilDecrement => self.counts.to_stencil_decrement += 1,
+                Pipeline::LeafDraw => self.counts.to_leaf_draw += 1,
+                Pipeline::None => self.counts.to_composite += 1,
+            }
+        }
+    }
+
+    /// Record that a scissor clip was used instead of stencil increment/decrement.
+    #[cfg(feature = "render_metrics")]
+    pub(super) fn record_scissor_clip(&mut self) {
+        self.counts.scissor_clips += 1;
+    }
 }
 
 /// Tracks the currently-bound texture bind groups to skip redundant `set_bind_group` calls.
@@ -166,6 +222,7 @@ pub(super) struct BackdropContext<'a> {
     pub(super) default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
     pub(super) device: &'a wgpu::Device,
     pub(super) physical_size: (u32, u32),
+    pub(super) scale_factor: f64,
     pub(super) config_format: wgpu::TextureFormat,
     pub(super) backdrop_snapshot_texture: &'a wgpu::Texture,
     pub(super) backdrop_snapshot_view: &'a wgpu::TextureView,
@@ -175,12 +232,19 @@ pub(super) struct BackdropContext<'a> {
     pub(super) shape_texture_layout_epoch: u64,
 }
 
+impl BackdropContext<'_> {
+    pub(super) fn scale_factor(&self) -> f64 {
+        self.scale_factor
+    }
+}
+
 const MAX_EFFECT_RESULTS_CAPACITY: usize = 4_096;
 const MAX_EFFECT_NODE_IDS_CAPACITY: usize = 4_096;
 const MAX_TEXTURE_RECYCLE_CAPACITY: usize = 1_024;
 const MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY: usize = 2_048;
 const MAX_STENCIL_STACK_CAPACITY: usize = 16_384;
 const MAX_SKIPPED_STACK_CAPACITY: usize = 16_384;
+const MAX_SCISSOR_STACK_CAPACITY: usize = 16_384;
 const MAX_READBACK_BYTES_CAPACITY: usize = 64 * 1024 * 1024;
 
 pub(super) struct RendererScratch {
@@ -190,6 +254,9 @@ pub(super) struct RendererScratch {
     pub(super) effect_output_textures: Vec<wgpu::Texture>,
     pub(super) stencil_stack: Vec<u32>,
     pub(super) skipped_stack: Vec<usize>,
+    /// Stack of intersected scissor rects (x, y, width, height) in physical pixels.
+    /// Used to replace stencil clipping for axis-aligned rect parents.
+    pub(super) scissor_stack: Vec<(u32, u32, u32, u32)>,
     pub(super) backdrop_work_textures: Vec<wgpu::Texture>,
     /// Reused across readback calls; intentionally not cleared on `begin_frame`
     /// because readback may run after render submission and reuse prior capacity.
@@ -206,6 +273,7 @@ impl RendererScratch {
             effect_output_textures: Vec::new(),
             stencil_stack: Vec::new(),
             skipped_stack: Vec::new(),
+            scissor_stack: Vec::new(),
             backdrop_work_textures: Vec::new(),
             readback_bytes: Vec::new(),
             traversal_scratch: TraversalScratch::new(),
@@ -219,6 +287,7 @@ impl RendererScratch {
         self.effect_output_textures.clear();
         self.stencil_stack.clear();
         self.skipped_stack.clear();
+        self.scissor_stack.clear();
         self.backdrop_work_textures.clear();
         self.traversal_scratch.begin();
         // Keep readback bytes length/capacity untouched to preserve reuse across
@@ -235,6 +304,7 @@ impl RendererScratch {
         );
         trim_vector_if_needed(&mut self.stencil_stack, MAX_STENCIL_STACK_CAPACITY);
         trim_vector_if_needed(&mut self.skipped_stack, MAX_SKIPPED_STACK_CAPACITY);
+        trim_vector_if_needed(&mut self.scissor_stack, MAX_SCISSOR_STACK_CAPACITY);
         trim_vector_if_needed(
             &mut self.backdrop_work_textures,
             MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY,

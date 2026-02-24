@@ -223,6 +223,8 @@ impl<'a> Renderer<'a> {
             render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),
             #[cfg(feature = "render_metrics")]
             last_phase_timings: Default::default(),
+            #[cfg(feature = "render_metrics")]
+            last_pipeline_switch_counts: Default::default(),
             scratch: RendererScratch::new(),
         };
 

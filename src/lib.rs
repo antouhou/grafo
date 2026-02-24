@@ -164,3 +164,5 @@ pub use vertex::InstanceTransform as TransformInstance;
 
 #[cfg(feature = "render_metrics")]
 pub use renderer::metrics::PhaseTimings;
+#[cfg(feature = "render_metrics")]
+pub use renderer::metrics::PipelineSwitchCounts;
