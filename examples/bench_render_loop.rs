@@ -89,28 +89,16 @@ fn load_textures_and_shapes(renderer: &mut grafo::Renderer<'_>) {
 }
 
 fn load_shape_geometries(renderer: &mut grafo::Renderer<'_>) {
-    let container = Shape::rect(
-        [(0.0, 0.0), (240.0, 500.0)],
-        Stroke::new(1.0, Color::BLACK),
-    );
+    let container = Shape::rect([(0.0, 0.0), (240.0, 500.0)], Stroke::new(1.0, Color::BLACK));
     renderer.load_shape(container, CACHE_KEY_CONTAINER, Some(CACHE_KEY_CONTAINER));
 
-    let row = Shape::rect(
-        [(0.0, 0.0), (220.0, 110.0)],
-        Stroke::new(1.0, Color::BLACK),
-    );
+    let row = Shape::rect([(0.0, 0.0), (220.0, 110.0)], Stroke::new(1.0, Color::BLACK));
     renderer.load_shape(row, CACHE_KEY_ROW, Some(CACHE_KEY_ROW));
 
-    let cell = Shape::rect(
-        [(0.0, 0.0), (36.0, 90.0)],
-        Stroke::new(1.0, Color::BLACK),
-    );
+    let cell = Shape::rect([(0.0, 0.0), (36.0, 90.0)], Stroke::new(1.0, Color::BLACK));
     renderer.load_shape(cell, CACHE_KEY_CELL, Some(CACHE_KEY_CELL));
 
-    let sidebar = Shape::rect(
-        [(0.0, 0.0), (100.0, 500.0)],
-        Stroke::new(1.0, Color::BLACK),
-    );
+    let sidebar = Shape::rect([(0.0, 0.0), (100.0, 500.0)], Stroke::new(1.0, Color::BLACK));
     renderer.load_shape(sidebar, CACHE_KEY_SIDEBAR, Some(CACHE_KEY_SIDEBAR));
 
     let circle = Shape::rounded_rect(
@@ -133,8 +121,8 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
     let mut total_shapes = 0;
 
     for c in 0..CONTAINERS {
-        let container_id =
-            renderer.add_cached_shape_to_the_render_queue(CACHE_KEY_CONTAINER, None);
+        let container_id = renderer.add_cached_shape_to_the_render_queue(CACHE_KEY_CONTAINER, None);
+        renderer.set_shape_clips_children(container_id, false);
         renderer.set_shape_color(
             container_id,
             Some(container_colors[c % container_colors.len()]),
@@ -146,12 +134,11 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
         for r in 0..ROWS_PER_CONTAINER {
             let row_id =
                 renderer.add_cached_shape_to_the_render_queue(CACHE_KEY_ROW, Some(container_id));
+            renderer.set_shape_clips_children(row_id, false);
             renderer.set_shape_color(row_id, Some(Color::rgb(200, 200, 210)));
             let ry = 10.0 + r as f32 * 120.0;
-            renderer.set_shape_transform(
-                row_id,
-                TransformInstance::translation(cx + 10.0, 10.0 + ry),
-            );
+            renderer
+                .set_shape_transform(row_id, TransformInstance::translation(cx + 10.0, 10.0 + ry));
             total_shapes += 1;
 
             for cell in 0..CELLS_PER_ROW {
@@ -164,8 +151,7 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
                 );
                 let cellx = cx + 20.0 + cell as f32 * 42.0;
                 let celly = 20.0 + ry + 10.0;
-                renderer
-                    .set_shape_transform(cell_id, TransformInstance::translation(cellx, celly));
+                renderer.set_shape_transform(cell_id, TransformInstance::translation(cellx, celly));
                 total_shapes += 1;
             }
         }
@@ -174,6 +160,7 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
     // Sidebar with circles
     let sidebar_x = 10.0 + CONTAINERS as f32 * 250.0;
     let sidebar_id = renderer.add_cached_shape_to_the_render_queue(CACHE_KEY_SIDEBAR, None);
+    renderer.set_shape_clips_children(sidebar_id, false);
     renderer.set_shape_color(sidebar_id, Some(Color::rgb(50, 50, 70)));
     renderer.set_shape_transform(sidebar_id, TransformInstance::translation(sidebar_x, 10.0));
     total_shapes += 1;
@@ -397,9 +384,7 @@ impl<'a> BenchApp<'a> {
             "Rebuild queue:   avg {:.3}ms  P50 {:.3}ms  P95 {:.3}ms",
             rebuild_sum.as_secs_f64() / rn as f64 * 1000.0,
             self.dynamic_rebuild_times[rn / 2].as_secs_f64() * 1000.0,
-            self.dynamic_rebuild_times[(rn as f64 * 0.95) as usize]
-                .as_secs_f64()
-                * 1000.0,
+            self.dynamic_rebuild_times[(rn as f64 * 0.95) as usize].as_secs_f64() * 1000.0,
         );
 
         #[cfg(feature = "render_metrics")]

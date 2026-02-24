@@ -150,13 +150,13 @@ fn fs_main(
     @location(1) tex_coords: vec2<f32>,
     @location(2) coverage: f32,
 ) -> @location(0) vec4<f32> {
-    // Convert shape fill color from sRGB to linear
-    let fill_lin = vec4<f32>(to_linear(color.rgb), color.a);
+    // Shape fill color arrives already in linear space (sRGB->linear conversion
+    // is performed on the CPU in normalize_rgba_color).
     // Sample layer0 and layer1 (Rgba8UnormSrgb -> linear automatically). Data is premultiplied.
     let layer0_pma = textureSample(t_shape_layer0, s_shape_layer0, tex_coords);
     let layer1_pma = textureSample(t_shape_layer1, s_shape_layer1, tex_coords);
     // Convert fill to premultiplied
-    let fill_pma = vec4<f32>(fill_lin.rgb * fill_lin.a, fill_lin.a);
+    let fill_pma = vec4<f32>(color.rgb * color.a, color.a);
     // Compose: base = texture layer 0 over shape fill, then layer 1 over result.
     let base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
     let final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);

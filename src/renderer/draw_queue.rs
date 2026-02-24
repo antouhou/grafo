@@ -134,4 +134,15 @@ impl<'a> Renderer<'a> {
             draw_command.set_instance_color_override(normalized_color)
         });
     }
+
+    /// Set whether this shape clips its children using the stencil buffer.
+    ///
+    /// When `true` (the default), children of this shape are only visible within
+    /// the parent's geometry. Set to `false` to let children render without
+    /// stencil clipping, saving an increment + decrement pass pair.
+    pub fn set_shape_clips_children(&mut self, node_id: usize, clips: bool) {
+        self.mutate_draw_command(node_id, |draw_command| {
+            draw_command.set_clips_children(clips);
+        });
+    }
 }

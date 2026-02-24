@@ -120,11 +120,8 @@ impl<'a> Renderer<'a> {
 
     /// Recreate the cached depth/stencil texture to match current physical size and MSAA settings.
     pub(super) fn recreate_depth_stencil_texture(&mut self) {
-        let texture = create_and_depth_texture(
-            &self.device,
-            self.physical_size,
-            self.msaa_sample_count,
-        );
+        let texture =
+            create_and_depth_texture(&self.device, self.physical_size, self.msaa_sample_count);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.depth_stencil_texture = Some(texture);
         self.depth_stencil_view = Some(view);

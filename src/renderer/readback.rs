@@ -158,7 +158,8 @@ impl<'a> Renderer<'a> {
             let prepare_dur = after_prepare.saturating_duration_since(frame_render_loop_started_at);
             let encode_submit_dur = after_submit.saturating_duration_since(after_prepare);
             let readback_dur = frame_presented_at.saturating_duration_since(after_submit);
-            let total_dur = frame_presented_at.saturating_duration_since(frame_render_loop_started_at);
+            let total_dur =
+                frame_presented_at.saturating_duration_since(frame_render_loop_started_at);
             self.last_phase_timings = crate::renderer::metrics::PhaseTimings {
                 prepare: prepare_dur,
                 encode_and_submit: encode_submit_dur,

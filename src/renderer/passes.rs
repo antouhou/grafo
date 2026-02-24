@@ -140,6 +140,7 @@ pub(super) fn apply_effect_passes(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn bind_shape_texture_layers(
     render_pass: &mut wgpu::RenderPass<'_>,
     texture_ids: [Option<u64>; 2],
@@ -148,8 +149,12 @@ fn bind_shape_texture_layers(
     shape_texture_bind_group_layout_foreground: &wgpu::BindGroupLayout,
     default_shape_texture_bind_groups: &[Arc<wgpu::BindGroup>; 2],
     shape_texture_layout_epoch: u64,
+    bound_texture_state: &mut crate::renderer::types::BoundTextureState,
 ) {
     for (layer, &texture_id) in texture_ids.iter().enumerate() {
+        if !bound_texture_state.needs_rebind(layer, texture_id) {
+            continue;
+        }
         if let Some(texture_id) = texture_id {
             if texture_manager.is_texture_loaded(texture_id) {
                 if let Ok(bind_group) = texture_manager.get_or_create_shape_bind_group(
@@ -215,6 +220,7 @@ pub(super) fn bind_instance_buffers(
 pub(super) fn handle_increment_pass<'rp>(
     render_pass: &mut wgpu::RenderPass<'rp>,
     currently_set_pipeline: &mut crate::renderer::types::Pipeline,
+    bound_texture_state: &mut crate::renderer::types::BoundTextureState,
     stencil_stack: &mut Vec<u32>,
     shape: &mut (impl DrawShapeCommand + ?Sized),
     pipelines: &crate::renderer::types::Pipelines,
@@ -233,6 +239,9 @@ pub(super) fn handle_increment_pass<'rp>(
             render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+            // Inform the tracker that default textures are now bound on both layers.
+            bound_texture_state.needs_rebind(0, None);
+            bound_texture_state.needs_rebind(1, None);
 
             if !matches!(
                 currently_set_pipeline,
@@ -256,6 +265,7 @@ pub(super) fn handle_increment_pass<'rp>(
             pipelines.shape_texture_bind_group_layout_foreground,
             pipelines.default_shape_texture_bind_groups,
             pipelines.shape_texture_layout_epoch,
+            bound_texture_state,
         );
 
         bind_instance_buffers(render_pass, shape, buffers);
@@ -272,6 +282,7 @@ pub(super) fn handle_increment_pass<'rp>(
 pub(super) fn handle_decrement_pass<'rp>(
     render_pass: &mut wgpu::RenderPass<'rp>,
     currently_set_pipeline: &mut crate::renderer::types::Pipeline,
+    bound_texture_state: &mut crate::renderer::types::BoundTextureState,
     stencil_stack: &mut Vec<u32>,
     shape: &mut (impl DrawShapeCommand + ?Sized),
     pipelines: &crate::renderer::types::Pipelines,
@@ -290,6 +301,8 @@ pub(super) fn handle_decrement_pass<'rp>(
             render_pass.set_bind_group(0, pipelines.decrementing_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+            bound_texture_state.needs_rebind(0, None);
+            bound_texture_state.needs_rebind(1, None);
 
             if !matches!(
                 currently_set_pipeline,
@@ -322,6 +335,7 @@ pub(super) fn handle_decrement_pass<'rp>(
 pub(super) fn handle_leaf_draw_pass<'rp>(
     render_pass: &mut wgpu::RenderPass<'rp>,
     currently_set_pipeline: &mut crate::renderer::types::Pipeline,
+    bound_texture_state: &mut crate::renderer::types::BoundTextureState,
     stencil_stack: &[u32],
     shape: &mut (impl DrawShapeCommand + ?Sized),
     pipelines: &crate::renderer::types::Pipelines,
@@ -340,6 +354,8 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
             render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+            bound_texture_state.needs_rebind(0, None);
+            bound_texture_state.needs_rebind(1, None);
 
             if !matches!(
                 currently_set_pipeline,
@@ -364,6 +380,7 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
             pipelines.shape_texture_bind_group_layout_foreground,
             pipelines.default_shape_texture_bind_groups,
             pipelines.shape_texture_layout_epoch,
+            bound_texture_state,
         );
 
         bind_instance_buffers(render_pass, shape, buffers);
@@ -375,6 +392,161 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
         // (children would read parent_stencil + 1, but leaves have no children).
         *shape.stencil_ref_mut() = Some(parent_stencil);
     }
+}
+
+/// Accumulates consecutive leaf nodes that share the same geometry (index range),
+/// texture, and parent stencil reference so they can be emitted as a single
+/// multi-instance `draw_indexed` call.
+#[derive(Default)]
+pub(super) struct PendingLeafBatch {
+    index_range: (usize, usize),
+    texture_ids: [Option<u64>; 2],
+    parent_stencil: u32,
+    first_instance_index: u32,
+    instance_count: u32,
+}
+
+impl PendingLeafBatch {
+    fn is_empty(&self) -> bool {
+        self.instance_count == 0
+    }
+
+    fn matches(
+        &self,
+        index_range: (usize, usize),
+        texture_ids: [Option<u64>; 2],
+        parent_stencil: u32,
+        instance_index: u32,
+    ) -> bool {
+        self.index_range == index_range
+            && self.texture_ids == texture_ids
+            && self.parent_stencil == parent_stencil
+            && instance_index == self.first_instance_index + self.instance_count
+    }
+}
+
+/// Ensure the leaf-draw pipeline and full instance buffers are bound,
+/// then issue one `draw_indexed` call for the accumulated batch.
+pub(super) fn flush_pending_leaf_batch(
+    batch: &mut PendingLeafBatch,
+    render_pass: &mut wgpu::RenderPass<'_>,
+    currently_set_pipeline: &mut crate::renderer::types::Pipeline,
+    bound_texture_state: &mut crate::renderer::types::BoundTextureState,
+    pipelines: &crate::renderer::types::Pipelines,
+    buffers: &crate::renderer::types::Buffers,
+) {
+    if batch.is_empty() {
+        return;
+    }
+
+    // Ensure leaf pipeline is active.
+    if !matches!(
+        currently_set_pipeline,
+        crate::renderer::types::Pipeline::LeafDraw
+    ) {
+        render_pass.set_pipeline(pipelines.leaf_draw_pipeline);
+        render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
+        render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
+        render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+        bound_texture_state.needs_rebind(0, None);
+        bound_texture_state.needs_rebind(1, None);
+
+        if !matches!(
+            currently_set_pipeline,
+            crate::renderer::types::Pipeline::StencilIncrement
+                | crate::renderer::types::Pipeline::StencilDecrement
+        ) {
+            render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+            render_pass.set_index_buffer(
+                buffers.aggregated_index_buffer.slice(..),
+                wgpu::IndexFormat::Uint16,
+            );
+        }
+
+        *currently_set_pipeline = crate::renderer::types::Pipeline::LeafDraw;
+    }
+
+    // Bind textures for the batch.
+    bind_shape_texture_layers(
+        render_pass,
+        batch.texture_ids,
+        pipelines.texture_manager,
+        pipelines.shape_texture_bind_group_layout_background,
+        pipelines.shape_texture_bind_group_layout_foreground,
+        pipelines.default_shape_texture_bind_groups,
+        pipelines.shape_texture_layout_epoch,
+        bound_texture_state,
+    );
+
+    // Bind the full aggregated instance buffers so the instances range selects
+    // the correct transform/color/metadata for each batched shape.
+    if let Some(instance_transform_buffer) = buffers.aggregated_instance_transform_buffer {
+        render_pass.set_vertex_buffer(1, instance_transform_buffer.slice(..));
+    } else {
+        render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+    }
+    if let Some(instance_color_buffer) = buffers.aggregated_instance_color_buffer {
+        render_pass.set_vertex_buffer(2, instance_color_buffer.slice(..));
+    } else {
+        render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+    }
+    if let Some(instance_metadata_buffer) = buffers.aggregated_instance_metadata_buffer {
+        render_pass.set_vertex_buffer(3, instance_metadata_buffer.slice(..));
+    } else {
+        render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
+    }
+
+    render_pass.set_stencil_reference(batch.parent_stencil);
+    let index_start = batch.index_range.0 as u32;
+    let index_end = (batch.index_range.0 + batch.index_range.1) as u32;
+    let first = batch.first_instance_index;
+    render_pass.draw_indexed(
+        index_start..index_end,
+        0,
+        first..first + batch.instance_count,
+    );
+
+    batch.instance_count = 0;
+}
+
+/// Try to add a leaf shape to the pending batch. Returns `true` if the shape
+/// was successfully batched (no draw call needed yet). Returns `false` if
+/// the shape could not be batched (caller should use the normal single-draw path).
+pub(super) fn try_batch_leaf(
+    batch: &mut PendingLeafBatch,
+    shape: &(impl DrawShapeCommand + ?Sized),
+    parent_stencil: u32,
+) -> bool {
+    let index_range = match shape.index_buffer_range() {
+        Some(range) => range,
+        None => return false,
+    };
+    if shape.is_empty() {
+        return false;
+    }
+    let instance_index = match shape.instance_index() {
+        Some(idx) => idx as u32,
+        None => return false,
+    };
+    let texture_ids = [shape.texture_id(0), shape.texture_id(1)];
+
+    if batch.is_empty() {
+        // Start a new batch.
+        batch.index_range = index_range;
+        batch.texture_ids = texture_ids;
+        batch.parent_stencil = parent_stencil;
+        batch.first_instance_index = instance_index;
+        batch.instance_count = 1;
+        return true;
+    }
+
+    if batch.matches(index_range, texture_ids, parent_stencil, instance_index) {
+        batch.instance_count += 1;
+        return true;
+    }
+
+    // Incompatible — caller must flush then handle this shape.
+    false
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -399,6 +571,7 @@ pub(super) fn render_segments(
     let mut event_idx = 0;
     let mut is_first_segment = clear_first;
     let mut currently_set_pipeline = crate::renderer::types::Pipeline::None;
+    let mut bound_texture_state = crate::renderer::types::BoundTextureState::default();
     let (width, height) = backdrop_ctx.physical_size;
     stencil_stack_scratch.clear();
     backdrop_work_textures.clear();
@@ -459,6 +632,7 @@ pub(super) fn render_segments(
                             render_pass.set_stencil_reference(parent_stencil);
                             render_pass.draw(0..3, 0..1);
                             currently_set_pipeline = crate::renderer::types::Pipeline::None;
+                            bound_texture_state.invalidate();
                             continue;
                         }
 
@@ -475,6 +649,7 @@ pub(super) fn render_segments(
                                     handle_increment_pass(
                                         &mut render_pass,
                                         &mut currently_set_pipeline,
+                                        &mut bound_texture_state,
                                         stencil_stack_scratch,
                                         shape,
                                         pipelines,
@@ -486,6 +661,7 @@ pub(super) fn render_segments(
                                     handle_increment_pass(
                                         &mut render_pass,
                                         &mut currently_set_pipeline,
+                                        &mut bound_texture_state,
                                         stencil_stack_scratch,
                                         shape,
                                         pipelines,
@@ -515,6 +691,7 @@ pub(super) fn render_segments(
                                     handle_decrement_pass(
                                         &mut render_pass,
                                         &mut currently_set_pipeline,
+                                        &mut bound_texture_state,
                                         stencil_stack_scratch,
                                         shape,
                                         pipelines,
@@ -526,6 +703,7 @@ pub(super) fn render_segments(
                                     handle_decrement_pass(
                                         &mut render_pass,
                                         &mut currently_set_pipeline,
+                                        &mut bound_texture_state,
                                         stencil_stack_scratch,
                                         shape,
                                         pipelines,
@@ -716,6 +894,7 @@ pub(super) fn render_segments(
                     backdrop_ctx.shape_texture_bind_group_layout_foreground,
                     backdrop_ctx.default_shape_texture_bind_groups,
                     backdrop_ctx.shape_texture_layout_epoch,
+                    &mut bound_texture_state,
                 );
 
                 if let Some(shape_index_range) = shape_index_range {
@@ -763,6 +942,7 @@ pub(super) fn render_scene_behind_group(
 
     stencil_stack_scratch.clear();
     let current_pipeline = crate::renderer::types::Pipeline::None;
+    let bound_texture_state = crate::renderer::types::BoundTextureState::default();
     skipped_stack_scratch.clear();
 
     let mut data = (
@@ -770,6 +950,7 @@ pub(super) fn render_scene_behind_group(
         stencil_stack_scratch,
         current_pipeline,
         skipped_stack_scratch,
+        bound_texture_state,
     );
 
     let effect_results_ref = effect_results;
@@ -777,7 +958,13 @@ pub(super) fn render_scene_behind_group(
 
     draw_tree.traverse_mut(
         |shape_id, draw_command, data| {
-            let (render_pass, stencil_stack, currently_set_pipeline, skipped_stack) = data;
+            let (
+                render_pass,
+                stencil_stack,
+                currently_set_pipeline,
+                skipped_stack,
+                bound_texture_state,
+            ) = data;
 
             if shape_id == exclude_id {
                 skipped_stack.push(shape_id);
@@ -792,6 +979,7 @@ pub(super) fn render_scene_behind_group(
                     render_pass.set_stencil_reference(parent_stencil);
                     render_pass.draw(0..3, 0..1);
                     *currently_set_pipeline = crate::renderer::types::Pipeline::None;
+                    bound_texture_state.invalidate();
                 }
                 skipped_stack.push(shape_id);
                 return;
@@ -806,6 +994,7 @@ pub(super) fn render_scene_behind_group(
                     handle_increment_pass(
                         render_pass,
                         currently_set_pipeline,
+                        bound_texture_state,
                         stencil_stack,
                         shape,
                         pipelines,
@@ -816,6 +1005,7 @@ pub(super) fn render_scene_behind_group(
                     handle_increment_pass(
                         render_pass,
                         currently_set_pipeline,
+                        bound_texture_state,
                         stencil_stack,
                         shape,
                         pipelines,
@@ -825,7 +1015,13 @@ pub(super) fn render_scene_behind_group(
             }
         },
         |shape_id, draw_command, data| {
-            let (render_pass, stencil_stack, currently_set_pipeline, skipped_stack) = data;
+            let (
+                render_pass,
+                stencil_stack,
+                currently_set_pipeline,
+                skipped_stack,
+                bound_texture_state,
+            ) = data;
 
             if skipped_stack.last().copied() == Some(shape_id) {
                 skipped_stack.pop();
@@ -841,6 +1037,7 @@ pub(super) fn render_scene_behind_group(
                     handle_decrement_pass(
                         render_pass,
                         currently_set_pipeline,
+                        bound_texture_state,
                         stencil_stack,
                         shape,
                         pipelines,
@@ -851,6 +1048,7 @@ pub(super) fn render_scene_behind_group(
                     handle_decrement_pass(
                         render_pass,
                         currently_set_pipeline,
+                        bound_texture_state,
                         stencil_stack,
                         shape,
                         pipelines,

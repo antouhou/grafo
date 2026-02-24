@@ -120,6 +120,11 @@ pub struct Renderer<'a> {
     temp_vertices: Vec<crate::vertex::CustomVertex>,
     temp_indices: Vec<u16>,
 
+    /// Per-frame map from cache key to (index_start, index_count) in the
+    /// aggregated buffers, used to avoid duplicating vertex/index data for
+    /// cached shapes that share the same geometry.
+    geometry_dedup_map: HashMap<u64, (usize, usize)>,
+
     /// Per-frame instance transforms for shapes.
     temp_instance_transforms: Vec<InstanceTransform>,
     /// Per-frame instance colors for shapes.

@@ -7,11 +7,24 @@ const MAX_LYON_VERTEX_BUFFER_POOL_SIZE: usize = 256;
 
 pub fn normalize_rgba_color(color: &[u8; 4]) -> [f32; 4] {
     [
-        color[0] as f32 / 255.0,
-        color[1] as f32 / 255.0,
-        color[2] as f32 / 255.0,
-        color[3] as f32 / 255.0,
+        srgb_u8_to_linear(color[0]),
+        srgb_u8_to_linear(color[1]),
+        srgb_u8_to_linear(color[2]),
+        color[3] as f32 / 255.0, // alpha is linear, not gamma-encoded
     ]
+}
+
+/// Converts a single sRGB u8 channel value (0–255) to linear f32 (0.0–1.0).
+///
+/// This mirrors the GPU-side `to_linear` function but is done on the CPU so the
+/// fragment shader can skip the expensive per-fragment `pow()` call.
+fn srgb_u8_to_linear(value: u8) -> f32 {
+    let normalized = value as f32 / 255.0;
+    if normalized <= 0.04045 {
+        normalized / 12.92
+    } else {
+        ((normalized + 0.055) / 1.055).powf(2.4)
+    }
 }
 
 pub struct LyonVertexBuffersPool {

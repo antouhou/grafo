@@ -1,7 +1,8 @@
 use super::*;
 use crate::renderer::passes::{
-    apply_effect_passes, handle_decrement_pass, handle_increment_pass, handle_leaf_draw_pass,
-    render_scene_behind_group, render_segments, EffectPassRunConfig,
+    apply_effect_passes, flush_pending_leaf_batch, handle_decrement_pass, handle_increment_pass,
+    handle_leaf_draw_pass, render_scene_behind_group, render_segments, try_batch_leaf,
+    EffectPassRunConfig, PendingLeafBatch,
 };
 use crate::renderer::traversal::{
     compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects,
@@ -263,11 +264,13 @@ impl<'a> Renderer<'a> {
                     stencil_stack.clear();
                     skipped_stack.clear();
                     let current_pipeline = crate::renderer::types::Pipeline::None;
+                    let bound_texture_state = crate::renderer::types::BoundTextureState::default();
                     let mut data = (
                         render_pass,
                         &mut stencil_stack,
                         current_pipeline,
                         &mut skipped_stack,
+                        bound_texture_state,
                     );
 
                     let effect_results_ref = &effect_results;
@@ -276,19 +279,25 @@ impl<'a> Renderer<'a> {
                     self.draw_tree.traverse_subtree_mut(
                         node_id,
                         |shape_id, draw_command, data| {
-                            let (render_pass, stencil_stack, currently_set_pipeline, skipped_stack) =
-                                data;
+                            let (
+                                render_pass,
+                                stencil_stack,
+                                currently_set_pipeline,
+                                skipped_stack,
+                                bound_texture_state,
+                            ) = data;
 
                             if shape_id != node_id {
                                 if let Some(result_bg) = effect_results_ref.get(&shape_id) {
-                                    let parent_stencil =
-                                        stencil_stack.last().copied().unwrap_or(0);
+                                    let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
                                     if let Some(composite_pipeline) = composite_pipeline_ref {
                                         render_pass.set_pipeline(composite_pipeline);
                                         render_pass.set_bind_group(0, result_bg, &[]);
                                         render_pass.set_stencil_reference(parent_stencil);
                                         render_pass.draw(0..3, 0..1);
-                                        *currently_set_pipeline = crate::renderer::types::Pipeline::None;
+                                        *currently_set_pipeline =
+                                            crate::renderer::types::Pipeline::None;
+                                        bound_texture_state.invalidate();
                                     }
                                     skipped_stack.push(shape_id);
                                     return;
@@ -304,6 +313,7 @@ impl<'a> Renderer<'a> {
                                     handle_increment_pass(
                                         render_pass,
                                         currently_set_pipeline,
+                                        bound_texture_state,
                                         stencil_stack,
                                         shape,
                                         &pipelines,
@@ -314,6 +324,7 @@ impl<'a> Renderer<'a> {
                                     handle_increment_pass(
                                         render_pass,
                                         currently_set_pipeline,
+                                        bound_texture_state,
                                         stencil_stack,
                                         shape,
                                         &pipelines,
@@ -323,8 +334,13 @@ impl<'a> Renderer<'a> {
                             }
                         },
                         |shape_id, draw_command, data| {
-                            let (render_pass, stencil_stack, currently_set_pipeline, skipped_stack) =
-                                data;
+                            let (
+                                render_pass,
+                                stencil_stack,
+                                currently_set_pipeline,
+                                skipped_stack,
+                                bound_texture_state,
+                            ) = data;
 
                             if skipped_stack.last().copied() == Some(shape_id) {
                                 skipped_stack.pop();
@@ -340,6 +356,7 @@ impl<'a> Renderer<'a> {
                                     handle_decrement_pass(
                                         render_pass,
                                         currently_set_pipeline,
+                                        bound_texture_state,
                                         stencil_stack,
                                         shape,
                                         &pipelines,
@@ -350,6 +367,7 @@ impl<'a> Renderer<'a> {
                                     handle_decrement_pass(
                                         render_pass,
                                         currently_set_pipeline,
+                                        bound_texture_state,
                                         stencil_stack,
                                         shape,
                                         &pipelines,
@@ -448,7 +466,7 @@ impl<'a> Renderer<'a> {
                     &effect_results,
                     phase2_color_view,
                     phase2_resolve_target,
-                    &depth_texture_view,
+                    depth_texture_view,
                     src_texture,
                     true,
                     &pipelines,
@@ -464,17 +482,21 @@ impl<'a> Renderer<'a> {
                     &mut encoder,
                     self.msaa_color_texture_view.as_ref(),
                     texture_view,
-                    &depth_texture_view,
+                    depth_texture_view,
                 );
 
                 stencil_stack.clear();
                 skipped_stack.clear();
                 let current_pipeline = crate::renderer::types::Pipeline::None;
+                let bound_texture_state = crate::renderer::types::BoundTextureState::default();
+                let pending_leaf_batch = PendingLeafBatch::default();
                 let mut data = (
                     render_pass,
                     &mut stencil_stack,
                     current_pipeline,
                     &mut skipped_stack,
+                    bound_texture_state,
+                    pending_leaf_batch,
                 );
 
                 let effect_results_ref = &effect_results;
@@ -482,10 +504,24 @@ impl<'a> Renderer<'a> {
 
                 self.draw_tree.traverse_mut(
                     |shape_id, draw_command, data| {
-                        let (render_pass, stencil_stack, currently_set_pipeline, skipped_stack) =
-                            data;
+                        let (
+                            render_pass,
+                            stencil_stack,
+                            currently_set_pipeline,
+                            skipped_stack,
+                            bound_texture_state,
+                            pending_batch,
+                        ) = data;
 
                         if let Some(result_bind_group) = effect_results_ref.get(&shape_id) {
+                            flush_pending_leaf_batch(
+                                pending_batch,
+                                render_pass,
+                                currently_set_pipeline,
+                                bound_texture_state,
+                                &pipelines,
+                                &buffers,
+                            );
                             let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
                             if let Some(composite_pipeline) = composite_pipeline_ref {
                                 render_pass.set_pipeline(composite_pipeline);
@@ -493,6 +529,7 @@ impl<'a> Renderer<'a> {
                                 render_pass.set_stencil_reference(parent_stencil);
                                 render_pass.draw(0..3, 0..1);
                                 *currently_set_pipeline = crate::renderer::types::Pipeline::None;
+                                bound_texture_state.invalidate();
                             }
                             skipped_stack.push(shape_id);
                             return;
@@ -502,58 +539,157 @@ impl<'a> Renderer<'a> {
                             return;
                         }
 
-                        // O3: Leaf nodes use stencil Keep — one draw, no decrement needed
+                        // O3+O4: Leaf nodes — try to batch consecutive compatible leaves
+                        // into a single multi-instance draw call.
                         if draw_command.is_leaf() {
-                            match draw_command {
+                            let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                            let batched = match draw_command {
                                 DrawCommand::Shape(shape) => {
-                                    handle_leaf_draw_pass(
-                                        render_pass,
-                                        currently_set_pipeline,
-                                        stencil_stack,
-                                        shape,
-                                        &pipelines,
-                                        &buffers,
-                                    );
+                                    let result =
+                                        try_batch_leaf(pending_batch, shape, parent_stencil);
+                                    if result {
+                                        *shape.stencil_ref_mut() = Some(parent_stencil);
+                                    }
+                                    result
                                 }
                                 DrawCommand::CachedShape(shape) => {
-                                    handle_leaf_draw_pass(
-                                        render_pass,
-                                        currently_set_pipeline,
-                                        stencil_stack,
-                                        shape,
-                                        &pipelines,
-                                        &buffers,
-                                    );
+                                    let result =
+                                        try_batch_leaf(pending_batch, shape, parent_stencil);
+                                    if result {
+                                        *shape.stencil_ref_mut() = Some(parent_stencil);
+                                    }
+                                    result
+                                }
+                            };
+                            if !batched {
+                                // Flush the current batch, then try again (starts new batch).
+                                flush_pending_leaf_batch(
+                                    pending_batch,
+                                    render_pass,
+                                    currently_set_pipeline,
+                                    bound_texture_state,
+                                    &pipelines,
+                                    &buffers,
+                                );
+                                match draw_command {
+                                    DrawCommand::Shape(shape) => {
+                                        let parent_stencil =
+                                            stencil_stack.last().copied().unwrap_or(0);
+                                        if !try_batch_leaf(pending_batch, shape, parent_stencil) {
+                                            // Unbatchable — fall back to single draw.
+                                            handle_leaf_draw_pass(
+                                                render_pass,
+                                                currently_set_pipeline,
+                                                bound_texture_state,
+                                                stencil_stack,
+                                                shape,
+                                                &pipelines,
+                                                &buffers,
+                                            );
+                                        } else {
+                                            *shape.stencil_ref_mut() = Some(parent_stencil);
+                                        }
+                                    }
+                                    DrawCommand::CachedShape(shape) => {
+                                        let parent_stencil =
+                                            stencil_stack.last().copied().unwrap_or(0);
+                                        if !try_batch_leaf(pending_batch, shape, parent_stencil) {
+                                            handle_leaf_draw_pass(
+                                                render_pass,
+                                                currently_set_pipeline,
+                                                bound_texture_state,
+                                                stencil_stack,
+                                                shape,
+                                                &pipelines,
+                                                &buffers,
+                                            );
+                                        } else {
+                                            *shape.stencil_ref_mut() = Some(parent_stencil);
+                                        }
+                                    }
                                 }
                             }
                         } else {
-                            match draw_command {
-                                DrawCommand::Shape(shape) => {
-                                    handle_increment_pass(
-                                        render_pass,
-                                        currently_set_pipeline,
-                                        stencil_stack,
-                                        shape,
-                                        &pipelines,
-                                        &buffers,
-                                    );
+                            // Non-leaf: flush any pending leaf batch before the increment pass.
+                            flush_pending_leaf_batch(
+                                pending_batch,
+                                render_pass,
+                                currently_set_pipeline,
+                                bound_texture_state,
+                                &pipelines,
+                                &buffers,
+                            );
+
+                            // S5: If this parent doesn't clip children, draw it like
+                            // a leaf and push the *same* parent stencil so children
+                            // inherit the grandparent's clip region.
+                            if !draw_command.clips_children() {
+                                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                                match draw_command {
+                                    DrawCommand::Shape(shape) => {
+                                        *shape.stencil_ref_mut() = Some(parent_stencil);
+                                        handle_leaf_draw_pass(
+                                            render_pass,
+                                            currently_set_pipeline,
+                                            bound_texture_state,
+                                            stencil_stack,
+                                            shape,
+                                            &pipelines,
+                                            &buffers,
+                                        );
+                                    }
+                                    DrawCommand::CachedShape(shape) => {
+                                        *shape.stencil_ref_mut() = Some(parent_stencil);
+                                        handle_leaf_draw_pass(
+                                            render_pass,
+                                            currently_set_pipeline,
+                                            bound_texture_state,
+                                            stencil_stack,
+                                            shape,
+                                            &pipelines,
+                                            &buffers,
+                                        );
+                                    }
                                 }
-                                DrawCommand::CachedShape(shape) => {
-                                    handle_increment_pass(
-                                        render_pass,
-                                        currently_set_pipeline,
-                                        stencil_stack,
-                                        shape,
-                                        &pipelines,
-                                        &buffers,
-                                    );
+                                // Push same stencil so children use grandparent's clip.
+                                stencil_stack.push(parent_stencil);
+                            } else {
+                                match draw_command {
+                                    DrawCommand::Shape(shape) => {
+                                        handle_increment_pass(
+                                            render_pass,
+                                            currently_set_pipeline,
+                                            bound_texture_state,
+                                            stencil_stack,
+                                            shape,
+                                            &pipelines,
+                                            &buffers,
+                                        );
+                                    }
+                                    DrawCommand::CachedShape(shape) => {
+                                        handle_increment_pass(
+                                            render_pass,
+                                            currently_set_pipeline,
+                                            bound_texture_state,
+                                            stencil_stack,
+                                            shape,
+                                            &pipelines,
+                                            &buffers,
+                                        );
+                                    }
                                 }
                             }
                         }
                     },
                     |shape_id, draw_command, data| {
-                        let (render_pass, stencil_stack, currently_set_pipeline, skipped_stack) =
-                            data;
+                        let (
+                            render_pass,
+                            stencil_stack,
+                            currently_set_pipeline,
+                            skipped_stack,
+                            bound_texture_state,
+                            pending_batch,
+                        ) = data;
 
                         if skipped_stack.last().copied() == Some(shape_id) {
                             skipped_stack.pop();
@@ -569,11 +705,29 @@ impl<'a> Renderer<'a> {
                             return;
                         }
 
+                        // S5: Non-clipping parents pushed a stencil entry but never
+                        // incremented — just pop and skip the decrement pass entirely.
+                        if !draw_command.clips_children() {
+                            stencil_stack.pop();
+                            return;
+                        }
+
+                        // Flush any pending leaf batch before decrement pass.
+                        flush_pending_leaf_batch(
+                            pending_batch,
+                            render_pass,
+                            currently_set_pipeline,
+                            bound_texture_state,
+                            &pipelines,
+                            &buffers,
+                        );
+
                         match draw_command {
                             DrawCommand::Shape(shape) => {
                                 handle_decrement_pass(
                                     render_pass,
                                     currently_set_pipeline,
+                                    bound_texture_state,
                                     stencil_stack,
                                     shape,
                                     &pipelines,
@@ -584,6 +738,7 @@ impl<'a> Renderer<'a> {
                                 handle_decrement_pass(
                                     render_pass,
                                     currently_set_pipeline,
+                                    bound_texture_state,
                                     stencil_stack,
                                     shape,
                                     &pipelines,
@@ -594,6 +749,25 @@ impl<'a> Renderer<'a> {
                     },
                     &mut data,
                 );
+                // Flush any leftover batch after the traversal completes.
+                {
+                    let (
+                        render_pass,
+                        _,
+                        currently_set_pipeline,
+                        _,
+                        bound_texture_state,
+                        pending_batch,
+                    ) = &mut data;
+                    flush_pending_leaf_batch(
+                        pending_batch,
+                        render_pass,
+                        currently_set_pipeline,
+                        bound_texture_state,
+                        &pipelines,
+                        &buffers,
+                    );
+                }
             }
         }
 

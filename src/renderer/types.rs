@@ -59,6 +59,20 @@ impl DrawCommand {
         }
     }
 
+    pub(super) fn set_clips_children(&mut self, clips: bool) {
+        match self {
+            DrawCommand::Shape(shape) => shape.set_clips_children(clips),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.set_clips_children(clips),
+        }
+    }
+
+    pub(super) fn clips_children(&self) -> bool {
+        match self {
+            DrawCommand::Shape(shape) => shape.clips_children(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.clips_children(),
+        }
+    }
+
     pub(super) fn clear_frame_state(&mut self) {
         match self {
             DrawCommand::Shape(shape) => {
@@ -85,6 +99,35 @@ pub(super) enum Pipeline {
     StencilIncrement,
     StencilDecrement,
     LeafDraw,
+}
+
+/// Tracks the currently-bound texture bind groups to skip redundant `set_bind_group` calls.
+///
+/// Each layer stores the texture ID that is currently bound (`Some(id)` for a real texture,
+/// `None` for the default white texture). The outer `Option` distinguishes "unknown / first
+/// use" (`None`) from a known state (`Some(..)`).
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct BoundTextureState {
+    layers: [Option<Option<u64>>; 2],
+}
+
+impl BoundTextureState {
+    /// Reset both layers to "unknown" — forces the next bind call to actually issue
+    /// `set_bind_group`. Call this whenever a pipeline switch resets bind group state.
+    pub(super) fn invalidate(&mut self) {
+        self.layers = [None, None];
+    }
+
+    /// Returns `true` when the given texture id (or `None` for the default) is not
+    /// already bound on `layer`, and updates the tracked state.
+    pub(super) fn needs_rebind(&mut self, layer: usize, texture_id: Option<u64>) -> bool {
+        let current = self.layers[layer];
+        if current == Some(texture_id) {
+            return false;
+        }
+        self.layers[layer] = Some(texture_id);
+        true
+    }
 }
 
 pub(super) struct Buffers<'a> {

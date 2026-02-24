@@ -173,6 +173,7 @@ impl<'a> Renderer<'a> {
             metadata_to_clips: HashMap::new(),
             temp_vertices: Vec::new(),
             temp_indices: Vec::new(),
+            geometry_dedup_map: HashMap::new(),
             temp_instance_transforms: Vec::new(),
             temp_instance_colors: Vec::new(),
             temp_instance_metadata: Vec::new(),

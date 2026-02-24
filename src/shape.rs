@@ -732,6 +732,9 @@ pub(crate) struct ShapeDrawData {
     pub(crate) color_override: Option<[f32; 4]>,
     /// Whether this node is a leaf in the draw tree (no children).
     pub(crate) is_leaf: bool,
+    /// When `false`, skip stencil increment/decrement for this parent
+    /// (children render without being clipped to this shape).
+    pub(crate) clips_children: bool,
 }
 
 impl ShapeDrawData {
@@ -749,6 +752,7 @@ impl ShapeDrawData {
             texture_ids: [None, None],
             color_override: None,
             is_leaf: true,
+            clips_children: true,
         }
     }
 
@@ -781,6 +785,9 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) color_override: Option<[f32; 4]>,
     /// Whether this node is a leaf in the draw tree (no children).
     pub(crate) is_leaf: bool,
+    /// When `false`, skip stencil increment/decrement for this parent
+    /// (children render without being clipped to this shape).
+    pub(crate) clips_children: bool,
 }
 
 impl CachedShapeDrawData {
@@ -795,6 +802,7 @@ impl CachedShapeDrawData {
             texture_ids: [None, None],
             color_override: None,
             is_leaf: true,
+            clips_children: true,
         }
     }
 }
@@ -1130,6 +1138,8 @@ pub(crate) trait DrawShapeCommand {
     fn set_texture_id(&mut self, layer: usize, id: Option<u64>);
     fn instance_color_override(&self) -> Option<[f32; 4]>;
     fn set_instance_color_override(&mut self, color: Option<[f32; 4]>);
+    fn clips_children(&self) -> bool;
+    fn set_clips_children(&mut self, clips: bool);
 }
 
 impl DrawShapeCommand for ShapeDrawData {
@@ -1189,6 +1199,16 @@ impl DrawShapeCommand for ShapeDrawData {
     fn set_instance_color_override(&mut self, color: Option<[f32; 4]>) {
         self.color_override = color;
     }
+
+    #[inline]
+    fn clips_children(&self) -> bool {
+        self.clips_children
+    }
+
+    #[inline]
+    fn set_clips_children(&mut self, clips: bool) {
+        self.clips_children = clips;
+    }
 }
 
 impl DrawShapeCommand for CachedShapeDrawData {
@@ -1247,5 +1267,15 @@ impl DrawShapeCommand for CachedShapeDrawData {
     #[inline]
     fn set_instance_color_override(&mut self, color: Option<[f32; 4]>) {
         self.color_override = color;
+    }
+
+    #[inline]
+    fn clips_children(&self) -> bool {
+        self.clips_children
+    }
+
+    #[inline]
+    fn set_clips_children(&mut self, clips: bool) {
+        self.clips_children = clips;
     }
 }
