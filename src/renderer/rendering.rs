@@ -764,7 +764,6 @@ impl<'a> Renderer<'a> {
                                 // (post-visit will pop it). Children use the parent's stencil ref.
                                 stencil_stack.push(parent_stencil);
                             } else {
-                                // Complex shape or non-axis-aligned rect: stencil as before.
                                 match draw_command {
                                     DrawCommand::Shape(shape) => {
                                         handle_increment_pass(
@@ -830,6 +829,16 @@ impl<'a> Renderer<'a> {
                         // will produce the same result here.
                         if try_scissor_for_rect(draw_command, scale_factor, physical_size).is_some()
                         {
+                            // Flush any pending leaf draws BEFORE changing the scissor,
+                            // so they are clipped to this parent's rect, not the grandparent's.
+                            flush_pending_leaf_batch(
+                                pending_batch,
+                                render_pass,
+                                currently_set_pipeline,
+                                bound_texture_state,
+                                &pipelines,
+                                &buffers,
+                            );
                             scissor_stack.pop();
                             let prev = scissor_stack.last().copied().unwrap_or(viewport_scissor);
                             render_pass.set_scissor_rect(prev.0, prev.1, prev.2, prev.3);

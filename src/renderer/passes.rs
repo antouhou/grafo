@@ -15,13 +15,19 @@ pub(super) fn compute_scissor_rect(
 ) -> Option<(u32, u32, u32, u32)> {
     let t = transform.unwrap_or_else(InstanceTransform::identity);
 
-    // Check for perspective (row3 must be [0,0,0,1] for affine).
-    if t.row3[0] != 0.0 || t.row3[1] != 0.0 || t.row3[3] != 1.0 {
+    // The InstanceTransform struct stores 4 "rows" which the WGSL shader treats as columns
+    // of a mat4x4 (column-major on the GPU). The effective math for pos_out = M * pos_in is:
+    //   out.x = row0[0]*x + row1[0]*y + row3[0]   (row3[0] = tx)
+    //   out.y = row0[1]*x + row1[1]*y + row3[1]   (row3[1] = ty)
+    //   out.w = row0[3]*x + row1[3]*y + row3[3]
+    // For affine (non-perspective), we need out.w == 1 for all (x,y):
+    //   row0[3] == 0, row1[3] == 0, row3[3] == 1
+    if t.row0[3] != 0.0 || t.row1[3] != 0.0 || t.row3[3] != 1.0 {
         return None;
     }
 
     // Check axis-aligned: no rotation/skew in the 2D affine part.
-    // row0 = [sx, shx, _, tx], row1 = [shy, sy, _, ty]
+    // In column-major GPU layout: row0[0]=sx, row0[1]=shy, row1[0]=shx, row1[1]=sy
     // For axis-aligned rects we need shx == 0 and shy == 0.
     if t.row0[1] != 0.0 || t.row1[0] != 0.0 {
         return None;
@@ -29,8 +35,8 @@ pub(super) fn compute_scissor_rect(
 
     let sx = t.row0[0];
     let sy = t.row1[1];
-    let tx = t.row0[3];
-    let ty = t.row1[3];
+    let tx = t.row3[0];
+    let ty = t.row3[1];
 
     // Transform the two corners.
     let x0 = rect[0].0 * sx + tx;
@@ -46,8 +52,8 @@ pub(super) fn compute_scissor_rect(
 
     // Convert from logical pixels to physical pixels.
     let sf = scale_factor as f32;
-    let px_min_x = (min_x * sf).floor().max(0.0) as u32;
-    let px_min_y = (min_y * sf).floor().max(0.0) as u32;
+    let px_min_x = ((min_x * sf).floor().max(0.0) as u32).min(physical_size.0);
+    let px_min_y = ((min_y * sf).floor().max(0.0) as u32).min(physical_size.1);
     let px_max_x = (max_x * sf).ceil().min(physical_size.0 as f32) as u32;
     let px_max_y = (max_y * sf).ceil().min(physical_size.1 as f32) as u32;
 
@@ -90,7 +96,12 @@ pub(super) fn try_scissor_for_rect(
     if !draw_command.is_rect() {
         return None;
     }
-    let rect_bounds = draw_command.rect_bounds()?;
+    let rect_bounds = match draw_command.rect_bounds() {
+        Some(b) => b,
+        None => {
+            return None;
+        }
+    };
     let transform = match draw_command {
         DrawCommand::Shape(s) => s.transform(),
         DrawCommand::CachedShape(s) => s.transform(),
