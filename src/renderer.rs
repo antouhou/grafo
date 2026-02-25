@@ -15,7 +15,7 @@ use crate::effect::{
 use crate::pipeline::{
     compute_padded_bytes_per_row, create_and_depth_texture, create_argb_swizzle_bind_group,
     create_argb_swizzle_pipeline, create_msaa_color_texture, create_offscreen_color_texture,
-    create_pipeline, create_readback_buffer, create_render_pass, create_storage_input_buffer,
+    create_pipeline, create_readback_buffer, create_storage_input_buffer,
     create_storage_output_buffer, encode_copy_texture_to_buffer, render_buffer_range_to_texture,
     ArgbParams, PipelineType, Uniforms,
 };

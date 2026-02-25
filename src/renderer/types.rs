@@ -210,32 +210,19 @@ pub(super) struct Pipelines<'a> {
     pub(super) texture_manager: &'a TextureManager,
 }
 
+/// Backdrop-specific rendering resources. Only needed when backdrop effects exist.
+/// General resources (pipelines, buffers, textures) are passed separately.
 pub(super) struct BackdropContext<'a> {
     pub(super) backdrop_effects: &'a HashMap<usize, EffectInstance>,
     pub(super) loaded_effects: &'a HashMap<u64, LoadedEffect>,
-    pub(super) composite_pipeline: &'a wgpu::RenderPipeline,
     pub(super) composite_bgl: &'a wgpu::BindGroupLayout,
     pub(super) effect_sampler: &'a wgpu::Sampler,
     pub(super) stencil_only_pipeline: &'a wgpu::RenderPipeline,
     pub(super) backdrop_color_pipeline: &'a wgpu::RenderPipeline,
-    pub(super) and_bind_group: &'a wgpu::BindGroup,
-    pub(super) default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
     pub(super) device: &'a wgpu::Device,
-    pub(super) physical_size: (u32, u32),
-    pub(super) scale_factor: f64,
     pub(super) config_format: wgpu::TextureFormat,
     pub(super) backdrop_snapshot_texture: &'a wgpu::Texture,
     pub(super) backdrop_snapshot_view: &'a wgpu::TextureView,
-    pub(super) texture_manager: &'a TextureManager,
-    pub(super) shape_texture_bind_group_layout_background: &'a wgpu::BindGroupLayout,
-    pub(super) shape_texture_bind_group_layout_foreground: &'a wgpu::BindGroupLayout,
-    pub(super) shape_texture_layout_epoch: u64,
-}
-
-impl BackdropContext<'_> {
-    pub(super) fn scale_factor(&self) -> f64 {
-        self.scale_factor
-    }
 }
 
 const MAX_EFFECT_RESULTS_CAPACITY: usize = 4_096;
