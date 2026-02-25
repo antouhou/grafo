@@ -1169,7 +1169,6 @@ pub(crate) trait DrawShapeCommand {
     fn instance_color_override(&self) -> Option<[f32; 4]>;
     fn set_instance_color_override(&mut self, color: Option<[f32; 4]>);
     fn clips_children(&self) -> bool;
-    fn set_clips_children(&mut self, clips: bool);
     fn is_rect(&self) -> bool;
     fn rect_bounds(&self) -> Option<[(f32, f32); 2]>;
 }
@@ -1235,11 +1234,6 @@ impl DrawShapeCommand for ShapeDrawData {
     #[inline]
     fn clips_children(&self) -> bool {
         self.clips_children
-    }
-
-    #[inline]
-    fn set_clips_children(&mut self, clips: bool) {
-        self.clips_children = clips;
     }
 
     #[inline]
@@ -1317,11 +1311,6 @@ impl DrawShapeCommand for CachedShapeDrawData {
     #[inline]
     fn clips_children(&self) -> bool {
         self.clips_children
-    }
-
-    #[inline]
-    fn set_clips_children(&mut self, clips: bool) {
-        self.clips_children = clips;
     }
 
     #[inline]

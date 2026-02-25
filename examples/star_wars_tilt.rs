@@ -164,7 +164,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         .with_origin(50.0, 50.0)
                         .compose_2(&transformator::Transform::new());
 
-                    renderer.set_shape_transform_rows(rect_id, parent_local.rows_world());
+                    renderer.set_shape_transform_cols(rect_id, parent_local.rows_world());
 
                     // Inner rectangles inherit parent transform and sit inside with 10px padding.
                     // Layout: padding(10) + rect(35) + gap(10) + rect(35) + padding(10) = 100 total width.
@@ -175,14 +175,14 @@ impl<'a> ApplicationHandler for App<'a> {
                         .then_rotate_y_deg(20.0)
                         .with_origin(17.5, 40.0)
                         .compose_2(&parent_local);
-                    renderer.set_shape_transform_rows(inner_rect_1, child1.rows_world());
+                    renderer.set_shape_transform_cols(inner_rect_1, child1.rows_world());
 
                     let child2 = transformator::Transform::new()
                         .with_position_relative_to_parent(55.0, 10.0)
                         .then_rotate_y_deg(20.0)
                         .with_origin(17.5, 40.0)
                         .compose_2(&parent_local);
-                    renderer.set_shape_transform_rows(inner_rect_2, child2.rows_world());
+                    renderer.set_shape_transform_cols(inner_rect_2, child2.rows_world());
 
                     // Hit testing: transform mouse position to local coordinates for each shape
                     // Check children first (they're on top)

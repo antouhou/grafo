@@ -1,7 +1,5 @@
 use super::*;
-use crate::renderer::passes::{
-    apply_effect_passes, render_segments, EffectPassRunConfig,
-};
+use crate::renderer::passes::{apply_effect_passes, render_segments, EffectPassRunConfig};
 use crate::renderer::traversal::{
     compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects,
 };
@@ -21,7 +19,8 @@ impl<'a> Renderer<'a> {
         let mut effect_output_textures = std::mem::take(&mut self.scratch.effect_output_textures);
         let mut stencil_stack = std::mem::take(&mut self.scratch.stencil_stack);
         let skipped_stack = std::mem::take(&mut self.scratch.skipped_stack);
-        let scissor_stack = std::mem::take(&mut self.scratch.scissor_stack);
+        let mut scissor_stack = std::mem::take(&mut self.scratch.scissor_stack);
+        let mut clip_kind_stack = std::mem::take(&mut self.scratch.clip_kind_stack);
         let mut backdrop_work_textures = std::mem::take(&mut self.scratch.backdrop_work_textures);
 
         let has_group_effects = !self.group_effects.is_empty();
@@ -122,7 +121,7 @@ impl<'a> Renderer<'a> {
 
                 // --- Behind-group rendering (when subtree has backdrop effects) ---
                 let behind_texture = if subtree_needs_backdrop_effects {
-                    let bt = self.offscreen_texture_pool.acquire(
+                    let behind_tex = self.offscreen_texture_pool.acquire(
                         &self.device,
                         width,
                         height,
@@ -137,16 +136,15 @@ impl<'a> Renderer<'a> {
                     let behind_depth_view =
                         behind_depth.create_view(&wgpu::TextureViewDescriptor::default());
 
-                    let (behind_color_view, behind_resolve_target) =
-                        if bt.sample_count > 1 {
-                            (
-                                &bt.color_view,
-                                Some(bt.resolve_view.as_ref().unwrap()
-                                    as &wgpu::TextureView),
-                            )
-                        } else {
-                            (&bt.color_view as &wgpu::TextureView, None)
-                        };
+                    let (behind_color_view, behind_resolve_target) = if behind_tex.sample_count > 1
+                    {
+                        (
+                            &behind_tex.color_view,
+                            Some(behind_tex.resolve_view.as_ref().unwrap() as &wgpu::TextureView),
+                        )
+                    } else {
+                        (&behind_tex.color_view as &wgpu::TextureView, None)
+                    };
 
                     // Use plan_traversal (full tree, excluding this subtree)
                     // + render_segments to render the scene behind the group.
@@ -173,12 +171,14 @@ impl<'a> Renderer<'a> {
                         None,
                         &mut backdrop_work_textures,
                         &mut stencil_stack,
+                        &mut scissor_stack,
+                        &mut clip_kind_stack,
                         self.scale_factor,
                         self.physical_size,
                         #[cfg(feature = "render_metrics")]
                         &mut frame_pipeline_counts,
                     );
-                    Some(bt)
+                    Some(behind_tex)
                 } else {
                     None
                 };
@@ -192,16 +192,16 @@ impl<'a> Renderer<'a> {
                     &mut traversal_scratch,
                 );
 
-                let (subtree_color_view, subtree_resolve_target) =
-                    if subtree_texture.sample_count > 1 {
-                        (
-                            &subtree_texture.color_view,
-                            Some(subtree_texture.resolve_view.as_ref().unwrap()
-                                as &wgpu::TextureView),
-                        )
-                    } else {
-                        (&subtree_texture.color_view, None)
-                    };
+                let (subtree_color_view, subtree_resolve_target) = if subtree_texture.sample_count
+                    > 1
+                {
+                    (
+                        &subtree_texture.color_view,
+                        Some(subtree_texture.resolve_view.as_ref().unwrap() as &wgpu::TextureView),
+                    )
+                } else {
+                    (&subtree_texture.color_view, None)
+                };
 
                 let backdrop_ctx_opt = if subtree_needs_backdrop_effects {
                     Some(crate::renderer::types::BackdropContext {
@@ -220,11 +220,11 @@ impl<'a> Renderer<'a> {
                     None
                 };
 
-                let copy_source = behind_texture.as_ref().map(|bt| {
-                    if bt.sample_count > 1 {
-                        bt.resolve_texture.as_ref().unwrap() as &wgpu::Texture
+                let copy_source = behind_texture.as_ref().map(|tex| {
+                    if tex.sample_count > 1 {
+                        tex.resolve_texture.as_ref().unwrap() as &wgpu::Texture
                     } else {
-                        &bt.color_texture as &wgpu::Texture
+                        &tex.color_texture as &wgpu::Texture
                     }
                 });
 
@@ -244,6 +244,8 @@ impl<'a> Renderer<'a> {
                     backdrop_ctx_opt.as_ref(),
                     &mut backdrop_work_textures,
                     &mut stencil_stack,
+                    &mut scissor_stack,
+                    &mut clip_kind_stack,
                     scale_factor,
                     physical_size,
                     #[cfg(feature = "render_metrics")]
@@ -251,8 +253,8 @@ impl<'a> Renderer<'a> {
                 );
 
                 effect_output_textures.append(&mut backdrop_work_textures);
-                if let Some(bt) = behind_texture {
-                    textures_to_recycle.push(bt);
+                if let Some(behind_tex) = behind_texture {
+                    textures_to_recycle.push(behind_tex);
                 }
 
                 let source_view = if subtree_texture.sample_count > 1 {
@@ -346,6 +348,8 @@ impl<'a> Renderer<'a> {
                 backdrop_ctx_opt.as_ref(),
                 &mut backdrop_work_textures,
                 &mut stencil_stack,
+                &mut scissor_stack,
+                &mut clip_kind_stack,
                 self.scale_factor,
                 self.physical_size,
                 #[cfg(feature = "render_metrics")]
@@ -373,6 +377,7 @@ impl<'a> Renderer<'a> {
         self.scratch.stencil_stack = stencil_stack;
         self.scratch.skipped_stack = skipped_stack;
         self.scratch.scissor_stack = scissor_stack;
+        self.scratch.clip_kind_stack = clip_kind_stack;
         self.scratch.backdrop_work_textures = backdrop_work_textures;
 
         #[cfg(feature = "render_metrics")]

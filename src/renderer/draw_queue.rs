@@ -90,12 +90,12 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    pub fn set_shape_transform_rows(&mut self, node_id: usize, rows: [[f32; 4]; 4]) {
+    pub fn set_shape_transform_cols(&mut self, node_id: usize, cols: [[f32; 4]; 4]) {
         let transform = InstanceTransform {
-            row0: rows[0],
-            row1: rows[1],
-            row2: rows[2],
-            row3: rows[3],
+            col0: cols[0],
+            col1: cols[1],
+            col2: cols[2],
+            col3: cols[3],
         };
 
         self.mutate_draw_command(node_id, |draw_command| {

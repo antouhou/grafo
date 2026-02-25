@@ -191,7 +191,13 @@ mod tests {
 
         let effect_results: HashMap<usize, wgpu::BindGroup> = HashMap::new();
         let mut traversal_scratch = TraversalScratch::new();
-        plan_traversal_in_place(&mut tree, &effect_results, None, None, &mut traversal_scratch);
+        plan_traversal_in_place(
+            &mut tree,
+            &effect_results,
+            None,
+            None,
+            &mut traversal_scratch,
+        );
 
         assert_eq!(traversal_scratch.events().len(), 6);
         assert_eq!(traversal_scratch.stencil_refs().get(&root), Some(&1));
@@ -215,12 +221,24 @@ mod tests {
         let effect_results: HashMap<usize, wgpu::BindGroup> = HashMap::new();
         let mut traversal_scratch = TraversalScratch::new();
 
-        plan_traversal_in_place(&mut tree, &effect_results, None, None, &mut traversal_scratch);
+        plan_traversal_in_place(
+            &mut tree,
+            &effect_results,
+            None,
+            None,
+            &mut traversal_scratch,
+        );
         let events_capacity = traversal_scratch.events.capacity();
         let refs_capacity = traversal_scratch.stencil_refs.capacity();
         let parents_capacity = traversal_scratch.parent_stencils.capacity();
 
-        plan_traversal_in_place(&mut tree, &effect_results, None, None, &mut traversal_scratch);
+        plan_traversal_in_place(
+            &mut tree,
+            &effect_results,
+            None,
+            None,
+            &mut traversal_scratch,
+        );
         assert!(traversal_scratch.events.capacity() >= events_capacity);
         assert!(traversal_scratch.stencil_refs.capacity() >= refs_capacity);
         assert!(traversal_scratch.parent_stencils.capacity() >= parents_capacity);

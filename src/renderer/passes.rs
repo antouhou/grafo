@@ -1,6 +1,18 @@
-use super::types::TraversalEvent;
+use super::types::{ClipKind, TraversalEvent};
 use super::*;
 use crate::vertex::InstanceTransform;
+
+/// Dispatch on `DrawCommand::Shape` / `DrawCommand::CachedShape`, binding the
+/// inner data to `$shape` so the same block can run for both variants.  
+/// The block receives `$shape: &mut impl DrawShapeCommand`.
+macro_rules! with_shape_mut {
+    ($cmd:expr, $shape:ident => $body:expr) => {
+        match $cmd {
+            DrawCommand::Shape($shape) => $body,
+            DrawCommand::CachedShape($shape) => $body,
+        }
+    };
+}
 
 /// Compute a screen-space scissor rect from a local-space axis-aligned rect and its transform.
 ///
@@ -15,28 +27,28 @@ pub(super) fn compute_scissor_rect(
 ) -> Option<(u32, u32, u32, u32)> {
     let t = transform.unwrap_or_else(InstanceTransform::identity);
 
-    // The InstanceTransform struct stores 4 "rows" which the WGSL shader treats as columns
-    // of a mat4x4 (column-major on the GPU). The effective math for pos_out = M * pos_in is:
-    //   out.x = row0[0]*x + row1[0]*y + row3[0]   (row3[0] = tx)
-    //   out.y = row0[1]*x + row1[1]*y + row3[1]   (row3[1] = ty)
-    //   out.w = row0[3]*x + row1[3]*y + row3[3]
+    // The InstanceTransform fields `col0..col3` are the columns of the GPU mat4x4.
+    // The effective math for pos_out = M * pos_in is:
+    //   out.x = col0[0]*x + col1[0]*y + col3[0]   (col3[0] = tx)
+    //   out.y = col0[1]*x + col1[1]*y + col3[1]   (col3[1] = ty)
+    //   out.w = col0[3]*x + col1[3]*y + col3[3]
     // For affine (non-perspective), we need out.w == 1 for all (x,y):
-    //   row0[3] == 0, row1[3] == 0, row3[3] == 1
-    if t.row0[3] != 0.0 || t.row1[3] != 0.0 || t.row3[3] != 1.0 {
+    //   col0[3] == 0, col1[3] == 0, col3[3] == 1
+    if t.col0[3] != 0.0 || t.col1[3] != 0.0 || t.col3[3] != 1.0 {
         return None;
     }
 
     // Check axis-aligned: no rotation/skew in the 2D affine part.
-    // In column-major GPU layout: row0[0]=sx, row0[1]=shy, row1[0]=shx, row1[1]=sy
+    // In column-major GPU layout: col0[0]=sx, col0[1]=shy, col1[0]=shx, col1[1]=sy
     // For axis-aligned rects we need shx == 0 and shy == 0.
-    if t.row0[1] != 0.0 || t.row1[0] != 0.0 {
+    if t.col0[1] != 0.0 || t.col1[0] != 0.0 {
         return None;
     }
 
-    let sx = t.row0[0];
-    let sy = t.row1[1];
-    let tx = t.row3[0];
-    let ty = t.row3[1];
+    let sx = t.col0[0];
+    let sy = t.col1[1];
+    let tx = t.col3[0];
+    let ty = t.col3[1];
 
     // Transform the two corners.
     let x0 = rect[0].0 * sx + tx;
@@ -102,10 +114,7 @@ pub(super) fn try_scissor_for_rect(
             return None;
         }
     };
-    let transform = match draw_command {
-        DrawCommand::Shape(s) => s.transform(),
-        DrawCommand::CachedShape(s) => s.transform(),
-    };
+    let transform = draw_command.transform();
     compute_scissor_rect(rect_bounds, transform, scale_factor, physical_size)
 }
 
@@ -348,8 +357,8 @@ pub(super) fn handle_increment_pass<'rp>(
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
             // Inform the tracker that default textures are now bound on both layers.
-            bound_texture_state.needs_rebind(0, None);
-            bound_texture_state.needs_rebind(1, None);
+            bound_texture_state.mark_bound(0, None);
+            bound_texture_state.mark_bound(1, None);
 
             if !matches!(
                 currently_set_pipeline.current,
@@ -409,8 +418,8 @@ pub(super) fn handle_decrement_pass<'rp>(
             render_pass.set_bind_group(0, pipelines.decrementing_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
-            bound_texture_state.needs_rebind(0, None);
-            bound_texture_state.needs_rebind(1, None);
+            bound_texture_state.mark_bound(0, None);
+            bound_texture_state.mark_bound(1, None);
 
             if !matches!(
                 currently_set_pipeline.current,
@@ -462,8 +471,8 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
             render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
-            bound_texture_state.needs_rebind(0, None);
-            bound_texture_state.needs_rebind(1, None);
+            bound_texture_state.mark_bound(0, None);
+            bound_texture_state.mark_bound(1, None);
 
             if !matches!(
                 currently_set_pipeline.current,
@@ -556,8 +565,8 @@ pub(super) fn flush_pending_leaf_batch(
         render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
         render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
         render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
-        bound_texture_state.needs_rebind(0, None);
-        bound_texture_state.needs_rebind(1, None);
+        bound_texture_state.mark_bound(0, None);
+        bound_texture_state.mark_bound(1, None);
 
         if !matches!(
             currently_set_pipeline.current,
@@ -688,9 +697,12 @@ pub(super) fn render_segments(
     backdrop_ctx: Option<&crate::renderer::types::BackdropContext>,
     backdrop_work_textures: &mut Vec<wgpu::Texture>,
     stencil_stack: &mut Vec<u32>,
+    scissor_stack: &mut Vec<(u32, u32, u32, u32)>,
+    clip_kind_stack: &mut Vec<ClipKind>,
     scale_factor: f64,
     physical_size: (u32, u32),
-    #[cfg(feature = "render_metrics")] pipeline_counts_out: &mut crate::renderer::metrics::PipelineSwitchCounts,
+    #[cfg(feature = "render_metrics")]
+    pipeline_counts_out: &mut crate::renderer::metrics::PipelineSwitchCounts,
 ) {
     let mut event_idx = 0;
     let mut is_first_segment = clear_first;
@@ -698,10 +710,12 @@ pub(super) fn render_segments(
     let mut bound_texture_state = crate::renderer::types::BoundTextureState::default();
     let (width, height) = physical_size;
     let viewport_scissor = (0u32, 0u32, width, height);
-    let mut scissor_stack: Vec<(u32, u32, u32, u32)> = vec![viewport_scissor];
     let mut pending_leaf_batch = PendingLeafBatch::default();
     stencil_stack.clear();
+    scissor_stack.clear();
+    scissor_stack.push(viewport_scissor);
     backdrop_work_textures.clear();
+    clip_kind_stack.clear();
 
     while event_idx < events.len() {
         // --- Scan for the next backdrop boundary ---
@@ -776,10 +790,9 @@ pub(super) fn render_segments(
                                 pipelines,
                                 buffers,
                             );
-                            if let Some(cp) = composite_pipeline {
-                                let parent_stencil =
-                                    stencil_stack.last().copied().unwrap_or(0);
-                                render_pass.set_pipeline(cp);
+                            if let Some(pipeline) = composite_pipeline {
+                                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                                render_pass.set_pipeline(pipeline);
                                 render_pass.set_bind_group(0, result_bind_group, &[]);
                                 render_pass.set_stencil_reference(parent_stencil);
                                 render_pass.draw(0..3, 0..1);
@@ -792,32 +805,18 @@ pub(super) fn render_segments(
                         if let Some(draw_command) = draw_tree.get_mut(node_id) {
                             // --- Leaf node ---
                             if draw_command.is_leaf() {
-                                let parent_stencil =
-                                    stencil_stack.last().copied().unwrap_or(0);
-                                let batched = match draw_command {
-                                    DrawCommand::Shape(shape) => {
-                                        let result = try_batch_leaf(
-                                            &mut pending_leaf_batch,
-                                            shape,
-                                            parent_stencil,
-                                        );
-                                        if result {
-                                            *shape.stencil_ref_mut() = Some(parent_stencil);
-                                        }
-                                        result
+                                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                                let batched = with_shape_mut!(draw_command, shape => {
+                                    let result = try_batch_leaf(
+                                        &mut pending_leaf_batch,
+                                        shape,
+                                        parent_stencil,
+                                    );
+                                    if result {
+                                        *shape.stencil_ref_mut() = Some(parent_stencil);
                                     }
-                                    DrawCommand::CachedShape(shape) => {
-                                        let result = try_batch_leaf(
-                                            &mut pending_leaf_batch,
-                                            shape,
-                                            parent_stencil,
-                                        );
-                                        if result {
-                                            *shape.stencil_ref_mut() = Some(parent_stencil);
-                                        }
-                                        result
-                                    }
-                                };
+                                    result
+                                });
                                 if !batched {
                                     flush_pending_leaf_batch(
                                         &mut pending_leaf_batch,
@@ -827,48 +826,26 @@ pub(super) fn render_segments(
                                         pipelines,
                                         buffers,
                                     );
-                                    match draw_command {
-                                        DrawCommand::Shape(shape) => {
-                                            if !try_batch_leaf(
-                                                &mut pending_leaf_batch,
+                                    with_shape_mut!(draw_command, shape => {
+                                        if !try_batch_leaf(
+                                            &mut pending_leaf_batch,
+                                            shape,
+                                            parent_stencil,
+                                        ) {
+                                            handle_leaf_draw_pass(
+                                                &mut render_pass,
+                                                &mut currently_set_pipeline,
+                                                &mut bound_texture_state,
+                                                stencil_stack,
                                                 shape,
-                                                parent_stencil,
-                                            ) {
-                                                handle_leaf_draw_pass(
-                                                    &mut render_pass,
-                                                    &mut currently_set_pipeline,
-                                                    &mut bound_texture_state,
-                                                    stencil_stack,
-                                                    shape,
-                                                    pipelines,
-                                                    buffers,
-                                                );
-                                            } else {
-                                                *shape.stencil_ref_mut() =
-                                                    Some(parent_stencil);
-                                            }
+                                                pipelines,
+                                                buffers,
+                                            );
+                                        } else {
+                                            *shape.stencil_ref_mut() =
+                                                Some(parent_stencil);
                                         }
-                                        DrawCommand::CachedShape(shape) => {
-                                            if !try_batch_leaf(
-                                                &mut pending_leaf_batch,
-                                                shape,
-                                                parent_stencil,
-                                            ) {
-                                                handle_leaf_draw_pass(
-                                                    &mut render_pass,
-                                                    &mut currently_set_pipeline,
-                                                    &mut bound_texture_state,
-                                                    stencil_stack,
-                                                    shape,
-                                                    pipelines,
-                                                    buffers,
-                                                );
-                                            } else {
-                                                *shape.stencil_ref_mut() =
-                                                    Some(parent_stencil);
-                                            }
-                                        }
-                                    }
+                                    });
                                 }
                                 continue;
                             }
@@ -886,113 +863,67 @@ pub(super) fn render_segments(
                             if !draw_command.clips_children() {
                                 // Non-clipping parent: draw as leaf, children inherit
                                 // the same stencil.
-                                let parent_stencil =
-                                    stencil_stack.last().copied().unwrap_or(0);
-                                match draw_command {
-                                    DrawCommand::Shape(shape) => {
-                                        *shape.stencil_ref_mut() = Some(parent_stencil);
-                                        handle_leaf_draw_pass(
-                                            &mut render_pass,
-                                            &mut currently_set_pipeline,
-                                            &mut bound_texture_state,
-                                            stencil_stack,
-                                            shape,
-                                            pipelines,
-                                            buffers,
-                                        );
-                                    }
-                                    DrawCommand::CachedShape(shape) => {
-                                        *shape.stencil_ref_mut() = Some(parent_stencil);
-                                        handle_leaf_draw_pass(
-                                            &mut render_pass,
-                                            &mut currently_set_pipeline,
-                                            &mut bound_texture_state,
-                                            stencil_stack,
-                                            shape,
-                                            pipelines,
-                                            buffers,
-                                        );
-                                    }
-                                }
+                                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                                with_shape_mut!(draw_command, shape => {
+                                    *shape.stencil_ref_mut() = Some(parent_stencil);
+                                    handle_leaf_draw_pass(
+                                        &mut render_pass,
+                                        &mut currently_set_pipeline,
+                                        &mut bound_texture_state,
+                                        stencil_stack,
+                                        shape,
+                                        pipelines,
+                                        buffers,
+                                    );
+                                });
                                 stencil_stack.push(parent_stencil);
-                            } else if let Some(scissor_rect) = try_scissor_for_rect(
-                                draw_command,
-                                scale_factor,
-                                physical_size,
-                            ) {
+                                clip_kind_stack.push(ClipKind::NonClipping);
+                            } else if let Some(scissor_rect) =
+                                try_scissor_for_rect(draw_command, scale_factor, physical_size)
+                            {
                                 // Scissor optimization: rect parent with axis-aligned
                                 // transform. Use hardware scissor instead of stencil.
-                                let current_scissor = scissor_stack
-                                    .last()
-                                    .copied()
-                                    .unwrap_or(viewport_scissor);
-                                let clipped =
-                                    intersect_scissor(current_scissor, scissor_rect);
+                                let current_scissor =
+                                    scissor_stack.last().copied().unwrap_or(viewport_scissor);
+                                let clipped = intersect_scissor(current_scissor, scissor_rect);
                                 scissor_stack.push(clipped);
-                                render_pass.set_scissor_rect(
-                                    clipped.0, clipped.1, clipped.2, clipped.3,
-                                );
+                                render_pass
+                                    .set_scissor_rect(clipped.0, clipped.1, clipped.2, clipped.3);
                                 #[cfg(feature = "render_metrics")]
                                 currently_set_pipeline.record_scissor_clip();
 
                                 // Draw the rect itself as a visible shape.
-                                let parent_stencil =
-                                    stencil_stack.last().copied().unwrap_or(0);
-                                match draw_command {
-                                    DrawCommand::Shape(shape) => {
-                                        *shape.stencil_ref_mut() = Some(parent_stencil);
-                                        handle_leaf_draw_pass(
-                                            &mut render_pass,
-                                            &mut currently_set_pipeline,
-                                            &mut bound_texture_state,
-                                            stencil_stack,
-                                            shape,
-                                            pipelines,
-                                            buffers,
-                                        );
-                                    }
-                                    DrawCommand::CachedShape(shape) => {
-                                        *shape.stencil_ref_mut() = Some(parent_stencil);
-                                        handle_leaf_draw_pass(
-                                            &mut render_pass,
-                                            &mut currently_set_pipeline,
-                                            &mut bound_texture_state,
-                                            stencil_stack,
-                                            shape,
-                                            pipelines,
-                                            buffers,
-                                        );
-                                    }
-                                }
+                                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                                with_shape_mut!(draw_command, shape => {
+                                    *shape.stencil_ref_mut() = Some(parent_stencil);
+                                    handle_leaf_draw_pass(
+                                        &mut render_pass,
+                                        &mut currently_set_pipeline,
+                                        &mut bound_texture_state,
+                                        stencil_stack,
+                                        shape,
+                                        pipelines,
+                                        buffers,
+                                    );
+                                });
                                 // Push same stencil — children are clipped by scissor
                                 // hardware, not by stencil buffer values.
                                 stencil_stack.push(parent_stencil);
+                                clip_kind_stack.push(ClipKind::Scissor);
                             } else {
                                 // Fall back to stencil increment.
-                                match draw_command {
-                                    DrawCommand::Shape(shape) => {
-                                        handle_increment_pass(
-                                            &mut render_pass,
-                                            &mut currently_set_pipeline,
-                                            &mut bound_texture_state,
-                                            stencil_stack,
-                                            shape,
-                                            pipelines,
-                                            buffers,
-                                        );
-                                    }
-                                    DrawCommand::CachedShape(shape) => {
-                                        handle_increment_pass(
-                                            &mut render_pass,
-                                            &mut currently_set_pipeline,
-                                            &mut bound_texture_state,
-                                            stencil_stack,
-                                            shape,
-                                            pipelines,
-                                            buffers,
-                                        );
-                                    }
-                                }
+                                with_shape_mut!(draw_command, shape => {
+                                    handle_increment_pass(
+                                        &mut render_pass,
+                                        &mut currently_set_pipeline,
+                                        &mut bound_texture_state,
+                                        stencil_stack,
+                                        shape,
+                                        pipelines,
+                                        buffers,
+                                    );
+                                });
+                                clip_kind_stack.push(ClipKind::Stencil);
                             }
                         }
                     }
@@ -1010,70 +941,50 @@ pub(super) fn render_segments(
                                 continue;
                             }
 
-                            // Non-clipping parent: pop dummy stencil entry.
-                            if !draw_command.clips_children() {
-                                stencil_stack.pop();
-                                continue;
-                            }
-
-                            // Scissor parent: flush pending leaves (they use this
-                            // scissor), then pop scissor and stencil.
-                            if try_scissor_for_rect(
-                                draw_command,
-                                scale_factor,
-                                physical_size,
-                            )
-                            .is_some()
-                            {
-                                flush_pending_leaf_batch(
-                                    &mut pending_leaf_batch,
-                                    &mut render_pass,
-                                    &mut currently_set_pipeline,
-                                    &mut bound_texture_state,
-                                    pipelines,
-                                    buffers,
-                                );
-                                scissor_stack.pop();
-                                let prev = scissor_stack
-                                    .last()
-                                    .copied()
-                                    .unwrap_or(viewport_scissor);
-                                render_pass
-                                    .set_scissor_rect(prev.0, prev.1, prev.2, prev.3);
-                                stencil_stack.pop();
-                                continue;
-                            }
-
-                            // Stencil decrement.
-                            flush_pending_leaf_batch(
-                                &mut pending_leaf_batch,
-                                &mut render_pass,
-                                &mut currently_set_pipeline,
-                                &mut bound_texture_state,
-                                pipelines,
-                                buffers,
-                            );
-                            match draw_command {
-                                DrawCommand::Shape(shape) => {
-                                    handle_decrement_pass(
+                            match clip_kind_stack.pop() {
+                                Some(ClipKind::NonClipping) => {
+                                    stencil_stack.pop();
+                                }
+                                Some(ClipKind::Scissor) => {
+                                    flush_pending_leaf_batch(
+                                        &mut pending_leaf_batch,
                                         &mut render_pass,
                                         &mut currently_set_pipeline,
                                         &mut bound_texture_state,
-                                        stencil_stack,
-                                        shape,
                                         pipelines,
                                         buffers,
                                     );
+                                    scissor_stack.pop();
+                                    let prev =
+                                        scissor_stack.last().copied().unwrap_or(viewport_scissor);
+                                    render_pass.set_scissor_rect(prev.0, prev.1, prev.2, prev.3);
+                                    stencil_stack.pop();
                                 }
-                                DrawCommand::CachedShape(shape) => {
-                                    handle_decrement_pass(
+                                Some(ClipKind::Stencil) => {
+                                    flush_pending_leaf_batch(
+                                        &mut pending_leaf_batch,
                                         &mut render_pass,
                                         &mut currently_set_pipeline,
                                         &mut bound_texture_state,
-                                        stencil_stack,
-                                        shape,
                                         pipelines,
                                         buffers,
+                                    );
+                                    with_shape_mut!(draw_command, shape => {
+                                        handle_decrement_pass(
+                                            &mut render_pass,
+                                            &mut currently_set_pipeline,
+                                            &mut bound_texture_state,
+                                            stencil_stack,
+                                            shape,
+                                            pipelines,
+                                            buffers,
+                                        );
+                                    });
+                                }
+                                None => {
+                                    debug_assert!(
+                                        false,
+                                        "clip_kind_stack underflow in Post for node {node_id}"
                                     );
                                 }
                             }
@@ -1121,8 +1032,8 @@ pub(super) fn render_segments(
             }
 
             // Copy current framebuffer to the backdrop snapshot texture.
-            let copy_src = copy_source_texture
-                .expect("copy_source_texture required for backdrop effects");
+            let copy_src =
+                copy_source_texture.expect("copy_source_texture required for backdrop effects");
             encoder.copy_texture_to_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: copy_src,
@@ -1144,10 +1055,8 @@ pub(super) fn render_segments(
             );
 
             // Apply the backdrop effect (blur etc.) via ping-pong passes.
-            let effect_instance =
-                bctx.backdrop_effects.get(&backdrop_node_id).unwrap();
-            let loaded_effect =
-                bctx.loaded_effects.get(&effect_instance.effect_id).unwrap();
+            let effect_instance = bctx.backdrop_effects.get(&backdrop_node_id).unwrap();
+            let loaded_effect = bctx.loaded_effects.get(&effect_instance.effect_id).unwrap();
             let effect_output = apply_effect_passes(
                 bctx.device,
                 encoder,
@@ -1181,8 +1090,7 @@ pub(super) fn render_segments(
             );
 
             // Restore scissor in the backdrop pass.
-            let current_scissor =
-                scissor_stack.last().copied().unwrap_or(viewport_scissor);
+            let current_scissor = scissor_stack.last().copied().unwrap_or(viewport_scissor);
             if current_scissor != viewport_scissor {
                 render_pass.set_scissor_rect(
                     current_scissor.0,
@@ -1206,52 +1114,44 @@ pub(super) fn render_segments(
                     &*pipelines.default_shape_texture_bind_groups[1],
                     &[],
                 );
-                render_pass
-                    .set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
                 );
 
-                let shape_index_range = match draw_command {
-                    DrawCommand::Shape(shape) => {
-                        bind_instance_buffers(&mut render_pass, shape, buffers);
-                        shape.index_buffer_range()
-                    }
-                    DrawCommand::CachedShape(shape) => {
-                        bind_instance_buffers(&mut render_pass, shape, buffers);
-                        shape.index_buffer_range()
-                    }
-                };
+                let shape_index_range = with_shape_mut!(draw_command, shape => {
+                    bind_instance_buffers(&mut render_pass, shape, buffers);
+                    shape.index_buffer_range()
+                });
 
-                if let Some(sir) = shape_index_range {
+                if let Some(idx_range) = shape_index_range {
                     render_pass.set_stencil_reference(parent_stencil);
-                    let start = sir.0 as u32;
-                    let end = (sir.0 + sir.1) as u32;
+                    let start = idx_range.0 as u32;
+                    let end = (idx_range.0 + idx_range.1) as u32;
                     render_pass.draw_indexed(start..end, 0, 0..1);
                 }
 
-                match draw_command {
-                    DrawCommand::Shape(shape) => {
-                        *shape.stencil_ref_mut() = Some(this_stencil)
-                    }
-                    DrawCommand::CachedShape(shape) => {
-                        *shape.stencil_ref_mut() = Some(this_stencil)
-                    }
-                }
+                with_shape_mut!(draw_command, shape => {
+                    *shape.stencil_ref_mut() = Some(this_stencil);
+                });
             }
 
             // Step 2: Composite the blurred backdrop (stencil-masked fullscreen quad).
-            let cp = composite_pipeline
-                .expect("composite_pipeline required for backdrop effects");
-            render_pass.set_pipeline(cp);
+            let composite_pipeline =
+                composite_pipeline.expect("composite_pipeline required for backdrop effects");
+            render_pass.set_pipeline(composite_pipeline);
             render_pass.set_bind_group(0, &backdrop_composite_bind_group, &[]);
             render_pass.set_stencil_reference(this_stencil);
             render_pass.draw(0..3, 0..1);
 
-            // Steps 3 + 4: Color draw then decrement (self-contained).
+            // Determine whether the backdrop node has children.
+            let backdrop_is_leaf = draw_tree
+                .get(backdrop_node_id)
+                .is_none_or(|cmd| cmd.is_leaf());
+
+            // Step 3: Color draw (Equal + Keep).
             if let Some(draw_command) = draw_tree.get_mut(backdrop_node_id) {
-                // Step 3: Color draw (Equal + Keep).
                 render_pass.set_pipeline(bctx.backdrop_color_pipeline);
                 render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
                 render_pass.set_bind_group(
@@ -1264,29 +1164,19 @@ pub(super) fn render_segments(
                     &*pipelines.default_shape_texture_bind_groups[1],
                     &[],
                 );
-                render_pass
-                    .set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
                 );
 
-                let (texture_ids, shape_index_range) = match draw_command {
-                    DrawCommand::Shape(shape) => {
-                        bind_instance_buffers(&mut render_pass, shape, buffers);
-                        (
-                            [shape.texture_id(0), shape.texture_id(1)],
-                            shape.index_buffer_range(),
-                        )
-                    }
-                    DrawCommand::CachedShape(shape) => {
-                        bind_instance_buffers(&mut render_pass, shape, buffers);
-                        (
-                            [shape.texture_id(0), shape.texture_id(1)],
-                            shape.index_buffer_range(),
-                        )
-                    }
-                };
+                let (texture_ids, shape_index_range) = with_shape_mut!(draw_command, shape => {
+                    bind_instance_buffers(&mut render_pass, shape, buffers);
+                    (
+                        [shape.texture_id(0), shape.texture_id(1)],
+                        shape.index_buffer_range(),
+                    )
+                });
 
                 bind_shape_texture_layers(
                     &mut render_pass,
@@ -1299,41 +1189,50 @@ pub(super) fn render_segments(
                     &mut bound_texture_state,
                 );
 
-                if let Some(sir) = shape_index_range {
+                if let Some(idx_range) = shape_index_range {
                     render_pass.set_stencil_reference(this_stencil);
-                    let start = sir.0 as u32;
-                    let end = (sir.0 + sir.1) as u32;
+                    let start = idx_range.0 as u32;
+                    let end = (idx_range.0 + idx_range.1) as u32;
                     render_pass.draw_indexed(start..end, 0, 0..1);
 
-                    // Step 4: Decrement stencil to restore parent level.
-                    render_pass.set_pipeline(pipelines.decrementing_pipeline);
-                    render_pass.set_bind_group(
-                        0,
-                        pipelines.decrementing_bind_group,
-                        &[],
-                    );
-                    render_pass.set_bind_group(
-                        1,
-                        &*pipelines.default_shape_texture_bind_groups[0],
-                        &[],
-                    );
-                    render_pass.set_bind_group(
-                        2,
-                        &*pipelines.default_shape_texture_bind_groups[1],
-                        &[],
-                    );
-                    // Instance buffers still bound from step 3.
-                    render_pass.set_stencil_reference(this_stencil);
-                    render_pass.draw_indexed(start..end, 0, 0..1);
+                    // Step 4: Decrement stencil — only for leaf backdrop nodes.
+                    // Non-leaf nodes keep the stencil at `this_stencil` so
+                    // children are clipped; the normal Post handler decrements.
+                    if backdrop_is_leaf {
+                        render_pass.set_pipeline(pipelines.decrementing_pipeline);
+                        render_pass.set_bind_group(0, pipelines.decrementing_bind_group, &[]);
+                        render_pass.set_bind_group(
+                            1,
+                            &*pipelines.default_shape_texture_bind_groups[0],
+                            &[],
+                        );
+                        render_pass.set_bind_group(
+                            2,
+                            &*pipelines.default_shape_texture_bind_groups[1],
+                            &[],
+                        );
+                        render_pass.set_stencil_reference(this_stencil);
+                        render_pass.draw_indexed(start..end, 0, 0..1);
+                    }
                 }
             }
 
-            currently_set_pipeline
-                .switch_to(crate::renderer::types::Pipeline::None);
+            currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::None);
             bound_texture_state.invalidate();
             is_first_segment = false;
-            // Backdrop effects are on leaf nodes — skip both Pre and Post events.
-            event_idx += 2;
+
+            if backdrop_is_leaf {
+                // Leaf: skip both Pre and Post events.
+                event_idx += 2;
+            } else {
+                // Non-leaf: children must still be rendered, clipped by the
+                // backdrop shape's stencil. Push stencil/clip state and
+                // advance past only the Pre event — children and the
+                // matching Post will be processed by the normal loop.
+                stencil_stack.push(this_stencil);
+                clip_kind_stack.push(ClipKind::Stencil);
+                event_idx += 1;
+            }
         }
     }
 

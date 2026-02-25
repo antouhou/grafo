@@ -41,6 +41,13 @@ impl DrawCommand {
         }
     }
 
+    pub(super) fn transform(&self) -> Option<InstanceTransform> {
+        match self {
+            DrawCommand::Shape(shape) => shape.transform(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.transform(),
+        }
+    }
+
     pub(super) fn set_texture_id(&mut self, layer: usize, texture_id: Option<u64>) {
         match self {
             DrawCommand::Shape(shape) => shape.set_texture_id(layer, texture_id),
@@ -56,13 +63,6 @@ impl DrawCommand {
             DrawCommand::CachedShape(cached_shape) => {
                 cached_shape.set_instance_color_override(color)
             }
-        }
-    }
-
-    pub(super) fn set_clips_children(&mut self, clips: bool) {
-        match self {
-            DrawCommand::Shape(shape) => shape.set_clips_children(clips),
-            DrawCommand::CachedShape(cached_shape) => cached_shape.set_clips_children(clips),
         }
     }
 
@@ -113,6 +113,19 @@ pub(super) enum Pipeline {
     StencilIncrement,
     StencilDecrement,
     LeafDraw,
+}
+
+/// Records which clipping strategy was used by each non-leaf parent during
+/// `Pre` traversal so the `Post` path can tear down state without
+/// re-evaluating the scissor eligibility check.
+#[derive(Clone, Copy)]
+pub(super) enum ClipKind {
+    /// Parent does not clip children — a dummy stencil entry was pushed.
+    NonClipping,
+    /// Parent clips children via hardware scissor rect.
+    Scissor,
+    /// Parent clips children via stencil increment/decrement.
+    Stencil,
 }
 
 /// Wraps [`Pipeline`] tracking with optional per-frame switch counters.
@@ -184,6 +197,13 @@ impl BoundTextureState {
         self.layers[layer] = Some(texture_id);
         true
     }
+
+    /// Update the tracked state for `layer` without returning whether a rebind is
+    /// needed. Use this when you know the bind group was just set (e.g. after a
+    /// pipeline switch that binds default textures).
+    pub(super) fn mark_bound(&mut self, layer: usize, texture_id: Option<u64>) {
+        self.layers[layer] = Some(texture_id);
+    }
 }
 
 pub(super) struct Buffers<'a> {
@@ -244,6 +264,9 @@ pub(super) struct RendererScratch {
     /// Stack of intersected scissor rects (x, y, width, height) in physical pixels.
     /// Used to replace stencil clipping for axis-aligned rect parents.
     pub(super) scissor_stack: Vec<(u32, u32, u32, u32)>,
+    /// Parallel stack to `stencil_stack`: records which clipping strategy each
+    /// non-leaf parent used so the `Post` path avoids re-evaluating eligibility.
+    pub(super) clip_kind_stack: Vec<ClipKind>,
     pub(super) backdrop_work_textures: Vec<wgpu::Texture>,
     /// Reused across readback calls; intentionally not cleared on `begin_frame`
     /// because readback may run after render submission and reuse prior capacity.
@@ -261,6 +284,7 @@ impl RendererScratch {
             stencil_stack: Vec::new(),
             skipped_stack: Vec::new(),
             scissor_stack: Vec::new(),
+            clip_kind_stack: Vec::new(),
             backdrop_work_textures: Vec::new(),
             readback_bytes: Vec::new(),
             traversal_scratch: TraversalScratch::new(),
@@ -275,6 +299,7 @@ impl RendererScratch {
         self.stencil_stack.clear();
         self.skipped_stack.clear();
         self.scissor_stack.clear();
+        self.clip_kind_stack.clear();
         self.backdrop_work_textures.clear();
         self.traversal_scratch.begin();
         // Keep readback bytes length/capacity untouched to preserve reuse across
@@ -292,6 +317,7 @@ impl RendererScratch {
         trim_vector_if_needed(&mut self.stencil_stack, MAX_STENCIL_STACK_CAPACITY);
         trim_vector_if_needed(&mut self.skipped_stack, MAX_SKIPPED_STACK_CAPACITY);
         trim_vector_if_needed(&mut self.scissor_stack, MAX_SCISSOR_STACK_CAPACITY);
+        trim_vector_if_needed(&mut self.clip_kind_stack, MAX_SCISSOR_STACK_CAPACITY);
         trim_vector_if_needed(
             &mut self.backdrop_work_textures,
             MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY,
