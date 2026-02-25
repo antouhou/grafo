@@ -97,22 +97,27 @@ impl InstanceTransform {
     }
 
     /// Create a 2D translation transform (tx, ty) in pixels.
+    ///
+    /// The struct stores 4 "rows" that the WGSL shader passes as **columns** to
+    /// `mat4x4`, so translation lives in `row3` (= GPU column 3).
     pub fn translation(tx: f32, ty: f32) -> Self {
         Self {
-            row0: [1.0, 0.0, 0.0, tx],
-            row1: [0.0, 1.0, 0.0, ty],
+            row0: [1.0, 0.0, 0.0, 0.0],
+            row1: [0.0, 1.0, 0.0, 0.0],
             row2: [0.0, 0.0, 1.0, 0.0],
-            row3: [0.0, 0.0, 0.0, 1.0],
+            row3: [tx, ty, 0.0, 1.0],
         }
     }
 
     /// Create a 3D translation transform (tx, ty, tz).
+    ///
+    /// Translation is stored in `row3` (= GPU column 3).
     pub fn translation3d(tx: f32, ty: f32, tz: f32) -> Self {
         Self {
-            row0: [1.0, 0.0, 0.0, tx],
-            row1: [0.0, 1.0, 0.0, ty],
-            row2: [0.0, 0.0, 1.0, tz],
-            row3: [0.0, 0.0, 0.0, 1.0],
+            row0: [1.0, 0.0, 0.0, 0.0],
+            row1: [0.0, 1.0, 0.0, 0.0],
+            row2: [0.0, 0.0, 1.0, 0.0],
+            row3: [tx, ty, tz, 1.0],
         }
     }
 
@@ -158,13 +163,15 @@ impl InstanceTransform {
     ///   [ a c tx ]
     ///   [ b d ty ]
     ///   [ 0 0  1 ]
+    ///
+    /// Stored so that `row0..row3` map to GPU columns 0..3:
+    ///   col0=[a,b,0,0]  col1=[c,d,0,0]  col2=[0,0,1,0]  col3=[tx,ty,0,1]
     pub fn affine_2d(a: f32, b: f32, c: f32, d: f32, tx: f32, ty: f32) -> Self {
-        // Row-major storage
         Self {
-            row0: [a, c, 0.0, tx],
-            row1: [b, d, 0.0, ty],
+            row0: [a, b, 0.0, 0.0],
+            row1: [c, d, 0.0, 0.0],
             row2: [0.0, 0.0, 1.0, 0.0],
-            row3: [0.0, 0.0, 0.0, 1.0],
+            row3: [tx, ty, 0.0, 1.0],
         }
     }
 
