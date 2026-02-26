@@ -78,7 +78,7 @@ pub struct Renderer<'a> {
 
     // WGPU components
     instance: wgpu::Instance,
-    surface: wgpu::Surface<'a>,
+    surface: Option<wgpu::Surface<'a>>,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     config: wgpu::SurfaceConfiguration,

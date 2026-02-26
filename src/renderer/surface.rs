@@ -48,7 +48,9 @@ impl<'a> Renderer<'a> {
             bytemuck::cast_slice(&[self.decrementing_uniforms]),
         );
 
-        self.surface.configure(&self.device, &self.config);
+        if let Some(surface) = &self.surface {
+            surface.configure(&self.device, &self.config);
+        }
         self.recreate_msaa_texture();
         self.recreate_depth_stencil_texture();
 
@@ -128,11 +130,12 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn set_surface(&mut self, window: impl Into<SurfaceTarget<'static>>) {
-        self.surface = self
+        let surface = self
             .instance
             .create_surface(window)
             .expect("Failed to create surface");
-        self.surface.configure(&self.device, &self.config);
+        surface.configure(&self.device, &self.config);
+        self.surface = Some(surface);
     }
 
     pub fn set_vsync(&mut self, vsync: bool) {
@@ -141,6 +144,8 @@ impl<'a> Renderer<'a> {
         } else {
             wgpu::PresentMode::AutoNoVsync
         };
-        self.surface.configure(&self.device, &self.config);
+        if let Some(surface) = &self.surface {
+            surface.configure(&self.device, &self.config);
+        }
     }
 }

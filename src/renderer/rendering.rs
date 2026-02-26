@@ -10,6 +10,11 @@ impl<'a> Renderer<'a> {
         texture_view: &wgpu::TextureView,
         output_texture: Option<&wgpu::Texture>,
     ) {
+        // Nothing to render when the draw queue is empty.
+        if self.draw_tree.is_empty() {
+            return;
+        }
+
         self.begin_frame_scratch();
 
         let mut traversal_scratch = std::mem::take(&mut self.scratch.traversal_scratch);
@@ -394,7 +399,11 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         let after_prepare = std::time::Instant::now();
 
-        let output = self.surface.get_current_texture()?;
+        let surface = self
+            .surface
+            .as_ref()
+            .expect("Cannot call render() on a headless renderer; use render_to_buffer()");
+        let output = surface.get_current_texture()?;
         let output_texture_view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());

@@ -976,6 +976,7 @@ dependencies = [
  "env_logger",
  "euclid",
  "futures",
+ "grafo-test-scenes",
  "image",
  "log",
  "lru",
@@ -985,6 +986,15 @@ dependencies = [
  "transformator",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "grafo-test-scenes"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "futures",
+ "grafo",
 ]
 
 [[package]]

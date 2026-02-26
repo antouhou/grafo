@@ -10,7 +10,6 @@ impl<'a> Renderer<'a> {
         msaa_samples: u32,
     ) -> Self {
         let size = physical_size;
-        let canvas_logical_size = to_logical(size, scale_factor);
 
         let instance = wgpu::Instance::new(&InstanceDescriptor::default());
         let surface = instance
@@ -83,6 +82,33 @@ impl<'a> Renderer<'a> {
 
         let msaa_sample_count = Self::validate_sample_count_static(msaa_samples);
 
+        Self::build_from_device(
+            instance,
+            Some(surface),
+            device,
+            queue,
+            config,
+            size,
+            scale_factor,
+            msaa_sample_count,
+        )
+    }
+
+    /// Shared constructor: takes the wgpu primitives produced by `new()` or
+    /// `new_headless()` and builds the full `Renderer`.
+    #[allow(clippy::too_many_arguments)]
+    fn build_from_device(
+        instance: wgpu::Instance,
+        surface: Option<wgpu::Surface<'a>>,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        config: wgpu::SurfaceConfiguration,
+        physical_size: (u32, u32),
+        scale_factor: f64,
+        msaa_sample_count: u32,
+    ) -> Self {
+        let canvas_logical_size = to_logical(physical_size, scale_factor);
+
         let (
             and_uniforms,
             and_uniform_buffer,
@@ -142,7 +168,7 @@ impl<'a> Renderer<'a> {
             device,
             queue,
             config,
-            physical_size: size,
+            physical_size,
             scale_factor,
             fringe_width: Self::DEFAULT_FRINGE_WIDTH,
             tessellator: FillTessellator::new(),
@@ -446,6 +472,66 @@ impl<'a> Renderer<'a> {
             msaa_samples,
         )
         .await
+    }
+
+    /// Creates a headless renderer without a window surface.
+    ///
+    /// Use `render_to_buffer()` or `render_to_argb32()` to read back rendered
+    /// pixels. Calling `render()` on a headless renderer will panic.
+    pub async fn new_headless(physical_size: (u32, u32), scale_factor: f64) -> Self {
+        let size = physical_size;
+
+        let instance = wgpu::Instance::new(&InstanceDescriptor::default());
+
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            })
+            .await
+            .expect("Failed to find a suitable GPU adapter for headless rendering");
+
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                #[cfg(feature = "performance_measurement")]
+                required_features: wgpu::Features::TIMESTAMP_QUERY
+                    | wgpu::Features::DEPTH32FLOAT_STENCIL8,
+                #[cfg(not(feature = "performance_measurement"))]
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                memory_hints: Default::default(),
+                trace: Default::default(),
+            })
+            .await
+            .unwrap();
+
+        let swapchain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            format: swapchain_format,
+            width: size.0,
+            height: size.1,
+            present_mode: wgpu::PresentMode::AutoVsync,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: CompositeAlphaMode::Opaque,
+            view_formats: vec![],
+        };
+
+        let msaa_sample_count = 1;
+
+        Self::build_from_device(
+            instance,
+            None,
+            device,
+            queue,
+            config,
+            size,
+            scale_factor,
+            msaa_sample_count,
+        )
     }
 
     pub(super) fn recreate_pipelines(&mut self) {

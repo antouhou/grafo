@@ -1,5 +1,6 @@
-Coding style and best practices
+# Coding style and best practices
 
+## Basic rules:
 - Use full, descriptive names for variables, functions, types, and modules. NEVER shorten the names, as it makes it extremely hard to read and review.
 - Functions should be small and avoid deep nesting, well-structured and documented. The new developer onboarding to the project should be able to easily grasp what the code does and why.
 - Group all `use` imports at the top of the file (no local import islands). Prefer ordering: std → third-party → workspace crates.
@@ -13,4 +14,9 @@ Coding style and best practices
 - Run `cargo fmt --all` to format the code automatically after you've done necessary changes.
 - Avoid pyramids of doom and deep nesting, break down things into small readable
 - Make sure comments are short and descriptive, don't contain the though process or plans - they should striclty clarify parts that might be unobvious from surrounding code, nothing more.
+
+## Project-specific guidelines:
 - Avoid heap allocations in the render method/loop. Try to resuse values allocated on the heap as much as possible in general.
+- `tests/visual_regression.rs` always must be run to check that no regression has been introduced.
+- In case of adding a new feature, expand `tests/visual_regression.rs` to test that it works as exected, with all possible permutations of the added feature and existing ones. Study other cases in the test for reference.
+- In case of a new found bug, make sure that is fixed, and the permutation that caused it is added to `tests/visual_regression.rs`.
