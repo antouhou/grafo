@@ -142,7 +142,7 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
             for cell in 0..CELLS_PER_ROW {
                 let cell_id =
                     renderer.add_cached_shape_to_the_render_queue(CACHE_KEY_CELL, Some(row_id));
-                let brightness = 100 + (cell * 30) as u8;
+                let brightness = (100u8).saturating_add((cell * 30) as u8);
                 renderer.set_shape_color(
                     cell_id,
                     Some(Color::rgb(brightness, brightness, brightness)),

@@ -7,19 +7,27 @@
 use futures::executor::block_on;
 use grafo_test_scenes::{build_main_scene, check_pixels, CANVAS_HEIGHT, CANVAS_WIDTH};
 
-/// Main regression test — renders all 34 tiles and validates pixel expectations.
-#[test]
-fn main_scene_pixel_expectations() {
-    let mut renderer = match block_on(grafo::Renderer::try_new_headless(
+/// Creates a headless renderer, returning `None` (and printing a skip message)
+/// when no suitable GPU adapter is available.
+fn create_headless_renderer() -> Option<grafo::Renderer<'static>> {
+    match block_on(grafo::Renderer::try_new_headless(
         (CANVAS_WIDTH, CANVAS_HEIGHT),
         1.0,
     )) {
-        Ok(r) => r,
+        Ok(r) => Some(r),
         Err(grafo::RendererCreationError::AdapterNotAvailable(_)) => {
             println!("Skipping test: no suitable GPU adapter available.");
-            return;
+            None
         }
         Err(e) => panic!("Failed to create headless renderer: {e}"),
+    }
+}
+
+/// Main regression test — renders all 34 tiles and validates pixel expectations.
+#[test]
+fn main_scene_pixel_expectations() {
+    let Some(mut renderer) = create_headless_renderer() else {
+        return;
     };
 
     let expectations = build_main_scene(&mut renderer);
@@ -41,16 +49,8 @@ fn main_scene_pixel_expectations() {
 /// Regression test — empty draw queue should not crash.
 #[test]
 fn empty_draw_queue() {
-    let mut renderer = match block_on(grafo::Renderer::try_new_headless(
-        (CANVAS_WIDTH, CANVAS_HEIGHT),
-        1.0,
-    )) {
-        Ok(r) => r,
-        Err(grafo::RendererCreationError::AdapterNotAvailable(_)) => {
-            println!("Skipping test: no suitable GPU adapter available.");
-            return;
-        }
-        Err(e) => panic!("Failed to create headless renderer: {e}"),
+    let Some(mut renderer) = create_headless_renderer() else {
+        return;
     };
 
     // Render with nothing in the draw queue
@@ -75,16 +75,8 @@ fn empty_draw_queue() {
 /// Regression test — single root shape with no children should render correctly.
 #[test]
 fn single_root_no_children() {
-    let mut renderer = match block_on(grafo::Renderer::try_new_headless(
-        (CANVAS_WIDTH, CANVAS_HEIGHT),
-        1.0,
-    )) {
-        Ok(r) => r,
-        Err(grafo::RendererCreationError::AdapterNotAvailable(_)) => {
-            println!("Skipping test: no suitable GPU adapter available.");
-            return;
-        }
-        Err(e) => panic!("Failed to create headless renderer: {e}"),
+    let Some(mut renderer) = create_headless_renderer() else {
+        return;
     };
 
     let shape = grafo::Shape::rect([(10.0, 10.0), (100.0, 100.0)], grafo::Stroke::default());

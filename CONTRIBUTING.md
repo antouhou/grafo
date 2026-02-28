@@ -9,7 +9,7 @@
 - When fixing a bug, first write a test that reproduces the bug, then fix the bug, and finally ensure the test passes.
 - Avoid dynamic dispatch wherever possible. Use generics and `impl Trait` instead of `Box<dyn Trait>`/`Arc<dyn Trait>`.
 - All e2e tests must be as watertight as possible.
-- No global state whatsoever. It makes reliable and quick testing a ver hard task.
+- No global state whatsoever. It makes reliable and quick testing a very hard task.
 - Run `cargo clippy --fix --all-features --tests -D warnings` to ensure there are no clippy warnings.
 - Run `cargo fmt --all` to format the code automatically after you've done necessary changes.
 - Avoid pyramids of doom and deep nesting, break down things into small, readable functions.

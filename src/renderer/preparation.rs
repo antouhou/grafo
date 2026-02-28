@@ -138,6 +138,7 @@ impl<'a> Renderer<'a> {
                             shape.texture_ids,
                         );
                         *shape.instance_index_mut() = Some(instance_index);
+                        shape.is_empty = false;
                     } else {
                         shape.is_empty = true;
                     }

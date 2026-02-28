@@ -559,13 +559,14 @@ impl<'a> Renderer<'a> {
         )
     }
 
-    /// Creates a headless renderer without a window surface, panicking if no
-    /// suitable GPU adapter is available.
+    /// Creates a headless renderer without a window surface, panicking on
+    /// any error from [`Self::try_new_headless`] (e.g. no suitable GPU adapter,
+    /// invalid scale factor, device/queue creation failure).
     ///
     /// Use `render_to_buffer()` or `render_to_argb32()` to read back rendered
     /// pixels. Calling `render()` on a headless renderer will panic.
     ///
-    /// If you need a non-panicking variant (e.g. in tests), use
+    /// For a non-panicking alternative (e.g. in tests), use
     /// [`Self::try_new_headless`] instead.
     pub async fn new_headless(physical_size: (u32, u32), scale_factor: f64) -> Self {
         Self::try_new_headless(physical_size, scale_factor)
