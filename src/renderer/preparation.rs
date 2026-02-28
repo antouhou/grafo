@@ -59,14 +59,18 @@ fn append_instance_data(
     temp_instance_metadata: &mut Vec<InstanceMetadata>,
     transform: Option<InstanceTransform>,
     color_override: Option<[f32; 4]>,
+    texture_ids: [Option<u64>; 2],
 ) -> usize {
     let instance_index = temp_instance_transforms.len();
     temp_instance_transforms.push(transform.unwrap_or_else(InstanceTransform::identity));
     temp_instance_colors.push(InstanceColor {
         color: color_override.unwrap_or([1.0, 1.0, 1.0, 1.0]),
     });
+    let texture_flags =
+        (texture_ids[0].is_some() as u32) | ((texture_ids[1].is_some() as u32) << 1);
     temp_instance_metadata.push(InstanceMetadata {
         draw_order: instance_index as f32,
+        texture_flags: texture_flags as f32,
     });
     instance_index
 }
@@ -131,6 +135,7 @@ impl<'a> Renderer<'a> {
                             &mut self.temp_instance_metadata,
                             shape.transform(),
                             shape.instance_color_override(),
+                            shape.texture_ids,
                         );
                         *shape.instance_index_mut() = Some(instance_index);
                     } else {
@@ -177,6 +182,7 @@ impl<'a> Renderer<'a> {
                             &mut self.temp_instance_metadata,
                             cached_shape_data.transform(),
                             cached_shape_data.instance_color_override(),
+                            cached_shape_data.texture_ids,
                         );
                         *cached_shape_data.instance_index_mut() = Some(instance_index);
                     } else {

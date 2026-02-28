@@ -267,11 +267,17 @@ impl InstanceTransform {
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct InstanceMetadata {
     pub draw_order: f32,
+    /// Bitmask indicating which texture layers are active for this instance.
+    /// 0 = no textures (solid fill only), 1 = layer 0, 2 = layer 1, 3 = both.
+    pub texture_flags: f32,
 }
 
 impl Default for InstanceMetadata {
     fn default() -> Self {
-        Self { draw_order: 0.0 }
+        Self {
+            draw_order: 0.0,
+            texture_flags: 0.0,
+        }
     }
 }
 
@@ -280,11 +286,18 @@ impl InstanceMetadata {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<InstanceMetadata>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[wgpu::VertexAttribute {
-                format: wgpu::VertexFormat::Float32,
-                offset: 0,
-                shader_location: 7,
-            }],
+            attributes: &[
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 0,
+                    shader_location: 7,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: std::mem::size_of::<f32>() as wgpu::BufferAddress,
+                    shader_location: 10,
+                },
+            ],
         }
     }
 }

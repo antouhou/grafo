@@ -16,6 +16,9 @@ struct VertexInput {
     @location(8) normal: vec2<f32>,
     // AA: coverage factor (1.0 = interior, 0.0 = outer fringe)
     @location(9) coverage: f32,
+    // Per-instance bitmask: bit 0 = layer 0 active, bit 1 = layer 1 active.
+    // 0 = solid fill only (skip all texture samples).
+    @location(10) texture_flags: f32,
 };
 
 struct VertexOutput {
@@ -23,6 +26,7 @@ struct VertexOutput {
     @location(0) color: vec4<f32>,
     @location(1) tex_coords: vec2<f32>,
     @location(2) coverage: f32,
+    @location(3) @interpolate(flat) texture_flags: f32,
 };
 
 // This is a struct that will be used for position normalization
@@ -67,7 +71,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
     // Apply the per-instance transform in pixel space
     let p = model * vec4<f32>(input.position, 0.0, 1.0);
-    
+
     // Perform homogeneous divide to handle perspective projection
     let w = p.w;
     let invw = 1.0 / max(abs(w), 1e-6);
@@ -122,7 +126,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     if pz == 0.0 {
         depth = 1.0; // Place at far plane if Z is exactly zero
     }
-    
+
     // Apply a tiny depth bias based on draw order to resolve Z-fighting for coplanar shapes.
     // Later shapes (higher draw_order) get a smaller depth value (closer to camera).
     let bias = input.draw_order * 0.00001;
@@ -141,6 +145,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     output.color = input.color;
     output.tex_coords = input.tex_coords;
     output.coverage = input.coverage;
+    output.texture_flags = input.texture_flags;
     return output;
 }
 
@@ -149,17 +154,37 @@ fn fs_main(
     @location(0) color: vec4<f32>,
     @location(1) tex_coords: vec2<f32>,
     @location(2) coverage: f32,
+    @location(3) @interpolate(flat) texture_flags: f32,
 ) -> @location(0) vec4<f32> {
     // Shape fill color arrives already in linear space (sRGB->linear conversion
     // is performed on the CPU in normalize_rgba_color).
-    // Sample layer0 and layer1 (Rgba8UnormSrgb -> linear automatically). Data is premultiplied.
-    let layer0_pma = textureSample(t_shape_layer0, s_shape_layer0, tex_coords);
-    let layer1_pma = textureSample(t_shape_layer1, s_shape_layer1, tex_coords);
     // Convert fill to premultiplied
     let fill_pma = vec4<f32>(color.rgb * color.a, color.a);
+
+    // Fast path: no textures bound — solid fill only. Skip both texture samples.
+    let flags = u32(texture_flags);
+    if (flags == 0u) {
+        return fill_pma * coverage;
+    }
+
+    // At least one texture layer is active.
+    // Use textureSampleLevel (explicit LOD 0) instead of textureSample so that
+    // sampling is valid inside non-uniform control flow. Our textures are created
+    // without mipmaps (mip_level_count = 1), so LOD 0 is always correct.
+    // Data is premultiplied (Rgba8UnormSrgb -> linear automatically).
+
     // Compose: base = texture layer 0 over shape fill, then layer 1 over result.
-    let base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
-    let final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
+    var base_pma = fill_pma;
+    if ((flags & 1u) != 0u) {
+        let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, tex_coords, 0.0);
+        base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
+    }
+
+    var final_pma = base_pma;
+    if ((flags & 2u) != 0u) {
+        let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, tex_coords, 0.0);
+        final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
+    }
 
     // Apply AA coverage: scale premultiplied color by coverage factor.
     // With premultiplied alpha blending (src: One, dst: OneMinusSrcAlpha),
