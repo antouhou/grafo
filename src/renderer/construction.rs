@@ -478,7 +478,11 @@ impl<'a> Renderer<'a> {
     ///
     /// Use `render_to_buffer()` or `render_to_argb32()` to read back rendered
     /// pixels. Calling `render()` on a headless renderer will panic.
-    pub async fn new_headless(physical_size: (u32, u32), scale_factor: f64) -> Self {
+    ///
+    /// Returns `None` if no suitable GPU adapter is available. This is useful
+    /// in environments without a GPU (e.g. CI), where tests can skip gracefully
+    /// instead of panicking.
+    pub async fn try_new_headless(physical_size: (u32, u32), scale_factor: f64) -> Option<Self> {
         let size = physical_size;
 
         let instance = wgpu::Instance::new(&InstanceDescriptor::default());
@@ -490,7 +494,7 @@ impl<'a> Renderer<'a> {
                 force_fallback_adapter: false,
             })
             .await
-            .expect("Failed to find a suitable GPU adapter for headless rendering");
+            .ok()?;
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -505,7 +509,7 @@ impl<'a> Renderer<'a> {
                 trace: Default::default(),
             })
             .await
-            .unwrap();
+            .ok()?;
 
         let swapchain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
 
@@ -522,7 +526,7 @@ impl<'a> Renderer<'a> {
 
         let msaa_sample_count = 1;
 
-        Self::build_from_device(
+        Some(Self::build_from_device(
             instance,
             None,
             device,
@@ -531,7 +535,21 @@ impl<'a> Renderer<'a> {
             size,
             scale_factor,
             msaa_sample_count,
-        )
+        ))
+    }
+
+    /// Creates a headless renderer without a window surface, panicking if no
+    /// suitable GPU adapter is available.
+    ///
+    /// Use `render_to_buffer()` or `render_to_argb32()` to read back rendered
+    /// pixels. Calling `render()` on a headless renderer will panic.
+    ///
+    /// If you need a non-panicking variant (e.g. in tests), use
+    /// [`Self::try_new_headless`] instead.
+    pub async fn new_headless(physical_size: (u32, u32), scale_factor: f64) -> Self {
+        Self::try_new_headless(physical_size, scale_factor)
+            .await
+            .expect("Failed to find a suitable GPU adapter for headless rendering")
     }
 
     pub(super) fn recreate_pipelines(&mut self) {

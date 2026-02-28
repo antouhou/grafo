@@ -10,10 +10,13 @@ use grafo_test_scenes::{build_main_scene, check_pixels, CANVAS_HEIGHT, CANVAS_WI
 /// Main regression test — renders all 34 tiles and validates pixel expectations.
 #[test]
 fn main_scene_pixel_expectations() {
-    let mut renderer = block_on(grafo::Renderer::new_headless(
+    let Some(mut renderer) = block_on(grafo::Renderer::try_new_headless(
         (CANVAS_WIDTH, CANVAS_HEIGHT),
         1.0,
-    ));
+    )) else {
+        println!("Skipping test: no suitable GPU adapter available.");
+        return;
+    };
 
     let expectations = build_main_scene(&mut renderer);
 
@@ -34,10 +37,13 @@ fn main_scene_pixel_expectations() {
 /// Regression test — empty draw queue should not crash.
 #[test]
 fn empty_draw_queue() {
-    let mut renderer = block_on(grafo::Renderer::new_headless(
+    let Some(mut renderer) = block_on(grafo::Renderer::try_new_headless(
         (CANVAS_WIDTH, CANVAS_HEIGHT),
         1.0,
-    ));
+    )) else {
+        println!("Skipping test: no suitable GPU adapter available.");
+        return;
+    };
 
     // Render with nothing in the draw queue
     let mut pixel_buffer: Vec<u8> = Vec::new();
@@ -53,10 +59,13 @@ fn empty_draw_queue() {
 /// Regression test — single root shape with no children should render correctly.
 #[test]
 fn single_root_no_children() {
-    let mut renderer = block_on(grafo::Renderer::new_headless(
+    let Some(mut renderer) = block_on(grafo::Renderer::try_new_headless(
         (CANVAS_WIDTH, CANVAS_HEIGHT),
         1.0,
-    ));
+    )) else {
+        println!("Skipping test: no suitable GPU adapter available.");
+        return;
+    };
 
     let shape = grafo::Shape::rect([(10.0, 10.0), (100.0, 100.0)], grafo::Stroke::default());
     let id = renderer.add_shape(shape, None, None);
