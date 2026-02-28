@@ -5,11 +5,11 @@ struct VertexInput {
     @location(1) color: vec4<f32>,
     // Optional texture coordinates for shape texturing
     @location(2) tex_coords: vec2<f32>,
-    // Per-instance transform matrix rows (row-major from euclid)
-    @location(3) t_row0: vec4<f32>,
-    @location(4) t_row1: vec4<f32>,
-    @location(5) t_row2: vec4<f32>,
-    @location(6) t_row3: vec4<f32>,
+    // Per-instance transform matrix columns (column-major layout)
+    @location(3) t_col0: vec4<f32>,
+    @location(4) t_col1: vec4<f32>,
+    @location(5) t_col2: vec4<f32>,
+    @location(6) t_col3: vec4<f32>,
     // Per-instance draw order for Z-fighting resolution
     @location(7) draw_order: f32,
     // AA: outward boundary normal in model space
@@ -63,11 +63,10 @@ fn to_srgb(color: vec3<f32>) -> vec3<f32> {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    // Build the transform matrix from row-major CPU data.
-    // Euclid's to_arrays() gives us rows, and WGSL mat4x4 constructor treats each vec4 as a column.
-    // So we pass rows as if they were columns, which gives us the transpose.
-    // Then matrix * vector will work correctly for row-major semantics.
-    let model: mat4x4<f32> = mat4x4<f32>(input.t_row0, input.t_row1, input.t_row2, input.t_row3);
+    // Build the transform matrix from column-major CPU data.
+    // Each vec4 (t_col0..t_col3) is one column of the matrix. WGSL's mat4x4
+    // constructor treats each argument as a column, so this is a direct mapping.
+    let model: mat4x4<f32> = mat4x4<f32>(input.t_col0, input.t_col1, input.t_col2, input.t_col3);
 
     // Apply the per-instance transform in pixel space
     let p = model * vec4<f32>(input.position, 0.0, 1.0);

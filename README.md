@@ -105,15 +105,16 @@ Use per-shape transforms to position shapes. Common helpers:
 - Translate: `TransformInstance::translation(tx, ty)`
 - Scale: `TransformInstance::scale(sx, sy)`
 - Rotate (Z): `TransformInstance::rotation_z_deg(deg)`
-- Compose: `a.multiply(&b)` applies `b` then `a`
+- Compose: `a.multiply(&b)` (or `a.then(&b)`) applies `a` first, then `b`
 
 Example:
 
 ```rust
 let id = renderer.add_shape(my_shape, None, None);
-let t = grafo::TransformInstance::translation(150.0, 80.0);
 let r = grafo::TransformInstance::rotation_z_deg(15.0);
-renderer.set_shape_transform(id, t.multiply(&r));
+let t = grafo::TransformInstance::translation(150.0, 80.0);
+// Rotate first, then translate
+renderer.set_shape_transform(id, r.then(&t));
 ```
 
 ## Documentation

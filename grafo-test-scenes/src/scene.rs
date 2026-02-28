@@ -618,7 +618,7 @@ fn tile_13_rotated_rect_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     renderer.set_shape_color(parent_id, Some(Color::rgb(200, 200, 180)));
     let rotation = TransformInstance::rotation_z_deg(45.0);
     let translation = TransformInstance::translation(ox + 40.0, oy + 40.0);
-    // multiply(A, B) applies A first, then B: first rotate, then translate
+    // a.multiply(&b) applies a first, then b: first rotate, then translate
     renderer.set_shape_transform(parent_id, rotation.multiply(&translation));
 
     // Child is smaller than parent — parent ring visible around child
@@ -1032,7 +1032,7 @@ fn tile_19_rotated_rect_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     renderer.set_shape_color(id, Some(Color::rgb(220, 100, 100)));
     let rotation = TransformInstance::rotation_z_deg(45.0);
     let translation = TransformInstance::translation(ox + 40.0, oy + 40.0);
-    // multiply(A, B) applies A first, then B: first rotate, then translate
+    // a.multiply(&b) applies a first, then b: first rotate, then translate
     renderer.set_shape_transform(id, rotation.multiply(&translation));
 
     vec![

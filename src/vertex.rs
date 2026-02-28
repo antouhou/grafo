@@ -175,8 +175,13 @@ impl InstanceTransform {
         }
     }
 
-    /// Matrix multiplication (self * rhs), column-major.
-    /// Useful to compose transforms: first rhs, then self.
+    /// Compose two transforms so that `self` is applied first, then `rhs`.
+    ///
+    /// This uses left-to-right application order (like CSS/SVG/euclid's `.then()`):
+    /// `a.multiply(&b)` means "apply `a` first, then `b`".
+    ///
+    /// Note: mathematically this computes `rhs × self` (not `self × rhs`),
+    /// which is what gives us the intuitive left-to-right ordering.
     pub fn multiply(&self, rhs: &Self) -> Self {
         // Helper: dot product of a column with elements from rhs at col_idx
         fn dot(col: [f32; 4], mat: &InstanceTransform, col_idx: usize) -> f32 {
@@ -215,6 +220,17 @@ impl InstanceTransform {
                 dot(self.col3, rhs, 3),
             ],
         }
+    }
+
+    /// Compose two transforms so that `self` is applied first, then `next`.
+    ///
+    /// Alias for [`multiply`](Self::multiply) that mirrors euclid's `Transform3D::then()`.
+    ///
+    /// ```ignore
+    /// let composed = rotation.then(&translation); // rotate first, translate second
+    /// ```
+    pub fn then(&self, next: &Self) -> Self {
+        self.multiply(next)
     }
 
     /// Return the 4 columns as an array.
