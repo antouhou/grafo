@@ -82,7 +82,7 @@ impl<'a> Renderer<'a> {
             0 | 1 => 1,
             2..=4 => 4,
             _ => {
-                log::warn!(
+                warn!(
                     "Requested MSAA sample count {} is not widely supported, clamping to 4",
                     requested
                 );

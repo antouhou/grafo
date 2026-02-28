@@ -36,7 +36,7 @@ impl<'a> Renderer<'a> {
         let (sender, receiver) = std::sync::mpsc::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             if sender.send(result).is_err() {
-                log::warn!("Failed to send map_async result from callback");
+                warn!("Failed to send map_async result from callback");
             }
         });
 
@@ -45,13 +45,13 @@ impl<'a> Renderer<'a> {
         let map_result = match receiver.recv() {
             Ok(result) => result,
             Err(error) => {
-                log::warn!("Failed to receive mapped buffer result: {}", error);
+                warn!("Failed to receive mapped buffer result: {}", error);
                 return;
             }
         };
 
         if let Err(error) = map_result {
-            log::warn!("Failed to map readback buffer: {:?}", error);
+            warn!("Failed to map readback buffer: {:?}", error);
             return;
         }
 

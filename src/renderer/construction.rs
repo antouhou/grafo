@@ -1,4 +1,5 @@
 use super::*;
+use tracing::info;
 
 /// Errors that can occur when creating a [`Renderer`] via
 /// [`Renderer::try_new_headless`].
@@ -63,18 +64,18 @@ impl<'a> Renderer<'a> {
                 .alpha_modes
                 .contains(&CompositeAlphaMode::PreMultiplied)
         {
-            log::info!("Using PreMultiplied alpha mode for transparency");
+            info!("Using PreMultiplied alpha mode for transparency");
             CompositeAlphaMode::PreMultiplied
         } else if transparent
             && surface_caps
                 .alpha_modes
                 .contains(&CompositeAlphaMode::PostMultiplied)
         {
-            log::info!("Using PostMultiplied alpha mode for transparency");
+            info!("Using PostMultiplied alpha mode for transparency");
             CompositeAlphaMode::PostMultiplied
         } else {
             if transparent {
-                log::warn!("Transparency requested but no suitable alpha mode available, falling back to Opaque");
+                warn!("Transparency requested but no suitable alpha mode available, falling back to Opaque");
             }
             CompositeAlphaMode::Opaque
         };

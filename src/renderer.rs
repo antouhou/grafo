@@ -4,8 +4,8 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use ahash::{HashMap, HashMapExt};
-use log::warn;
 use lyon::tessellation::FillTessellator;
+use tracing::warn;
 use wgpu::{BindGroup, BufferUsages, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
 
 use crate::effect::{

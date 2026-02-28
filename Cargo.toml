@@ -20,7 +20,7 @@ wgpu = "25.0"
 ahash = "0.8"
 lyon = { version = "1.0"}
 easy-tree = { version = "0.3" }
-log = "0.4"
+tracing = "0.1.44"
 lru = "0.15"
 regex = "1"
 softbuffer = "0.4.8"
