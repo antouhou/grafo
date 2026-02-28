@@ -192,7 +192,7 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
 
 // ── Reporting helpers ────────────────────────────────────────────────────────
 
-fn print_results(label: &str, frame_times: &mut Vec<Duration>, total_elapsed: Duration) {
+fn print_results(label: &str, frame_times: &mut [Duration], total_elapsed: Duration) {
     frame_times.sort();
     let count = frame_times.len();
     let avg = total_elapsed.as_secs_f64() / count as f64;

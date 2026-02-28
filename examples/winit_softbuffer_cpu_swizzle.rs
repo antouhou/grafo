@@ -8,6 +8,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
+#[derive(Default)]
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<Arc<RwLock<grafo::Renderer<'a>>>>,
@@ -17,21 +18,6 @@ struct App<'a> {
     frame_count: u64,
     bgra_bytes: Vec<u8>,
     argb_buffer: Vec<u32>,
-}
-
-impl<'a> Default for App<'a> {
-    fn default() -> Self {
-        Self {
-            window: None,
-            renderer: None,
-            softbuffer_context: None,
-            softbuffer_surface: None,
-            pending_resize: None,
-            frame_count: 0,
-            bgra_bytes: Vec::new(),
-            argb_buffer: Vec::new(),
-        }
-    }
 }
 
 impl<'a> ApplicationHandler for App<'a> {
@@ -174,7 +160,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     self.argb_buffer.resize(needed_words, 0);
                 }
                 for i in 0..needed_words {
-                    let b = self.bgra_bytes[i * 4 + 0] as u32;
+                    let b = self.bgra_bytes[i * 4] as u32;
                     let g = self.bgra_bytes[i * 4 + 1] as u32;
                     let r = self.bgra_bytes[i * 4 + 2] as u32;
                     let a = self.bgra_bytes[i * 4 + 3] as u32;
