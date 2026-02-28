@@ -1,8 +1,5 @@
 use super::*;
-use crate::renderer::passes::{
-    apply_effect_passes, handle_decrement_pass, handle_increment_pass, render_scene_behind_group,
-    render_segments, EffectPassRunConfig,
-};
+use crate::renderer::passes::{apply_effect_passes, render_segments, EffectPassRunConfig};
 use crate::renderer::traversal::{
     compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects,
 };
@@ -13,6 +10,11 @@ impl<'a> Renderer<'a> {
         texture_view: &wgpu::TextureView,
         output_texture: Option<&wgpu::Texture>,
     ) {
+        // Nothing to render when the draw queue is empty.
+        if self.draw_tree.is_empty() {
+            return;
+        }
+
         self.begin_frame_scratch();
 
         let mut traversal_scratch = std::mem::take(&mut self.scratch.traversal_scratch);
@@ -21,7 +23,9 @@ impl<'a> Renderer<'a> {
         let mut textures_to_recycle = std::mem::take(&mut self.scratch.textures_to_recycle);
         let mut effect_output_textures = std::mem::take(&mut self.scratch.effect_output_textures);
         let mut stencil_stack = std::mem::take(&mut self.scratch.stencil_stack);
-        let mut skipped_stack = std::mem::take(&mut self.scratch.skipped_stack);
+        let skipped_stack = std::mem::take(&mut self.scratch.skipped_stack);
+        let mut scissor_stack = std::mem::take(&mut self.scratch.scissor_stack);
+        let mut clip_kind_stack = std::mem::take(&mut self.scratch.clip_kind_stack);
         let mut backdrop_work_textures = std::mem::take(&mut self.scratch.backdrop_work_textures);
 
         let has_group_effects = !self.group_effects.is_empty();
@@ -37,6 +41,14 @@ impl<'a> Renderer<'a> {
             self.ensure_backdrop_color_pipeline();
         }
 
+        // O1: Ensure depth/stencil texture exists (lazy init on first frame)
+        if self.depth_stencil_view.is_none() {
+            self.recreate_depth_stencil_texture();
+        }
+
+        #[cfg(feature = "render_metrics")]
+        let mut frame_pipeline_counts = crate::renderer::metrics::PipelineSwitchCounts::default();
+
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -48,6 +60,7 @@ impl<'a> Renderer<'a> {
             and_bind_group: &self.and_bind_group,
             decrementing_pipeline: &self.decrementing_pipeline,
             decrementing_bind_group: &self.decrementing_bind_group,
+            leaf_draw_pipeline: &self.leaf_draw_pipeline,
             shape_texture_bind_group_layout_background: &self
                 .shape_texture_bind_group_layout_background,
             shape_texture_bind_group_layout_foreground: &self
@@ -87,6 +100,8 @@ impl<'a> Renderer<'a> {
             effect_node_ids.sort_by(|left, right| right.1.cmp(&left.1));
 
             let (width, height) = self.physical_size;
+            let physical_size = self.physical_size;
+            let scale_factor = self.scale_factor;
 
             for &(node_id, _depth) in &effect_node_ids {
                 let effect_instance = match self.group_effects.get(&node_id) {
@@ -109,8 +124,9 @@ impl<'a> Renderer<'a> {
                 let subtree_needs_backdrop_effects =
                     subtree_has_backdrop_effects(&self.draw_tree, &self.backdrop_effects, node_id);
 
-                if subtree_needs_backdrop_effects {
-                    let behind_texture = self.offscreen_texture_pool.acquire(
+                // --- Behind-group rendering (when subtree has backdrop effects) ---
+                let behind_texture = if subtree_needs_backdrop_effects {
+                    let behind_tex = self.offscreen_texture_pool.acquire(
                         &self.device,
                         width,
                         height,
@@ -125,235 +141,125 @@ impl<'a> Renderer<'a> {
                     let behind_depth_view =
                         behind_depth.create_view(&wgpu::TextureViewDescriptor::default());
 
-                    let (behind_color_view, behind_resolve_target) =
-                        if behind_texture.sample_count > 1 {
-                            (
-                                &behind_texture.color_view,
-                                Some(behind_texture.resolve_view.as_ref().unwrap()
-                                    as &wgpu::TextureView),
-                            )
-                        } else {
-                            (&behind_texture.color_view as &wgpu::TextureView, None)
-                        };
-
-                    render_scene_behind_group(
-                        &mut self.draw_tree,
-                        &mut encoder,
-                        &effect_results,
-                        node_id,
-                        behind_color_view,
-                        behind_resolve_target,
-                        &behind_depth_view,
-                        self.composite_pipeline.as_ref(),
-                        &pipelines,
-                        &buffers,
-                        &mut stencil_stack,
-                        &mut skipped_stack,
-                    );
-
-                    let behind_copy_source = if behind_texture.sample_count > 1 {
-                        behind_texture.resolve_texture.as_ref().unwrap()
+                    let (behind_color_view, behind_resolve_target) = if behind_tex.sample_count > 1
+                    {
+                        (
+                            &behind_tex.color_view,
+                            Some(behind_tex.resolve_view.as_ref().unwrap() as &wgpu::TextureView),
+                        )
                     } else {
-                        &behind_texture.color_texture
+                        (&behind_tex.color_view as &wgpu::TextureView, None)
                     };
 
+                    // Use plan_traversal (full tree, excluding this subtree)
+                    // + render_segments to render the scene behind the group.
                     plan_traversal_in_place(
                         &mut self.draw_tree,
                         &effect_results,
+                        None,
                         Some(node_id),
                         &mut traversal_scratch,
                     );
-
-                    let (subtree_color_view, subtree_resolve_target) =
-                        if subtree_texture.sample_count > 1 {
-                            (
-                                &subtree_texture.color_view,
-                                Some(subtree_texture.resolve_view.as_ref().unwrap()
-                                    as &wgpu::TextureView),
-                            )
-                        } else {
-                            (&subtree_texture.color_view, None)
-                        };
-
-                    let backdrop_ctx = crate::renderer::types::BackdropContext {
-                        backdrop_effects: &self.backdrop_effects,
-                        loaded_effects: &self.loaded_effects,
-                        composite_pipeline: self.composite_pipeline.as_ref().unwrap(),
-                        composite_bgl: self.composite_bgl.as_ref().unwrap(),
-                        effect_sampler: self.effect_sampler.as_ref().unwrap(),
-                        stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
-                        backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
-                        and_bind_group: &self.and_bind_group,
-                        default_shape_texture_bind_groups: &self.default_shape_texture_bind_groups,
-                        device: &self.device,
-                        physical_size: self.physical_size,
-                        config_format: self.config.format,
-                        backdrop_snapshot_texture: self.backdrop_snapshot_texture.as_ref().unwrap(),
-                        backdrop_snapshot_view: self.backdrop_snapshot_view.as_ref().unwrap(),
-                        texture_manager: &self.texture_manager,
-                        shape_texture_bind_group_layout_background: &self
-                            .shape_texture_bind_group_layout_background,
-                        shape_texture_bind_group_layout_foreground: &self
-                            .shape_texture_bind_group_layout_foreground,
-                        shape_texture_layout_epoch: self.shape_texture_layout_epoch,
-                    };
-
                     render_segments(
                         &mut self.draw_tree,
                         &mut encoder,
                         traversal_scratch.events(),
-                        traversal_scratch.stencil_refs(),
-                        traversal_scratch.parent_stencils(),
                         &effect_results,
-                        subtree_color_view,
-                        subtree_resolve_target,
-                        &subtree_texture.depth_stencil_view,
-                        behind_copy_source,
+                        behind_color_view,
+                        behind_resolve_target,
+                        &behind_depth_view,
+                        None,
                         true,
                         &pipelines,
                         &buffers,
-                        &backdrop_ctx,
+                        self.composite_pipeline.as_ref(),
+                        None,
                         &mut backdrop_work_textures,
                         &mut stencil_stack,
+                        &mut scissor_stack,
+                        &mut clip_kind_stack,
+                        self.scale_factor,
+                        self.physical_size,
+                        #[cfg(feature = "render_metrics")]
+                        &mut frame_pipeline_counts,
                     );
-
-                    effect_output_textures.append(&mut backdrop_work_textures);
-                    textures_to_recycle.push(behind_texture);
+                    Some(behind_tex)
                 } else {
-                    let (view, resolve_target) = if subtree_texture.sample_count > 1 {
-                        (
-                            &subtree_texture.color_view,
-                            subtree_texture.resolve_view.as_ref(),
-                        )
+                    None
+                };
+
+                // --- Subtree rendering (unified: always use plan_traversal + render_segments) ---
+                plan_traversal_in_place(
+                    &mut self.draw_tree,
+                    &effect_results,
+                    Some(node_id),
+                    None,
+                    &mut traversal_scratch,
+                );
+
+                let (subtree_color_view, subtree_resolve_target) = if subtree_texture.sample_count
+                    > 1
+                {
+                    (
+                        &subtree_texture.color_view,
+                        Some(subtree_texture.resolve_view.as_ref().unwrap() as &wgpu::TextureView),
+                    )
+                } else {
+                    (&subtree_texture.color_view, None)
+                };
+
+                let backdrop_ctx_opt = if subtree_needs_backdrop_effects {
+                    Some(crate::renderer::types::BackdropContext {
+                        backdrop_effects: &self.backdrop_effects,
+                        loaded_effects: &self.loaded_effects,
+                        composite_bgl: self.composite_bgl.as_ref().unwrap(),
+                        effect_sampler: self.effect_sampler.as_ref().unwrap(),
+                        stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
+                        backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
+                        device: &self.device,
+                        config_format: self.config.format,
+                        backdrop_snapshot_texture: self.backdrop_snapshot_texture.as_ref().unwrap(),
+                        backdrop_snapshot_view: self.backdrop_snapshot_view.as_ref().unwrap(),
+                    })
+                } else {
+                    None
+                };
+
+                let copy_source = behind_texture.as_ref().map(|tex| {
+                    if tex.sample_count > 1 {
+                        tex.resolve_texture.as_ref().unwrap() as &wgpu::Texture
                     } else {
-                        (&subtree_texture.color_view, None)
-                    };
+                        &tex.color_texture as &wgpu::Texture
+                    }
+                });
 
-                    let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("effect_subtree_pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view,
-                            resolve_target,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                            view: &subtree_texture.depth_stencil_view,
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(1.0),
-                                store: wgpu::StoreOp::Store,
-                            }),
-                            stencil_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(0),
-                                store: wgpu::StoreOp::Store,
-                            }),
-                        }),
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
+                render_segments(
+                    &mut self.draw_tree,
+                    &mut encoder,
+                    traversal_scratch.events(),
+                    &effect_results,
+                    subtree_color_view,
+                    subtree_resolve_target,
+                    &subtree_texture.depth_stencil_view,
+                    copy_source,
+                    true,
+                    &pipelines,
+                    &buffers,
+                    self.composite_pipeline.as_ref(),
+                    backdrop_ctx_opt.as_ref(),
+                    &mut backdrop_work_textures,
+                    &mut stencil_stack,
+                    &mut scissor_stack,
+                    &mut clip_kind_stack,
+                    scale_factor,
+                    physical_size,
+                    #[cfg(feature = "render_metrics")]
+                    &mut frame_pipeline_counts,
+                );
 
-                    stencil_stack.clear();
-                    skipped_stack.clear();
-                    let current_pipeline = crate::renderer::types::Pipeline::None;
-                    let mut data = (
-                        render_pass,
-                        &mut stencil_stack,
-                        current_pipeline,
-                        &mut skipped_stack,
-                    );
-
-                    let effect_results_ref = &effect_results;
-                    let composite_pipeline_ref = self.composite_pipeline.as_ref();
-
-                    self.draw_tree.traverse_subtree_mut(
-                        node_id,
-                        |shape_id, draw_command, data| {
-                            let (render_pass, stencil_stack, currently_set_pipeline, skipped_stack) =
-                                data;
-
-                            if shape_id != node_id {
-                                if let Some(result_bg) = effect_results_ref.get(&shape_id) {
-                                    let parent_stencil =
-                                        stencil_stack.last().copied().unwrap_or(0);
-                                    if let Some(composite_pipeline) = composite_pipeline_ref {
-                                        render_pass.set_pipeline(composite_pipeline);
-                                        render_pass.set_bind_group(0, result_bg, &[]);
-                                        render_pass.set_stencil_reference(parent_stencil);
-                                        render_pass.draw(0..3, 0..1);
-                                        *currently_set_pipeline = crate::renderer::types::Pipeline::None;
-                                    }
-                                    skipped_stack.push(shape_id);
-                                    return;
-                                }
-                            }
-
-                            if !skipped_stack.is_empty() {
-                                return;
-                            }
-
-                            match draw_command {
-                                DrawCommand::Shape(shape) => {
-                                    handle_increment_pass(
-                                        render_pass,
-                                        currently_set_pipeline,
-                                        stencil_stack,
-                                        shape,
-                                        &pipelines,
-                                        &buffers,
-                                    );
-                                }
-                                DrawCommand::CachedShape(shape) => {
-                                    handle_increment_pass(
-                                        render_pass,
-                                        currently_set_pipeline,
-                                        stencil_stack,
-                                        shape,
-                                        &pipelines,
-                                        &buffers,
-                                    );
-                                }
-                            }
-                        },
-                        |shape_id, draw_command, data| {
-                            let (render_pass, stencil_stack, currently_set_pipeline, skipped_stack) =
-                                data;
-
-                            if skipped_stack.last().copied() == Some(shape_id) {
-                                skipped_stack.pop();
-                                return;
-                            }
-
-                            if !skipped_stack.is_empty() {
-                                return;
-                            }
-
-                            match draw_command {
-                                DrawCommand::Shape(shape) => {
-                                    handle_decrement_pass(
-                                        render_pass,
-                                        currently_set_pipeline,
-                                        stencil_stack,
-                                        shape,
-                                        &pipelines,
-                                        &buffers,
-                                    );
-                                }
-                                DrawCommand::CachedShape(shape) => {
-                                    handle_decrement_pass(
-                                        render_pass,
-                                        currently_set_pipeline,
-                                        stencil_stack,
-                                        shape,
-                                        &pipelines,
-                                        &buffers,
-                                    );
-                                }
-                            }
-                        },
-                        &mut data,
-                    );
+                effect_output_textures.append(&mut backdrop_work_textures);
+                if let Some(behind_tex) = behind_texture {
+                    textures_to_recycle.push(behind_tex);
                 }
 
                 let source_view = if subtree_texture.sample_count > 1 {
@@ -387,183 +293,75 @@ impl<'a> Renderer<'a> {
         }
 
         {
-            let depth_texture = create_and_depth_texture(
-                &self.device,
-                (self.physical_size.0, self.physical_size.1),
-                self.msaa_sample_count,
+            let depth_texture_view = self.depth_stencil_view.as_ref().unwrap();
+
+            // Unified main-scene rendering: always plan_traversal + render_segments.
+            plan_traversal_in_place(
+                &mut self.draw_tree,
+                &effect_results,
+                None,
+                None,
+                &mut traversal_scratch,
             );
-            let depth_texture_view =
-                depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-            if has_backdrop_effects {
-                plan_traversal_in_place(
-                    &mut self.draw_tree,
-                    &effect_results,
-                    None,
-                    &mut traversal_scratch,
-                );
+            let (phase2_color_view, phase2_resolve_target) =
+                if let Some(msaa_view) = self.msaa_color_texture_view.as_ref() {
+                    (
+                        msaa_view as &wgpu::TextureView,
+                        Some(texture_view as &wgpu::TextureView),
+                    )
+                } else {
+                    (texture_view as &wgpu::TextureView, None)
+                };
 
-                let (phase2_color_view, phase2_resolve_target) =
-                    if let Some(msaa_view) = self.msaa_color_texture_view.as_ref() {
-                        (
-                            msaa_view as &wgpu::TextureView,
-                            Some(texture_view as &wgpu::TextureView),
-                        )
-                    } else {
-                        (texture_view as &wgpu::TextureView, None)
-                    };
-
-                let backdrop_ctx = crate::renderer::types::BackdropContext {
+            let backdrop_ctx_opt = if has_backdrop_effects {
+                Some(crate::renderer::types::BackdropContext {
                     backdrop_effects: &self.backdrop_effects,
                     loaded_effects: &self.loaded_effects,
-                    composite_pipeline: self.composite_pipeline.as_ref().unwrap(),
                     composite_bgl: self.composite_bgl.as_ref().unwrap(),
                     effect_sampler: self.effect_sampler.as_ref().unwrap(),
                     stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
                     backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
-                    and_bind_group: &self.and_bind_group,
-                    default_shape_texture_bind_groups: &self.default_shape_texture_bind_groups,
                     device: &self.device,
-                    physical_size: self.physical_size,
                     config_format: self.config.format,
                     backdrop_snapshot_texture: self.backdrop_snapshot_texture.as_ref().unwrap(),
                     backdrop_snapshot_view: self.backdrop_snapshot_view.as_ref().unwrap(),
-                    texture_manager: &self.texture_manager,
-                    shape_texture_bind_group_layout_background: &self
-                        .shape_texture_bind_group_layout_background,
-                    shape_texture_bind_group_layout_foreground: &self
-                        .shape_texture_bind_group_layout_foreground,
-                    shape_texture_layout_epoch: self.shape_texture_layout_epoch,
-                };
-
-                let src_texture =
-                    output_texture.expect("output_texture required for backdrop effects");
-
-                render_segments(
-                    &mut self.draw_tree,
-                    &mut encoder,
-                    traversal_scratch.events(),
-                    traversal_scratch.stencil_refs(),
-                    traversal_scratch.parent_stencils(),
-                    &effect_results,
-                    phase2_color_view,
-                    phase2_resolve_target,
-                    &depth_texture_view,
-                    src_texture,
-                    true,
-                    &pipelines,
-                    &buffers,
-                    &backdrop_ctx,
-                    &mut backdrop_work_textures,
-                    &mut stencil_stack,
-                );
-
-                backdrop_work_textures.clear();
+                })
             } else {
-                let render_pass = create_render_pass(
-                    &mut encoder,
-                    self.msaa_color_texture_view.as_ref(),
-                    texture_view,
-                    &depth_texture_view,
-                );
+                None
+            };
 
-                stencil_stack.clear();
-                skipped_stack.clear();
-                let current_pipeline = crate::renderer::types::Pipeline::None;
-                let mut data = (
-                    render_pass,
-                    &mut stencil_stack,
-                    current_pipeline,
-                    &mut skipped_stack,
-                );
+            let copy_src = if has_backdrop_effects {
+                Some(output_texture.expect("output_texture required for backdrop effects"))
+            } else {
+                None
+            };
 
-                let effect_results_ref = &effect_results;
-                let composite_pipeline_ref = self.composite_pipeline.as_ref();
+            render_segments(
+                &mut self.draw_tree,
+                &mut encoder,
+                traversal_scratch.events(),
+                &effect_results,
+                phase2_color_view,
+                phase2_resolve_target,
+                depth_texture_view,
+                copy_src,
+                true,
+                &pipelines,
+                &buffers,
+                self.composite_pipeline.as_ref(),
+                backdrop_ctx_opt.as_ref(),
+                &mut backdrop_work_textures,
+                &mut stencil_stack,
+                &mut scissor_stack,
+                &mut clip_kind_stack,
+                self.scale_factor,
+                self.physical_size,
+                #[cfg(feature = "render_metrics")]
+                &mut frame_pipeline_counts,
+            );
 
-                self.draw_tree.traverse_mut(
-                    |shape_id, draw_command, data| {
-                        let (render_pass, stencil_stack, currently_set_pipeline, skipped_stack) =
-                            data;
-
-                        if let Some(result_bind_group) = effect_results_ref.get(&shape_id) {
-                            let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
-                            if let Some(composite_pipeline) = composite_pipeline_ref {
-                                render_pass.set_pipeline(composite_pipeline);
-                                render_pass.set_bind_group(0, result_bind_group, &[]);
-                                render_pass.set_stencil_reference(parent_stencil);
-                                render_pass.draw(0..3, 0..1);
-                                *currently_set_pipeline = crate::renderer::types::Pipeline::None;
-                            }
-                            skipped_stack.push(shape_id);
-                            return;
-                        }
-
-                        if !skipped_stack.is_empty() {
-                            return;
-                        }
-
-                        match draw_command {
-                            DrawCommand::Shape(shape) => {
-                                handle_increment_pass(
-                                    render_pass,
-                                    currently_set_pipeline,
-                                    stencil_stack,
-                                    shape,
-                                    &pipelines,
-                                    &buffers,
-                                );
-                            }
-                            DrawCommand::CachedShape(shape) => {
-                                handle_increment_pass(
-                                    render_pass,
-                                    currently_set_pipeline,
-                                    stencil_stack,
-                                    shape,
-                                    &pipelines,
-                                    &buffers,
-                                );
-                            }
-                        }
-                    },
-                    |shape_id, draw_command, data| {
-                        let (render_pass, stencil_stack, currently_set_pipeline, skipped_stack) =
-                            data;
-
-                        if skipped_stack.last().copied() == Some(shape_id) {
-                            skipped_stack.pop();
-                            return;
-                        }
-
-                        if !skipped_stack.is_empty() {
-                            return;
-                        }
-
-                        match draw_command {
-                            DrawCommand::Shape(shape) => {
-                                handle_decrement_pass(
-                                    render_pass,
-                                    currently_set_pipeline,
-                                    stencil_stack,
-                                    shape,
-                                    &pipelines,
-                                    &buffers,
-                                );
-                            }
-                            DrawCommand::CachedShape(shape) => {
-                                handle_decrement_pass(
-                                    render_pass,
-                                    currently_set_pipeline,
-                                    stencil_stack,
-                                    shape,
-                                    &pipelines,
-                                    &buffers,
-                                );
-                            }
-                        }
-                    },
-                    &mut data,
-                );
-            }
+            backdrop_work_textures.clear();
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -583,20 +381,61 @@ impl<'a> Renderer<'a> {
         self.scratch.effect_output_textures = effect_output_textures;
         self.scratch.stencil_stack = stencil_stack;
         self.scratch.skipped_stack = skipped_stack;
+        self.scratch.scissor_stack = scissor_stack;
+        self.scratch.clip_kind_stack = clip_kind_stack;
         self.scratch.backdrop_work_textures = backdrop_work_textures;
+
+        #[cfg(feature = "render_metrics")]
+        {
+            self.last_pipeline_switch_counts = frame_pipeline_counts;
+        }
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        #[cfg(feature = "render_metrics")]
+        let frame_render_loop_started_at = std::time::Instant::now();
         self.prepare_render();
 
-        let output = self.surface.get_current_texture()?;
+        #[cfg(feature = "render_metrics")]
+        let after_prepare = std::time::Instant::now();
+
+        let surface = self
+            .surface
+            .as_ref()
+            .expect("Cannot call render() on a headless renderer; use render_to_buffer()");
+        let output = surface.get_current_texture()?;
         let output_texture_view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         self.render_to_texture_view(&output_texture_view, Some(&output.texture));
 
+        #[cfg(feature = "render_metrics")]
+        let after_submit = std::time::Instant::now();
+
         output.present();
+        #[cfg(feature = "render_metrics")]
+        {
+            let after_present = std::time::Instant::now();
+            // Force GPU completion to measure actual GPU execution time.
+            let _ = self.device.poll(wgpu::MaintainBase::Wait);
+            let after_gpu_wait = std::time::Instant::now();
+
+            let prepare_dur = after_prepare.saturating_duration_since(frame_render_loop_started_at);
+            let encode_submit_dur = after_submit.saturating_duration_since(after_prepare);
+            let present_dur = after_present.saturating_duration_since(after_submit);
+            let gpu_wait_dur = after_gpu_wait.saturating_duration_since(after_present);
+            let total_dur = after_gpu_wait.saturating_duration_since(frame_render_loop_started_at);
+            self.last_phase_timings = crate::renderer::metrics::PhaseTimings {
+                prepare: prepare_dur,
+                encode_and_submit: encode_submit_dur,
+                present_or_readback: present_dur,
+                gpu_wait: gpu_wait_dur,
+                total: total_dur,
+            };
+            self.render_loop_metrics_tracker
+                .record_presented_frame(frame_render_loop_started_at, after_gpu_wait);
+        }
         Ok(())
     }
 }

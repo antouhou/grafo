@@ -1,0 +1,10 @@
+[package]
+name = "grafo-test-scenes"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+grafo = { path = ".." }
+futures = "0.3"
+bytemuck = "1.23"

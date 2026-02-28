@@ -155,9 +155,15 @@ pub use color::Color;
 pub use effect::EffectError;
 pub use renderer::MathRect;
 pub use renderer::Renderer;
+pub use renderer::RendererCreationError;
 pub use renderer::TextureLayer;
 pub use shape::*;
 pub use stroke::Stroke;
 pub use texture_manager::premultiply_rgba8_srgb_inplace;
 pub use texture_manager::TextureManager;
 pub use vertex::InstanceTransform as TransformInstance;
+
+#[cfg(feature = "render_metrics")]
+pub use renderer::metrics::PhaseTimings;
+#[cfg(feature = "render_metrics")]
+pub use renderer::metrics::PipelineSwitchCounts;

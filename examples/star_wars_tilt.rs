@@ -2,7 +2,6 @@ use euclid::{Point2D, UnknownUnit};
 use futures::executor::block_on;
 use grafo::{Color, Shape, Stroke};
 use std::sync::Arc;
-use transformator;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -128,7 +127,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         width as f32 / scale_factor as f32,
                         height as f32 / scale_factor as f32,
                     );
-                    let viewport_center = (width as f32 / 2.0, height as f32 / 2.0);
+                    let viewport_center = (width / 2.0, height / 2.0);
 
                     let rect_id = self.rect_id.unwrap();
                     let inner_rect_1 = self.inner_rect_1.unwrap();
@@ -164,7 +163,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         .with_origin(50.0, 50.0)
                         .compose_2(&transformator::Transform::new());
 
-                    renderer.set_shape_transform_rows(rect_id, parent_local.rows_world());
+                    renderer.set_shape_transform_cols(rect_id, parent_local.rows_world());
 
                     // Inner rectangles inherit parent transform and sit inside with 10px padding.
                     // Layout: padding(10) + rect(35) + gap(10) + rect(35) + padding(10) = 100 total width.
@@ -175,27 +174,27 @@ impl<'a> ApplicationHandler for App<'a> {
                         .then_rotate_y_deg(20.0)
                         .with_origin(17.5, 40.0)
                         .compose_2(&parent_local);
-                    renderer.set_shape_transform_rows(inner_rect_1, child1.rows_world());
+                    renderer.set_shape_transform_cols(inner_rect_1, child1.rows_world());
 
                     let child2 = transformator::Transform::new()
                         .with_position_relative_to_parent(55.0, 10.0)
                         .then_rotate_y_deg(20.0)
                         .with_origin(17.5, 40.0)
                         .compose_2(&parent_local);
-                    renderer.set_shape_transform_rows(inner_rect_2, child2.rows_world());
+                    renderer.set_shape_transform_cols(inner_rect_2, child2.rows_world());
 
                     // Hit testing: transform mouse position to local coordinates for each shape
                     // Check children first (they're on top)
                     let child1_local = child1.project_screen_point_to_local_2d((mouse_x, mouse_y));
                     let child1_hit = if let Some((lx, ly)) = child1_local {
-                        lx >= 0.0 && lx <= 35.0 && ly >= 0.0 && ly <= 80.0
+                        (0.0..=35.0).contains(&lx) && (0.0..=80.0).contains(&ly)
                     } else {
                         false
                     };
 
                     let child2_local = child2.project_screen_point_to_local_2d((mouse_x, mouse_y));
                     let child2_hit = if let Some((lx, ly)) = child2_local {
-                        lx >= 0.0 && lx <= 35.0 && ly >= 0.0 && ly <= 80.0
+                        (0.0..=35.0).contains(&lx) && (0.0..=80.0).contains(&ly)
                     } else {
                         false
                     };
@@ -204,7 +203,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         parent_local.project_screen_point_to_local_2d((mouse_x, mouse_y));
                     let parent_hit = if !child1_hit && !child2_hit {
                         if let Some((lx, ly)) = parent_local_coords {
-                            lx >= 0.0 && lx <= 100.0 && ly >= 0.0 && ly <= 100.0
+                            (0.0..=100.0).contains(&lx) && (0.0..=100.0).contains(&ly)
                         } else {
                             false
                         }

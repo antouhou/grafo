@@ -4,3 +4,4 @@
 .idea
 /examples/widgets/Cargo.lock
 /examples/widgets/target
+.vscode

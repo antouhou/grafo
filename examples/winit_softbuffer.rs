@@ -8,6 +8,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
+#[derive(Default)]
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<Arc<RwLock<grafo::Renderer<'a>>>>,
@@ -16,20 +17,6 @@ struct App<'a> {
     pending_resize: Option<(u32, u32)>,
     frame_count: u64,
     argb_buffer: Vec<u32>,
-}
-
-impl<'a> Default for App<'a> {
-    fn default() -> Self {
-        Self {
-            window: None,
-            renderer: None,
-            softbuffer_context: None,
-            softbuffer_surface: None,
-            pending_resize: None,
-            frame_count: 0,
-            argb_buffer: Vec::new(),
-        }
-    }
 }
 
 impl<'a> ApplicationHandler for App<'a> {
@@ -188,7 +175,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 buffer.present().unwrap();
                 let copy_time = copy_start.elapsed();
 
-                if self.frame_count % 60 == 0 {
+                if self.frame_count.is_multiple_of(60) {
                     println!(
                         "Frame {}: GPU render: {:?}, CPU copy+present: {:?}, Total: {:?}",
                         self.frame_count,

@@ -33,10 +33,20 @@ impl<'a> Renderer<'a> {
         cache_key: u64,
         clip_to_shape: Option<usize>,
     ) -> usize {
-        self.add_draw_command(
-            DrawCommand::CachedShape(CachedShapeDrawData::new(cache_key)),
-            clip_to_shape,
-        )
+        let draw_data = if let Some(cached) = self.shape_cache.get(&cache_key) {
+            if cached.is_rect {
+                if let Some(bounds) = cached.rect_bounds {
+                    CachedShapeDrawData::new_rect(cache_key, bounds)
+                } else {
+                    CachedShapeDrawData::new(cache_key)
+                }
+            } else {
+                CachedShapeDrawData::new(cache_key)
+            }
+        } else {
+            CachedShapeDrawData::new(cache_key)
+        };
+        self.add_draw_command(DrawCommand::CachedShape(draw_data), clip_to_shape)
     }
 
     pub fn texture_manager(&self) -> &TextureManager {
@@ -60,8 +70,16 @@ impl<'a> Renderer<'a> {
         if self.draw_tree.is_empty() {
             self.draw_tree.add_node(draw_command)
         } else if let Some(clip_to_shape) = clip_to_shape {
+            // Mark the parent as non-leaf since it now has a child.
+            if let Some(parent) = self.draw_tree.get_mut(clip_to_shape) {
+                parent.set_not_leaf();
+            }
             self.draw_tree.add_child(clip_to_shape, draw_command)
         } else {
+            // Adding to root — mark root as non-leaf.
+            if let Some(root) = self.draw_tree.get_mut(0) {
+                root.set_not_leaf();
+            }
             self.draw_tree.add_child_to_root(draw_command)
         }
     }
@@ -72,12 +90,12 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    pub fn set_shape_transform_rows(&mut self, node_id: usize, rows: [[f32; 4]; 4]) {
+    pub fn set_shape_transform_cols(&mut self, node_id: usize, cols: [[f32; 4]; 4]) {
         let transform = InstanceTransform {
-            row0: rows[0],
-            row1: rows[1],
-            row2: rows[2],
-            row3: rows[3],
+            col0: cols[0],
+            col1: cols[1],
+            col2: cols[2],
+            col3: cols[3],
         };
 
         self.mutate_draw_command(node_id, |draw_command| {

@@ -59,14 +59,18 @@ fn append_instance_data(
     temp_instance_metadata: &mut Vec<InstanceMetadata>,
     transform: Option<InstanceTransform>,
     color_override: Option<[f32; 4]>,
+    texture_ids: [Option<u64>; 2],
 ) -> usize {
     let instance_index = temp_instance_transforms.len();
     temp_instance_transforms.push(transform.unwrap_or_else(InstanceTransform::identity));
     temp_instance_colors.push(InstanceColor {
         color: color_override.unwrap_or([1.0, 1.0, 1.0, 1.0]),
     });
+    let texture_flags =
+        (texture_ids[0].is_some() as u32) | ((texture_ids[1].is_some() as u32) << 1);
     temp_instance_metadata.push(InstanceMetadata {
         draw_order: instance_index as f32,
+        texture_flags: texture_flags as f32,
     });
     instance_index
 }
@@ -110,6 +114,7 @@ impl<'a> Renderer<'a> {
         self.temp_instance_transforms.clear();
         self.temp_instance_colors.clear();
         self.temp_instance_metadata.clear();
+        self.geometry_dedup_map.clear();
 
         for (_node_id, draw_command) in self.draw_tree.iter_mut() {
             match draw_command {
@@ -130,8 +135,10 @@ impl<'a> Renderer<'a> {
                             &mut self.temp_instance_metadata,
                             shape.transform(),
                             shape.instance_color_override(),
+                            shape.texture_ids,
                         );
                         *shape.instance_index_mut() = Some(instance_index);
+                        shape.is_empty = false;
                     } else {
                         shape.is_empty = true;
                     }
@@ -143,29 +150,45 @@ impl<'a> Renderer<'a> {
                     }
                 }
                 DrawCommand::CachedShape(cached_shape_data) => {
-                    if let Some(cached_shape) = self.shape_cache.get_mut(&cached_shape_data.id) {
+                    // Geometry deduplication: if we already appended this cache
+                    // key's vertices/indices, reuse the same range.
+                    let index_range = if let Some(&existing_range) =
+                        self.geometry_dedup_map.get(&cached_shape_data.id)
+                    {
+                        Some(existing_range)
+                    } else if let Some(cached_shape) =
+                        self.shape_cache.get_mut(&cached_shape_data.id)
+                    {
                         let vertex_buffers = &cached_shape.vertex_buffers;
-
-                        if let Some((index_start, index_count)) = append_aggregated_geometry(
+                        let range = append_aggregated_geometry(
                             &mut self.temp_vertices,
                             &mut self.temp_indices,
                             &vertex_buffers.vertices,
                             &vertex_buffers.indices,
-                        ) {
-                            cached_shape_data.index_buffer_range = Some((index_start, index_count));
-                            let instance_index = append_instance_data(
-                                &mut self.temp_instance_transforms,
-                                &mut self.temp_instance_colors,
-                                &mut self.temp_instance_metadata,
-                                cached_shape_data.transform(),
-                                cached_shape_data.instance_color_override(),
-                            );
-                            *cached_shape_data.instance_index_mut() = Some(instance_index);
-                        } else {
-                            cached_shape_data.is_empty = true;
+                        );
+                        if let Some(range) = range {
+                            self.geometry_dedup_map.insert(cached_shape_data.id, range);
                         }
+                        range
                     } else {
                         warn!("Cached shape not found in cache");
+                        None
+                    };
+
+                    if let Some((index_start, index_count)) = index_range {
+                        cached_shape_data.index_buffer_range = Some((index_start, index_count));
+                        cached_shape_data.is_empty = false;
+                        let instance_index = append_instance_data(
+                            &mut self.temp_instance_transforms,
+                            &mut self.temp_instance_colors,
+                            &mut self.temp_instance_metadata,
+                            cached_shape_data.transform(),
+                            cached_shape_data.instance_color_override(),
+                            cached_shape_data.texture_ids,
+                        );
+                        *cached_shape_data.instance_index_mut() = Some(instance_index);
+                    } else {
+                        cached_shape_data.is_empty = true;
                     }
                 }
             }

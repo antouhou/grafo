@@ -4,8 +4,8 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use ahash::{HashMap, HashMapExt};
-use log::warn;
 use lyon::tessellation::FillTessellator;
+use tracing::warn;
 use wgpu::{BindGroup, BufferUsages, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
 
 use crate::effect::{
@@ -15,7 +15,7 @@ use crate::effect::{
 use crate::pipeline::{
     compute_padded_bytes_per_row, create_and_depth_texture, create_argb_swizzle_bind_group,
     create_argb_swizzle_pipeline, create_msaa_color_texture, create_offscreen_color_texture,
-    create_pipeline, create_readback_buffer, create_render_pass, create_storage_input_buffer,
+    create_pipeline, create_readback_buffer, create_storage_input_buffer,
     create_storage_output_buffer, encode_copy_texture_to_buffer, render_buffer_range_to_texture,
     ArgbParams, PipelineType, Uniforms,
 };
@@ -26,14 +26,20 @@ use crate::vertex::{InstanceColor, InstanceMetadata, InstanceTransform};
 use crate::CachedShape;
 use crate::Color;
 
+#[cfg(feature = "render_metrics")]
+use self::metrics::RenderLoopMetricsTracker;
 use self::types::{DrawCommand, RendererScratch};
 
 mod construction;
 mod draw_queue;
 mod effects;
+#[cfg(feature = "render_metrics")]
+pub mod metrics;
 mod passes;
 mod preparation;
 mod readback;
+
+pub use construction::RendererCreationError;
 mod rendering;
 mod surface;
 mod traversal;
@@ -74,7 +80,7 @@ pub struct Renderer<'a> {
 
     // WGPU components
     instance: wgpu::Instance,
-    surface: wgpu::Surface<'a>,
+    surface: Option<wgpu::Surface<'a>>,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     config: wgpu::SurfaceConfiguration,
@@ -115,6 +121,11 @@ pub struct Renderer<'a> {
 
     temp_vertices: Vec<crate::vertex::CustomVertex>,
     temp_indices: Vec<u16>,
+
+    /// Per-frame map from cache key to (index_start, index_count) in the
+    /// aggregated buffers, used to avoid duplicating vertex/index data for
+    /// cached shapes that share the same geometry.
+    geometry_dedup_map: HashMap<u64, (usize, usize)>,
 
     /// Per-frame instance transforms for shapes.
     temp_instance_transforms: Vec<InstanceTransform>,
@@ -165,6 +176,12 @@ pub struct Renderer<'a> {
     /// View of the MSAA color texture.
     msaa_color_texture_view: Option<wgpu::TextureView>,
 
+    /// Cached depth/stencil texture, reused across frames.
+    /// Recreated on resize or MSAA sample count change.
+    depth_stencil_texture: Option<wgpu::Texture>,
+    /// View of the cached depth/stencil texture.
+    depth_stencil_view: Option<wgpu::TextureView>,
+
     // ── Effect system ──────────────────────────────────────────────────
     /// Loaded (compiled) effects, keyed by user-provided effect_id.
     loaded_effects: HashMap<u64, LoadedEffect>,
@@ -193,6 +210,22 @@ pub struct Renderer<'a> {
     /// Shape color pipeline with stencil Keep: draws color but doesn't modify stencil.
     /// Used for Step 3 of the three-step backdrop draw.
     backdrop_color_pipeline: Option<wgpu::RenderPipeline>,
+
+    /// Pipeline for rendering leaf nodes (no children) with stencil Equal + Keep.
+    /// Avoids the redundant increment + decrement pair for childless shapes.
+    leaf_draw_pipeline: Arc<wgpu::RenderPipeline>,
+
+    #[cfg(feature = "render_metrics")]
+    /// Tracking for cumulative render-loop timing metrics.
+    render_loop_metrics_tracker: RenderLoopMetricsTracker,
+
+    #[cfg(feature = "render_metrics")]
+    /// Per-phase timing breakdown for the most recently rendered frame.
+    last_phase_timings: self::metrics::PhaseTimings,
+
+    #[cfg(feature = "render_metrics")]
+    /// Per-frame pipeline switch counts for the most recently rendered frame.
+    last_pipeline_switch_counts: self::metrics::PipelineSwitchCounts,
 
     // ── Reusable scratch state ───────────────────────────────────────────
     scratch: RendererScratch,

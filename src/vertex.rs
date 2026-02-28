@@ -78,10 +78,10 @@ impl InstanceColor {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct InstanceTransform {
-    pub row0: [f32; 4],
-    pub row1: [f32; 4],
-    pub row2: [f32; 4],
-    pub row3: [f32; 4],
+    pub col0: [f32; 4],
+    pub col1: [f32; 4],
+    pub col2: [f32; 4],
+    pub col3: [f32; 4],
 }
 
 // Removed InstanceRenderParams: perspective handled inside world transform matrix now.
@@ -89,50 +89,55 @@ pub struct InstanceTransform {
 impl InstanceTransform {
     pub fn identity() -> Self {
         Self {
-            row0: [1.0, 0.0, 0.0, 0.0],
-            row1: [0.0, 1.0, 0.0, 0.0],
-            row2: [0.0, 0.0, 1.0, 0.0],
-            row3: [0.0, 0.0, 0.0, 1.0],
+            col0: [1.0, 0.0, 0.0, 0.0],
+            col1: [0.0, 1.0, 0.0, 0.0],
+            col2: [0.0, 0.0, 1.0, 0.0],
+            col3: [0.0, 0.0, 0.0, 1.0],
         }
     }
 
     /// Create a 2D translation transform (tx, ty) in pixels.
+    ///
+    /// Each field (`col0`..`col3`) stores one column of the GPU `mat4x4`.
+    /// Translation lives in `col3`.
     pub fn translation(tx: f32, ty: f32) -> Self {
         Self {
-            row0: [1.0, 0.0, 0.0, tx],
-            row1: [0.0, 1.0, 0.0, ty],
-            row2: [0.0, 0.0, 1.0, 0.0],
-            row3: [0.0, 0.0, 0.0, 1.0],
+            col0: [1.0, 0.0, 0.0, 0.0],
+            col1: [0.0, 1.0, 0.0, 0.0],
+            col2: [0.0, 0.0, 1.0, 0.0],
+            col3: [tx, ty, 0.0, 1.0],
         }
     }
 
     /// Create a 3D translation transform (tx, ty, tz).
+    ///
+    /// Translation is stored in `col3`.
     pub fn translation3d(tx: f32, ty: f32, tz: f32) -> Self {
         Self {
-            row0: [1.0, 0.0, 0.0, tx],
-            row1: [0.0, 1.0, 0.0, ty],
-            row2: [0.0, 0.0, 1.0, tz],
-            row3: [0.0, 0.0, 0.0, 1.0],
+            col0: [1.0, 0.0, 0.0, 0.0],
+            col1: [0.0, 1.0, 0.0, 0.0],
+            col2: [0.0, 0.0, 1.0, 0.0],
+            col3: [tx, ty, tz, 1.0],
         }
     }
 
     /// Create a 2D scale transform with factors (sx, sy).
     pub fn scale(sx: f32, sy: f32) -> Self {
         Self {
-            row0: [sx, 0.0, 0.0, 0.0],
-            row1: [0.0, sy, 0.0, 0.0],
-            row2: [0.0, 0.0, 1.0, 0.0],
-            row3: [0.0, 0.0, 0.0, 1.0],
+            col0: [sx, 0.0, 0.0, 0.0],
+            col1: [0.0, sy, 0.0, 0.0],
+            col2: [0.0, 0.0, 1.0, 0.0],
+            col3: [0.0, 0.0, 0.0, 1.0],
         }
     }
 
     /// Create a 3D scale transform with factors (sx, sy, sz).
     pub fn scale3d(sx: f32, sy: f32, sz: f32) -> Self {
         Self {
-            row0: [sx, 0.0, 0.0, 0.0],
-            row1: [0.0, sy, 0.0, 0.0],
-            row2: [0.0, 0.0, sz, 0.0],
-            row3: [0.0, 0.0, 0.0, 1.0],
+            col0: [sx, 0.0, 0.0, 0.0],
+            col1: [0.0, sy, 0.0, 0.0],
+            col2: [0.0, 0.0, sz, 0.0],
+            col3: [0.0, 0.0, 0.0, 1.0],
         }
     }
 
@@ -140,12 +145,12 @@ impl InstanceTransform {
     /// Positive angles rotate counter-clockwise in screen space.
     pub fn rotation_z(radians: f32) -> Self {
         let (s, c) = radians.sin_cos();
-        // Row-major
+        // Column-major layout
         Self {
-            row0: [c, -s, 0.0, 0.0],
-            row1: [s, c, 0.0, 0.0],
-            row2: [0.0, 0.0, 1.0, 0.0],
-            row3: [0.0, 0.0, 0.0, 1.0],
+            col0: [c, -s, 0.0, 0.0],
+            col1: [s, c, 0.0, 0.0],
+            col2: [0.0, 0.0, 1.0, 0.0],
+            col3: [0.0, 0.0, 0.0, 1.0],
         }
     }
 
@@ -158,70 +163,88 @@ impl InstanceTransform {
     ///   [ a c tx ]
     ///   [ b d ty ]
     ///   [ 0 0  1 ]
+    ///
+    /// Stored so that `col0..col3` map to GPU columns 0..3:
+    ///   col0=[a,b,0,0]  col1=[c,d,0,0]  col2=[0,0,1,0]  col3=[tx,ty,0,1]
     pub fn affine_2d(a: f32, b: f32, c: f32, d: f32, tx: f32, ty: f32) -> Self {
-        // Row-major storage
         Self {
-            row0: [a, c, 0.0, tx],
-            row1: [b, d, 0.0, ty],
-            row2: [0.0, 0.0, 1.0, 0.0],
-            row3: [0.0, 0.0, 0.0, 1.0],
+            col0: [a, b, 0.0, 0.0],
+            col1: [c, d, 0.0, 0.0],
+            col2: [0.0, 0.0, 1.0, 0.0],
+            col3: [tx, ty, 0.0, 1.0],
         }
     }
 
-    /// Matrix multiplication (self * rhs), row-major.
-    /// Useful to compose transforms: first rhs, then self.
+    /// Compose two transforms so that `self` is applied first, then `rhs`.
+    ///
+    /// This uses left-to-right application order (like CSS/SVG/euclid's `.then()`):
+    /// `a.multiply(&b)` means "apply `a` first, then `b`".
+    ///
+    /// Note: mathematically this computes `rhs × self` (not `self × rhs`),
+    /// which is what gives us the intuitive left-to-right ordering.
     pub fn multiply(&self, rhs: &Self) -> Self {
-        // Helper to multiply row by column
-        fn dot(row: [f32; 4], mat: &InstanceTransform, col_idx: usize) -> f32 {
-            let col = [
-                mat.row0[col_idx],
-                mat.row1[col_idx],
-                mat.row2[col_idx],
-                mat.row3[col_idx],
+        // Helper: dot product of a column with elements from rhs at col_idx
+        fn dot(col: [f32; 4], mat: &InstanceTransform, col_idx: usize) -> f32 {
+            let other = [
+                mat.col0[col_idx],
+                mat.col1[col_idx],
+                mat.col2[col_idx],
+                mat.col3[col_idx],
             ];
-            row[0] * col[0] + row[1] * col[1] + row[2] * col[2] + row[3] * col[3]
+            col[0] * other[0] + col[1] * other[1] + col[2] * other[2] + col[3] * other[3]
         }
 
         Self {
-            row0: [
-                dot(self.row0, rhs, 0),
-                dot(self.row0, rhs, 1),
-                dot(self.row0, rhs, 2),
-                dot(self.row0, rhs, 3),
+            col0: [
+                dot(self.col0, rhs, 0),
+                dot(self.col0, rhs, 1),
+                dot(self.col0, rhs, 2),
+                dot(self.col0, rhs, 3),
             ],
-            row1: [
-                dot(self.row1, rhs, 0),
-                dot(self.row1, rhs, 1),
-                dot(self.row1, rhs, 2),
-                dot(self.row1, rhs, 3),
+            col1: [
+                dot(self.col1, rhs, 0),
+                dot(self.col1, rhs, 1),
+                dot(self.col1, rhs, 2),
+                dot(self.col1, rhs, 3),
             ],
-            row2: [
-                dot(self.row2, rhs, 0),
-                dot(self.row2, rhs, 1),
-                dot(self.row2, rhs, 2),
-                dot(self.row2, rhs, 3),
+            col2: [
+                dot(self.col2, rhs, 0),
+                dot(self.col2, rhs, 1),
+                dot(self.col2, rhs, 2),
+                dot(self.col2, rhs, 3),
             ],
-            row3: [
-                dot(self.row3, rhs, 0),
-                dot(self.row3, rhs, 1),
-                dot(self.row3, rhs, 2),
-                dot(self.row3, rhs, 3),
+            col3: [
+                dot(self.col3, rhs, 0),
+                dot(self.col3, rhs, 1),
+                dot(self.col3, rhs, 2),
+                dot(self.col3, rhs, 3),
             ],
         }
     }
 
-    /// Return the 4x4 rows as an array.
-    pub fn as_rows(&self) -> [[f32; 4]; 4] {
-        [self.row0, self.row1, self.row2, self.row3]
+    /// Compose two transforms so that `self` is applied first, then `next`.
+    ///
+    /// Alias for [`multiply`](Self::multiply) that mirrors euclid's `Transform3D::then()`.
+    ///
+    /// ```ignore
+    /// let composed = rotation.then(&translation); // rotate first, translate second
+    /// ```
+    pub fn then(&self, next: &Self) -> Self {
+        self.multiply(next)
     }
 
-    /// Build from 4x4 rows.
-    pub fn from_rows(rows: [[f32; 4]; 4]) -> Self {
+    /// Return the 4 columns as an array.
+    pub fn as_cols(&self) -> [[f32; 4]; 4] {
+        [self.col0, self.col1, self.col2, self.col3]
+    }
+
+    /// Build from 4 columns.
+    pub fn from_cols(cols: [[f32; 4]; 4]) -> Self {
         Self {
-            row0: rows[0],
-            row1: rows[1],
-            row2: rows[2],
-            row3: rows[3],
+            col0: cols[0],
+            col1: cols[1],
+            col2: cols[2],
+            col3: cols[3],
         }
     }
 
@@ -260,11 +283,17 @@ impl InstanceTransform {
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct InstanceMetadata {
     pub draw_order: f32,
+    /// Bitmask indicating which texture layers are active for this instance.
+    /// 0 = no textures (solid fill only), 1 = layer 0, 2 = layer 1, 3 = both.
+    pub texture_flags: f32,
 }
 
 impl Default for InstanceMetadata {
     fn default() -> Self {
-        Self { draw_order: 0.0 }
+        Self {
+            draw_order: 0.0,
+            texture_flags: 0.0,
+        }
     }
 }
 
@@ -273,11 +302,18 @@ impl InstanceMetadata {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<InstanceMetadata>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[wgpu::VertexAttribute {
-                format: wgpu::VertexFormat::Float32,
-                offset: 0,
-                shader_location: 7,
-            }],
+            attributes: &[
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 0,
+                    shader_location: 7,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: std::mem::size_of::<f32>() as wgpu::BufferAddress,
+                    shader_location: 10,
+                },
+            ],
         }
     }
 }

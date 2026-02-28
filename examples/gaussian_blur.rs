@@ -84,18 +84,10 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 "#;
 
+#[derive(Default)]
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
-}
-
-impl<'a> Default for App<'a> {
-    fn default() -> Self {
-        Self {
-            window: None,
-            renderer: None,
-        }
-    }
 }
 
 impl<'a> ApplicationHandler for App<'a> {

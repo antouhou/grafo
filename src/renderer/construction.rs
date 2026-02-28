@@ -1,4 +1,20 @@
 use super::*;
+use tracing::info;
+
+/// Errors that can occur when creating a [`Renderer`] via
+/// [`Renderer::try_new_headless`].
+#[derive(Debug, thiserror::Error)]
+pub enum RendererCreationError {
+    /// The provided `scale_factor` is not usable (must be finite and positive).
+    #[error("Invalid scale factor: {0} (must be finite and > 0.0)")]
+    InvalidScaleFactor(f64),
+    /// No suitable GPU adapter was found.
+    #[error("No suitable GPU adapter available: {0}")]
+    AdapterNotAvailable(#[from] wgpu::RequestAdapterError),
+    /// The GPU device could not be created.
+    #[error("GPU device creation failed: {0}")]
+    DeviceCreationFailed(#[from] wgpu::RequestDeviceError),
+}
 
 impl<'a> Renderer<'a> {
     pub async fn new(
@@ -10,7 +26,6 @@ impl<'a> Renderer<'a> {
         msaa_samples: u32,
     ) -> Self {
         let size = physical_size;
-        let canvas_logical_size = to_logical(size, scale_factor);
 
         let instance = wgpu::Instance::new(&InstanceDescriptor::default());
         let surface = instance
@@ -49,18 +64,18 @@ impl<'a> Renderer<'a> {
                 .alpha_modes
                 .contains(&CompositeAlphaMode::PreMultiplied)
         {
-            log::info!("Using PreMultiplied alpha mode for transparency");
+            info!("Using PreMultiplied alpha mode for transparency");
             CompositeAlphaMode::PreMultiplied
         } else if transparent
             && surface_caps
                 .alpha_modes
                 .contains(&CompositeAlphaMode::PostMultiplied)
         {
-            log::info!("Using PostMultiplied alpha mode for transparency");
+            info!("Using PostMultiplied alpha mode for transparency");
             CompositeAlphaMode::PostMultiplied
         } else {
             if transparent {
-                log::warn!("Transparency requested but no suitable alpha mode available, falling back to Opaque");
+                warn!("Transparency requested but no suitable alpha mode available, falling back to Opaque");
             }
             CompositeAlphaMode::Opaque
         };
@@ -82,6 +97,38 @@ impl<'a> Renderer<'a> {
         surface.configure(&device, &config);
 
         let msaa_sample_count = Self::validate_sample_count_static(msaa_samples);
+
+        Self::build_from_device(
+            instance,
+            Some(surface),
+            device,
+            queue,
+            config,
+            size,
+            scale_factor,
+            msaa_sample_count,
+        )
+        .expect("Failed to build renderer from device")
+    }
+
+    /// Shared constructor: takes the wgpu primitives produced by `new()` or
+    /// `new_headless()` and builds the full `Renderer`.
+    #[allow(clippy::too_many_arguments)]
+    fn build_from_device(
+        instance: wgpu::Instance,
+        surface: Option<wgpu::Surface<'a>>,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        config: wgpu::SurfaceConfiguration,
+        physical_size: (u32, u32),
+        scale_factor: f64,
+        msaa_sample_count: u32,
+    ) -> Result<Self, RendererCreationError> {
+        if !scale_factor.is_finite() || scale_factor <= 0.0 {
+            return Err(RendererCreationError::InvalidScaleFactor(scale_factor));
+        }
+
+        let canvas_logical_size = to_logical(physical_size, scale_factor);
 
         let (
             and_uniforms,
@@ -117,6 +164,15 @@ impl<'a> Renderer<'a> {
             msaa_sample_count,
         );
 
+        let leaf_draw_pipeline = crate::pipeline::create_stencil_keep_color_pipeline(
+            &device,
+            config.format,
+            msaa_sample_count,
+            &and_pipeline.get_bind_group_layout(0),
+            &and_texture_bgl_layer0,
+            &and_texture_bgl_layer1,
+        );
+
         let device = Arc::new(device);
         let queue = Arc::new(queue);
 
@@ -133,7 +189,7 @@ impl<'a> Renderer<'a> {
             device,
             queue,
             config,
-            physical_size: size,
+            physical_size,
             scale_factor,
             fringe_width: Self::DEFAULT_FRINGE_WIDTH,
             tessellator: FillTessellator::new(),
@@ -164,6 +220,7 @@ impl<'a> Renderer<'a> {
             metadata_to_clips: HashMap::new(),
             temp_vertices: Vec::new(),
             temp_indices: Vec::new(),
+            geometry_dedup_map: HashMap::new(),
             temp_instance_transforms: Vec::new(),
             temp_instance_colors: Vec::new(),
             temp_instance_metadata: Vec::new(),
@@ -195,6 +252,8 @@ impl<'a> Renderer<'a> {
             msaa_sample_count,
             msaa_color_texture: None,
             msaa_color_texture_view: None,
+            depth_stencil_texture: None,
+            depth_stencil_view: None,
             loaded_effects: HashMap::new(),
             group_effects: HashMap::new(),
             backdrop_effects: HashMap::new(),
@@ -206,11 +265,19 @@ impl<'a> Renderer<'a> {
             backdrop_snapshot_view: None,
             stencil_only_pipeline: None,
             backdrop_color_pipeline: None,
+            leaf_draw_pipeline: Arc::new(leaf_draw_pipeline),
+            #[cfg(feature = "render_metrics")]
+            render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),
+            #[cfg(feature = "render_metrics")]
+            last_phase_timings: Default::default(),
+            #[cfg(feature = "render_metrics")]
+            last_pipeline_switch_counts: Default::default(),
             scratch: RendererScratch::new(),
         };
 
         renderer.recreate_msaa_texture();
-        renderer
+        renderer.recreate_depth_stencil_texture();
+        Ok(renderer)
     }
 
     pub fn print_memory_usage_info(&self) {
@@ -428,6 +495,85 @@ impl<'a> Renderer<'a> {
         .await
     }
 
+    /// Creates a headless renderer without a window surface.
+    ///
+    /// Use `render_to_buffer()` or `render_to_argb32()` to read back rendered
+    /// pixels. Calling `render()` on a headless renderer will panic.
+    ///
+    /// Returns an error if no suitable GPU adapter is available, the device
+    /// cannot be created, or the `scale_factor` is invalid.
+    pub async fn try_new_headless(
+        physical_size: (u32, u32),
+        scale_factor: f64,
+    ) -> Result<Self, RendererCreationError> {
+        let size = physical_size;
+
+        let instance = wgpu::Instance::new(&InstanceDescriptor::default());
+
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            })
+            .await?;
+
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                #[cfg(feature = "performance_measurement")]
+                required_features: wgpu::Features::TIMESTAMP_QUERY
+                    | wgpu::Features::DEPTH32FLOAT_STENCIL8,
+                #[cfg(not(feature = "performance_measurement"))]
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                memory_hints: Default::default(),
+                trace: Default::default(),
+            })
+            .await?;
+
+        let swapchain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            format: swapchain_format,
+            width: size.0,
+            height: size.1,
+            present_mode: wgpu::PresentMode::AutoVsync,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: CompositeAlphaMode::Opaque,
+            view_formats: vec![],
+        };
+
+        let msaa_sample_count = 1;
+
+        Self::build_from_device(
+            instance,
+            None,
+            device,
+            queue,
+            config,
+            size,
+            scale_factor,
+            msaa_sample_count,
+        )
+    }
+
+    /// Creates a headless renderer without a window surface, panicking on
+    /// any error from [`Self::try_new_headless`] (e.g. no suitable GPU adapter,
+    /// invalid scale factor, device/queue creation failure).
+    ///
+    /// Use `render_to_buffer()` or `render_to_argb32()` to read back rendered
+    /// pixels. Calling `render()` on a headless renderer will panic.
+    ///
+    /// For a non-panicking alternative (e.g. in tests), use
+    /// [`Self::try_new_headless`] instead.
+    pub async fn new_headless(physical_size: (u32, u32), scale_factor: f64) -> Self {
+        Self::try_new_headless(physical_size, scale_factor)
+            .await
+            .expect("Failed to create headless renderer")
+    }
+
     pub(super) fn recreate_pipelines(&mut self) {
         let canvas_logical_size = to_logical(self.physical_size, self.scale_factor);
 
@@ -498,5 +644,14 @@ impl<'a> Renderer<'a> {
 
         self.composite_pipeline = None;
         self.composite_bgl = None;
+
+        self.leaf_draw_pipeline = Arc::new(crate::pipeline::create_stencil_keep_color_pipeline(
+            &self.device,
+            self.config.format,
+            self.msaa_sample_count,
+            &self.and_pipeline.get_bind_group_layout(0),
+            &self.shape_texture_bind_group_layout_background,
+            &self.shape_texture_bind_group_layout_foreground,
+        ));
     }
 }

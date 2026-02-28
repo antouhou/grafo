@@ -21,20 +21,11 @@ use winit::window::{Window, WindowId};
 
 const OPACITY_EFFECT: u64 = 1;
 
+#[derive(Default)]
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
     effect_loaded: bool,
-}
-
-impl<'a> Default for App<'a> {
-    fn default() -> Self {
-        Self {
-            window: None,
-            renderer: None,
-            effect_loaded: false,
-        }
-    }
 }
 
 impl<'a> ApplicationHandler for App<'a> {

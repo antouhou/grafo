@@ -16,10 +16,35 @@ pub(super) enum DrawCommand {
 }
 
 impl DrawCommand {
+    /// Whether this node is a leaf (has no children in the draw tree).
+    /// Starts as `true`; set to `false` when a child is added.
+    pub(super) fn is_leaf(&self) -> bool {
+        match self {
+            DrawCommand::Shape(s) => s.is_leaf,
+            DrawCommand::CachedShape(s) => s.is_leaf,
+        }
+    }
+
+    pub(super) fn set_not_leaf(&mut self) {
+        match self {
+            DrawCommand::Shape(s) => s.is_leaf = false,
+            DrawCommand::CachedShape(s) => s.is_leaf = false,
+        }
+    }
+}
+
+impl DrawCommand {
     pub(super) fn set_transform(&mut self, transform: InstanceTransform) {
         match self {
             DrawCommand::Shape(shape) => shape.set_transform(transform),
             DrawCommand::CachedShape(cached_shape) => cached_shape.set_transform(transform),
+        }
+    }
+
+    pub(super) fn transform(&self) -> Option<InstanceTransform> {
+        match self {
+            DrawCommand::Shape(shape) => shape.transform(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.transform(),
         }
     }
 
@@ -38,6 +63,27 @@ impl DrawCommand {
             DrawCommand::CachedShape(cached_shape) => {
                 cached_shape.set_instance_color_override(color)
             }
+        }
+    }
+
+    pub(super) fn clips_children(&self) -> bool {
+        match self {
+            DrawCommand::Shape(shape) => shape.clips_children(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.clips_children(),
+        }
+    }
+
+    pub(super) fn is_rect(&self) -> bool {
+        match self {
+            DrawCommand::Shape(shape) => shape.is_rect(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.is_rect(),
+        }
+    }
+
+    pub(super) fn rect_bounds(&self) -> Option<[(f32, f32); 2]> {
+        match self {
+            DrawCommand::Shape(shape) => shape.rect_bounds(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.rect_bounds(),
         }
     }
 
@@ -66,6 +112,101 @@ pub(super) enum Pipeline {
     None,
     StencilIncrement,
     StencilDecrement,
+    LeafDraw,
+}
+
+/// Records which clipping strategy was used by each non-leaf parent during
+/// `Pre` traversal so the `Post` path can tear down state without
+/// re-evaluating the scissor eligibility check.
+#[derive(Clone, Copy)]
+pub(super) enum ClipKind {
+    /// Parent does not clip children — a dummy stencil entry was pushed.
+    NonClipping,
+    /// Parent clips children via hardware scissor rect.
+    Scissor,
+    /// Parent clips children via stencil increment/decrement.
+    Stencil,
+}
+
+/// Wraps [`Pipeline`] tracking with optional per-frame switch counters.
+///
+/// When the `render_metrics` feature is enabled the tracker also counts
+/// every GPU `set_pipeline` call and every scissor-clip substitution so
+/// the numbers can be queried after the frame.
+pub(super) struct PipelineTracker {
+    pub(super) current: Pipeline,
+    #[cfg(feature = "render_metrics")]
+    pub(super) counts: super::metrics::PipelineSwitchCounts,
+}
+
+impl PipelineTracker {
+    pub(super) fn new() -> Self {
+        Self {
+            current: Pipeline::None,
+            #[cfg(feature = "render_metrics")]
+            counts: super::metrics::PipelineSwitchCounts::default(),
+        }
+    }
+
+    /// Record a real GPU pipeline switch (only when the pipeline actually changes).
+    pub(super) fn switch_to(&mut self, pipeline: Pipeline) {
+        if self.current == pipeline {
+            return;
+        }
+        self.current = pipeline;
+        #[cfg(feature = "render_metrics")]
+        {
+            self.counts.total_switches += 1;
+            match pipeline {
+                Pipeline::StencilIncrement => self.counts.to_stencil_increment += 1,
+                Pipeline::StencilDecrement => self.counts.to_stencil_decrement += 1,
+                Pipeline::LeafDraw => self.counts.to_leaf_draw += 1,
+                Pipeline::None => self.counts.to_composite += 1,
+            }
+        }
+    }
+
+    /// Record that a scissor clip was used instead of stencil increment/decrement.
+    #[cfg(feature = "render_metrics")]
+    pub(super) fn record_scissor_clip(&mut self) {
+        self.counts.scissor_clips += 1;
+    }
+}
+
+/// Tracks the currently-bound texture bind groups to skip redundant `set_bind_group` calls.
+///
+/// Each layer stores the texture ID that is currently bound (`Some(id)` for a real texture,
+/// `None` for the default white texture). The outer `Option` distinguishes "unknown / first
+/// use" (`None`) from a known state (`Some(..)`).
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct BoundTextureState {
+    layers: [Option<Option<u64>>; 2],
+}
+
+impl BoundTextureState {
+    /// Reset both layers to "unknown" — forces the next bind call to actually issue
+    /// `set_bind_group`. Call this whenever a pipeline switch resets bind group state.
+    pub(super) fn invalidate(&mut self) {
+        self.layers = [None, None];
+    }
+
+    /// Returns `true` when the given texture id (or `None` for the default) is not
+    /// already bound on `layer`, and updates the tracked state.
+    pub(super) fn needs_rebind(&mut self, layer: usize, texture_id: Option<u64>) -> bool {
+        let current = self.layers[layer];
+        if current == Some(texture_id) {
+            return false;
+        }
+        self.layers[layer] = Some(texture_id);
+        true
+    }
+
+    /// Update the tracked state for `layer` without returning whether a rebind is
+    /// needed. Use this when you know the bind group was just set (e.g. after a
+    /// pipeline switch that binds default textures).
+    pub(super) fn mark_bound(&mut self, layer: usize, texture_id: Option<u64>) {
+        self.layers[layer] = Some(texture_id);
+    }
 }
 
 pub(super) struct Buffers<'a> {
@@ -84,6 +225,7 @@ pub(super) struct Pipelines<'a> {
     pub(super) and_bind_group: &'a wgpu::BindGroup,
     pub(super) decrementing_pipeline: &'a wgpu::RenderPipeline,
     pub(super) decrementing_bind_group: &'a wgpu::BindGroup,
+    pub(super) leaf_draw_pipeline: &'a wgpu::RenderPipeline,
     pub(super) shape_texture_bind_group_layout_background: &'a wgpu::BindGroupLayout,
     pub(super) shape_texture_bind_group_layout_foreground: &'a wgpu::BindGroupLayout,
     pub(super) default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
@@ -91,25 +233,19 @@ pub(super) struct Pipelines<'a> {
     pub(super) texture_manager: &'a TextureManager,
 }
 
+/// Backdrop-specific rendering resources. Only needed when backdrop effects exist.
+/// General resources (pipelines, buffers, textures) are passed separately.
 pub(super) struct BackdropContext<'a> {
     pub(super) backdrop_effects: &'a HashMap<usize, EffectInstance>,
     pub(super) loaded_effects: &'a HashMap<u64, LoadedEffect>,
-    pub(super) composite_pipeline: &'a wgpu::RenderPipeline,
     pub(super) composite_bgl: &'a wgpu::BindGroupLayout,
     pub(super) effect_sampler: &'a wgpu::Sampler,
     pub(super) stencil_only_pipeline: &'a wgpu::RenderPipeline,
     pub(super) backdrop_color_pipeline: &'a wgpu::RenderPipeline,
-    pub(super) and_bind_group: &'a wgpu::BindGroup,
-    pub(super) default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
     pub(super) device: &'a wgpu::Device,
-    pub(super) physical_size: (u32, u32),
     pub(super) config_format: wgpu::TextureFormat,
     pub(super) backdrop_snapshot_texture: &'a wgpu::Texture,
     pub(super) backdrop_snapshot_view: &'a wgpu::TextureView,
-    pub(super) texture_manager: &'a TextureManager,
-    pub(super) shape_texture_bind_group_layout_background: &'a wgpu::BindGroupLayout,
-    pub(super) shape_texture_bind_group_layout_foreground: &'a wgpu::BindGroupLayout,
-    pub(super) shape_texture_layout_epoch: u64,
 }
 
 const MAX_EFFECT_RESULTS_CAPACITY: usize = 4_096;
@@ -118,6 +254,7 @@ const MAX_TEXTURE_RECYCLE_CAPACITY: usize = 1_024;
 const MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY: usize = 2_048;
 const MAX_STENCIL_STACK_CAPACITY: usize = 16_384;
 const MAX_SKIPPED_STACK_CAPACITY: usize = 16_384;
+const MAX_SCISSOR_STACK_CAPACITY: usize = 16_384;
 const MAX_READBACK_BYTES_CAPACITY: usize = 64 * 1024 * 1024;
 
 pub(super) struct RendererScratch {
@@ -127,6 +264,12 @@ pub(super) struct RendererScratch {
     pub(super) effect_output_textures: Vec<wgpu::Texture>,
     pub(super) stencil_stack: Vec<u32>,
     pub(super) skipped_stack: Vec<usize>,
+    /// Stack of intersected scissor rects (x, y, width, height) in physical pixels.
+    /// Used to replace stencil clipping for axis-aligned rect parents.
+    pub(super) scissor_stack: Vec<(u32, u32, u32, u32)>,
+    /// Parallel stack to `stencil_stack`: records which clipping strategy each
+    /// non-leaf parent used so the `Post` path avoids re-evaluating eligibility.
+    pub(super) clip_kind_stack: Vec<ClipKind>,
     pub(super) backdrop_work_textures: Vec<wgpu::Texture>,
     /// Reused across readback calls; intentionally not cleared on `begin_frame`
     /// because readback may run after render submission and reuse prior capacity.
@@ -143,6 +286,8 @@ impl RendererScratch {
             effect_output_textures: Vec::new(),
             stencil_stack: Vec::new(),
             skipped_stack: Vec::new(),
+            scissor_stack: Vec::new(),
+            clip_kind_stack: Vec::new(),
             backdrop_work_textures: Vec::new(),
             readback_bytes: Vec::new(),
             traversal_scratch: TraversalScratch::new(),
@@ -156,6 +301,8 @@ impl RendererScratch {
         self.effect_output_textures.clear();
         self.stencil_stack.clear();
         self.skipped_stack.clear();
+        self.scissor_stack.clear();
+        self.clip_kind_stack.clear();
         self.backdrop_work_textures.clear();
         self.traversal_scratch.begin();
         // Keep readback bytes length/capacity untouched to preserve reuse across
@@ -172,6 +319,8 @@ impl RendererScratch {
         );
         trim_vector_if_needed(&mut self.stencil_stack, MAX_STENCIL_STACK_CAPACITY);
         trim_vector_if_needed(&mut self.skipped_stack, MAX_SKIPPED_STACK_CAPACITY);
+        trim_vector_if_needed(&mut self.scissor_stack, MAX_SCISSOR_STACK_CAPACITY);
+        trim_vector_if_needed(&mut self.clip_kind_stack, MAX_SCISSOR_STACK_CAPACITY);
         trim_vector_if_needed(
             &mut self.backdrop_work_textures,
             MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY,

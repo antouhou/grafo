@@ -12,6 +12,7 @@ pub(super) struct TraversalScratch {
     parent_stencils: HashMap<usize, u32>,
     skipped_stack: Vec<usize>,
     stencil_stack: Vec<u32>,
+    excluded_depth: usize,
 }
 
 impl TraversalScratch {
@@ -25,6 +26,7 @@ impl TraversalScratch {
         self.parent_stencils.clear();
         self.skipped_stack.clear();
         self.stencil_stack.clear();
+        self.excluded_depth = 0;
     }
 
     pub(super) fn trim_to_policy(&mut self) {
@@ -39,10 +41,12 @@ impl TraversalScratch {
         &self.events
     }
 
+    #[cfg(test)]
     pub(super) fn stencil_refs(&self) -> &HashMap<usize, u32> {
         &self.stencil_refs
     }
 
+    #[cfg(test)]
     pub(super) fn parent_stencils(&self) -> &HashMap<usize, u32> {
         &self.parent_stencils
     }
@@ -80,11 +84,24 @@ pub(super) fn plan_traversal_in_place(
     draw_tree: &mut easy_tree::Tree<DrawCommand>,
     effect_results: &HashMap<usize, wgpu::BindGroup>,
     subtree_root: Option<usize>,
+    exclude_subtree_id: Option<usize>,
     traversal_scratch: &mut TraversalScratch,
 ) {
     traversal_scratch.begin();
 
+    let exclude_id = exclude_subtree_id;
+
     let pre_fn = |node_id: usize, _draw_command: &mut DrawCommand, state: &mut TraversalScratch| {
+        // Handle excluded subtree: skip the node and all descendants entirely.
+        if state.excluded_depth > 0 {
+            state.excluded_depth += 1;
+            return;
+        }
+        if exclude_id == Some(node_id) {
+            state.excluded_depth = 1;
+            return;
+        }
+
         if effect_results.contains_key(&node_id) {
             state.skipped_stack.push(node_id);
         }
@@ -103,6 +120,12 @@ pub(super) fn plan_traversal_in_place(
 
     let post_fn =
         |node_id: usize, _draw_command: &mut DrawCommand, state: &mut TraversalScratch| {
+            // Handle excluded subtree.
+            if state.excluded_depth > 0 {
+                state.excluded_depth -= 1;
+                return;
+            }
+
             if state.skipped_stack.last().copied() == Some(node_id) {
                 state.skipped_stack.pop();
                 state.stencil_stack.pop();
@@ -168,7 +191,13 @@ mod tests {
 
         let effect_results: HashMap<usize, wgpu::BindGroup> = HashMap::new();
         let mut traversal_scratch = TraversalScratch::new();
-        plan_traversal_in_place(&mut tree, &effect_results, None, &mut traversal_scratch);
+        plan_traversal_in_place(
+            &mut tree,
+            &effect_results,
+            None,
+            None,
+            &mut traversal_scratch,
+        );
 
         assert_eq!(traversal_scratch.events().len(), 6);
         assert_eq!(traversal_scratch.stencil_refs().get(&root), Some(&1));
@@ -192,12 +221,24 @@ mod tests {
         let effect_results: HashMap<usize, wgpu::BindGroup> = HashMap::new();
         let mut traversal_scratch = TraversalScratch::new();
 
-        plan_traversal_in_place(&mut tree, &effect_results, None, &mut traversal_scratch);
+        plan_traversal_in_place(
+            &mut tree,
+            &effect_results,
+            None,
+            None,
+            &mut traversal_scratch,
+        );
         let events_capacity = traversal_scratch.events.capacity();
         let refs_capacity = traversal_scratch.stencil_refs.capacity();
         let parents_capacity = traversal_scratch.parent_stencils.capacity();
 
-        plan_traversal_in_place(&mut tree, &effect_results, None, &mut traversal_scratch);
+        plan_traversal_in_place(
+            &mut tree,
+            &effect_results,
+            None,
+            None,
+            &mut traversal_scratch,
+        );
         assert!(traversal_scratch.events.capacity() >= events_capacity);
         assert!(traversal_scratch.stencil_refs.capacity() >= refs_capacity);
         assert!(traversal_scratch.parent_stencils.capacity() >= parents_capacity);

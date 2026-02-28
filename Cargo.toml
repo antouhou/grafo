@@ -1,6 +1,9 @@
+[workspace]
+members = [".", "grafo-test-scenes"]
+
 [package]
 name = "grafo"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2021"
 description = "A GPU-accelerated rendering library for Rust"
 keywords = ["rendering", "vector_graphics", "gui", "graphics", "image"]
@@ -17,10 +20,11 @@ wgpu = "25.0"
 ahash = "0.8"
 lyon = { version = "1.0"}
 easy-tree = { version = "0.3" }
-log = "0.4"
+tracing = "0.1.44"
 lru = "0.15"
 regex = "1"
 softbuffer = "0.4.8"
+thiserror = "2.0.18"
 
 [dev-dependencies]
 winit = "0.30"
@@ -29,6 +33,8 @@ futures = "0.3"
 image = "0.25"
 transformator = "0.1.1"
 euclid = "0.22.11"
+grafo-test-scenes = { path = "grafo-test-scenes" }
 
 [features]
 performance_measurement = []
+render_metrics = []

@@ -36,7 +36,7 @@ impl<'a> Renderer<'a> {
         let (sender, receiver) = std::sync::mpsc::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             if sender.send(result).is_err() {
-                log::warn!("Failed to send map_async result from callback");
+                warn!("Failed to send map_async result from callback");
             }
         });
 
@@ -45,13 +45,13 @@ impl<'a> Renderer<'a> {
         let map_result = match receiver.recv() {
             Ok(result) => result,
             Err(error) => {
-                log::warn!("Failed to receive mapped buffer result: {}", error);
+                warn!("Failed to receive mapped buffer result: {}", error);
                 return;
             }
         };
 
         if let Err(error) = map_result {
-            log::warn!("Failed to map readback buffer: {:?}", error);
+            warn!("Failed to map readback buffer: {:?}", error);
             return;
         }
 
@@ -62,7 +62,13 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn render_to_buffer(&mut self, buffer: &mut Vec<u8>) {
+        #[cfg(feature = "render_metrics")]
+        let frame_render_loop_started_at = std::time::Instant::now();
+
         self.prepare_render();
+
+        #[cfg(feature = "render_metrics")]
+        let after_prepare = std::time::Instant::now();
 
         let (width, height) = self.physical_size;
 
@@ -126,6 +132,9 @@ impl<'a> Renderer<'a> {
 
         self.queue.submit(std::iter::once(encoder.finish()));
 
+        #[cfg(feature = "render_metrics")]
+        let after_submit = std::time::Instant::now();
+
         let mut readback_bytes = std::mem::take(&mut self.scratch.readback_bytes);
         Self::map_readback_buffer_into(&self.device, output_buffer, &mut readback_bytes);
         let required_readback_len = (height as usize).saturating_mul(padded_bytes_per_row as usize);
@@ -142,10 +151,35 @@ impl<'a> Renderer<'a> {
         );
 
         self.scratch.readback_bytes = readback_bytes;
+
+        #[cfg(feature = "render_metrics")]
+        {
+            let frame_presented_at = std::time::Instant::now();
+            let prepare_dur = after_prepare.saturating_duration_since(frame_render_loop_started_at);
+            let encode_submit_dur = after_submit.saturating_duration_since(after_prepare);
+            let readback_dur = frame_presented_at.saturating_duration_since(after_submit);
+            let total_dur =
+                frame_presented_at.saturating_duration_since(frame_render_loop_started_at);
+            self.last_phase_timings = crate::renderer::metrics::PhaseTimings {
+                prepare: prepare_dur,
+                encode_and_submit: encode_submit_dur,
+                present_or_readback: readback_dur,
+                gpu_wait: std::time::Duration::ZERO, // readback already includes GPU wait via poll
+                total: total_dur,
+            };
+            self.render_loop_metrics_tracker
+                .record_presented_frame(frame_render_loop_started_at, frame_presented_at);
+        }
     }
 
     pub fn render_to_argb32(&mut self, out_pixels: &mut [u32]) {
+        #[cfg(feature = "render_metrics")]
+        let frame_render_loop_started_at = std::time::Instant::now();
+
         self.prepare_render();
+
+        #[cfg(feature = "render_metrics")]
+        let after_prepare = std::time::Instant::now();
 
         let (width, height) = self.physical_size;
         let needed_len = (width as usize) * (height as usize);
@@ -301,6 +335,9 @@ impl<'a> Renderer<'a> {
         self.queue
             .submit(std::iter::once(readback_encoder.finish()));
 
+        #[cfg(feature = "render_metrics")]
+        let after_submit = std::time::Instant::now();
+
         let mut readback_bytes = std::mem::take(&mut self.scratch.readback_bytes);
         Self::map_readback_buffer_into(
             &self.device,
@@ -315,6 +352,25 @@ impl<'a> Renderer<'a> {
         let src_words: &[u32] = bytemuck::cast_slice(&readback_bytes);
         out_pixels[..needed_len].copy_from_slice(&src_words[..needed_len]);
         self.scratch.readback_bytes = readback_bytes;
+
+        #[cfg(feature = "render_metrics")]
+        {
+            let frame_presented_at = std::time::Instant::now();
+            let prepare_dur = after_prepare.saturating_duration_since(frame_render_loop_started_at);
+            let encode_submit_dur = after_submit.saturating_duration_since(after_prepare);
+            let readback_dur = frame_presented_at.saturating_duration_since(after_submit);
+            let total_dur =
+                frame_presented_at.saturating_duration_since(frame_render_loop_started_at);
+            self.last_phase_timings = crate::renderer::metrics::PhaseTimings {
+                prepare: prepare_dur,
+                encode_and_submit: encode_submit_dur,
+                present_or_readback: readback_dur,
+                gpu_wait: std::time::Duration::ZERO, // readback already includes GPU wait via poll
+                total: total_dur,
+            };
+            self.render_loop_metrics_tracker
+                .record_presented_frame(frame_render_loop_started_at, frame_presented_at);
+        }
     }
 }
 
