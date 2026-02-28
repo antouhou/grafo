@@ -38,6 +38,8 @@ pub mod metrics;
 mod passes;
 mod preparation;
 mod readback;
+
+pub use construction::RendererCreationError;
 mod rendering;
 mod surface;
 mod traversal;

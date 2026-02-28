@@ -248,7 +248,7 @@ fn print_phase_breakdown(
 }
 
 #[cfg(feature = "render_metrics")]
-fn print_metrics(renderer: &grafo::Renderer<'_>) {
+fn print_metrics(renderer: &mut grafo::Renderer<'_>) {
     println!("--- render_metrics ---");
     println!(
         "Rolling 1s FPS:  {:.1}",
@@ -361,7 +361,7 @@ impl<'a> BenchApp<'a> {
         );
         #[cfg(feature = "render_metrics")]
         {
-            let renderer = self.renderer.as_ref().unwrap();
+            let renderer = self.renderer.as_mut().unwrap();
             print_phase_breakdown(
                 std::mem::take(&mut self.static_phase_prepare),
                 std::mem::take(&mut self.static_phase_encode_submit),
@@ -394,7 +394,7 @@ impl<'a> BenchApp<'a> {
 
         #[cfg(feature = "render_metrics")]
         {
-            let renderer = self.renderer.as_ref().unwrap();
+            let renderer = self.renderer.as_mut().unwrap();
             print_phase_breakdown(
                 std::mem::take(&mut self.dynamic_phase_prepare),
                 std::mem::take(&mut self.dynamic_phase_encode_submit),

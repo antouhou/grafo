@@ -1,5 +1,20 @@
 use super::*;
 
+/// Errors that can occur when creating a [`Renderer`] via
+/// [`Renderer::try_new_headless`].
+#[derive(Debug, thiserror::Error)]
+pub enum RendererCreationError {
+    /// The provided `scale_factor` is not usable (must be finite and positive).
+    #[error("Invalid scale factor: {0} (must be finite and > 0.0)")]
+    InvalidScaleFactor(f64),
+    /// No suitable GPU adapter was found.
+    #[error("No suitable GPU adapter available: {0}")]
+    AdapterNotAvailable(#[from] wgpu::RequestAdapterError),
+    /// The GPU device could not be created.
+    #[error("GPU device creation failed: {0}")]
+    DeviceCreationFailed(#[from] wgpu::RequestDeviceError),
+}
+
 impl<'a> Renderer<'a> {
     pub async fn new(
         window: impl Into<SurfaceTarget<'static>>,
@@ -92,6 +107,7 @@ impl<'a> Renderer<'a> {
             scale_factor,
             msaa_sample_count,
         )
+        .expect("Failed to build renderer from device")
     }
 
     /// Shared constructor: takes the wgpu primitives produced by `new()` or
@@ -106,7 +122,11 @@ impl<'a> Renderer<'a> {
         physical_size: (u32, u32),
         scale_factor: f64,
         msaa_sample_count: u32,
-    ) -> Self {
+    ) -> Result<Self, RendererCreationError> {
+        if !scale_factor.is_finite() || scale_factor <= 0.0 {
+            return Err(RendererCreationError::InvalidScaleFactor(scale_factor));
+        }
+
         let canvas_logical_size = to_logical(physical_size, scale_factor);
 
         let (
@@ -256,7 +276,7 @@ impl<'a> Renderer<'a> {
 
         renderer.recreate_msaa_texture();
         renderer.recreate_depth_stencil_texture();
-        renderer
+        Ok(renderer)
     }
 
     pub fn print_memory_usage_info(&self) {
@@ -479,10 +499,12 @@ impl<'a> Renderer<'a> {
     /// Use `render_to_buffer()` or `render_to_argb32()` to read back rendered
     /// pixels. Calling `render()` on a headless renderer will panic.
     ///
-    /// Returns `None` if no suitable GPU adapter is available. This is useful
-    /// in environments without a GPU (e.g. CI), where tests can skip gracefully
-    /// instead of panicking.
-    pub async fn try_new_headless(physical_size: (u32, u32), scale_factor: f64) -> Option<Self> {
+    /// Returns an error if no suitable GPU adapter is available, the device
+    /// cannot be created, or the `scale_factor` is invalid.
+    pub async fn try_new_headless(
+        physical_size: (u32, u32),
+        scale_factor: f64,
+    ) -> Result<Self, RendererCreationError> {
         let size = physical_size;
 
         let instance = wgpu::Instance::new(&InstanceDescriptor::default());
@@ -493,8 +515,7 @@ impl<'a> Renderer<'a> {
                 compatible_surface: None,
                 force_fallback_adapter: false,
             })
-            .await
-            .ok()?;
+            .await?;
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -508,8 +529,7 @@ impl<'a> Renderer<'a> {
                 memory_hints: Default::default(),
                 trace: Default::default(),
             })
-            .await
-            .ok()?;
+            .await?;
 
         let swapchain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
 
@@ -526,7 +546,7 @@ impl<'a> Renderer<'a> {
 
         let msaa_sample_count = 1;
 
-        Some(Self::build_from_device(
+        Self::build_from_device(
             instance,
             None,
             device,
@@ -535,7 +555,7 @@ impl<'a> Renderer<'a> {
             size,
             scale_factor,
             msaa_sample_count,
-        ))
+        )
     }
 
     /// Creates a headless renderer without a window surface, panicking if no
@@ -549,7 +569,7 @@ impl<'a> Renderer<'a> {
     pub async fn new_headless(physical_size: (u32, u32), scale_factor: f64) -> Self {
         Self::try_new_headless(physical_size, scale_factor)
             .await
-            .expect("Failed to find a suitable GPU adapter for headless rendering")
+            .expect("Failed to create headless renderer")
     }
 
     pub(super) fn recreate_pipelines(&mut self) {

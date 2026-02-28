@@ -176,6 +176,7 @@ impl<'a> Renderer<'a> {
 
                     if let Some((index_start, index_count)) = index_range {
                         cached_shape_data.index_buffer_range = Some((index_start, index_count));
+                        cached_shape_data.is_empty = false;
                         let instance_index = append_instance_data(
                             &mut self.temp_instance_transforms,
                             &mut self.temp_instance_colors,

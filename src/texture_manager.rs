@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum TextureManagerError {
+    #[error("Texture {0} not found")]
     TextureNotFound(u64),
 }
 

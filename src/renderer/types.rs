@@ -150,6 +150,9 @@ impl PipelineTracker {
 
     /// Record a real GPU pipeline switch (only when the pipeline actually changes).
     pub(super) fn switch_to(&mut self, pipeline: Pipeline) {
+        if self.current == pipeline {
+            return;
+        }
         self.current = pipeline;
         #[cfg(feature = "render_metrics")]
         {

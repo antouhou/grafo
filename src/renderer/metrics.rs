@@ -172,11 +172,13 @@ impl RenderLoopMetricsTracker {
         )
     }
 
-    pub(super) fn rolling_one_second_frames_per_second(&self) -> f64 {
+    pub(super) fn rolling_one_second_frames_per_second(&mut self) -> f64 {
+        self.prune_rolling_window(Instant::now());
         self.rolling_window_samples.len() as f64
     }
 
-    pub(super) fn rolling_one_second_average_render_loop_duration(&self) -> Duration {
+    pub(super) fn rolling_one_second_average_render_loop_duration(&mut self) -> Duration {
+        self.prune_rolling_window(Instant::now());
         if self.rolling_window_samples.is_empty() {
             return Duration::ZERO;
         }
@@ -215,7 +217,7 @@ impl<'a> Renderer<'a> {
     }
 
     /// Returns the rolling 1-second FPS based on successfully presented frames.
-    pub fn rolling_one_second_frames_per_second(&self) -> f64 {
+    pub fn rolling_one_second_frames_per_second(&mut self) -> f64 {
         self.render_loop_metrics_tracker
             .rolling_one_second_frames_per_second()
     }
@@ -223,7 +225,7 @@ impl<'a> Renderer<'a> {
     /// Returns the rolling 1-second average render-loop duration.
     ///
     /// This measures from `render()` start to `present()` completion.
-    pub fn rolling_one_second_average_render_loop_duration(&self) -> Duration {
+    pub fn rolling_one_second_average_render_loop_duration(&mut self) -> Duration {
         self.render_loop_metrics_tracker
             .rolling_one_second_average_render_loop_duration()
     }
@@ -268,7 +270,7 @@ mod tests {
 
     #[test]
     fn metrics_tracker_returns_zero_values_when_no_frames_presented() {
-        let metrics_tracker = RenderLoopMetricsTracker::default();
+        let mut metrics_tracker = RenderLoopMetricsTracker::default();
 
         assert_eq!(metrics_tracker.total_presented_frame_count(), 0);
         assert_eq!(metrics_tracker.cumulative_average_frames_per_second(), 0.0);

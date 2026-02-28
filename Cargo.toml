@@ -24,6 +24,7 @@ log = "0.4"
 lru = "0.15"
 regex = "1"
 softbuffer = "0.4.8"
+thiserror = "2.0.18"
 
 [dev-dependencies]
 winit = "0.30"

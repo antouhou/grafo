@@ -10,12 +10,16 @@ use grafo_test_scenes::{build_main_scene, check_pixels, CANVAS_HEIGHT, CANVAS_WI
 /// Main regression test — renders all 34 tiles and validates pixel expectations.
 #[test]
 fn main_scene_pixel_expectations() {
-    let Some(mut renderer) = block_on(grafo::Renderer::try_new_headless(
+    let mut renderer = match block_on(grafo::Renderer::try_new_headless(
         (CANVAS_WIDTH, CANVAS_HEIGHT),
         1.0,
-    )) else {
-        println!("Skipping test: no suitable GPU adapter available.");
-        return;
+    )) {
+        Ok(r) => r,
+        Err(grafo::RendererCreationError::AdapterNotAvailable(_)) => {
+            println!("Skipping test: no suitable GPU adapter available.");
+            return;
+        }
+        Err(e) => panic!("Failed to create headless renderer: {e}"),
     };
 
     let expectations = build_main_scene(&mut renderer);
@@ -37,34 +41,50 @@ fn main_scene_pixel_expectations() {
 /// Regression test — empty draw queue should not crash.
 #[test]
 fn empty_draw_queue() {
-    let Some(mut renderer) = block_on(grafo::Renderer::try_new_headless(
+    let mut renderer = match block_on(grafo::Renderer::try_new_headless(
         (CANVAS_WIDTH, CANVAS_HEIGHT),
         1.0,
-    )) else {
-        println!("Skipping test: no suitable GPU adapter available.");
-        return;
+    )) {
+        Ok(r) => r,
+        Err(grafo::RendererCreationError::AdapterNotAvailable(_)) => {
+            println!("Skipping test: no suitable GPU adapter available.");
+            return;
+        }
+        Err(e) => panic!("Failed to create headless renderer: {e}"),
     };
 
     // Render with nothing in the draw queue
     let mut pixel_buffer: Vec<u8> = Vec::new();
     renderer.render_to_buffer(&mut pixel_buffer);
 
-    // Should produce a fully transparent/clear buffer
+    let bytes_per_pixel = 4;
+    let expected_length = (CANVAS_WIDTH as usize) * (CANVAS_HEIGHT as usize) * bytes_per_pixel;
+    assert_eq!(
+        pixel_buffer.len(),
+        expected_length,
+        "Pixel buffer length should equal width * height * {bytes_per_pixel}",
+    );
+
+    // Every pixel should be fully transparent (all bytes zero)
     assert!(
-        !pixel_buffer.is_empty(),
-        "Pixel buffer should not be empty after rendering an empty scene",
+        pixel_buffer.iter().all(|&byte| byte == 0),
+        "Empty scene should produce a fully transparent (all-zero) buffer",
     );
 }
 
 /// Regression test — single root shape with no children should render correctly.
 #[test]
 fn single_root_no_children() {
-    let Some(mut renderer) = block_on(grafo::Renderer::try_new_headless(
+    let mut renderer = match block_on(grafo::Renderer::try_new_headless(
         (CANVAS_WIDTH, CANVAS_HEIGHT),
         1.0,
-    )) else {
-        println!("Skipping test: no suitable GPU adapter available.");
-        return;
+    )) {
+        Ok(r) => r,
+        Err(grafo::RendererCreationError::AdapterNotAvailable(_)) => {
+            println!("Skipping test: no suitable GPU adapter available.");
+            return;
+        }
+        Err(e) => panic!("Failed to create headless renderer: {e}"),
     };
 
     let shape = grafo::Shape::rect([(10.0, 10.0), (100.0, 100.0)], grafo::Stroke::default());

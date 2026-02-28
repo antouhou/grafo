@@ -17,32 +17,21 @@ use std::sync::OnceLock;
 // ── Error type ───────────────────────────────────────────────────────────────
 
 /// Errors that can occur when working with the effect system.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum EffectError {
     /// The WGSL source failed to compile. Contains the error message from wgpu/naga.
+    #[error("Effect WGSL compilation failed: {0}")]
     CompilationFailed(String),
     /// The referenced effect_id has not been loaded.
+    #[error("Effect {0} has not been loaded")]
     EffectNotLoaded(u64),
     /// The referenced node_id does not exist in the draw tree.
+    #[error("Node {0} not found in draw tree")]
     NodeNotFound(usize),
     /// Invalid parameter data (e.g. wrong size for uniform buffer).
+    #[error("Invalid effect parameters: {0}")]
     InvalidParams(String),
 }
-
-impl std::fmt::Display for EffectError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            EffectError::CompilationFailed(msg) => {
-                write!(f, "Effect WGSL compilation failed: {msg}")
-            }
-            EffectError::EffectNotLoaded(id) => write!(f, "Effect {id} has not been loaded"),
-            EffectError::NodeNotFound(id) => write!(f, "Node {id} not found in draw tree"),
-            EffectError::InvalidParams(msg) => write!(f, "Invalid effect parameters: {msg}"),
-        }
-    }
-}
-
-impl std::error::Error for EffectError {}
 
 // ── Built-in shaders ─────────────────────────────────────────────────────────
 

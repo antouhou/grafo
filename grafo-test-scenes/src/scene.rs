@@ -978,8 +978,8 @@ fn tile_17_translated_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 
 fn tile_18_scaled_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(18);
-    // 60×60 rect, scaled to 0.5× horizontally and 1.5× vertically around tile center.
-    // Result: 30×90 rect, but clamped to tile → 30-wide tall strip.
+    // 60×60 rect, scaled to 0.5× horizontally and 1.0× vertically around tile center.
+    // Result: 30×60 rect, horizontally centered in tile.
     let shape = Shape::rect(
         [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
         Stroke::default(),
