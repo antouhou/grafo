@@ -20,4 +20,4 @@
 - Avoid heap allocations in the render method/loop. Try to reuse values allocated on the heap as much as possible in general.
 - `tests/visual_regression.rs` always must be run to check that no regression has been introduced.
 - In case of adding a new feature, expand `tests/visual_regression.rs` to test that it works as expected, with all possible permutations of the added feature and existing ones. Study other cases in the test for reference.
-- In case of a new found bug, make sure that is fixed, and the permutation that caused it is added to `tests/visual_regression.rs`.
+  In case when a new bug is found, make sure it is fixed, and add the permutation that caused it to `tests/visual_regression.rs`.
