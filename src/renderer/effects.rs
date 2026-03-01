@@ -245,10 +245,40 @@ impl<'a> Renderer<'a> {
 
     pub(super) fn ensure_composite_pipeline(&mut self) {
         if self.composite_pipeline.is_none() {
-            let (pipeline, bind_group_layout) =
-                compile_composite_pipeline(&self.device, self.config.format);
+            let (pipeline, input_bgl, depth_bgl) = compile_composite_pipeline(
+                &self.device,
+                self.config.format,
+                self.msaa_sample_count,
+            );
             self.composite_pipeline = Some(pipeline);
-            self.composite_bgl = Some(bind_group_layout);
+            self.composite_bgl = Some(input_bgl);
+
+            // Create initial composite depth buffer + bind group.
+            let alignment = self.composite_depth_slot_allocator.slot_alignment;
+            let initial_cap = 64u32;
+            let buf_size = initial_cap as u64 * alignment as u64;
+            let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("composite_depth_array_buffer"),
+                size: buf_size,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("composite_depth_bind_group"),
+                layout: &depth_bgl,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &buffer,
+                        offset: 0,
+                        size: std::num::NonZeroU64::new(alignment as u64),
+                    }),
+                }],
+            });
+            self.composite_depth_slot_allocator.buffer_capacity = initial_cap;
+            self.composite_depth_buffer = Some(buffer);
+            self.composite_depth_bind_group = Some(bind_group);
+            self.composite_depth_bgl = Some(depth_bgl);
         }
     }
 
@@ -295,40 +325,6 @@ impl<'a> Renderer<'a> {
             self.backdrop_snapshot_texture = Some(texture);
             self.backdrop_snapshot_view = Some(view);
         }
-    }
-
-    pub(super) fn ensure_stencil_only_pipeline(&mut self) {
-        if self.stencil_only_pipeline.is_some() {
-            return;
-        }
-
-        let uniform_bind_group_layout = self.and_pipeline.get_bind_group_layout(0);
-        let pipeline = crate::pipeline::create_stencil_only_pipeline(
-            &self.device,
-            self.config.format,
-            self.msaa_sample_count,
-            &uniform_bind_group_layout,
-            &self.shape_texture_bind_group_layout_background,
-            &self.shape_texture_bind_group_layout_foreground,
-        );
-        self.stencil_only_pipeline = Some(pipeline);
-    }
-
-    pub(super) fn ensure_backdrop_color_pipeline(&mut self) {
-        if self.backdrop_color_pipeline.is_some() {
-            return;
-        }
-
-        let uniform_bind_group_layout = self.and_pipeline.get_bind_group_layout(0);
-        let pipeline = crate::pipeline::create_stencil_keep_color_pipeline(
-            &self.device,
-            self.config.format,
-            self.msaa_sample_count,
-            &uniform_bind_group_layout,
-            &self.shape_texture_bind_group_layout_background,
-            &self.shape_texture_bind_group_layout_foreground,
-        );
-        self.backdrop_color_pipeline = Some(pipeline);
     }
 }
 

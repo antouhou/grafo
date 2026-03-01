@@ -28,7 +28,7 @@ use crate::Color;
 
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
-use self::types::{DrawCommand, RendererScratch};
+use self::types::{CompositeSlotAllocator, DrawCommand, RendererScratch};
 
 mod construction;
 mod draw_queue;
@@ -197,6 +197,14 @@ pub struct Renderer<'a> {
     composite_pipeline: Option<wgpu::RenderPipeline>,
     /// Bind group layout for the composite pipeline's input texture.
     composite_bgl: Option<wgpu::BindGroupLayout>,
+    /// Bind group layout for the composite depth uniform (group 1, dynamic offset).
+    composite_depth_bgl: Option<wgpu::BindGroupLayout>,
+    /// Dynamic uniform buffer holding per-composite depth values.
+    composite_depth_buffer: Option<wgpu::Buffer>,
+    /// Bind group for composite_depth_buffer (group 1, dynamic offset).
+    composite_depth_bind_group: Option<wgpu::BindGroup>,
+    /// Slot allocator for composite depth dynamic uniform buffer.
+    composite_depth_slot_allocator: CompositeSlotAllocator,
     /// Reusable sampler for effect texture sampling.
     effect_sampler: Option<wgpu::Sampler>,
 
@@ -205,15 +213,20 @@ pub struct Renderer<'a> {
     backdrop_snapshot_texture: Option<wgpu::Texture>,
     backdrop_snapshot_view: Option<wgpu::TextureView>,
     /// Stencil-only pipeline: writes stencil but no color output.
-    /// Used for Step 1 of the three-step backdrop draw.
+    /// Used for stencil increment passes and Step 1 of the three-step backdrop draw.
     stencil_only_pipeline: Option<wgpu::RenderPipeline>,
-    /// Shape color pipeline with stencil Keep: draws color but doesn't modify stencil.
-    /// Used for Step 3 of the three-step backdrop draw.
-    backdrop_color_pipeline: Option<wgpu::RenderPipeline>,
 
     /// Pipeline for rendering leaf nodes (no children) with stencil Equal + Keep.
     /// Avoids the redundant increment + decrement pair for childless shapes.
     leaf_draw_pipeline: Arc<wgpu::RenderPipeline>,
+
+    /// Opaque leaf draw pipeline: LessEqual depth, depth write, no blend, discard fringe.
+    opaque_leaf_draw_pipeline: Arc<wgpu::RenderPipeline>,
+    /// Transparent leaf draw pipeline: LessEqual depth, no depth write, premul blend.
+    transparent_leaf_draw_pipeline: Arc<wgpu::RenderPipeline>,
+    /// Opaque-fringe draw pipeline: LessEqual depth, no depth write, premul blend,
+    /// discard interior (coverage >= 1.0).
+    opaque_fringe_draw_pipeline: Arc<wgpu::RenderPipeline>,
 
     #[cfg(feature = "render_metrics")]
     /// Tracking for cumulative render-loop timing metrics.
