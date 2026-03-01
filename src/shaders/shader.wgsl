@@ -190,3 +190,67 @@ fn fs_main(
     // multiplying all four channels by coverage correctly fades the fringe to transparent.
     return final_pma * coverage;
 }
+
+/// Opaque-pass fragment shader: discards fringe pixels (coverage < 1.0) so only
+/// fully-covered interior pixels write color and depth. Fringe is drawn separately
+/// in the transparent pass via `fs_main_fringe_only`.
+@fragment
+fn fs_main_opaque(
+    @location(0) color: vec4<f32>,
+    @location(1) tex_coords: vec2<f32>,
+    @location(2) coverage: f32,
+    @location(3) @interpolate(flat) texture_flags: f32,
+) -> @location(0) vec4<f32> {
+    if (coverage < 1.0) {
+        discard;
+    }
+    // Coverage == 1.0 guaranteed for non-discarded pixels.
+    let fill_pma = vec4<f32>(color.rgb * color.a, color.a);
+    let flags = u32(texture_flags);
+    if (flags == 0u) {
+        return fill_pma;
+    }
+    var base_pma = fill_pma;
+    if ((flags & 1u) != 0u) {
+        let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, tex_coords, 0.0);
+        base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
+    }
+    var final_pma = base_pma;
+    if ((flags & 2u) != 0u) {
+        let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, tex_coords, 0.0);
+        final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
+    }
+    return final_pma;
+}
+
+/// Fringe-only fragment shader for opaque shapes in the transparent pass: discards
+/// interior pixels (coverage >= 1.0) so only the AA fringe band is blended. This
+/// avoids re-shading opaque interiors that were already drawn in the opaque pass.
+@fragment
+fn fs_main_fringe_only(
+    @location(0) color: vec4<f32>,
+    @location(1) tex_coords: vec2<f32>,
+    @location(2) coverage: f32,
+    @location(3) @interpolate(flat) texture_flags: f32,
+) -> @location(0) vec4<f32> {
+    if (coverage >= 1.0) {
+        discard;
+    }
+    // Same fill+texture composition as fs_main.
+    let fill_pma = vec4<f32>(color.rgb * color.a, color.a);
+    let flags = u32(texture_flags);
+    if (flags == 0u) {
+        return fill_pma * coverage;
+    }
+    var base_pma = fill_pma;
+    if ((flags & 1u) != 0u) {
+        let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, tex_coords, 0.0);
+        base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
+    }
+    var final_pma = base_pma;
+    if ((flags & 2u) != 0u) {
+        let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, tex_coords, 0.0);
+        final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
+    }
+    return final_pma * coverage;
+}

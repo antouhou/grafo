@@ -60,6 +60,7 @@ fn append_instance_data(
     transform: Option<InstanceTransform>,
     color_override: Option<[f32; 4]>,
     texture_ids: [Option<u64>; 2],
+    traversal_order: u32,
 ) -> usize {
     let instance_index = temp_instance_transforms.len();
     temp_instance_transforms.push(transform.unwrap_or_else(InstanceTransform::identity));
@@ -69,7 +70,7 @@ fn append_instance_data(
     let texture_flags =
         (texture_ids[0].is_some() as u32) | ((texture_ids[1].is_some() as u32) << 1);
     temp_instance_metadata.push(InstanceMetadata {
-        draw_order: instance_index as f32,
+        draw_order: traversal_order as f32,
         texture_flags: texture_flags as f32,
     });
     instance_index
@@ -116,6 +117,19 @@ impl<'a> Renderer<'a> {
         self.temp_instance_metadata.clear();
         self.geometry_dedup_map.clear();
 
+        // DFS numbering pass: assign traversal_order to every node before geometry
+        // aggregation. This gives each node a painter's-order depth value regardless
+        // of insertion order in the tree.
+        let mut counter: u32 = 0;
+        self.draw_tree.traverse_mut(
+            |_node_id, draw_command, c: &mut u32| {
+                draw_command.set_traversal_order(*c);
+                *c += 1;
+            },
+            |_node_id, _draw_command, _c| {},
+            &mut counter,
+        );
+
         for (_node_id, draw_command) in self.draw_tree.iter_mut() {
             match draw_command {
                 DrawCommand::Shape(shape) => {
@@ -136,9 +150,20 @@ impl<'a> Renderer<'a> {
                             shape.transform(),
                             shape.instance_color_override(),
                             shape.texture_ids,
+                            shape.traversal_order,
                         );
                         *shape.instance_index_mut() = Some(instance_index);
                         shape.is_empty = false;
+
+                        // Opacity classification: opaque iff alpha==1.0 and no textures.
+                        let texture_flags = (shape.texture_ids[0].is_some() as u32)
+                            | ((shape.texture_ids[1].is_some() as u32) << 1);
+                        let is_opaque = shape
+                            .instance_color_override()
+                            .map(|c| c[3] >= 1.0)
+                            .unwrap_or(true)
+                            && texture_flags == 0;
+                        shape.set_is_opaque(is_opaque);
                     } else {
                         shape.is_empty = true;
                     }
@@ -185,8 +210,19 @@ impl<'a> Renderer<'a> {
                             cached_shape_data.transform(),
                             cached_shape_data.instance_color_override(),
                             cached_shape_data.texture_ids,
+                            cached_shape_data.traversal_order,
                         );
                         *cached_shape_data.instance_index_mut() = Some(instance_index);
+
+                        // Opacity classification for cached shapes.
+                        let texture_flags = (cached_shape_data.texture_ids[0].is_some() as u32)
+                            | ((cached_shape_data.texture_ids[1].is_some() as u32) << 1);
+                        let is_opaque = cached_shape_data
+                            .instance_color_override()
+                            .map(|c| c[3] >= 1.0)
+                            .unwrap_or(true)
+                            && texture_flags == 0;
+                        cached_shape_data.set_is_opaque(is_opaque);
                     } else {
                         cached_shape_data.is_empty = true;
                     }

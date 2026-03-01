@@ -748,6 +748,10 @@ pub(crate) struct ShapeDrawData {
     /// Whether the underlying shape is an axis-aligned rectangle (`Shape::Rect`).
     /// Used to enable scissor-based clipping instead of stencil for rect parents.
     pub(crate) is_rect: bool,
+    /// DFS traversal order assigned during `prepare_render`, used for depth-bias ordering.
+    pub(crate) traversal_order: u32,
+    /// Whether this shape is fully opaque (solid fill, alpha==1.0, no textures).
+    pub(crate) is_opaque: bool,
 }
 
 impl ShapeDrawData {
@@ -768,6 +772,8 @@ impl ShapeDrawData {
             is_leaf: true,
             clips_children: true,
             is_rect,
+            traversal_order: 0,
+            is_opaque: false,
         }
     }
 
@@ -808,6 +814,10 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) is_rect: bool,
     /// The local-space bounding rect when `is_rect` is true, for scissor computation.
     pub(crate) rect_bounds: Option<[(f32, f32); 2]>,
+    /// DFS traversal order assigned during `prepare_render`, used for depth-bias ordering.
+    pub(crate) traversal_order: u32,
+    /// Whether this shape is fully opaque (solid fill, alpha==1.0, no textures).
+    pub(crate) is_opaque: bool,
 }
 
 impl CachedShapeDrawData {
@@ -825,6 +835,8 @@ impl CachedShapeDrawData {
             clips_children: true,
             is_rect: false,
             rect_bounds: None,
+            traversal_order: 0,
+            is_opaque: false,
         }
     }
 
@@ -1171,6 +1183,10 @@ pub(crate) trait DrawShapeCommand {
     fn clips_children(&self) -> bool;
     fn is_rect(&self) -> bool;
     fn rect_bounds(&self) -> Option<[(f32, f32); 2]>;
+    fn traversal_order(&self) -> u32;
+    fn set_traversal_order(&mut self, order: u32);
+    fn is_opaque(&self) -> bool;
+    fn set_is_opaque(&mut self, opaque: bool);
 }
 
 impl DrawShapeCommand for ShapeDrawData {
@@ -1248,6 +1264,26 @@ impl DrawShapeCommand for ShapeDrawData {
             _ => None,
         }
     }
+
+    #[inline]
+    fn traversal_order(&self) -> u32 {
+        self.traversal_order
+    }
+
+    #[inline]
+    fn set_traversal_order(&mut self, order: u32) {
+        self.traversal_order = order;
+    }
+
+    #[inline]
+    fn is_opaque(&self) -> bool {
+        self.is_opaque
+    }
+
+    #[inline]
+    fn set_is_opaque(&mut self, opaque: bool) {
+        self.is_opaque = opaque;
+    }
 }
 
 impl DrawShapeCommand for CachedShapeDrawData {
@@ -1321,5 +1357,25 @@ impl DrawShapeCommand for CachedShapeDrawData {
     #[inline]
     fn rect_bounds(&self) -> Option<[(f32, f32); 2]> {
         self.rect_bounds
+    }
+
+    #[inline]
+    fn traversal_order(&self) -> u32 {
+        self.traversal_order
+    }
+
+    #[inline]
+    fn set_traversal_order(&mut self, order: u32) {
+        self.traversal_order = order;
+    }
+
+    #[inline]
+    fn is_opaque(&self) -> bool {
+        self.is_opaque
+    }
+
+    #[inline]
+    fn set_is_opaque(&mut self, opaque: bool) {
+        self.is_opaque = opaque;
     }
 }

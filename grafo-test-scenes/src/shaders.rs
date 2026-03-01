@@ -64,3 +64,26 @@ pub struct BlurParams {
     pub _pad: f32,
     pub tex_size: [f32; 2],
 }
+
+/// Simple opacity (tint) effect — multiplies alpha by a uniform factor.
+/// This is a single-pass effect. Useful for testing group composite depth.
+pub const OPACITY_WGSL: &str = r#"
+struct OpacityParams {
+    opacity: f32,
+}
+@group(1) @binding(0) var<uniform> params: OpacityParams;
+
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let c = textureSample(t_input, s_input, uv);
+    return vec4<f32>(c.rgb * params.opacity, c.a * params.opacity);
+}
+"#;
+
+/// Parameters for the opacity effect.
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[allow(dead_code)]
+pub struct OpacityParams {
+    pub opacity: f32,
+}

@@ -99,6 +99,27 @@ impl DrawCommand {
             }
         }
     }
+
+    pub(super) fn is_opaque(&self) -> bool {
+        match self {
+            DrawCommand::Shape(s) => s.is_opaque(),
+            DrawCommand::CachedShape(s) => s.is_opaque(),
+        }
+    }
+
+    pub(super) fn traversal_order(&self) -> u32 {
+        match self {
+            DrawCommand::Shape(s) => s.traversal_order(),
+            DrawCommand::CachedShape(s) => s.traversal_order(),
+        }
+    }
+
+    pub(super) fn set_traversal_order(&mut self, order: u32) {
+        match self {
+            DrawCommand::Shape(s) => s.set_traversal_order(order),
+            DrawCommand::CachedShape(s) => s.set_traversal_order(order),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -113,6 +134,35 @@ pub(super) enum Pipeline {
     StencilIncrement,
     StencilDecrement,
     LeafDraw,
+    OpaqueLeafDraw,
+    OpaqueFringeDraw,
+}
+
+/// A deferred opaque draw, collected during the opaque phase and flushed
+/// (sorted front-to-back) at scope exit for maximum early-Z benefit.
+pub(super) struct DeferredOpaqueDraw {
+    /// Traversal order stamp (lower = closer to camera). Used as sort key.
+    pub traversal_order: u32,
+    /// Stencil reference for this draw.
+    pub stencil_ref: u32,
+    /// Index buffer range: (start_index, index_count) in the aggregated buffer.
+    pub index_range: (usize, usize),
+    /// Instance index into the aggregated instance buffers.
+    pub instance_index: Option<usize>,
+    /// Texture IDs for layers 0 and 1.
+    pub texture_ids: [Option<u64>; 2],
+}
+
+/// Collects deferred opaque draws for a single stencil scope.
+/// Flushed (sorted front-to-back) when the scope exits.
+pub(super) struct PendingOpaqueScope {
+    pub draws: Vec<DeferredOpaqueDraw>,
+}
+
+impl PendingOpaqueScope {
+    pub fn new() -> Self {
+        Self { draws: Vec::new() }
+    }
 }
 
 /// Records which clipping strategy was used by each non-leaf parent during
@@ -161,6 +211,8 @@ impl PipelineTracker {
                 Pipeline::StencilIncrement => self.counts.to_stencil_increment += 1,
                 Pipeline::StencilDecrement => self.counts.to_stencil_decrement += 1,
                 Pipeline::LeafDraw => self.counts.to_leaf_draw += 1,
+                Pipeline::OpaqueLeafDraw => self.counts.to_opaque_leaf_draw += 1,
+                Pipeline::OpaqueFringeDraw => self.counts.to_opaque_fringe_draw += 1,
                 Pipeline::None => self.counts.to_composite += 1,
             }
         }
@@ -170,6 +222,18 @@ impl PipelineTracker {
     #[cfg(feature = "render_metrics")]
     pub(super) fn record_scissor_clip(&mut self) {
         self.counts.scissor_clips += 1;
+    }
+
+    /// Record that an opaque-phase draw call was issued.
+    #[cfg(feature = "render_metrics")]
+    pub(super) fn record_opaque_draw(&mut self) {
+        self.counts.opaque_draw_calls += 1;
+    }
+
+    /// Record that a transparent-phase draw call was issued.
+    #[cfg(feature = "render_metrics")]
+    pub(super) fn record_transparent_draw(&mut self) {
+        self.counts.transparent_draw_calls += 1;
     }
 }
 
@@ -190,15 +254,9 @@ impl BoundTextureState {
         self.layers = [None, None];
     }
 
-    /// Returns `true` when the given texture id (or `None` for the default) is not
-    /// already bound on `layer`, and updates the tracked state.
-    pub(super) fn needs_rebind(&mut self, layer: usize, texture_id: Option<u64>) -> bool {
-        let current = self.layers[layer];
-        if current == Some(texture_id) {
-            return false;
-        }
-        self.layers[layer] = Some(texture_id);
-        true
+    /// Returns the currently recorded bound texture for a layer, without mutating state.
+    pub(super) fn peek(&self, layer: usize) -> Option<Option<u64>> {
+        self.layers[layer]
     }
 
     /// Update the tracked state for `layer` without returning whether a rebind is
@@ -221,16 +279,29 @@ pub(super) struct Buffers<'a> {
 }
 
 pub(super) struct Pipelines<'a> {
-    pub(super) and_pipeline: &'a wgpu::RenderPipeline,
     pub(super) and_bind_group: &'a wgpu::BindGroup,
     pub(super) decrementing_pipeline: &'a wgpu::RenderPipeline,
     pub(super) decrementing_bind_group: &'a wgpu::BindGroup,
-    pub(super) leaf_draw_pipeline: &'a wgpu::RenderPipeline,
+    pub(super) stencil_only_pipeline: &'a wgpu::RenderPipeline,
+    pub(super) transparent_leaf_draw_pipeline: &'a wgpu::RenderPipeline,
+    pub(super) opaque_leaf_draw_pipeline: &'a wgpu::RenderPipeline,
+    pub(super) opaque_fringe_draw_pipeline: &'a wgpu::RenderPipeline,
     pub(super) shape_texture_bind_group_layout_background: &'a wgpu::BindGroupLayout,
     pub(super) shape_texture_bind_group_layout_foreground: &'a wgpu::BindGroupLayout,
     pub(super) default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
     pub(super) shape_texture_layout_epoch: u64,
     pub(super) texture_manager: &'a TextureManager,
+}
+
+/// Resources for writing per-composite depth values into a dynamic uniform
+/// buffer and binding them at `@group(1)` during composite draws.
+pub(super) struct CompositeDepthCtx<'a> {
+    pub(super) queue: &'a wgpu::Queue,
+    pub(super) buffer: &'a mut wgpu::Buffer,
+    pub(super) bind_group: &'a mut wgpu::BindGroup,
+    pub(super) bgl: &'a wgpu::BindGroupLayout,
+    pub(super) device: &'a wgpu::Device,
+    pub(super) slot_allocator: &'a mut CompositeSlotAllocator,
 }
 
 /// Backdrop-specific rendering resources. Only needed when backdrop effects exist.
@@ -241,7 +312,6 @@ pub(super) struct BackdropContext<'a> {
     pub(super) composite_bgl: &'a wgpu::BindGroupLayout,
     pub(super) effect_sampler: &'a wgpu::Sampler,
     pub(super) stencil_only_pipeline: &'a wgpu::RenderPipeline,
-    pub(super) backdrop_color_pipeline: &'a wgpu::RenderPipeline,
     pub(super) device: &'a wgpu::Device,
     pub(super) config_format: wgpu::TextureFormat,
     pub(super) backdrop_snapshot_texture: &'a wgpu::Texture,
@@ -364,6 +434,108 @@ pub(super) fn decide_buffer_sizing(
 
     BufferSizingDecision { should_reallocate }
 }
+
+/// Converts a DFS traversal order to a depth value for the depth buffer.
+/// Uses the same mapping as the vertex shader: lower depth = closer to camera.
+/// Shared between shape and composite paths to keep depth numerically aligned.
+pub(super) fn traversal_order_to_depth(traversal_order: u32) -> f32 {
+    (1.0 - traversal_order as f32 * 0.00001).clamp(0.0, 1.0)
+}
+
+/// Manages per-composite depth slots in a dynamic uniform buffer.
+///
+/// Each composite draw needs a unique depth value delivered via a dynamic
+/// uniform buffer offset. This allocator tracks the next available slot
+/// and grows the buffer when capacity is exceeded.
+pub(super) struct CompositeSlotAllocator {
+    pub next_slot: u32,
+    pub slot_alignment: u32,
+    pub buffer_capacity: u32,
+}
+
+impl CompositeSlotAllocator {
+    pub fn new(min_uniform_buffer_offset_alignment: u32) -> Self {
+        Self {
+            next_slot: 0,
+            // Ensure alignment is at least 16 bytes (the size of our CompositeDepthUniform).
+            slot_alignment: min_uniform_buffer_offset_alignment.max(16),
+            buffer_capacity: 0,
+        }
+    }
+
+    /// Reset the allocator for a new frame.
+    pub fn reset(&mut self) {
+        self.next_slot = 0;
+    }
+
+    /// Allocate a slot index, growing the buffer if needed.
+    /// Returns the slot index. The caller must use `byte_offset(slot)` when
+    /// writing the uniform data and setting the dynamic offset.
+    pub fn allocate(
+        &mut self,
+        device: &wgpu::Device,
+        depth_bgl: &wgpu::BindGroupLayout,
+        buffer: &mut wgpu::Buffer,
+        bind_group: &mut wgpu::BindGroup,
+    ) -> u32 {
+        if self.next_slot >= self.buffer_capacity {
+            self.grow(device, depth_bgl, buffer, bind_group);
+        }
+        let slot = self.next_slot;
+        self.next_slot += 1;
+        slot
+    }
+
+    /// Byte offset for a given slot index.
+    pub fn byte_offset(&self, slot: u32) -> u64 {
+        slot as u64 * self.slot_alignment as u64
+    }
+
+    fn grow(
+        &mut self,
+        device: &wgpu::Device,
+        depth_bgl: &wgpu::BindGroupLayout,
+        buffer: &mut wgpu::Buffer,
+        bind_group: &mut wgpu::BindGroup,
+    ) {
+        let new_cap = (self.buffer_capacity * 2).max(64);
+        let buf_size = new_cap as u64 * self.slot_alignment as u64;
+        *buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("composite_depth_array_buffer"),
+            size: buf_size,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        *bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("composite_depth_bind_group"),
+            layout: depth_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer,
+                    offset: 0,
+                    size: std::num::NonZeroU64::new(self.slot_alignment as u64),
+                }),
+            }],
+        });
+        self.buffer_capacity = new_cap;
+    }
+}
+
+// Wrapped in a sub-module so `#[allow(dead_code)]` covers both the struct fields
+// (read as raw bytes via `bytemuck::bytes_of`) and the derive-generated `check` fn.
+#[allow(dead_code)]
+mod composite_depth {
+    /// 16-byte aligned uniform for composite depth. Contains a single f32 depth
+    /// value plus padding to satisfy `minUniformBufferOffsetAlignment`.
+    #[repr(C)]
+    #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+    pub(crate) struct CompositeDepthUniform {
+        pub depth: f32,
+        pub _padding: [f32; 3],
+    }
+}
+pub(super) use composite_depth::CompositeDepthUniform;
 
 #[cfg(test)]
 mod tests {
