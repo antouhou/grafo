@@ -210,7 +210,6 @@ impl<'a> Renderer<'a> {
                         #[cfg(feature = "render_metrics")]
                         &mut frame_pipeline_counts,
                     );
-                    drop(bg_depth_ctx);
                     Some(behind_tex)
                 } else {
                     None
@@ -303,7 +302,6 @@ impl<'a> Renderer<'a> {
                     #[cfg(feature = "render_metrics")]
                     &mut frame_pipeline_counts,
                 );
-                drop(sub_depth_ctx);
 
                 effect_output_textures.append(&mut backdrop_work_textures);
                 if let Some(behind_tex) = behind_texture {
