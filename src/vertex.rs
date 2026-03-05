@@ -317,3 +317,35 @@ impl InstanceMetadata {
         }
     }
 }
+
+/// Per-instance occlusion metadata, passed as a vertex attribute (instance-rate).
+/// Points into the occlusion rects storage buffer for fragment-level occlusion culling.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct InstanceOcclusion {
+    /// Starting index into the occlusion rects storage buffer for this instance.
+    pub occlusion_rects_buffer_offset: u32,
+    /// Number of occlusion rects for this instance (0 = no occlusion culling).
+    pub occlusion_rects_count: u32,
+}
+
+impl InstanceOcclusion {
+    pub fn none() -> Self {
+        Self {
+            occlusion_rects_buffer_offset: 0,
+            occlusion_rects_count: 0,
+        }
+    }
+
+    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<InstanceOcclusion>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Uint32x2,
+                offset: 0,
+                shader_location: 11,
+            }],
+        }
+    }
+}

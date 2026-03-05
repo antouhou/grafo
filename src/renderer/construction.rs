@@ -164,6 +164,9 @@ impl<'a> Renderer<'a> {
             msaa_sample_count,
         );
 
+        let occlusion_rects_bind_group_layout =
+            crate::pipeline::create_occlusion_rects_bind_group_layout(&device);
+
         let leaf_draw_pipeline = crate::pipeline::create_stencil_keep_color_pipeline(
             &device,
             config.format,
@@ -171,6 +174,17 @@ impl<'a> Renderer<'a> {
             &and_pipeline.get_bind_group_layout(0),
             &and_texture_bgl_layer0,
             &and_texture_bgl_layer1,
+            &occlusion_rects_bind_group_layout,
+        );
+
+        let stencil_only_pipeline = crate::pipeline::create_stencil_only_pipeline(
+            &device,
+            config.format,
+            msaa_sample_count,
+            &and_pipeline.get_bind_group_layout(0),
+            &and_texture_bgl_layer0,
+            &and_texture_bgl_layer1,
+            &occlusion_rects_bind_group_layout,
         );
 
         let device = Arc::new(device);
@@ -263,9 +277,17 @@ impl<'a> Renderer<'a> {
             effect_sampler: None,
             backdrop_snapshot_texture: None,
             backdrop_snapshot_view: None,
-            stencil_only_pipeline: None,
+            stencil_only_pipeline: Arc::new(stencil_only_pipeline),
             backdrop_color_pipeline: None,
             leaf_draw_pipeline: Arc::new(leaf_draw_pipeline),
+            occlusion_rects_bind_group_layout,
+            occlusion_rects_storage_buffer: None,
+            occlusion_rects_bind_group: None,
+            temp_instance_occlusions: Vec::new(),
+            temp_occlusion_rects: Vec::new(),
+            temp_parent_node_ids: Vec::new(),
+            aggregated_instance_occlusion_buffer: None,
+            identity_instance_occlusion_buffer: None,
             #[cfg(feature = "render_metrics")]
             render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),
             #[cfg(feature = "render_metrics")]
@@ -652,6 +674,17 @@ impl<'a> Renderer<'a> {
             &self.and_pipeline.get_bind_group_layout(0),
             &self.shape_texture_bind_group_layout_background,
             &self.shape_texture_bind_group_layout_foreground,
+            &self.occlusion_rects_bind_group_layout,
+        ));
+
+        self.stencil_only_pipeline = Arc::new(crate::pipeline::create_stencil_only_pipeline(
+            &self.device,
+            self.config.format,
+            self.msaa_sample_count,
+            &self.and_pipeline.get_bind_group_layout(0),
+            &self.shape_texture_bind_group_layout_background,
+            &self.shape_texture_bind_group_layout_foreground,
+            &self.occlusion_rects_bind_group_layout,
         ));
     }
 }

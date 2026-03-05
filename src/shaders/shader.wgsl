@@ -19,6 +19,8 @@ struct VertexInput {
     // Per-instance bitmask: bit 0 = layer 0 active, bit 1 = layer 1 active.
     // 0 = solid fill only (skip all texture samples).
     @location(10) texture_flags: f32,
+    // Per-instance occlusion rect metadata: .x = buffer offset, .y = count
+    @location(11) occlusion_rects_offset_count: vec2<u32>,
 };
 
 struct VertexOutput {
@@ -27,6 +29,7 @@ struct VertexOutput {
     @location(1) tex_coords: vec2<f32>,
     @location(2) coverage: f32,
     @location(3) @interpolate(flat) texture_flags: f32,
+    @location(4) @interpolate(flat) occlusion_rects_offset_count: vec2<u32>,
 };
 
 // This is a struct that will be used for position normalization
@@ -45,6 +48,9 @@ struct Uniforms {
 // Layer 1 (foreground/overlay)
 @group(2) @binding(0) var t_shape_layer1: texture_2d<f32>;
 @group(2) @binding(1) var s_shape_layer1: sampler;
+
+// Occlusion rects storage buffer for fragment-level parent culling
+@group(3) @binding(0) var<storage, read> occlusion_rects: array<vec4<f32>>;
 
 fn to_linear(color: vec3<f32>) -> vec3<f32> {
     let cutoff = vec3<f32>(0.04045);
@@ -145,34 +151,37 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     output.tex_coords = input.tex_coords;
     output.coverage = input.coverage;
     output.texture_flags = input.texture_flags;
+    output.occlusion_rects_offset_count = input.occlusion_rects_offset_count;
     return output;
 }
 
-@fragment
-fn fs_main(
-    @location(0) color: vec4<f32>,
-    @location(1) tex_coords: vec2<f32>,
-    @location(2) coverage: f32,
-    @location(3) @interpolate(flat) texture_flags: f32,
-) -> @location(0) vec4<f32> {
-    // Shape fill color arrives already in linear space (sRGB->linear conversion
-    // is performed on the CPU in normalize_rgba_color).
-    // Convert fill to premultiplied
+fn is_occluded_by_rects(frag_coord: vec4<f32>, occlusion_rects_offset_count: vec2<u32>) -> bool {
+    let rects_buffer_offset = occlusion_rects_offset_count.x;
+    let rects_count = occlusion_rects_offset_count.y;
+    let p = frag_coord.xy;
+    for (var i = 0u; i < rects_count; i = i + 1u) {
+        let r = occlusion_rects[rects_buffer_offset + i];
+        if (p.x >= r.x && p.x <= r.z && p.y >= r.y && p.y <= r.w) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// Computes the final premultiplied-alpha color from fill color, texture layers, and coverage.
+fn compute_fragment_color(
+    color: vec4<f32>,
+    tex_coords: vec2<f32>,
+    coverage: f32,
+    texture_flags: f32,
+) -> vec4<f32> {
     let fill_pma = vec4<f32>(color.rgb * color.a, color.a);
 
-    // Fast path: no textures bound — solid fill only. Skip both texture samples.
     let flags = u32(texture_flags);
     if (flags == 0u) {
         return fill_pma * coverage;
     }
 
-    // At least one texture layer is active.
-    // Use textureSampleLevel (explicit LOD 0) instead of textureSample so that
-    // sampling is valid inside non-uniform control flow. Our textures are created
-    // without mipmaps (mip_level_count = 1), so LOD 0 is always correct.
-    // Data is premultiplied (Rgba8UnormSrgb -> linear automatically).
-
-    // Compose: base = texture layer 0 over shape fill, then layer 1 over result.
     var base_pma = fill_pma;
     if ((flags & 1u) != 0u) {
         let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, tex_coords, 0.0);
@@ -185,8 +194,39 @@ fn fs_main(
         final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
     }
 
-    // Apply AA coverage: scale premultiplied color by coverage factor.
-    // With premultiplied alpha blending (src: One, dst: OneMinusSrcAlpha),
-    // multiplying all four channels by coverage correctly fades the fringe to transparent.
     return final_pma * coverage;
+}
+
+@fragment
+fn fs_main(
+    @builtin(position) frag_coord: vec4<f32>,
+    @location(0) color: vec4<f32>,
+    @location(1) tex_coords: vec2<f32>,
+    @location(2) coverage: f32,
+    @location(3) @interpolate(flat) texture_flags: f32,
+    @location(4) @interpolate(flat) occlusion_rects_offset_count: vec2<u32>,
+) -> @location(0) vec4<f32> {
+    if (is_occluded_by_rects(frag_coord, occlusion_rects_offset_count)) {
+        discard;
+    }
+    return compute_fragment_color(color, tex_coords, coverage, texture_flags);
+}
+
+// Used by stencil-mutating pipelines (and_pipeline). Identical color logic to fs_main
+// but without occlusion discard, because discard kills the stencil write.
+@fragment
+fn fs_passthrough(
+    @location(0) color: vec4<f32>,
+    @location(1) tex_coords: vec2<f32>,
+    @location(2) coverage: f32,
+    @location(3) @interpolate(flat) texture_flags: f32,
+) -> @location(0) vec4<f32> {
+    return compute_fragment_color(color, tex_coords, coverage, texture_flags);
+}
+
+// Used by stencil-only pipelines (decrementing_pipeline, stencil_only_pipeline).
+// These pipelines have ColorWrites::empty(), so the return value is discarded by hardware.
+@fragment
+fn fs_stencil_only() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 0.0, 0.0);
 }

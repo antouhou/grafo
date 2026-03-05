@@ -22,7 +22,7 @@ use crate::pipeline::{
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
-use crate::vertex::{InstanceColor, InstanceMetadata, InstanceTransform};
+use crate::vertex::{InstanceColor, InstanceMetadata, InstanceOcclusion, InstanceTransform};
 use crate::CachedShape;
 use crate::Color;
 
@@ -35,6 +35,7 @@ mod draw_queue;
 mod effects;
 #[cfg(feature = "render_metrics")]
 pub mod metrics;
+mod occlusion;
 mod passes;
 mod preparation;
 mod readback;
@@ -205,8 +206,9 @@ pub struct Renderer<'a> {
     backdrop_snapshot_texture: Option<wgpu::Texture>,
     backdrop_snapshot_view: Option<wgpu::TextureView>,
     /// Stencil-only pipeline: writes stencil but no color output.
-    /// Used for Step 1 of the three-step backdrop draw.
-    stencil_only_pipeline: Option<wgpu::RenderPipeline>,
+    /// Used for Step 1 of the three-step backdrop draw, and for the stencil-only
+    /// sub-pass of split stencil parents with occlusion rects.
+    stencil_only_pipeline: Arc<wgpu::RenderPipeline>,
     /// Shape color pipeline with stencil Keep: draws color but doesn't modify stencil.
     /// Used for Step 3 of the three-step backdrop draw.
     backdrop_color_pipeline: Option<wgpu::RenderPipeline>,
@@ -214,6 +216,24 @@ pub struct Renderer<'a> {
     /// Pipeline for rendering leaf nodes (no children) with stencil Equal + Keep.
     /// Avoids the redundant increment + decrement pair for childless shapes.
     leaf_draw_pipeline: Arc<wgpu::RenderPipeline>,
+
+    // ── Occlusion rect culling infrastructure ────────────────────────────
+    /// Bind group layout for the occlusion rects storage buffer (@group(3)).
+    occlusion_rects_bind_group_layout: wgpu::BindGroupLayout,
+    /// GPU storage buffer holding packed occlusion rects for all instances.
+    occlusion_rects_storage_buffer: Option<wgpu::Buffer>,
+    /// Bind group referencing `occlusion_rects_storage_buffer`.
+    occlusion_rects_bind_group: Option<wgpu::BindGroup>,
+    /// Per-frame scratch: per-instance occlusion metadata (offset + count).
+    temp_instance_occlusions: Vec<InstanceOcclusion>,
+    /// Per-frame scratch: packed occlusion rects for all instances.
+    temp_occlusion_rects: Vec<[f32; 4]>,
+    /// Per-frame scratch: non-leaf parent node IDs for occlusion computation.
+    temp_parent_node_ids: Vec<usize>,
+    /// Aggregated per-instance occlusion vertex buffer (slot 4).
+    aggregated_instance_occlusion_buffer: Option<wgpu::Buffer>,
+    /// Identity (zero) occlusion instance buffer for un-instanced draws.
+    identity_instance_occlusion_buffer: Option<wgpu::Buffer>,
 
     #[cfg(feature = "render_metrics")]
     /// Tracking for cumulative render-loop timing metrics.

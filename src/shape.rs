@@ -748,6 +748,9 @@ pub(crate) struct ShapeDrawData {
     /// Whether the underlying shape is an axis-aligned rectangle (`Shape::Rect`).
     /// Used to enable scissor-based clipping instead of stencil for rect parents.
     pub(crate) is_rect: bool,
+    /// User-supplied local-space inner AABB guaranteed to be fully opaque.
+    /// Used by the occlusion rect culling system to cull parent fragments.
+    pub(crate) inner_bounds: Option<[(f32, f32); 2]>,
 }
 
 impl ShapeDrawData {
@@ -768,6 +771,7 @@ impl ShapeDrawData {
             is_leaf: true,
             clips_children: true,
             is_rect,
+            inner_bounds: None,
         }
     }
 
@@ -808,6 +812,9 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) is_rect: bool,
     /// The local-space bounding rect when `is_rect` is true, for scissor computation.
     pub(crate) rect_bounds: Option<[(f32, f32); 2]>,
+    /// User-supplied local-space inner AABB guaranteed to be fully opaque.
+    /// Used by the occlusion rect culling system to cull parent fragments.
+    pub(crate) inner_bounds: Option<[(f32, f32); 2]>,
 }
 
 impl CachedShapeDrawData {
@@ -825,6 +832,7 @@ impl CachedShapeDrawData {
             clips_children: true,
             is_rect: false,
             rect_bounds: None,
+            inner_bounds: None,
         }
     }
 
@@ -832,6 +840,7 @@ impl CachedShapeDrawData {
         Self {
             is_rect: true,
             rect_bounds: Some(rect_bounds),
+            inner_bounds: None,
             ..Self::new(id)
         }
     }
@@ -1171,6 +1180,8 @@ pub(crate) trait DrawShapeCommand {
     fn clips_children(&self) -> bool;
     fn is_rect(&self) -> bool;
     fn rect_bounds(&self) -> Option<[(f32, f32); 2]>;
+    fn inner_bounds(&self) -> Option<[(f32, f32); 2]>;
+    fn set_inner_bounds(&mut self, bounds: Option<[(f32, f32); 2]>);
 }
 
 impl DrawShapeCommand for ShapeDrawData {
@@ -1248,6 +1259,20 @@ impl DrawShapeCommand for ShapeDrawData {
             _ => None,
         }
     }
+
+    #[inline]
+    fn inner_bounds(&self) -> Option<[(f32, f32); 2]> {
+        if self.is_rect {
+            self.rect_bounds()
+        } else {
+            self.inner_bounds
+        }
+    }
+
+    #[inline]
+    fn set_inner_bounds(&mut self, bounds: Option<[(f32, f32); 2]>) {
+        self.inner_bounds = bounds;
+    }
 }
 
 impl DrawShapeCommand for CachedShapeDrawData {
@@ -1321,5 +1346,19 @@ impl DrawShapeCommand for CachedShapeDrawData {
     #[inline]
     fn rect_bounds(&self) -> Option<[(f32, f32); 2]> {
         self.rect_bounds
+    }
+
+    #[inline]
+    fn inner_bounds(&self) -> Option<[(f32, f32); 2]> {
+        if self.is_rect {
+            self.rect_bounds
+        } else {
+            self.inner_bounds
+        }
+    }
+
+    #[inline]
+    fn set_inner_bounds(&mut self, bounds: Option<[(f32, f32); 2]>) {
+        self.inner_bounds = bounds;
     }
 }

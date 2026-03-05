@@ -327,10 +327,20 @@ pub(super) fn bind_instance_buffers(
         } else {
             render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
         }
+
+        if let Some(instance_occlusion_buffer) = buffers.aggregated_instance_occlusion_buffer {
+            let stride = std::mem::size_of::<crate::vertex::InstanceOcclusion>() as u64;
+            let offset = instance_idx as u64 * stride;
+            render_pass
+                .set_vertex_buffer(4, instance_occlusion_buffer.slice(offset..offset + stride));
+        } else {
+            render_pass.set_vertex_buffer(4, buffers.identity_instance_occlusion_buffer.slice(..));
+        }
     } else {
         render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
         render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
         render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
+        render_pass.set_vertex_buffer(4, buffers.identity_instance_occlusion_buffer.slice(..));
     }
 }
 
@@ -348,49 +358,113 @@ pub(super) fn handle_increment_pass<'rp>(
             return;
         }
 
-        if !matches!(
-            currently_set_pipeline.current,
-            crate::renderer::types::Pipeline::StencilIncrement
-        ) {
-            render_pass.set_pipeline(pipelines.and_pipeline);
+        let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+        let this_stencil = parent_stencil + 1;
+
+        // Check if this shape has occlusion rects — if so, split into two draws.
+        let has_occlusion = shape
+            .instance_index()
+            .and_then(|idx| buffers.instance_occlusions.get(idx))
+            .is_some_and(|occ| occ.occlusion_rects_count > 0);
+
+        if has_occlusion {
+            // Two-pass split: (a) stencil-only, (b) color-only with occlusion discard.
+            // Both draws unconditionally set pipeline and bind all resources.
+
+            // Draw (a): stencil-only pass — IncrementClamp, no color, fs_stencil_only.
+            render_pass.set_pipeline(pipelines.stencil_only_pipeline);
             render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
-            // Inform the tracker that default textures are now bound on both layers.
+            render_pass.set_bind_group(3, buffers.occlusion_rects_bind_group, &[]);
             bound_texture_state.mark_bound(0, None);
             bound_texture_state.mark_bound(1, None);
+            render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+            render_pass.set_index_buffer(
+                buffers.aggregated_index_buffer.slice(..),
+                wgpu::IndexFormat::Uint16,
+            );
+            bind_instance_buffers(render_pass, shape, buffers);
+            render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
 
+            // Draw (b): color-only pass — Equal+Keep stencil, fs_main with occlusion discard.
+            render_pass.set_pipeline(pipelines.leaf_draw_pipeline);
+            render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
+            render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
+            render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+            render_pass.set_bind_group(3, buffers.occlusion_rects_bind_group, &[]);
+            // Reset texture state so bind_shape_texture_layers sees correct defaults
+            // and rebinds the shape's actual textures if needed.
+            bound_texture_state.mark_bound(0, None);
+            bound_texture_state.mark_bound(1, None);
+            // Vertex/index buffers are already set from draw (a).
+            bind_shape_texture_layers(
+                render_pass,
+                [shape.texture_id(0), shape.texture_id(1)],
+                pipelines.texture_manager,
+                pipelines.shape_texture_bind_group_layout_background,
+                pipelines.shape_texture_bind_group_layout_foreground,
+                pipelines.default_shape_texture_bind_groups,
+                pipelines.shape_texture_layout_epoch,
+                bound_texture_state,
+            );
+            bind_instance_buffers(render_pass, shape, buffers);
+            render_buffer_range_to_texture(index_range, render_pass, this_stencil);
+
+            currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::LeafDraw);
+            bound_texture_state.invalidate();
+        } else {
+            // Normal single-draw path: and_pipeline (EqualIncrementStencil + color).
             if !matches!(
                 currently_set_pipeline.current,
-                crate::renderer::types::Pipeline::StencilDecrement
+                crate::renderer::types::Pipeline::StencilIncrement
             ) {
-                render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    buffers.aggregated_index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint16,
+                render_pass.set_pipeline(pipelines.and_pipeline);
+                render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
+                render_pass.set_bind_group(
+                    1,
+                    &*pipelines.default_shape_texture_bind_groups[0],
+                    &[],
                 );
+                render_pass.set_bind_group(
+                    2,
+                    &*pipelines.default_shape_texture_bind_groups[1],
+                    &[],
+                );
+                render_pass.set_bind_group(3, buffers.occlusion_rects_bind_group, &[]);
+                bound_texture_state.mark_bound(0, None);
+                bound_texture_state.mark_bound(1, None);
+
+                if !matches!(
+                    currently_set_pipeline.current,
+                    crate::renderer::types::Pipeline::StencilDecrement
+                ) {
+                    render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(
+                        buffers.aggregated_index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint16,
+                    );
+                }
+
+                currently_set_pipeline
+                    .switch_to(crate::renderer::types::Pipeline::StencilIncrement);
             }
 
-            currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::StencilIncrement);
+            bind_shape_texture_layers(
+                render_pass,
+                [shape.texture_id(0), shape.texture_id(1)],
+                pipelines.texture_manager,
+                pipelines.shape_texture_bind_group_layout_background,
+                pipelines.shape_texture_bind_group_layout_foreground,
+                pipelines.default_shape_texture_bind_groups,
+                pipelines.shape_texture_layout_epoch,
+                bound_texture_state,
+            );
+
+            bind_instance_buffers(render_pass, shape, buffers);
+            render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
         }
 
-        bind_shape_texture_layers(
-            render_pass,
-            [shape.texture_id(0), shape.texture_id(1)],
-            pipelines.texture_manager,
-            pipelines.shape_texture_bind_group_layout_background,
-            pipelines.shape_texture_bind_group_layout_foreground,
-            pipelines.default_shape_texture_bind_groups,
-            pipelines.shape_texture_layout_epoch,
-            bound_texture_state,
-        );
-
-        bind_instance_buffers(render_pass, shape, buffers);
-
-        let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
-        render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
-
-        let this_stencil = parent_stencil + 1;
         *shape.stencil_ref_mut() = Some(this_stencil);
         stencil_stack.push(this_stencil);
     }
@@ -418,6 +492,7 @@ pub(super) fn handle_decrement_pass<'rp>(
             render_pass.set_bind_group(0, pipelines.decrementing_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+            render_pass.set_bind_group(3, buffers.occlusion_rects_bind_group, &[]);
             bound_texture_state.mark_bound(0, None);
             bound_texture_state.mark_bound(1, None);
 
@@ -471,6 +546,7 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
             render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+            render_pass.set_bind_group(3, buffers.occlusion_rects_bind_group, &[]);
             bound_texture_state.mark_bound(0, None);
             bound_texture_state.mark_bound(1, None);
 
@@ -565,6 +641,7 @@ pub(super) fn flush_pending_leaf_batch(
         render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
         render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
         render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+        render_pass.set_bind_group(3, buffers.occlusion_rects_bind_group, &[]);
         bound_texture_state.mark_bound(0, None);
         bound_texture_state.mark_bound(1, None);
 
@@ -611,6 +688,11 @@ pub(super) fn flush_pending_leaf_batch(
         render_pass.set_vertex_buffer(3, instance_metadata_buffer.slice(..));
     } else {
         render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
+    }
+    if let Some(instance_occlusion_buffer) = buffers.aggregated_instance_occlusion_buffer {
+        render_pass.set_vertex_buffer(4, instance_occlusion_buffer.slice(..));
+    } else {
+        render_pass.set_vertex_buffer(4, buffers.identity_instance_occlusion_buffer.slice(..));
     }
 
     render_pass.set_stencil_reference(batch.parent_stencil);
@@ -1102,7 +1184,7 @@ pub(super) fn render_segments(
 
             // Step 1: Stencil-only draw (IncrementClamp at parent_stencil).
             if let Some(draw_command) = draw_tree.get_mut(backdrop_node_id) {
-                render_pass.set_pipeline(bctx.stencil_only_pipeline);
+                render_pass.set_pipeline(pipelines.stencil_only_pipeline);
                 render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
                 render_pass.set_bind_group(
                     1,
@@ -1114,6 +1196,7 @@ pub(super) fn render_segments(
                     &*pipelines.default_shape_texture_bind_groups[1],
                     &[],
                 );
+                render_pass.set_bind_group(3, buffers.occlusion_rects_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
@@ -1164,6 +1247,7 @@ pub(super) fn render_segments(
                     &*pipelines.default_shape_texture_bind_groups[1],
                     &[],
                 );
+                render_pass.set_bind_group(3, buffers.occlusion_rects_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
@@ -1211,6 +1295,7 @@ pub(super) fn render_segments(
                             &*pipelines.default_shape_texture_bind_groups[1],
                             &[],
                         );
+                        render_pass.set_bind_group(3, buffers.occlusion_rects_bind_group, &[]);
                         render_pass.set_stencil_reference(this_stencil);
                         render_pass.draw_indexed(start..end, 0, 0..1);
                     }

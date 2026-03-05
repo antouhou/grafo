@@ -15,6 +15,9 @@ impl<'a> Renderer<'a> {
             return;
         }
 
+        // Compute per-instance occlusion rects (runs after prepare_render).
+        self.compute_occlusion_rects();
+
         self.begin_frame_scratch();
 
         let mut traversal_scratch = std::mem::take(&mut self.scratch.traversal_scratch);
@@ -61,6 +64,7 @@ impl<'a> Renderer<'a> {
             decrementing_pipeline: &self.decrementing_pipeline,
             decrementing_bind_group: &self.decrementing_bind_group,
             leaf_draw_pipeline: &self.leaf_draw_pipeline,
+            stencil_only_pipeline: &self.stencil_only_pipeline,
             shape_texture_bind_group_layout_background: &self
                 .shape_texture_bind_group_layout_background,
             shape_texture_bind_group_layout_foreground: &self
@@ -82,11 +86,20 @@ impl<'a> Renderer<'a> {
                 .identity_instance_metadata_buffer
                 .as_ref()
                 .unwrap(),
+            identity_instance_occlusion_buffer: self
+                .identity_instance_occlusion_buffer
+                .as_ref()
+                .unwrap(),
             aggregated_instance_transform_buffer: self
                 .aggregated_instance_transform_buffer
                 .as_ref(),
             aggregated_instance_color_buffer: self.aggregated_instance_color_buffer.as_ref(),
             aggregated_instance_metadata_buffer: self.aggregated_instance_metadata_buffer.as_ref(),
+            aggregated_instance_occlusion_buffer: self
+                .aggregated_instance_occlusion_buffer
+                .as_ref(),
+            occlusion_rects_bind_group: self.occlusion_rects_bind_group.as_ref().unwrap(),
+            instance_occlusions: &self.temp_instance_occlusions,
         };
 
         if has_group_effects {
@@ -214,7 +227,6 @@ impl<'a> Renderer<'a> {
                         loaded_effects: &self.loaded_effects,
                         composite_bgl: self.composite_bgl.as_ref().unwrap(),
                         effect_sampler: self.effect_sampler.as_ref().unwrap(),
-                        stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
                         backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
                         device: &self.device,
                         config_format: self.config.format,
@@ -320,7 +332,6 @@ impl<'a> Renderer<'a> {
                     loaded_effects: &self.loaded_effects,
                     composite_bgl: self.composite_bgl.as_ref().unwrap(),
                     effect_sampler: self.effect_sampler.as_ref().unwrap(),
-                    stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
                     backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
                     device: &self.device,
                     config_format: self.config.format,

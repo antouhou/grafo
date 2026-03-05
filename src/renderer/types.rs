@@ -5,6 +5,7 @@ use ahash::{HashMap, HashMapExt};
 use crate::effect::{self, EffectInstance, LoadedEffect};
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, ShapeDrawData};
 use crate::texture_manager::TextureManager;
+use crate::vertex::InstanceOcclusion;
 use crate::vertex::InstanceTransform;
 
 use super::traversal::TraversalScratch;
@@ -87,16 +88,60 @@ impl DrawCommand {
         }
     }
 
+    pub(super) fn inner_bounds(&self) -> Option<[(f32, f32); 2]> {
+        match self {
+            DrawCommand::Shape(shape) => shape.inner_bounds(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.inner_bounds(),
+        }
+    }
+
+    pub(super) fn set_inner_bounds(&mut self, bounds: Option<[(f32, f32); 2]>) {
+        match self {
+            DrawCommand::Shape(shape) => shape.set_inner_bounds(bounds),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.set_inner_bounds(bounds),
+        }
+    }
+
     pub(super) fn clear_frame_state(&mut self) {
         match self {
             DrawCommand::Shape(shape) => {
                 shape.index_buffer_range = None;
                 shape.stencil_ref = None;
+                shape.instance_index = None;
             }
             DrawCommand::CachedShape(cached_shape) => {
                 cached_shape.index_buffer_range = None;
                 cached_shape.stencil_ref = None;
+                cached_shape.instance_index = None;
             }
+        }
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        match self {
+            DrawCommand::Shape(shape) => shape.is_empty,
+            DrawCommand::CachedShape(cached_shape) => cached_shape.is_empty,
+        }
+    }
+
+    pub(super) fn instance_index(&self) -> Option<usize> {
+        match self {
+            DrawCommand::Shape(shape) => shape.instance_index,
+            DrawCommand::CachedShape(cached_shape) => cached_shape.instance_index,
+        }
+    }
+
+    pub(super) fn instance_color_override(&self) -> Option<[f32; 4]> {
+        match self {
+            DrawCommand::Shape(shape) => shape.instance_color_override(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.instance_color_override(),
+        }
+    }
+
+    pub(super) fn texture_id(&self, layer: usize) -> Option<u64> {
+        match self {
+            DrawCommand::Shape(shape) => shape.texture_id(layer),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.texture_id(layer),
         }
     }
 }
@@ -215,9 +260,13 @@ pub(super) struct Buffers<'a> {
     pub(super) identity_instance_transform_buffer: &'a wgpu::Buffer,
     pub(super) identity_instance_color_buffer: &'a wgpu::Buffer,
     pub(super) identity_instance_metadata_buffer: &'a wgpu::Buffer,
+    pub(super) identity_instance_occlusion_buffer: &'a wgpu::Buffer,
     pub(super) aggregated_instance_transform_buffer: Option<&'a wgpu::Buffer>,
     pub(super) aggregated_instance_color_buffer: Option<&'a wgpu::Buffer>,
     pub(super) aggregated_instance_metadata_buffer: Option<&'a wgpu::Buffer>,
+    pub(super) aggregated_instance_occlusion_buffer: Option<&'a wgpu::Buffer>,
+    pub(super) occlusion_rects_bind_group: &'a wgpu::BindGroup,
+    pub(super) instance_occlusions: &'a [InstanceOcclusion],
 }
 
 pub(super) struct Pipelines<'a> {
@@ -226,6 +275,7 @@ pub(super) struct Pipelines<'a> {
     pub(super) decrementing_pipeline: &'a wgpu::RenderPipeline,
     pub(super) decrementing_bind_group: &'a wgpu::BindGroup,
     pub(super) leaf_draw_pipeline: &'a wgpu::RenderPipeline,
+    pub(super) stencil_only_pipeline: &'a wgpu::RenderPipeline,
     pub(super) shape_texture_bind_group_layout_background: &'a wgpu::BindGroupLayout,
     pub(super) shape_texture_bind_group_layout_foreground: &'a wgpu::BindGroupLayout,
     pub(super) default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
@@ -240,7 +290,6 @@ pub(super) struct BackdropContext<'a> {
     pub(super) loaded_effects: &'a HashMap<u64, LoadedEffect>,
     pub(super) composite_bgl: &'a wgpu::BindGroupLayout,
     pub(super) effect_sampler: &'a wgpu::Sampler,
-    pub(super) stencil_only_pipeline: &'a wgpu::RenderPipeline,
     pub(super) backdrop_color_pipeline: &'a wgpu::RenderPipeline,
     pub(super) device: &'a wgpu::Device,
     pub(super) config_format: wgpu::TextureFormat,

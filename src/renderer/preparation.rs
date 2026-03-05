@@ -1,7 +1,7 @@
 use super::types::decide_buffer_sizing;
 use super::*;
 
-fn upsert_gpu_buffer(
+pub(super) fn upsert_gpu_buffer(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     buffer: &mut Option<wgpu::Buffer>,
@@ -106,6 +106,16 @@ impl<'a> Renderer<'a> {
                 BufferUsages::VERTEX | BufferUsages::COPY_DST,
             ));
         }
+
+        if self.identity_instance_occlusion_buffer.is_none() {
+            let occlusion = InstanceOcclusion::none();
+            self.identity_instance_occlusion_buffer = Some(crate::pipeline::create_buffer_init(
+                &self.device,
+                Some("Identity Instance Occlusion Buffer"),
+                bytemuck::cast_slice(&[occlusion]),
+                BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            ));
+        }
     }
 
     pub(super) fn prepare_render(&mut self) {
@@ -114,6 +124,7 @@ impl<'a> Renderer<'a> {
         self.temp_instance_transforms.clear();
         self.temp_instance_colors.clear();
         self.temp_instance_metadata.clear();
+        self.temp_instance_occlusions.clear();
         self.geometry_dedup_map.clear();
 
         for (_node_id, draw_command) in self.draw_tree.iter_mut() {
@@ -137,6 +148,8 @@ impl<'a> Renderer<'a> {
                             shape.instance_color_override(),
                             shape.texture_ids,
                         );
+                        self.temp_instance_occlusions
+                            .push(InstanceOcclusion::none());
                         *shape.instance_index_mut() = Some(instance_index);
                         shape.is_empty = false;
                     } else {
@@ -186,6 +199,8 @@ impl<'a> Renderer<'a> {
                             cached_shape_data.instance_color_override(),
                             cached_shape_data.texture_ids,
                         );
+                        self.temp_instance_occlusions
+                            .push(InstanceOcclusion::none());
                         *cached_shape_data.instance_index_mut() = Some(instance_index);
                     } else {
                         cached_shape_data.is_empty = true;
@@ -247,6 +262,19 @@ impl<'a> Renderer<'a> {
                 &mut self.aggregated_instance_metadata_buffer,
                 "Aggregated Instance Metadata Buffer",
                 bytemuck::cast_slice(&self.temp_instance_metadata),
+                BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            );
+        }
+
+        // Occlusion data is initialized to none() here; compute_occlusion_rects()
+        // will overwrite entries for parents with opaque children and re-upload.
+        if !self.temp_instance_occlusions.is_empty() {
+            upsert_gpu_buffer(
+                &self.device,
+                &self.queue,
+                &mut self.aggregated_instance_occlusion_buffer,
+                "Aggregated Instance Occlusion Buffer",
+                bytemuck::cast_slice(&self.temp_instance_occlusions),
                 BufferUsages::VERTEX | BufferUsages::COPY_DST,
             );
         }

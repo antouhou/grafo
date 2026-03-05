@@ -298,20 +298,7 @@ impl<'a> Renderer<'a> {
     }
 
     pub(super) fn ensure_stencil_only_pipeline(&mut self) {
-        if self.stencil_only_pipeline.is_some() {
-            return;
-        }
-
-        let uniform_bind_group_layout = self.and_pipeline.get_bind_group_layout(0);
-        let pipeline = crate::pipeline::create_stencil_only_pipeline(
-            &self.device,
-            self.config.format,
-            self.msaa_sample_count,
-            &uniform_bind_group_layout,
-            &self.shape_texture_bind_group_layout_background,
-            &self.shape_texture_bind_group_layout_foreground,
-        );
-        self.stencil_only_pipeline = Some(pipeline);
+        // Pipeline is now eagerly created in construction.rs — nothing to do.
     }
 
     pub(super) fn ensure_backdrop_color_pipeline(&mut self) {
@@ -327,6 +314,7 @@ impl<'a> Renderer<'a> {
             &uniform_bind_group_layout,
             &self.shape_texture_bind_group_layout_background,
             &self.shape_texture_bind_group_layout_foreground,
+            &self.occlusion_rects_bind_group_layout,
         );
         self.backdrop_color_pipeline = Some(pipeline);
     }

@@ -144,4 +144,14 @@ impl<'a> Renderer<'a> {
             draw_command.set_instance_color_override(normalized_color)
         });
     }
+
+    /// Sets a local-space inner AABB that is guaranteed to be fully opaque for this instance.
+    /// The renderer uses this rect to cull parent fragments occluded by this child.
+    /// `bounds` is `[(min_x, min_y), (max_x, max_y)]` in the shape's local coordinate space.
+    /// Passing `None` clears a previously set value.
+    pub fn set_shape_inner_bounds(&mut self, node_id: usize, bounds: Option<[(f32, f32); 2]>) {
+        self.mutate_draw_command(node_id, |draw_command| {
+            draw_command.set_inner_bounds(bounds)
+        });
+    }
 }
