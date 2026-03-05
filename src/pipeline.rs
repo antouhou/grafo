@@ -786,7 +786,13 @@ pub fn create_stencil_only_pipeline(
             })],
         }),
         primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: Some(create_equal_increment_depth_state()),
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth24PlusStencil8,
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::Always,
+            stencil: create_equal_increment_stencil_state(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
         multisample: wgpu::MultisampleState {
             count: sample_count,
             mask: !0,
@@ -873,6 +879,235 @@ pub fn create_stencil_keep_color_pipeline(
                 read_mask: 0xff,
                 write_mask: 0x00,
             },
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState {
+            count: sample_count,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview: None,
+        cache: None,
+    })
+}
+
+/// Shared stencil face state: Equal + Keep. Used by all leaf draw pipelines
+/// (opaque, transparent, opaque-fringe).
+fn stencil_equal_keep() -> wgpu::StencilState {
+    let face = wgpu::StencilFaceState {
+        compare: wgpu::CompareFunction::Equal,
+        fail_op: wgpu::StencilOperation::Keep,
+        depth_fail_op: wgpu::StencilOperation::Keep,
+        pass_op: wgpu::StencilOperation::Keep,
+    };
+    wgpu::StencilState {
+        front: face,
+        back: face,
+        read_mask: 0xff,
+        write_mask: 0x00,
+    }
+}
+
+/// Opaque leaf draw pipeline: LessEqual depth test, depth write enabled, no blending.
+/// Fragment shader discards fringe pixels (coverage < 1.0).
+pub fn create_opaque_leaf_draw_pipeline(
+    device: &Device,
+    format: wgpu::TextureFormat,
+    sample_count: u32,
+    uniform_bgl: &wgpu::BindGroupLayout,
+    texture_bgl_layer0: &wgpu::BindGroupLayout,
+    texture_bgl_layer1: &wgpu::BindGroupLayout,
+) -> RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("opaque_leaf_draw_shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
+    });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("opaque_leaf_draw_pipeline_layout"),
+        bind_group_layouts: &[uniform_bgl, texture_bgl_layer0, texture_bgl_layer1],
+        push_constant_ranges: &[],
+    });
+
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("opaque_leaf_draw_pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
+            buffers: &[
+                CustomVertex::desc(),
+                InstanceTransform::desc(),
+                InstanceColor::desc(),
+                InstanceMetadata::desc(),
+            ],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main_opaque"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth24PlusStencil8,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::LessEqual,
+            stencil: stencil_equal_keep(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState {
+            count: sample_count,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview: None,
+        cache: None,
+    })
+}
+
+/// Transparent leaf draw pipeline: LessEqual depth test, no depth write,
+/// premultiplied alpha blending. Used for transparent shapes in Pass 2.
+pub fn create_transparent_leaf_draw_pipeline(
+    device: &Device,
+    format: wgpu::TextureFormat,
+    sample_count: u32,
+    uniform_bgl: &wgpu::BindGroupLayout,
+    texture_bgl_layer0: &wgpu::BindGroupLayout,
+    texture_bgl_layer1: &wgpu::BindGroupLayout,
+) -> RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("transparent_leaf_draw_shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
+    });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("transparent_leaf_draw_pipeline_layout"),
+        bind_group_layouts: &[uniform_bgl, texture_bgl_layer0, texture_bgl_layer1],
+        push_constant_ranges: &[],
+    });
+
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("transparent_leaf_draw_pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
+            buffers: &[
+                CustomVertex::desc(),
+                InstanceTransform::desc(),
+                InstanceColor::desc(),
+                InstanceMetadata::desc(),
+            ],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                }),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth24PlusStencil8,
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::LessEqual,
+            stencil: stencil_equal_keep(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState {
+            count: sample_count,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview: None,
+        cache: None,
+    })
+}
+
+/// Opaque-fringe draw pipeline: LessEqual depth test, no depth write,
+/// premultiplied alpha blending. Fragment shader discards interior pixels
+/// (coverage >= 1.0) so only the AA fringe band is drawn.
+pub fn create_opaque_fringe_draw_pipeline(
+    device: &Device,
+    format: wgpu::TextureFormat,
+    sample_count: u32,
+    uniform_bgl: &wgpu::BindGroupLayout,
+    texture_bgl_layer0: &wgpu::BindGroupLayout,
+    texture_bgl_layer1: &wgpu::BindGroupLayout,
+) -> RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("opaque_fringe_draw_shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
+    });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("opaque_fringe_draw_pipeline_layout"),
+        bind_group_layouts: &[uniform_bgl, texture_bgl_layer0, texture_bgl_layer1],
+        push_constant_ranges: &[],
+    });
+
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("opaque_fringe_draw_pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
+            buffers: &[
+                CustomVertex::desc(),
+                InstanceTransform::desc(),
+                InstanceColor::desc(),
+                InstanceMetadata::desc(),
+            ],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main_fringe_only"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                }),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth24PlusStencil8,
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::LessEqual,
+            stencil: stencil_equal_keep(),
             bias: wgpu::DepthBiasState::default(),
         }),
         multisample: wgpu::MultisampleState {

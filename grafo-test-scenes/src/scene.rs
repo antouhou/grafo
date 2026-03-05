@@ -1,18 +1,21 @@
 use grafo::{BorderRadii, Color, Renderer, Shape, Stroke, TransformInstance};
 
 use crate::expectations::PixelExpectation;
-use crate::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
+use crate::shaders::{
+    BlurParams, OpacityParams, HORIZONTAL_BLUR_WGSL, OPACITY_WGSL, VERTICAL_BLUR_WGSL,
+};
 
 // ── Grid layout constants ────────────────────────────────────────────────────
 
 const TILE_SIZE: u32 = 80;
 const COLUMNS: u32 = 6;
-const ROWS: u32 = 6;
+const ROWS: u32 = 7;
 
 pub const CANVAS_WIDTH: u32 = TILE_SIZE * COLUMNS;
 pub const CANVAS_HEIGHT: u32 = TILE_SIZE * ROWS;
 
 const BLUR_EFFECT_ID: u64 = 1;
+const OPACITY_EFFECT_ID: u64 = 2;
 const CHECKERBOARD_TEXTURE_ID: u64 = 100;
 
 /// Returns the pixel origin (top-left corner) of tile number `n` (1-based).
@@ -76,6 +79,12 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_32_tiny_1px_shape(renderer));
     expectations.extend(tile_33_shape_at_canvas_edge(renderer));
     expectations.extend(tile_34_cached_shape(renderer));
+    expectations.extend(tile_35_opaque_depth_cull(renderer));
+    expectations.extend(tile_36_opaque_behind_transparent(renderer));
+    expectations.extend(tile_37_opaque_fringe_aa(renderer));
+    expectations.extend(tile_38_mixed_opaque_transparent_clip(renderer));
+    expectations.extend(tile_39_group_composite_depth(renderer));
+    expectations.extend(tile_40_transparent_only_segment(renderer));
 
     expectations
 }
@@ -86,6 +95,10 @@ fn load_shared_resources(renderer: &mut Renderer) {
     renderer
         .load_effect(BLUR_EFFECT_ID, &[HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL])
         .expect("Failed to compile blur effect");
+
+    renderer
+        .load_effect(OPACITY_EFFECT_ID, &[OPACITY_WGSL])
+        .expect("Failed to compile opacity effect");
 
     // 4×4 checkerboard: alternating white and black pixels, RGBA
     let mut checkerboard = [0u8; 4 * 4 * 4];
@@ -1701,5 +1714,347 @@ fn tile_34_cached_shape(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             255,
             "t34_outside_is_bg",
         ),
+    ]
+}
+
+// ── Section K: Front-to-back rendering regression tests ──────────────────────
+
+/// Tile 35: Overlapping opaque shapes — depth culling.
+/// Two opaque rects overlapping: the front rect should fully cover the back rect
+/// in the overlap region. Both should render correctly in their own regions.
+fn tile_35_opaque_depth_cull(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(35);
+
+    // Back shape: large blue rect
+    let back = Shape::rect(
+        [(ox + 10.0, oy + 10.0), (ox + 55.0, oy + 70.0)],
+        Stroke::default(),
+    );
+    let back_id = renderer.add_shape(back, None, None);
+    renderer.set_shape_color(back_id, Some(Color::rgb(50, 50, 220)));
+
+    // Front shape: smaller red rect overlapping the right part of the blue
+    let front = Shape::rect(
+        [(ox + 30.0, oy + 15.0), (ox + 70.0, oy + 65.0)],
+        Stroke::default(),
+    );
+    let front_id = renderer.add_shape(front, None, None);
+    renderer.set_shape_color(front_id, Some(Color::rgb(220, 50, 50)));
+
+    vec![
+        // Blue-only region (left side of back shape, no overlap)
+        PixelExpectation::opaque(ox as u32 + 15, oy as u32 + 40, 50, 50, 220, "t35_blue_only"),
+        // Overlap region: red front should fully cover blue back (both opaque)
+        PixelExpectation::opaque(
+            ox as u32 + 45,
+            oy as u32 + 40,
+            220,
+            50,
+            50,
+            "t35_red_covers",
+        ),
+        // Red-only region (right side of front shape)
+        PixelExpectation::opaque(ox as u32 + 65, oy as u32 + 40, 220, 50, 50, "t35_red_only"),
+        // Outside both — canvas bg
+        PixelExpectation::opaque(
+            ox as u32 + 5,
+            oy as u32 + 5,
+            255,
+            255,
+            255,
+            "t35_outside_bg",
+        ),
+    ]
+}
+
+/// Tile 36: Opaque shape behind transparent shape.
+/// The transparent shape must remain visible (not depth-culled).
+fn tile_36_opaque_behind_transparent(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(36);
+
+    // Back shape: opaque green
+    let back = Shape::rect(
+        [(ox + 10.0, oy + 10.0), (ox + 60.0, oy + 70.0)],
+        Stroke::default(),
+    );
+    let back_id = renderer.add_shape(back, None, None);
+    renderer.set_shape_color(back_id, Some(Color::rgb(50, 180, 50)));
+
+    // Front shape: semi-transparent red overlapping
+    let front = Shape::rect(
+        [(ox + 25.0, oy + 20.0), (ox + 70.0, oy + 60.0)],
+        Stroke::default(),
+    );
+    let front_id = renderer.add_shape(front, None, None);
+    renderer.set_shape_color(front_id, Some(Color::rgba(220, 50, 50, 128)));
+
+    vec![
+        // Green-only region
+        PixelExpectation::opaque(
+            ox as u32 + 15,
+            oy as u32 + 40,
+            50,
+            180,
+            50,
+            "t36_green_only",
+        ),
+        // Overlap: semi-transparent red over opaque green
+        // Blend: green*(1-0.5) + red*0.5 ≈ (25+110, 90+25, 25+25) = (135, 115, 50)
+        PixelExpectation::new(
+            ox as u32 + 40,
+            oy as u32 + 40,
+            135,
+            115,
+            50,
+            255,
+            "t36_transparent_over_green",
+        )
+        .with_tolerance(30),
+        // Red-only region: semi-transparent red over white canvas bg
+        PixelExpectation::new(
+            ox as u32 + 65,
+            oy as u32 + 40,
+            238,
+            152,
+            152,
+            255,
+            "t36_red_over_white",
+        )
+        .with_tolerance(40),
+    ]
+}
+
+/// Tile 37: Opaque fringe AA — fringe must blend smoothly over another opaque shape.
+/// A rounded rect (with AA fringe) over a flat opaque rect. The fringe pixels
+/// at the edge should show blended intermediate colors (no dark seams).
+fn tile_37_opaque_fringe_aa(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(37);
+
+    // Back shape: opaque yellow
+    let back = Shape::rect(
+        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
+        Stroke::default(),
+    );
+    let back_id = renderer.add_shape(back, None, None);
+    renderer.set_shape_color(back_id, Some(Color::rgb(220, 220, 50)));
+
+    // Front shape: opaque blue rounded rect (AA fringe on edges)
+    let front = Shape::rounded_rect(
+        [(ox + 15.0, oy + 15.0), (ox + 65.0, oy + 65.0)],
+        BorderRadii::new(12.0),
+        Stroke::default(),
+    );
+    let front_id = renderer.add_shape(front, None, None);
+    renderer.set_shape_color(front_id, Some(Color::rgb(50, 50, 220)));
+
+    vec![
+        // Interior of blue rounded rect
+        PixelExpectation::opaque(
+            ox as u32 + 40,
+            oy as u32 + 40,
+            50,
+            50,
+            220,
+            "t37_blue_interior",
+        ),
+        // Yellow background visible outside the rounded rect
+        PixelExpectation::opaque(ox as u32 + 8, oy as u32 + 8, 220, 220, 50, "t37_yellow_bg"),
+        // Corner of rounded rect — should be yellow (outside the radius)
+        PixelExpectation::opaque(
+            ox as u32 + 16,
+            oy as u32 + 16,
+            220,
+            220,
+            50,
+            "t37_corner_outside_radius",
+        ),
+    ]
+}
+
+/// Tile 38: Mixed opaque + transparent siblings under a stencil-clipping parent.
+/// The clip parent clips both shapes; opaque interior draws depth, transparent blends.
+fn tile_38_mixed_opaque_transparent_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(38);
+
+    // Clipping parent (rounded rect, clips children)
+    let clip_parent = Shape::rounded_rect(
+        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
+        BorderRadii::new(10.0),
+        Stroke::default(),
+    );
+    let parent_id = renderer.add_shape(clip_parent, None, None);
+    renderer.set_shape_color(parent_id, Some(Color::rgb(200, 200, 200))); // gray
+
+    // Child 1: opaque green, left half
+    let child1 = Shape::rect(
+        [(ox + 5.0, oy + 5.0), (ox + 40.0, oy + 75.0)],
+        Stroke::default(),
+    );
+    let c1_id = renderer.add_shape(child1, Some(parent_id), None);
+    renderer.set_shape_color(c1_id, Some(Color::rgb(50, 180, 50)));
+
+    // Child 2: semi-transparent red, right half (overlaps gray parent)
+    let child2 = Shape::rect(
+        [(ox + 35.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
+        Stroke::default(),
+    );
+    let c2_id = renderer.add_shape(child2, Some(parent_id), None);
+    renderer.set_shape_color(c2_id, Some(Color::rgba(220, 50, 50, 128)));
+
+    vec![
+        // Green child fully inside clip — green visible
+        PixelExpectation::opaque(
+            ox as u32 + 20,
+            oy as u32 + 40,
+            50,
+            180,
+            50,
+            "t38_green_clipped",
+        ),
+        // Transparent red child center (over gray parent) inside clip
+        // Blend: gray*(1-0.5) + red*0.5 ≈ (100+110, 100+25, 100+25) = (210, 125, 125)
+        PixelExpectation::new(
+            ox as u32 + 55,
+            oy as u32 + 40,
+            210,
+            125,
+            125,
+            255,
+            "t38_red_over_gray",
+        )
+        .with_tolerance(30),
+        // Outside clip parent — canvas bg
+        PixelExpectation::opaque(
+            ox as u32 + 5,
+            oy as u32 + 5,
+            255,
+            255,
+            255,
+            "t38_outside_clip",
+        ),
+    ]
+}
+
+/// Tile 39: Group composite depth — opacity effect between opaque shapes.
+/// An opaque shape added after (in front of) a group with opacity effect.
+/// The front opaque shape must NOT have the composite bleed through.
+fn tile_39_group_composite_depth(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(39);
+
+    // Back shape: opaque green
+    let back = Shape::rect(
+        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
+        Stroke::default(),
+    );
+    let back_id = renderer.add_shape(back, None, None);
+    renderer.set_shape_color(back_id, Some(Color::rgb(50, 180, 50)));
+
+    // Middle: group with opacity effect (red shape inside, rendered at 50% opacity)
+    let group_shape = Shape::rect(
+        [(ox + 15.0, oy + 15.0), (ox + 65.0, oy + 65.0)],
+        Stroke::default(),
+    );
+    let group_id = renderer.add_shape(group_shape, None, None);
+    renderer.set_shape_color(group_id, Some(Color::rgb(220, 50, 50)));
+
+    let opacity_params = OpacityParams { opacity: 0.5 };
+    renderer
+        .set_group_effect(
+            group_id,
+            OPACITY_EFFECT_ID,
+            bytemuck::bytes_of(&opacity_params),
+        )
+        .expect("Failed to set opacity effect");
+
+    // Front shape: opaque blue, overlapping the group composite
+    let front = Shape::rect(
+        [(ox + 30.0, oy + 25.0), (ox + 70.0, oy + 55.0)],
+        Stroke::default(),
+    );
+    let front_id = renderer.add_shape(front, None, None);
+    renderer.set_shape_color(front_id, Some(Color::rgb(50, 50, 220)));
+
+    vec![
+        // Blue front shape center — must be solid blue, NOT blended with composite
+        PixelExpectation::opaque(
+            ox as u32 + 50,
+            oy as u32 + 40,
+            50,
+            50,
+            220,
+            "t39_front_opaque_blue",
+        ),
+        // Green background region (not covered by group or front)
+        PixelExpectation::opaque(ox as u32 + 8, oy as u32 + 8, 50, 180, 50, "t39_green_bg"),
+        // Group composite region (left side, not covered by front blue):
+        // 50% opacity red over green ≈ (25+110, 90+25, 25+25) ≈ (135, 115, 50)
+        PixelExpectation::new(
+            ox as u32 + 20,
+            oy as u32 + 40,
+            135,
+            115,
+            50,
+            255,
+            "t39_composite_over_green",
+        )
+        .with_tolerance(40),
+    ]
+}
+
+/// Tile 40: Transparent-only segment — no opaque shapes.
+/// All transparent shapes should render correctly (opaque phase is skipped).
+fn tile_40_transparent_only_segment(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(40);
+
+    // Semi-transparent blue
+    let s1 = Shape::rect(
+        [(ox + 10.0, oy + 10.0), (ox + 50.0, oy + 50.0)],
+        Stroke::default(),
+    );
+    let s1_id = renderer.add_shape(s1, None, None);
+    renderer.set_shape_color(s1_id, Some(Color::rgba(50, 50, 220, 128)));
+
+    // Semi-transparent green overlapping
+    let s2 = Shape::rect(
+        [(ox + 25.0, oy + 25.0), (ox + 65.0, oy + 65.0)],
+        Stroke::default(),
+    );
+    let s2_id = renderer.add_shape(s2, None, None);
+    renderer.set_shape_color(s2_id, Some(Color::rgba(50, 220, 50, 128)));
+
+    vec![
+        // Blue-only region: semi-transparent blue over white canvas
+        PixelExpectation::new(
+            ox as u32 + 15,
+            oy as u32 + 15,
+            135,
+            50,
+            201,
+            255,
+            "t40_blue_over_white",
+        )
+        .with_tolerance(40),
+        // Overlap region: green over blue over white
+        PixelExpectation::new(
+            ox as u32 + 35,
+            oy as u32 + 35,
+            80,
+            180,
+            100,
+            255,
+            "t40_green_over_blue_over_white",
+        )
+        .with_tolerance(50),
+        // Green-only region: semi-transparent green over white canvas
+        PixelExpectation::new(
+            ox as u32 + 55,
+            oy as u32 + 55,
+            190,
+            238,
+            190,
+            255,
+            "t40_green_over_white",
+        )
+        .with_tolerance(50),
     ]
 }

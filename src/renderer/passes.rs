@@ -269,11 +269,13 @@ fn bind_shape_texture_layers(
     bound_texture_state: &mut crate::renderer::types::BoundTextureState,
 ) {
     for (layer, &texture_id) in texture_ids.iter().enumerate() {
-        if !bound_texture_state.needs_rebind(layer, texture_id) {
+        // Check if rebind is needed without mutating cache state yet.
+        let current_bound = bound_texture_state.peek(layer);
+        if current_bound == Some(texture_id) {
             continue;
         }
-        if let Some(texture_id) = texture_id {
-            if texture_manager.is_texture_loaded(texture_id) {
+        if let Some(texture_id_value) = texture_id {
+            if texture_manager.is_texture_loaded(texture_id_value) {
                 if let Ok(bind_group) = texture_manager.get_or_create_shape_bind_group(
                     if layer == 0 {
                         shape_texture_bind_group_layout_background
@@ -281,10 +283,27 @@ fn bind_shape_texture_layers(
                         shape_texture_bind_group_layout_foreground
                     },
                     shape_texture_layout_epoch,
-                    texture_id,
+                    texture_id_value,
                 ) {
                     render_pass.set_bind_group(1 + layer as u32, &*bind_group, &[]);
+                    bound_texture_state.mark_bound(layer, texture_id);
+                } else {
+                    // Bind group creation failed — fall back to default texture.
+                    render_pass.set_bind_group(
+                        1 + layer as u32,
+                        &*default_shape_texture_bind_groups[layer],
+                        &[],
+                    );
+                    bound_texture_state.mark_bound(layer, None);
                 }
+            } else {
+                // Texture not loaded — fall back to default texture.
+                render_pass.set_bind_group(
+                    1 + layer as u32,
+                    &*default_shape_texture_bind_groups[layer],
+                    &[],
+                );
+                bound_texture_state.mark_bound(layer, None);
             }
         } else {
             render_pass.set_bind_group(
@@ -292,7 +311,257 @@ fn bind_shape_texture_layers(
                 &*default_shape_texture_bind_groups[layer],
                 &[],
             );
+            bound_texture_state.mark_bound(layer, None);
         }
+    }
+}
+
+/// Bind instance buffers by raw instance index (for deferred opaque draws where
+/// the original shape is no longer available).
+pub(super) fn bind_instance_by_index(
+    render_pass: &mut wgpu::RenderPass<'_>,
+    instance_index: Option<usize>,
+    buffers: &crate::renderer::types::Buffers,
+) {
+    if let Some(idx) = instance_index {
+        if let Some(instance_transform_buffer) = buffers.aggregated_instance_transform_buffer {
+            let stride = std::mem::size_of::<InstanceTransform>() as u64;
+            let offset = idx as u64 * stride;
+            render_pass
+                .set_vertex_buffer(1, instance_transform_buffer.slice(offset..offset + stride));
+        } else {
+            render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+        }
+
+        if let Some(instance_color_buffer) = buffers.aggregated_instance_color_buffer {
+            let stride = std::mem::size_of::<crate::vertex::InstanceColor>() as u64;
+            let offset = idx as u64 * stride;
+            render_pass.set_vertex_buffer(2, instance_color_buffer.slice(offset..offset + stride));
+        } else {
+            render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+        }
+
+        if let Some(instance_metadata_buffer) = buffers.aggregated_instance_metadata_buffer {
+            let stride = std::mem::size_of::<crate::vertex::InstanceMetadata>() as u64;
+            let offset = idx as u64 * stride;
+            render_pass
+                .set_vertex_buffer(3, instance_metadata_buffer.slice(offset..offset + stride));
+        } else {
+            render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
+        }
+    } else {
+        render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+        render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+        render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
+    }
+}
+
+/// Flush all deferred opaque draws in the given scope, sorted front-to-back
+/// (lowest traversal_order first) for maximum early-Z culling benefit.
+pub(super) fn flush_pending_opaques<'rp>(
+    scope: &mut crate::renderer::types::PendingOpaqueScope,
+    render_pass: &mut wgpu::RenderPass<'rp>,
+    currently_set_pipeline: &mut crate::renderer::types::PipelineTracker,
+    bound_texture_state: &mut crate::renderer::types::BoundTextureState,
+    pipelines: &crate::renderer::types::Pipelines,
+    buffers: &crate::renderer::types::Buffers,
+) {
+    if scope.draws.is_empty() {
+        return;
+    }
+
+    // Sort front-to-back: highest traversal_order = nearest to camera (lowest depth).
+    // In DFS Pre-order, later nodes are visually in front.
+    scope
+        .draws
+        .sort_unstable_by(|a, b| b.traversal_order.cmp(&a.traversal_order));
+
+    // Ensure opaque leaf pipeline is active.
+    if !matches!(
+        currently_set_pipeline.current,
+        crate::renderer::types::Pipeline::OpaqueLeafDraw
+    ) {
+        render_pass.set_pipeline(pipelines.opaque_leaf_draw_pipeline);
+        render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
+        render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
+        render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+        bound_texture_state.mark_bound(0, None);
+        bound_texture_state.mark_bound(1, None);
+        render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+        render_pass.set_index_buffer(
+            buffers.aggregated_index_buffer.slice(..),
+            wgpu::IndexFormat::Uint16,
+        );
+        currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::OpaqueLeafDraw);
+    }
+
+    // Issue each deferred draw.
+    for draw in &scope.draws {
+        bind_shape_texture_layers(
+            render_pass,
+            draw.texture_ids,
+            pipelines.texture_manager,
+            pipelines.shape_texture_bind_group_layout_background,
+            pipelines.shape_texture_bind_group_layout_foreground,
+            pipelines.default_shape_texture_bind_groups,
+            pipelines.shape_texture_layout_epoch,
+            bound_texture_state,
+        );
+
+        bind_instance_by_index(render_pass, draw.instance_index, buffers);
+
+        render_pass.set_stencil_reference(draw.stencil_ref);
+        let start = draw.index_range.0 as u32;
+        let end = (draw.index_range.0 + draw.index_range.1) as u32;
+        render_pass.draw_indexed(start..end, 0, 0..1);
+        #[cfg(feature = "render_metrics")]
+        currently_set_pipeline.record_opaque_draw();
+    }
+
+    scope.draws.clear();
+}
+
+/// Create a DeferredOpaqueDraw from a shape for deferred rendering.
+fn make_deferred_draw(
+    shape: &(impl DrawShapeCommand + ?Sized),
+    stencil_ref: u32,
+) -> Option<crate::renderer::types::DeferredOpaqueDraw> {
+    let index_range = shape.index_buffer_range()?;
+    if shape.is_empty() {
+        return None;
+    }
+    Some(crate::renderer::types::DeferredOpaqueDraw {
+        traversal_order: shape.traversal_order(),
+        stencil_ref,
+        index_range,
+        instance_index: shape.instance_index(),
+        texture_ids: [shape.texture_id(0), shape.texture_id(1)],
+    })
+}
+
+/// Execute a stencil-only draw (increment) without color output.
+/// Used by both phases to set up stencil geometry.
+fn stencil_only_draw<'rp>(
+    render_pass: &mut wgpu::RenderPass<'rp>,
+    currently_set_pipeline: &mut crate::renderer::types::PipelineTracker,
+    bound_texture_state: &mut crate::renderer::types::BoundTextureState,
+    shape: &(impl DrawShapeCommand + ?Sized),
+    parent_stencil: u32,
+    pipelines: &crate::renderer::types::Pipelines,
+    buffers: &crate::renderer::types::Buffers,
+) {
+    if let Some(index_range) = shape.index_buffer_range() {
+        if shape.is_empty() {
+            return;
+        }
+        render_pass.set_pipeline(pipelines.stencil_only_pipeline);
+        render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
+        render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
+        render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+        bound_texture_state.mark_bound(0, None);
+        bound_texture_state.mark_bound(1, None);
+        render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+        render_pass.set_index_buffer(
+            buffers.aggregated_index_buffer.slice(..),
+            wgpu::IndexFormat::Uint16,
+        );
+        bind_instance_buffers(render_pass, shape, buffers);
+        render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
+        currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::StencilIncrement);
+    }
+}
+
+/// Draw shape color using the transparent leaf pipeline (Equal+Keep stencil).
+/// Used for transparent parent color draws and transparent leaf fringe draws.
+fn transparent_color_draw<'rp>(
+    render_pass: &mut wgpu::RenderPass<'rp>,
+    currently_set_pipeline: &mut crate::renderer::types::PipelineTracker,
+    bound_texture_state: &mut crate::renderer::types::BoundTextureState,
+    shape: &(impl DrawShapeCommand + ?Sized),
+    stencil_ref: u32,
+    pipelines: &crate::renderer::types::Pipelines,
+    buffers: &crate::renderer::types::Buffers,
+) {
+    if let Some(index_range) = shape.index_buffer_range() {
+        if shape.is_empty() {
+            return;
+        }
+        if !matches!(
+            currently_set_pipeline.current,
+            crate::renderer::types::Pipeline::LeafDraw
+        ) {
+            render_pass.set_pipeline(pipelines.transparent_leaf_draw_pipeline);
+            render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
+            render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
+            render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+            bound_texture_state.mark_bound(0, None);
+            bound_texture_state.mark_bound(1, None);
+            render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+            render_pass.set_index_buffer(
+                buffers.aggregated_index_buffer.slice(..),
+                wgpu::IndexFormat::Uint16,
+            );
+            currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::LeafDraw);
+        }
+        bind_shape_texture_layers(
+            render_pass,
+            [shape.texture_id(0), shape.texture_id(1)],
+            pipelines.texture_manager,
+            pipelines.shape_texture_bind_group_layout_background,
+            pipelines.shape_texture_bind_group_layout_foreground,
+            pipelines.default_shape_texture_bind_groups,
+            pipelines.shape_texture_layout_epoch,
+            bound_texture_state,
+        );
+        bind_instance_buffers(render_pass, shape, buffers);
+        render_buffer_range_to_texture(index_range, render_pass, stencil_ref);
+    }
+}
+
+/// Draw shape using the opaque-fringe pipeline (fringe-only, discard interior).
+/// Used in the transparent phase for opaque shapes to draw their AA fringe.
+fn opaque_fringe_draw<'rp>(
+    render_pass: &mut wgpu::RenderPass<'rp>,
+    currently_set_pipeline: &mut crate::renderer::types::PipelineTracker,
+    bound_texture_state: &mut crate::renderer::types::BoundTextureState,
+    shape: &(impl DrawShapeCommand + ?Sized),
+    stencil_ref: u32,
+    pipelines: &crate::renderer::types::Pipelines,
+    buffers: &crate::renderer::types::Buffers,
+) {
+    if let Some(index_range) = shape.index_buffer_range() {
+        if shape.is_empty() {
+            return;
+        }
+        if !matches!(
+            currently_set_pipeline.current,
+            crate::renderer::types::Pipeline::OpaqueFringeDraw
+        ) {
+            render_pass.set_pipeline(pipelines.opaque_fringe_draw_pipeline);
+            render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
+            render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
+            render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+            bound_texture_state.mark_bound(0, None);
+            bound_texture_state.mark_bound(1, None);
+            render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+            render_pass.set_index_buffer(
+                buffers.aggregated_index_buffer.slice(..),
+                wgpu::IndexFormat::Uint16,
+            );
+            currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::OpaqueFringeDraw);
+        }
+        bind_shape_texture_layers(
+            render_pass,
+            [shape.texture_id(0), shape.texture_id(1)],
+            pipelines.texture_manager,
+            pipelines.shape_texture_bind_group_layout_background,
+            pipelines.shape_texture_bind_group_layout_foreground,
+            pipelines.default_shape_texture_bind_groups,
+            pipelines.shape_texture_layout_epoch,
+            bound_texture_state,
+        );
+        bind_instance_buffers(render_pass, shape, buffers);
+        render_buffer_range_to_texture(index_range, render_pass, stencil_ref);
     }
 }
 
@@ -348,32 +617,32 @@ pub(super) fn handle_increment_pass<'rp>(
             return;
         }
 
-        if !matches!(
-            currently_set_pipeline.current,
-            crate::renderer::types::Pipeline::StencilIncrement
-        ) {
-            render_pass.set_pipeline(pipelines.and_pipeline);
-            render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
-            render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
-            render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
-            // Inform the tracker that default textures are now bound on both layers.
-            bound_texture_state.mark_bound(0, None);
-            bound_texture_state.mark_bound(1, None);
+        let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+        let this_stencil = parent_stencil + 1;
 
-            if !matches!(
-                currently_set_pipeline.current,
-                crate::renderer::types::Pipeline::StencilDecrement
-            ) {
-                render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    buffers.aggregated_index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint16,
-                );
-            }
+        // --- Draw 1: Stencil-only (increment stencil, no color output) ---
+        // Uses stencil_only_pipeline: Equal test at parent_stencil, IncrementClamp on pass,
+        // depth_write disabled, ColorWrites::empty().
+        render_pass.set_pipeline(pipelines.stencil_only_pipeline);
+        render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
+        render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
+        render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+        bound_texture_state.mark_bound(0, None);
+        bound_texture_state.mark_bound(1, None);
+        render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+        render_pass.set_index_buffer(
+            buffers.aggregated_index_buffer.slice(..),
+            wgpu::IndexFormat::Uint16,
+        );
+        bind_instance_buffers(render_pass, shape, buffers);
+        render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
 
-            currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::StencilIncrement);
-        }
-
+        // --- Draw 2: Parent color (Equal+Keep stencil at this_stencil) ---
+        // Uses transparent_leaf_draw_pipeline: Equal test at this_stencil, Keep on pass,
+        // premultiplied alpha blending, depth_compare LessEqual, no depth write.
+        render_pass.set_pipeline(pipelines.transparent_leaf_draw_pipeline);
+        // Uniform bind group (group 0) is layout-compatible and already bound.
+        // Bind shape textures for color output.
         bind_shape_texture_layers(
             render_pass,
             [shape.texture_id(0), shape.texture_id(1)],
@@ -384,13 +653,12 @@ pub(super) fn handle_increment_pass<'rp>(
             pipelines.shape_texture_layout_epoch,
             bound_texture_state,
         );
+        // Instance buffers are still bound from draw 1.
+        render_buffer_range_to_texture(index_range, render_pass, this_stencil);
 
-        bind_instance_buffers(render_pass, shape, buffers);
+        // Track that we're now on a leaf-draw-family pipeline.
+        currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::LeafDraw);
 
-        let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
-        render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
-
-        let this_stencil = parent_stencil + 1;
         *shape.stencil_ref_mut() = Some(this_stencil);
         stencil_stack.push(this_stencil);
     }
@@ -467,7 +735,7 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
             currently_set_pipeline.current,
             crate::renderer::types::Pipeline::LeafDraw
         ) {
-            render_pass.set_pipeline(pipelines.leaf_draw_pipeline);
+            render_pass.set_pipeline(pipelines.transparent_leaf_draw_pipeline);
             render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
@@ -504,6 +772,8 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
 
         let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
         render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
+        #[cfg(feature = "render_metrics")]
+        currently_set_pipeline.record_transparent_draw();
 
         // Leaf node: stencil was not modified, so record the parent stencil as this node's ref
         // (children would read parent_stencil + 1, but leaves have no children).
@@ -542,6 +812,255 @@ impl PendingLeafBatch {
     }
 }
 
+/// Process the opaque phase for a balanced segment: walk events, do stencil
+/// operations immediately, and defer opaque shape draws to scope-based queues.
+/// At scope exit (and at segment end), flush deferred draws sorted front-to-back.
+///
+/// **Pre-condition:** The segment MUST be event-balanced (Pre count == Post count)
+/// so that stencil returns to its entry state when the phase ends.
+#[allow(clippy::too_many_arguments)]
+fn process_opaque_phase<'rp>(
+    draw_tree: &mut easy_tree::Tree<DrawCommand>,
+    render_pass: &mut wgpu::RenderPass<'rp>,
+    events: &[TraversalEvent],
+    event_start: usize,
+    event_end: usize,
+    effect_results: &HashMap<usize, wgpu::BindGroup>,
+    pipelines: &crate::renderer::types::Pipelines,
+    buffers: &crate::renderer::types::Buffers,
+    stencil_stack: &mut Vec<u32>,
+    scissor_stack: &mut Vec<(u32, u32, u32, u32)>,
+    clip_kind_stack: &mut Vec<ClipKind>,
+    viewport_scissor: (u32, u32, u32, u32),
+    scale_factor: f64,
+    physical_size: (u32, u32),
+    #[cfg(feature = "render_metrics")]
+    pipeline_counts_out: &mut crate::renderer::metrics::PipelineSwitchCounts,
+) {
+    let mut currently_set_pipeline = crate::renderer::types::PipelineTracker::new();
+    let mut bound_texture_state = crate::renderer::types::BoundTextureState::default();
+    let mut scope_stack: Vec<crate::renderer::types::PendingOpaqueScope> =
+        vec![crate::renderer::types::PendingOpaqueScope::new()];
+
+    for event in events.iter().take(event_end).skip(event_start) {
+        match event {
+            TraversalEvent::Pre(node_id) => {
+                let node_id = *node_id;
+
+                // Skip effect result composites in opaque phase.
+                if effect_results.contains_key(&node_id) {
+                    continue;
+                }
+
+                if let Some(draw_command) = draw_tree.get_mut(node_id) {
+                    // --- Leaf node ---
+                    if draw_command.is_leaf() {
+                        if draw_command.is_opaque() {
+                            let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                            with_shape_mut!(draw_command, shape => {
+                                if let Some(deferred) =
+                                    make_deferred_draw(shape, parent_stencil)
+                                {
+                                    if let Some(scope) = scope_stack.last_mut() {
+                                        scope.draws.push(deferred);
+                                    }
+                                }
+                                *shape.stencil_ref_mut() = Some(parent_stencil);
+                            });
+                        }
+                        // Transparent leaves: skip entirely in opaque phase.
+                        continue;
+                    }
+
+                    // --- Non-leaf node ---
+                    if !draw_command.clips_children() {
+                        // Non-clipping parent.
+                        let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                        if draw_command.is_opaque() {
+                            with_shape_mut!(draw_command, shape => {
+                                if let Some(deferred) =
+                                    make_deferred_draw(shape, parent_stencil)
+                                {
+                                    if let Some(scope) = scope_stack.last_mut() {
+                                        scope.draws.push(deferred);
+                                    }
+                                }
+                                *shape.stencil_ref_mut() = Some(parent_stencil);
+                            });
+                        }
+                        stencil_stack.push(parent_stencil);
+                        clip_kind_stack.push(ClipKind::NonClipping);
+                    } else if let Some(scissor_rect) =
+                        try_scissor_for_rect(draw_command, scale_factor, physical_size)
+                    {
+                        // Scissor clipping: flush current scope (scissor change).
+                        if let Some(scope) = scope_stack.last_mut() {
+                            flush_pending_opaques(
+                                scope,
+                                render_pass,
+                                &mut currently_set_pipeline,
+                                &mut bound_texture_state,
+                                pipelines,
+                                buffers,
+                            );
+                        }
+
+                        let current_scissor =
+                            scissor_stack.last().copied().unwrap_or(viewport_scissor);
+                        let clipped = intersect_scissor(current_scissor, scissor_rect);
+                        scissor_stack.push(clipped);
+                        render_pass.set_scissor_rect(clipped.0, clipped.1, clipped.2, clipped.3);
+
+                        let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                        if draw_command.is_opaque() {
+                            with_shape_mut!(draw_command, shape => {
+                                if let Some(deferred) =
+                                    make_deferred_draw(shape, parent_stencil)
+                                {
+                                    if let Some(scope) = scope_stack.last_mut() {
+                                        scope.draws.push(deferred);
+                                    }
+                                }
+                                *shape.stencil_ref_mut() = Some(parent_stencil);
+                            });
+                        }
+                        stencil_stack.push(parent_stencil);
+                        clip_kind_stack.push(ClipKind::Scissor);
+                    } else {
+                        // Stencil clipping: stencil-only draw (immediate).
+                        let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                        let this_stencil = parent_stencil + 1;
+
+                        // Guard stencil push on actual geometry to match
+                        // handle_increment_pass / handle_decrement_pass
+                        // symmetry. Without this, an empty-geometry clipper
+                        // shifts the stack for all later siblings.
+                        let mut drew_stencil = false;
+                        with_shape_mut!(draw_command, shape => {
+                            if shape.index_buffer_range().is_some() && !shape.is_empty() {
+                                drew_stencil = true;
+                                stencil_only_draw(
+                                    render_pass,
+                                    &mut currently_set_pipeline,
+                                    &mut bound_texture_state,
+                                    shape,
+                                    parent_stencil,
+                                    pipelines,
+                                    buffers,
+                                );
+                                *shape.stencil_ref_mut() = Some(this_stencil);
+                            }
+                        });
+
+                        if drew_stencil {
+                            stencil_stack.push(this_stencil);
+                        }
+                        clip_kind_stack.push(ClipKind::Stencil);
+                        // Push new scope for this stencil level.
+                        scope_stack.push(crate::renderer::types::PendingOpaqueScope::new());
+
+                        // Defer parent color draw to the new scope.
+                        if drew_stencil && draw_command.is_opaque() {
+                            with_shape_mut!(draw_command, shape => {
+                                if let Some(deferred) =
+                                    make_deferred_draw(shape, this_stencil)
+                                {
+                                    if let Some(scope) = scope_stack.last_mut() {
+                                        scope.draws.push(deferred);
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+            TraversalEvent::Post(node_id) => {
+                let node_id = *node_id;
+
+                if effect_results.contains_key(&node_id) {
+                    continue;
+                }
+
+                if let Some(draw_command) = draw_tree.get_mut(node_id) {
+                    if draw_command.is_leaf() {
+                        continue;
+                    }
+
+                    match clip_kind_stack.pop() {
+                        Some(ClipKind::NonClipping) => {
+                            stencil_stack.pop();
+                        }
+                        Some(ClipKind::Scissor) => {
+                            // Flush current scope before scissor change.
+                            if let Some(scope) = scope_stack.last_mut() {
+                                flush_pending_opaques(
+                                    scope,
+                                    render_pass,
+                                    &mut currently_set_pipeline,
+                                    &mut bound_texture_state,
+                                    pipelines,
+                                    buffers,
+                                );
+                            }
+                            scissor_stack.pop();
+                            let prev = scissor_stack.last().copied().unwrap_or(viewport_scissor);
+                            render_pass.set_scissor_rect(prev.0, prev.1, prev.2, prev.3);
+                            stencil_stack.pop();
+                        }
+                        Some(ClipKind::Stencil) => {
+                            // Flush and pop the scope for this stencil level.
+                            if let Some(mut scope) = scope_stack.pop() {
+                                flush_pending_opaques(
+                                    &mut scope,
+                                    render_pass,
+                                    &mut currently_set_pipeline,
+                                    &mut bound_texture_state,
+                                    pipelines,
+                                    buffers,
+                                );
+                            }
+                            // Stencil decrement (immediate).
+                            with_shape_mut!(draw_command, shape => {
+                                handle_decrement_pass(
+                                    render_pass,
+                                    &mut currently_set_pipeline,
+                                    &mut bound_texture_state,
+                                    stencil_stack,
+                                    shape,
+                                    pipelines,
+                                    buffers,
+                                );
+                            });
+                        }
+                        None => {
+                            debug_assert!(
+                                false,
+                                "clip_kind_stack underflow in opaque Post for node {node_id}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Flush all remaining scopes (innermost to outermost).
+    for scope in scope_stack.iter_mut().rev() {
+        flush_pending_opaques(
+            scope,
+            render_pass,
+            &mut currently_set_pipeline,
+            &mut bound_texture_state,
+            pipelines,
+            buffers,
+        );
+    }
+
+    // Accumulate opaque-phase pipeline switch counts.
+    #[cfg(feature = "render_metrics")]
+    pipeline_counts_out.accumulate(&currently_set_pipeline.counts);
+}
+
 /// Ensure the leaf-draw pipeline and full instance buffers are bound,
 /// then issue one `draw_indexed` call for the accumulated batch.
 pub(super) fn flush_pending_leaf_batch(
@@ -561,7 +1080,7 @@ pub(super) fn flush_pending_leaf_batch(
         currently_set_pipeline.current,
         crate::renderer::types::Pipeline::LeafDraw
     ) {
-        render_pass.set_pipeline(pipelines.leaf_draw_pipeline);
+        render_pass.set_pipeline(pipelines.transparent_leaf_draw_pipeline);
         render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
         render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
         render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
@@ -622,6 +1141,8 @@ pub(super) fn flush_pending_leaf_batch(
         0,
         first..first + batch.instance_count,
     );
+    #[cfg(feature = "render_metrics")]
+    currently_set_pipeline.record_transparent_draw();
 
     batch.instance_count = 0;
 }
@@ -694,6 +1215,7 @@ pub(super) fn render_segments(
     pipelines: &crate::renderer::types::Pipelines,
     buffers: &crate::renderer::types::Buffers,
     composite_pipeline: Option<&wgpu::RenderPipeline>,
+    mut composite_depth: Option<&mut crate::renderer::types::CompositeDepthCtx>,
     backdrop_ctx: Option<&crate::renderer::types::BackdropContext>,
     backdrop_work_textures: &mut Vec<wgpu::Texture>,
     stencil_stack: &mut Vec<u32>,
@@ -710,6 +1232,9 @@ pub(super) fn render_segments(
     let mut bound_texture_state = crate::renderer::types::BoundTextureState::default();
     let (width, height) = physical_size;
     let viewport_scissor = (0u32, 0u32, width, height);
+    // Value is overwritten per-segment before first read; initial value exists
+    // only because the variable must be initialized for the post-loop flush path.
+    #[allow(unused_assignments)]
     let mut pending_leaf_batch = PendingLeafBatch::default();
     stencil_stack.clear();
     scissor_stack.clear();
@@ -735,28 +1260,131 @@ pub(super) fn render_segments(
 
         // --- Process segment events [event_idx .. segment_end) ---
         if event_idx < segment_end {
+            // ── Pre-scan: two-phase eligibility ──────────────────────
+            let is_balanced = events[event_idx..segment_end]
+                .iter()
+                .fold(0i32, |acc, e| match e {
+                    TraversalEvent::Pre(_) => acc + 1,
+                    TraversalEvent::Post(_) => acc - 1,
+                })
+                == 0;
+
+            let has_opaque_in_segment = is_balanced
+                && events[event_idx..segment_end].iter().any(|e| {
+                    if let TraversalEvent::Pre(nid) = e {
+                        if effect_results.contains_key(nid) {
+                            return false;
+                        }
+                        draw_tree.get(*nid).is_some_and(|cmd| cmd.is_opaque())
+                    } else {
+                        false
+                    }
+                });
+
+            let had_opaque_pass = has_opaque_in_segment;
+
+            // ── Phase 1: Opaque (deferred draws, front-to-back) ─────
+            if had_opaque_pass {
+                let stencil_len = stencil_stack.len();
+                let scissor_len = scissor_stack.len();
+                let clip_len = clip_kind_stack.len();
+
+                {
+                    let mut opaque_pass = crate::pipeline::begin_render_pass_with_load_ops(
+                        encoder,
+                        Some(if is_first_segment {
+                            "opaque_clear_pass"
+                        } else {
+                            "opaque_load_pass"
+                        }),
+                        color_view,
+                        color_resolve_target,
+                        depth_stencil_view,
+                        crate::pipeline::RenderPassLoadOperations {
+                            color_load_op: if is_first_segment {
+                                wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+                            } else {
+                                wgpu::LoadOp::Load
+                            },
+                            depth_load_op: if is_first_segment {
+                                wgpu::LoadOp::Clear(1.0)
+                            } else {
+                                wgpu::LoadOp::Load
+                            },
+                            stencil_load_op: if is_first_segment {
+                                wgpu::LoadOp::Clear(0)
+                            } else {
+                                wgpu::LoadOp::Load
+                            },
+                        },
+                    );
+
+                    let current_scissor = scissor_stack.last().copied().unwrap_or(viewport_scissor);
+                    if current_scissor != viewport_scissor {
+                        opaque_pass.set_scissor_rect(
+                            current_scissor.0,
+                            current_scissor.1,
+                            current_scissor.2,
+                            current_scissor.3,
+                        );
+                    }
+
+                    process_opaque_phase(
+                        draw_tree,
+                        &mut opaque_pass,
+                        events,
+                        event_idx,
+                        segment_end,
+                        effect_results,
+                        pipelines,
+                        buffers,
+                        stencil_stack,
+                        scissor_stack,
+                        clip_kind_stack,
+                        viewport_scissor,
+                        scale_factor,
+                        physical_size,
+                        #[cfg(feature = "render_metrics")]
+                        pipeline_counts_out,
+                    );
+                }
+
+                // Restore stacks for the transparent phase (balanced segment
+                // guarantees they return to entry state, but truncate defensively).
+                stencil_stack.truncate(stencil_len);
+                scissor_stack.truncate(scissor_len);
+                clip_kind_stack.truncate(clip_len);
+            }
+
+            #[cfg(feature = "render_metrics")]
+            if !had_opaque_pass {
+                pipeline_counts_out.opaque_phase_skipped_segments += 1;
+            }
+
+            // ── Phase 2: Transparent (painter order) ─────────────────
+            let use_clear = is_first_segment && !had_opaque_pass;
             let mut render_pass = crate::pipeline::begin_render_pass_with_load_ops(
                 encoder,
-                Some(if is_first_segment {
-                    "segment_clear_pass"
+                Some(if use_clear {
+                    "transparent_clear_pass"
                 } else {
-                    "segment_load_pass"
+                    "transparent_load_pass"
                 }),
                 color_view,
                 color_resolve_target,
                 depth_stencil_view,
                 crate::pipeline::RenderPassLoadOperations {
-                    color_load_op: if is_first_segment {
+                    color_load_op: if use_clear {
                         wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
                     } else {
                         wgpu::LoadOp::Load
                     },
-                    depth_load_op: if is_first_segment {
+                    depth_load_op: if use_clear {
                         wgpu::LoadOp::Clear(1.0)
                     } else {
                         wgpu::LoadOp::Load
                     },
-                    stencil_load_op: if is_first_segment {
+                    stencil_load_op: if use_clear {
                         wgpu::LoadOp::Clear(0)
                     } else {
                         wgpu::LoadOp::Load
@@ -764,7 +1392,16 @@ pub(super) fn render_segments(
                 },
             );
 
-            // Render-pass boundaries reset GPU scissor — restore from our stack.
+            // Accumulate transparent-phase metrics before resetting, so
+            // counts from earlier segments are not discarded.
+            #[cfg(feature = "render_metrics")]
+            pipeline_counts_out.accumulate(&currently_set_pipeline.counts);
+
+            // Reset per-pass tracking state.
+            currently_set_pipeline = crate::renderer::types::PipelineTracker::new();
+            bound_texture_state = crate::renderer::types::BoundTextureState::default();
+            pending_leaf_batch = PendingLeafBatch::default();
+
             let current_scissor = scissor_stack.last().copied().unwrap_or(viewport_scissor);
             if current_scissor != viewport_scissor {
                 render_pass.set_scissor_rect(
@@ -794,6 +1431,38 @@ pub(super) fn render_segments(
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
                                 render_pass.set_pipeline(pipeline);
                                 render_pass.set_bind_group(0, result_bind_group, &[]);
+
+                                // Bind composite depth (group 1) with dynamic offset.
+                                if let Some(ref mut depth_ctx) = composite_depth {
+                                    let traversal_order = draw_tree
+                                        .get(node_id)
+                                        .map(|c| c.traversal_order())
+                                        .unwrap_or(0);
+                                    let depth_val =
+                                        types::traversal_order_to_depth(traversal_order);
+                                    let slot = depth_ctx.slot_allocator.allocate(
+                                        depth_ctx.device,
+                                        depth_ctx.bgl,
+                                        depth_ctx.buffer,
+                                        depth_ctx.bind_group,
+                                    );
+                                    let offset = depth_ctx.slot_allocator.byte_offset(slot);
+                                    let uniform = types::CompositeDepthUniform {
+                                        depth: depth_val,
+                                        _padding: [0.0; 3],
+                                    };
+                                    depth_ctx.queue.write_buffer(
+                                        depth_ctx.buffer,
+                                        offset,
+                                        bytemuck::bytes_of(&uniform),
+                                    );
+                                    render_pass.set_bind_group(
+                                        1,
+                                        &*depth_ctx.bind_group,
+                                        &[offset as u32],
+                                    );
+                                }
+
                                 render_pass.set_stencil_reference(parent_stencil);
                                 render_pass.draw(0..3, 0..1);
                                 currently_set_pipeline.switch_to(types::Pipeline::None);
@@ -806,6 +1475,34 @@ pub(super) fn render_segments(
                             // --- Leaf node ---
                             if draw_command.is_leaf() {
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+
+                                // In two-phase mode, opaque leaves draw fringe-only
+                                // (interior was drawn in the opaque pass).
+                                if had_opaque_pass && draw_command.is_opaque() {
+                                    flush_pending_leaf_batch(
+                                        &mut pending_leaf_batch,
+                                        &mut render_pass,
+                                        &mut currently_set_pipeline,
+                                        &mut bound_texture_state,
+                                        pipelines,
+                                        buffers,
+                                    );
+                                    with_shape_mut!(draw_command, shape => {
+                                        *shape.stencil_ref_mut() = Some(parent_stencil);
+                                        opaque_fringe_draw(
+                                            &mut render_pass,
+                                            &mut currently_set_pipeline,
+                                            &mut bound_texture_state,
+                                            shape,
+                                            parent_stencil,
+                                            pipelines,
+                                            buffers,
+                                        );
+                                    });
+                                    continue;
+                                }
+
+                                // Transparent leaf (or single-phase): batch or draw.
                                 let batched = with_shape_mut!(draw_command, shape => {
                                     let result = try_batch_leaf(
                                         &mut pending_leaf_batch,
@@ -861,28 +1558,36 @@ pub(super) fn render_segments(
                             );
 
                             if !draw_command.clips_children() {
-                                // Non-clipping parent: draw as leaf, children inherit
-                                // the same stencil.
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
                                 with_shape_mut!(draw_command, shape => {
                                     *shape.stencil_ref_mut() = Some(parent_stencil);
-                                    handle_leaf_draw_pass(
-                                        &mut render_pass,
-                                        &mut currently_set_pipeline,
-                                        &mut bound_texture_state,
-                                        stencil_stack,
-                                        shape,
-                                        pipelines,
-                                        buffers,
-                                    );
+                                    if had_opaque_pass && shape.is_opaque() {
+                                        opaque_fringe_draw(
+                                            &mut render_pass,
+                                            &mut currently_set_pipeline,
+                                            &mut bound_texture_state,
+                                            shape,
+                                            parent_stencil,
+                                            pipelines,
+                                            buffers,
+                                        );
+                                    } else {
+                                        handle_leaf_draw_pass(
+                                            &mut render_pass,
+                                            &mut currently_set_pipeline,
+                                            &mut bound_texture_state,
+                                            stencil_stack,
+                                            shape,
+                                            pipelines,
+                                            buffers,
+                                        );
+                                    }
                                 });
                                 stencil_stack.push(parent_stencil);
                                 clip_kind_stack.push(ClipKind::NonClipping);
                             } else if let Some(scissor_rect) =
                                 try_scissor_for_rect(draw_command, scale_factor, physical_size)
                             {
-                                // Scissor optimization: rect parent with axis-aligned
-                                // transform. Use hardware scissor instead of stencil.
                                 let current_scissor =
                                     scissor_stack.last().copied().unwrap_or(viewport_scissor);
                                 let clipped = intersect_scissor(current_scissor, scissor_rect);
@@ -892,37 +1597,99 @@ pub(super) fn render_segments(
                                 #[cfg(feature = "render_metrics")]
                                 currently_set_pipeline.record_scissor_clip();
 
-                                // Draw the rect itself as a visible shape.
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
                                 with_shape_mut!(draw_command, shape => {
                                     *shape.stencil_ref_mut() = Some(parent_stencil);
-                                    handle_leaf_draw_pass(
-                                        &mut render_pass,
-                                        &mut currently_set_pipeline,
-                                        &mut bound_texture_state,
-                                        stencil_stack,
-                                        shape,
-                                        pipelines,
-                                        buffers,
-                                    );
+                                    if had_opaque_pass && shape.is_opaque() {
+                                        opaque_fringe_draw(
+                                            &mut render_pass,
+                                            &mut currently_set_pipeline,
+                                            &mut bound_texture_state,
+                                            shape,
+                                            parent_stencil,
+                                            pipelines,
+                                            buffers,
+                                        );
+                                    } else {
+                                        handle_leaf_draw_pass(
+                                            &mut render_pass,
+                                            &mut currently_set_pipeline,
+                                            &mut bound_texture_state,
+                                            stencil_stack,
+                                            shape,
+                                            pipelines,
+                                            buffers,
+                                        );
+                                    }
                                 });
-                                // Push same stencil — children are clipped by scissor
-                                // hardware, not by stencil buffer values.
                                 stencil_stack.push(parent_stencil);
                                 clip_kind_stack.push(ClipKind::Scissor);
                             } else {
-                                // Fall back to stencil increment.
-                                with_shape_mut!(draw_command, shape => {
-                                    handle_increment_pass(
-                                        &mut render_pass,
-                                        &mut currently_set_pipeline,
-                                        &mut bound_texture_state,
-                                        stencil_stack,
-                                        shape,
-                                        pipelines,
-                                        buffers,
-                                    );
-                                });
+                                // Stencil increment: stencil-only + parent color draw.
+                                // In two-phase mode, opaque parent color uses fringe-only.
+                                if had_opaque_pass {
+                                    let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                                    let this_stencil = parent_stencil + 1;
+
+                                    let mut drew_stencil = false;
+                                    with_shape_mut!(draw_command, shape => {
+                                        // Guard on geometry to match handle_increment_pass:
+                                        // skip stencil/color draws AND the stack push when
+                                        // the shape has no drawable geometry.
+                                        if shape.index_buffer_range().is_some() && !shape.is_empty() {
+                                            drew_stencil = true;
+                                            stencil_only_draw(
+                                                &mut render_pass,
+                                                &mut currently_set_pipeline,
+                                                &mut bound_texture_state,
+                                                shape,
+                                                parent_stencil,
+                                                pipelines,
+                                                buffers,
+                                            );
+
+                                            if shape.is_opaque() {
+                                                opaque_fringe_draw(
+                                                    &mut render_pass,
+                                                    &mut currently_set_pipeline,
+                                                    &mut bound_texture_state,
+                                                    shape,
+                                                    this_stencil,
+                                                    pipelines,
+                                                    buffers,
+                                                );
+                                            } else {
+                                                transparent_color_draw(
+                                                    &mut render_pass,
+                                                    &mut currently_set_pipeline,
+                                                    &mut bound_texture_state,
+                                                    shape,
+                                                    this_stencil,
+                                                    pipelines,
+                                                    buffers,
+                                                );
+                                            }
+
+                                            *shape.stencil_ref_mut() = Some(this_stencil);
+                                        }
+                                    });
+
+                                    if drew_stencil {
+                                        stencil_stack.push(this_stencil);
+                                    }
+                                } else {
+                                    with_shape_mut!(draw_command, shape => {
+                                        handle_increment_pass(
+                                            &mut render_pass,
+                                            &mut currently_set_pipeline,
+                                            &mut bound_texture_state,
+                                            stencil_stack,
+                                            shape,
+                                            pipelines,
+                                            buffers,
+                                        );
+                                    });
+                                }
                                 clip_kind_stack.push(ClipKind::Stencil);
                             }
                         }
@@ -1114,6 +1881,8 @@ pub(super) fn render_segments(
                     &*pipelines.default_shape_texture_bind_groups[1],
                     &[],
                 );
+                bound_texture_state.mark_bound(0, None);
+                bound_texture_state.mark_bound(1, None);
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
@@ -1142,6 +1911,33 @@ pub(super) fn render_segments(
                 composite_pipeline.expect("composite_pipeline required for backdrop effects");
             render_pass.set_pipeline(composite_pipeline);
             render_pass.set_bind_group(0, &backdrop_composite_bind_group, &[]);
+
+            // Bind composite depth (group 1) with dynamic offset for backdrop composite.
+            if let Some(ref mut depth_ctx) = composite_depth {
+                let traversal_order = draw_tree
+                    .get(backdrop_node_id)
+                    .map(|c| c.traversal_order())
+                    .unwrap_or(0);
+                let depth_val = types::traversal_order_to_depth(traversal_order);
+                let slot = depth_ctx.slot_allocator.allocate(
+                    depth_ctx.device,
+                    depth_ctx.bgl,
+                    depth_ctx.buffer,
+                    depth_ctx.bind_group,
+                );
+                let offset = depth_ctx.slot_allocator.byte_offset(slot);
+                let uniform = types::CompositeDepthUniform {
+                    depth: depth_val,
+                    _padding: [0.0; 3],
+                };
+                depth_ctx.queue.write_buffer(
+                    depth_ctx.buffer,
+                    offset,
+                    bytemuck::bytes_of(&uniform),
+                );
+                render_pass.set_bind_group(1, &*depth_ctx.bind_group, &[offset as u32]);
+            }
+
             render_pass.set_stencil_reference(this_stencil);
             render_pass.draw(0..3, 0..1);
 
@@ -1150,9 +1946,20 @@ pub(super) fn render_segments(
                 .get(backdrop_node_id)
                 .is_none_or(|cmd| cmd.is_leaf());
 
-            // Step 3: Color draw (Equal + Keep).
+            // Step 3: Color draw of backdrop node.
+            // Opaque backdrops use opaque interior + fringe draw (matching the
+            // two-phase approach used for regular opaque leaves).
+            // Transparent backdrops use the transparent leaf draw pipeline.
             if let Some(draw_command) = draw_tree.get_mut(backdrop_node_id) {
-                render_pass.set_pipeline(bctx.backdrop_color_pipeline);
+                let is_opaque = draw_command.is_opaque();
+
+                if is_opaque {
+                    // Opaque interior draw (depth write enabled, no blending).
+                    render_pass.set_pipeline(pipelines.opaque_leaf_draw_pipeline);
+                } else {
+                    // Transparent draw (blending, no depth write).
+                    render_pass.set_pipeline(pipelines.transparent_leaf_draw_pipeline);
+                }
                 render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
                 render_pass.set_bind_group(
                     1,
@@ -1164,6 +1971,8 @@ pub(super) fn render_segments(
                     &*pipelines.default_shape_texture_bind_groups[1],
                     &[],
                 );
+                bound_texture_state.mark_bound(0, None);
+                bound_texture_state.mark_bound(1, None);
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
@@ -1194,6 +2003,14 @@ pub(super) fn render_segments(
                     let start = idx_range.0 as u32;
                     let end = (idx_range.0 + idx_range.1) as u32;
                     render_pass.draw_indexed(start..end, 0, 0..1);
+
+                    // For opaque backdrops, follow up with a fringe draw
+                    // (anti-aliased edge, blended over the opaque interior).
+                    if is_opaque {
+                        render_pass.set_pipeline(pipelines.opaque_fringe_draw_pipeline);
+                        // Bind groups remain the same (already bound above).
+                        render_pass.draw_indexed(start..end, 0, 0..1);
+                    }
 
                     // Step 4: Decrement stencil — only for leaf backdrop nodes.
                     // Non-leaf nodes keep the stencil at `this_stencil` so

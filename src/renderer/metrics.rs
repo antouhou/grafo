@@ -16,12 +16,22 @@ pub struct PipelineSwitchCounts {
     pub to_stencil_decrement: u32,
     /// Number of switches to the leaf-draw pipeline.
     pub to_leaf_draw: u32,
+    /// Number of switches to the opaque-leaf-draw pipeline.
+    pub to_opaque_leaf_draw: u32,
+    /// Number of switches to the opaque-fringe-draw pipeline.
+    pub to_opaque_fringe_draw: u32,
     /// Number of switches to the composite (effect) pipeline, which resets tracking.
     pub to_composite: u32,
     /// Total GPU pipeline switches (`set_pipeline` calls).
     pub total_switches: u32,
     /// Number of parent shapes clipped via scissor rect instead of stencil.
     pub scissor_clips: u32,
+    /// Number of draw calls issued in the opaque phase.
+    pub opaque_draw_calls: u32,
+    /// Number of draw calls issued in the transparent phase.
+    pub transparent_draw_calls: u32,
+    /// Number of segments that skipped the opaque phase (no opaque shapes or unbalanced).
+    pub opaque_phase_skipped_segments: u32,
 }
 
 impl PipelineSwitchCounts {
@@ -30,9 +40,14 @@ impl PipelineSwitchCounts {
         self.to_stencil_increment += other.to_stencil_increment;
         self.to_stencil_decrement += other.to_stencil_decrement;
         self.to_leaf_draw += other.to_leaf_draw;
+        self.to_opaque_leaf_draw += other.to_opaque_leaf_draw;
+        self.to_opaque_fringe_draw += other.to_opaque_fringe_draw;
         self.to_composite += other.to_composite;
         self.total_switches += other.total_switches;
         self.scissor_clips += other.scissor_clips;
+        self.opaque_draw_calls += other.opaque_draw_calls;
+        self.transparent_draw_calls += other.transparent_draw_calls;
+        self.opaque_phase_skipped_segments += other.opaque_phase_skipped_segments;
     }
 }
 

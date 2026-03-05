@@ -36,7 +36,7 @@ pub enum EffectError {
 // ── Built-in shaders ─────────────────────────────────────────────────────────
 
 /// Built-in vertex shader for drawing a fullscreen triangle (3 vertices, no vertex buffer).
-/// Used both by effect apply passes and the composite pass.
+/// Used by effect apply passes (does NOT read composite depth).
 pub(crate) const FULLSCREEN_QUAD_VS: &str = r#"
 struct QuadOutput {
     @builtin(position) position: vec4<f32>,
@@ -49,6 +49,31 @@ fn vs_quad(@builtin(vertex_index) vi: u32) -> QuadOutput {
     let uv = vec2<f32>(f32((vi << 1u) & 2u), f32(vi & 2u));
     var out: QuadOutput;
     out.position = vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
+    out.uv = vec2<f32>(uv.x, 1.0 - uv.y);
+    return out;
+}
+"#;
+
+/// Composite-specific vertex shader that reads depth from a dynamic uniform
+/// buffer at group(1). This allows the composite fullscreen triangle to
+/// participate in depth testing (`LessEqual`), so composites behind opaque
+/// shapes are correctly rejected by the depth buffer.
+pub(crate) const COMPOSITE_QUAD_VS: &str = r#"
+struct QuadOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+struct CompositeDepth {
+    depth: f32,
+};
+@group(1) @binding(0) var<uniform> composite_depth: CompositeDepth;
+
+@vertex
+fn vs_quad_composite(@builtin(vertex_index) vi: u32) -> QuadOutput {
+    let uv = vec2<f32>(f32((vi << 1u) & 2u), f32(vi & 2u));
+    var out: QuadOutput;
+    out.position = vec4<f32>(uv * 2.0 - 1.0, composite_depth.depth, 1.0);
     out.uv = vec2<f32>(uv.x, 1.0 - uv.y);
     return out;
 }
@@ -319,7 +344,7 @@ pub(crate) fn build_effect_wgsl(user_fragment_source: &str) -> String {
 
 /// Build the composite WGSL module (fullscreen VS + passthrough FS).
 pub(crate) fn build_composite_wgsl() -> String {
-    format!("{FULLSCREEN_QUAD_VS}\n{COMPOSITE_FS}")
+    format!("{COMPOSITE_QUAD_VS}\n{COMPOSITE_FS}")
 }
 
 /// Checks if user WGSL source declares a `@group(1)` binding (params uniform).
@@ -469,7 +494,12 @@ pub(crate) fn compile_effect_pipeline(
 pub(crate) fn compile_composite_pipeline(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
-) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
+    sample_count: u32,
+) -> (
+    wgpu::RenderPipeline,
+    wgpu::BindGroupLayout,
+    wgpu::BindGroupLayout,
+) {
     let wgsl = build_composite_wgsl();
 
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -479,9 +509,24 @@ pub(crate) fn compile_composite_pipeline(
 
     let input_bgl = create_effect_input_bind_group_layout(device);
 
+    // Group 1: dynamic uniform buffer for per-composite depth value.
+    let depth_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("composite_depth_bgl"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: true,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+    });
+
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("composite_pipeline_layout"),
-        bind_group_layouts: &[&input_bgl],
+        bind_group_layouts: &[&input_bgl, &depth_bgl],
         push_constant_ranges: &[],
     });
 
@@ -498,7 +543,7 @@ pub(crate) fn compile_composite_pipeline(
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: Some("vs_quad"),
+            entry_point: Some("vs_quad_composite"),
             compilation_options: Default::default(),
             buffers: &[],
         },
@@ -530,21 +575,25 @@ pub(crate) fn compile_composite_pipeline(
         depth_stencil: Some(wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Depth24PlusStencil8,
             depth_write_enabled: false,
-            depth_compare: wgpu::CompareFunction::Always,
+            depth_compare: wgpu::CompareFunction::LessEqual,
             stencil: wgpu::StencilState {
                 front: stencil_face,
                 back: stencil_face,
                 read_mask: 0xff,
-                write_mask: 0x00, // No stencil writes
+                write_mask: 0x00,
             },
             bias: wgpu::DepthBiasState::default(),
         }),
-        multisample: wgpu::MultisampleState::default(),
+        multisample: wgpu::MultisampleState {
+            count: sample_count,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
         multiview: None,
         cache: None,
     });
 
-    (pipeline, input_bgl)
+    (pipeline, input_bgl, depth_bgl)
 }
 
 /// Create a bind group to sample a texture (for effect input or composite input).

@@ -37,8 +37,6 @@ impl<'a> Renderer<'a> {
         }
         if has_backdrop_effects {
             self.ensure_backdrop_snapshot_texture();
-            self.ensure_stencil_only_pipeline();
-            self.ensure_backdrop_color_pipeline();
         }
 
         // O1: Ensure depth/stencil texture exists (lazy init on first frame)
@@ -56,11 +54,13 @@ impl<'a> Renderer<'a> {
             });
 
         let pipelines = crate::renderer::types::Pipelines {
-            and_pipeline: &self.and_pipeline,
             and_bind_group: &self.and_bind_group,
             decrementing_pipeline: &self.decrementing_pipeline,
             decrementing_bind_group: &self.decrementing_bind_group,
-            leaf_draw_pipeline: &self.leaf_draw_pipeline,
+            stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
+            transparent_leaf_draw_pipeline: &self.transparent_leaf_draw_pipeline,
+            opaque_leaf_draw_pipeline: &self.opaque_leaf_draw_pipeline,
+            opaque_fringe_draw_pipeline: &self.opaque_fringe_draw_pipeline,
             shape_texture_bind_group_layout_background: &self
                 .shape_texture_bind_group_layout_background,
             shape_texture_bind_group_layout_foreground: &self
@@ -88,6 +88,13 @@ impl<'a> Renderer<'a> {
             aggregated_instance_color_buffer: self.aggregated_instance_color_buffer.as_ref(),
             aggregated_instance_metadata_buffer: self.aggregated_instance_metadata_buffer.as_ref(),
         };
+
+        // Reset composite depth slot allocator once per frame so that all
+        // render_segments calls (behind-group, subtree, main scene) receive
+        // unique, non-overlapping slots.  Resetting per-call would let later
+        // queue.write_buffer calls overwrite earlier slot values before the
+        // single queue.submit executes.
+        self.composite_depth_slot_allocator.reset();
 
         if has_group_effects {
             effect_node_ids.clear();
@@ -160,6 +167,25 @@ impl<'a> Renderer<'a> {
                         Some(node_id),
                         &mut traversal_scratch,
                     );
+                    // Build composite depth context for behind-group render
+                    // so nested effect composites can bind @group(1).
+                    let mut bg_depth_ctx = match (
+                        self.composite_depth_buffer.as_mut(),
+                        self.composite_depth_bind_group.as_mut(),
+                        self.composite_depth_bgl.as_ref(),
+                    ) {
+                        (Some(buffer), Some(bind_group), Some(bgl)) => {
+                            Some(crate::renderer::types::CompositeDepthCtx {
+                                queue: &self.queue,
+                                buffer,
+                                bind_group,
+                                bgl,
+                                device: &self.device,
+                                slot_allocator: &mut self.composite_depth_slot_allocator,
+                            })
+                        }
+                        _ => None,
+                    };
                     render_segments(
                         &mut self.draw_tree,
                         &mut encoder,
@@ -173,6 +199,7 @@ impl<'a> Renderer<'a> {
                         &pipelines,
                         &buffers,
                         self.composite_pipeline.as_ref(),
+                        bg_depth_ctx.as_mut(),
                         None,
                         &mut backdrop_work_textures,
                         &mut stencil_stack,
@@ -215,7 +242,6 @@ impl<'a> Renderer<'a> {
                         composite_bgl: self.composite_bgl.as_ref().unwrap(),
                         effect_sampler: self.effect_sampler.as_ref().unwrap(),
                         stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
-                        backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
                         device: &self.device,
                         config_format: self.config.format,
                         backdrop_snapshot_texture: self.backdrop_snapshot_texture.as_ref().unwrap(),
@@ -233,6 +259,25 @@ impl<'a> Renderer<'a> {
                     }
                 });
 
+                // Build composite depth context for subtree render
+                // so nested effect composites can bind @group(1).
+                let mut sub_depth_ctx = match (
+                    self.composite_depth_buffer.as_mut(),
+                    self.composite_depth_bind_group.as_mut(),
+                    self.composite_depth_bgl.as_ref(),
+                ) {
+                    (Some(buffer), Some(bind_group), Some(bgl)) => {
+                        Some(crate::renderer::types::CompositeDepthCtx {
+                            queue: &self.queue,
+                            buffer,
+                            bind_group,
+                            bgl,
+                            device: &self.device,
+                            slot_allocator: &mut self.composite_depth_slot_allocator,
+                        })
+                    }
+                    _ => None,
+                };
                 render_segments(
                     &mut self.draw_tree,
                     &mut encoder,
@@ -246,6 +291,7 @@ impl<'a> Renderer<'a> {
                     &pipelines,
                     &buffers,
                     self.composite_pipeline.as_ref(),
+                    sub_depth_ctx.as_mut(),
                     backdrop_ctx_opt.as_ref(),
                     &mut backdrop_work_textures,
                     &mut stencil_stack,
@@ -321,7 +367,6 @@ impl<'a> Renderer<'a> {
                     composite_bgl: self.composite_bgl.as_ref().unwrap(),
                     effect_sampler: self.effect_sampler.as_ref().unwrap(),
                     stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
-                    backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
                     device: &self.device,
                     config_format: self.config.format,
                     backdrop_snapshot_texture: self.backdrop_snapshot_texture.as_ref().unwrap(),
@@ -337,6 +382,25 @@ impl<'a> Renderer<'a> {
                 None
             };
 
+            // Build composite depth context if resources are available.
+            let mut composite_depth_ctx = match (
+                self.composite_depth_buffer.as_mut(),
+                self.composite_depth_bind_group.as_mut(),
+                self.composite_depth_bgl.as_ref(),
+            ) {
+                (Some(buffer), Some(bind_group), Some(bgl)) => {
+                    Some(crate::renderer::types::CompositeDepthCtx {
+                        queue: &self.queue,
+                        buffer,
+                        bind_group,
+                        bgl,
+                        device: &self.device,
+                        slot_allocator: &mut self.composite_depth_slot_allocator,
+                    })
+                }
+                _ => None,
+            };
+
             render_segments(
                 &mut self.draw_tree,
                 &mut encoder,
@@ -350,6 +414,7 @@ impl<'a> Renderer<'a> {
                 &pipelines,
                 &buffers,
                 self.composite_pipeline.as_ref(),
+                composite_depth_ctx.as_mut(),
                 backdrop_ctx_opt.as_ref(),
                 &mut backdrop_work_textures,
                 &mut stencil_stack,
