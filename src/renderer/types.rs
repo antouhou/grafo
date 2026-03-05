@@ -141,7 +141,7 @@ pub(super) enum Pipeline {
 /// A deferred opaque draw, collected during the opaque phase and flushed
 /// (sorted front-to-back) at scope exit for maximum early-Z benefit.
 pub(super) struct DeferredOpaqueDraw {
-    /// Traversal order stamp (lower = closer to camera). Used as sort key.
+    /// Traversal order stamp (higher = closer to camera). Used as sort key.
     pub traversal_order: u32,
     /// Stencil reference for this draw.
     pub stencil_ref: u32,

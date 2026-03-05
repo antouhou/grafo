@@ -65,7 +65,7 @@ pub struct BlurParams {
     pub tex_size: [f32; 2],
 }
 
-/// Simple opacity (tint) effect — multiplies alpha by a uniform factor.
+/// Simple opacity (tint) effect — multiplies RGBA by a uniform factor.
 /// This is a single-pass effect. Useful for testing group composite depth.
 pub const OPACITY_WGSL: &str = r#"
 struct OpacityParams {
