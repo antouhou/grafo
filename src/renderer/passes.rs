@@ -118,6 +118,40 @@ pub(super) fn try_scissor_for_rect(
     compute_scissor_rect(rect_bounds, transform, scale_factor, physical_size)
 }
 
+fn should_skip_trivial_transparent_rect(
+    draw_command: &DrawCommand,
+    scale_factor: f64,
+    physical_size: (u32, u32),
+    has_direct_group_effect: bool,
+    has_direct_backdrop_effect: bool,
+) -> bool {
+    if has_direct_group_effect || has_direct_backdrop_effect || !draw_command.is_rect() {
+        return false;
+    }
+
+    if draw_command.texture_id(0).is_some() || draw_command.texture_id(1).is_some() {
+        return false;
+    }
+
+    let Some(color) = draw_command.instance_color_override() else {
+        return false;
+    };
+    if color[3] != 0.0 {
+        return false;
+    }
+
+    let Some(rect_bounds) = draw_command.rect_bounds() else {
+        return false;
+    };
+    compute_scissor_rect(
+        rect_bounds,
+        draw_command.transform(),
+        scale_factor,
+        physical_size,
+    )
+    .is_some()
+}
+
 pub(super) struct AppliedEffectOutput {
     pub(super) composite_bind_group: wgpu::BindGroup,
     pub(super) primary_work_texture: wgpu::Texture,
@@ -783,6 +817,7 @@ pub(super) fn render_segments(
     clip_kind_stack: &mut Vec<ClipKind>,
     scale_factor: f64,
     physical_size: (u32, u32),
+    skipped_trivial_transparent_rect_draws_out: &mut u32,
     #[cfg(feature = "render_metrics")]
     pipeline_counts_out: &mut crate::renderer::metrics::PipelineSwitchCounts,
 ) {
@@ -861,6 +896,8 @@ pub(super) fn render_segments(
                 match event {
                     TraversalEvent::Pre(node_id) => {
                         let node_id = *node_id;
+                        let has_direct_backdrop_effect = backdrop_ctx
+                            .is_some_and(|bctx| bctx.backdrop_effects.contains_key(&node_id));
 
                         // --- Composite pre-rendered group effect result ---
                         if let Some(result_bind_group) = effect_results.get(&node_id) {
@@ -885,9 +922,24 @@ pub(super) fn render_segments(
                         }
 
                         if let Some(draw_command) = draw_tree.get_mut(node_id) {
+                            let skip_transparent_rect = should_skip_trivial_transparent_rect(
+                                draw_command,
+                                scale_factor,
+                                physical_size,
+                                effect_results.contains_key(&node_id),
+                                has_direct_backdrop_effect,
+                            );
+
                             // --- Leaf node ---
                             if draw_command.is_leaf() {
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                                if skip_transparent_rect {
+                                    *skipped_trivial_transparent_rect_draws_out += 1;
+                                    with_shape_mut!(draw_command, shape => {
+                                        *shape.stencil_ref_mut() = Some(parent_stencil);
+                                    });
+                                    continue;
+                                }
                                 let batched = with_shape_mut!(draw_command, shape => {
                                     let result = try_batch_leaf(
                                         &mut pending_leaf_batch,
@@ -948,15 +1000,19 @@ pub(super) fn render_segments(
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
                                 with_shape_mut!(draw_command, shape => {
                                     *shape.stencil_ref_mut() = Some(parent_stencil);
-                                    handle_leaf_draw_pass(
-                                        &mut render_pass,
-                                        &mut currently_set_pipeline,
-                                        &mut bound_texture_state,
-                                        stencil_stack,
-                                        shape,
-                                        pipelines,
-                                        buffers,
-                                    );
+                                    if !skip_transparent_rect {
+                                        handle_leaf_draw_pass(
+                                            &mut render_pass,
+                                            &mut currently_set_pipeline,
+                                            &mut bound_texture_state,
+                                            stencil_stack,
+                                            shape,
+                                            pipelines,
+                                            buffers,
+                                        );
+                                    } else {
+                                        *skipped_trivial_transparent_rect_draws_out += 1;
+                                    }
                                 });
                                 stencil_stack.push(parent_stencil);
                                 clip_kind_stack.push(ClipKind::NonClipping);
@@ -978,15 +1034,19 @@ pub(super) fn render_segments(
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
                                 with_shape_mut!(draw_command, shape => {
                                     *shape.stencil_ref_mut() = Some(parent_stencil);
-                                    handle_leaf_draw_pass(
-                                        &mut render_pass,
-                                        &mut currently_set_pipeline,
-                                        &mut bound_texture_state,
-                                        stencil_stack,
-                                        shape,
-                                        pipelines,
-                                        buffers,
-                                    );
+                                    if !skip_transparent_rect {
+                                        handle_leaf_draw_pass(
+                                            &mut render_pass,
+                                            &mut currently_set_pipeline,
+                                            &mut bound_texture_state,
+                                            stencil_stack,
+                                            shape,
+                                            pipelines,
+                                            buffers,
+                                        );
+                                    } else {
+                                        *skipped_trivial_transparent_rect_draws_out += 1;
+                                    }
                                 });
                                 // Push same stencil — children are clipped by scissor
                                 // hardware, not by stencil buffer values.
@@ -1323,4 +1383,75 @@ pub(super) fn render_segments(
 
     #[cfg(feature = "render_metrics")]
     pipeline_counts_out.accumulate(&currently_set_pipeline.counts);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_skip_trivial_transparent_rect;
+    use crate::renderer::types::DrawCommand;
+    use crate::shape::CachedShapeDrawData;
+    use crate::vertex::InstanceTransform;
+
+    fn transparent_rect() -> DrawCommand {
+        let mut draw_command =
+            DrawCommand::CachedShape(CachedShapeDrawData::new_rect(1, [(0.0, 0.0), (20.0, 20.0)]));
+        draw_command.set_instance_color_override(Some([1.0, 1.0, 1.0, 0.0]));
+        draw_command
+    }
+
+    #[test]
+    fn transparent_trivial_rect_is_skippable() {
+        let draw_command = transparent_rect();
+
+        assert!(should_skip_trivial_transparent_rect(
+            &draw_command,
+            1.0,
+            (100, 100),
+            false,
+            false,
+        ));
+    }
+
+    #[test]
+    fn transparent_rect_with_texture_or_effect_is_not_skippable() {
+        let mut textured = transparent_rect();
+        textured.set_texture_id(0, Some(7));
+        assert!(!should_skip_trivial_transparent_rect(
+            &textured,
+            1.0,
+            (100, 100),
+            false,
+            false,
+        ));
+
+        let draw_command = transparent_rect();
+        assert!(!should_skip_trivial_transparent_rect(
+            &draw_command,
+            1.0,
+            (100, 100),
+            true,
+            false,
+        ));
+        assert!(!should_skip_trivial_transparent_rect(
+            &draw_command,
+            1.0,
+            (100, 100),
+            false,
+            true,
+        ));
+    }
+
+    #[test]
+    fn rotated_transparent_rect_is_not_skippable() {
+        let mut draw_command = transparent_rect();
+        draw_command.set_transform(InstanceTransform::rotation_z_deg(15.0));
+
+        assert!(!should_skip_trivial_transparent_rect(
+            &draw_command,
+            1.0,
+            (100, 100),
+            false,
+            false,
+        ));
+    }
 }

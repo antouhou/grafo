@@ -3,6 +3,7 @@ use crate::renderer::passes::{apply_effect_passes, render_segments, EffectPassRu
 use crate::renderer::traversal::{
     compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects,
 };
+use tracing::debug;
 
 impl<'a> Renderer<'a> {
     pub(super) fn render_to_texture_view(
@@ -33,6 +34,7 @@ impl<'a> Renderer<'a> {
 
         let has_group_effects = !self.group_effects.is_empty();
         let has_backdrop_effects = !self.backdrop_effects.is_empty();
+        let mut frame_skipped_trivial_transparent_rect_draws = 0u32;
 
         if has_group_effects || has_backdrop_effects {
             self.ensure_composite_pipeline();
@@ -193,6 +195,7 @@ impl<'a> Renderer<'a> {
                         &mut clip_kind_stack,
                         self.scale_factor,
                         self.physical_size,
+                        &mut frame_skipped_trivial_transparent_rect_draws,
                         #[cfg(feature = "render_metrics")]
                         &mut frame_pipeline_counts,
                     );
@@ -265,6 +268,7 @@ impl<'a> Renderer<'a> {
                     &mut clip_kind_stack,
                     scale_factor,
                     physical_size,
+                    &mut frame_skipped_trivial_transparent_rect_draws,
                     #[cfg(feature = "render_metrics")]
                     &mut frame_pipeline_counts,
                 );
@@ -368,6 +372,7 @@ impl<'a> Renderer<'a> {
                 &mut clip_kind_stack,
                 self.scale_factor,
                 self.physical_size,
+                &mut frame_skipped_trivial_transparent_rect_draws,
                 #[cfg(feature = "render_metrics")]
                 &mut frame_pipeline_counts,
             );
@@ -395,6 +400,11 @@ impl<'a> Renderer<'a> {
         self.scratch.scissor_stack = scissor_stack;
         self.scratch.clip_kind_stack = clip_kind_stack;
         self.scratch.backdrop_work_textures = backdrop_work_textures;
+
+        // println!(
+        //     "Transparent trivial-rect draws skipped this frame ({} draws)",
+        //     frame_skipped_trivial_transparent_rect_draws
+        // );
 
         #[cfg(feature = "render_metrics")]
         {

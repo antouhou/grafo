@@ -34,7 +34,8 @@ impl<'a> Renderer<'a> {
         self.temp_has_group_effect_ancestor.clear();
         self.temp_has_group_effect_ancestor.resize(num_nodes, false);
         self.temp_subtree_has_backdrop_effect.clear();
-        self.temp_subtree_has_backdrop_effect.resize(num_nodes, false);
+        self.temp_subtree_has_backdrop_effect
+            .resize(num_nodes, false);
 
         // ── Step 1: Precompute has_group_effect_ancestor (pre-order) ──────────
         //
@@ -46,8 +47,7 @@ impl<'a> Renderer<'a> {
                 .draw_tree
                 .parent_index_unchecked(id)
                 .map_or(false, |p| {
-                    self.group_effects.contains_key(&p)
-                        || self.temp_has_group_effect_ancestor[p]
+                    self.group_effects.contains_key(&p) || self.temp_has_group_effect_ancestor[p]
                 });
             self.temp_has_group_effect_ancestor[id] = parent_has_group;
         }
@@ -98,8 +98,7 @@ impl<'a> Renderer<'a> {
         // ── Step 4: Process each node in post-order ───────────────────────────
         //
         // Working rect buffer reused per node to avoid per-loop allocations.
-        let mut working_rects: Vec<[f32; 4]> =
-            Vec::with_capacity(MAX_OCCLUSION_RECTS_PER_NODE * 2);
+        let mut working_rects: Vec<[f32; 4]> = Vec::with_capacity(MAX_OCCLUSION_RECTS_PER_NODE * 2);
 
         for i in 0..self.temp_parent_node_ids.len() {
             let node_id = self.temp_parent_node_ids[i];
@@ -210,8 +209,7 @@ impl<'a> Renderer<'a> {
                 let subtree_count = working_rects.len() as u32;
                 self.temp_node_subtree_rects
                     .extend_from_slice(&working_rects);
-                self.temp_node_subtree_ranges[node_id] =
-                    Some((subtree_offset, subtree_count));
+                self.temp_node_subtree_ranges[node_id] = Some((subtree_offset, subtree_count));
             }
         }
 
@@ -223,13 +221,13 @@ impl<'a> Renderer<'a> {
             .filter(|occ| occ.occlusion_rects_count > 0)
             .count();
         let total_instances = self.temp_instance_occlusions.len();
-        eprintln!(
-            "occlusion: nodes_culled={}/{}, total_rects={}, subtree_rects={}",
-            nodes_with_occlusion,
-            total_instances,
-            self.temp_occlusion_rects.len(),
-            self.temp_node_subtree_rects.len(),
-        );
+        // eprintln!(
+        //     "occlusion: nodes_culled={}/{}, total_rects={}, subtree_rects={}",
+        //     nodes_with_occlusion,
+        //     total_instances,
+        //     self.temp_occlusion_rects.len(),
+        //     self.temp_node_subtree_rects.len(),
+        // );
 
         // Re-upload the updated per-instance occlusion vertex data.
         if !self.temp_instance_occlusions.is_empty() {
@@ -291,7 +289,9 @@ fn opaque_contribution_rect(
     if cmd.texture_id(0).is_some() || cmd.texture_id(1).is_some() {
         return None;
     }
-    let color = cmd.instance_color_override().unwrap_or([1.0, 1.0, 1.0, 1.0]);
+    let color = cmd
+        .instance_color_override()
+        .unwrap_or([1.0, 1.0, 1.0, 1.0]);
     if color[3] < 1.0 {
         return None;
     }
