@@ -1,182 +1,237 @@
 use super::*;
-use crate::renderer::traversal::subtree_has_backdrop_effects;
 use crate::vertex::InstanceOcclusion;
 
+/// Maximum number of occlusion rects stored per node (descendant or subtree summary).
+/// Keeps GPU shader loop cost and CPU scratch memory bounded.
+const MAX_OCCLUSION_RECTS_PER_NODE: usize = 8;
+
 impl<'a> Renderer<'a> {
-    /// Computes per-instance occlusion rects for all non-leaf parents with
-    /// opaque axis-aligned children. Must be called after `prepare_render()`
-    /// and before `render_segments()`.
+    /// Computes per-instance occlusion rects using a hierarchical bottom-up pass.
     ///
-    /// Populates `self.temp_instance_occlusions` with (offset, count) pairs and
-    /// `self.temp_occlusion_rects` with the packed rect data. Uploads the storage
-    /// buffer and creates the bind group for `@group(3)`.
+    /// For each node, builds two summaries in screen-space physical pixels:
+    /// - `descendant_occlusion_summary`: opaque coverage from the node's descendants,
+    ///   written to `temp_instance_occlusions` to cull the node itself.
+    /// - `subtree_occlusion_summary`: the node's own opaque contribution plus
+    ///   the propagated descendant coverage, used by the node's parent.
+    ///
+    /// Must be called after `prepare_render()` and before `render_segments()`.
     pub(super) fn compute_occlusion_rects(&mut self) {
         debug_assert!(
             self.aggregated_vertex_buffer.is_some(),
             "compute_occlusion_rects() called before prepare_render()"
         );
 
+        let num_nodes = self.draw_tree.len();
+
+        // Clear all per-frame scratch buffers.
         self.temp_occlusion_rects.clear();
+        self.temp_node_subtree_rects.clear();
         self.temp_parent_node_ids.clear();
 
-        // Collect non-leaf parent node IDs into a reusable scratch buffer
-        // (we cannot mutate temp_instance_occlusions while iterating the tree).
-        for (id, cmd) in self.draw_tree.iter() {
-            if !cmd.is_leaf() {
-                self.temp_parent_node_ids.push(id);
-            }
+        // Resize and zero per-node indexed scratch buffers.
+        self.temp_node_subtree_ranges.clear();
+        self.temp_node_subtree_ranges.resize(num_nodes, None);
+        self.temp_has_group_effect_ancestor.clear();
+        self.temp_has_group_effect_ancestor.resize(num_nodes, false);
+        self.temp_subtree_has_backdrop_effect.clear();
+        self.temp_subtree_has_backdrop_effect.resize(num_nodes, false);
+
+        // ── Step 1: Precompute has_group_effect_ancestor (pre-order) ──────────
+        //
+        // In easy_tree, parent index < child index (children are always added after
+        // their parent). Iterating 0..num_nodes naturally visits parents before
+        // children, giving us a correct pre-order pass.
+        for id in 0..num_nodes {
+            let parent_has_group = self
+                .draw_tree
+                .parent_index_unchecked(id)
+                .map_or(false, |p| {
+                    self.group_effects.contains_key(&p)
+                        || self.temp_has_group_effect_ancestor[p]
+                });
+            self.temp_has_group_effect_ancestor[id] = parent_has_group;
         }
+
+        // ── Step 2: Precompute subtree_has_backdrop_effect (post-order) ───────
+        //
+        // Children have higher indices than their parent, so iterating in reverse
+        // order gives a correct post-order pass (children computed before parent).
+        for id in (0..num_nodes).rev() {
+            let num_ch = self.draw_tree.children(id).len();
+            let mut has_backdrop = false;
+            for ci in 0..num_ch {
+                let c = self.draw_tree.children(id)[ci];
+                if self.backdrop_effects.contains_key(&c)
+                    || self.temp_subtree_has_backdrop_effect[c]
+                {
+                    has_backdrop = true;
+                    break;
+                }
+            }
+            self.temp_subtree_has_backdrop_effect[id] = has_backdrop;
+        }
+
+        // ── Step 3: Build post-order traversal list ────────────────────────────
+        //
+        // Pushes children left-to-right onto a DFS stack, collecting nodes in
+        // reverse pre-order, then reverses to produce left-to-right post-order.
+        // Stored in temp_parent_node_ids (reused scratch vec).
+        {
+            // Seed the stack with root nodes in reverse order so the first root
+            // is processed first (LIFO).
+            let mut stack: Vec<usize> = (0..num_nodes)
+                .filter(|&id| self.draw_tree.parent_index_unchecked(id).is_none())
+                .collect();
+            stack.reverse();
+
+            while let Some(id) = stack.pop() {
+                self.temp_parent_node_ids.push(id);
+                let num_ch = self.draw_tree.children(id).len();
+                for ci in 0..num_ch {
+                    stack.push(self.draw_tree.children(id)[ci]);
+                }
+            }
+            // Reverse pre-order → post-order (children appear before their parent).
+            self.temp_parent_node_ids.reverse();
+        }
+
+        // ── Step 4: Process each node in post-order ───────────────────────────
+        //
+        // Working rect buffer reused per node to avoid per-loop allocations.
+        let mut working_rects: Vec<[f32; 4]> =
+            Vec::with_capacity(MAX_OCCLUSION_RECTS_PER_NODE * 2);
 
         for i in 0..self.temp_parent_node_ids.len() {
-            let parent_id = self.temp_parent_node_ids[i];
-            let parent_cmd = match self.draw_tree.get(parent_id) {
-                Some(cmd) => cmd,
-                None => continue,
+            let node_id = self.temp_parent_node_ids[i];
+
+            // Extract all data we need from the draw command in a single borrow
+            // scope, so subsequent mutable accesses to other fields are unblocked.
+            let node_data = {
+                let Some(cmd) = self.draw_tree.get(node_id) else {
+                    continue;
+                };
+                if cmd.is_empty() {
+                    continue;
+                }
+                let clips = cmd.clips_children();
+                let prop_clip: Option<[f32; 4]> = if clips {
+                    propagation_clip_rect(cmd, self.msaa_sample_count, self.scale_factor)
+                } else {
+                    None
+                };
+                let own_rect =
+                    opaque_contribution_rect(cmd, self.msaa_sample_count, self.scale_factor);
+                let instance_idx = cmd.instance_index();
+                (clips, prop_clip, own_rect, instance_idx)
             };
 
-            // Skip empty parents or those without an instance index.
-            if parent_cmd.is_empty() {
-                continue;
-            }
-            let parent_instance_idx = match parent_cmd.instance_index() {
-                Some(idx) => idx,
-                None => continue,
-            };
+            let (clips_children, prop_clip, own_rect, instance_idx) = node_data;
 
-            // Rule 6 (clip-scope): Only compute occlusion rects for parents that
-            // clip their children. A non-clipping parent's children inherit the
-            // clip region from an ancestor — their visible area may be smaller than
-            // their projected bounds, so using those bounds would discard parent
-            // pixels the child never actually covers.
-            if !parent_cmd.clips_children() {
+            // Effect-boundary exclusions: skip this node entirely if it or its
+            // ancestors are group-effect nodes, or if its subtree contains a
+            // backdrop-effect node.
+            if self.group_effects.contains_key(&node_id)
+                || self.temp_has_group_effect_ancestor[node_id]
+                || self.temp_subtree_has_backdrop_effect[node_id]
+            {
+                // Leave temp_node_subtree_ranges[node_id] = None (already initialised).
                 continue;
             }
 
-            // Rule 7: Skip if this node is a group-effect node.
-            if self.group_effects.contains_key(&parent_id) {
-                continue;
-            }
+            working_rects.clear();
 
-            // Rule 7: Skip if any ancestor is a group-effect node.
-            if has_group_effect_ancestor(&self.draw_tree, &self.group_effects, parent_id) {
-                continue;
-            }
+            // Whether descendant coverage can be used safely:
+            // - non-clipping parent → always yes (no clip boundary to worry about)
+            // - clipping parent with a known conservative clip rect → yes, intersect
+            // - clipping parent without a conservative clip rect → no (can't guarantee
+            //   that descendant rects lie within the actual clip scope)
+            let can_use_descendants = !clips_children || prop_clip.is_some();
 
-            // Rule 8: Skip if any descendant has a backdrop effect.
-            if subtree_has_backdrop_effects(&self.draw_tree, &self.backdrop_effects, parent_id) {
-                continue;
-            }
+            // ── Step A: Collect descendant summary ────────────────────────────
+            if can_use_descendants {
+                let num_ch = self.draw_tree.children(node_id).len();
+                for ci in 0..num_ch {
+                    let child_id = self.draw_tree.children(node_id)[ci];
 
-            // Compute parent's screen-space bounds for optional clamping (rect parents only).
-            let parent_screen_bounds = parent_cmd.rect_bounds().and_then(|rb| {
-                transform_rect_to_screen(rb, parent_cmd.transform(), self.scale_factor)
-            });
-
-            let rect_offset = self.temp_occlusion_rects.len();
-
-            // Iterate direct children without allocating (children() returns &[usize]).
-            let num_children = self.draw_tree.children(parent_id).len();
-            for ci in 0..num_children {
-                let child_id = self.draw_tree.children(parent_id)[ci];
-                let child_cmd = match self.draw_tree.get(child_id) {
-                    Some(cmd) => cmd,
-                    None => continue,
-                };
-
-                // Skip empty children or those without instance data.
-                if child_cmd.is_empty() || child_cmd.instance_index().is_none() {
-                    continue;
-                }
-
-                // Skip children with group or backdrop effects.
-                if self.group_effects.contains_key(&child_id)
-                    || self.backdrop_effects.contains_key(&child_id)
-                {
-                    continue;
-                }
-
-                // Opacity check: solid color with alpha >= 1.0, no textures.
-                if child_cmd.texture_id(0).is_some() || child_cmd.texture_id(1).is_some() {
-                    continue;
-                }
-                let color = child_cmd
-                    .instance_color_override()
-                    .unwrap_or([1.0, 1.0, 1.0, 1.0]);
-                if color[3] < 1.0 {
-                    continue;
-                }
-
-                // Need inner bounds for the child.
-                let inner = match child_cmd.inner_bounds() {
-                    Some(b) => b,
-                    None => continue,
-                };
-
-                // Rule 5: Reject non-axis-aligned transforms.
-                let transform = child_cmd.transform();
-                let screen_rect =
-                    match transform_rect_to_screen(inner, transform, self.scale_factor) {
-                        Some(r) => r,
-                        None => continue,
+                    let Some((offset, count)) = self.temp_node_subtree_ranges[child_id] else {
+                        continue;
                     };
+                    let start = offset as usize;
+                    let end = start + count as usize;
 
-                // MSAA inset: shrink by 1 physical pixel on each edge when MSAA is active.
-                let (mut min_x, mut min_y, mut max_x, mut max_y) = screen_rect;
-                if self.msaa_sample_count > 1 {
-                    min_x += 1.0;
-                    min_y += 1.0;
-                    max_x -= 1.0;
-                    max_y -= 1.0;
+                    if let Some(clip) = prop_clip {
+                        // Clipping parent: intersect each child subtree rect with
+                        // the node's conservative clip rect before propagating.
+                        for ri in start..end {
+                            let rect = self.temp_node_subtree_rects[ri];
+                            if let Some(clipped) = intersect_rects(rect, clip) {
+                                if is_rect_significant(clipped) {
+                                    working_rects.push(clipped);
+                                }
+                            }
+                        }
+                    } else {
+                        // Non-clipping parent: propagate child subtree rects unchanged.
+                        for ri in start..end {
+                            working_rects.push(self.temp_node_subtree_rects[ri]);
+                        }
+                    }
                 }
 
-                // Optional: clamp to parent's screen-space bounds (pure optimization).
-                if let Some((p_min_x, p_min_y, p_max_x, p_max_y)) = parent_screen_bounds {
-                    min_x = min_x.max(p_min_x);
-                    min_y = min_y.max(p_min_y);
-                    max_x = max_x.min(p_max_x);
-                    max_y = max_y.min(p_max_y);
-                }
-
-                // Rule: discard rects with negligible area (< 1px²).
-                if (max_x - min_x) < 1.0 || (max_y - min_y) < 1.0 {
-                    continue;
-                }
-
-                self.temp_occlusion_rects.push([min_x, min_y, max_x, max_y]);
+                // Keep the working set bounded before writing to the instance.
+                merge_occlusion_rects_bounded(&mut working_rects, MAX_OCCLUSION_RECTS_PER_NODE);
             }
 
-            let rect_count = self.temp_occlusion_rects.len() - rect_offset;
-
-            // Sort rects by descending area for early-out in the shader.
-            if rect_count > 1 {
-                self.temp_occlusion_rects[rect_offset..].sort_by(|a, b| {
-                    let area_a = (a[2] - a[0]) * (a[3] - a[1]);
-                    let area_b = (b[2] - b[0]) * (b[3] - b[1]);
-                    area_b
-                        .partial_cmp(&area_a)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
+            // Write descendant summary → temp_instance_occlusions so this node
+            // can be culled by its own descendants in the GPU fragment shader.
+            if !working_rects.is_empty() {
+                if let Some(idx) = instance_idx {
+                    let rect_offset = self.temp_occlusion_rects.len();
+                    self.temp_occlusion_rects.extend_from_slice(&working_rects);
+                    self.temp_instance_occlusions[idx] = InstanceOcclusion {
+                        occlusion_rects_buffer_offset: rect_offset as u32,
+                        occlusion_rects_count: working_rects.len() as u32,
+                    };
+                }
             }
 
-            if rect_count > 0 {
-                eprintln!("parent {} -> {} occlusion rects", parent_id, rect_count);
-                self.temp_instance_occlusions[parent_instance_idx] = InstanceOcclusion {
-                    occlusion_rects_buffer_offset: rect_offset as u32,
-                    occlusion_rects_count: rect_count as u32,
-                };
+            // ── Step B: Build subtree summary for the parent ──────────────────
+            //
+            // Extend the working set with this node's own opaque contribution.
+            // The result (descendant coverage + own coverage) is what the parent
+            // will read when computing its own descendant summary.
+            if let Some(own) = own_rect {
+                working_rects.push(own);
+                merge_occlusion_rects_bounded(&mut working_rects, MAX_OCCLUSION_RECTS_PER_NODE);
+            }
+
+            if !working_rects.is_empty() {
+                let subtree_offset = self.temp_node_subtree_rects.len() as u32;
+                let subtree_count = working_rects.len() as u32;
+                self.temp_node_subtree_rects
+                    .extend_from_slice(&working_rects);
+                self.temp_node_subtree_ranges[node_id] =
+                    Some((subtree_offset, subtree_count));
             }
         }
 
+        // ── Step 5: Upload GPU buffers ─────────────────────────────────────────
+
+        let nodes_with_occlusion = self
+            .temp_instance_occlusions
+            .iter()
+            .filter(|occ| occ.occlusion_rects_count > 0)
+            .count();
+        let total_instances = self.temp_instance_occlusions.len();
         eprintln!(
-            "occlusion: rects={}, parents_with_occlusion={}",
+            "occlusion: nodes_culled={}/{}, total_rects={}, subtree_rects={}",
+            nodes_with_occlusion,
+            total_instances,
             self.temp_occlusion_rects.len(),
-            self.temp_instance_occlusions
-                .iter()
-                .filter(|occ| occ.occlusion_rects_count > 0)
-                .count()
+            self.temp_node_subtree_rects.len(),
         );
 
-        // Re-upload the updated occlusion instance data.
+        // Re-upload the updated per-instance occlusion vertex data.
         if !self.temp_instance_occlusions.is_empty() {
             super::preparation::upsert_gpu_buffer(
                 &self.device,
@@ -223,23 +278,110 @@ impl<'a> Renderer<'a> {
     }
 }
 
-/// Check if any ancestor of `node_id` is in `group_effects`.
-fn has_group_effect_ancestor(
-    tree: &easy_tree::Tree<DrawCommand>,
-    group_effects: &HashMap<usize, EffectInstance>,
-    node_id: usize,
-) -> bool {
-    let mut current = node_id;
-    while let Some(parent) = tree.parent_index_unchecked(current) {
-        if group_effects.contains_key(&parent) {
-            return true;
-        }
-        current = parent;
+// ── Helper functions ──────────────────────────────────────────────────────────
+
+/// Returns the MSAA-normalised screen-space opaque rect for a node's own
+/// contribution, or `None` if the node is ineligible (textured, non-opaque,
+/// no inner bounds, or non-axis-aligned transform).
+fn opaque_contribution_rect(
+    cmd: &DrawCommand,
+    msaa_sample_count: u32,
+    scale_factor: f64,
+) -> Option<[f32; 4]> {
+    if cmd.texture_id(0).is_some() || cmd.texture_id(1).is_some() {
+        return None;
     }
-    false
+    let color = cmd.instance_color_override().unwrap_or([1.0, 1.0, 1.0, 1.0]);
+    if color[3] < 1.0 {
+        return None;
+    }
+    let inner = cmd.inner_bounds()?;
+    let sr = transform_rect_to_screen(inner, cmd.transform(), scale_factor)?;
+    normalize_occlusion_rect_for_msaa(sr, msaa_sample_count)
 }
 
-/// Transform a local-space rect through an axis-aligned transform and scale factor,
+/// Returns a conservative clip rect (MSAA-normalised) for propagating descendant
+/// occlusion rects through a clipping node:
+/// - rect nodes: use `rect_bounds()` (exact clip scope)
+/// - non-rect nodes: use `inner_bounds()` if available (conservative)
+/// - otherwise: `None` (propagation must stop here)
+fn propagation_clip_rect(
+    cmd: &DrawCommand,
+    msaa_sample_count: u32,
+    scale_factor: f64,
+) -> Option<[f32; 4]> {
+    let bounds = if cmd.is_rect() {
+        cmd.rect_bounds()?
+    } else {
+        cmd.inner_bounds()?
+    };
+    let sr = transform_rect_to_screen(bounds, cmd.transform(), scale_factor)?;
+    normalize_occlusion_rect_for_msaa(sr, msaa_sample_count)
+}
+
+/// Applies MSAA normalisation to a raw screen-space rect by insetting each edge
+/// by 1 physical pixel when MSAA is active.  Returns `None` if the rect becomes
+/// degenerate (< 1 px in either dimension) after the inset.
+///
+/// All coverage rects must pass through this function exactly once at creation.
+/// Propagated rects must NOT be re-normalised as they move up the tree.
+fn normalize_occlusion_rect_for_msaa(
+    rect: (f32, f32, f32, f32),
+    msaa_sample_count: u32,
+) -> Option<[f32; 4]> {
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = rect;
+    if msaa_sample_count > 1 {
+        min_x += 1.0;
+        min_y += 1.0;
+        max_x -= 1.0;
+        max_y -= 1.0;
+    }
+    if (max_x - min_x) < 1.0 || (max_y - min_y) < 1.0 {
+        return None;
+    }
+    Some([min_x, min_y, max_x, max_y])
+}
+
+/// Returns the intersection of two screen-space rects, or `None` if they do not
+/// overlap.
+fn intersect_rects(a: [f32; 4], b: [f32; 4]) -> Option<[f32; 4]> {
+    let min_x = a[0].max(b[0]);
+    let min_y = a[1].max(b[1]);
+    let max_x = a[2].min(b[2]);
+    let max_y = a[3].min(b[3]);
+    if max_x > min_x && max_y > min_y {
+        Some([min_x, min_y, max_x, max_y])
+    } else {
+        None
+    }
+}
+
+/// Returns `true` if the rect has area ≥ 1 px² (both dimensions ≥ 1 px).
+#[inline]
+fn is_rect_significant(r: [f32; 4]) -> bool {
+    (r[2] - r[0]) >= 1.0 && (r[3] - r[1]) >= 1.0
+}
+
+/// Sorts a working set of rects by descending area and truncates to `max_count`.
+///
+/// Sorting largest-first lets the GPU shader exit early once a fragment is fully
+/// covered.  Truncating is conservative: we only lose optimisation opportunities,
+/// never introduce incorrect discards.
+fn merge_occlusion_rects_bounded(rects: &mut Vec<[f32; 4]>, max_count: usize) {
+    if rects.is_empty() {
+        return;
+    }
+    rects.sort_unstable_by(|a, b| {
+        let area_a = (a[2] - a[0]) * (a[3] - a[1]);
+        let area_b = (b[2] - b[0]) * (b[3] - b[1]);
+        area_b
+            .partial_cmp(&area_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    rects.truncate(max_count);
+}
+
+/// Transforms a local-space rect through an axis-aligned transform and scale factor,
 /// returning `(min_x, min_y, max_x, max_y)` in physical screen-space pixels.
 /// Returns `None` if the transform has rotation, skew, or perspective.
 fn transform_rect_to_screen(

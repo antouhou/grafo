@@ -226,10 +226,21 @@ pub struct Renderer<'a> {
     occlusion_rects_bind_group: Option<wgpu::BindGroup>,
     /// Per-frame scratch: per-instance occlusion metadata (offset + count).
     temp_instance_occlusions: Vec<InstanceOcclusion>,
-    /// Per-frame scratch: packed occlusion rects for all instances.
+    /// Per-frame scratch: packed descendant occlusion rects for all instances (GPU upload target).
     temp_occlusion_rects: Vec<[f32; 4]>,
-    /// Per-frame scratch: non-leaf parent node IDs for occlusion computation.
+    /// Per-frame scratch: post-order node traversal list for hierarchical occlusion.
     temp_parent_node_ids: Vec<usize>,
+    /// Per-frame scratch: per-node subtree occlusion rect storage (CPU only, not uploaded).
+    temp_node_subtree_rects: Vec<[f32; 4]>,
+    /// Per-frame scratch: per-node (offset, count) range into `temp_node_subtree_rects`.
+    /// Indexed by node ID; `None` means no subtree summary (empty or excluded node).
+    temp_node_subtree_ranges: Vec<Option<(u32, u32)>>,
+    /// Per-frame scratch: whether each node has a group-effect ancestor.
+    /// Indexed by node ID; computed in pre-order at the start of each occlusion pass.
+    temp_has_group_effect_ancestor: Vec<bool>,
+    /// Per-frame scratch: whether each node has a backdrop-effect descendant.
+    /// Indexed by node ID; computed in post-order at the start of each occlusion pass.
+    temp_subtree_has_backdrop_effect: Vec<bool>,
     /// Aggregated per-instance occlusion vertex buffer (slot 4).
     aggregated_instance_occlusion_buffer: Option<wgpu::Buffer>,
     /// Identity (zero) occlusion instance buffer for un-instanced draws.

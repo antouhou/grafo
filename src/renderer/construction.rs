@@ -286,6 +286,10 @@ impl<'a> Renderer<'a> {
             temp_instance_occlusions: Vec::new(),
             temp_occlusion_rects: Vec::new(),
             temp_parent_node_ids: Vec::new(),
+            temp_node_subtree_rects: Vec::new(),
+            temp_node_subtree_ranges: Vec::new(),
+            temp_has_group_effect_ancestor: Vec::new(),
+            temp_subtree_has_backdrop_effect: Vec::new(),
             aggregated_instance_occlusion_buffer: None,
             identity_instance_occlusion_buffer: None,
             #[cfg(feature = "render_metrics")]
