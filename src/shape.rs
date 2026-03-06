@@ -839,8 +839,9 @@ impl CachedShapeDrawData {
 
 /// A builder for creating complex shapes using a fluent interface.
 ///
-/// The `ShapeBuilder` allows you to define the fill color, stroke, and path of a shape
-/// using method chaining. You also can get it from the [`Shape::builder`] method.
+/// The `ShapeBuilder` allows you to define the stroke and path of a shape using
+/// method chaining. Fill is assigned per instance through the renderer, and an
+/// unset fill renders as transparent. You also can get it from the [`Shape::builder`] method.
 ///
 /// # Examples
 ///
@@ -867,7 +868,7 @@ pub struct ShapeBuilder {
 }
 
 impl Default for ShapeBuilder {
-    /// Creates a default `ShapeBuilder` with black fill and stroke.
+    /// Creates a default `ShapeBuilder` with a black stroke.
     ///
     /// # Examples
     ///
@@ -881,7 +882,7 @@ impl Default for ShapeBuilder {
 }
 
 impl ShapeBuilder {
-    /// Creates a new `ShapeBuilder` with default fill color (black) and stroke.
+    /// Creates a new `ShapeBuilder` with a default black stroke.
     ///
     /// # Examples
     ///

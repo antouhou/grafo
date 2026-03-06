@@ -93,7 +93,7 @@ renderer.set_shape_texture_on(id, TextureLayer::Foreground, Some(fg_tex_id));
 
 // Single-layer helper (Background):
 renderer.set_shape_texture(id, Some(bg_tex_id));
-renderer.set_shape_color(id, Some(Color::WHITE)); // ensure texture colors are preserved
+renderer.set_shape_color(id, Some(Color::WHITE)); // useful when texture transparency should reveal white
 ```
 
 See `examples/multi_texture.rs` for a runnable demo that generates procedural background & foreground textures.

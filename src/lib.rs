@@ -83,7 +83,7 @@
 //!             Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
 //!         );
 //!         let rect_id = renderer.add_shape(rect, None, None);
-//!         // Set per-instance fill color
+//!         // Set per-instance fill color (shapes are transparent by default)
 //!         renderer.set_shape_color(rect_id, Some(Color::rgb(0, 128, 255)));
 //!         renderer.set_shape_transform(rect_id, grafo::TransformInstance::identity());
 //!
