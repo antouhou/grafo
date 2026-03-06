@@ -1,4 +1,4 @@
-/// Visual confirmation example — renders all 34 test tiles in a 6×6 grid.
+/// Visual confirmation example — renders all 38 test tiles in a 6×7 grid.
 ///
 /// Run with:    cargo run --example visual_test_grid
 ///
