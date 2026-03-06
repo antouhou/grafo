@@ -213,6 +213,10 @@ fn fs_stencil_only() -> @location(0) vec4<f32> {
 // Used by stencil-mutating passes that still produce visible color output.
 // Kept separate from fs_main so that any future discard-based optimisations
 // added to fs_main do not accidentally suppress stencil writes on these passes.
+//
+// **Do not merge with `fs_main`**: Kept separate so that any future `discard`-based
+// optimizations in `fs_main` do not accidentally suppress stencil writes on passes
+// using this entry point.
 @fragment
 fn fs_passthrough(
     @location(0) color: vec4<f32>,
