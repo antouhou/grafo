@@ -23,7 +23,19 @@ fn create_headless_renderer() -> Option<grafo::Renderer<'static>> {
     }
 }
 
-/// Main regression test — renders all 34 tiles and validates pixel expectations.
+fn assert_pixels_match(pixel_buffer: &[u8], expectations: &[grafo_test_scenes::PixelExpectation]) {
+    let failures = check_pixels(pixel_buffer, CANVAS_WIDTH, CANVAS_HEIGHT, expectations);
+    if !failures.is_empty() {
+        let message = format!(
+            "{} pixel expectation(s) failed:\n{}",
+            failures.len(),
+            failures.join("\n"),
+        );
+        panic!("{message}");
+    }
+}
+
+/// Main regression test — renders all 38 tiles and validates pixel expectations.
 #[test]
 fn main_scene_pixel_expectations() {
     let Some(mut renderer) = create_headless_renderer() else {
@@ -91,12 +103,5 @@ fn single_root_no_children() {
         grafo_test_scenes::PixelExpectation::transparent(5, 5, "outside_rect"),
     ];
 
-    let failures = check_pixels(&pixel_buffer, CANVAS_WIDTH, CANVAS_HEIGHT, &expectations);
-    if !failures.is_empty() {
-        panic!(
-            "{} pixel expectation(s) failed:\n{}",
-            failures.len(),
-            failures.join("\n"),
-        );
-    }
+    assert_pixels_match(&pixel_buffer, &expectations);
 }

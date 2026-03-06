@@ -64,7 +64,7 @@ fn append_instance_data(
     let instance_index = temp_instance_transforms.len();
     temp_instance_transforms.push(transform.unwrap_or_else(InstanceTransform::identity));
     temp_instance_colors.push(InstanceColor {
-        color: color_override.unwrap_or([1.0, 1.0, 1.0, 1.0]),
+        color: color_override.unwrap_or([0.0, 0.0, 0.0, 0.0]),
     });
     let texture_flags =
         (texture_ids[0].is_some() as u32) | ((texture_ids[1].is_some() as u32) << 1);
@@ -88,11 +88,11 @@ impl<'a> Renderer<'a> {
         }
 
         if self.identity_instance_color_buffer.is_none() {
-            let white = InstanceColor::white();
+            let transparent = InstanceColor::transparent();
             self.identity_instance_color_buffer = Some(crate::pipeline::create_buffer_init(
                 &self.device,
                 Some("Identity Instance Color Buffer"),
-                bytemuck::cast_slice(&[white]),
+                bytemuck::cast_slice(&[transparent]),
                 BufferUsages::VERTEX | BufferUsages::COPY_DST,
             ));
         }

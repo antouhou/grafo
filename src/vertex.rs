@@ -56,6 +56,12 @@ pub struct InstanceColor {
 }
 
 impl InstanceColor {
+    pub fn transparent() -> Self {
+        Self {
+            color: [0.0, 0.0, 0.0, 0.0],
+        }
+    }
+
     pub fn white() -> Self {
         Self {
             color: [1.0, 1.0, 1.0, 1.0],

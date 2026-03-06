@@ -1,6 +1,8 @@
 use super::types::{ClipKind, TraversalEvent};
 use super::*;
-use crate::vertex::InstanceTransform;
+use crate::renderer::rect_utils::{
+    intersect_scissor, should_skip_visible_rect_draw, try_scissor_for_rect,
+};
 
 /// Dispatch on `DrawCommand::Shape` / `DrawCommand::CachedShape`, binding the
 /// inner data to `$shape` so the same block can run for both variants.  
@@ -12,110 +14,6 @@ macro_rules! with_shape_mut {
             DrawCommand::CachedShape($shape) => $body,
         }
     };
-}
-
-/// Compute a screen-space scissor rect from a local-space axis-aligned rect and its transform.
-///
-/// Returns `Some((x, y, width, height))` in physical pixels if the transform preserves
-/// axis-alignment (identity, translation, and/or scale — no rotation, skew, or perspective).
-/// Returns `None` if scissor clipping cannot be used (the caller should fall back to stencil).
-pub(super) fn compute_scissor_rect(
-    rect: [(f32, f32); 2],
-    transform: Option<InstanceTransform>,
-    scale_factor: f64,
-    physical_size: (u32, u32),
-) -> Option<(u32, u32, u32, u32)> {
-    let t = transform.unwrap_or_else(InstanceTransform::identity);
-
-    // The InstanceTransform fields `col0..col3` are the columns of the GPU mat4x4.
-    // The effective math for pos_out = M * pos_in is:
-    //   out.x = col0[0]*x + col1[0]*y + col3[0]   (col3[0] = tx)
-    //   out.y = col0[1]*x + col1[1]*y + col3[1]   (col3[1] = ty)
-    //   out.w = col0[3]*x + col1[3]*y + col3[3]
-    // For affine (non-perspective), we need out.w == 1 for all (x,y):
-    //   col0[3] == 0, col1[3] == 0, col3[3] == 1
-    if t.col0[3] != 0.0 || t.col1[3] != 0.0 || t.col3[3] != 1.0 {
-        return None;
-    }
-
-    // Check axis-aligned: no rotation/skew in the 2D affine part.
-    // In column-major GPU layout: col0[0]=sx, col0[1]=shy, col1[0]=shx, col1[1]=sy
-    // For axis-aligned rects we need shx == 0 and shy == 0.
-    if t.col0[1] != 0.0 || t.col1[0] != 0.0 {
-        return None;
-    }
-
-    let sx = t.col0[0];
-    let sy = t.col1[1];
-    let tx = t.col3[0];
-    let ty = t.col3[1];
-
-    // Transform the two corners.
-    let x0 = rect[0].0 * sx + tx;
-    let y0 = rect[0].1 * sy + ty;
-    let x1 = rect[1].0 * sx + tx;
-    let y1 = rect[1].1 * sy + ty;
-
-    // Ensure min/max ordering (scale could be negative).
-    let min_x = x0.min(x1);
-    let min_y = y0.min(y1);
-    let max_x = x0.max(x1);
-    let max_y = y0.max(y1);
-
-    // Convert from logical pixels to physical pixels.
-    let sf = scale_factor as f32;
-    let px_min_x = ((min_x * sf).floor().max(0.0) as u32).min(physical_size.0);
-    let px_min_y = ((min_y * sf).floor().max(0.0) as u32).min(physical_size.1);
-    let px_max_x = (max_x * sf).ceil().min(physical_size.0 as f32) as u32;
-    let px_max_y = (max_y * sf).ceil().min(physical_size.1 as f32) as u32;
-
-    let width = px_max_x.saturating_sub(px_min_x);
-    let height = px_max_y.saturating_sub(px_min_y);
-
-    Some((px_min_x, px_min_y, width, height))
-}
-
-/// Intersect two scissor rects, returning the overlapping region.
-/// If the rects don't overlap, returns a zero-size rect.
-pub(super) fn intersect_scissor(
-    a: (u32, u32, u32, u32),
-    b: (u32, u32, u32, u32),
-) -> (u32, u32, u32, u32) {
-    let a_right = a.0 + a.2;
-    let a_bottom = a.1 + a.3;
-    let b_right = b.0 + b.2;
-    let b_bottom = b.1 + b.3;
-
-    let left = a.0.max(b.0);
-    let top = a.1.max(b.1);
-    let right = a_right.min(b_right);
-    let bottom = a_bottom.min(b_bottom);
-
-    let width = right.saturating_sub(left);
-    let height = bottom.saturating_sub(top);
-
-    (left, top, width, height)
-}
-
-/// Check whether a non-leaf draw command is eligible for scissor clipping,
-/// and if so, compute the scissor rect. This centralizes the eligibility logic
-/// so pre-visit and post-visit make the same deterministic decision.
-pub(super) fn try_scissor_for_rect(
-    draw_command: &DrawCommand,
-    scale_factor: f64,
-    physical_size: (u32, u32),
-) -> Option<(u32, u32, u32, u32)> {
-    if !draw_command.is_rect() {
-        return None;
-    }
-    let rect_bounds = match draw_command.rect_bounds() {
-        Some(b) => b,
-        None => {
-            return None;
-        }
-    };
-    let transform = draw_command.transform();
-    compute_scissor_rect(rect_bounds, transform, scale_factor, physical_size)
 }
 
 pub(super) struct AppliedEffectOutput {
@@ -686,6 +584,8 @@ pub(super) fn render_segments(
     encoder: &mut wgpu::CommandEncoder,
     events: &[TraversalEvent],
     effect_results: &HashMap<usize, wgpu::BindGroup>,
+    group_effects: &HashMap<usize, EffectInstance>,
+    backdrop_effects: &HashMap<usize, EffectInstance>,
     color_view: &wgpu::TextureView,
     color_resolve_target: Option<&wgpu::TextureView>,
     depth_stencil_view: &wgpu::TextureView,
@@ -803,8 +703,23 @@ pub(super) fn render_segments(
                         }
 
                         if let Some(draw_command) = draw_tree.get_mut(node_id) {
+                            let should_skip_visible_draw = should_skip_visible_rect_draw(
+                                node_id,
+                                &*draw_command,
+                                group_effects,
+                                backdrop_effects,
+                            );
+
                             // --- Leaf node ---
                             if draw_command.is_leaf() {
+                                if should_skip_visible_draw {
+                                    let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                                    with_shape_mut!(draw_command, shape => {
+                                        *shape.stencil_ref_mut() = Some(parent_stencil);
+                                    });
+                                    continue;
+                                }
+
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
                                 let batched = with_shape_mut!(draw_command, shape => {
                                     let result = try_batch_leaf(
@@ -866,15 +781,17 @@ pub(super) fn render_segments(
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
                                 with_shape_mut!(draw_command, shape => {
                                     *shape.stencil_ref_mut() = Some(parent_stencil);
-                                    handle_leaf_draw_pass(
-                                        &mut render_pass,
-                                        &mut currently_set_pipeline,
-                                        &mut bound_texture_state,
-                                        stencil_stack,
-                                        shape,
-                                        pipelines,
-                                        buffers,
-                                    );
+                                    if !should_skip_visible_draw {
+                                        handle_leaf_draw_pass(
+                                            &mut render_pass,
+                                            &mut currently_set_pipeline,
+                                            &mut bound_texture_state,
+                                            stencil_stack,
+                                            shape,
+                                            pipelines,
+                                            buffers,
+                                        );
+                                    }
                                 });
                                 stencil_stack.push(parent_stencil);
                                 clip_kind_stack.push(ClipKind::NonClipping);
@@ -896,15 +813,17 @@ pub(super) fn render_segments(
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
                                 with_shape_mut!(draw_command, shape => {
                                     *shape.stencil_ref_mut() = Some(parent_stencil);
-                                    handle_leaf_draw_pass(
-                                        &mut render_pass,
-                                        &mut currently_set_pipeline,
-                                        &mut bound_texture_state,
-                                        stencil_stack,
-                                        shape,
-                                        pipelines,
-                                        buffers,
-                                    );
+                                    if !should_skip_visible_draw {
+                                        handle_leaf_draw_pass(
+                                            &mut render_pass,
+                                            &mut currently_set_pipeline,
+                                            &mut bound_texture_state,
+                                            stencil_stack,
+                                            shape,
+                                            pipelines,
+                                            buffers,
+                                        );
+                                    }
                                 });
                                 // Push same stencil — children are clipped by scissor
                                 // hardware, not by stencil buffer values.

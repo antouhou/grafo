@@ -7,13 +7,14 @@ use crate::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 
 const TILE_SIZE: u32 = 80;
 const COLUMNS: u32 = 6;
-const ROWS: u32 = 6;
+const ROWS: u32 = 7;
 
 pub const CANVAS_WIDTH: u32 = TILE_SIZE * COLUMNS;
 pub const CANVAS_HEIGHT: u32 = TILE_SIZE * ROWS;
 
 const BLUR_EFFECT_ID: u64 = 1;
 const CHECKERBOARD_TEXTURE_ID: u64 = 100;
+const SOLID_GREEN_TEXTURE_ID: u64 = 101;
 
 /// Returns the pixel origin (top-left corner) of tile number `n` (1-based).
 fn tile_origin(tile_number: u32) -> (f32, f32) {
@@ -37,8 +38,8 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         [(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)],
         Stroke::default(),
     );
-    renderer.add_shape(canvas_root, None, None);
-    // Leave the root with default white color — it acts as the background.
+    let canvas_root_id = renderer.add_shape(canvas_root, None, None);
+    renderer.set_shape_color(canvas_root_id, Some(Color::WHITE));
 
     load_shared_resources(renderer);
 
@@ -76,6 +77,10 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_32_tiny_1px_shape(renderer));
     expectations.extend(tile_33_shape_at_canvas_edge(renderer));
     expectations.extend(tile_34_cached_shape(renderer));
+    expectations.extend(tile_35_trivial_transform_transparent_leaf(renderer));
+    expectations.extend(tile_36_trivial_transform_transparent_parent(renderer));
+    expectations.extend(tile_37_textured_transparent_rects(renderer));
+    expectations.extend(tile_38_sheared_transparent_parent(renderer));
 
     expectations
 }
@@ -104,6 +109,11 @@ fn load_shared_resources(renderer: &mut Renderer) {
         CHECKERBOARD_TEXTURE_ID,
         (4, 4),
         &checkerboard,
+    );
+    renderer.texture_manager().allocate_texture_with_data(
+        SOLID_GREEN_TEXTURE_ID,
+        (1, 1),
+        &[0, 255, 0, 255],
     );
 }
 
@@ -1127,7 +1137,7 @@ fn tile_21_alpha_overlap(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 
 fn tile_22_no_color_default(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(22);
-    // Colored background so we can distinguish the white default-color shape
+    // Colored background so we can verify that an unset color stays transparent.
     let bg = Shape::rect(
         [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
         Stroke::default(),
@@ -1139,18 +1149,18 @@ fn tile_22_no_color_default(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         [(ox + 20.0, oy + 20.0), (ox + 60.0, oy + 60.0)],
         Stroke::default(),
     );
-    // No set_shape_color call — defaults to white
+    // No set_shape_color call — defaults to transparent
     renderer.add_shape(shape, None, None);
 
     vec![
-        // Shape center — default white
+        // Shape center — transparent, so the background shows through
         PixelExpectation::opaque(
             ox as u32 + 40,
             oy as u32 + 40,
-            255,
-            255,
-            255,
-            "t22_default_white",
+            100,
+            100,
+            200,
+            "t22_default_transparent",
         ),
         // Background visible around the shape
         PixelExpectation::opaque(
@@ -1700,6 +1710,145 @@ fn tile_34_cached_shape(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             255,
             255,
             "t34_outside_is_bg",
+        ),
+    ]
+}
+
+fn tile_35_trivial_transform_transparent_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(35);
+
+    let bg = Shape::rect(
+        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
+        Stroke::default(),
+    );
+    let bg_id = renderer.add_shape(bg, None, None);
+    renderer.set_shape_color(bg_id, Some(Color::rgb(40, 90, 200)));
+
+    let leaf = Shape::rect([(0.0, 0.0), (20.0, 20.0)], Stroke::default());
+    let leaf_id = renderer.add_shape(leaf, None, None);
+    renderer.set_shape_transform(
+        leaf_id,
+        TransformInstance::affine_2d(2.0, 0.0, 0.0, 2.0, ox + 20.0, oy + 20.0),
+    );
+
+    vec![PixelExpectation::opaque(
+        ox as u32 + 40,
+        oy as u32 + 40,
+        40,
+        90,
+        200,
+        "t35_transparent_leaf_shows_bg",
+    )]
+}
+
+fn tile_36_trivial_transform_transparent_parent(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(36);
+
+    let parent = Shape::rect([(0.0, 0.0), (20.0, 20.0)], Stroke::default());
+    let parent_id = renderer.add_shape(parent, None, None);
+    renderer.set_shape_transform(
+        parent_id,
+        TransformInstance::affine_2d(2.0, 0.0, 0.0, 2.0, ox + 20.0, oy + 20.0),
+    );
+
+    let child = Shape::rect(
+        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 40.0)],
+        Stroke::default(),
+    );
+    let child_id = renderer.add_shape(child, Some(parent_id), None);
+    renderer.set_shape_color(child_id, Some(Color::rgb(30, 110, 220)));
+
+    vec![
+        PixelExpectation::opaque(
+            ox as u32 + 30,
+            oy as u32 + 30,
+            30,
+            110,
+            220,
+            "t36_child_inside_clip",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 65,
+            oy as u32 + 30,
+            255,
+            255,
+            255,
+            "t36_child_outside_clip",
+        ),
+    ]
+}
+
+fn tile_37_textured_transparent_rects(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(37);
+
+    let explicit_alpha_zero = Shape::rect(
+        [(ox + 10.0, oy + 10.0), (ox + 30.0, oy + 30.0)],
+        Stroke::default(),
+    );
+    let explicit_alpha_zero_id = renderer.add_shape(explicit_alpha_zero, None, None);
+    renderer.set_shape_color(explicit_alpha_zero_id, Some(Color::rgba(255, 0, 0, 0)));
+    renderer.set_shape_texture(explicit_alpha_zero_id, Some(SOLID_GREEN_TEXTURE_ID));
+
+    let none_color = Shape::rect(
+        [(ox + 40.0, oy + 10.0), (ox + 60.0, oy + 30.0)],
+        Stroke::default(),
+    );
+    let none_color_id = renderer.add_shape(none_color, None, None);
+    renderer.set_shape_texture(none_color_id, Some(SOLID_GREEN_TEXTURE_ID));
+
+    vec![
+        PixelExpectation::opaque(
+            ox as u32 + 20,
+            oy as u32 + 20,
+            0,
+            255,
+            0,
+            "t37_explicit_alpha_zero_texture",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 50,
+            oy as u32 + 20,
+            0,
+            255,
+            0,
+            "t37_none_color_texture",
+        ),
+    ]
+}
+
+fn tile_38_sheared_transparent_parent(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(38);
+
+    let parent = Shape::rect([(0.0, 0.0), (20.0, 20.0)], Stroke::default());
+    let parent_id = renderer.add_shape(parent, None, None);
+    renderer.set_shape_transform(
+        parent_id,
+        TransformInstance::affine_2d(1.0, 0.0, 0.5, 1.0, ox + 20.0, oy + 20.0),
+    );
+
+    let child = Shape::rect(
+        [(ox + 15.0, oy + 15.0), (ox + 55.0, oy + 45.0)],
+        Stroke::default(),
+    );
+    let child_id = renderer.add_shape(child, Some(parent_id), None);
+    renderer.set_shape_color(child_id, Some(Color::rgb(20, 120, 230)));
+
+    vec![
+        PixelExpectation::opaque(
+            ox as u32 + 35,
+            oy as u32 + 30,
+            20,
+            120,
+            230,
+            "t38_inside_sheared_clip",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 22,
+            oy as u32 + 38,
+            255,
+            255,
+            255,
+            "t38_outside_sheared_clip",
         ),
     ]
 }

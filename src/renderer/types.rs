@@ -66,6 +66,20 @@ impl DrawCommand {
         }
     }
 
+    pub(super) fn texture_id(&self, layer: usize) -> Option<u64> {
+        match self {
+            DrawCommand::Shape(shape) => shape.texture_id(layer),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.texture_id(layer),
+        }
+    }
+
+    pub(super) fn instance_color_override(&self) -> Option<[f32; 4]> {
+        match self {
+            DrawCommand::Shape(shape) => shape.instance_color_override(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.instance_color_override(),
+        }
+    }
+
     pub(super) fn clips_children(&self) -> bool {
         match self {
             DrawCommand::Shape(shape) => shape.clips_children(),
