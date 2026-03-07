@@ -148,13 +148,14 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     return output;
 }
 
-@fragment
-fn fs_main(
-    @location(0) color: vec4<f32>,
-    @location(1) tex_coords: vec2<f32>,
-    @location(2) coverage: f32,
-    @location(3) @interpolate(flat) texture_flags: f32,
-) -> @location(0) vec4<f32> {
+// Computes the final premultiplied color for a fragment given fill color, texture
+// coordinates, AA coverage, and active texture layer flags.
+fn compute_fragment_color(
+    color: vec4<f32>,
+    tex_coords: vec2<f32>,
+    coverage: f32,
+    texture_flags: f32,
+) -> vec4<f32> {
     // Shape fill color arrives already in linear space (sRGB->linear conversion
     // is performed on the CPU in normalize_rgba_color).
     // Convert fill to premultiplied
@@ -189,4 +190,35 @@ fn fs_main(
     // With premultiplied alpha blending (src: One, dst: OneMinusSrcAlpha),
     // multiplying all four channels by coverage correctly fades the fringe to transparent.
     return final_pma * coverage;
+}
+
+@fragment
+fn fs_main(
+    @location(0) color: vec4<f32>,
+    @location(1) tex_coords: vec2<f32>,
+    @location(2) coverage: f32,
+    @location(3) @interpolate(flat) texture_flags: f32,
+) -> @location(0) vec4<f32> {
+    return compute_fragment_color(color, tex_coords, coverage, texture_flags);
+}
+
+// Used by stencil-only passes that write no color. Color work is skipped entirely;
+// only the fixed-function stencil operation matters for these draws.
+// NOTE: do not add discard here — that would also kill the stencil write.
+@fragment
+fn fs_stencil_only() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+}
+
+// Used by stencil-mutating passes that still produce visible color output.
+// Intentionally separate from fs_main: any future discard-based optimizations
+// in fs_main must not suppress stencil writes on these passes. Do not merge with fs_main.
+@fragment
+fn fs_passthrough(
+    @location(0) color: vec4<f32>,
+    @location(1) tex_coords: vec2<f32>,
+    @location(2) coverage: f32,
+    @location(3) @interpolate(flat) texture_flags: f32,
+) -> @location(0) vec4<f32> {
+    return compute_fragment_color(color, tex_coords, coverage, texture_flags);
 }

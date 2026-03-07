@@ -329,6 +329,11 @@ pub fn create_pipeline(
         push_constant_ranges: &[],
     });
 
+    let fragment_entry_point = match pipeline_type {
+        PipelineType::EqualIncrementStencil => "fs_passthrough",
+        PipelineType::EqualDecrementStencil => "fs_stencil_only",
+    };
+
     let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: None,
         layout: Some(&render_pipeline_layout),
@@ -345,7 +350,7 @@ pub fn create_pipeline(
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: Some("fs_main"),
+            entry_point: Some(fragment_entry_point),
             compilation_options: Default::default(),
             targets: &targets,
         }),
@@ -777,7 +782,7 @@ pub fn create_stencil_only_pipeline(
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: Some("fs_main"),
+            entry_point: Some("fs_stencil_only"),
             compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
