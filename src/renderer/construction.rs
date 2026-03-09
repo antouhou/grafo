@@ -1,5 +1,51 @@
 use super::*;
-use tracing::info;
+use tracing::{info, warn};
+
+fn pick_surface_format(surface_formats: &[wgpu::TextureFormat]) -> wgpu::TextureFormat {
+    const PREFERRED_SURFACE_FORMATS: [wgpu::TextureFormat; 4] = [
+        wgpu::TextureFormat::Bgra8UnormSrgb,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        wgpu::TextureFormat::Bgra8Unorm,
+        wgpu::TextureFormat::Rgba8Unorm,
+    ];
+
+    PREFERRED_SURFACE_FORMATS
+        .into_iter()
+        .find(|surface_format| surface_formats.contains(surface_format))
+        .unwrap_or_else(|| {
+            surface_formats
+                .first()
+                .copied()
+                .unwrap_or(wgpu::TextureFormat::Bgra8UnormSrgb)
+        })
+}
+
+fn pick_alpha_mode(alpha_modes: &[CompositeAlphaMode], transparent: bool) -> CompositeAlphaMode {
+    if transparent && alpha_modes.contains(&CompositeAlphaMode::PreMultiplied) {
+        info!("Using PreMultiplied alpha mode for transparency");
+        CompositeAlphaMode::PreMultiplied
+    } else if transparent && alpha_modes.contains(&CompositeAlphaMode::PostMultiplied) {
+        info!("Using PostMultiplied alpha mode for transparency");
+        CompositeAlphaMode::PostMultiplied
+    } else {
+        if transparent {
+            warn!(
+                "Transparency requested but no suitable alpha mode available, falling back to the surface default"
+            );
+        }
+
+        alpha_modes
+            .iter()
+            .copied()
+            .find(|alpha_mode| matches!(alpha_mode, CompositeAlphaMode::Opaque))
+            .unwrap_or_else(|| {
+                alpha_modes
+                    .first()
+                    .copied()
+                    .unwrap_or(CompositeAlphaMode::Opaque)
+            })
+    }
+}
 
 /// Errors that can occur when creating a [`Renderer`] via
 /// [`Renderer::try_new_headless`].
@@ -56,29 +102,9 @@ impl<'a> Renderer<'a> {
             .await
             .unwrap();
 
-        let swapchain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
-
         let surface_caps = surface.get_capabilities(&adapter);
-        let alpha_mode = if transparent
-            && surface_caps
-                .alpha_modes
-                .contains(&CompositeAlphaMode::PreMultiplied)
-        {
-            info!("Using PreMultiplied alpha mode for transparency");
-            CompositeAlphaMode::PreMultiplied
-        } else if transparent
-            && surface_caps
-                .alpha_modes
-                .contains(&CompositeAlphaMode::PostMultiplied)
-        {
-            info!("Using PostMultiplied alpha mode for transparency");
-            CompositeAlphaMode::PostMultiplied
-        } else {
-            if transparent {
-                warn!("Transparency requested but no suitable alpha mode available, falling back to Opaque");
-            }
-            CompositeAlphaMode::Opaque
-        };
+        let swapchain_format = pick_surface_format(&surface_caps.formats);
+        let alpha_mode = pick_alpha_mode(&surface_caps.alpha_modes, transparent);
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
