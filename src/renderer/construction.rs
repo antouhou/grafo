@@ -1,5 +1,5 @@
 use super::*;
-use tracing::info;
+use tracing::{info, warn};
 
 fn pick_surface_format(surface_formats: &[wgpu::TextureFormat]) -> wgpu::TextureFormat {
     const PREFERRED_SURFACE_FORMATS: [wgpu::TextureFormat; 4] = [
