@@ -68,6 +68,7 @@ impl<'a> Renderer<'a> {
             default_shape_texture_bind_groups: &self.default_shape_texture_bind_groups,
             shape_texture_layout_epoch: self.shape_texture_layout_epoch,
             texture_manager: &self.texture_manager,
+            default_gradient_bind_group: &self.default_gradient_bind_group,
         };
 
         let buffers = crate::renderer::types::Buffers {

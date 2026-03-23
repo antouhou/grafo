@@ -75,6 +75,7 @@ impl<'a> Renderer<'a> {
         self.msaa_sample_count = validated;
         self.recreate_pipelines();
         self.recreate_msaa_texture();
+        self.recreate_depth_stencil_texture();
     }
 
     pub(super) fn validate_sample_count_static(requested: u32) -> u32 {

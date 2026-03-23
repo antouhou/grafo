@@ -21,3 +21,6 @@
 - `tests/visual_regression.rs` always must be run to check that no regression has been introduced.
 - In case of adding a new feature, expand `tests/visual_regression.rs` to test that it works as expected, with all possible permutations of the added feature and existing ones. Study other cases in the test for reference.
   In case when a new bug is found, make sure it is fixed, and add the permutation that caused it to `tests/visual_regression.rs`.
+- You should add new tiles to the visual regression test to ensure that the new feature works as expected with all 
+possible permutations of existing features. Keep everything as tiles as much as possible. The only exception to create a
+whole new test should be when the feature absolutely cannot be tested with a new tile.

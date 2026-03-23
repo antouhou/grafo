@@ -216,6 +216,18 @@ pub struct Renderer<'a> {
     /// Avoids the redundant increment + decrement pair for childless shapes.
     leaf_draw_pipeline: Arc<wgpu::RenderPipeline>,
 
+    // ── Gradient fill infrastructure ───────────────────────────────────
+    /// Bind group layout for gradient resources (group 3 in shader).
+    gradient_bind_group_layout: wgpu::BindGroupLayout,
+    /// Default bind group for shapes with no gradient fill (transparent ramp).
+    default_gradient_bind_group: wgpu::BindGroup,
+    /// Default gradient params buffer (gradient_type=0 → no gradient).
+    default_gradient_params_buffer: wgpu::Buffer,
+    /// Sampler for gradient ramp textures (nearest, clamp-to-edge).
+    gradient_ramp_sampler: wgpu::Sampler,
+    /// Default 1-texel transparent ramp texture, kept alive for the default bind group.
+    _default_gradient_ramp_texture: wgpu::Texture,
+
     #[cfg(feature = "render_metrics")]
     /// Tracking for cumulative render-loop timing metrics.
     render_loop_metrics_tracker: RenderLoopMetricsTracker,

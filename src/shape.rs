@@ -34,6 +34,7 @@
 //!     .build();
 //! ```
 
+use crate::gradient::types::Fill;
 use crate::util::PoolManager;
 use crate::vertex::{CustomVertex, InstanceTransform};
 use crate::{Color, Stroke};
@@ -740,6 +741,10 @@ pub(crate) struct ShapeDrawData {
     pub(crate) texture_ids: [Option<u64>; 2],
     /// Optional per-instance color override (normalized [0,1]). If None, use shape's fill.
     pub(crate) color_override: Option<[f32; 4]>,
+    /// The fill for this shape (solid color or gradient). If None, transparent.
+    pub(crate) fill: Option<Fill>,
+    /// Per-frame gradient bind group (created during prepare when fill is Gradient).
+    pub(crate) gradient_bind_group: Option<std::sync::Arc<wgpu::BindGroup>>,
     /// Whether this node is a leaf in the draw tree (no children).
     pub(crate) is_leaf: bool,
     /// When `false`, skip stencil increment/decrement for this parent
@@ -765,6 +770,8 @@ impl ShapeDrawData {
             transform: None,
             texture_ids: [None, None],
             color_override: None,
+            fill: None,
+            gradient_bind_group: None,
             is_leaf: true,
             clips_children: true,
             is_rect,
@@ -798,6 +805,10 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) texture_ids: [Option<u64>; 2],
     /// Optional per-instance color override (normalized [0,1]). If None, use cached shape default.
     pub(crate) color_override: Option<[f32; 4]>,
+    /// The fill for this shape (solid color or gradient). If None, transparent.
+    pub(crate) fill: Option<Fill>,
+    /// Per-frame gradient bind group (created during prepare when fill is Gradient).
+    pub(crate) gradient_bind_group: Option<std::sync::Arc<wgpu::BindGroup>>,
     /// Whether this node is a leaf in the draw tree (no children).
     pub(crate) is_leaf: bool,
     /// When `false`, skip stencil increment/decrement for this parent
@@ -821,6 +832,8 @@ impl CachedShapeDrawData {
             transform: None,
             texture_ids: [None, None],
             color_override: None,
+            fill: None,
+            gradient_bind_group: None,
             is_leaf: true,
             clips_children: true,
             is_rect: false,
@@ -1169,6 +1182,8 @@ pub(crate) trait DrawShapeCommand {
     fn set_texture_id(&mut self, layer: usize, id: Option<u64>);
     fn instance_color_override(&self) -> Option<[f32; 4]>;
     fn set_instance_color_override(&mut self, color: Option<[f32; 4]>);
+    fn set_fill(&mut self, fill: Option<Fill>);
+    fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>>;
     fn clips_children(&self) -> bool;
     fn is_rect(&self) -> bool;
     fn rect_bounds(&self) -> Option<[(f32, f32); 2]>;
@@ -1230,6 +1245,18 @@ impl DrawShapeCommand for ShapeDrawData {
     #[inline]
     fn set_instance_color_override(&mut self, color: Option<[f32; 4]>) {
         self.color_override = color;
+    }
+
+    #[inline]
+    fn set_fill(&mut self, fill: Option<Fill>) {
+        self.fill = fill;
+        // Invalidate cached GPU resources so they are rebuilt next frame.
+        self.gradient_bind_group = None;
+    }
+
+    #[inline]
+    fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>> {
+        self.gradient_bind_group.as_ref()
     }
 
     #[inline]
@@ -1307,6 +1334,18 @@ impl DrawShapeCommand for CachedShapeDrawData {
     #[inline]
     fn set_instance_color_override(&mut self, color: Option<[f32; 4]>) {
         self.color_override = color;
+    }
+
+    #[inline]
+    fn set_fill(&mut self, fill: Option<Fill>) {
+        self.fill = fill;
+        // Invalidate cached GPU resources so they are rebuilt next frame.
+        self.gradient_bind_group = None;
+    }
+
+    #[inline]
+    fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>> {
+        self.gradient_bind_group.as_ref()
     }
 
     #[inline]

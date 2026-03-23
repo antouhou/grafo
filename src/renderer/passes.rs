@@ -254,6 +254,7 @@ pub(super) fn handle_increment_pass<'rp>(
             render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+            render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
             // Inform the tracker that default textures are now bound on both layers.
             bound_texture_state.mark_bound(0, None);
             bound_texture_state.mark_bound(1, None);
@@ -282,6 +283,14 @@ pub(super) fn handle_increment_pass<'rp>(
             pipelines.shape_texture_layout_epoch,
             bound_texture_state,
         );
+
+        // Bind per-shape gradient if present; otherwise reset to default to
+        // prevent a previous shape's gradient from leaking into this draw.
+        if let Some(gradient_bg) = shape.gradient_bind_group() {
+            render_pass.set_bind_group(3, gradient_bg.as_ref(), &[]);
+        } else {
+            render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
+        }
 
         bind_instance_buffers(render_pass, shape, buffers);
 
@@ -316,6 +325,7 @@ pub(super) fn handle_decrement_pass<'rp>(
             render_pass.set_bind_group(0, pipelines.decrementing_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+            render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
             bound_texture_state.mark_bound(0, None);
             bound_texture_state.mark_bound(1, None);
 
@@ -369,6 +379,7 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
             render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+            render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
             bound_texture_state.mark_bound(0, None);
             bound_texture_state.mark_bound(1, None);
 
@@ -397,6 +408,14 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
             pipelines.shape_texture_layout_epoch,
             bound_texture_state,
         );
+
+        // Bind per-shape gradient if present; otherwise reset to default to
+        // prevent a previous shape's gradient from leaking into this draw.
+        if let Some(gradient_bg) = shape.gradient_bind_group() {
+            render_pass.set_bind_group(3, gradient_bg.as_ref(), &[]);
+        } else {
+            render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
+        }
 
         bind_instance_buffers(render_pass, shape, buffers);
 
@@ -463,6 +482,7 @@ pub(super) fn flush_pending_leaf_batch(
         render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
         render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
         render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+        render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
         bound_texture_state.mark_bound(0, None);
         bound_texture_state.mark_bound(1, None);
 
@@ -480,6 +500,11 @@ pub(super) fn flush_pending_leaf_batch(
 
         currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::LeafDraw);
     }
+
+    // Batched shapes never carry per-shape gradient bind groups, but the
+    // previous single-draw leaf may have left a stale gradient bound.
+    // Reset to the default no-op gradient unconditionally.
+    render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
 
     // Bind textures for the batch.
     bind_shape_texture_layers(
@@ -537,6 +562,10 @@ pub(super) fn try_batch_leaf(
         None => return false,
     };
     if shape.is_empty() {
+        return false;
+    }
+    // Shapes with per-shape gradient bind groups cannot be batched.
+    if shape.gradient_bind_group().is_some() {
         return false;
     }
     let instance_index = match shape.instance_index() {
@@ -1033,6 +1062,7 @@ pub(super) fn render_segments(
                     &*pipelines.default_shape_texture_bind_groups[1],
                     &[],
                 );
+                render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
@@ -1083,6 +1113,7 @@ pub(super) fn render_segments(
                     &*pipelines.default_shape_texture_bind_groups[1],
                     &[],
                 );
+                render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
@@ -1096,6 +1127,13 @@ pub(super) fn render_segments(
                         shape.index_buffer_range(),
                     )
                 });
+
+                // Bind per-shape gradient if present.
+                if let Some(draw_command) = draw_tree.get(backdrop_node_id) {
+                    if let Some(gradient_bg) = draw_command.gradient_bind_group() {
+                        render_pass.set_bind_group(3, gradient_bg.as_ref(), &[]);
+                    }
+                }
 
                 bind_shape_texture_layers(
                     &mut render_pass,
@@ -1130,6 +1168,7 @@ pub(super) fn render_segments(
                             &*pipelines.default_shape_texture_bind_groups[1],
                             &[],
                         );
+                        render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
                         render_pass.set_stencil_reference(this_stencil);
                         render_pass.draw_indexed(start..end, 0, 0..1);
                     }

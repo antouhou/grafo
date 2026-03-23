@@ -199,6 +199,7 @@ pub fn create_pipeline(
     BindGroup,
     BindGroupLayout,
     BindGroupLayout,
+    BindGroupLayout,
     RenderPipeline,
 ) {
     let (depth_stencil_state, targets) = match pipeline_type {
@@ -303,6 +304,42 @@ pub fn create_pipeline(
             ],
             label: Some("shape_texture_bind_group_layout_layer1"),
         });
+    // Bind group layout for gradient resources (group 3 in shader)
+    let gradient_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                // binding 0: gradient params uniform
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // binding 1: gradient ramp 1D texture
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D1,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    },
+                    count: None,
+                },
+                // binding 2: gradient ramp sampler
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                    count: None,
+                },
+            ],
+            label: Some("gradient_bind_group_layout"),
+        });
 
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         layout: &bind_group_layout,
@@ -325,6 +362,7 @@ pub fn create_pipeline(
             &bind_group_layout,
             &texture_bind_group_layout_layer0,
             &texture_bind_group_layout_layer1,
+            &gradient_bind_group_layout,
         ],
         push_constant_ranges: &[],
     });
@@ -371,6 +409,7 @@ pub fn create_pipeline(
         bind_group,
         texture_bind_group_layout_layer0,
         texture_bind_group_layout_layer1,
+        gradient_bind_group_layout,
         render_pipeline,
     )
 }
@@ -754,6 +793,7 @@ pub fn create_stencil_only_pipeline(
     uniform_bgl: &wgpu::BindGroupLayout,
     texture_bgl_layer0: &wgpu::BindGroupLayout,
     texture_bgl_layer1: &wgpu::BindGroupLayout,
+    gradient_bgl: &wgpu::BindGroupLayout,
 ) -> RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("stencil_only_shader"),
@@ -762,7 +802,7 @@ pub fn create_stencil_only_pipeline(
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("stencil_only_pipeline_layout"),
-        bind_group_layouts: &[uniform_bgl, texture_bgl_layer0, texture_bgl_layer1],
+        bind_group_layouts: &[uniform_bgl, texture_bgl_layer0, texture_bgl_layer1, gradient_bgl],
         push_constant_ranges: &[],
     });
 
@@ -812,6 +852,7 @@ pub fn create_stencil_keep_color_pipeline(
     uniform_bgl: &wgpu::BindGroupLayout,
     texture_bgl_layer0: &wgpu::BindGroupLayout,
     texture_bgl_layer1: &wgpu::BindGroupLayout,
+    gradient_bgl: &wgpu::BindGroupLayout,
 ) -> RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("stencil_keep_color_shader"),
@@ -820,7 +861,7 @@ pub fn create_stencil_keep_color_pipeline(
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("stencil_keep_color_pipeline_layout"),
-        bind_group_layouts: &[uniform_bgl, texture_bgl_layer0, texture_bgl_layer1],
+        bind_group_layouts: &[uniform_bgl, texture_bgl_layer0, texture_bgl_layer1, gradient_bgl],
         push_constant_ranges: &[],
     });
 

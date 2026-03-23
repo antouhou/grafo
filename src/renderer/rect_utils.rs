@@ -51,6 +51,11 @@ pub(super) fn should_skip_visible_rect_draw(
         return false;
     }
 
+    // Shapes with a gradient bind group are visually active — don't skip.
+    if draw_command.gradient_bind_group().is_some() {
+        return false;
+    }
+
     if draw_command
         .instance_color_override()
         .is_some_and(|color| color[3] != 0.0)

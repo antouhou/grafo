@@ -162,6 +162,7 @@ impl<'a> Renderer<'a> {
             and_bind_group,
             and_texture_bgl_layer0,
             and_texture_bgl_layer1,
+            and_gradient_bgl,
             and_pipeline,
         ) = create_pipeline(
             canvas_logical_size,
@@ -179,6 +180,7 @@ impl<'a> Renderer<'a> {
             decrementing_bind_group,
             _shape_texture_bind_group_layout_init0,
             _shape_texture_bind_group_layout_init1,
+            _decrementing_gradient_bgl,
             decrementing_pipeline,
         ) = create_pipeline(
             canvas_logical_size,
@@ -197,7 +199,52 @@ impl<'a> Renderer<'a> {
             &and_pipeline.get_bind_group_layout(0),
             &and_texture_bgl_layer0,
             &and_texture_bgl_layer1,
+            &and_gradient_bgl,
         );
+
+        // ── Gradient fill resources ────────────────────────────────────
+        let gradient_ramp_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("gradient_ramp_sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        let default_gradient_params = crate::gradient::gpu::GpuGradientParams::none();
+        let default_gradient_params_buffer =
+            crate::pipeline::create_buffer_init(
+                &device,
+                Some("default_gradient_params"),
+                bytemuck::bytes_of(&default_gradient_params),
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            );
+
+        let (default_gradient_ramp_texture, default_gradient_ramp_view) =
+            crate::gradient::gpu::create_default_ramp_texture(&device, &queue);
+
+        let default_gradient_bind_group =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("default_gradient_bind_group"),
+                layout: &and_gradient_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: default_gradient_params_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&default_gradient_ramp_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&gradient_ramp_sampler),
+                    },
+                ],
+            });
 
         let device = Arc::new(device);
         let queue = Arc::new(queue);
@@ -292,6 +339,11 @@ impl<'a> Renderer<'a> {
             stencil_only_pipeline: None,
             backdrop_color_pipeline: None,
             leaf_draw_pipeline: Arc::new(leaf_draw_pipeline),
+            gradient_bind_group_layout: and_gradient_bgl,
+            default_gradient_bind_group,
+            default_gradient_params_buffer,
+            gradient_ramp_sampler,
+            _default_gradient_ramp_texture: default_gradient_ramp_texture,
             #[cfg(feature = "render_metrics")]
             render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),
             #[cfg(feature = "render_metrics")]
@@ -609,6 +661,7 @@ impl<'a> Renderer<'a> {
             and_bind_group,
             and_texture_bgl_layer0,
             and_texture_bgl_layer1,
+            and_gradient_bgl,
             and_pipeline,
         ) = create_pipeline(
             canvas_logical_size,
@@ -624,6 +677,7 @@ impl<'a> Renderer<'a> {
             decrementing_uniforms,
             decrementing_uniform_buffer,
             decrementing_bind_group,
+            _,
             _,
             _,
             decrementing_pipeline,
@@ -650,6 +704,45 @@ impl<'a> Renderer<'a> {
         self.shape_texture_bind_group_layout_background = Arc::new(and_texture_bgl_layer0);
         self.shape_texture_bind_group_layout_foreground = Arc::new(and_texture_bgl_layer1);
         self.shape_texture_layout_epoch += 1;
+
+        // Recreate gradient bind group layout and default bind group
+        self.gradient_bind_group_layout = and_gradient_bgl;
+        let default_gradient_params = crate::gradient::gpu::GpuGradientParams::none();
+        self.default_gradient_params_buffer = crate::pipeline::create_buffer_init(
+            &self.device,
+            Some("default_gradient_params"),
+            bytemuck::bytes_of(&default_gradient_params),
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
+        let (_default_ramp_tex, default_ramp_view) =
+            crate::gradient::gpu::create_default_ramp_texture(&self.device, &self.queue);
+        self._default_gradient_ramp_texture = _default_ramp_tex;
+        self.gradient_ramp_sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("gradient_ramp_sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        self.default_gradient_bind_group =
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("default_gradient_bind_group"),
+                layout: &self.gradient_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.default_gradient_params_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&default_ramp_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&self.gradient_ramp_sampler),
+                    },
+                ],
+            });
 
         let (default_shape_texture_bind_group_background, _) =
             Self::create_default_shape_texture_bind_group(
@@ -678,6 +771,17 @@ impl<'a> Renderer<'a> {
             &self.and_pipeline.get_bind_group_layout(0),
             &self.shape_texture_bind_group_layout_background,
             &self.shape_texture_bind_group_layout_foreground,
+            &self.gradient_bind_group_layout,
         ));
+
+        // Reset lazily-created pipelines so they pick up the new layout
+        self.stencil_only_pipeline = None;
+        self.backdrop_color_pipeline = None;
+
+        // Invalidate cached per-shape gradient bind groups — they were created
+        // against the old gradient_bind_group_layout and are now stale.
+        for (_node_id, draw_command) in self.draw_tree.iter_mut() {
+            draw_command.invalidate_gradient_bind_group();
+        }
     }
 }

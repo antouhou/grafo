@@ -1,4 +1,5 @@
 use super::*;
+use crate::gradient::types::Fill;
 
 impl<'a> Renderer<'a> {
     pub fn add_shape(
@@ -141,7 +142,22 @@ impl<'a> Renderer<'a> {
     pub fn set_shape_color(&mut self, node_id: usize, color: Option<Color>) {
         let normalized_color = color.map(|value| value.normalize());
         self.mutate_draw_command(node_id, |draw_command| {
-            draw_command.set_instance_color_override(normalized_color)
+            draw_command.set_instance_color_override(normalized_color);
+            // set_shape_color is sugar for Fill::Solid / None
+            let fill = color.map(Fill::Solid);
+            draw_command.set_fill(fill);
+        });
+    }
+
+    pub fn set_shape_fill(&mut self, node_id: usize, fill: Option<Fill>) {
+        self.mutate_draw_command(node_id, |draw_command| {
+            // Derive color_override from fill for the solid fast path
+            let color_override = match &fill {
+                Some(Fill::Solid(color)) => Some(color.normalize()),
+                _ => None,
+            };
+            draw_command.set_instance_color_override(color_override);
+            draw_command.set_fill(fill);
         });
     }
 }

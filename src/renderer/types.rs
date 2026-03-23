@@ -3,6 +3,7 @@ use std::sync::Arc;
 use ahash::{HashMap, HashMapExt};
 
 use crate::effect::{self, EffectInstance, LoadedEffect};
+use crate::gradient::types::Fill;
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, ShapeDrawData};
 use crate::texture_manager::TextureManager;
 use crate::vertex::InstanceTransform;
@@ -77,6 +78,27 @@ impl DrawCommand {
         match self {
             DrawCommand::Shape(shape) => shape.instance_color_override(),
             DrawCommand::CachedShape(cached_shape) => cached_shape.instance_color_override(),
+        }
+    }
+
+    pub(super) fn set_fill(&mut self, fill: Option<Fill>) {
+        match self {
+            DrawCommand::Shape(shape) => shape.set_fill(fill),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.set_fill(fill),
+        }
+    }
+
+    pub(super) fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>> {
+        match self {
+            DrawCommand::Shape(shape) => shape.gradient_bind_group(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.gradient_bind_group(),
+        }
+    }
+
+    pub(super) fn invalidate_gradient_bind_group(&mut self) {
+        match self {
+            DrawCommand::Shape(shape) => shape.gradient_bind_group = None,
+            DrawCommand::CachedShape(cached_shape) => cached_shape.gradient_bind_group = None,
         }
     }
 
@@ -245,6 +267,7 @@ pub(super) struct Pipelines<'a> {
     pub(super) default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
     pub(super) shape_texture_layout_epoch: u64,
     pub(super) texture_manager: &'a TextureManager,
+    pub(super) default_gradient_bind_group: &'a wgpu::BindGroup,
 }
 
 /// Backdrop-specific rendering resources. Only needed when backdrop effects exist.
