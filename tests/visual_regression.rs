@@ -105,3 +105,37 @@ fn single_root_no_children() {
 
     assert_pixels_match(&pixel_buffer, &expectations);
 }
+
+/// Regression test — touching triangle subpaths in one filled shape should not
+/// show an internal AA seam along their shared diagonal.
+#[test]
+fn multi_subpath_fill_has_no_internal_seam() {
+    let Some(mut renderer) = create_headless_renderer() else {
+        return;
+    };
+
+    let shape = grafo::Shape::builder()
+        .begin((10.0, 10.0))
+        .line_to((100.0, 10.0))
+        .line_to((100.0, 100.0))
+        .close()
+        .begin((10.0, 10.0))
+        .line_to((100.0, 100.0))
+        .line_to((10.0, 100.0))
+        .close()
+        .build();
+    let id = renderer.add_shape(shape, None, None);
+    renderer.set_shape_color(id, Some(grafo::Color::rgb(200, 50, 50)));
+
+    let mut pixel_buffer: Vec<u8> = Vec::new();
+    renderer.render_to_buffer(&mut pixel_buffer);
+
+    let expectations = vec![
+        grafo_test_scenes::PixelExpectation::opaque(30, 30, 200, 50, 50, "diag_top_left"),
+        grafo_test_scenes::PixelExpectation::opaque(55, 55, 200, 50, 50, "diag_center"),
+        grafo_test_scenes::PixelExpectation::opaque(80, 80, 200, 50, 50, "diag_bottom_right"),
+        grafo_test_scenes::PixelExpectation::transparent(5, 5, "outside_shape"),
+    ];
+
+    assert_pixels_match(&pixel_buffer, &expectations);
+}

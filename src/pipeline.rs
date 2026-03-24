@@ -21,7 +21,7 @@ pub struct Uniforms {
     /// to offset by exactly 1 physical pixel.
     pub scale_factor: f32,
     /// AA fringe offset in physical pixels. Controls how far the anti-aliasing
-    /// fringe extends outward from shape edges. Default is 0.5. Set to 0.0 to
+    /// fringe extends outward from shape edges. Default is 0.75. Set to 0.0 to
     /// disable the AA fringe entirely.
     pub fringe_width: f32,
 }

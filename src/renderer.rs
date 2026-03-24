@@ -76,7 +76,7 @@ pub struct Renderer<'a> {
     scale_factor: f64,
 
     /// AA fringe offset in physical pixels. Controls how far the anti-aliasing
-    /// fringe extends outward from shape edges. Default is 0.5.
+    /// fringe extends outward from shape edges. Default is 0.75.
     fringe_width: f32,
 
     // WGPU components

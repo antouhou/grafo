@@ -473,11 +473,6 @@ struct BoundaryCornerNormalData {
     source_vertex_index: u16,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct TriangleData {
-    vertex_keys: [BoundaryVertexKey; 3],
-}
-
 pub(crate) struct AaFringeScratch {
     edge_use_counts: AHashMap<BoundaryEdgeKey, (usize, BoundaryEdge)>,
     edge_owners: AHashMap<BoundaryEdgeKey, SmallVec<[usize; 2]>>,
@@ -486,7 +481,6 @@ pub(crate) struct AaFringeScratch {
     triangle_component_map: AHashMap<(usize, BoundaryVertexKey), usize>,
     boundary_corner_normals: AHashMap<BoundaryCornerKey, BoundaryCornerNormalData>,
     outer_vertex_indices: AHashMap<BoundaryCornerKey, u16>,
-    triangles: Vec<TriangleData>,
     boundary_edges: Vec<BoundaryEdge>,
     triangle_stack: Vec<usize>,
 }
@@ -501,7 +495,6 @@ impl AaFringeScratch {
             triangle_component_map: AHashMap::new(),
             boundary_corner_normals: AHashMap::new(),
             outer_vertex_indices: AHashMap::new(),
-            triangles: Vec::new(),
             boundary_edges: Vec::new(),
             triangle_stack: Vec::new(),
         }
@@ -515,7 +508,6 @@ impl AaFringeScratch {
         self.triangle_component_map.clear();
         self.boundary_corner_normals.clear();
         self.outer_vertex_indices.clear();
-        self.triangles.clear();
         self.boundary_edges.clear();
         self.triangle_stack.clear();
     }
@@ -548,8 +540,6 @@ fn build_boundary_data(vertices: &[CustomVertex], indices: &[u16], scratch: &mut
         let vertex_keys = [a, b, c].map(|vertex_index| {
             BoundaryVertexKey::from_position(vertices[vertex_index as usize].position)
         });
-
-        scratch.triangles.push(TriangleData { vertex_keys });
 
         for &vertex_key in &vertex_keys {
             scratch
