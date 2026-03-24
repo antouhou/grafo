@@ -233,7 +233,7 @@ pub struct Renderer<'a> {
 }
 
 /// Default AA fringe width in physical pixels.
-const DEFAULT_FRINGE_WIDTH: f32 = 0.5;
+const DEFAULT_FRINGE_WIDTH: f32 = 0.75;
 
 impl<'a> Renderer<'a> {
     const DEFAULT_FRINGE_WIDTH: f32 = DEFAULT_FRINGE_WIDTH;

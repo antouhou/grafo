@@ -424,6 +424,63 @@ impl FillVertexConstructor<CustomVertex> for VertexConverter {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+struct BoundaryVertexKey {
+    x_bits: u32,
+    y_bits: u32,
+}
+
+impl BoundaryVertexKey {
+    fn from_position(position: [f32; 2]) -> Self {
+        Self {
+            x_bits: normalized_float_bits(position[0]),
+            y_bits: normalized_float_bits(position[1]),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct BoundaryEdgeKey {
+    start: BoundaryVertexKey,
+    end: BoundaryVertexKey,
+}
+
+impl BoundaryEdgeKey {
+    fn new(start_position: [f32; 2], end_position: [f32; 2]) -> Self {
+        let start = BoundaryVertexKey::from_position(start_position);
+        let end = BoundaryVertexKey::from_position(end_position);
+        if start <= end {
+            Self { start, end }
+        } else {
+            Self {
+                start: end,
+                end: start,
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct BoundaryEdge {
+    start_vertex_index: u16,
+    end_vertex_index: u16,
+    opposite_vertex_index: u16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct BoundaryVertexNormalData {
+    accumulated_normal: [f32; 2],
+    source_vertex_index: u16,
+}
+
+fn normalized_float_bits(value: f32) -> u32 {
+    if value == 0.0 {
+        0.0f32.to_bits()
+    } else {
+        value.to_bits()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Anti-Aliasing: Inflated-Geometry Fringe Generation
 // ---------------------------------------------------------------------------
@@ -433,36 +490,34 @@ impl FillVertexConstructor<CustomVertex> for VertexConverter {
 /// Returns a list of `(vertex_a, vertex_b, opposite_vertex)` tuples. The `opposite_vertex` is
 /// the third vertex of the triangle that owns the edge — it is used to determine which side
 /// of the edge faces outward (away from the triangle interior).
-fn find_boundary_edges(indices: &[u16]) -> Vec<(u16, u16, u16)> {
-    // Map canonical edge (min, max) -> (use_count, opposite_vertex_of_first_triangle)
-    let mut edge_map: AHashMap<(u16, u16), (usize, u16)> = AHashMap::new();
+fn find_boundary_edges(vertices: &[CustomVertex], indices: &[u16]) -> Vec<BoundaryEdge> {
+    let mut edge_map: AHashMap<BoundaryEdgeKey, (usize, BoundaryEdge)> = AHashMap::new();
 
     for tri in indices.chunks_exact(3) {
         let a = tri[0];
         let b = tri[1];
         let c = tri[2];
 
-        // For each of the three edges, record or increment
         for &(i, j, opp) in &[(a, b, c), (b, c, a), (c, a, b)] {
-            let key = (i.min(j), i.max(j));
+            let key =
+                BoundaryEdgeKey::new(vertices[i as usize].position, vertices[j as usize].position);
             edge_map
                 .entry(key)
                 .and_modify(|(count, _)| *count += 1)
-                .or_insert((1, opp));
+                .or_insert((
+                    1,
+                    BoundaryEdge {
+                        start_vertex_index: i,
+                        end_vertex_index: j,
+                        opposite_vertex_index: opp,
+                    },
+                ));
         }
     }
 
     edge_map
         .into_iter()
-        .filter_map(
-            |((i, j), (count, opp))| {
-                if count == 1 {
-                    Some((i, j, opp))
-                } else {
-                    None
-                }
-            },
-        )
+        .filter_map(|(_, (count, boundary_edge))| (count == 1).then_some(boundary_edge))
         .collect()
 }
 
@@ -474,7 +529,7 @@ fn find_boundary_edges(indices: &[u16]) -> Vec<(u16, u16, u16)> {
 /// in the buffer are identical to the source boundary vertices — only the `normal` and
 /// `coverage` fields differ.
 fn generate_aa_fringe(vertices: &mut Vec<CustomVertex>, indices: &mut Vec<u16>) {
-    let boundary_edges = find_boundary_edges(indices);
+    let boundary_edges = find_boundary_edges(vertices, indices);
 
     if boundary_edges.is_empty() {
         return;
@@ -482,111 +537,116 @@ fn generate_aa_fringe(vertices: &mut Vec<CustomVertex>, indices: &mut Vec<u16>) 
 
     // --- Step 1: Compute per-boundary-vertex averaged outward (miter) normals ---
 
-    // Collect which vertices are on the boundary and accumulate their outward normals
-    let mut vertex_normals: AHashMap<u16, [f32; 2]> = AHashMap::new();
+    let mut boundary_vertex_normals: AHashMap<BoundaryVertexKey, BoundaryVertexNormalData> =
+        AHashMap::new();
 
-    for &(a, b, opp) in &boundary_edges {
-        let pa = vertices[a as usize].position;
-        let pb = vertices[b as usize].position;
-        let po = vertices[opp as usize].position;
+    for boundary_edge in &boundary_edges {
+        let pa = vertices[boundary_edge.start_vertex_index as usize].position;
+        let pb = vertices[boundary_edge.end_vertex_index as usize].position;
+        let po = vertices[boundary_edge.opposite_vertex_index as usize].position;
 
-        // Edge direction
         let dx = pb[0] - pa[0];
         let dy = pb[1] - pa[1];
         let edge_len = (dx * dx + dy * dy).sqrt();
         if edge_len < 1e-10 {
-            continue; // Skip degenerate zero-length edges
+            continue;
         }
 
-        // Two candidate perpendicular normals
         let n1 = [-dy / edge_len, dx / edge_len];
         let n2 = [dy / edge_len, -dx / edge_len];
 
-        // Pick the one pointing away from the opposite vertex
-        // dot(n, opp - a) < 0 means n points away from the interior
         let to_opp = [po[0] - pa[0], po[1] - pa[1]];
         let dot1 = n1[0] * to_opp[0] + n1[1] * to_opp[1];
         let outward = if dot1 < 0.0 { n1 } else { n2 };
 
-        // Accumulate normals for both edge vertices
-        for &vi in &[a, b] {
-            let entry = vertex_normals.entry(vi).or_insert([0.0, 0.0]);
-            entry[0] += outward[0];
-            entry[1] += outward[1];
+        for &vertex_index in &[
+            boundary_edge.start_vertex_index,
+            boundary_edge.end_vertex_index,
+        ] {
+            let vertex_key =
+                BoundaryVertexKey::from_position(vertices[vertex_index as usize].position);
+            let entry =
+                boundary_vertex_normals
+                    .entry(vertex_key)
+                    .or_insert(BoundaryVertexNormalData {
+                        accumulated_normal: [0.0, 0.0],
+                        source_vertex_index: vertex_index,
+                    });
+            entry.accumulated_normal[0] += outward[0];
+            entry.accumulated_normal[1] += outward[1];
         }
     }
 
-    // Normalize the accumulated normals (miter direction)
-    for normal in vertex_normals.values_mut() {
-        let len = (normal[0] * normal[0] + normal[1] * normal[1]).sqrt();
+    for boundary_vertex_normal in boundary_vertex_normals.values_mut() {
+        let len = (boundary_vertex_normal.accumulated_normal[0]
+            * boundary_vertex_normal.accumulated_normal[0]
+            + boundary_vertex_normal.accumulated_normal[1]
+                * boundary_vertex_normal.accumulated_normal[1])
+            .sqrt();
         if len > 1e-10 {
-            normal[0] /= len;
-            normal[1] /= len;
+            boundary_vertex_normal.accumulated_normal[0] /= len;
+            boundary_vertex_normal.accumulated_normal[1] /= len;
         }
     }
 
     // --- Step 2: Create outer fringe (duplicate) vertices ---
 
-    // Map: original boundary vertex index -> new outer fringe vertex index
-    let mut outer_map: AHashMap<u16, u16> = AHashMap::new();
+    let mut outer_vertex_indices: AHashMap<BoundaryVertexKey, u16> = AHashMap::new();
 
-    for (&vi, &normal) in &vertex_normals {
-        let src = &vertices[vi as usize];
+    for (&boundary_vertex_key, boundary_vertex_normal) in &boundary_vertex_normals {
+        let source_vertex = &vertices[boundary_vertex_normal.source_vertex_index as usize];
         let outer_vertex = CustomVertex {
-            position: src.position, // same position; shader applies the offset
-            tex_coords: src.tex_coords,
-            normal,
+            position: source_vertex.position,
+            tex_coords: source_vertex.tex_coords,
+            normal: boundary_vertex_normal.accumulated_normal,
             coverage: 0.0,
         };
         let new_idx = vertices.len() as u16;
         vertices.push(outer_vertex);
-        outer_map.insert(vi, new_idx);
+        outer_vertex_indices.insert(boundary_vertex_key, new_idx);
     }
 
     // --- Step 3: Emit fringe quads (two triangles per boundary edge) ---
 
-    for &(a, b, opp) in &boundary_edges {
-        let a_outer = match outer_map.get(&a) {
+    for boundary_edge in &boundary_edges {
+        let start_vertex_key = BoundaryVertexKey::from_position(
+            vertices[boundary_edge.start_vertex_index as usize].position,
+        );
+        let end_vertex_key = BoundaryVertexKey::from_position(
+            vertices[boundary_edge.end_vertex_index as usize].position,
+        );
+
+        let start_outer_vertex_index = match outer_vertex_indices.get(&start_vertex_key) {
             Some(&idx) => idx,
-            None => continue, // degenerate edge skipped earlier
+            None => continue,
         };
-        let b_outer = match outer_map.get(&b) {
+        let end_outer_vertex_index = match outer_vertex_indices.get(&end_vertex_key) {
             Some(&idx) => idx,
             None => continue,
         };
 
-        // Determine the correct winding order for the fringe quad.
-        // The fill triangle (a, b, opp) has a specific winding. The fringe quad should
-        // extend outward with consistent winding.
-        //
-        // We use the cross-product of the fill triangle to determine winding, then
-        // construct the fringe triangles accordingly.
-        let pa = vertices[a as usize].position;
-        let pb = vertices[b as usize].position;
-        let po = vertices[opp as usize].position;
+        let pa = vertices[boundary_edge.start_vertex_index as usize].position;
+        let pb = vertices[boundary_edge.end_vertex_index as usize].position;
+        let po = vertices[boundary_edge.opposite_vertex_index as usize].position;
 
-        // Cross product of (b-a) x (opp-a) to determine fill winding
         let cross = (pb[0] - pa[0]) * (po[1] - pa[1]) - (pb[1] - pa[1]) * (po[0] - pa[0]);
 
         if cross >= 0.0 {
-            // CCW fill triangle: edge a->b is on the left side, fringe extends right
-            // Fringe quad: a, b, a', then b, b', a'
-            indices.push(a);
-            indices.push(b);
-            indices.push(a_outer);
+            indices.push(boundary_edge.start_vertex_index);
+            indices.push(boundary_edge.end_vertex_index);
+            indices.push(start_outer_vertex_index);
 
-            indices.push(b);
-            indices.push(b_outer);
-            indices.push(a_outer);
+            indices.push(boundary_edge.end_vertex_index);
+            indices.push(end_outer_vertex_index);
+            indices.push(start_outer_vertex_index);
         } else {
-            // CW fill triangle: reverse the fringe winding
-            indices.push(a);
-            indices.push(a_outer);
-            indices.push(b);
+            indices.push(boundary_edge.start_vertex_index);
+            indices.push(start_outer_vertex_index);
+            indices.push(boundary_edge.end_vertex_index);
 
-            indices.push(b);
-            indices.push(a_outer);
-            indices.push(b_outer);
+            indices.push(boundary_edge.end_vertex_index);
+            indices.push(start_outer_vertex_index);
+            indices.push(end_outer_vertex_index);
         }
     }
 }
@@ -1322,5 +1382,53 @@ impl DrawShapeCommand for CachedShapeDrawData {
     #[inline]
     fn rect_bounds(&self) -> Option<[(f32, f32); 2]> {
         self.rect_bounds
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{find_boundary_edges, generate_aa_fringe, BoundaryVertexKey, CustomVertex};
+
+    fn test_vertex(position: [f32; 2]) -> CustomVertex {
+        CustomVertex {
+            position,
+            tex_coords: [0.0, 0.0],
+            normal: [0.0, 0.0],
+            coverage: 1.0,
+        }
+    }
+
+    #[test]
+    fn aa_fringe_ignores_internal_seams_with_duplicate_vertices() {
+        let mut vertices = vec![
+            test_vertex([0.0, 0.0]),
+            test_vertex([1.0, 0.0]),
+            test_vertex([1.0, 1.0]),
+            test_vertex([0.0, 0.0]),
+            test_vertex([1.0, 1.0]),
+            test_vertex([0.0, 1.0]),
+        ];
+        let mut indices = vec![0, 1, 2, 3, 4, 5];
+
+        let boundary_edges = find_boundary_edges(&vertices, &indices);
+        assert_eq!(boundary_edges.len(), 4);
+
+        generate_aa_fringe(&mut vertices, &mut indices);
+
+        assert_eq!(vertices.len(), 10);
+        assert_eq!(indices.len(), 30);
+
+        let outer_vertex_count = vertices
+            .iter()
+            .filter(|vertex| vertex.coverage == 0.0)
+            .count();
+        assert_eq!(outer_vertex_count, 4);
+
+        let unique_outer_vertex_positions = vertices
+            .iter()
+            .filter(|vertex| vertex.coverage == 0.0)
+            .map(|vertex| BoundaryVertexKey::from_position(vertex.position))
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(unique_outer_vertex_positions.len(), 4);
     }
 }
