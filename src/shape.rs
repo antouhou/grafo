@@ -789,6 +789,17 @@ fn generate_aa_fringe(
         let end_vertex_key = BoundaryVertexKey::from_position(
             vertices[boundary_edge.end_vertex_index as usize].position,
         );
+        let pa = vertices[boundary_edge.start_vertex_index as usize].position;
+        let pb = vertices[boundary_edge.end_vertex_index as usize].position;
+        let po = vertices[boundary_edge.opposite_vertex_index as usize].position;
+
+        let dx = pb[0] - pa[0];
+        let dy = pb[1] - pa[1];
+        let edge_len = (dx * dx + dy * dy).sqrt();
+        if edge_len < 1e-10 {
+            continue;
+        }
+
         let start_component_index = *scratch
             .triangle_component_map
             .get(&(boundary_edge.triangle_index, start_vertex_key))
@@ -848,10 +859,6 @@ fn generate_aa_fringe(
                 continue;
             }
         };
-
-        let pa = vertices[boundary_edge.start_vertex_index as usize].position;
-        let pb = vertices[boundary_edge.end_vertex_index as usize].position;
-        let po = vertices[boundary_edge.opposite_vertex_index as usize].position;
 
         let cross = (pb[0] - pa[0]) * (po[1] - pa[1]) - (pb[1] - pa[1]) * (po[0] - pa[0]);
 
@@ -1721,5 +1728,21 @@ mod tests {
             })
             .count();
         assert_eq!(shared_point_outer_vertices, 2);
+    }
+
+    #[test]
+    fn aa_fringe_skips_zero_length_boundary_edges() {
+        let mut vertices = vec![
+            test_vertex([5.0, 5.0]),
+            test_vertex([5.0, 5.0]),
+            test_vertex([6.0, 5.0]),
+        ];
+        let mut indices = vec![0, 1, 2];
+        let mut aa_fringe_scratch = AaFringeScratch::new();
+
+        generate_aa_fringe(&mut vertices, &mut indices, &mut aa_fringe_scratch);
+
+        assert_eq!(vertices.len(), 3);
+        assert_eq!(indices.len(), 3);
     }
 }
