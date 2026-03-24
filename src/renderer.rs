@@ -76,7 +76,7 @@ pub struct Renderer<'a> {
     scale_factor: f64,
 
     /// AA fringe offset in physical pixels. Controls how far the anti-aliasing
-    /// fringe extends outward from shape edges. Default is 0.5.
+    /// fringe extends outward from shape edges. Default is 0.75.
     fringe_width: f32,
 
     // WGPU components
@@ -233,7 +233,7 @@ pub struct Renderer<'a> {
 }
 
 /// Default AA fringe width in physical pixels.
-const DEFAULT_FRINGE_WIDTH: f32 = 0.5;
+const DEFAULT_FRINGE_WIDTH: f32 = 0.75;
 
 impl<'a> Renderer<'a> {
     const DEFAULT_FRINGE_WIDTH: f32 = DEFAULT_FRINGE_WIDTH;
@@ -246,6 +246,7 @@ impl<'a> Renderer<'a> {
         // This is safe to call frequently: `shrink_to` is effectively a no-op
         // when capacities are below thresholds, so this acts as amortized
         // memory hygiene for long-running sessions.
+        self.buffers_pool_manager.trim();
         self.scratch.trim_to_policy();
     }
 }
