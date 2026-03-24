@@ -478,6 +478,7 @@ pub(crate) struct AaFringeScratch {
     edge_owners: AHashMap<BoundaryEdgeKey, SmallVec<[usize; 2]>>,
     incident_triangles_by_vertex: AHashMap<BoundaryVertexKey, SmallVec<[usize; 4]>>,
     triangle_adjacency: AHashMap<(BoundaryVertexKey, usize), SmallVec<[usize; 4]>>,
+    visited_triangles: AHashMap<usize, usize>,
     triangle_component_map: AHashMap<(usize, BoundaryVertexKey), usize>,
     boundary_corner_normals: AHashMap<BoundaryCornerKey, BoundaryCornerNormalData>,
     outer_vertex_indices: AHashMap<BoundaryCornerKey, u16>,
@@ -492,6 +493,7 @@ impl AaFringeScratch {
             edge_owners: AHashMap::new(),
             incident_triangles_by_vertex: AHashMap::new(),
             triangle_adjacency: AHashMap::new(),
+            visited_triangles: AHashMap::new(),
             triangle_component_map: AHashMap::new(),
             boundary_corner_normals: AHashMap::new(),
             outer_vertex_indices: AHashMap::new(),
@@ -505,6 +507,7 @@ impl AaFringeScratch {
         self.edge_owners.clear();
         self.incident_triangles_by_vertex.clear();
         self.triangle_adjacency.clear();
+        self.visited_triangles.clear();
         self.triangle_component_map.clear();
         self.boundary_corner_normals.clear();
         self.outer_vertex_indices.clear();
@@ -517,6 +520,7 @@ impl AaFringeScratch {
         self.edge_owners.shrink_to_fit();
         self.incident_triangles_by_vertex.shrink_to_fit();
         self.triangle_adjacency.shrink_to_fit();
+        self.visited_triangles.shrink_to_fit();
         self.triangle_component_map.shrink_to_fit();
         self.boundary_corner_normals.shrink_to_fit();
         self.outer_vertex_indices.shrink_to_fit();
@@ -618,17 +622,18 @@ fn build_triangle_component_map(scratch: &mut AaFringeScratch) {
     }
 
     for (&vertex_key, incident_triangles) in &scratch.incident_triangles_by_vertex {
-        let mut visited_triangles = AHashMap::new();
+        scratch.visited_triangles.clear();
         let mut component_index = 0usize;
 
         for &triangle_index in incident_triangles {
-            if visited_triangles.contains_key(&triangle_index) {
+            if scratch.visited_triangles.contains_key(&triangle_index) {
                 continue;
             }
 
             scratch.triangle_stack.push(triangle_index);
             while let Some(current_triangle_index) = scratch.triangle_stack.pop() {
-                if visited_triangles
+                if scratch
+                    .visited_triangles
                     .insert(current_triangle_index, component_index)
                     .is_some()
                 {
@@ -640,7 +645,10 @@ fn build_triangle_component_map(scratch: &mut AaFringeScratch) {
                     .get(&(vertex_key, current_triangle_index))
                 {
                     for &neighbor_triangle_index in neighbors {
-                        if !visited_triangles.contains_key(&neighbor_triangle_index) {
+                        if !scratch
+                            .visited_triangles
+                            .contains_key(&neighbor_triangle_index)
+                        {
                             scratch.triangle_stack.push(neighbor_triangle_index);
                         }
                     }
@@ -650,7 +658,7 @@ fn build_triangle_component_map(scratch: &mut AaFringeScratch) {
             component_index += 1;
         }
 
-        for (triangle_index, component_index) in visited_triangles {
+        for (&triangle_index, &component_index) in &scratch.visited_triangles {
             scratch
                 .triangle_component_map
                 .insert((triangle_index, vertex_key), component_index);
@@ -800,19 +808,45 @@ fn generate_aa_fringe(
                 )
             });
 
-        let start_outer_vertex_index = match scratch.outer_vertex_indices.get(&BoundaryCornerKey {
+        let start_boundary_corner_key = BoundaryCornerKey {
             vertex_key: start_vertex_key,
             component_index: start_component_index,
-        }) {
-            Some(&idx) => idx,
-            None => continue,
         };
-        let end_outer_vertex_index = match scratch.outer_vertex_indices.get(&BoundaryCornerKey {
+        let start_outer_vertex_index = match scratch
+            .outer_vertex_indices
+            .get(&start_boundary_corner_key)
+        {
+            Some(&idx) => idx,
+            None => {
+                debug_assert!(
+                    false,
+                    "missing outer vertex index for {:?} (start_vertex_key: {:?}, start_component_index: {})",
+                    start_boundary_corner_key,
+                    start_vertex_key,
+                    start_component_index
+                );
+                continue;
+            }
+        };
+        let end_boundary_corner_key = BoundaryCornerKey {
             vertex_key: end_vertex_key,
             component_index: end_component_index,
-        }) {
+        };
+        let end_outer_vertex_index = match scratch
+            .outer_vertex_indices
+            .get(&end_boundary_corner_key)
+        {
             Some(&idx) => idx,
-            None => continue,
+            None => {
+                debug_assert!(
+                    false,
+                    "missing outer vertex index for {:?} (end_vertex_key: {:?}, end_component_index: {})",
+                    end_boundary_corner_key,
+                    end_vertex_key,
+                    end_component_index
+                );
+                continue;
+            }
         };
 
         let pa = vertices[boundary_edge.start_vertex_index as usize].position;
