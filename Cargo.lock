@@ -981,6 +981,7 @@ dependencies = [
  "lru",
  "lyon",
  "regex",
+ "smallvec",
  "softbuffer",
  "thiserror 2.0.18",
  "tracing",

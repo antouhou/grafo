@@ -43,6 +43,7 @@ use lyon::lyon_tessellation::{
 };
 use lyon::path::Winding;
 use lyon::tessellation::FillVertexConstructor;
+use smallvec::SmallVec;
 use std::sync::Arc;
 
 pub(crate) struct CachedShape {
@@ -273,7 +274,11 @@ impl Shape {
                 vertex_buffers.indices.extend(indices);
 
                 // Generate AA fringe geometry for the rect
-                generate_aa_fringe(&mut vertex_buffers.vertices, &mut vertex_buffers.indices);
+                generate_aa_fringe(
+                    &mut vertex_buffers.vertices,
+                    &mut vertex_buffers.indices,
+                    &mut buffers_pool.aa_fringe_scratch,
+                );
 
                 TessellatedGeometry::Owned(vertex_buffers)
             }
@@ -453,12 +458,67 @@ struct BoundaryEdge {
     start_vertex_index: u16,
     end_vertex_index: u16,
     opposite_vertex_index: u16,
+    triangle_index: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct BoundaryCornerKey {
+    vertex_key: BoundaryVertexKey,
+    component_index: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct BoundaryVertexNormalData {
+struct BoundaryCornerNormalData {
     accumulated_normal: [f32; 2],
     source_vertex_index: u16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TriangleData {
+    vertex_keys: [BoundaryVertexKey; 3],
+}
+
+pub(crate) struct AaFringeScratch {
+    edge_use_counts: AHashMap<BoundaryEdgeKey, (usize, BoundaryEdge)>,
+    edge_owners: AHashMap<BoundaryEdgeKey, SmallVec<[usize; 2]>>,
+    incident_triangles_by_vertex: AHashMap<BoundaryVertexKey, SmallVec<[usize; 4]>>,
+    triangle_adjacency: AHashMap<(BoundaryVertexKey, usize), SmallVec<[usize; 4]>>,
+    triangle_component_map: AHashMap<(usize, BoundaryVertexKey), usize>,
+    boundary_corner_normals: AHashMap<BoundaryCornerKey, BoundaryCornerNormalData>,
+    outer_vertex_indices: AHashMap<BoundaryCornerKey, u16>,
+    triangles: Vec<TriangleData>,
+    boundary_edges: Vec<BoundaryEdge>,
+    triangle_stack: Vec<usize>,
+}
+
+impl AaFringeScratch {
+    pub(crate) fn new() -> Self {
+        Self {
+            edge_use_counts: AHashMap::new(),
+            edge_owners: AHashMap::new(),
+            incident_triangles_by_vertex: AHashMap::new(),
+            triangle_adjacency: AHashMap::new(),
+            triangle_component_map: AHashMap::new(),
+            boundary_corner_normals: AHashMap::new(),
+            outer_vertex_indices: AHashMap::new(),
+            triangles: Vec::new(),
+            boundary_edges: Vec::new(),
+            triangle_stack: Vec::new(),
+        }
+    }
+
+    fn clear(&mut self) {
+        self.edge_use_counts.clear();
+        self.edge_owners.clear();
+        self.incident_triangles_by_vertex.clear();
+        self.triangle_adjacency.clear();
+        self.triangle_component_map.clear();
+        self.boundary_corner_normals.clear();
+        self.outer_vertex_indices.clear();
+        self.triangles.clear();
+        self.boundary_edges.clear();
+        self.triangle_stack.clear();
+    }
 }
 
 fn normalized_float_bits(value: f32) -> u32 {
@@ -478,18 +538,32 @@ fn normalized_float_bits(value: f32) -> u32 {
 /// Returns a list of `(vertex_a, vertex_b, opposite_vertex)` tuples. The `opposite_vertex` is
 /// the third vertex of the triangle that owns the edge — it is used to determine which side
 /// of the edge faces outward (away from the triangle interior).
-fn find_boundary_edges(vertices: &[CustomVertex], indices: &[u16]) -> Vec<BoundaryEdge> {
-    let mut edge_map: AHashMap<BoundaryEdgeKey, (usize, BoundaryEdge)> = AHashMap::new();
+fn build_boundary_data(vertices: &[CustomVertex], indices: &[u16], scratch: &mut AaFringeScratch) {
+    scratch.clear();
 
-    for tri in indices.chunks_exact(3) {
+    for (triangle_index, tri) in indices.chunks_exact(3).enumerate() {
         let a = tri[0];
         let b = tri[1];
         let c = tri[2];
+        let vertex_keys = [a, b, c].map(|vertex_index| {
+            BoundaryVertexKey::from_position(vertices[vertex_index as usize].position)
+        });
+
+        scratch.triangles.push(TriangleData { vertex_keys });
+
+        for &vertex_key in &vertex_keys {
+            scratch
+                .incident_triangles_by_vertex
+                .entry(vertex_key)
+                .or_default()
+                .push(triangle_index);
+        }
 
         for &(i, j, opp) in &[(a, b, c), (b, c, a), (c, a, b)] {
             let key =
                 BoundaryEdgeKey::new(vertices[i as usize].position, vertices[j as usize].position);
-            edge_map
+            scratch
+                .edge_use_counts
                 .entry(key)
                 .and_modify(|(count, _)| *count += 1)
                 .or_insert((
@@ -498,15 +572,88 @@ fn find_boundary_edges(vertices: &[CustomVertex], indices: &[u16]) -> Vec<Bounda
                         start_vertex_index: i,
                         end_vertex_index: j,
                         opposite_vertex_index: opp,
+                        triangle_index,
                     },
                 ));
+            scratch
+                .edge_owners
+                .entry(key)
+                .or_default()
+                .push(triangle_index);
         }
     }
 
-    edge_map
-        .into_iter()
-        .filter_map(|(_, (count, boundary_edge))| (count == 1).then_some(boundary_edge))
-        .collect()
+    scratch.boundary_edges.extend(
+        scratch
+            .edge_use_counts
+            .values()
+            .filter_map(|(count, boundary_edge)| (*count == 1).then_some(*boundary_edge)),
+    );
+}
+
+fn build_triangle_component_map(scratch: &mut AaFringeScratch) {
+    for (edge_key, owners) in &scratch.edge_owners {
+        if owners.len() < 2 {
+            continue;
+        }
+
+        for &vertex_key in &[edge_key.start, edge_key.end] {
+            for (owner_index, &owner_triangle_index) in owners.iter().enumerate() {
+                for &other_triangle_index in &owners[owner_index + 1..] {
+                    scratch
+                        .triangle_adjacency
+                        .entry((vertex_key, owner_triangle_index))
+                        .or_default()
+                        .push(other_triangle_index);
+                    scratch
+                        .triangle_adjacency
+                        .entry((vertex_key, other_triangle_index))
+                        .or_default()
+                        .push(owner_triangle_index);
+                }
+            }
+        }
+    }
+
+    for (&vertex_key, incident_triangles) in &scratch.incident_triangles_by_vertex {
+        let mut visited_triangles = AHashMap::new();
+        let mut component_index = 0usize;
+
+        for &triangle_index in incident_triangles {
+            if visited_triangles.contains_key(&triangle_index) {
+                continue;
+            }
+
+            scratch.triangle_stack.push(triangle_index);
+            while let Some(current_triangle_index) = scratch.triangle_stack.pop() {
+                if visited_triangles
+                    .insert(current_triangle_index, component_index)
+                    .is_some()
+                {
+                    continue;
+                }
+
+                if let Some(neighbors) = scratch
+                    .triangle_adjacency
+                    .get(&(vertex_key, current_triangle_index))
+                {
+                    for &neighbor_triangle_index in neighbors {
+                        if !visited_triangles.contains_key(&neighbor_triangle_index) {
+                            scratch.triangle_stack.push(neighbor_triangle_index);
+                        }
+                    }
+                }
+            }
+
+            component_index += 1;
+        }
+
+        for (triangle_index, component_index) in visited_triangles {
+            scratch
+                .triangle_component_map
+                .insert((triangle_index, vertex_key), component_index);
+        }
+    }
 }
 
 /// Generates a thin fringe of antialiasing triangles around shape boundaries.
@@ -516,19 +663,32 @@ fn find_boundary_edges(vertices: &[CustomVertex], indices: &[u16]) -> Vec<Bounda
 /// The actual screen-space offset is computed in the vertex shader, so the fringe positions
 /// in the buffer are identical to the source boundary vertices — only the `normal` and
 /// `coverage` fields differ.
-fn generate_aa_fringe(vertices: &mut Vec<CustomVertex>, indices: &mut Vec<u16>) {
-    let boundary_edges = find_boundary_edges(vertices, indices);
+#[cfg(test)]
+fn find_boundary_edges<'a>(
+    vertices: &[CustomVertex],
+    indices: &[u16],
+    scratch: &'a mut AaFringeScratch,
+) -> &'a [BoundaryEdge] {
+    build_boundary_data(vertices, indices, scratch);
+    &scratch.boundary_edges
+}
 
-    if boundary_edges.is_empty() {
+fn generate_aa_fringe(
+    vertices: &mut Vec<CustomVertex>,
+    indices: &mut Vec<u16>,
+    scratch: &mut AaFringeScratch,
+) {
+    build_boundary_data(vertices, indices, scratch);
+
+    if scratch.boundary_edges.is_empty() {
         return;
     }
 
+    build_triangle_component_map(scratch);
+
     // --- Step 1: Compute per-boundary-vertex averaged outward (miter) normals ---
 
-    let mut boundary_vertex_normals: AHashMap<BoundaryVertexKey, BoundaryVertexNormalData> =
-        AHashMap::new();
-
-    for boundary_edge in &boundary_edges {
+    for boundary_edge in &scratch.boundary_edges {
         let pa = vertices[boundary_edge.start_vertex_index as usize].position;
         let pb = vertices[boundary_edge.end_vertex_index as usize].position;
         let po = vertices[boundary_edge.opposite_vertex_index as usize].position;
@@ -553,62 +713,86 @@ fn generate_aa_fringe(vertices: &mut Vec<CustomVertex>, indices: &mut Vec<u16>) 
         ] {
             let vertex_key =
                 BoundaryVertexKey::from_position(vertices[vertex_index as usize].position);
-            let entry =
-                boundary_vertex_normals
-                    .entry(vertex_key)
-                    .or_insert(BoundaryVertexNormalData {
-                        accumulated_normal: [0.0, 0.0],
-                        source_vertex_index: vertex_index,
-                    });
+            let component_index = *scratch
+                .triangle_component_map
+                .get(&(boundary_edge.triangle_index, vertex_key))
+                .unwrap_or(&0);
+            let entry = scratch
+                .boundary_corner_normals
+                .entry(BoundaryCornerKey {
+                    vertex_key,
+                    component_index,
+                })
+                .or_insert(BoundaryCornerNormalData {
+                    accumulated_normal: [0.0, 0.0],
+                    source_vertex_index: vertex_index,
+                });
             entry.accumulated_normal[0] += outward[0];
             entry.accumulated_normal[1] += outward[1];
         }
     }
 
-    for boundary_vertex_normal in boundary_vertex_normals.values_mut() {
-        let len = (boundary_vertex_normal.accumulated_normal[0]
-            * boundary_vertex_normal.accumulated_normal[0]
-            + boundary_vertex_normal.accumulated_normal[1]
-                * boundary_vertex_normal.accumulated_normal[1])
+    for boundary_corner_normal in scratch.boundary_corner_normals.values_mut() {
+        let len = (boundary_corner_normal.accumulated_normal[0]
+            * boundary_corner_normal.accumulated_normal[0]
+            + boundary_corner_normal.accumulated_normal[1]
+                * boundary_corner_normal.accumulated_normal[1])
             .sqrt();
         if len > 1e-10 {
-            boundary_vertex_normal.accumulated_normal[0] /= len;
-            boundary_vertex_normal.accumulated_normal[1] /= len;
+            boundary_corner_normal.accumulated_normal[0] /= len;
+            boundary_corner_normal.accumulated_normal[1] /= len;
         }
     }
 
     // --- Step 2: Create outer fringe (duplicate) vertices ---
 
-    let mut outer_vertex_indices: AHashMap<BoundaryVertexKey, u16> = AHashMap::new();
+    vertices.reserve(scratch.boundary_corner_normals.len());
+    indices.reserve(scratch.boundary_edges.len() * 6);
 
-    for (&boundary_vertex_key, boundary_vertex_normal) in &boundary_vertex_normals {
-        let source_vertex = &vertices[boundary_vertex_normal.source_vertex_index as usize];
+    for (&boundary_corner_key, boundary_corner_normal) in &scratch.boundary_corner_normals {
+        let source_vertex = &vertices[boundary_corner_normal.source_vertex_index as usize];
         let outer_vertex = CustomVertex {
             position: source_vertex.position,
             tex_coords: source_vertex.tex_coords,
-            normal: boundary_vertex_normal.accumulated_normal,
+            normal: boundary_corner_normal.accumulated_normal,
             coverage: 0.0,
         };
         let new_idx = vertices.len() as u16;
         vertices.push(outer_vertex);
-        outer_vertex_indices.insert(boundary_vertex_key, new_idx);
+        scratch
+            .outer_vertex_indices
+            .insert(boundary_corner_key, new_idx);
     }
 
     // --- Step 3: Emit fringe quads (two triangles per boundary edge) ---
 
-    for boundary_edge in &boundary_edges {
+    for boundary_edge in &scratch.boundary_edges {
         let start_vertex_key = BoundaryVertexKey::from_position(
             vertices[boundary_edge.start_vertex_index as usize].position,
         );
         let end_vertex_key = BoundaryVertexKey::from_position(
             vertices[boundary_edge.end_vertex_index as usize].position,
         );
+        let start_component_index = *scratch
+            .triangle_component_map
+            .get(&(boundary_edge.triangle_index, start_vertex_key))
+            .unwrap_or(&0);
+        let end_component_index = *scratch
+            .triangle_component_map
+            .get(&(boundary_edge.triangle_index, end_vertex_key))
+            .unwrap_or(&0);
 
-        let start_outer_vertex_index = match outer_vertex_indices.get(&start_vertex_key) {
+        let start_outer_vertex_index = match scratch.outer_vertex_indices.get(&BoundaryCornerKey {
+            vertex_key: start_vertex_key,
+            component_index: start_component_index,
+        }) {
             Some(&idx) => idx,
             None => continue,
         };
-        let end_outer_vertex_index = match outer_vertex_indices.get(&end_vertex_key) {
+        let end_outer_vertex_index = match scratch.outer_vertex_indices.get(&BoundaryCornerKey {
+            vertex_key: end_vertex_key,
+            component_index: end_component_index,
+        }) {
             Some(&idx) => idx,
             None => continue,
         };
@@ -688,7 +872,11 @@ impl PathShape {
 
         let mut buffers: VertexBuffers<CustomVertex, u16> =
             buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
-        self.tesselate_into_buffers(&mut buffers, tessellator);
+        self.tesselate_into_buffers(
+            &mut buffers,
+            tessellator,
+            &mut buffers_pool.aa_fringe_scratch,
+        );
 
         #[allow(clippy::manual_is_multiple_of)]
         let needs_index_padding = buffers.indices.len() % 2 != 0;
@@ -711,6 +899,7 @@ impl PathShape {
         &self,
         buffers: &mut VertexBuffers<CustomVertex, u16>,
         tessellator: &mut FillTessellator,
+        aa_fringe_scratch: &mut AaFringeScratch,
     ) {
         let options = FillOptions::default();
 
@@ -758,7 +947,11 @@ impl PathShape {
 
         // Generate AA fringe geometry after UVs are computed so fringe vertices
         // inherit the correct tex_coords from their source boundary vertices.
-        generate_aa_fringe(&mut buffers.vertices, &mut buffers.indices);
+        generate_aa_fringe(
+            &mut buffers.vertices,
+            &mut buffers.indices,
+            aa_fringe_scratch,
+        );
     }
 }
 
@@ -1376,7 +1569,8 @@ impl DrawShapeCommand for CachedShapeDrawData {
 #[cfg(test)]
 mod tests {
     use super::{
-        find_boundary_edges, generate_aa_fringe, BoundaryVertexKey, CustomVertex, RectShape, Shape,
+        find_boundary_edges, generate_aa_fringe, AaFringeScratch, BoundaryVertexKey, CustomVertex,
+        RectShape, Shape,
     };
     use crate::{util::PoolManager, Stroke};
     use lyon::lyon_tessellation::FillTessellator;
@@ -1402,11 +1596,12 @@ mod tests {
             test_vertex([0.0, 1.0]),
         ];
         let mut indices = vec![0, 1, 2, 3, 4, 5];
+        let mut aa_fringe_scratch = AaFringeScratch::new();
 
-        let boundary_edges = find_boundary_edges(&vertices, &indices);
+        let boundary_edges = find_boundary_edges(&vertices, &indices, &mut aa_fringe_scratch);
         assert_eq!(boundary_edges.len(), 4);
 
-        generate_aa_fringe(&mut vertices, &mut indices);
+        generate_aa_fringe(&mut vertices, &mut indices, &mut aa_fringe_scratch);
 
         assert_eq!(vertices.len(), 10);
         assert_eq!(indices.len(), 30);
@@ -1443,5 +1638,36 @@ mod tests {
             .filter(|vertex| vertex.coverage == 1.0)
             .count();
         assert_eq!(fill_vertex_count, 4);
+    }
+
+    #[test]
+    fn aa_fringe_keeps_distinct_corners_for_point_touching_triangles() {
+        let mut vertices = vec![
+            test_vertex([0.0, 0.0]),
+            test_vertex([1.0, 0.0]),
+            test_vertex([0.0, 1.0]),
+            test_vertex([0.0, 0.0]),
+            test_vertex([-1.0, 0.0]),
+            test_vertex([0.0, -1.0]),
+        ];
+        let mut indices = vec![0, 1, 2, 3, 4, 5];
+        let mut aa_fringe_scratch = AaFringeScratch::new();
+
+        generate_aa_fringe(&mut vertices, &mut indices, &mut aa_fringe_scratch);
+
+        let outer_vertices = vertices
+            .iter()
+            .filter(|vertex| vertex.coverage == 0.0)
+            .collect::<Vec<_>>();
+        assert_eq!(outer_vertices.len(), 6);
+
+        let shared_point_outer_vertices = outer_vertices
+            .iter()
+            .filter(|vertex| {
+                BoundaryVertexKey::from_position(vertex.position)
+                    == BoundaryVertexKey::from_position([0.0, 0.0])
+            })
+            .count();
+        assert_eq!(shared_point_outer_vertices, 2);
     }
 }

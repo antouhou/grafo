@@ -1,4 +1,5 @@
 use crate::cache::Cache;
+use crate::shape::AaFringeScratch;
 use crate::vertex::CustomVertex;
 use lyon::tessellation::VertexBuffers;
 use std::num::NonZeroUsize;
@@ -93,6 +94,7 @@ impl LyonVertexBuffersPool {
 pub(crate) struct PoolManager {
     pub lyon_vertex_buffers_pool: LyonVertexBuffersPool,
     pub tessellation_cache: Cache,
+    pub aa_fringe_scratch: AaFringeScratch,
 }
 
 impl PoolManager {
@@ -100,6 +102,7 @@ impl PoolManager {
         Self {
             lyon_vertex_buffers_pool: LyonVertexBuffersPool::new(),
             tessellation_cache: Cache::new(tesselation_cache_size),
+            aa_fringe_scratch: AaFringeScratch::new(),
         }
     }
 
