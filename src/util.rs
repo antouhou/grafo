@@ -106,6 +106,10 @@ impl PoolManager {
         }
     }
 
+    pub(crate) fn trim(&mut self) {
+        self.aa_fringe_scratch.trim();
+    }
+
     pub fn print_sizes(&self) {
         println!("Pool sizes:");
         println!("Vertex buffers: {}", self.lyon_vertex_buffers_pool.len());

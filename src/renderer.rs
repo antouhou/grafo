@@ -246,6 +246,7 @@ impl<'a> Renderer<'a> {
         // This is safe to call frequently: `shrink_to` is effectively a no-op
         // when capacities are below thresholds, so this acts as amortized
         // memory hygiene for long-running sessions.
+        self.buffers_pool_manager.trim();
         self.scratch.trim_to_policy();
     }
 }

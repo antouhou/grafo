@@ -511,6 +511,18 @@ impl AaFringeScratch {
         self.boundary_edges.clear();
         self.triangle_stack.clear();
     }
+
+    pub(crate) fn trim(&mut self) {
+        self.edge_use_counts.shrink_to_fit();
+        self.edge_owners.shrink_to_fit();
+        self.incident_triangles_by_vertex.shrink_to_fit();
+        self.triangle_adjacency.shrink_to_fit();
+        self.triangle_component_map.shrink_to_fit();
+        self.boundary_corner_normals.shrink_to_fit();
+        self.outer_vertex_indices.shrink_to_fit();
+        self.boundary_edges.shrink_to_fit();
+        self.triangle_stack.shrink_to_fit();
+    }
 }
 
 fn normalized_float_bits(value: f32) -> u32 {
@@ -706,7 +718,13 @@ fn generate_aa_fringe(
             let component_index = *scratch
                 .triangle_component_map
                 .get(&(boundary_edge.triangle_index, vertex_key))
-                .unwrap_or(&0);
+                .unwrap_or_else(|| {
+                    panic!(
+                    "missing triangle component mapping for triangle {} and boundary vertex {:?}",
+                    boundary_edge.triangle_index,
+                    vertex_key
+                )
+                });
             let entry = scratch
                 .boundary_corner_normals
                 .entry(BoundaryCornerKey {
@@ -766,11 +784,21 @@ fn generate_aa_fringe(
         let start_component_index = *scratch
             .triangle_component_map
             .get(&(boundary_edge.triangle_index, start_vertex_key))
-            .unwrap_or(&0);
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing triangle component mapping for triangle {} and boundary vertex {:?}",
+                    boundary_edge.triangle_index, start_vertex_key
+                )
+            });
         let end_component_index = *scratch
             .triangle_component_map
             .get(&(boundary_edge.triangle_index, end_vertex_key))
-            .unwrap_or(&0);
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing triangle component mapping for triangle {} and boundary vertex {:?}",
+                    boundary_edge.triangle_index, end_vertex_key
+                )
+            });
 
         let start_outer_vertex_index = match scratch.outer_vertex_indices.get(&BoundaryCornerKey {
             vertex_key: start_vertex_key,

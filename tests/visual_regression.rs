@@ -114,6 +114,13 @@ fn multi_subpath_fill_has_no_internal_seam() {
         return;
     };
 
+    let canvas_root = grafo::Shape::rect(
+        [(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)],
+        grafo::Stroke::default(),
+    );
+    let canvas_root_id = renderer.add_shape(canvas_root, None, None);
+    renderer.set_shape_color(canvas_root_id, Some(grafo::Color::WHITE));
+
     let shape = grafo::Shape::builder()
         .begin((10.0, 10.0))
         .line_to((100.0, 10.0))
@@ -124,8 +131,12 @@ fn multi_subpath_fill_has_no_internal_seam() {
         .line_to((10.0, 100.0))
         .close()
         .build();
-    let id = renderer.add_shape(shape, None, None);
+    let id = renderer.add_shape(shape, Some(canvas_root_id), None);
     renderer.set_shape_color(id, Some(grafo::Color::rgb(200, 50, 50)));
+
+    let rect = grafo::Shape::rect([(140.0, 10.0), (230.0, 100.0)], grafo::Stroke::default());
+    let rect_id = renderer.add_shape(rect, Some(canvas_root_id), None);
+    renderer.set_shape_color(rect_id, Some(grafo::Color::rgb(200, 50, 50)));
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
     renderer.render_to_buffer(&mut pixel_buffer);
@@ -134,7 +145,10 @@ fn multi_subpath_fill_has_no_internal_seam() {
         grafo_test_scenes::PixelExpectation::opaque(30, 30, 200, 50, 50, "diag_top_left"),
         grafo_test_scenes::PixelExpectation::opaque(55, 55, 200, 50, 50, "diag_center"),
         grafo_test_scenes::PixelExpectation::opaque(80, 80, 200, 50, 50, "diag_bottom_right"),
-        grafo_test_scenes::PixelExpectation::transparent(5, 5, "outside_shape"),
+        grafo_test_scenes::PixelExpectation::opaque(5, 5, 255, 255, 255, "outside_shape"),
+        grafo_test_scenes::PixelExpectation::opaque(185, 55, 200, 50, 50, "rect_center"),
+        grafo_test_scenes::PixelExpectation::opaque(145, 15, 200, 50, 50, "rect_near_corner"),
+        grafo_test_scenes::PixelExpectation::opaque(235, 55, 255, 255, 255, "outside_rect"),
     ];
 
     assert_pixels_match(&pixel_buffer, &expectations);
