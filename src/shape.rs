@@ -253,31 +253,19 @@ impl Shape {
                         coverage: 1.0,
                     },
                     CustomVertex {
-                        position: [min_width, max_height],
-                        tex_coords: uv(min_width, max_height),
-                        normal: [0.0, 0.0],
-                        coverage: 1.0,
-                    },
-                    CustomVertex {
-                        position: [min_width, max_height],
-                        tex_coords: uv(min_width, max_height),
-                        normal: [0.0, 0.0],
-                        coverage: 1.0,
-                    },
-                    CustomVertex {
-                        position: [max_width, min_height],
-                        tex_coords: uv(max_width, min_height),
-                        normal: [0.0, 0.0],
-                        coverage: 1.0,
-                    },
-                    CustomVertex {
                         position: [max_width, max_height],
                         tex_coords: uv(max_width, max_height),
                         normal: [0.0, 0.0],
                         coverage: 1.0,
                     },
+                    CustomVertex {
+                        position: [min_width, max_height],
+                        tex_coords: uv(min_width, max_height),
+                        normal: [0.0, 0.0],
+                        coverage: 1.0,
+                    },
                 ];
-                let indices = [0u16, 1, 2, 3, 4, 5];
+                let indices = [0u16, 1, 2, 0, 2, 3];
 
                 let mut vertex_buffers = buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
 
@@ -1387,7 +1375,12 @@ impl DrawShapeCommand for CachedShapeDrawData {
 
 #[cfg(test)]
 mod tests {
-    use super::{find_boundary_edges, generate_aa_fringe, BoundaryVertexKey, CustomVertex};
+    use super::{
+        find_boundary_edges, generate_aa_fringe, BoundaryVertexKey, CustomVertex, RectShape, Shape,
+    };
+    use crate::{util::PoolManager, Stroke};
+    use lyon::lyon_tessellation::FillTessellator;
+    use std::num::NonZeroUsize;
 
     fn test_vertex(position: [f32; 2]) -> CustomVertex {
         CustomVertex {
@@ -1430,5 +1423,25 @@ mod tests {
             .map(|vertex| BoundaryVertexKey::from_position(vertex.position))
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(unique_outer_vertex_positions.len(), 4);
+    }
+
+    #[test]
+    fn rect_tessellation_uses_shared_quad_corners() {
+        let rect_shape = RectShape::new([(10.0, 20.0), (30.0, 50.0)], Stroke::default());
+        let mut tessellator = FillTessellator::new();
+        let mut pool_manager = PoolManager::new(NonZeroUsize::new(1).unwrap());
+
+        let tessellated_geometry =
+            Shape::Rect(rect_shape).tessellate(&mut tessellator, &mut pool_manager, None);
+
+        assert_eq!(tessellated_geometry.vertices().len(), 8);
+        assert_eq!(tessellated_geometry.indices().len(), 30);
+
+        let fill_vertex_count = tessellated_geometry
+            .vertices()
+            .iter()
+            .filter(|vertex| vertex.coverage == 1.0)
+            .count();
+        assert_eq!(fill_vertex_count, 4);
     }
 }
