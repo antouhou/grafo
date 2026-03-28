@@ -21,8 +21,8 @@ pub(crate) fn bake_gradient_ramp(
     let span = last_pos - first_pos;
 
     if span <= RESOLVED_DEGENERATE_EPSILON {
-        if let Some(ramp) = bake_degenerate_hard_stop_ramp(normalized) {
-            return ramp;
+        if has_actual_zero_length_run(normalized) {
+            return bake_degenerate_hard_stop_ramp(normalized);
         }
 
         let color = color_to_final_linear_premultiplied(&normalized.stops.last().unwrap().color);
@@ -40,18 +40,17 @@ pub(crate) fn bake_gradient_ramp(
     ramp
 }
 
-fn bake_degenerate_hard_stop_ramp(normalized: &NormalizedGradient) -> Option<Vec<[f32; 4]>> {
-    let first_stop = normalized.stops.first()?;
-    let last_stop = normalized.stops.last()?;
-    let has_coincident_stops = normalized.stops.len() > 1
+fn has_actual_zero_length_run(normalized: &NormalizedGradient) -> bool {
+    normalized.stops.len() > 1
         && normalized
             .stops
             .windows(2)
-            .any(|pair| (pair[1].position - pair[0].position).abs() <= RESOLVED_DEGENERATE_EPSILON);
+            .any(|pair| (pair[1].position - pair[0].position).abs() <= f32::EPSILON)
+}
 
-    if !has_coincident_stops {
-        return None;
-    }
+fn bake_degenerate_hard_stop_ramp(normalized: &NormalizedGradient) -> Vec<[f32; 4]> {
+    let first_stop = normalized.stops.first().unwrap();
+    let last_stop = normalized.stops.last().unwrap();
 
     let first_color = color_to_final_linear_premultiplied(&first_stop.color);
     let last_color = color_to_final_linear_premultiplied(&last_stop.color);
@@ -59,7 +58,7 @@ fn bake_degenerate_hard_stop_ramp(normalized: &NormalizedGradient) -> Option<Vec
 
     let mut ramp = vec![last_color; RAMP_RESOLUTION];
     ramp[..transition_index].fill(first_color);
-    Some(ramp)
+    ramp
 }
 
 /// Evaluates the gradient at scalar `u` (after spread-mode folding).
@@ -703,5 +702,34 @@ mod tests {
             ramp[transition_index],
             color_to_final_linear_premultiplied(&srgb_color(0.0, 0.0, 1.0))
         );
+    }
+
+    #[test]
+    fn bake_gradient_ramp_does_not_create_hard_stop_for_near_degenerate_span() {
+        let common = GradientCommonDesc {
+            units: GradientUnits::Local,
+            spread: SpreadMode::Pad,
+            interpolation: ColorInterpolation::Srgb,
+            stops: vec![
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
+                    color: srgb_color(1.0, 0.0, 0.0),
+                    hint_to_next_segment: None,
+                },
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(
+                        RESOLVED_DEGENERATE_EPSILON * 0.5,
+                    )),
+                    color: srgb_color(0.0, 0.0, 1.0),
+                    hint_to_next_segment: None,
+                },
+            ],
+        };
+
+        let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
+        let ramp = bake_gradient_ramp(&normalized, &common.interpolation);
+        let expected = color_to_final_linear_premultiplied(&srgb_color(0.0, 0.0, 1.0));
+
+        assert!(ramp.iter().all(|texel| *texel == expected));
     }
 }

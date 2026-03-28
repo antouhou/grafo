@@ -1926,11 +1926,9 @@ fn two_stop_common_with_units(
 /// Tile 39 — Linear gradient: red (left) → blue (right).
 fn tile_39_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(39);
-    let shape = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([(0.0, 0.0), (60.0, 60.0)], Stroke::default());
     let id = renderer.add_shape(shape, None, None);
+    renderer.set_shape_transform(id, TransformInstance::translation(ox + 10.0, oy + 10.0));
 
     let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
         common: two_stop_common_canvas((220, 30, 30), (30, 30, 220), SpreadMode::Pad),
@@ -1944,7 +1942,8 @@ fn tile_39_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
 
     vec![
-        // Left edge should be reddish
+        // Canvas units are evaluated in screen space, so the transformed shape still
+        // follows the tile-space line rather than restarting in local space.
         PixelExpectation::opaque_approx(
             ox as u32 + 15,
             oy as u32 + 40,
@@ -2160,6 +2159,16 @@ fn tile_42_repeating_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpect
             200,
             70,
             "t42_repeat_mid_blue",
+        ),
+        // Midpoint of a later repeated period should still be bluish.
+        PixelExpectation::opaque_approx(
+            ox as u32 + 60,
+            oy as u32 + 40,
+            25,
+            25,
+            200,
+            70,
+            "t42_repeat_far_blue",
         ),
     ]
 }
