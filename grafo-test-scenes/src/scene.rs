@@ -1,8 +1,8 @@
 use grafo::{
-    BorderRadii, Color, ColorInterpolation, Fill, Gradient, GradientColor, GradientCommonDesc,
-    GradientDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
-    LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientShape,
-    RadialGradientSize, ConicGradientDesc, Renderer, Shape, SpreadMode, Stroke, TransformInstance,
+    BorderRadii, Color, ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor,
+    GradientCommonDesc, GradientDesc, GradientStop, GradientStopOffset, GradientStopPositions,
+    GradientUnits, LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientShape,
+    RadialGradientSize, Renderer, Shape, SpreadMode, Stroke, TransformInstance,
 };
 
 use crate::expectations::PixelExpectation;
@@ -1876,11 +1876,7 @@ fn tile_38_sheared_transparent_parent(renderer: &mut Renderer) -> Vec<PixelExpec
 // ── Section G: Gradient Fills ────────────────────────────────────────────────
 
 /// Helper: creates a simple two-stop sRGB gradient common descriptor.
-fn two_stop_common(
-    c1: (u8, u8, u8),
-    c2: (u8, u8, u8),
-    spread: SpreadMode,
-) -> GradientCommonDesc {
+fn two_stop_common(c1: (u8, u8, u8), c2: (u8, u8, u8), spread: SpreadMode) -> GradientCommonDesc {
     GradientCommonDesc {
         units: GradientUnits::Local,
         spread,
@@ -2014,9 +2010,7 @@ fn tile_41_conic_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             interpolation: ColorInterpolation::Srgb,
             stops: vec![
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::ConicRadians(0.0),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(0.0)),
                     color: GradientColor::Srgb {
                         red: 1.0,
                         green: 0.0,
@@ -2026,9 +2020,9 @@ fn tile_41_conic_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
                     hint_to_next_segment: None,
                 },
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::ConicRadians(tau / 3.0),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(
+                        tau / 3.0,
+                    )),
                     color: GradientColor::Srgb {
                         red: 0.0,
                         green: 1.0,
@@ -2038,9 +2032,9 @@ fn tile_41_conic_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
                     hint_to_next_segment: None,
                 },
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::ConicRadians(2.0 * tau / 3.0),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(
+                        2.0 * tau / 3.0,
+                    )),
                     color: GradientColor::Srgb {
                         red: 0.0,
                         green: 0.0,
@@ -2050,9 +2044,7 @@ fn tile_41_conic_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
                     hint_to_next_segment: None,
                 },
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::ConicRadians(tau),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(tau)),
                     color: GradientColor::Srgb {
                         red: 1.0,
                         green: 0.0,
@@ -2100,9 +2092,7 @@ fn tile_42_repeating_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpect
             interpolation: ColorInterpolation::Srgb,
             stops: vec![
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::LinearRadial(0.0),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
                     color: GradientColor::Srgb {
                         red: 0.9,
                         green: 0.1,
@@ -2112,9 +2102,7 @@ fn tile_42_repeating_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpect
                     hint_to_next_segment: None,
                 },
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::LinearRadial(0.5),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.5)),
                     color: GradientColor::Srgb {
                         red: 0.1,
                         green: 0.1,
@@ -2124,9 +2112,7 @@ fn tile_42_repeating_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpect
                     hint_to_next_segment: None,
                 },
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::LinearRadial(1.0),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
                     color: GradientColor::Srgb {
                         red: 0.9,
                         green: 0.1,
@@ -2177,9 +2163,7 @@ fn tile_43_gradient_hard_stops(renderer: &mut Renderer) -> Vec<PixelExpectation>
             interpolation: ColorInterpolation::Srgb,
             stops: vec![
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::LinearRadial(0.0),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
                     color: GradientColor::Srgb {
                         red: 0.86,
                         green: 0.2,
@@ -2203,9 +2187,7 @@ fn tile_43_gradient_hard_stops(renderer: &mut Renderer) -> Vec<PixelExpectation>
                     hint_to_next_segment: None,
                 },
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::LinearRadial(1.0),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
                     color: GradientColor::Srgb {
                         red: 0.12,
                         green: 0.12,
@@ -2587,9 +2569,7 @@ fn tile_49_conic_quadrant_colors(renderer: &mut Renderer) -> Vec<PixelExpectatio
             interpolation: ColorInterpolation::Srgb,
             stops: vec![
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::ConicRadians(0.0),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(0.0)),
                     color: GradientColor::Srgb {
                         red: 1.0,
                         green: 0.0,
@@ -2599,9 +2579,9 @@ fn tile_49_conic_quadrant_colors(renderer: &mut Renderer) -> Vec<PixelExpectatio
                     hint_to_next_segment: None,
                 },
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::ConicRadians(FRAC_PI_2),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(
+                        FRAC_PI_2,
+                    )),
                     color: GradientColor::Srgb {
                         red: 0.0,
                         green: 1.0,
@@ -2611,9 +2591,7 @@ fn tile_49_conic_quadrant_colors(renderer: &mut Renderer) -> Vec<PixelExpectatio
                     hint_to_next_segment: None,
                 },
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::ConicRadians(PI),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(PI)),
                     color: GradientColor::Srgb {
                         red: 0.0,
                         green: 0.0,
@@ -2623,9 +2601,9 @@ fn tile_49_conic_quadrant_colors(renderer: &mut Renderer) -> Vec<PixelExpectatio
                     hint_to_next_segment: None,
                 },
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::ConicRadians(3.0 * FRAC_PI_2),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(
+                        3.0 * FRAC_PI_2,
+                    )),
                     color: GradientColor::Srgb {
                         red: 1.0,
                         green: 1.0,
@@ -2635,9 +2613,7 @@ fn tile_49_conic_quadrant_colors(renderer: &mut Renderer) -> Vec<PixelExpectatio
                     hint_to_next_segment: None,
                 },
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::ConicRadians(TAU),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(TAU)),
                     color: GradientColor::Srgb {
                         red: 1.0,
                         green: 0.0,

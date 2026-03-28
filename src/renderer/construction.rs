@@ -215,36 +215,34 @@ impl<'a> Renderer<'a> {
         });
 
         let default_gradient_params = crate::gradient::gpu::GpuGradientParams::none();
-        let default_gradient_params_buffer =
-            crate::pipeline::create_buffer_init(
-                &device,
-                Some("default_gradient_params"),
-                bytemuck::bytes_of(&default_gradient_params),
-                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            );
+        let default_gradient_params_buffer = crate::pipeline::create_buffer_init(
+            &device,
+            Some("default_gradient_params"),
+            bytemuck::bytes_of(&default_gradient_params),
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
 
         let (default_gradient_ramp_texture, default_gradient_ramp_view) =
             crate::gradient::gpu::create_default_ramp_texture(&device, &queue);
 
-        let default_gradient_bind_group =
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("default_gradient_bind_group"),
-                layout: &and_gradient_bgl,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: default_gradient_params_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&default_gradient_ramp_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&gradient_ramp_sampler),
-                    },
-                ],
-            });
+        let default_gradient_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("default_gradient_bind_group"),
+            layout: &and_gradient_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: default_gradient_params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&default_gradient_ramp_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&gradient_ramp_sampler),
+                },
+            ],
+        });
 
         let device = Arc::new(device);
         let queue = Arc::new(queue);

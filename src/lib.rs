@@ -156,7 +156,7 @@ pub use color::Color;
 pub use effect::EffectError;
 pub use gradient::errors::GradientError;
 pub use gradient::types::{
-    ConicGradientDesc, ColorInterpolation, Fill, Gradient, GradientColor, GradientCommonDesc,
+    ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
     GradientDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientSupport,
     GradientUnits, HueComponent, HueInterpolationMethod, LinearGradientDesc, LinearGradientLine,
     RadialGradientDesc, RadialGradientShape, RadialGradientSize, SpreadMode,

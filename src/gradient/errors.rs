@@ -5,9 +5,7 @@ pub enum GradientError {
     #[error("gradient has no stops")]
     EmptyStops,
 
-    #[error(
-        "reversed double-position stop at index {stop_index}: first={first}, second={second}"
-    )]
+    #[error("reversed double-position stop at index {stop_index}: first={first}, second={second}")]
     ReversedDoublePositionStop {
         stop_index: usize,
         first: f32,

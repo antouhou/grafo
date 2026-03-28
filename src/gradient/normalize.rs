@@ -1,9 +1,7 @@
 use std::f32::consts::TAU;
 
 use super::sampling::color_to_final_linear_premultiplied;
-use super::types::{
-    GradientColor, GradientCommonDesc, GradientKind, GradientStopPositions,
-};
+use super::types::{GradientColor, GradientCommonDesc, GradientKind, GradientStopPositions};
 
 /// A single normalized stop after CSS canonicalization.
 #[derive(Debug, Clone)]
@@ -69,18 +67,14 @@ impl NormalizedGradient {
                     authored.push(AuthoredStop {
                         color: stop.color,
                         raw_position: None,
-                        hint_to_next_segment: stop
-                            .hint_to_next_segment
-                            .map(|h| h.value()),
+                        hint_to_next_segment: stop.hint_to_next_segment.map(|h| h.value()),
                     });
                 }
                 GradientStopPositions::Single(offset) => {
                     authored.push(AuthoredStop {
                         color: stop.color,
                         raw_position: Some(offset.value()),
-                        hint_to_next_segment: stop
-                            .hint_to_next_segment
-                            .map(|h| h.value()),
+                        hint_to_next_segment: stop.hint_to_next_segment.map(|h| h.value()),
                     });
                 }
                 GradientStopPositions::Double(a, b) => {
@@ -94,9 +88,7 @@ impl NormalizedGradient {
                     authored.push(AuthoredStop {
                         color: stop.color,
                         raw_position: Some(b.value()),
-                        hint_to_next_segment: stop
-                            .hint_to_next_segment
-                            .map(|h| h.value()),
+                        hint_to_next_segment: stop.hint_to_next_segment.map(|h| h.value()),
                     });
                 }
             }
@@ -223,8 +215,8 @@ fn fill_implicit_positions(positions: &mut [Option<f32>]) {
 mod tests {
     use super::*;
     use crate::gradient::types::{
-        GradientColor, GradientCommonDesc, GradientStop, GradientStopOffset,
-        GradientStopPositions, GradientUnits, SpreadMode, ColorInterpolation,
+        ColorInterpolation, GradientColor, GradientCommonDesc, GradientStop, GradientStopOffset,
+        GradientStopPositions, GradientUnits, SpreadMode,
     };
 
     fn srgb_color(r: f32, g: f32, b: f32) -> GradientColor {

@@ -369,8 +369,8 @@ impl Gradient {
         let ramp = bake_gradient_ramp(&normalized, &desc.common.interpolation);
 
         // For repeating conic with zero period, degenerate
-        let is_degenerate =
-            desc.common.spread == SpreadMode::Repeat && normalized.period_len <= RESOLVED_DEGENERATE_EPSILON;
+        let is_degenerate = desc.common.spread == SpreadMode::Repeat
+            && normalized.period_len <= RESOLVED_DEGENERATE_EPSILON;
         let constant_color = if is_degenerate {
             normalized.degenerate_constant_color()
         } else {
@@ -382,7 +382,11 @@ impl Gradient {
                 kind: GradientKind::Conic,
                 units: desc.common.units,
                 spread: desc.common.spread,
-                ramp: if is_degenerate { vec![constant_color] } else { ramp },
+                ramp: if is_degenerate {
+                    vec![constant_color]
+                } else {
+                    ramp
+                },
                 linear_line: None,
                 radial_center: None,
                 radial_radius: None,
@@ -542,7 +546,11 @@ fn validate_gradient_color_finite(
     Ok(())
 }
 
-fn check_finite(stop_index: usize, value: f32, component: &'static str) -> Result<(), GradientError> {
+fn check_finite(
+    stop_index: usize,
+    value: f32,
+    component: &'static str,
+) -> Result<(), GradientError> {
     if !value.is_finite() {
         return Err(GradientError::NonFiniteColorComponent {
             stop_index,
@@ -585,7 +593,10 @@ mod tests {
         })
         .unwrap();
         assert!(g.data.is_constant);
-        assert!(!g.data.ramp.is_empty(), "degenerate linear ramp must not be empty");
+        assert!(
+            !g.data.ramp.is_empty(),
+            "degenerate linear ramp must not be empty"
+        );
     }
 
     #[test]
@@ -598,6 +609,9 @@ mod tests {
         })
         .unwrap();
         assert!(g.data.is_constant);
-        assert!(!g.data.ramp.is_empty(), "degenerate radial ramp must not be empty");
+        assert!(
+            !g.data.ramp.is_empty(),
+            "degenerate radial ramp must not be empty"
+        );
     }
 }

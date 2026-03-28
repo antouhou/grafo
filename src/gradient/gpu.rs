@@ -58,14 +58,8 @@ impl GpuGradientParams {
             super::types::GradientUnits::Canvas => 1u32,
         };
 
-        let linear_start = data
-            .linear_line
-            .map(|l| l.start)
-            .unwrap_or([0.0, 0.0]);
-        let linear_end = data
-            .linear_line
-            .map(|l| l.end)
-            .unwrap_or([0.0, 0.0]);
+        let linear_start = data.linear_line.map(|l| l.start).unwrap_or([0.0, 0.0]);
+        let linear_end = data.linear_line.map(|l| l.end).unwrap_or([0.0, 0.0]);
         let radial_center = data.radial_center.unwrap_or([0.0, 0.0]);
         let radial_radius = data.radial_radius.unwrap_or([0.0, 0.0]);
         let conic_center = data.conic_center.unwrap_or([0.0, 0.0]);

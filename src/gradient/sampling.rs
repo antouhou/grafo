@@ -1,8 +1,7 @@
-
 use super::normalize::{NormalizedGradient, NormalizedSegment};
 use super::types::{
-    ColorInterpolation, GradientColor, HueComponent, HueInterpolationMethod,
-    RESOLVED_DEGENERATE_EPSILON, RAMP_RESOLUTION,
+    ColorInterpolation, GradientColor, HueComponent, HueInterpolationMethod, RAMP_RESOLUTION,
+    RESOLVED_DEGENERATE_EPSILON,
 };
 
 /// Bakes a gradient ramp: RAMP_RESOLUTION texels of final linear premultiplied RGBA.
@@ -13,8 +12,7 @@ pub(crate) fn bake_gradient_ramp(
     interpolation: &ColorInterpolation,
 ) -> Vec<[f32; 4]> {
     if normalized.is_single_stop {
-        let color =
-            color_to_final_linear_premultiplied(&normalized.single_stop_color.unwrap());
+        let color = color_to_final_linear_premultiplied(&normalized.single_stop_color.unwrap());
         return vec![color; RAMP_RESOLUTION];
     }
 
@@ -23,8 +21,7 @@ pub(crate) fn bake_gradient_ramp(
     let span = last_pos - first_pos;
 
     if span <= RESOLVED_DEGENERATE_EPSILON {
-        let color =
-            color_to_final_linear_premultiplied(&normalized.stops.last().unwrap().color);
+        let color = color_to_final_linear_premultiplied(&normalized.stops.last().unwrap().color);
         return vec![color; RAMP_RESOLUTION];
     }
 
@@ -132,9 +129,7 @@ fn interpolate_colors(
         ColorInterpolation::SrgbLinear => {
             interpolate_rectangular(color_a, color_b, p, RectSpace::SrgbLinear)
         }
-        ColorInterpolation::Oklab => {
-            interpolate_rectangular(color_a, color_b, p, RectSpace::Oklab)
-        }
+        ColorInterpolation::Oklab => interpolate_rectangular(color_a, color_b, p, RectSpace::Oklab),
         ColorInterpolation::Hsl { hue } => {
             interpolate_cylindrical(color_a, color_b, p, CylSpace::Hsl, *hue)
         }
@@ -257,19 +252,14 @@ fn to_rect_space(color: &GradientColor, space: RectSpace) -> [f32; 4] {
 /// Converts from a rectangular interpolation space back to linear sRGB.
 fn rect_to_linear(c0: f32, c1: f32, c2: f32, space: RectSpace) -> [f32; 3] {
     match space {
-        RectSpace::Srgb => {
-            [srgb_to_linear(c0), srgb_to_linear(c1), srgb_to_linear(c2)]
-        }
+        RectSpace::Srgb => [srgb_to_linear(c0), srgb_to_linear(c1), srgb_to_linear(c2)],
         RectSpace::SrgbLinear => [c0, c1, c2],
         RectSpace::Oklab => oklab_to_linear_rgb(c0, c1, c2),
     }
 }
 
 /// Converts a GradientColor into (hue_degrees, component1, component2, alpha, is_powerless).
-fn to_cylindrical(
-    color: &GradientColor,
-    space: CylSpace,
-) -> (f32, f32, f32, f32, bool) {
+fn to_cylindrical(color: &GradientColor, space: CylSpace) -> (f32, f32, f32, f32, bool) {
     match (color, space) {
         (
             GradientColor::Hsl {
@@ -318,7 +308,7 @@ fn to_cylindrical(
             };
             (h_deg, w, b, *alpha, is_powerless)
         }
-        // Convert any other color space to HSL or HWB through sRGB  
+        // Convert any other color space to HSL or HWB through sRGB
         (_, cyl_space) => {
             let (srgb_r, srgb_g, srgb_b, alpha) = gradient_color_to_srgb(color);
             match cyl_space {
@@ -406,7 +396,12 @@ fn gradient_color_to_srgb(color: &GradientColor) -> (f32, f32, f32, f32) {
         ),
         GradientColor::Oklab { l, a, b, alpha } => {
             let [lr, lg, lb] = oklab_to_linear_rgb(*l, *a, *b);
-            (linear_to_srgb(lr), linear_to_srgb(lg), linear_to_srgb(lb), *alpha)
+            (
+                linear_to_srgb(lr),
+                linear_to_srgb(lg),
+                linear_to_srgb(lb),
+                *alpha,
+            )
         }
         GradientColor::Hsl {
             hue,

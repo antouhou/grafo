@@ -131,9 +131,7 @@ fn gradient_fill_basic() {
             interpolation: ColorInterpolation::Srgb,
             stops: vec![
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::LinearRadial(0.0),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
                     color: GradientColor::Srgb {
                         red: 1.0,
                         green: 0.0,
@@ -143,9 +141,7 @@ fn gradient_fill_basic() {
                     hint_to_next_segment: None,
                 },
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::LinearRadial(1.0),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
                     color: GradientColor::Srgb {
                         red: 0.0,
                         green: 0.0,
@@ -208,9 +204,7 @@ fn gradient_survives_pipeline_recreation() {
             interpolation: ColorInterpolation::Srgb,
             stops: vec![
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::LinearRadial(0.0),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
                     color: GradientColor::Srgb {
                         red: 1.0,
                         green: 0.0,
@@ -220,9 +214,7 @@ fn gradient_survives_pipeline_recreation() {
                     hint_to_next_segment: None,
                 },
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::LinearRadial(1.0),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
                     color: GradientColor::Srgb {
                         red: 0.0,
                         green: 0.0,
@@ -260,7 +252,10 @@ fn gradient_survives_pipeline_recreation() {
     let off = ((cy * w + cx) * 4) as usize;
     let (b, g, r, a) = (buf[off], buf[off + 1], buf[off + 2], buf[off + 3]);
 
-    assert_eq!(a, 255, "Gradient pixel should be opaque after pipeline recreation");
+    assert_eq!(
+        a, 255,
+        "Gradient pixel should be opaque after pipeline recreation"
+    );
     assert!(
         !(r == 255 && g == 255 && b == 255),
         "Gradient should not be white after pipeline recreation (got rgba({r},{g},{b},{a}))"
@@ -322,9 +317,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
             interpolation: ColorInterpolation::Srgb,
             stops: vec![
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::LinearRadial(0.0),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
                     color: GradientColor::Srgb {
                         red: 1.0,
                         green: 0.0,
@@ -334,9 +327,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
                     hint_to_next_segment: None,
                 },
                 GradientStop {
-                    positions: GradientStopPositions::Single(
-                        GradientStopOffset::LinearRadial(1.0),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
                     color: GradientColor::Srgb {
                         red: 0.0,
                         green: 0.0,
@@ -387,7 +378,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
     // Sample the center of the solid_child rect.
     let w = CANVAS_WIDTH;
     let cx = 225u32; // midpoint of [170, 280]
-    let cy = 50u32;  // midpoint of [20, 80]
+    let cy = 50u32; // midpoint of [20, 80]
     let off = ((cy * w + cx) * 4) as usize;
     let (b, g, r, a) = (buf[off], buf[off + 1], buf[off + 2], buf[off + 3]);
 

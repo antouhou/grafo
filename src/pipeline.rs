@@ -802,7 +802,12 @@ pub fn create_stencil_only_pipeline(
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("stencil_only_pipeline_layout"),
-        bind_group_layouts: &[uniform_bgl, texture_bgl_layer0, texture_bgl_layer1, gradient_bgl],
+        bind_group_layouts: &[
+            uniform_bgl,
+            texture_bgl_layer0,
+            texture_bgl_layer1,
+            gradient_bgl,
+        ],
         push_constant_ranges: &[],
     });
 
@@ -861,7 +866,12 @@ pub fn create_stencil_keep_color_pipeline(
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("stencil_keep_color_pipeline_layout"),
-        bind_group_layouts: &[uniform_bgl, texture_bgl_layer0, texture_bgl_layer1, gradient_bgl],
+        bind_group_layouts: &[
+            uniform_bgl,
+            texture_bgl_layer0,
+            texture_bgl_layer1,
+            gradient_bgl,
+        ],
         push_constant_ranges: &[],
     });
 

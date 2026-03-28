@@ -199,8 +199,6 @@ impl<'a> Renderer<'a> {
                         );
                     }
 
-
-
                     if let Some(owned_vertex_buffers) = tessellated_geometry.into_owned() {
                         self.buffers_pool_manager
                             .lyon_vertex_buffers_pool
@@ -250,13 +248,14 @@ impl<'a> Renderer<'a> {
                     }
 
                     if cached_shape_data.gradient_bind_group.is_none() {
-                        cached_shape_data.gradient_bind_group = create_gradient_bind_group_if_needed(
-                            cached_shape_data.fill.as_ref(),
-                            &self.device,
-                            &self.queue,
-                            &self.gradient_bind_group_layout,
-                            &self.gradient_ramp_sampler,
-                        );
+                        cached_shape_data.gradient_bind_group =
+                            create_gradient_bind_group_if_needed(
+                                cached_shape_data.fill.as_ref(),
+                                &self.device,
+                                &self.queue,
+                                &self.gradient_bind_group_layout,
+                                &self.gradient_ramp_sampler,
+                            );
                     }
                 }
             }
