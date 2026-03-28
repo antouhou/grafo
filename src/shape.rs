@@ -1483,6 +1483,7 @@ pub(crate) trait DrawShapeCommand {
     fn instance_color_override(&self) -> Option<[f32; 4]>;
     fn set_instance_color_override(&mut self, color: Option<[f32; 4]>);
     fn set_fill(&mut self, fill: Option<Fill>);
+    fn has_gradient_fill(&self) -> bool;
     fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>>;
     fn clips_children(&self) -> bool;
     fn is_rect(&self) -> bool;
@@ -1552,6 +1553,11 @@ impl DrawShapeCommand for ShapeDrawData {
         self.fill = fill;
         // Invalidate cached GPU resources so they are rebuilt next frame.
         self.gradient_bind_group = None;
+    }
+
+    #[inline]
+    fn has_gradient_fill(&self) -> bool {
+        matches!(self.fill, Some(Fill::Gradient(_)))
     }
 
     #[inline]
@@ -1641,6 +1647,11 @@ impl DrawShapeCommand for CachedShapeDrawData {
         self.fill = fill;
         // Invalidate cached GPU resources so they are rebuilt next frame.
         self.gradient_bind_group = None;
+    }
+
+    #[inline]
+    fn has_gradient_fill(&self) -> bool {
+        matches!(self.fill, Some(Fill::Gradient(_)))
     }
 
     #[inline]

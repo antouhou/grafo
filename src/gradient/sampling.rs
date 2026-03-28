@@ -21,6 +21,10 @@ pub(crate) fn bake_gradient_ramp(
     let span = last_pos - first_pos;
 
     if span <= RESOLVED_DEGENERATE_EPSILON {
+        if let Some(ramp) = bake_degenerate_hard_stop_ramp(normalized) {
+            return ramp;
+        }
+
         let color = color_to_final_linear_premultiplied(&normalized.stops.last().unwrap().color);
         return vec![color; RAMP_RESOLUTION];
     }
@@ -34,6 +38,28 @@ pub(crate) fn bake_gradient_ramp(
         ramp.push(color);
     }
     ramp
+}
+
+fn bake_degenerate_hard_stop_ramp(normalized: &NormalizedGradient) -> Option<Vec<[f32; 4]>> {
+    let first_stop = normalized.stops.first()?;
+    let last_stop = normalized.stops.last()?;
+    let has_coincident_stops = normalized.stops.len() > 1
+        && normalized
+            .stops
+            .windows(2)
+            .any(|pair| (pair[1].position - pair[0].position).abs() <= RESOLVED_DEGENERATE_EPSILON);
+
+    if !has_coincident_stops {
+        return None;
+    }
+
+    let first_color = color_to_final_linear_premultiplied(&first_stop.color);
+    let last_color = color_to_final_linear_premultiplied(&last_stop.color);
+    let transition_index = RAMP_RESOLUTION / 2;
+
+    let mut ramp = vec![last_color; RAMP_RESOLUTION];
+    ramp[..transition_index].fill(first_color);
+    Some(ramp)
 }
 
 /// Evaluates the gradient at scalar `u` (after spread-mode folding).
@@ -595,6 +621,20 @@ pub(crate) fn rem_euclid_f32(a: f32, b: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gradient::normalize::NormalizedGradient;
+    use crate::gradient::types::{
+        ColorInterpolation, GradientColor, GradientCommonDesc, GradientKind, GradientStop,
+        GradientStopOffset, GradientStopPositions, GradientUnits, SpreadMode,
+    };
+
+    fn srgb_color(red: f32, green: f32, blue: f32) -> GradientColor {
+        GradientColor::Srgb {
+            red,
+            green,
+            blue,
+            alpha: 1.0,
+        }
+    }
 
     #[test]
     fn test_srgb_linear_roundtrip() {
@@ -629,5 +669,39 @@ mod tests {
     fn test_rem_euclid() {
         assert!((rem_euclid_f32(-30.0, 360.0) - 330.0).abs() < 1e-5);
         assert!((rem_euclid_f32(370.0, 360.0) - 10.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn bake_gradient_ramp_preserves_degenerate_hard_stop_boundary() {
+        let common = GradientCommonDesc {
+            units: GradientUnits::Local,
+            spread: SpreadMode::Pad,
+            interpolation: ColorInterpolation::Srgb,
+            stops: vec![
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.5)),
+                    color: srgb_color(1.0, 0.0, 0.0),
+                    hint_to_next_segment: None,
+                },
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.5)),
+                    color: srgb_color(0.0, 0.0, 1.0),
+                    hint_to_next_segment: None,
+                },
+            ],
+        };
+
+        let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
+        let ramp = bake_gradient_ramp(&normalized, &common.interpolation);
+        let transition_index = RAMP_RESOLUTION / 2;
+
+        assert_eq!(
+            ramp[transition_index - 1],
+            color_to_final_linear_premultiplied(&srgb_color(1.0, 0.0, 0.0))
+        );
+        assert_eq!(
+            ramp[transition_index],
+            color_to_final_linear_premultiplied(&srgb_color(0.0, 0.0, 1.0))
+        );
     }
 }

@@ -294,6 +294,9 @@ impl Gradient {
         let (radius_x, radius_y) = match (&desc.shape, &desc.size) {
             (RadialGradientShape::Circle, RadialGradientSize::ExplicitCircleRadius(r)) => {
                 validate_finite_f32(*r, "radius")?;
+                if *r < 0.0 {
+                    return Err(GradientError::InvalidRadialDefinition);
+                }
                 (*r, *r)
             }
             (
@@ -302,6 +305,9 @@ impl Gradient {
             ) => {
                 validate_finite_f32(*radius_x, "radius_x")?;
                 validate_finite_f32(*radius_y, "radius_y")?;
+                if *radius_x < 0.0 || *radius_y < 0.0 {
+                    return Err(GradientError::InvalidRadialDefinition);
+                }
                 (*radius_x, *radius_y)
             }
             _ => return Err(GradientError::InvalidRadialDefinition),
@@ -613,5 +619,38 @@ mod tests {
             !g.data.ramp.is_empty(),
             "degenerate radial ramp must not be empty"
         );
+    }
+
+    #[test]
+    fn radial_rejects_negative_circle_radius() {
+        let gradient = Gradient::radial(RadialGradientDesc {
+            common: single_stop_common(),
+            center: [50.0, 50.0],
+            shape: RadialGradientShape::Circle,
+            size: RadialGradientSize::ExplicitCircleRadius(-1.0),
+        });
+
+        assert!(matches!(
+            gradient,
+            Err(GradientError::InvalidRadialDefinition)
+        ));
+    }
+
+    #[test]
+    fn radial_rejects_negative_ellipse_radius() {
+        let gradient = Gradient::radial(RadialGradientDesc {
+            common: single_stop_common(),
+            center: [50.0, 50.0],
+            shape: RadialGradientShape::Ellipse,
+            size: RadialGradientSize::ExplicitEllipseRadii {
+                radius_x: 20.0,
+                radius_y: -1.0,
+            },
+        });
+
+        assert!(matches!(
+            gradient,
+            Err(GradientError::InvalidRadialDefinition)
+        ));
     }
 }

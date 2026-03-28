@@ -88,6 +88,13 @@ impl DrawCommand {
         }
     }
 
+    pub(super) fn has_gradient_fill(&self) -> bool {
+        match self {
+            DrawCommand::Shape(shape) => shape.has_gradient_fill(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.has_gradient_fill(),
+        }
+    }
+
     pub(super) fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>> {
         match self {
             DrawCommand::Shape(shape) => shape.gradient_bind_group(),

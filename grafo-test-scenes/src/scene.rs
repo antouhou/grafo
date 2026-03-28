@@ -1877,8 +1877,25 @@ fn tile_38_sheared_transparent_parent(renderer: &mut Renderer) -> Vec<PixelExpec
 
 /// Helper: creates a simple two-stop sRGB gradient common descriptor.
 fn two_stop_common(c1: (u8, u8, u8), c2: (u8, u8, u8), spread: SpreadMode) -> GradientCommonDesc {
+    two_stop_common_with_units(c1, c2, spread, GradientUnits::Local)
+}
+
+fn two_stop_common_canvas(
+    c1: (u8, u8, u8),
+    c2: (u8, u8, u8),
+    spread: SpreadMode,
+) -> GradientCommonDesc {
+    two_stop_common_with_units(c1, c2, spread, GradientUnits::Canvas)
+}
+
+fn two_stop_common_with_units(
+    c1: (u8, u8, u8),
+    c2: (u8, u8, u8),
+    spread: SpreadMode,
+    units: GradientUnits,
+) -> GradientCommonDesc {
     GradientCommonDesc {
-        units: GradientUnits::Local,
+        units,
         spread,
         interpolation: ColorInterpolation::Srgb,
         stops: vec![
@@ -1916,7 +1933,7 @@ fn tile_39_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let id = renderer.add_shape(shape, None, None);
 
     let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
-        common: two_stop_common((220, 30, 30), (30, 30, 220), SpreadMode::Pad),
+        common: two_stop_common_canvas((220, 30, 30), (30, 30, 220), SpreadMode::Pad),
         line: LinearGradientLine {
             start: [ox + 10.0, oy + 40.0],
             end: [ox + 70.0, oy + 40.0],
@@ -2172,12 +2189,18 @@ fn tile_43_gradient_hard_stops(renderer: &mut Renderer) -> Vec<PixelExpectation>
                     },
                     hint_to_next_segment: None,
                 },
-                // Double stop at 50% creates a hard edge
                 GradientStop {
-                    positions: GradientStopPositions::Double(
-                        GradientStopOffset::LinearRadial(0.5),
-                        GradientStopOffset::LinearRadial(0.5),
-                    ),
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.5)),
+                    color: GradientColor::Srgb {
+                        red: 0.86,
+                        green: 0.2,
+                        blue: 0.2,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.5)),
                     color: GradientColor::Srgb {
                         red: 0.12,
                         green: 0.12,
@@ -2208,25 +2231,25 @@ fn tile_43_gradient_hard_stops(renderer: &mut Renderer) -> Vec<PixelExpectation>
     renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
 
     vec![
-        // Far left (well before 50% boundary) should be reddish
+        // Just left of the 50% boundary should still be red.
         PixelExpectation::opaque_approx(
-            ox as u32 + 15,
+            ox as u32 + 39,
             oy as u32 + 40,
             200,
             50,
             60,
-            60,
-            "t43_left_red",
+            45,
+            "t43_left_of_hard_stop_red",
         ),
-        // Far right (well after 50% boundary) should be bluish
+        // Just right of the 50% boundary should flip immediately to blue.
         PixelExpectation::opaque_approx(
-            ox as u32 + 65,
+            ox as u32 + 41,
             oy as u32 + 40,
             30,
             30,
             200,
-            60,
-            "t43_right_blue",
+            45,
+            "t43_right_of_hard_stop_blue",
         ),
     ]
 }

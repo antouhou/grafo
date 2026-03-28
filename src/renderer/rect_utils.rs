@@ -51,8 +51,8 @@ pub(super) fn should_skip_visible_rect_draw(
         return false;
     }
 
-    // Shapes with a gradient bind group are visually active — don't skip.
-    if draw_command.gradient_bind_group().is_some() {
+    // Gradient-filled shapes are visually active even before GPU prep creates bind groups.
+    if draw_command.has_gradient_fill() {
         return false;
     }
 
@@ -143,9 +143,55 @@ pub(super) fn try_scissor_for_rect(
 mod tests {
     use super::{compute_scissor_rect, should_skip_visible_rect_draw, try_scissor_for_rect};
     use crate::effect::EffectInstance;
+    use crate::gradient::types::{
+        ColorInterpolation, Fill, Gradient, GradientColor, GradientCommonDesc, GradientDesc,
+        GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
+        LinearGradientLine, SpreadMode,
+    };
     use crate::renderer::types::DrawCommand;
     use crate::{Color, Shape, Stroke, TransformInstance};
     use ahash::{HashMap, HashMapExt};
+
+    fn create_test_gradient() -> Gradient {
+        Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+            common: GradientCommonDesc {
+                units: GradientUnits::Local,
+                spread: SpreadMode::Pad,
+                interpolation: ColorInterpolation::Srgb,
+                stops: vec![
+                    GradientStop {
+                        positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(
+                            0.0,
+                        )),
+                        color: GradientColor::Srgb {
+                            red: 1.0,
+                            green: 0.0,
+                            blue: 0.0,
+                            alpha: 1.0,
+                        },
+                        hint_to_next_segment: None,
+                    },
+                    GradientStop {
+                        positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(
+                            1.0,
+                        )),
+                        color: GradientColor::Srgb {
+                            red: 0.0,
+                            green: 0.0,
+                            blue: 1.0,
+                            alpha: 1.0,
+                        },
+                        hint_to_next_segment: None,
+                    },
+                ],
+            },
+            line: LinearGradientLine {
+                start: [0.0, 5.0],
+                end: [10.0, 5.0],
+            },
+        }))
+        .expect("valid test gradient")
+    }
 
     #[test]
     fn axis_aligned_rect_transform_accepts_translation_and_scale() {
@@ -252,6 +298,28 @@ mod tests {
         assert!(!should_skip_visible_rect_draw(
             2,
             &textured_draw_command,
+            &HashMap::new(),
+            &HashMap::new(),
+        ));
+    }
+
+    #[test]
+    fn skip_visible_rect_draw_rejects_gradient_rects() {
+        let mut draw_command = DrawCommand::Shape(crate::shape::ShapeDrawData::new(
+            Shape::rect([(0.0, 0.0), (10.0, 10.0)], Stroke::default()),
+            None,
+        ));
+
+        match &mut draw_command {
+            DrawCommand::Shape(shape) => {
+                shape.fill = Some(Fill::Gradient(create_test_gradient()));
+            }
+            DrawCommand::CachedShape(_) => unreachable!("test constructs a non-cached shape"),
+        }
+
+        assert!(!should_skip_visible_rect_draw(
+            3,
+            &draw_command,
             &HashMap::new(),
             &HashMap::new(),
         ));
