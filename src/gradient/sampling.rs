@@ -231,9 +231,18 @@ fn interpolate_cylindrical(
 
     // Step 4: Interpolate
     let h_interp = rem_euclid_f32(rh0 + delta * p, 360.0);
-    let c1_interp = c1_a + (c1_b - c1_a) * p;
-    let c2_interp = c2_a + (c2_b - c2_a) * p;
     let alpha_interp = a_a + (a_b - a_a) * p;
+    let c1_a_p = c1_a * a_a;
+    let c1_b_p = c1_b * a_b;
+    let c2_a_p = c2_a * a_a;
+    let c2_b_p = c2_b * a_b;
+    let c1_p = c1_a_p + (c1_b_p - c1_a_p) * p;
+    let c2_p = c2_a_p + (c2_b_p - c2_a_p) * p;
+    let (c1_interp, c2_interp) = if alpha_interp > 0.0 {
+        (c1_p / alpha_interp, c2_p / alpha_interp)
+    } else {
+        (0.0, 0.0)
+    };
 
     // Step 5: Convert to final linear output space and premultiply
     let [lr, lg, lb] = cylindrical_to_linear(h_interp, c1_interp, c2_interp, space);
@@ -731,5 +740,38 @@ mod tests {
         let expected = color_to_final_linear_premultiplied(&srgb_color(0.0, 0.0, 1.0));
 
         assert!(ramp.iter().all(|texel| *texel == expected));
+    }
+
+    #[test]
+    fn cylindrical_interpolation_premultiplies_non_hue_channels() {
+        let color_a = GradientColor::Hsl {
+            hue: HueComponent::Degrees(0.0),
+            saturation: 1.0,
+            lightness: 0.5,
+            alpha: 1.0,
+        };
+        let color_b = GradientColor::Hsl {
+            hue: HueComponent::Degrees(120.0),
+            saturation: 0.0,
+            lightness: 1.0,
+            alpha: 0.0,
+        };
+
+        let interpolated = interpolate_cylindrical(
+            &color_a,
+            &color_b,
+            0.5,
+            CylSpace::Hsl,
+            HueInterpolationMethod::Shorter,
+        );
+
+        let expected = color_to_final_linear_premultiplied(&GradientColor::Hsl {
+            hue: HueComponent::Degrees(0.0),
+            saturation: 1.0,
+            lightness: 0.5,
+            alpha: 0.5,
+        });
+
+        assert_eq!(interpolated, expected);
     }
 }
