@@ -141,6 +141,7 @@ pub use wgpu;
 mod color;
 mod debug_tools;
 mod effect;
+pub mod gradient;
 mod pipeline;
 mod renderer;
 mod stroke;
@@ -153,6 +154,13 @@ mod texture_manager;
 
 pub use color::Color;
 pub use effect::EffectError;
+pub use gradient::errors::GradientError;
+pub use gradient::types::{
+    ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
+    GradientDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientSupport,
+    GradientUnits, HueComponent, HueInterpolationMethod, LinearGradientDesc, LinearGradientLine,
+    RadialGradientDesc, RadialGradientShape, RadialGradientSize, SpreadMode,
+};
 pub use renderer::MathRect;
 pub use renderer::Renderer;
 pub use renderer::RendererCreationError;

@@ -1,4 +1,9 @@
-use grafo::{BorderRadii, Color, Renderer, Shape, Stroke, TransformInstance};
+use grafo::{
+    BorderRadii, Color, ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor,
+    GradientCommonDesc, GradientDesc, GradientStop, GradientStopOffset, GradientStopPositions,
+    GradientUnits, LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientShape,
+    RadialGradientSize, Renderer, Shape, SpreadMode, Stroke, TransformInstance,
+};
 
 use crate::expectations::PixelExpectation;
 use crate::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
@@ -7,7 +12,7 @@ use crate::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 
 const TILE_SIZE: u32 = 80;
 const COLUMNS: u32 = 6;
-const ROWS: u32 = 7;
+const ROWS: u32 = 9;
 
 pub const CANVAS_WIDTH: u32 = TILE_SIZE * COLUMNS;
 pub const CANVAS_HEIGHT: u32 = TILE_SIZE * ROWS;
@@ -81,6 +86,21 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_36_trivial_transform_transparent_parent(renderer));
     expectations.extend(tile_37_textured_transparent_rects(renderer));
     expectations.extend(tile_38_sheared_transparent_parent(renderer));
+
+    // ── Gradient tiles ───────────────────────────────────────────────────
+    expectations.extend(tile_39_linear_gradient(renderer));
+    expectations.extend(tile_40_radial_gradient(renderer));
+    expectations.extend(tile_41_conic_gradient(renderer));
+    expectations.extend(tile_42_repeating_linear_gradient(renderer));
+    expectations.extend(tile_43_gradient_hard_stops(renderer));
+    expectations.extend(tile_44_gradient_clipped(renderer));
+    expectations.extend(tile_45_gradient_group_blur(renderer));
+    expectations.extend(tile_46_gradient_backdrop_blur(renderer));
+
+    // ── Gradient regression tiles ────────────────────────────────────────
+    expectations.extend(tile_47_gradient_nonleaf_stencil(renderer));
+    expectations.extend(tile_48_gradient_state_leak(renderer));
+    expectations.extend(tile_49_conic_quadrant_colors(renderer));
 
     expectations
 }
@@ -1849,6 +1869,830 @@ fn tile_38_sheared_transparent_parent(renderer: &mut Renderer) -> Vec<PixelExpec
             255,
             255,
             "t38_outside_sheared_clip",
+        ),
+    ]
+}
+
+// ── Section G: Gradient Fills ────────────────────────────────────────────────
+
+/// Helper: creates a simple two-stop sRGB gradient common descriptor.
+fn two_stop_common(c1: (u8, u8, u8), c2: (u8, u8, u8), spread: SpreadMode) -> GradientCommonDesc {
+    two_stop_common_with_units(c1, c2, spread, GradientUnits::Local)
+}
+
+fn two_stop_common_canvas(
+    c1: (u8, u8, u8),
+    c2: (u8, u8, u8),
+    spread: SpreadMode,
+) -> GradientCommonDesc {
+    two_stop_common_with_units(c1, c2, spread, GradientUnits::Canvas)
+}
+
+fn two_stop_common_with_units(
+    c1: (u8, u8, u8),
+    c2: (u8, u8, u8),
+    spread: SpreadMode,
+    units: GradientUnits,
+) -> GradientCommonDesc {
+    GradientCommonDesc {
+        units,
+        spread,
+        interpolation: ColorInterpolation::Srgb,
+        stops: vec![
+            GradientStop {
+                positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
+                color: GradientColor::Srgb {
+                    red: c1.0 as f32 / 255.0,
+                    green: c1.1 as f32 / 255.0,
+                    blue: c1.2 as f32 / 255.0,
+                    alpha: 1.0,
+                },
+                hint_to_next_segment: None,
+            },
+            GradientStop {
+                positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
+                color: GradientColor::Srgb {
+                    red: c2.0 as f32 / 255.0,
+                    green: c2.1 as f32 / 255.0,
+                    blue: c2.2 as f32 / 255.0,
+                    alpha: 1.0,
+                },
+                hint_to_next_segment: None,
+            },
+        ],
+    }
+}
+
+/// Tile 39 — Linear gradient: red (left) → blue (right).
+fn tile_39_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(39);
+    let shape = Shape::rect([(0.0, 0.0), (60.0, 60.0)], Stroke::default());
+    let id = renderer.add_shape(shape, None, None);
+    renderer.set_shape_transform(id, TransformInstance::translation(ox + 10.0, oy + 10.0));
+
+    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+        common: two_stop_common_canvas((220, 30, 30), (30, 30, 220), SpreadMode::Pad),
+        line: LinearGradientLine {
+            start: [ox + 10.0, oy + 40.0],
+            end: [ox + 70.0, oy + 40.0],
+        },
+    }))
+    .expect("valid gradient");
+
+    renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
+
+    vec![
+        // Canvas units are evaluated in screen space, so the transformed shape still
+        // follows the tile-space line rather than restarting in local space.
+        PixelExpectation::opaque_approx(
+            ox as u32 + 15,
+            oy as u32 + 40,
+            200,
+            30,
+            50,
+            45,
+            "t39_left_red",
+        ),
+        // Right edge should be bluish
+        PixelExpectation::opaque_approx(
+            ox as u32 + 65,
+            oy as u32 + 40,
+            50,
+            30,
+            200,
+            45,
+            "t39_right_blue",
+        ),
+    ]
+}
+
+/// Tile 40 — Radial gradient: yellow center → green edge.
+fn tile_40_radial_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(40);
+    let shape = Shape::rect(
+        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
+        Stroke::default(),
+    );
+    let id = renderer.add_shape(shape, None, None);
+
+    let gradient = Gradient::new(GradientDesc::Radial(RadialGradientDesc {
+        common: two_stop_common((240, 240, 30), (30, 180, 30), SpreadMode::Pad),
+        center: [ox + 40.0, oy + 40.0],
+        shape: RadialGradientShape::Circle,
+        size: RadialGradientSize::ExplicitCircleRadius(30.0),
+    }))
+    .expect("valid gradient");
+
+    renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
+
+    vec![
+        // Center should be yellowish
+        PixelExpectation::opaque_approx(
+            ox as u32 + 40,
+            oy as u32 + 40,
+            240,
+            240,
+            30,
+            20,
+            "t40_center_yellow",
+        ),
+        // Edge (~28px from center) should be greenish
+        PixelExpectation::opaque_approx(
+            ox as u32 + 65,
+            oy as u32 + 40,
+            30,
+            180,
+            30,
+            50,
+            "t40_edge_green",
+        ),
+    ]
+}
+
+/// Tile 41 — Conic gradient: red (0°) → green (120°) → blue (240°) → red (360°).
+fn tile_41_conic_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(41);
+    let shape = Shape::rect(
+        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
+        Stroke::default(),
+    );
+    let id = renderer.add_shape(shape, None, None);
+
+    let tau = std::f32::consts::TAU;
+    let gradient = Gradient::new(GradientDesc::Conic(ConicGradientDesc {
+        common: GradientCommonDesc {
+            units: GradientUnits::Local,
+            spread: SpreadMode::Pad,
+            interpolation: ColorInterpolation::Srgb,
+            stops: vec![
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(0.0)),
+                    color: GradientColor::Srgb {
+                        red: 1.0,
+                        green: 0.0,
+                        blue: 0.0,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(
+                        tau / 3.0,
+                    )),
+                    color: GradientColor::Srgb {
+                        red: 0.0,
+                        green: 1.0,
+                        blue: 0.0,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(
+                        2.0 * tau / 3.0,
+                    )),
+                    color: GradientColor::Srgb {
+                        red: 0.0,
+                        green: 0.0,
+                        blue: 1.0,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(tau)),
+                    color: GradientColor::Srgb {
+                        red: 1.0,
+                        green: 0.0,
+                        blue: 0.0,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+            ],
+        },
+        center: [ox + 40.0, oy + 40.0],
+        start_angle_radians: 0.0,
+    }))
+    .expect("valid gradient");
+
+    renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
+
+    vec![
+        // Right of center (0°) should be reddish
+        PixelExpectation::opaque_approx(
+            ox as u32 + 65,
+            oy as u32 + 40,
+            230,
+            0,
+            25,
+            60,
+            "t41_right_red",
+        ),
+    ]
+}
+
+/// Tile 42 — Repeating linear gradient: red/blue stripes.
+fn tile_42_repeating_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(42);
+    let shape = Shape::rect(
+        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
+        Stroke::default(),
+    );
+    let id = renderer.add_shape(shape, None, None);
+
+    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+        common: GradientCommonDesc {
+            units: GradientUnits::Local,
+            spread: SpreadMode::Repeat,
+            interpolation: ColorInterpolation::Srgb,
+            stops: vec![
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
+                    color: GradientColor::Srgb {
+                        red: 0.9,
+                        green: 0.1,
+                        blue: 0.1,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.5)),
+                    color: GradientColor::Srgb {
+                        red: 0.1,
+                        green: 0.1,
+                        blue: 0.9,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
+                    color: GradientColor::Srgb {
+                        red: 0.9,
+                        green: 0.1,
+                        blue: 0.1,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+            ],
+        },
+        // Short axis so it repeats ~3 times across the 60px rect.
+        line: LinearGradientLine {
+            start: [ox + 10.0, oy + 40.0],
+            end: [ox + 30.0, oy + 40.0],
+        },
+    }))
+    .expect("valid gradient");
+
+    renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
+
+    vec![
+        // Midpoint of first period (10px in 20px period) should be bluish
+        PixelExpectation::opaque_approx(
+            ox as u32 + 20,
+            oy as u32 + 40,
+            25,
+            25,
+            200,
+            70,
+            "t42_repeat_mid_blue",
+        ),
+        // Midpoint of a later repeated period should still be bluish.
+        PixelExpectation::opaque_approx(
+            ox as u32 + 60,
+            oy as u32 + 40,
+            25,
+            25,
+            200,
+            70,
+            "t42_repeat_far_blue",
+        ),
+    ]
+}
+
+/// Tile 43 — Hard color stops: left half red, right half blue (no transition).
+fn tile_43_gradient_hard_stops(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(43);
+    let shape = Shape::rect(
+        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
+        Stroke::default(),
+    );
+    let id = renderer.add_shape(shape, None, None);
+
+    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+        common: GradientCommonDesc {
+            units: GradientUnits::Local,
+            spread: SpreadMode::Pad,
+            interpolation: ColorInterpolation::Srgb,
+            stops: vec![
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
+                    color: GradientColor::Srgb {
+                        red: 0.86,
+                        green: 0.2,
+                        blue: 0.2,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.5)),
+                    color: GradientColor::Srgb {
+                        red: 0.86,
+                        green: 0.2,
+                        blue: 0.2,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.5)),
+                    color: GradientColor::Srgb {
+                        red: 0.12,
+                        green: 0.12,
+                        blue: 0.86,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
+                    color: GradientColor::Srgb {
+                        red: 0.12,
+                        green: 0.12,
+                        blue: 0.86,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+            ],
+        },
+        line: LinearGradientLine {
+            start: [ox + 10.0, oy + 40.0],
+            end: [ox + 70.0, oy + 40.0],
+        },
+    }))
+    .expect("valid gradient");
+
+    renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
+
+    vec![
+        // Just left of the 50% boundary should still be red.
+        PixelExpectation::opaque_approx(
+            ox as u32 + 39,
+            oy as u32 + 40,
+            200,
+            50,
+            60,
+            45,
+            "t43_left_of_hard_stop_red",
+        ),
+        // Just right of the 50% boundary should flip immediately to blue.
+        PixelExpectation::opaque_approx(
+            ox as u32 + 41,
+            oy as u32 + 40,
+            30,
+            30,
+            200,
+            45,
+            "t43_right_of_hard_stop_blue",
+        ),
+    ]
+}
+
+/// Tile 44 — Gradient fill clipped by a rounded parent.
+fn tile_44_gradient_clipped(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(44);
+
+    // Rounded parent creates the clip mask.
+    let parent = Shape::rounded_rect(
+        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
+        BorderRadii::new(15.0),
+        Stroke::default(),
+    );
+    let parent_id = renderer.add_shape(parent, None, None);
+
+    // Child rect filled with a gradient, clipped by rounded parent.
+    let child = Shape::rect(
+        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
+        Stroke::default(),
+    );
+    let child_id = renderer.add_shape(child, Some(parent_id), None);
+
+    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+        common: two_stop_common((30, 220, 30), (220, 30, 220), SpreadMode::Pad),
+        line: LinearGradientLine {
+            start: [ox + 10.0, oy + 10.0],
+            end: [ox + 70.0, oy + 70.0],
+        },
+    }))
+    .expect("valid gradient");
+
+    renderer.set_shape_fill(child_id, Some(Fill::Gradient(gradient)));
+
+    vec![
+        // Center should have a gradient mix
+        PixelExpectation::opaque_approx(
+            ox as u32 + 40,
+            oy as u32 + 40,
+            125,
+            125,
+            125,
+            80,
+            "t44_center_gradient_mix",
+        ),
+        // Corner is outside the rounded clip — should be canvas white
+        PixelExpectation::opaque(
+            ox as u32 + 11,
+            oy as u32 + 11,
+            255,
+            255,
+            255,
+            "t44_outside_rounded_clip",
+        ),
+    ]
+}
+
+/// Tile 45 — Gradient shape with a group blur effect (like tile 27 but gradient instead of red).
+fn tile_45_gradient_group_blur(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(45);
+
+    // Background stripe (sharp, NOT blurred) — partially behind the blurred shape
+    let bg_stripe = Shape::rect(
+        [(ox + 5.0, oy + 30.0), (ox + 75.0, oy + 50.0)],
+        Stroke::default(),
+    );
+    let bg_id = renderer.add_shape(bg_stripe, None, None);
+    renderer.set_shape_color(bg_id, Some(Color::rgb(50, 180, 50))); // green stripe
+
+    // Gradient-filled shape with group blur
+    let shape = Shape::rect(
+        [(ox + 15.0, oy + 10.0), (ox + 65.0, oy + 70.0)],
+        Stroke::default(),
+    );
+    let id = renderer.add_shape(shape, None, None);
+
+    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+        common: two_stop_common((220, 50, 50), (50, 50, 220), SpreadMode::Pad),
+        line: LinearGradientLine {
+            start: [ox + 15.0, oy + 10.0],
+            end: [ox + 65.0, oy + 70.0],
+        },
+    }))
+    .expect("valid gradient");
+
+    renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
+
+    let (pw, ph) = renderer.size();
+    let blur_params = BlurParams {
+        radius: 8.0,
+        _pad: 0.0,
+        tex_size: [pw as f32, ph as f32],
+    };
+    renderer
+        .set_group_effect(id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
+        .expect("Failed to set group effect");
+
+    vec![
+        // Blurred gradient center: purple-ish mix (high tolerance due to blur)
+        PixelExpectation::new(
+            ox as u32 + 40,
+            oy as u32 + 40,
+            120,
+            40,
+            140,
+            255,
+            "t45_blurred_gradient_center",
+        )
+        .with_tolerance(70),
+        // Green stripe outside blurred shape — stays sharp and fully green
+        PixelExpectation::opaque(
+            ox as u32 + 10,
+            oy as u32 + 40,
+            50,
+            180,
+            50,
+            "t45_bg_stripe_sharp",
+        )
+        .with_tolerance(20),
+    ]
+}
+
+/// Tile 46 — Gradient behind a backdrop blur panel (like tile 29 but gradient instead of blue stripe).
+fn tile_46_gradient_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(46);
+
+    // Red background
+    let bg = Shape::rect(
+        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
+        Stroke::default(),
+    );
+    let bg_id = renderer.add_shape(bg, None, None);
+    renderer.set_shape_color(bg_id, Some(Color::rgb(220, 50, 50)));
+
+    // Gradient stripe that partially overlaps the backdrop panel.
+    // Outside the panel it should be crisp; under the panel it should get blurred.
+    let stripe = Shape::rect(
+        [(ox + 10.0, oy + 32.0), (ox + 70.0, oy + 48.0)],
+        Stroke::default(),
+    );
+    let stripe_id = renderer.add_shape(stripe, None, None);
+
+    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+        common: two_stop_common((50, 50, 220), (50, 220, 50), SpreadMode::Pad),
+        line: LinearGradientLine {
+            start: [ox + 10.0, oy + 32.0],
+            end: [ox + 70.0, oy + 48.0],
+        },
+    }))
+    .expect("valid gradient");
+
+    renderer.set_shape_fill(stripe_id, Some(Fill::Gradient(gradient)));
+
+    // Backdrop blur panel on top (leaf, no children)
+    let panel = Shape::rect(
+        [(ox + 20.0, oy + 15.0), (ox + 60.0, oy + 65.0)],
+        Stroke::default(),
+    );
+    let panel_id = renderer.add_shape(panel, None, None);
+    renderer.set_shape_color(panel_id, Some(Color::rgba(255, 255, 255, 80)));
+
+    let (pw, ph) = renderer.size();
+    let blur_params = BlurParams {
+        radius: 10.0,
+        _pad: 0.0,
+        tex_size: [pw as f32, ph as f32],
+    };
+    renderer
+        .set_shape_backdrop_effect(panel_id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
+        .expect("Failed to set backdrop effect");
+
+    vec![
+        // Panel interior: blurred mix of red bg + gradient stripe + white overlay
+        PixelExpectation::new(
+            ox as u32 + 40,
+            oy as u32 + 40,
+            150,
+            150,
+            180,
+            255,
+            "t46_backdrop_interior",
+        )
+        .with_tolerance(50),
+        // Gradient stripe outside panel — should be crisp blue (left side)
+        PixelExpectation::opaque(
+            ox as u32 + 12,
+            oy as u32 + 40,
+            50,
+            60,
+            210,
+            "t46_gradient_stripe_outside",
+        )
+        .with_tolerance(30),
+        // Red background outside panel and stripe
+        PixelExpectation::opaque(ox as u32 + 10, oy as u32 + 10, 220, 50, 50, "t46_bg_intact"),
+    ]
+}
+
+// ── Gradient regression test tiles ───────────────────────────────────────────
+
+/// Tile 47 — Regression: gradient on a non-leaf rounded-rect parent (stencil increment path).
+/// The parent's gradient should be visible; a child rect sits inside.
+fn tile_47_gradient_nonleaf_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(47);
+
+    // Rounded-rect parent with gradient fill (forces stencil path, not scissor).
+    let parent = Shape::rounded_rect(
+        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
+        BorderRadii::new(12.0),
+        Stroke::default(),
+    );
+    let parent_id = renderer.add_shape(parent, None, None);
+
+    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+        common: two_stop_common((220, 30, 30), (30, 30, 220), SpreadMode::Pad),
+        line: LinearGradientLine {
+            start: [ox + 10.0, oy + 40.0],
+            end: [ox + 70.0, oy + 40.0],
+        },
+    }))
+    .expect("valid gradient");
+
+    renderer.set_shape_fill(parent_id, Some(Fill::Gradient(gradient)));
+
+    // Small opaque child in the center.
+    let child = Shape::rect(
+        [(ox + 30.0, oy + 30.0), (ox + 50.0, oy + 50.0)],
+        Stroke::default(),
+    );
+    let child_id = renderer.add_shape(child, Some(parent_id), None);
+    renderer.set_shape_color(child_id, Some(Color::rgb(255, 255, 0))); // yellow
+
+    vec![
+        // Left side of parent (gradient should be red-ish, not white/background).
+        PixelExpectation::opaque_approx(
+            ox as u32 + 15,
+            oy as u32 + 40,
+            200,
+            30,
+            50,
+            60,
+            "t47_parent_gradient_left_red",
+        ),
+        // Right side of parent (gradient should be blue-ish, not white/background).
+        PixelExpectation::opaque_approx(
+            ox as u32 + 65,
+            oy as u32 + 40,
+            50,
+            30,
+            200,
+            60,
+            "t47_parent_gradient_right_blue",
+        ),
+        // Child center should be yellow (drawn on top of gradient parent).
+        PixelExpectation::opaque(
+            ox as u32 + 40,
+            oy as u32 + 40,
+            255,
+            255,
+            0,
+            "t47_child_yellow",
+        ),
+    ]
+}
+
+/// Tile 48 — Regression: gradient state leak. A gradient leaf followed by a solid leaf.
+/// The solid shape must render in its own color, not the leaked gradient.
+fn tile_48_gradient_state_leak(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(48);
+
+    // First: gradient-filled rect (left half).
+    let grad_shape = Shape::rect(
+        [(ox + 5.0, oy + 10.0), (ox + 37.0, oy + 70.0)],
+        Stroke::default(),
+    );
+    let grad_id = renderer.add_shape(grad_shape, None, None);
+
+    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+        common: two_stop_common((220, 30, 30), (30, 220, 30), SpreadMode::Pad),
+        line: LinearGradientLine {
+            start: [ox + 5.0, oy + 10.0],
+            end: [ox + 37.0, oy + 70.0],
+        },
+    }))
+    .expect("valid gradient");
+
+    renderer.set_shape_fill(grad_id, Some(Fill::Gradient(gradient)));
+
+    // Second: solid cyan rect (right half), drawn immediately after the gradient.
+    let solid_shape = Shape::rect(
+        [(ox + 43.0, oy + 10.0), (ox + 75.0, oy + 70.0)],
+        Stroke::default(),
+    );
+    let solid_id = renderer.add_shape(solid_shape, None, None);
+    renderer.set_shape_color(solid_id, Some(Color::rgb(0, 220, 220))); // cyan
+
+    vec![
+        // Gradient rect center: should be a gradient mix (yellow-ish).
+        PixelExpectation::opaque_approx(
+            ox as u32 + 21,
+            oy as u32 + 40,
+            125,
+            125,
+            30,
+            80,
+            "t48_gradient_center",
+        ),
+        // Solid cyan rect center: must be cyan, NOT showing leaked gradient.
+        PixelExpectation::opaque(
+            ox as u32 + 59,
+            oy as u32 + 40,
+            0,
+            220,
+            220,
+            "t48_solid_cyan",
+        ),
+    ]
+}
+
+/// Tile 49 — Regression: conic gradient quadrant colors.
+/// Four stops at 0°, 90°, 180°, 270°. Tests non-trivial angles
+/// where the CPU↔shader unit mismatch causes wrong ramp lookups.
+fn tile_49_conic_quadrant_colors(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(49);
+    let cx = ox + 40.0;
+    let cy = oy + 40.0;
+
+    let shape = Shape::rect(
+        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
+        Stroke::default(),
+    );
+    let id = renderer.add_shape(shape, None, None);
+
+    use std::f32::consts::{FRAC_PI_2, PI, TAU};
+
+    let gradient = Gradient::new(GradientDesc::Conic(ConicGradientDesc {
+        common: GradientCommonDesc {
+            units: GradientUnits::Local,
+            spread: SpreadMode::Pad,
+            interpolation: ColorInterpolation::Srgb,
+            stops: vec![
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(0.0)),
+                    color: GradientColor::Srgb {
+                        red: 1.0,
+                        green: 0.0,
+                        blue: 0.0,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(
+                        FRAC_PI_2,
+                    )),
+                    color: GradientColor::Srgb {
+                        red: 0.0,
+                        green: 1.0,
+                        blue: 0.0,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(PI)),
+                    color: GradientColor::Srgb {
+                        red: 0.0,
+                        green: 0.0,
+                        blue: 1.0,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(
+                        3.0 * FRAC_PI_2,
+                    )),
+                    color: GradientColor::Srgb {
+                        red: 1.0,
+                        green: 1.0,
+                        blue: 0.0,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::ConicRadians(TAU)),
+                    color: GradientColor::Srgb {
+                        red: 1.0,
+                        green: 0.0,
+                        blue: 0.0,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+            ],
+        },
+        center: [cx, cy],
+        start_angle_radians: 0.0,
+    }))
+    .expect("valid gradient");
+
+    renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
+
+    vec![
+        // Bottom of center (90°, atan2(+y, 0)) — should be green.
+        PixelExpectation::opaque_approx(
+            ox as u32 + 40,
+            oy as u32 + 65,
+            0,
+            255,
+            0,
+            40,
+            "t49_bottom_green_90deg",
+        ),
+        // Left of center (180°, atan2(0, -x)) — should be blue.
+        PixelExpectation::opaque_approx(
+            ox as u32 + 15,
+            oy as u32 + 40,
+            0,
+            0,
+            255,
+            40,
+            "t49_left_blue_180deg",
+        ),
+        // Top of center (270°, atan2(-y, 0)) — should be yellow.
+        PixelExpectation::opaque_approx(
+            ox as u32 + 40,
+            oy as u32 + 15,
+            255,
+            255,
+            0,
+            40,
+            "t49_top_yellow_270deg",
         ),
     ]
 }

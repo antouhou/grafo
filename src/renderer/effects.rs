@@ -310,6 +310,7 @@ impl<'a> Renderer<'a> {
             &uniform_bind_group_layout,
             &self.shape_texture_bind_group_layout_background,
             &self.shape_texture_bind_group_layout_foreground,
+            &self.gradient_bind_group_layout,
         );
         self.stencil_only_pipeline = Some(pipeline);
     }
@@ -327,6 +328,7 @@ impl<'a> Renderer<'a> {
             &uniform_bind_group_layout,
             &self.shape_texture_bind_group_layout_background,
             &self.shape_texture_bind_group_layout_foreground,
+            &self.gradient_bind_group_layout,
         );
         self.backdrop_color_pipeline = Some(pipeline);
     }

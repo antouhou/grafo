@@ -1,5 +1,7 @@
 use super::types::decide_buffer_sizing;
 use super::*;
+use crate::gradient::gpu::{create_ramp_texture, GpuGradientParams};
+use crate::gradient::types::Fill;
 
 fn upsert_gpu_buffer(
     device: &wgpu::Device,
@@ -75,6 +77,50 @@ fn append_instance_data(
     instance_index
 }
 
+fn create_gradient_bind_group_if_needed(
+    fill: Option<&Fill>,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    layout: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+) -> Option<Arc<wgpu::BindGroup>> {
+    let gradient = match fill {
+        Some(Fill::Gradient(g)) => g,
+        _ => return None,
+    };
+
+    let params = GpuGradientParams::from_gradient_data(&gradient.data);
+    let params_buffer = crate::pipeline::create_buffer_init(
+        device,
+        Some("Gradient Params Buffer"),
+        bytemuck::cast_slice(&[params]),
+        wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    );
+
+    let (_texture, ramp_view) = create_ramp_texture(device, queue, &gradient.data.ramp);
+
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("Gradient Bind Group"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: params_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&ramp_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    });
+
+    Some(Arc::new(bind_group))
+}
+
 impl<'a> Renderer<'a> {
     fn ensure_identity_instance_buffers(&mut self) {
         if self.identity_instance_transform_buffer.is_none() {
@@ -143,6 +189,16 @@ impl<'a> Renderer<'a> {
                         shape.is_empty = true;
                     }
 
+                    if shape.gradient_bind_group.is_none() {
+                        shape.gradient_bind_group = create_gradient_bind_group_if_needed(
+                            shape.fill.as_ref(),
+                            &self.device,
+                            &self.queue,
+                            &self.gradient_bind_group_layout,
+                            &self.gradient_ramp_sampler,
+                        );
+                    }
+
                     if let Some(owned_vertex_buffers) = tessellated_geometry.into_owned() {
                         self.buffers_pool_manager
                             .lyon_vertex_buffers_pool
@@ -189,6 +245,17 @@ impl<'a> Renderer<'a> {
                         *cached_shape_data.instance_index_mut() = Some(instance_index);
                     } else {
                         cached_shape_data.is_empty = true;
+                    }
+
+                    if cached_shape_data.gradient_bind_group.is_none() {
+                        cached_shape_data.gradient_bind_group =
+                            create_gradient_bind_group_if_needed(
+                                cached_shape_data.fill.as_ref(),
+                                &self.device,
+                                &self.queue,
+                                &self.gradient_bind_group_layout,
+                                &self.gradient_ramp_sampler,
+                            );
                     }
                 }
             }

@@ -36,6 +36,19 @@ impl PixelExpectation {
         Self::new(x, y, r, g, b, 255, label)
     }
 
+    /// Convenience: expect a fully opaque color with a custom tolerance.
+    pub fn opaque_approx(
+        x: u32,
+        y: u32,
+        r: u8,
+        g: u8,
+        b: u8,
+        tolerance: u8,
+        label: &'static str,
+    ) -> Self {
+        Self::new(x, y, r, g, b, 255, label).with_tolerance(tolerance)
+    }
+
     /// Convenience: expect a fully transparent pixel.
     pub fn transparent(x: u32, y: u32, label: &'static str) -> Self {
         Self::new(x, y, 0, 0, 0, 0, label)

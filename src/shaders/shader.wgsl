@@ -27,6 +27,10 @@ struct VertexOutput {
     @location(1) tex_coords: vec2<f32>,
     @location(2) coverage: f32,
     @location(3) @interpolate(flat) texture_flags: f32,
+    // Model-space position for gradient evaluation (before transform)
+    @location(4) model_pos: vec2<f32>,
+    // Screen-space position (pixel coordinates, after transform)
+    @location(5) screen_pos: vec2<f32>,
 };
 
 // This is a struct that will be used for position normalization
@@ -46,6 +50,30 @@ struct Uniforms {
 @group(2) @binding(0) var t_shape_layer1: texture_2d<f32>;
 @group(2) @binding(1) var s_shape_layer1: sampler;
 
+// Gradient resources (group 3)
+struct GradientParams {
+    gradient_type: u32,   // 0=none, 1=linear, 2=radial, 3=conic
+    spread_mode: u32,     // 0=pad, 1=repeat
+    units: u32,           // 0=local (model space), 1=canvas (screen space)
+    is_constant: u32,
+    constant_color: vec4<f32>,
+    linear_start: vec2<f32>,
+    linear_end: vec2<f32>,
+    radial_center: vec2<f32>,
+    radial_radius: vec2<f32>,
+    conic_center: vec2<f32>,
+    conic_start_angle: f32,
+    period_start: f32,
+    period_len: f32,
+    ramp_start: f32,
+    ramp_end: f32,
+    _padding: f32,
+};
+
+@group(3) @binding(0) var<uniform> gradient_params: GradientParams;
+@group(3) @binding(1) var t_gradient_ramp: texture_1d<f32>;
+@group(3) @binding(2) var s_gradient_ramp: sampler;
+
 fn to_linear(color: vec3<f32>) -> vec3<f32> {
     let cutoff = vec3<f32>(0.04045);
     let higher = pow((color + vec3<f32>(0.055)) / vec3<f32>(1.055), vec3<f32>(2.4));
@@ -58,6 +86,98 @@ fn to_srgb(color: vec3<f32>) -> vec3<f32> {
     let higher = vec3<f32>(1.055) * pow(color, vec3<f32>(1.0 / 2.4)) - vec3<f32>(0.055);
     let lower = color * vec3<f32>(12.92);
     return select(higher, lower, color <= cutoff);
+}
+
+// ── Gradient evaluation ─────────────────────────────────────────────
+
+/// Computes the raw gradient parameter t for the given position.
+fn gradient_raw_t(pos: vec2<f32>) -> f32 {
+    let gtype = gradient_params.gradient_type;
+    if gtype == 1u {
+        // Linear
+        let d = gradient_params.linear_end - gradient_params.linear_start;
+        let len_sq = dot(d, d);
+        if len_sq < 1e-12 {
+            return 0.0;
+        }
+        return dot(pos - gradient_params.linear_start, d) / len_sq;
+    } else if gtype == 2u {
+        // Radial (elliptical)
+        let diff = pos - gradient_params.radial_center;
+        let rx = gradient_params.radial_radius.x;
+        let ry = gradient_params.radial_radius.y;
+        if rx < 1e-6 || ry < 1e-6 {
+            return 0.0;
+        }
+        let nx = diff.x / rx;
+        let ny = diff.y / ry;
+        return length(vec2<f32>(nx, ny));
+    } else if gtype == 3u {
+        // Conic
+        let diff = pos - gradient_params.conic_center;
+        var angle = atan2(diff.y, diff.x); // [-pi, pi]
+        angle = angle - gradient_params.conic_start_angle;
+        // Normalize to [0, 1)
+        let tau = 6.283185307179586;
+        angle = angle - floor(angle / tau) * tau;
+        return angle / tau;
+    }
+    return 0.0;
+}
+
+/// Applies the spread mode (pad or repeat) and maps t to the ramp UV.
+fn gradient_apply_spread(raw_t: f32) -> f32 {
+    let period_start = gradient_params.period_start;
+    let period_len = gradient_params.period_len;
+    let ramp_start = gradient_params.ramp_start;
+    let ramp_end = gradient_params.ramp_end;
+
+    if period_len <= 0.0 {
+        // Non-repeating: clamp to ramp domain
+        let t_clamped = clamp(raw_t, ramp_start, ramp_end);
+        if ramp_end <= ramp_start {
+            return 0.5;
+        }
+        return (t_clamped - ramp_start) / (ramp_end - ramp_start);
+    }
+
+    // Repeating gradient: wrap into the period
+    let spread = gradient_params.spread_mode;
+    var t = raw_t;
+
+    if spread == 1u {
+        // Repeat
+        t = period_start + ((t - period_start) - floor((t - period_start) / period_len) * period_len);
+    } else {
+        // Pad (clamp)
+        t = clamp(t, ramp_start, ramp_end);
+    }
+
+    if ramp_end <= ramp_start {
+        return 0.5;
+    }
+    return (t - ramp_start) / (ramp_end - ramp_start);
+}
+
+/// Evaluates the gradient at the given model and screen positions.
+/// Returns a premultiplied linear RGBA color from the pre-baked ramp.
+fn evaluate_gradient(model_pos: vec2<f32>, screen_pos: vec2<f32>) -> vec4<f32> {
+    let gtype = gradient_params.gradient_type;
+    if gtype == 0u {
+        // No gradient — return transparent (caller uses solid fill)
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
+
+    if gradient_params.is_constant != 0u {
+        return gradient_params.constant_color;
+    }
+
+    let pos = select(screen_pos, model_pos, gradient_params.units == 0u);
+    let raw_t = gradient_raw_t(pos);
+    let uv = gradient_apply_spread(raw_t);
+
+    // Sample the 1D ramp texture. The ramp is pre-baked in linear premultiplied space.
+    return textureSampleLevel(t_gradient_ramp, s_gradient_ramp, uv, 0.0);
 }
 
 @vertex
@@ -145,21 +265,32 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     output.tex_coords = input.tex_coords;
     output.coverage = input.coverage;
     output.texture_flags = input.texture_flags;
+    output.model_pos = input.position;
+    output.screen_pos = vec2<f32>(final_px, final_py);
     return output;
 }
 
 // Computes the final premultiplied color for a fragment given fill color, texture
-// coordinates, AA coverage, and active texture layer flags.
+// coordinates, AA coverage, active texture layer flags, and positions for gradient evaluation.
 fn compute_fragment_color(
     color: vec4<f32>,
     tex_coords: vec2<f32>,
     coverage: f32,
     texture_flags: f32,
+    model_pos: vec2<f32>,
+    screen_pos: vec2<f32>,
 ) -> vec4<f32> {
-    // Shape fill color arrives already in linear space (sRGB->linear conversion
-    // is performed on the CPU in normalize_rgba_color).
-    // Convert fill to premultiplied
-    let fill_pma = vec4<f32>(color.rgb * color.a, color.a);
+    // Determine the base fill: gradient or solid color.
+    var fill_pma: vec4<f32>;
+    if gradient_params.gradient_type != 0u {
+        // Gradient fill — the ramp is already in linear premultiplied space.
+        fill_pma = evaluate_gradient(model_pos, screen_pos);
+    } else {
+        // Shape fill color arrives already in linear space (sRGB->linear conversion
+        // is performed on the CPU in normalize_rgba_color).
+        // Convert fill to premultiplied
+        fill_pma = vec4<f32>(color.rgb * color.a, color.a);
+    }
 
     // Fast path: no textures bound — solid fill only. Skip both texture samples.
     let flags = u32(texture_flags);
@@ -198,8 +329,10 @@ fn fs_main(
     @location(1) tex_coords: vec2<f32>,
     @location(2) coverage: f32,
     @location(3) @interpolate(flat) texture_flags: f32,
+    @location(4) model_pos: vec2<f32>,
+    @location(5) screen_pos: vec2<f32>,
 ) -> @location(0) vec4<f32> {
-    return compute_fragment_color(color, tex_coords, coverage, texture_flags);
+    return compute_fragment_color(color, tex_coords, coverage, texture_flags, model_pos, screen_pos);
 }
 
 // Used by stencil-only passes that write no color. Color work is skipped entirely;
@@ -219,6 +352,8 @@ fn fs_passthrough(
     @location(1) tex_coords: vec2<f32>,
     @location(2) coverage: f32,
     @location(3) @interpolate(flat) texture_flags: f32,
+    @location(4) model_pos: vec2<f32>,
+    @location(5) screen_pos: vec2<f32>,
 ) -> @location(0) vec4<f32> {
-    return compute_fragment_color(color, tex_coords, coverage, texture_flags);
+    return compute_fragment_color(color, tex_coords, coverage, texture_flags, model_pos, screen_pos);
 }
