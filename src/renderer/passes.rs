@@ -232,6 +232,10 @@ pub(super) fn bind_instance_buffers(
     }
 }
 
+fn pipeline_has_shared_geometry_bindings(pipeline: crate::renderer::types::Pipeline) -> bool {
+    !matches!(pipeline, crate::renderer::types::Pipeline::None)
+}
+
 pub(super) fn handle_increment_pass<'rp>(
     render_pass: &mut wgpu::RenderPass<'rp>,
     currently_set_pipeline: &mut crate::renderer::types::PipelineTracker,
@@ -246,23 +250,27 @@ pub(super) fn handle_increment_pass<'rp>(
             return;
         }
 
-        if !matches!(
-            currently_set_pipeline.current,
+        let uses_gradient = shape.has_gradient_fill();
+        let target_pipeline = if uses_gradient {
+            crate::renderer::types::Pipeline::StencilIncrementGradient
+        } else {
             crate::renderer::types::Pipeline::StencilIncrement
-        ) {
-            render_pass.set_pipeline(pipelines.and_pipeline);
+        };
+
+        if currently_set_pipeline.current != target_pipeline {
+            render_pass.set_pipeline(if uses_gradient {
+                pipelines.and_gradient_pipeline
+            } else {
+                pipelines.and_pipeline
+            });
             render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
-            render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
             // Inform the tracker that default textures are now bound on both layers.
             bound_texture_state.mark_bound(0, None);
             bound_texture_state.mark_bound(1, None);
 
-            if !matches!(
-                currently_set_pipeline.current,
-                crate::renderer::types::Pipeline::StencilDecrement
-            ) {
+            if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current) {
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
@@ -270,7 +278,7 @@ pub(super) fn handle_increment_pass<'rp>(
                 );
             }
 
-            currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::StencilIncrement);
+            currently_set_pipeline.switch_to(target_pipeline);
         }
 
         bind_shape_texture_layers(
@@ -284,12 +292,11 @@ pub(super) fn handle_increment_pass<'rp>(
             bound_texture_state,
         );
 
-        // Bind per-shape gradient if present; otherwise reset to default to
-        // prevent a previous shape's gradient from leaking into this draw.
-        if let Some(gradient_bg) = shape.gradient_bind_group() {
+        if uses_gradient {
+            let gradient_bg = shape
+                .gradient_bind_group()
+                .expect("gradient shapes must prepare a gradient bind group");
             render_pass.set_bind_group(3, gradient_bg.as_ref(), &[]);
-        } else {
-            render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
         }
 
         bind_instance_buffers(render_pass, shape, buffers);
@@ -325,14 +332,10 @@ pub(super) fn handle_decrement_pass<'rp>(
             render_pass.set_bind_group(0, pipelines.decrementing_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
-            render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
             bound_texture_state.mark_bound(0, None);
             bound_texture_state.mark_bound(1, None);
 
-            if !matches!(
-                currently_set_pipeline.current,
-                crate::renderer::types::Pipeline::StencilIncrement
-            ) {
+            if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current) {
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
@@ -371,23 +374,26 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
             return;
         }
 
-        if !matches!(
-            currently_set_pipeline.current,
+        let uses_gradient = shape.has_gradient_fill();
+        let target_pipeline = if uses_gradient {
+            crate::renderer::types::Pipeline::LeafDrawGradient
+        } else {
             crate::renderer::types::Pipeline::LeafDraw
-        ) {
-            render_pass.set_pipeline(pipelines.leaf_draw_pipeline);
+        };
+
+        if currently_set_pipeline.current != target_pipeline {
+            render_pass.set_pipeline(if uses_gradient {
+                pipelines.leaf_draw_gradient_pipeline
+            } else {
+                pipelines.leaf_draw_pipeline
+            });
             render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
-            render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
             bound_texture_state.mark_bound(0, None);
             bound_texture_state.mark_bound(1, None);
 
-            if !matches!(
-                currently_set_pipeline.current,
-                crate::renderer::types::Pipeline::StencilIncrement
-                    | crate::renderer::types::Pipeline::StencilDecrement
-            ) {
+            if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current) {
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
@@ -395,7 +401,7 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
                 );
             }
 
-            currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::LeafDraw);
+            currently_set_pipeline.switch_to(target_pipeline);
         }
 
         bind_shape_texture_layers(
@@ -409,12 +415,11 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
             bound_texture_state,
         );
 
-        // Bind per-shape gradient if present; otherwise reset to default to
-        // prevent a previous shape's gradient from leaking into this draw.
-        if let Some(gradient_bg) = shape.gradient_bind_group() {
+        if uses_gradient {
+            let gradient_bg = shape
+                .gradient_bind_group()
+                .expect("gradient shapes must prepare a gradient bind group");
             render_pass.set_bind_group(3, gradient_bg.as_ref(), &[]);
-        } else {
-            render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
         }
 
         bind_instance_buffers(render_pass, shape, buffers);
@@ -474,23 +479,15 @@ pub(super) fn flush_pending_leaf_batch(
     }
 
     // Ensure leaf pipeline is active.
-    if !matches!(
-        currently_set_pipeline.current,
-        crate::renderer::types::Pipeline::LeafDraw
-    ) {
+    if currently_set_pipeline.current != crate::renderer::types::Pipeline::LeafDraw {
         render_pass.set_pipeline(pipelines.leaf_draw_pipeline);
         render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
         render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
         render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
-        render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
         bound_texture_state.mark_bound(0, None);
         bound_texture_state.mark_bound(1, None);
 
-        if !matches!(
-            currently_set_pipeline.current,
-            crate::renderer::types::Pipeline::StencilIncrement
-                | crate::renderer::types::Pipeline::StencilDecrement
-        ) {
+        if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current) {
             render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
             render_pass.set_index_buffer(
                 buffers.aggregated_index_buffer.slice(..),
@@ -500,11 +497,6 @@ pub(super) fn flush_pending_leaf_batch(
 
         currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::LeafDraw);
     }
-
-    // Batched shapes never carry per-shape gradient bind groups, but the
-    // previous single-draw leaf may have left a stale gradient bound.
-    // Reset to the default no-op gradient unconditionally.
-    render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
 
     // Bind textures for the batch.
     bind_shape_texture_layers(
@@ -565,7 +557,7 @@ pub(super) fn try_batch_leaf(
         return false;
     }
     // Shapes with per-shape gradient bind groups cannot be batched.
-    if shape.gradient_bind_group().is_some() {
+    if shape.has_gradient_fill() {
         return false;
     }
     let instance_index = match shape.instance_index() {
@@ -1062,7 +1054,6 @@ pub(super) fn render_segments(
                     &*pipelines.default_shape_texture_bind_groups[1],
                     &[],
                 );
-                render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
@@ -1101,7 +1092,12 @@ pub(super) fn render_segments(
 
             // Step 3: Color draw (Equal + Keep).
             if let Some(draw_command) = draw_tree.get_mut(backdrop_node_id) {
-                render_pass.set_pipeline(bctx.backdrop_color_pipeline);
+                let uses_gradient = draw_command.has_gradient_fill();
+                render_pass.set_pipeline(if uses_gradient {
+                    bctx.backdrop_color_gradient_pipeline
+                } else {
+                    bctx.backdrop_color_pipeline
+                });
                 render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
                 render_pass.set_bind_group(
                     1,
@@ -1113,7 +1109,6 @@ pub(super) fn render_segments(
                     &*pipelines.default_shape_texture_bind_groups[1],
                     &[],
                 );
-                render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
                     buffers.aggregated_index_buffer.slice(..),
@@ -1128,11 +1123,12 @@ pub(super) fn render_segments(
                     )
                 });
 
-                // Bind per-shape gradient if present.
-                if let Some(draw_command) = draw_tree.get(backdrop_node_id) {
-                    if let Some(gradient_bg) = draw_command.gradient_bind_group() {
-                        render_pass.set_bind_group(3, gradient_bg.as_ref(), &[]);
-                    }
+                if uses_gradient {
+                    let gradient_bg = draw_tree
+                        .get(backdrop_node_id)
+                        .and_then(|draw_command| draw_command.gradient_bind_group())
+                        .expect("gradient backdrop shapes must prepare a gradient bind group");
+                    render_pass.set_bind_group(3, gradient_bg.as_ref(), &[]);
                 }
 
                 bind_shape_texture_layers(
@@ -1168,7 +1164,6 @@ pub(super) fn render_segments(
                             &*pipelines.default_shape_texture_bind_groups[1],
                             &[],
                         );
-                        render_pass.set_bind_group(3, pipelines.default_gradient_bind_group, &[]);
                         render_pass.set_stencil_reference(this_stencil);
                         render_pass.draw_indexed(start..end, 0, 0..1);
                     }

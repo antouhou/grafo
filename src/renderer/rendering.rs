@@ -39,6 +39,7 @@ impl<'a> Renderer<'a> {
             self.ensure_backdrop_snapshot_texture();
             self.ensure_stencil_only_pipeline();
             self.ensure_backdrop_color_pipeline();
+            self.ensure_backdrop_color_gradient_pipeline();
         }
 
         // O1: Ensure depth/stencil texture exists (lazy init on first frame)
@@ -57,10 +58,12 @@ impl<'a> Renderer<'a> {
 
         let pipelines = crate::renderer::types::Pipelines {
             and_pipeline: &self.and_pipeline,
+            and_gradient_pipeline: &self.and_gradient_pipeline,
             and_bind_group: &self.and_bind_group,
             decrementing_pipeline: &self.decrementing_pipeline,
             decrementing_bind_group: &self.decrementing_bind_group,
             leaf_draw_pipeline: &self.leaf_draw_pipeline,
+            leaf_draw_gradient_pipeline: &self.leaf_draw_gradient_pipeline,
             shape_texture_bind_group_layout_background: &self
                 .shape_texture_bind_group_layout_background,
             shape_texture_bind_group_layout_foreground: &self
@@ -68,7 +71,6 @@ impl<'a> Renderer<'a> {
             default_shape_texture_bind_groups: &self.default_shape_texture_bind_groups,
             shape_texture_layout_epoch: self.shape_texture_layout_epoch,
             texture_manager: &self.texture_manager,
-            default_gradient_bind_group: &self.default_gradient_bind_group,
         };
 
         let buffers = crate::renderer::types::Buffers {
@@ -219,6 +221,10 @@ impl<'a> Renderer<'a> {
                         effect_sampler: self.effect_sampler.as_ref().unwrap(),
                         stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
                         backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
+                        backdrop_color_gradient_pipeline: self
+                            .backdrop_color_gradient_pipeline
+                            .as_ref()
+                            .unwrap(),
                         device: &self.device,
                         config_format: self.config.format,
                         backdrop_snapshot_texture: self.backdrop_snapshot_texture.as_ref().unwrap(),
@@ -327,6 +333,10 @@ impl<'a> Renderer<'a> {
                     effect_sampler: self.effect_sampler.as_ref().unwrap(),
                     stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
                     backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
+                    backdrop_color_gradient_pipeline: self
+                        .backdrop_color_gradient_pipeline
+                        .as_ref()
+                        .unwrap(),
                     device: &self.device,
                     config_format: self.config.format,
                     backdrop_snapshot_texture: self.backdrop_snapshot_texture.as_ref().unwrap(),

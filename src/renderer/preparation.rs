@@ -189,7 +189,7 @@ impl<'a> Renderer<'a> {
                         shape.is_empty = true;
                     }
 
-                    if shape.gradient_bind_group.is_none() {
+                    if shape.has_gradient_fill() && shape.gradient_bind_group.is_none() {
                         shape.gradient_bind_group = create_gradient_bind_group_if_needed(
                             shape.fill.as_ref(),
                             &self.device,
@@ -247,7 +247,9 @@ impl<'a> Renderer<'a> {
                         cached_shape_data.is_empty = true;
                     }
 
-                    if cached_shape_data.gradient_bind_group.is_none() {
+                    if cached_shape_data.has_gradient_fill()
+                        && cached_shape_data.gradient_bind_group.is_none()
+                    {
                         cached_shape_data.gradient_bind_group =
                             create_gradient_bind_group_if_needed(
                                 cached_shape_data.fill.as_ref(),

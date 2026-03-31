@@ -112,6 +112,7 @@ impl<'a> Renderer<'a> {
         self.backdrop_snapshot_view = None;
         self.stencil_only_pipeline = None;
         self.backdrop_color_pipeline = None;
+        self.backdrop_color_gradient_pipeline = None;
 
         self.offscreen_texture_pool.trim(
             self.physical_size.0,

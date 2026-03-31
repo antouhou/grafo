@@ -211,22 +211,22 @@ pub struct Renderer<'a> {
     /// Shape color pipeline with stencil Keep: draws color but doesn't modify stencil.
     /// Used for Step 3 of the three-step backdrop draw.
     backdrop_color_pipeline: Option<wgpu::RenderPipeline>,
+    /// Gradient color pipeline with stencil Keep for backdrop shapes.
+    backdrop_color_gradient_pipeline: Option<wgpu::RenderPipeline>,
 
     /// Pipeline for rendering leaf nodes (no children) with stencil Equal + Keep.
     /// Avoids the redundant increment + decrement pair for childless shapes.
     leaf_draw_pipeline: Arc<wgpu::RenderPipeline>,
+    /// Gradient pipeline for leaf nodes.
+    leaf_draw_gradient_pipeline: Arc<wgpu::RenderPipeline>,
+    /// Gradient pipeline for visible non-leaf parents that increment stencil.
+    and_gradient_pipeline: Arc<wgpu::RenderPipeline>,
 
     // ── Gradient fill infrastructure ───────────────────────────────────
     /// Bind group layout for gradient resources (group 3 in shader).
     gradient_bind_group_layout: wgpu::BindGroupLayout,
-    /// Default bind group for shapes with no gradient fill (transparent ramp).
-    default_gradient_bind_group: wgpu::BindGroup,
-    /// Default gradient params buffer (gradient_type=0 → no gradient).
-    default_gradient_params_buffer: wgpu::Buffer,
     /// Sampler for gradient ramp textures (nearest, clamp-to-edge).
     gradient_ramp_sampler: wgpu::Sampler,
-    /// Default 1-texel transparent ramp texture, kept alive for the default bind group.
-    _default_gradient_ramp_texture: wgpu::Texture,
 
     #[cfg(feature = "render_metrics")]
     /// Tracking for cumulative render-loop timing metrics.

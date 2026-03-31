@@ -154,8 +154,10 @@ pub(super) enum TraversalEvent {
 pub(super) enum Pipeline {
     None,
     StencilIncrement,
+    StencilIncrementGradient,
     StencilDecrement,
     LeafDraw,
+    LeafDrawGradient,
 }
 
 /// Records which clipping strategy was used by each non-leaf parent during
@@ -201,9 +203,11 @@ impl PipelineTracker {
         {
             self.counts.total_switches += 1;
             match pipeline {
-                Pipeline::StencilIncrement => self.counts.to_stencil_increment += 1,
+                Pipeline::StencilIncrement | Pipeline::StencilIncrementGradient => {
+                    self.counts.to_stencil_increment += 1
+                }
                 Pipeline::StencilDecrement => self.counts.to_stencil_decrement += 1,
-                Pipeline::LeafDraw => self.counts.to_leaf_draw += 1,
+                Pipeline::LeafDraw | Pipeline::LeafDrawGradient => self.counts.to_leaf_draw += 1,
                 Pipeline::None => self.counts.to_composite += 1,
             }
         }
@@ -265,16 +269,17 @@ pub(super) struct Buffers<'a> {
 
 pub(super) struct Pipelines<'a> {
     pub(super) and_pipeline: &'a wgpu::RenderPipeline,
+    pub(super) and_gradient_pipeline: &'a wgpu::RenderPipeline,
     pub(super) and_bind_group: &'a wgpu::BindGroup,
     pub(super) decrementing_pipeline: &'a wgpu::RenderPipeline,
     pub(super) decrementing_bind_group: &'a wgpu::BindGroup,
     pub(super) leaf_draw_pipeline: &'a wgpu::RenderPipeline,
+    pub(super) leaf_draw_gradient_pipeline: &'a wgpu::RenderPipeline,
     pub(super) shape_texture_bind_group_layout_background: &'a wgpu::BindGroupLayout,
     pub(super) shape_texture_bind_group_layout_foreground: &'a wgpu::BindGroupLayout,
     pub(super) default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
     pub(super) shape_texture_layout_epoch: u64,
     pub(super) texture_manager: &'a TextureManager,
-    pub(super) default_gradient_bind_group: &'a wgpu::BindGroup,
 }
 
 /// Backdrop-specific rendering resources. Only needed when backdrop effects exist.
@@ -286,6 +291,7 @@ pub(super) struct BackdropContext<'a> {
     pub(super) effect_sampler: &'a wgpu::Sampler,
     pub(super) stencil_only_pipeline: &'a wgpu::RenderPipeline,
     pub(super) backdrop_color_pipeline: &'a wgpu::RenderPipeline,
+    pub(super) backdrop_color_gradient_pipeline: &'a wgpu::RenderPipeline,
     pub(super) device: &'a wgpu::Device,
     pub(super) config_format: wgpu::TextureFormat,
     pub(super) backdrop_snapshot_texture: &'a wgpu::Texture,
