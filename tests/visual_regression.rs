@@ -124,7 +124,7 @@ fn gradient_fill_basic() {
     let child = Shape::rect([(10.0, 10.0), (90.0, 90.0)], Stroke::default());
     let child_id = renderer.add_shape(child, Some(root_id), None);
 
-    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+    let gradient = Gradient::linear(LinearGradientDesc {
         common: GradientCommonDesc {
             units: GradientUnits::Local,
             spread: SpreadMode::Pad,
@@ -157,7 +157,7 @@ fn gradient_fill_basic() {
             start: [10.0, 50.0],
             end: [90.0, 50.0],
         },
-    }))
+    })
     .expect("valid gradient");
 
     renderer.set_shape_fill(child_id, Some(Fill::Gradient(gradient)));
@@ -198,7 +198,7 @@ fn gradient_survives_pipeline_recreation() {
     let shape = Shape::rect([(10.0, 10.0), (90.0, 90.0)], Stroke::default());
     let id = renderer.add_shape(shape, None, None);
 
-    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+    let gradient = Gradient::linear(LinearGradientDesc {
         common: GradientCommonDesc {
             units: GradientUnits::Local,
             spread: SpreadMode::Pad,
@@ -231,7 +231,7 @@ fn gradient_survives_pipeline_recreation() {
             start: [10.0, 50.0],
             end: [90.0, 50.0],
         },
-    }))
+    })
     .expect("valid gradient");
 
     renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
@@ -312,7 +312,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
         None,
     );
 
-    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+    let gradient = Gradient::linear(LinearGradientDesc {
         common: GradientCommonDesc {
             units: GradientUnits::Local,
             spread: SpreadMode::Pad,
@@ -345,7 +345,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
             start: [10.0, 50.0],
             end: [140.0, 50.0],
         },
-    }))
+    })
     .expect("valid gradient");
 
     renderer.set_shape_fill(gradient_parent, Some(Fill::Gradient(gradient)));

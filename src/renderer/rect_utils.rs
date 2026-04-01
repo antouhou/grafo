@@ -144,8 +144,8 @@ mod tests {
     use super::{compute_scissor_rect, should_skip_visible_rect_draw, try_scissor_for_rect};
     use crate::effect::EffectInstance;
     use crate::gradient::types::{
-        ColorInterpolation, Fill, Gradient, GradientColor, GradientCommonDesc, GradientDesc,
-        GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
+        ColorInterpolation, Fill, Gradient, GradientColor, GradientCommonDesc, GradientStop,
+        GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
         LinearGradientLine, SpreadMode,
     };
     use crate::renderer::types::DrawCommand;
@@ -153,7 +153,7 @@ mod tests {
     use ahash::{HashMap, HashMapExt};
 
     fn create_test_gradient() -> Gradient {
-        Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+        Gradient::linear(LinearGradientDesc {
             common: GradientCommonDesc {
                 units: GradientUnits::Local,
                 spread: SpreadMode::Pad,
@@ -190,7 +190,7 @@ mod tests {
                 start: [0.0, 5.0],
                 end: [10.0, 5.0],
             },
-        }))
+        })
         .expect("valid test gradient")
     }
 

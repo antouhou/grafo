@@ -1,4 +1,5 @@
 use smallvec::SmallVec;
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 use crate::Color;
@@ -32,7 +33,103 @@ pub struct GradientCommonDesc {
     pub stops: GradientStops,
 }
 
-pub type GradientStops = SmallVec<[GradientStop; 8]>;
+#[derive(Debug, Clone, Default)]
+pub struct GradientStops {
+    stops: SmallVec<[GradientStop; 8]>,
+}
+
+impl GradientStops {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn len(&self) -> usize {
+        self.stops.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.stops.is_empty()
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, GradientStop> {
+        self.stops.iter()
+    }
+
+    pub fn as_slice(&self) -> &[GradientStop] {
+        self.stops.as_slice()
+    }
+}
+
+impl Deref for GradientStops {
+    type Target = [GradientStop];
+
+    fn deref(&self) -> &Self::Target {
+        self.stops.as_slice()
+    }
+}
+
+impl DerefMut for GradientStops {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.stops.as_mut_slice()
+    }
+}
+
+impl AsRef<[GradientStop]> for GradientStops {
+    fn as_ref(&self) -> &[GradientStop] {
+        self.as_slice()
+    }
+}
+
+impl<const N: usize> From<[GradientStop; N]> for GradientStops {
+    fn from(stops: [GradientStop; N]) -> Self {
+        Self {
+            stops: stops.into_iter().collect(),
+        }
+    }
+}
+
+impl From<Vec<GradientStop>> for GradientStops {
+    fn from(stops: Vec<GradientStop>) -> Self {
+        Self {
+            stops: SmallVec::from_vec(stops),
+        }
+    }
+}
+
+impl FromIterator<GradientStop> for GradientStops {
+    fn from_iter<T: IntoIterator<Item = GradientStop>>(iter: T) -> Self {
+        Self {
+            stops: iter.into_iter().collect(),
+        }
+    }
+}
+
+impl IntoIterator for GradientStops {
+    type Item = GradientStop;
+    type IntoIter = <SmallVec<[GradientStop; 8]> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.stops.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a GradientStops {
+    type Item = &'a GradientStop;
+    type IntoIter = std::slice::Iter<'a, GradientStop>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut GradientStops {
+    type Item = &'a mut GradientStop;
+    type IntoIter = std::slice::IterMut<'a, GradientStop>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.stops.iter_mut()
+    }
+}
 
 type GradientRampKeyStops = SmallVec<[GradientRampStopKey; 8]>;
 
@@ -258,6 +355,18 @@ pub enum GradientSupport {
 pub enum Fill {
     Solid(Color),
     Gradient(Gradient),
+}
+
+impl From<Color> for Fill {
+    fn from(color: Color) -> Self {
+        Self::Solid(color)
+    }
+}
+
+impl From<Gradient> for Fill {
+    fn from(gradient: Gradient) -> Self {
+        Self::Gradient(gradient)
+    }
 }
 
 // ── Validated opaque Gradient ────────────────────────────────────────────────
@@ -870,6 +979,87 @@ mod tests {
             gradient,
             Err(GradientError::InvalidRadialDefinition)
         ));
+    }
+
+    #[test]
+    fn gradient_stops_collect_without_exposing_smallvec() {
+        let stops = [
+            GradientStop {
+                positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
+                color: GradientColor::Srgb {
+                    red: 1.0,
+                    green: 0.0,
+                    blue: 0.0,
+                    alpha: 1.0,
+                },
+                hint_to_next_segment: None,
+            },
+            GradientStop {
+                positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
+                color: GradientColor::Srgb {
+                    red: 0.0,
+                    green: 0.0,
+                    blue: 1.0,
+                    alpha: 1.0,
+                },
+                hint_to_next_segment: None,
+            },
+        ];
+        let first_color = stops[0].color;
+        let second_color = stops[1].color;
+        let gradient_stops = GradientStops::from(stops);
+
+        assert_eq!(gradient_stops.len(), 2);
+        assert_eq!(gradient_stops[0].color, first_color);
+        assert_eq!(gradient_stops[1].color, second_color);
+    }
+
+    #[test]
+    fn fill_converts_from_color_and_gradient() {
+        let solid_fill = Fill::from(Color::rgb(10, 20, 30));
+        assert!(matches!(solid_fill, Fill::Solid(_)));
+
+        let gradient = Gradient::linear(LinearGradientDesc {
+            common: GradientCommonDesc {
+                stops: GradientStops::from([
+                    GradientStop {
+                        positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(
+                            0.0,
+                        )),
+                        color: GradientColor::Srgb {
+                            red: 1.0,
+                            green: 0.0,
+                            blue: 0.0,
+                            alpha: 1.0,
+                        },
+                        hint_to_next_segment: None,
+                    },
+                    GradientStop {
+                        positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(
+                            1.0,
+                        )),
+                        color: GradientColor::Srgb {
+                            red: 0.0,
+                            green: 0.0,
+                            blue: 1.0,
+                            alpha: 1.0,
+                        },
+                        hint_to_next_segment: None,
+                    },
+                ]),
+                spread: SpreadMode::Pad,
+                units: GradientUnits::Local,
+                interpolation: ColorInterpolation::SrgbLinear,
+            },
+            line: LinearGradientLine {
+                start: [0.0, 0.0],
+                end: [10.0, 0.0],
+            },
+        })
+        .unwrap();
+
+        let gradient_fill = Fill::from(gradient);
+        assert!(matches!(gradient_fill, Fill::Gradient(_)));
     }
 
     #[test]

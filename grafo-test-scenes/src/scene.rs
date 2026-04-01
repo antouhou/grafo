@@ -1,7 +1,7 @@
 use grafo::{
     BorderRadii, Color, ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor,
-    GradientCommonDesc, GradientDesc, GradientStop, GradientStopOffset, GradientStopPositions,
-    GradientUnits, LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientShape,
+    GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
+    LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientShape,
     RadialGradientSize, Renderer, Shape, SpreadMode, Stroke, TransformInstance,
 };
 
@@ -1931,13 +1931,13 @@ fn tile_39_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let id = renderer.add_shape(shape, None, None);
     renderer.set_shape_transform(id, TransformInstance::translation(ox + 10.0, oy + 10.0));
 
-    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+    let gradient = Gradient::linear(LinearGradientDesc {
         common: two_stop_common_canvas((220, 30, 30), (30, 30, 220), SpreadMode::Pad),
         line: LinearGradientLine {
             start: [ox + 10.0, oy + 40.0],
             end: [ox + 70.0, oy + 40.0],
         },
-    }))
+    })
     .expect("valid gradient");
 
     renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
@@ -1976,12 +1976,12 @@ fn tile_40_radial_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     );
     let id = renderer.add_shape(shape, None, None);
 
-    let gradient = Gradient::new(GradientDesc::Radial(RadialGradientDesc {
+    let gradient = Gradient::radial(RadialGradientDesc {
         common: two_stop_common((240, 240, 30), (30, 180, 30), SpreadMode::Pad),
         center: [ox + 40.0, oy + 40.0],
         shape: RadialGradientShape::Circle,
         size: RadialGradientSize::ExplicitCircleRadius(30.0),
-    }))
+    })
     .expect("valid gradient");
 
     renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
@@ -2020,7 +2020,7 @@ fn tile_41_conic_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let id = renderer.add_shape(shape, None, None);
 
     let tau = std::f32::consts::TAU;
-    let gradient = Gradient::new(GradientDesc::Conic(ConicGradientDesc {
+    let gradient = Gradient::conic(ConicGradientDesc {
         common: GradientCommonDesc {
             units: GradientUnits::Local,
             spread: SpreadMode::Pad,
@@ -2075,7 +2075,7 @@ fn tile_41_conic_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         },
         center: [ox + 40.0, oy + 40.0],
         start_angle_radians: 0.0,
-    }))
+    })
     .expect("valid gradient");
 
     renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
@@ -2103,7 +2103,7 @@ fn tile_42_repeating_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpect
     );
     let id = renderer.add_shape(shape, None, None);
 
-    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+    let gradient = Gradient::linear(LinearGradientDesc {
         common: GradientCommonDesc {
             units: GradientUnits::Local,
             spread: SpreadMode::Repeat,
@@ -2147,7 +2147,7 @@ fn tile_42_repeating_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpect
             start: [ox + 10.0, oy + 40.0],
             end: [ox + 30.0, oy + 40.0],
         },
-    }))
+    })
     .expect("valid gradient");
 
     renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
@@ -2185,7 +2185,7 @@ fn tile_43_gradient_hard_stops(renderer: &mut Renderer) -> Vec<PixelExpectation>
     );
     let id = renderer.add_shape(shape, None, None);
 
-    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+    let gradient = Gradient::linear(LinearGradientDesc {
         common: GradientCommonDesc {
             units: GradientUnits::Local,
             spread: SpreadMode::Pad,
@@ -2238,7 +2238,7 @@ fn tile_43_gradient_hard_stops(renderer: &mut Renderer) -> Vec<PixelExpectation>
             start: [ox + 10.0, oy + 40.0],
             end: [ox + 70.0, oy + 40.0],
         },
-    }))
+    })
     .expect("valid gradient");
 
     renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
@@ -2286,13 +2286,13 @@ fn tile_44_gradient_clipped(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     );
     let child_id = renderer.add_shape(child, Some(parent_id), None);
 
-    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+    let gradient = Gradient::linear(LinearGradientDesc {
         common: two_stop_common((30, 220, 30), (220, 30, 220), SpreadMode::Pad),
         line: LinearGradientLine {
             start: [ox + 10.0, oy + 10.0],
             end: [ox + 70.0, oy + 70.0],
         },
-    }))
+    })
     .expect("valid gradient");
 
     renderer.set_shape_fill(child_id, Some(Fill::Gradient(gradient)));
@@ -2339,13 +2339,13 @@ fn tile_45_gradient_group_blur(renderer: &mut Renderer) -> Vec<PixelExpectation>
     );
     let id = renderer.add_shape(shape, None, None);
 
-    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+    let gradient = Gradient::linear(LinearGradientDesc {
         common: two_stop_common((220, 50, 50), (50, 50, 220), SpreadMode::Pad),
         line: LinearGradientLine {
             start: [ox + 15.0, oy + 10.0],
             end: [ox + 65.0, oy + 70.0],
         },
-    }))
+    })
     .expect("valid gradient");
 
     renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
@@ -2405,13 +2405,13 @@ fn tile_46_gradient_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectati
     );
     let stripe_id = renderer.add_shape(stripe, None, None);
 
-    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+    let gradient = Gradient::linear(LinearGradientDesc {
         common: two_stop_common((50, 50, 220), (50, 220, 50), SpreadMode::Pad),
         line: LinearGradientLine {
             start: [ox + 10.0, oy + 32.0],
             end: [ox + 70.0, oy + 48.0],
         },
-    }))
+    })
     .expect("valid gradient");
 
     renderer.set_shape_fill(stripe_id, Some(Fill::Gradient(gradient)));
@@ -2476,13 +2476,13 @@ fn tile_47_gradient_nonleaf_stencil(renderer: &mut Renderer) -> Vec<PixelExpecta
     );
     let parent_id = renderer.add_shape(parent, None, None);
 
-    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+    let gradient = Gradient::linear(LinearGradientDesc {
         common: two_stop_common((220, 30, 30), (30, 30, 220), SpreadMode::Pad),
         line: LinearGradientLine {
             start: [ox + 10.0, oy + 40.0],
             end: [ox + 70.0, oy + 40.0],
         },
-    }))
+    })
     .expect("valid gradient");
 
     renderer.set_shape_fill(parent_id, Some(Fill::Gradient(gradient)));
@@ -2540,13 +2540,13 @@ fn tile_48_gradient_state_leak(renderer: &mut Renderer) -> Vec<PixelExpectation>
     );
     let grad_id = renderer.add_shape(grad_shape, None, None);
 
-    let gradient = Gradient::new(GradientDesc::Linear(LinearGradientDesc {
+    let gradient = Gradient::linear(LinearGradientDesc {
         common: two_stop_common((220, 30, 30), (30, 220, 30), SpreadMode::Pad),
         line: LinearGradientLine {
             start: [ox + 5.0, oy + 10.0],
             end: [ox + 37.0, oy + 70.0],
         },
-    }))
+    })
     .expect("valid gradient");
 
     renderer.set_shape_fill(grad_id, Some(Fill::Gradient(gradient)));
@@ -2598,7 +2598,7 @@ fn tile_49_conic_quadrant_colors(renderer: &mut Renderer) -> Vec<PixelExpectatio
 
     use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
-    let gradient = Gradient::new(GradientDesc::Conic(ConicGradientDesc {
+    let gradient = Gradient::conic(ConicGradientDesc {
         common: GradientCommonDesc {
             units: GradientUnits::Local,
             spread: SpreadMode::Pad,
@@ -2663,7 +2663,7 @@ fn tile_49_conic_quadrant_colors(renderer: &mut Renderer) -> Vec<PixelExpectatio
         },
         center: [cx, cy],
         start_angle_radians: 0.0,
-    }))
+    })
     .expect("valid gradient");
 
     renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
