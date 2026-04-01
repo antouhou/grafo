@@ -29,6 +29,18 @@ struct VertexOutput {
     @location(3) @interpolate(flat) texture_flags: f32,
 };
 
+struct GradientVertexOutput {
+    @invariant @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+    @location(1) tex_coords: vec2<f32>,
+    @location(2) coverage: f32,
+    @location(3) @interpolate(flat) texture_flags: f32,
+    // Model-space position for gradient evaluation (before transform)
+    @location(4) model_pos: vec2<f32>,
+    // Screen-space position (pixel coordinates, after transform)
+    @location(5) screen_pos: vec2<f32>,
+};
+
 // This is a struct that will be used for position normalization
 struct Uniforms {
     canvas_size: vec2<f32>,
@@ -46,6 +58,30 @@ struct Uniforms {
 @group(2) @binding(0) var t_shape_layer1: texture_2d<f32>;
 @group(2) @binding(1) var s_shape_layer1: sampler;
 
+// Gradient resources (group 3)
+struct GradientParams {
+    gradient_type: u32,   // 0=none, 1=linear, 2=radial, 3=conic
+    spread_mode: u32,     // 0=pad, 1=repeat
+    units: u32,           // 0=local (model space), 1=canvas (screen space)
+    is_constant: u32,
+    constant_color: vec4<f32>,
+    linear_start: vec2<f32>,
+    linear_end: vec2<f32>,
+    radial_center: vec2<f32>,
+    radial_radius: vec2<f32>,
+    conic_center: vec2<f32>,
+    conic_start_angle: f32,
+    period_start: f32,
+    period_len: f32,
+    ramp_start: f32,
+    ramp_end: f32,
+    _padding: f32,
+};
+
+@group(3) @binding(0) var<uniform> gradient_params: GradientParams;
+@group(3) @binding(1) var t_gradient_ramp: texture_1d<f32>;
+@group(3) @binding(2) var s_gradient_ramp: sampler;
+
 fn to_linear(color: vec3<f32>) -> vec3<f32> {
     let cutoff = vec3<f32>(0.04045);
     let higher = pow((color + vec3<f32>(0.055)) / vec3<f32>(1.055), vec3<f32>(2.4));
@@ -60,9 +96,99 @@ fn to_srgb(color: vec3<f32>) -> vec3<f32> {
     return select(higher, lower, color <= cutoff);
 }
 
-@vertex
-fn vs_main(input: VertexInput) -> VertexOutput {
-    var output: VertexOutput;
+// ── Gradient evaluation ─────────────────────────────────────────────
+
+/// Computes the raw gradient parameter t for the given position.
+fn gradient_raw_t(pos: vec2<f32>) -> f32 {
+    let gtype = gradient_params.gradient_type;
+    if gtype == 1u {
+        // Linear
+        let d = gradient_params.linear_end - gradient_params.linear_start;
+        let len_sq = dot(d, d);
+        if len_sq < 1e-12 {
+            return 0.0;
+        }
+        return dot(pos - gradient_params.linear_start, d) / len_sq;
+    } else if gtype == 2u {
+        // Radial (elliptical)
+        let diff = pos - gradient_params.radial_center;
+        let rx = gradient_params.radial_radius.x;
+        let ry = gradient_params.radial_radius.y;
+        if rx < 1e-6 || ry < 1e-6 {
+            return 0.0;
+        }
+        let nx = diff.x / rx;
+        let ny = diff.y / ry;
+        return length(vec2<f32>(nx, ny));
+    } else if gtype == 3u {
+        // Conic
+        let diff = pos - gradient_params.conic_center;
+        var angle = atan2(diff.y, diff.x); // [-pi, pi]
+        angle = angle - gradient_params.conic_start_angle;
+        // Normalize to [0, 1)
+        let tau = 6.283185307179586;
+        angle = angle - floor(angle / tau) * tau;
+        return angle / tau;
+    }
+    return 0.0;
+}
+
+/// Applies the spread mode (pad or repeat) and maps t to the ramp UV.
+fn gradient_apply_spread(raw_t: f32) -> f32 {
+    let period_start = gradient_params.period_start;
+    let period_len = gradient_params.period_len;
+    let ramp_start = gradient_params.ramp_start;
+    let ramp_end = gradient_params.ramp_end;
+
+    if period_len <= 0.0 {
+        // Non-repeating: clamp to ramp domain
+        let t_clamped = clamp(raw_t, ramp_start, ramp_end);
+        if ramp_end <= ramp_start {
+            return 0.5;
+        }
+        return (t_clamped - ramp_start) / (ramp_end - ramp_start);
+    }
+
+    // Repeating gradient: wrap into the period
+    let spread = gradient_params.spread_mode;
+    var t = raw_t;
+
+    if spread == 1u {
+        // Repeat
+        t = period_start + ((t - period_start) - floor((t - period_start) / period_len) * period_len);
+    } else {
+        // Pad (clamp)
+        t = clamp(t, ramp_start, ramp_end);
+    }
+
+    if ramp_end <= ramp_start {
+        return 0.5;
+    }
+    return (t - ramp_start) / (ramp_end - ramp_start);
+}
+
+/// Evaluates the gradient at the given model and screen positions.
+/// Returns a premultiplied linear RGBA color from the pre-baked ramp.
+fn evaluate_gradient(model_pos: vec2<f32>, screen_pos: vec2<f32>) -> vec4<f32> {
+    let gtype = gradient_params.gradient_type;
+    if gtype == 0u {
+        // No gradient — return transparent (caller uses solid fill)
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
+
+    if gradient_params.is_constant != 0u {
+        return gradient_params.constant_color;
+    }
+
+    let pos = select(screen_pos, model_pos, gradient_params.units == 0u);
+    let raw_t = gradient_raw_t(pos);
+    let uv = gradient_apply_spread(raw_t);
+
+    // Sample the 1D ramp texture. The ramp is pre-baked in linear premultiplied space.
+    return textureSampleLevel(t_gradient_ramp, s_gradient_ramp, uv, 0.0);
+}
+
+fn compute_vertex_position(input: VertexInput) -> vec4<f32> {
     // Build the transform matrix from column-major CPU data.
     // Each vec4 (t_col0..t_col3) is one column of the matrix. WGSL's mat4x4
     // constructor treats each argument as a column, so this is a direct mapping.
@@ -140,7 +266,13 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     //  I don't have a particular use case for it right now, so I'm leaving it as is.
     //  If you want to enable intersection without transparency, change the pipeline to enable depth test/write with
     //  less-equal function. (set depth_compare: wgpu::CompareFunction::LessEqual on the stencil/depth state)
-    output.position = vec4<f32>(ndc_x, ndc_y, biased_depth, 1.0);
+    return vec4<f32>(ndc_x, ndc_y, biased_depth, 1.0);
+}
+
+@vertex
+fn vs_main(input: VertexInput) -> VertexOutput {
+    var output: VertexOutput;
+    output.position = compute_vertex_position(input);
     output.color = input.color;
     output.tex_coords = input.tex_coords;
     output.coverage = input.coverage;
@@ -148,8 +280,47 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     return output;
 }
 
+@vertex
+fn vs_main_gradient(input: VertexInput) -> GradientVertexOutput {
+    var output: GradientVertexOutput;
+    output.position = compute_vertex_position(input);
+    output.color = input.color;
+    output.tex_coords = input.tex_coords;
+    output.coverage = input.coverage;
+    output.texture_flags = input.texture_flags;
+    output.model_pos = input.position;
+
+    let model: mat4x4<f32> = mat4x4<f32>(input.t_col0, input.t_col1, input.t_col2, input.t_col3);
+    let p = model * vec4<f32>(input.position, 0.0, 1.0);
+    let invw = 1.0 / max(abs(p.w), 1e-6);
+    let px = p.x * invw;
+    let py = p.y * invw;
+
+    var final_px = px;
+    var final_py = py;
+    if (input.coverage < 1.0) {
+        let epsilon = 0.01;
+        let p2 = model * vec4<f32>(input.position + input.normal * epsilon, 0.0, 1.0);
+        let invw2 = 1.0 / max(abs(p2.w), 1e-6);
+        let px2 = p2.x * invw2;
+        let py2 = p2.y * invw2;
+        let screen_dir = vec2<f32>(px2 - px, py2 - py);
+        let screen_len = length(screen_dir);
+
+        if (screen_len > 1e-8) {
+            let unit_dir = screen_dir / screen_len;
+            let fringe_width = uniforms.fringe_width / uniforms.scale_factor;
+            final_px = px + unit_dir.x * fringe_width;
+            final_py = py + unit_dir.y * fringe_width;
+        }
+    }
+
+    output.screen_pos = vec2<f32>(final_px, final_py);
+    return output;
+}
+
 // Computes the final premultiplied color for a fragment given fill color, texture
-// coordinates, AA coverage, and active texture layer flags.
+// coordinates, and AA coverage.
 fn compute_fragment_color(
     color: vec4<f32>,
     tex_coords: vec2<f32>,
@@ -192,6 +363,35 @@ fn compute_fragment_color(
     return final_pma * coverage;
 }
 
+fn compute_gradient_fragment_color(
+    tex_coords: vec2<f32>,
+    coverage: f32,
+    texture_flags: f32,
+    model_pos: vec2<f32>,
+    screen_pos: vec2<f32>,
+) -> vec4<f32> {
+    let fill_pma = evaluate_gradient(model_pos, screen_pos);
+
+    let flags = u32(texture_flags);
+    if (flags == 0u) {
+        return fill_pma * coverage;
+    }
+
+    var base_pma = fill_pma;
+    if ((flags & 1u) != 0u) {
+        let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, tex_coords, 0.0);
+        base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
+    }
+
+    var final_pma = base_pma;
+    if ((flags & 2u) != 0u) {
+        let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, tex_coords, 0.0);
+        final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
+    }
+
+    return final_pma * coverage;
+}
+
 @fragment
 fn fs_main(
     @location(0) color: vec4<f32>,
@@ -200,6 +400,18 @@ fn fs_main(
     @location(3) @interpolate(flat) texture_flags: f32,
 ) -> @location(0) vec4<f32> {
     return compute_fragment_color(color, tex_coords, coverage, texture_flags);
+}
+
+@fragment
+fn fs_main_gradient(
+    @location(0) color: vec4<f32>,
+    @location(1) tex_coords: vec2<f32>,
+    @location(2) coverage: f32,
+    @location(3) @interpolate(flat) texture_flags: f32,
+    @location(4) model_pos: vec2<f32>,
+    @location(5) screen_pos: vec2<f32>,
+) -> @location(0) vec4<f32> {
+    return compute_gradient_fragment_color(tex_coords, coverage, texture_flags, model_pos, screen_pos);
 }
 
 // Used by stencil-only passes that write no color. Color work is skipped entirely;
@@ -221,4 +433,16 @@ fn fs_passthrough(
     @location(3) @interpolate(flat) texture_flags: f32,
 ) -> @location(0) vec4<f32> {
     return compute_fragment_color(color, tex_coords, coverage, texture_flags);
+}
+
+@fragment
+fn fs_passthrough_gradient(
+    @location(0) color: vec4<f32>,
+    @location(1) tex_coords: vec2<f32>,
+    @location(2) coverage: f32,
+    @location(3) @interpolate(flat) texture_flags: f32,
+    @location(4) model_pos: vec2<f32>,
+    @location(5) screen_pos: vec2<f32>,
+) -> @location(0) vec4<f32> {
+    return compute_gradient_fragment_color(tex_coords, coverage, texture_flags, model_pos, screen_pos);
 }

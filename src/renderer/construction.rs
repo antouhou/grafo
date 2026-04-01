@@ -190,6 +190,18 @@ impl<'a> Renderer<'a> {
             msaa_sample_count,
         );
 
+        let gradient_bind_group_layout =
+            crate::pipeline::create_gradient_bind_group_layout(&device);
+        let and_gradient_pipeline = crate::pipeline::create_gradient_increment_pipeline(
+            &device,
+            config.format,
+            msaa_sample_count,
+            &and_pipeline.get_bind_group_layout(0),
+            &and_texture_bgl_layer0,
+            &and_texture_bgl_layer1,
+            &gradient_bind_group_layout,
+        );
+
         let leaf_draw_pipeline = crate::pipeline::create_stencil_keep_color_pipeline(
             &device,
             config.format,
@@ -198,6 +210,27 @@ impl<'a> Renderer<'a> {
             &and_texture_bgl_layer0,
             &and_texture_bgl_layer1,
         );
+        let leaf_draw_gradient_pipeline =
+            crate::pipeline::create_gradient_stencil_keep_color_pipeline(
+                &device,
+                config.format,
+                msaa_sample_count,
+                &and_pipeline.get_bind_group_layout(0),
+                &and_texture_bgl_layer0,
+                &and_texture_bgl_layer1,
+                &gradient_bind_group_layout,
+            );
+
+        let gradient_ramp_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("gradient_ramp_sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
 
         let device = Arc::new(device);
         let queue = Arc::new(queue);
@@ -291,7 +324,13 @@ impl<'a> Renderer<'a> {
             backdrop_snapshot_view: None,
             stencil_only_pipeline: None,
             backdrop_color_pipeline: None,
+            backdrop_color_gradient_pipeline: None,
             leaf_draw_pipeline: Arc::new(leaf_draw_pipeline),
+            leaf_draw_gradient_pipeline: Arc::new(leaf_draw_gradient_pipeline),
+            and_gradient_pipeline: Arc::new(and_gradient_pipeline),
+            gradient_bind_group_layout,
+            gradient_bind_group_layout_epoch: 0,
+            gradient_ramp_sampler,
             #[cfg(feature = "render_metrics")]
             render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),
             #[cfg(feature = "render_metrics")]
@@ -651,6 +690,26 @@ impl<'a> Renderer<'a> {
         self.shape_texture_bind_group_layout_foreground = Arc::new(and_texture_bgl_layer1);
         self.shape_texture_layout_epoch += 1;
 
+        self.gradient_bind_group_layout =
+            crate::pipeline::create_gradient_bind_group_layout(&self.device);
+        self.gradient_bind_group_layout_epoch += 1;
+        self.gradient_ramp_sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("gradient_ramp_sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        self.and_gradient_pipeline = Arc::new(crate::pipeline::create_gradient_increment_pipeline(
+            &self.device,
+            self.config.format,
+            self.msaa_sample_count,
+            &self.and_pipeline.get_bind_group_layout(0),
+            &self.shape_texture_bind_group_layout_background,
+            &self.shape_texture_bind_group_layout_foreground,
+            &self.gradient_bind_group_layout,
+        ));
+
         let (default_shape_texture_bind_group_background, _) =
             Self::create_default_shape_texture_bind_group(
                 &self.device,
@@ -679,5 +738,35 @@ impl<'a> Renderer<'a> {
             &self.shape_texture_bind_group_layout_background,
             &self.shape_texture_bind_group_layout_foreground,
         ));
+        self.leaf_draw_gradient_pipeline = Arc::new(
+            crate::pipeline::create_gradient_stencil_keep_color_pipeline(
+                &self.device,
+                self.config.format,
+                self.msaa_sample_count,
+                &self.and_pipeline.get_bind_group_layout(0),
+                &self.shape_texture_bind_group_layout_background,
+                &self.shape_texture_bind_group_layout_foreground,
+                &self.gradient_bind_group_layout,
+            ),
+        );
+
+        // Reset lazily-created pipelines so they pick up the new layout
+        self.stencil_only_pipeline = None;
+        self.backdrop_color_pipeline = None;
+        self.backdrop_color_gradient_pipeline = None;
+
+        // Refresh per-shape gradient bind groups against the new layout so the
+        // next render does not allocate gradient resources on the render path.
+        self.buffers_pool_manager.gradient_cache.clear_bind_groups();
+        for (_node_id, draw_command) in self.draw_tree.iter_mut() {
+            draw_command.refresh_gradient_bind_group(
+                &mut self.buffers_pool_manager.gradient_cache,
+                &self.device,
+                &self.queue,
+                &self.gradient_bind_group_layout,
+                &self.gradient_ramp_sampler,
+                self.gradient_bind_group_layout_epoch,
+            );
+        }
     }
 }

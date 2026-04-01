@@ -3,8 +3,10 @@ use std::sync::Arc;
 use ahash::{HashMap, HashMapExt};
 
 use crate::effect::{self, EffectInstance, LoadedEffect};
+use crate::gradient::types::Fill;
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, ShapeDrawData};
 use crate::texture_manager::TextureManager;
+use crate::util::GradientCache;
 use crate::vertex::InstanceTransform;
 
 use super::traversal::TraversalScratch;
@@ -80,6 +82,70 @@ impl DrawCommand {
         }
     }
 
+    pub(super) fn set_fill(&mut self, fill: Option<Fill>) {
+        match self {
+            DrawCommand::Shape(shape) => shape.set_fill(fill),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.set_fill(fill),
+        }
+    }
+
+    pub(super) fn has_gradient_fill(&self) -> bool {
+        match self {
+            DrawCommand::Shape(shape) => shape.has_gradient_fill(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.has_gradient_fill(),
+        }
+    }
+
+    pub(super) fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>> {
+        match self {
+            DrawCommand::Shape(shape) => shape.gradient_bind_group(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.gradient_bind_group(),
+        }
+    }
+
+    pub(super) fn refresh_gradient_bind_group(
+        &mut self,
+        gradient_cache: &mut GradientCache,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        sampler: &wgpu::Sampler,
+        layout_epoch: u64,
+    ) {
+        match self {
+            DrawCommand::Shape(shape) => {
+                shape.gradient_bind_group = match shape.fill.as_mut() {
+                    Some(Fill::Gradient(gradient)) => {
+                        Some(gradient_cache.get_or_create_bind_group(
+                            &mut gradient.data,
+                            device,
+                            queue,
+                            layout,
+                            sampler,
+                            layout_epoch,
+                        ))
+                    }
+                    _ => None,
+                };
+            }
+            DrawCommand::CachedShape(cached_shape) => {
+                cached_shape.gradient_bind_group = match cached_shape.fill.as_mut() {
+                    Some(Fill::Gradient(gradient)) => {
+                        Some(gradient_cache.get_or_create_bind_group(
+                            &mut gradient.data,
+                            device,
+                            queue,
+                            layout,
+                            sampler,
+                            layout_epoch,
+                        ))
+                    }
+                    _ => None,
+                };
+            }
+        }
+    }
+
     pub(super) fn clips_children(&self) -> bool {
         match self {
             DrawCommand::Shape(shape) => shape.clips_children(),
@@ -125,8 +191,10 @@ pub(super) enum TraversalEvent {
 pub(super) enum Pipeline {
     None,
     StencilIncrement,
+    StencilIncrementGradient,
     StencilDecrement,
     LeafDraw,
+    LeafDrawGradient,
 }
 
 /// Records which clipping strategy was used by each non-leaf parent during
@@ -172,9 +240,11 @@ impl PipelineTracker {
         {
             self.counts.total_switches += 1;
             match pipeline {
-                Pipeline::StencilIncrement => self.counts.to_stencil_increment += 1,
+                Pipeline::StencilIncrement | Pipeline::StencilIncrementGradient => {
+                    self.counts.to_stencil_increment += 1
+                }
                 Pipeline::StencilDecrement => self.counts.to_stencil_decrement += 1,
-                Pipeline::LeafDraw => self.counts.to_leaf_draw += 1,
+                Pipeline::LeafDraw | Pipeline::LeafDrawGradient => self.counts.to_leaf_draw += 1,
                 Pipeline::None => self.counts.to_composite += 1,
             }
         }
@@ -236,10 +306,12 @@ pub(super) struct Buffers<'a> {
 
 pub(super) struct Pipelines<'a> {
     pub(super) and_pipeline: &'a wgpu::RenderPipeline,
+    pub(super) and_gradient_pipeline: &'a wgpu::RenderPipeline,
     pub(super) and_bind_group: &'a wgpu::BindGroup,
     pub(super) decrementing_pipeline: &'a wgpu::RenderPipeline,
     pub(super) decrementing_bind_group: &'a wgpu::BindGroup,
     pub(super) leaf_draw_pipeline: &'a wgpu::RenderPipeline,
+    pub(super) leaf_draw_gradient_pipeline: &'a wgpu::RenderPipeline,
     pub(super) shape_texture_bind_group_layout_background: &'a wgpu::BindGroupLayout,
     pub(super) shape_texture_bind_group_layout_foreground: &'a wgpu::BindGroupLayout,
     pub(super) default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
@@ -256,6 +328,7 @@ pub(super) struct BackdropContext<'a> {
     pub(super) effect_sampler: &'a wgpu::Sampler,
     pub(super) stencil_only_pipeline: &'a wgpu::RenderPipeline,
     pub(super) backdrop_color_pipeline: &'a wgpu::RenderPipeline,
+    pub(super) backdrop_color_gradient_pipeline: &'a wgpu::RenderPipeline,
     pub(super) device: &'a wgpu::Device,
     pub(super) config_format: wgpu::TextureFormat,
     pub(super) backdrop_snapshot_texture: &'a wgpu::Texture,

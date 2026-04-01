@@ -51,6 +51,11 @@ pub(super) fn should_skip_visible_rect_draw(
         return false;
     }
 
+    // Gradient-filled shapes are visually active even before GPU prep creates bind groups.
+    if draw_command.has_gradient_fill() {
+        return false;
+    }
+
     if draw_command
         .instance_color_override()
         .is_some_and(|color| color[3] != 0.0)
@@ -138,9 +143,36 @@ pub(super) fn try_scissor_for_rect(
 mod tests {
     use super::{compute_scissor_rect, should_skip_visible_rect_draw, try_scissor_for_rect};
     use crate::effect::EffectInstance;
+    use crate::gradient::types::{
+        ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset, LinearGradientDesc,
+        LinearGradientLine,
+    };
     use crate::renderer::types::DrawCommand;
     use crate::{Color, Shape, Stroke, TransformInstance};
     use ahash::{HashMap, HashMapExt};
+
+    fn create_test_gradient() -> Gradient {
+        Gradient::linear(
+            LinearGradientDesc::new(
+                LinearGradientLine {
+                    start: [0.0, 5.0],
+                    end: [10.0, 5.0],
+                },
+                [
+                    GradientStop::at_position(
+                        GradientStopOffset::linear_radial(0.0),
+                        Color::rgb(255, 0, 0),
+                    ),
+                    GradientStop::at_position(
+                        GradientStopOffset::linear_radial(1.0),
+                        Color::rgb(0, 0, 255),
+                    ),
+                ],
+            )
+            .with_interpolation(ColorInterpolation::Srgb),
+        )
+        .expect("valid test gradient")
+    }
 
     #[test]
     fn axis_aligned_rect_transform_accepts_translation_and_scale() {
@@ -247,6 +279,28 @@ mod tests {
         assert!(!should_skip_visible_rect_draw(
             2,
             &textured_draw_command,
+            &HashMap::new(),
+            &HashMap::new(),
+        ));
+    }
+
+    #[test]
+    fn skip_visible_rect_draw_rejects_gradient_rects() {
+        let mut draw_command = DrawCommand::Shape(crate::shape::ShapeDrawData::new(
+            Shape::rect([(0.0, 0.0), (10.0, 10.0)], Stroke::default()),
+            None,
+        ));
+
+        match &mut draw_command {
+            DrawCommand::Shape(shape) => {
+                shape.fill = Some(Fill::Gradient(create_test_gradient()));
+            }
+            DrawCommand::CachedShape(_) => unreachable!("test constructs a non-cached shape"),
+        }
+
+        assert!(!should_skip_visible_rect_draw(
+            3,
+            &draw_command,
             &HashMap::new(),
             &HashMap::new(),
         ));

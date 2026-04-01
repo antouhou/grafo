@@ -75,6 +75,7 @@ impl<'a> Renderer<'a> {
         self.msaa_sample_count = validated;
         self.recreate_pipelines();
         self.recreate_msaa_texture();
+        self.recreate_depth_stencil_texture();
     }
 
     pub(super) fn validate_sample_count_static(requested: u32) -> u32 {
@@ -111,6 +112,7 @@ impl<'a> Renderer<'a> {
         self.backdrop_snapshot_view = None;
         self.stencil_only_pipeline = None;
         self.backdrop_color_pipeline = None;
+        self.backdrop_color_gradient_pipeline = None;
 
         self.offscreen_texture_pool.trim(
             self.physical_size.0,

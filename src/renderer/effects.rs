@@ -330,6 +330,24 @@ impl<'a> Renderer<'a> {
         );
         self.backdrop_color_pipeline = Some(pipeline);
     }
+
+    pub(super) fn ensure_backdrop_color_gradient_pipeline(&mut self) {
+        if self.backdrop_color_gradient_pipeline.is_some() {
+            return;
+        }
+
+        let uniform_bind_group_layout = self.and_pipeline.get_bind_group_layout(0);
+        let pipeline = crate::pipeline::create_gradient_stencil_keep_color_pipeline(
+            &self.device,
+            self.config.format,
+            self.msaa_sample_count,
+            &uniform_bind_group_layout,
+            &self.shape_texture_bind_group_layout_background,
+            &self.shape_texture_bind_group_layout_foreground,
+            &self.gradient_bind_group_layout,
+        );
+        self.backdrop_color_gradient_pipeline = Some(pipeline);
+    }
 }
 
 #[cfg(test)]

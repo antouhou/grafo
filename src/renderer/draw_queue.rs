@@ -1,4 +1,5 @@
 use super::*;
+use crate::gradient::types::Fill;
 
 impl<'a> Renderer<'a> {
     pub fn add_shape(
@@ -84,12 +85,6 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    fn mutate_draw_command(&mut self, node_id: usize, mutator: impl FnOnce(&mut DrawCommand)) {
-        if let Some(draw_command) = self.draw_tree.get_mut(node_id) {
-            mutator(draw_command);
-        }
-    }
-
     pub fn set_shape_transform_cols(&mut self, node_id: usize, cols: [[f32; 4]; 4]) {
         let transform = InstanceTransform {
             col0: cols[0],
@@ -98,16 +93,18 @@ impl<'a> Renderer<'a> {
             col3: cols[3],
         };
 
-        self.mutate_draw_command(node_id, |draw_command| {
-            draw_command.set_transform(transform)
-        });
+        let Some(draw_command) = self.draw_tree.get_mut(node_id) else {
+            return;
+        };
+        draw_command.set_transform(transform);
     }
 
     pub fn set_shape_transform(&mut self, node_id: usize, transform: impl Into<InstanceTransform>) {
         let transform = transform.into();
-        self.mutate_draw_command(node_id, |draw_command| {
-            draw_command.set_transform(transform)
-        });
+        let Some(draw_command) = self.draw_tree.get_mut(node_id) else {
+            return;
+        };
+        draw_command.set_transform(transform);
     }
 
     pub fn set_shape_texture(&mut self, node_id: usize, texture_id: Option<u64>) {
@@ -124,9 +121,10 @@ impl<'a> Renderer<'a> {
             return;
         }
 
-        self.mutate_draw_command(node_id, |draw_command| {
-            draw_command.set_texture_id(layer, texture_id)
-        });
+        let Some(draw_command) = self.draw_tree.get_mut(node_id) else {
+            return;
+        };
+        draw_command.set_texture_id(layer, texture_id);
     }
 
     pub fn set_shape_texture_on(
@@ -140,8 +138,41 @@ impl<'a> Renderer<'a> {
 
     pub fn set_shape_color(&mut self, node_id: usize, color: Option<Color>) {
         let normalized_color = color.map(|value| value.normalize());
-        self.mutate_draw_command(node_id, |draw_command| {
-            draw_command.set_instance_color_override(normalized_color)
-        });
+        let Some(draw_command) = self.draw_tree.get_mut(node_id) else {
+            return;
+        };
+        draw_command.set_instance_color_override(normalized_color);
+        // set_shape_color is sugar for Fill::Solid / None
+        let fill = color.map(Fill::Solid);
+        draw_command.set_fill(fill);
+        draw_command.refresh_gradient_bind_group(
+            &mut self.buffers_pool_manager.gradient_cache,
+            &self.device,
+            &self.queue,
+            &self.gradient_bind_group_layout,
+            &self.gradient_ramp_sampler,
+            self.gradient_bind_group_layout_epoch,
+        );
+    }
+
+    pub fn set_shape_fill(&mut self, node_id: usize, fill: Option<Fill>) {
+        let Some(draw_command) = self.draw_tree.get_mut(node_id) else {
+            return;
+        };
+        // Derive color_override from fill for the solid fast path
+        let color_override = match &fill {
+            Some(Fill::Solid(color)) => Some(color.normalize()),
+            _ => None,
+        };
+        draw_command.set_instance_color_override(color_override);
+        draw_command.set_fill(fill);
+        draw_command.refresh_gradient_bind_group(
+            &mut self.buffers_pool_manager.gradient_cache,
+            &self.device,
+            &self.queue,
+            &self.gradient_bind_group_layout,
+            &self.gradient_ramp_sampler,
+            self.gradient_bind_group_layout_epoch,
+        );
     }
 }
