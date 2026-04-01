@@ -1,10 +1,10 @@
 use smallvec::SmallVec;
+use std::sync::Arc;
 
 use crate::Color;
 
 use super::errors::GradientError;
 use super::normalize::NormalizedGradient;
-use super::sampling::bake_gradient_ramp;
 
 // ── Gradient kind discriminant ───────────────────────────────────────────────
 
@@ -33,6 +33,8 @@ pub struct GradientCommonDesc {
 }
 
 pub type GradientStops = SmallVec<[GradientStop; 8]>;
+
+type GradientRampKeyStops = SmallVec<[GradientRampStopKey; 8]>;
 
 #[derive(Debug, Clone)]
 pub struct LinearGradientDesc {
@@ -85,7 +87,7 @@ pub enum ColorInterpolation {
     Hwb { hue: HueInterpolationMethod },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HueInterpolationMethod {
     Shorter,
     Longer,
@@ -141,6 +143,12 @@ pub enum HueComponent {
     Missing,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum HueComponentKey {
+    Degrees(u32),
+    Missing,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GradientColor {
     Srgb {
@@ -175,6 +183,62 @@ pub enum GradientColor {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum GradientColorKey {
+    Srgb {
+        red_bits: u32,
+        green_bits: u32,
+        blue_bits: u32,
+        alpha_bits: u32,
+    },
+    SrgbLinear {
+        red_bits: u32,
+        green_bits: u32,
+        blue_bits: u32,
+        alpha_bits: u32,
+    },
+    Oklab {
+        l_bits: u32,
+        a_bits: u32,
+        b_bits: u32,
+        alpha_bits: u32,
+    },
+    Hsl {
+        hue: HueComponentKey,
+        saturation_bits: u32,
+        lightness_bits: u32,
+        alpha_bits: u32,
+    },
+    Hwb {
+        hue: HueComponentKey,
+        whiteness_bits: u32,
+        blackness_bits: u32,
+        alpha_bits: u32,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ColorInterpolationKey {
+    Oklab,
+    Srgb,
+    SrgbLinear,
+    Hsl { hue: HueInterpolationMethod },
+    Hwb { hue: HueInterpolationMethod },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct GradientRampStopKey {
+    pub(crate) position_bits: u32,
+    pub(crate) color: GradientColorKey,
+    pub(crate) hint_bits: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct GradientRampCacheKey {
+    pub(crate) interpolation: ColorInterpolationKey,
+    pub(crate) stops: GradientRampKeyStops,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LinearGradientLine {
     pub start: [f32; 2],
@@ -189,6 +253,7 @@ pub enum GradientSupport {
 
 // ── Fill enum ────────────────────────────────────────────────────────────────
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Fill {
     Solid(Color),
@@ -208,16 +273,30 @@ pub struct Gradient {
 #[derive(Debug, Clone)]
 pub(crate) enum GradientRamp {
     Constant([f32; 4]),
-    Sampled(Box<[[f32; 4]; RAMP_RESOLUTION]>),
+    /// Ramps are not initialized right away, since we use cache as a performance optimization.
+    /// We still need to create an instance of a ramp right away to make the gradient struct
+    /// complete, hence there's a variant that signifies that we need to create/get actual ramp
+    /// before actually using the gradient.
+    Pending(Box<GradientRampSource>),
+    Sampled(Arc<[[f32; 4]; RAMP_RESOLUTION]>),
 }
 
 impl GradientRamp {
     pub(crate) fn as_slice(&self) -> &[[f32; 4]] {
         match self {
             GradientRamp::Constant(color) => std::slice::from_ref(color),
+            GradientRamp::Pending(_) => {
+                panic!("gradient ramp must be materialized before accessing ramp texels")
+            }
             GradientRamp::Sampled(ramp) => &ramp[..],
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct GradientRampSource {
+    pub(crate) interpolation: ColorInterpolation,
+    pub(crate) normalized: NormalizedGradient,
 }
 
 #[derive(Debug, Clone)]
@@ -225,6 +304,7 @@ pub(crate) struct GradientData {
     pub(crate) kind: GradientKind,
     pub(crate) units: GradientUnits,
     pub(crate) spread: SpreadMode,
+    pub(crate) ramp_cache_key: GradientRampCacheKey,
     /// Baked linear premultiplied RGBA ramp, RAMP_RESOLUTION entries.
     pub(crate) ramp: GradientRamp,
     // Geometry params:
@@ -258,6 +338,8 @@ impl Gradient {
         validate_finite_f32(desc.line.end[1], "line.end[1]")?;
 
         let normalized = NormalizedGradient::from_common(&desc.common, GradientKind::Linear);
+        let ramp_cache_key =
+            GradientRampCacheKey::from_normalized(&desc.common.interpolation, &normalized);
 
         let dx = desc.line.end[0] - desc.line.start[0];
         let dy = desc.line.end[1] - desc.line.start[1];
@@ -270,6 +352,7 @@ impl Gradient {
                     kind: GradientKind::Linear,
                     units: desc.common.units,
                     spread: desc.common.spread,
+                    ramp_cache_key,
                     ramp: GradientRamp::Constant(constant_color),
                     linear_line: Some(desc.line),
                     radial_center: None,
@@ -284,21 +367,27 @@ impl Gradient {
             });
         }
 
-        let ramp = bake_gradient_ramp(&normalized, &desc.common.interpolation);
+        let period_start = normalized.period_start;
+        let period_len = normalized.period_len;
+        let ramp = GradientRamp::Pending(Box::new(GradientRampSource {
+            interpolation: desc.common.interpolation,
+            normalized,
+        }));
 
         Ok(Gradient {
             data: GradientData {
                 kind: GradientKind::Linear,
                 units: desc.common.units,
                 spread: desc.common.spread,
+                ramp_cache_key,
                 ramp,
                 linear_line: Some(desc.line),
                 radial_center: None,
                 radial_radius: None,
                 conic_center: None,
                 conic_start_angle: None,
-                period_start: normalized.period_start,
-                period_len: normalized.period_len,
+                period_start,
+                period_len,
                 is_constant: false,
                 constant_color: [0.0; 4],
             },
@@ -333,6 +422,8 @@ impl Gradient {
         };
 
         let normalized = NormalizedGradient::from_common(&desc.common, GradientKind::Radial);
+        let ramp_cache_key =
+            GradientRampCacheKey::from_normalized(&desc.common.interpolation, &normalized);
 
         let is_degenerate = radius_x.abs() <= RESOLVED_DEGENERATE_EPSILON
             || radius_y.abs() <= RESOLVED_DEGENERATE_EPSILON;
@@ -344,6 +435,7 @@ impl Gradient {
                     kind: GradientKind::Radial,
                     units: desc.common.units,
                     spread: desc.common.spread,
+                    ramp_cache_key,
                     ramp: GradientRamp::Constant(constant_color),
                     linear_line: None,
                     radial_center: Some(desc.center),
@@ -358,21 +450,27 @@ impl Gradient {
             });
         }
 
-        let ramp = bake_gradient_ramp(&normalized, &desc.common.interpolation);
+        let period_start = normalized.period_start;
+        let period_len = normalized.period_len;
+        let ramp = GradientRamp::Pending(Box::new(GradientRampSource {
+            interpolation: desc.common.interpolation,
+            normalized,
+        }));
 
         Ok(Gradient {
             data: GradientData {
                 kind: GradientKind::Radial,
                 units: desc.common.units,
                 spread: desc.common.spread,
+                ramp_cache_key,
                 ramp,
                 linear_line: None,
                 radial_center: Some(desc.center),
                 radial_radius: Some([radius_x, radius_y]),
                 conic_center: None,
                 conic_start_angle: None,
-                period_start: normalized.period_start,
-                period_len: normalized.period_len,
+                period_start,
+                period_len,
                 is_constant: false,
                 constant_color: [0.0; 4],
             },
@@ -391,8 +489,8 @@ impl Gradient {
         }
 
         let normalized = NormalizedGradient::from_common(&desc.common, GradientKind::Conic);
-        let ramp = bake_gradient_ramp(&normalized, &desc.common.interpolation);
-
+        let ramp_cache_key =
+            GradientRampCacheKey::from_normalized(&desc.common.interpolation, &normalized);
         // For repeating conic with zero period, degenerate
         let is_degenerate = desc.common.spread == SpreadMode::Repeat
             && normalized.period_len <= RESOLVED_DEGENERATE_EPSILON;
@@ -401,28 +499,134 @@ impl Gradient {
         } else {
             [0.0; 4]
         };
+        let period_start = normalized.period_start;
+        let period_len = normalized.period_len;
+        let ramp = if is_degenerate {
+            GradientRamp::Constant(constant_color)
+        } else {
+            GradientRamp::Pending(Box::new(GradientRampSource {
+                interpolation: desc.common.interpolation,
+                normalized,
+            }))
+        };
 
         Ok(Gradient {
             data: GradientData {
                 kind: GradientKind::Conic,
                 units: desc.common.units,
                 spread: desc.common.spread,
-                ramp: if is_degenerate {
-                    GradientRamp::Constant(constant_color)
-                } else {
-                    ramp
-                },
+                ramp_cache_key,
+                ramp,
                 linear_line: None,
                 radial_center: None,
                 radial_radius: None,
                 conic_center: Some(desc.center),
                 conic_start_angle: Some(desc.start_angle_radians),
-                period_start: normalized.period_start,
-                period_len: normalized.period_len,
+                period_start,
+                period_len,
                 is_constant: is_degenerate,
                 constant_color,
             },
         })
+    }
+}
+
+impl HueComponentKey {
+    fn from_hue_component(hue_component: HueComponent) -> Self {
+        match hue_component {
+            HueComponent::Degrees(value) => Self::Degrees(value.to_bits()),
+            HueComponent::Missing => Self::Missing,
+        }
+    }
+}
+
+impl GradientColorKey {
+    fn from_gradient_color(color: GradientColor) -> Self {
+        match color {
+            GradientColor::Srgb {
+                red,
+                green,
+                blue,
+                alpha,
+            } => Self::Srgb {
+                red_bits: red.to_bits(),
+                green_bits: green.to_bits(),
+                blue_bits: blue.to_bits(),
+                alpha_bits: alpha.to_bits(),
+            },
+            GradientColor::SrgbLinear {
+                red,
+                green,
+                blue,
+                alpha,
+            } => Self::SrgbLinear {
+                red_bits: red.to_bits(),
+                green_bits: green.to_bits(),
+                blue_bits: blue.to_bits(),
+                alpha_bits: alpha.to_bits(),
+            },
+            GradientColor::Oklab { l, a, b, alpha } => Self::Oklab {
+                l_bits: l.to_bits(),
+                a_bits: a.to_bits(),
+                b_bits: b.to_bits(),
+                alpha_bits: alpha.to_bits(),
+            },
+            GradientColor::Hsl {
+                hue,
+                saturation,
+                lightness,
+                alpha,
+            } => Self::Hsl {
+                hue: HueComponentKey::from_hue_component(hue),
+                saturation_bits: saturation.to_bits(),
+                lightness_bits: lightness.to_bits(),
+                alpha_bits: alpha.to_bits(),
+            },
+            GradientColor::Hwb {
+                hue,
+                whiteness,
+                blackness,
+                alpha,
+            } => Self::Hwb {
+                hue: HueComponentKey::from_hue_component(hue),
+                whiteness_bits: whiteness.to_bits(),
+                blackness_bits: blackness.to_bits(),
+                alpha_bits: alpha.to_bits(),
+            },
+        }
+    }
+}
+
+impl ColorInterpolationKey {
+    fn from_interpolation(interpolation: ColorInterpolation) -> Self {
+        match interpolation {
+            ColorInterpolation::Oklab => Self::Oklab,
+            ColorInterpolation::Srgb => Self::Srgb,
+            ColorInterpolation::SrgbLinear => Self::SrgbLinear,
+            ColorInterpolation::Hsl { hue } => Self::Hsl { hue },
+            ColorInterpolation::Hwb { hue } => Self::Hwb { hue },
+        }
+    }
+}
+
+impl GradientRampCacheKey {
+    pub(crate) fn from_normalized(
+        interpolation: &ColorInterpolation,
+        normalized: &NormalizedGradient,
+    ) -> Self {
+        let mut stops = GradientRampKeyStops::with_capacity(normalized.stops.len());
+        for stop in &normalized.stops {
+            stops.push(GradientRampStopKey {
+                position_bits: stop.position.to_bits(),
+                color: GradientColorKey::from_gradient_color(stop.color),
+                hint_bits: stop.hint.map(f32::to_bits),
+            });
+        }
+
+        Self {
+            interpolation: ColorInterpolationKey::from_interpolation(*interpolation),
+            stops,
+        }
     }
 }
 
@@ -666,5 +870,48 @@ mod tests {
             gradient,
             Err(GradientError::InvalidRadialDefinition)
         ));
+    }
+
+    #[test]
+    fn nonconstant_gradients_start_with_pending_ramp() {
+        let common = GradientCommonDesc {
+            stops: vec![
+                GradientStop {
+                    color: GradientColor::Srgb {
+                        red: 1.0,
+                        green: 0.0,
+                        blue: 0.0,
+                        alpha: 1.0,
+                    },
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
+                    hint_to_next_segment: None,
+                },
+                GradientStop {
+                    color: GradientColor::Srgb {
+                        red: 0.0,
+                        green: 0.0,
+                        blue: 1.0,
+                        alpha: 1.0,
+                    },
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
+                    hint_to_next_segment: None,
+                },
+            ]
+            .into(),
+            spread: SpreadMode::Pad,
+            units: GradientUnits::Local,
+            interpolation: ColorInterpolation::SrgbLinear,
+        };
+
+        let gradient = Gradient::linear(LinearGradientDesc {
+            common,
+            line: LinearGradientLine {
+                start: [0.0, 0.0],
+                end: [10.0, 0.0],
+            },
+        })
+        .unwrap();
+
+        assert!(matches!(gradient.data.ramp, GradientRamp::Pending(_)));
     }
 }

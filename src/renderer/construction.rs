@@ -329,6 +329,7 @@ impl<'a> Renderer<'a> {
             leaf_draw_gradient_pipeline: Arc::new(leaf_draw_gradient_pipeline),
             and_gradient_pipeline: Arc::new(and_gradient_pipeline),
             gradient_bind_group_layout,
+            gradient_bind_group_layout_epoch: 0,
             gradient_ramp_sampler,
             #[cfg(feature = "render_metrics")]
             render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),
@@ -691,6 +692,7 @@ impl<'a> Renderer<'a> {
 
         self.gradient_bind_group_layout =
             crate::pipeline::create_gradient_bind_group_layout(&self.device);
+        self.gradient_bind_group_layout_epoch += 1;
         self.gradient_ramp_sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("gradient_ramp_sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -755,12 +757,15 @@ impl<'a> Renderer<'a> {
 
         // Refresh per-shape gradient bind groups against the new layout so the
         // next render does not allocate gradient resources on the render path.
+        self.buffers_pool_manager.gradient_cache.clear_bind_groups();
         for (_node_id, draw_command) in self.draw_tree.iter_mut() {
             draw_command.refresh_gradient_bind_group(
+                &mut self.buffers_pool_manager.gradient_cache,
                 &self.device,
                 &self.queue,
                 &self.gradient_bind_group_layout,
                 &self.gradient_ramp_sampler,
+                self.gradient_bind_group_layout_epoch,
             );
         }
     }

@@ -146,10 +146,12 @@ impl<'a> Renderer<'a> {
         let fill = color.map(Fill::Solid);
         draw_command.set_fill(fill);
         draw_command.refresh_gradient_bind_group(
+            &mut self.buffers_pool_manager.gradient_cache,
             &self.device,
             &self.queue,
             &self.gradient_bind_group_layout,
             &self.gradient_ramp_sampler,
+            self.gradient_bind_group_layout_epoch,
         );
     }
 
@@ -165,10 +167,12 @@ impl<'a> Renderer<'a> {
         draw_command.set_instance_color_override(color_override);
         draw_command.set_fill(fill);
         draw_command.refresh_gradient_bind_group(
+            &mut self.buffers_pool_manager.gradient_cache,
             &self.device,
             &self.queue,
             &self.gradient_bind_group_layout,
             &self.gradient_ramp_sampler,
+            self.gradient_bind_group_layout_epoch,
         );
     }
 }

@@ -1,16 +1,17 @@
 use super::normalize::{NormalizedGradient, NormalizedSegment};
 use super::types::{
-    ColorInterpolation, GradientColor, GradientRamp, HueComponent, HueInterpolationMethod,
-    RAMP_RESOLUTION, RESOLVED_DEGENERATE_EPSILON,
+    ColorInterpolation, GradientColor, GradientRamp, GradientRampSource, HueComponent,
+    HueInterpolationMethod, RAMP_RESOLUTION, RESOLVED_DEGENERATE_EPSILON,
 };
+use std::sync::Arc;
 
 /// Bakes a gradient ramp: RAMP_RESOLUTION texels of final linear premultiplied RGBA.
 /// The texels span from `period_start` to `period_start + period_len` (non-repeating)
-/// or from first stop to last stop (pad mode).
-pub(crate) fn bake_gradient_ramp(
-    normalized: &NormalizedGradient,
-    interpolation: &ColorInterpolation,
-) -> GradientRamp {
+/// or from the first stop to the last stop (pad mode).
+pub(crate) fn bake_gradient_ramp(ramp_source: &GradientRampSource) -> GradientRamp {
+    let normalized = &ramp_source.normalized;
+    let interpolation = &ramp_source.interpolation;
+
     if normalized.is_single_stop {
         let color = color_to_final_linear_premultiplied(&normalized.single_stop_color.unwrap());
         return GradientRamp::Constant(color);
@@ -22,14 +23,14 @@ pub(crate) fn bake_gradient_ramp(
 
     if span <= RESOLVED_DEGENERATE_EPSILON {
         if has_actual_zero_length_run(normalized) {
-            return bake_degenerate_hard_stop_ramp(normalized);
+            return GradientRamp::Sampled(Arc::new(bake_degenerate_hard_stop_ramp(normalized)));
         }
 
         let color = color_to_final_linear_premultiplied(&normalized.stops.last().unwrap().color);
         return GradientRamp::Constant(color);
     }
 
-    let mut ramp = Box::new([[0.0; 4]; RAMP_RESOLUTION]);
+    let mut ramp = [[0.0; 4]; RAMP_RESOLUTION];
     for (index, texel) in ramp.iter_mut().enumerate() {
         let t_normalized = index as f32 / (RAMP_RESOLUTION - 1) as f32;
         let u = first_pos + t_normalized * span;
@@ -37,7 +38,7 @@ pub(crate) fn bake_gradient_ramp(
         let color = evaluate_at_scalar(u, &normalized.segments, &normalized.stops, interpolation);
         *texel = color;
     }
-    GradientRamp::Sampled(ramp)
+    GradientRamp::Sampled(Arc::new(ramp))
 }
 
 fn has_actual_zero_length_run(normalized: &NormalizedGradient) -> bool {
@@ -48,7 +49,7 @@ fn has_actual_zero_length_run(normalized: &NormalizedGradient) -> bool {
             .any(|pair| (pair[1].position - pair[0].position).abs() <= f32::EPSILON)
 }
 
-fn bake_degenerate_hard_stop_ramp(normalized: &NormalizedGradient) -> GradientRamp {
+fn bake_degenerate_hard_stop_ramp(normalized: &NormalizedGradient) -> [[f32; 4]; RAMP_RESOLUTION] {
     let first_stop = normalized.stops.first().unwrap();
     let last_stop = normalized.stops.last().unwrap();
 
@@ -56,10 +57,9 @@ fn bake_degenerate_hard_stop_ramp(normalized: &NormalizedGradient) -> GradientRa
     let last_color = color_to_final_linear_premultiplied(&last_stop.color);
     let transition_index = RAMP_RESOLUTION / 2;
 
-    let mut ramp =
-        Box::new([[last_color[0], last_color[1], last_color[2], last_color[3]]; RAMP_RESOLUTION]);
+    let mut ramp = [[last_color[0], last_color[1], last_color[2], last_color[3]]; RAMP_RESOLUTION];
     ramp[..transition_index].fill(first_color);
-    GradientRamp::Sampled(ramp)
+    ramp
 }
 
 /// Evaluates the gradient at scalar `u` (after spread-mode folding).
@@ -632,8 +632,8 @@ mod tests {
     use super::*;
     use crate::gradient::normalize::NormalizedGradient;
     use crate::gradient::types::{
-        ColorInterpolation, GradientColor, GradientCommonDesc, GradientKind, GradientStop,
-        GradientStopOffset, GradientStopPositions, GradientUnits, SpreadMode,
+        ColorInterpolation, GradientColor, GradientCommonDesc, GradientKind, GradientRampSource,
+        GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits, SpreadMode,
     };
 
     fn srgb_color(red: f32, green: f32, blue: f32) -> GradientColor {
@@ -702,7 +702,10 @@ mod tests {
         };
 
         let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
-        let ramp = bake_gradient_ramp(&normalized, &common.interpolation);
+        let ramp = bake_gradient_ramp(&GradientRampSource {
+            interpolation: common.interpolation,
+            normalized,
+        });
         let ramp = ramp.as_slice();
         let transition_index = RAMP_RESOLUTION / 2;
 
@@ -740,7 +743,10 @@ mod tests {
         };
 
         let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
-        let ramp = bake_gradient_ramp(&normalized, &common.interpolation);
+        let ramp = bake_gradient_ramp(&GradientRampSource {
+            interpolation: common.interpolation,
+            normalized,
+        });
         let ramp = ramp.as_slice();
         let expected = color_to_final_linear_premultiplied(&srgb_color(0.0, 0.0, 1.0));
 

@@ -6,9 +6,9 @@ use crate::effect::{self, EffectInstance, LoadedEffect};
 use crate::gradient::types::Fill;
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, ShapeDrawData};
 use crate::texture_manager::TextureManager;
+use crate::util::GradientCache;
 use crate::vertex::InstanceTransform;
 
-use super::preparation::create_gradient_bind_group;
 use super::traversal::TraversalScratch;
 
 #[derive(Debug)]
@@ -105,24 +105,43 @@ impl DrawCommand {
 
     pub(super) fn refresh_gradient_bind_group(
         &mut self,
+        gradient_cache: &mut GradientCache,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         layout: &wgpu::BindGroupLayout,
         sampler: &wgpu::Sampler,
+        layout_epoch: u64,
     ) {
         match self {
             DrawCommand::Shape(shape) => {
-                shape.gradient_bind_group =
-                    create_gradient_bind_group(shape.fill.as_ref(), device, queue, layout, sampler);
+                shape.gradient_bind_group = match shape.fill.as_mut() {
+                    Some(Fill::Gradient(gradient)) => {
+                        Some(gradient_cache.get_or_create_bind_group(
+                            &mut gradient.data,
+                            device,
+                            queue,
+                            layout,
+                            sampler,
+                            layout_epoch,
+                        ))
+                    }
+                    _ => None,
+                };
             }
             DrawCommand::CachedShape(cached_shape) => {
-                cached_shape.gradient_bind_group = create_gradient_bind_group(
-                    cached_shape.fill.as_ref(),
-                    device,
-                    queue,
-                    layout,
-                    sampler,
-                );
+                cached_shape.gradient_bind_group = match cached_shape.fill.as_mut() {
+                    Some(Fill::Gradient(gradient)) => {
+                        Some(gradient_cache.get_or_create_bind_group(
+                            &mut gradient.data,
+                            device,
+                            queue,
+                            layout,
+                            sampler,
+                            layout_epoch,
+                        ))
+                    }
+                    _ => None,
+                };
             }
         }
     }

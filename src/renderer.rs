@@ -225,6 +225,8 @@ pub struct Renderer<'a> {
     // ── Gradient fill infrastructure ───────────────────────────────────
     /// Bind group layout for gradient resources (group 3 in shader).
     gradient_bind_group_layout: wgpu::BindGroupLayout,
+    /// Monotonic counter to invalidate cached gradient bind groups when the layout changes.
+    gradient_bind_group_layout_epoch: u64,
     /// Sampler for gradient ramp textures (nearest, clamp-to-edge).
     gradient_ramp_sampler: wgpu::Sampler,
 
