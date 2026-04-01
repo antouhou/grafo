@@ -150,7 +150,8 @@ fn gradient_fill_basic() {
                     },
                     hint_to_next_segment: None,
                 },
-            ],
+            ]
+            .into(),
         },
         line: LinearGradientLine {
             start: [10.0, 50.0],
@@ -223,7 +224,8 @@ fn gradient_survives_pipeline_recreation() {
                     },
                     hint_to_next_segment: None,
                 },
-            ],
+            ]
+            .into(),
         },
         line: LinearGradientLine {
             start: [10.0, 50.0],
@@ -336,7 +338,8 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
                     },
                     hint_to_next_segment: None,
                 },
-            ],
+            ]
+            .into(),
         },
         line: LinearGradientLine {
             start: [10.0, 50.0],

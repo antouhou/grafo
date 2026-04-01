@@ -1,7 +1,7 @@
 use super::normalize::{NormalizedGradient, NormalizedSegment};
 use super::types::{
-    ColorInterpolation, GradientColor, HueComponent, HueInterpolationMethod, RAMP_RESOLUTION,
-    RESOLVED_DEGENERATE_EPSILON,
+    ColorInterpolation, GradientColor, GradientRamp, HueComponent, HueInterpolationMethod,
+    RAMP_RESOLUTION, RESOLVED_DEGENERATE_EPSILON,
 };
 
 /// Bakes a gradient ramp: RAMP_RESOLUTION texels of final linear premultiplied RGBA.
@@ -10,10 +10,10 @@ use super::types::{
 pub(crate) fn bake_gradient_ramp(
     normalized: &NormalizedGradient,
     interpolation: &ColorInterpolation,
-) -> Vec<[f32; 4]> {
+) -> GradientRamp {
     if normalized.is_single_stop {
         let color = color_to_final_linear_premultiplied(&normalized.single_stop_color.unwrap());
-        return vec![color; RAMP_RESOLUTION];
+        return GradientRamp::Constant(color);
     }
 
     let first_pos = normalized.stops.first().unwrap().position;
@@ -26,18 +26,18 @@ pub(crate) fn bake_gradient_ramp(
         }
 
         let color = color_to_final_linear_premultiplied(&normalized.stops.last().unwrap().color);
-        return vec![color; RAMP_RESOLUTION];
+        return GradientRamp::Constant(color);
     }
 
-    let mut ramp = Vec::with_capacity(RAMP_RESOLUTION);
-    for i in 0..RAMP_RESOLUTION {
-        let t_normalized = i as f32 / (RAMP_RESOLUTION - 1) as f32;
+    let mut ramp = Box::new([[0.0; 4]; RAMP_RESOLUTION]);
+    for (index, texel) in ramp.iter_mut().enumerate() {
+        let t_normalized = index as f32 / (RAMP_RESOLUTION - 1) as f32;
         let u = first_pos + t_normalized * span;
 
         let color = evaluate_at_scalar(u, &normalized.segments, &normalized.stops, interpolation);
-        ramp.push(color);
+        *texel = color;
     }
-    ramp
+    GradientRamp::Sampled(ramp)
 }
 
 fn has_actual_zero_length_run(normalized: &NormalizedGradient) -> bool {
@@ -48,7 +48,7 @@ fn has_actual_zero_length_run(normalized: &NormalizedGradient) -> bool {
             .any(|pair| (pair[1].position - pair[0].position).abs() <= f32::EPSILON)
 }
 
-fn bake_degenerate_hard_stop_ramp(normalized: &NormalizedGradient) -> Vec<[f32; 4]> {
+fn bake_degenerate_hard_stop_ramp(normalized: &NormalizedGradient) -> GradientRamp {
     let first_stop = normalized.stops.first().unwrap();
     let last_stop = normalized.stops.last().unwrap();
 
@@ -56,9 +56,10 @@ fn bake_degenerate_hard_stop_ramp(normalized: &NormalizedGradient) -> Vec<[f32; 
     let last_color = color_to_final_linear_premultiplied(&last_stop.color);
     let transition_index = RAMP_RESOLUTION / 2;
 
-    let mut ramp = vec![last_color; RAMP_RESOLUTION];
+    let mut ramp =
+        Box::new([[last_color[0], last_color[1], last_color[2], last_color[3]]; RAMP_RESOLUTION]);
     ramp[..transition_index].fill(first_color);
-    ramp
+    GradientRamp::Sampled(ramp)
 }
 
 /// Evaluates the gradient at scalar `u` (after spread-mode folding).
@@ -696,11 +697,13 @@ mod tests {
                     color: srgb_color(0.0, 0.0, 1.0),
                     hint_to_next_segment: None,
                 },
-            ],
+            ]
+            .into(),
         };
 
         let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
         let ramp = bake_gradient_ramp(&normalized, &common.interpolation);
+        let ramp = ramp.as_slice();
         let transition_index = RAMP_RESOLUTION / 2;
 
         assert_eq!(
@@ -732,11 +735,13 @@ mod tests {
                     color: srgb_color(0.0, 0.0, 1.0),
                     hint_to_next_segment: None,
                 },
-            ],
+            ]
+            .into(),
         };
 
         let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
         let ramp = bake_gradient_ramp(&normalized, &common.interpolation);
+        let ramp = ramp.as_slice();
         let expected = color_to_final_linear_premultiplied(&srgb_color(0.0, 0.0, 1.0));
 
         assert!(ramp.iter().all(|texel| *texel == expected));

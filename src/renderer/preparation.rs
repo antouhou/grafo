@@ -97,7 +97,7 @@ pub(super) fn create_gradient_bind_group(
         wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     );
 
-    let (_texture, ramp_view) = create_ramp_texture(device, queue, &gradient.data.ramp);
+    let (_texture, ramp_view) = create_ramp_texture(device, queue, gradient.data.ramp.as_slice());
 
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("Gradient Bind Group"),

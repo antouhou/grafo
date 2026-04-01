@@ -1,3 +1,5 @@
+use smallvec::SmallVec;
+
 use crate::Color;
 
 use super::errors::GradientError;
@@ -27,8 +29,10 @@ pub struct GradientCommonDesc {
     pub units: GradientUnits,
     pub spread: SpreadMode,
     pub interpolation: ColorInterpolation,
-    pub stops: Vec<GradientStop>,
+    pub stops: GradientStops,
 }
+
+pub type GradientStops = SmallVec<[GradientStop; 8]>;
 
 #[derive(Debug, Clone)]
 pub struct LinearGradientDesc {
@@ -202,12 +206,27 @@ pub struct Gradient {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) enum GradientRamp {
+    Constant([f32; 4]),
+    Sampled(Box<[[f32; 4]; RAMP_RESOLUTION]>),
+}
+
+impl GradientRamp {
+    pub(crate) fn as_slice(&self) -> &[[f32; 4]] {
+        match self {
+            GradientRamp::Constant(color) => std::slice::from_ref(color),
+            GradientRamp::Sampled(ramp) => &ramp[..],
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct GradientData {
     pub(crate) kind: GradientKind,
     pub(crate) units: GradientUnits,
     pub(crate) spread: SpreadMode,
     /// Baked linear premultiplied RGBA ramp, RAMP_RESOLUTION entries.
-    pub(crate) ramp: Vec<[f32; 4]>,
+    pub(crate) ramp: GradientRamp,
     // Geometry params:
     pub(crate) linear_line: Option<LinearGradientLine>,
     pub(crate) radial_center: Option<[f32; 2]>,
@@ -251,7 +270,7 @@ impl Gradient {
                     kind: GradientKind::Linear,
                     units: desc.common.units,
                     spread: desc.common.spread,
-                    ramp: vec![constant_color],
+                    ramp: GradientRamp::Constant(constant_color),
                     linear_line: Some(desc.line),
                     radial_center: None,
                     radial_radius: None,
@@ -325,7 +344,7 @@ impl Gradient {
                     kind: GradientKind::Radial,
                     units: desc.common.units,
                     spread: desc.common.spread,
-                    ramp: vec![constant_color],
+                    ramp: GradientRamp::Constant(constant_color),
                     linear_line: None,
                     radial_center: Some(desc.center),
                     radial_radius: Some([radius_x, radius_y]),
@@ -389,7 +408,7 @@ impl Gradient {
                 units: desc.common.units,
                 spread: desc.common.spread,
                 ramp: if is_degenerate {
-                    vec![constant_color]
+                    GradientRamp::Constant(constant_color)
                 } else {
                     ramp
                 },
@@ -581,7 +600,8 @@ mod tests {
                 },
                 positions: GradientStopPositions::Auto,
                 hint_to_next_segment: None,
-            }],
+            }]
+            .into(),
             spread: SpreadMode::Pad,
             units: GradientUnits::Local,
             interpolation: ColorInterpolation::SrgbLinear,
@@ -599,10 +619,7 @@ mod tests {
         })
         .unwrap();
         assert!(g.data.is_constant);
-        assert!(
-            !g.data.ramp.is_empty(),
-            "degenerate linear ramp must not be empty"
-        );
+        assert!(matches!(g.data.ramp, GradientRamp::Constant(_)));
     }
 
     #[test]
@@ -615,10 +632,7 @@ mod tests {
         })
         .unwrap();
         assert!(g.data.is_constant);
-        assert!(
-            !g.data.ramp.is_empty(),
-            "degenerate radial ramp must not be empty"
-        );
+        assert!(matches!(g.data.ramp, GradientRamp::Constant(_)));
     }
 
     #[test]

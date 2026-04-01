@@ -263,7 +263,8 @@ mod tests {
             stops: vec![
                 make_stop(srgb_color(1.0, 0.0, 0.0), None),
                 make_stop(srgb_color(0.0, 0.0, 1.0), None),
-            ],
+            ]
+            .into(),
         };
 
         let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
@@ -282,7 +283,8 @@ mod tests {
             stops: vec![
                 make_stop(srgb_color(1.0, 0.0, 0.0), None),
                 make_stop(srgb_color(0.0, 0.0, 1.0), None),
-            ],
+            ]
+            .into(),
         };
 
         let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
@@ -300,7 +302,8 @@ mod tests {
                 make_stop(srgb_color(1.0, 0.0, 0.0), Some(0.0)),
                 make_stop(srgb_color(0.0, 1.0, 0.0), None),
                 make_stop(srgb_color(0.0, 0.0, 1.0), Some(1.0)),
-            ],
+            ]
+            .into(),
         };
 
         let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
@@ -318,7 +321,8 @@ mod tests {
                 make_stop(srgb_color(1.0, 0.0, 0.0), Some(0.5)),
                 make_stop(srgb_color(0.0, 1.0, 0.0), Some(0.2)),
                 make_stop(srgb_color(0.0, 0.0, 1.0), Some(1.0)),
-            ],
+            ]
+            .into(),
         };
 
         let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
@@ -332,7 +336,7 @@ mod tests {
             units: GradientUnits::Local,
             spread: SpreadMode::Pad,
             interpolation: ColorInterpolation::SrgbLinear,
-            stops: vec![make_stop(srgb_color(1.0, 0.0, 0.0), Some(0.5))],
+            stops: vec![make_stop(srgb_color(1.0, 0.0, 0.0), Some(0.5))].into(),
         };
 
         let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
@@ -355,7 +359,8 @@ mod tests {
                     hint_to_next_segment: None,
                 },
                 make_stop(srgb_color(0.0, 0.0, 1.0), Some(1.0)),
-            ],
+            ]
+            .into(),
         };
 
         let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);

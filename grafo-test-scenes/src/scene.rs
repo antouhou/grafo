@@ -1919,7 +1919,8 @@ fn two_stop_common_with_units(
                 },
                 hint_to_next_segment: None,
             },
-        ],
+        ]
+        .into(),
     }
 }
 
@@ -2069,7 +2070,8 @@ fn tile_41_conic_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
                     },
                     hint_to_next_segment: None,
                 },
-            ],
+            ]
+            .into(),
         },
         center: [ox + 40.0, oy + 40.0],
         start_angle_radians: 0.0,
@@ -2137,7 +2139,8 @@ fn tile_42_repeating_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpect
                     },
                     hint_to_next_segment: None,
                 },
-            ],
+            ]
+            .into(),
         },
         // Short axis so it repeats ~3 times across the 60px rect.
         line: LinearGradientLine {
@@ -2228,7 +2231,8 @@ fn tile_43_gradient_hard_stops(renderer: &mut Renderer) -> Vec<PixelExpectation>
                     },
                     hint_to_next_segment: None,
                 },
-            ],
+            ]
+            .into(),
         },
         line: LinearGradientLine {
             start: [ox + 10.0, oy + 40.0],
@@ -2654,7 +2658,8 @@ fn tile_49_conic_quadrant_colors(renderer: &mut Renderer) -> Vec<PixelExpectatio
                     },
                     hint_to_next_segment: None,
                 },
-            ],
+            ]
+            .into(),
         },
         center: [cx, cy],
         start_angle_radians: 0.0,

@@ -183,7 +183,8 @@ mod tests {
                         },
                         hint_to_next_segment: None,
                     },
-                ],
+                ]
+                .into(),
             },
             line: LinearGradientLine {
                 start: [0.0, 5.0],
