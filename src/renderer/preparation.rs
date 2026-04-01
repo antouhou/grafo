@@ -77,7 +77,7 @@ fn append_instance_data(
     instance_index
 }
 
-fn create_gradient_bind_group_if_needed(
+pub(super) fn create_gradient_bind_group(
     fill: Option<&Fill>,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -189,16 +189,6 @@ impl<'a> Renderer<'a> {
                         shape.is_empty = true;
                     }
 
-                    if shape.has_gradient_fill() && shape.gradient_bind_group.is_none() {
-                        shape.gradient_bind_group = create_gradient_bind_group_if_needed(
-                            shape.fill.as_ref(),
-                            &self.device,
-                            &self.queue,
-                            &self.gradient_bind_group_layout,
-                            &self.gradient_ramp_sampler,
-                        );
-                    }
-
                     if let Some(owned_vertex_buffers) = tessellated_geometry.into_owned() {
                         self.buffers_pool_manager
                             .lyon_vertex_buffers_pool
@@ -245,19 +235,6 @@ impl<'a> Renderer<'a> {
                         *cached_shape_data.instance_index_mut() = Some(instance_index);
                     } else {
                         cached_shape_data.is_empty = true;
-                    }
-
-                    if cached_shape_data.has_gradient_fill()
-                        && cached_shape_data.gradient_bind_group.is_none()
-                    {
-                        cached_shape_data.gradient_bind_group =
-                            create_gradient_bind_group_if_needed(
-                                cached_shape_data.fill.as_ref(),
-                                &self.device,
-                                &self.queue,
-                                &self.gradient_bind_group_layout,
-                                &self.gradient_ramp_sampler,
-                            );
                     }
                 }
             }

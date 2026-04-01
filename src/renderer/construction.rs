@@ -753,10 +753,15 @@ impl<'a> Renderer<'a> {
         self.backdrop_color_pipeline = None;
         self.backdrop_color_gradient_pipeline = None;
 
-        // Invalidate cached per-shape gradient bind groups — they were created
-        // against the old gradient_bind_group_layout and are now stale.
+        // Refresh per-shape gradient bind groups against the new layout so the
+        // next render does not allocate gradient resources on the render path.
         for (_node_id, draw_command) in self.draw_tree.iter_mut() {
-            draw_command.invalidate_gradient_bind_group();
+            draw_command.refresh_gradient_bind_group(
+                &self.device,
+                &self.queue,
+                &self.gradient_bind_group_layout,
+                &self.gradient_ramp_sampler,
+            );
         }
     }
 }

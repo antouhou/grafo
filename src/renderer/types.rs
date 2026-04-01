@@ -8,6 +8,7 @@ use crate::shape::{CachedShapeDrawData, DrawShapeCommand, ShapeDrawData};
 use crate::texture_manager::TextureManager;
 use crate::vertex::InstanceTransform;
 
+use super::preparation::create_gradient_bind_group;
 use super::traversal::TraversalScratch;
 
 #[derive(Debug)]
@@ -102,10 +103,27 @@ impl DrawCommand {
         }
     }
 
-    pub(super) fn invalidate_gradient_bind_group(&mut self) {
+    pub(super) fn refresh_gradient_bind_group(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        sampler: &wgpu::Sampler,
+    ) {
         match self {
-            DrawCommand::Shape(shape) => shape.gradient_bind_group = None,
-            DrawCommand::CachedShape(cached_shape) => cached_shape.gradient_bind_group = None,
+            DrawCommand::Shape(shape) => {
+                shape.gradient_bind_group =
+                    create_gradient_bind_group(shape.fill.as_ref(), device, queue, layout, sampler);
+            }
+            DrawCommand::CachedShape(cached_shape) => {
+                cached_shape.gradient_bind_group = create_gradient_bind_group(
+                    cached_shape.fill.as_ref(),
+                    device,
+                    queue,
+                    layout,
+                    sampler,
+                );
+            }
         }
     }
 

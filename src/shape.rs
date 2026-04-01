@@ -1043,7 +1043,7 @@ pub(crate) struct ShapeDrawData {
     pub(crate) color_override: Option<[f32; 4]>,
     /// The fill for this shape (solid color or gradient). If None, transparent.
     pub(crate) fill: Option<Fill>,
-    /// Per-frame gradient bind group (created during prepare when fill is Gradient).
+    /// Cached gradient bind group, refreshed when the fill or gradient layout changes.
     pub(crate) gradient_bind_group: Option<std::sync::Arc<wgpu::BindGroup>>,
     /// Whether this node is a leaf in the draw tree (no children).
     pub(crate) is_leaf: bool,
@@ -1107,7 +1107,7 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) color_override: Option<[f32; 4]>,
     /// The fill for this shape (solid color or gradient). If None, transparent.
     pub(crate) fill: Option<Fill>,
-    /// Per-frame gradient bind group (created during prepare when fill is Gradient).
+    /// Cached gradient bind group, refreshed when the fill or gradient layout changes.
     pub(crate) gradient_bind_group: Option<std::sync::Arc<wgpu::BindGroup>>,
     /// Whether this node is a leaf in the draw tree (no children).
     pub(crate) is_leaf: bool,
@@ -1551,7 +1551,8 @@ impl DrawShapeCommand for ShapeDrawData {
     #[inline]
     fn set_fill(&mut self, fill: Option<Fill>) {
         self.fill = fill;
-        // Invalidate cached GPU resources so they are rebuilt next frame.
+        // Invalidate cached GPU resources so the renderer can rebuild them
+        // against the current layout outside the render loop.
         self.gradient_bind_group = None;
     }
 
@@ -1645,7 +1646,8 @@ impl DrawShapeCommand for CachedShapeDrawData {
     #[inline]
     fn set_fill(&mut self, fill: Option<Fill>) {
         self.fill = fill;
-        // Invalidate cached GPU resources so they are rebuilt next frame.
+        // Invalidate cached GPU resources so the renderer can rebuild them
+        // against the current layout outside the render loop.
         self.gradient_bind_group = None;
     }
 
