@@ -1894,34 +1894,19 @@ fn two_stop_common_with_units(
     spread: SpreadMode,
     units: GradientUnits,
 ) -> GradientCommonDesc {
-    GradientCommonDesc {
-        units,
-        spread,
-        interpolation: ColorInterpolation::Srgb,
-        stops: vec![
-            GradientStop {
-                positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
-                color: GradientColor::Srgb {
-                    red: c1.0 as f32 / 255.0,
-                    green: c1.1 as f32 / 255.0,
-                    blue: c1.2 as f32 / 255.0,
-                    alpha: 1.0,
-                },
-                hint_to_next_segment: None,
-            },
-            GradientStop {
-                positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
-                color: GradientColor::Srgb {
-                    red: c2.0 as f32 / 255.0,
-                    green: c2.1 as f32 / 255.0,
-                    blue: c2.2 as f32 / 255.0,
-                    alpha: 1.0,
-                },
-                hint_to_next_segment: None,
-            },
-        ]
-        .into(),
-    }
+    GradientCommonDesc::new([
+        GradientStop::at_position(
+            GradientStopOffset::linear_radial(0.0),
+            Color::rgb(c1.0, c1.1, c1.2),
+        ),
+        GradientStop::at_position(
+            GradientStopOffset::linear_radial(1.0),
+            Color::rgb(c2.0, c2.1, c2.2),
+        ),
+    ])
+    .with_units(units)
+    .with_spread(spread)
+    .with_interpolation(ColorInterpolation::Srgb)
 }
 
 /// Tile 39 — Linear gradient: red (left) → blue (right).

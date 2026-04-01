@@ -33,6 +33,32 @@ pub struct GradientCommonDesc {
     pub stops: GradientStops,
 }
 
+impl GradientCommonDesc {
+    pub fn new(stops: impl Into<GradientStops>) -> Self {
+        Self {
+            units: GradientUnits::Local,
+            spread: SpreadMode::Pad,
+            interpolation: ColorInterpolation::Srgb,
+            stops: stops.into(),
+        }
+    }
+
+    pub fn with_units(mut self, units: GradientUnits) -> Self {
+        self.units = units;
+        self
+    }
+
+    pub fn with_spread(mut self, spread: SpreadMode) -> Self {
+        self.spread = spread;
+        self
+    }
+
+    pub fn with_interpolation(mut self, interpolation: ColorInterpolation) -> Self {
+        self.interpolation = interpolation;
+        self
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct GradientStops {
     stops: SmallVec<[GradientStop; 8]>,
@@ -139,12 +165,67 @@ pub struct LinearGradientDesc {
     pub line: LinearGradientLine,
 }
 
+impl LinearGradientDesc {
+    pub fn new(line: LinearGradientLine, stops: impl Into<GradientStops>) -> Self {
+        Self {
+            common: GradientCommonDesc::new(stops),
+            line,
+        }
+    }
+
+    pub fn with_units(mut self, units: GradientUnits) -> Self {
+        self.common = self.common.with_units(units);
+        self
+    }
+
+    pub fn with_spread(mut self, spread: SpreadMode) -> Self {
+        self.common = self.common.with_spread(spread);
+        self
+    }
+
+    pub fn with_interpolation(mut self, interpolation: ColorInterpolation) -> Self {
+        self.common = self.common.with_interpolation(interpolation);
+        self
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RadialGradientDesc {
     pub common: GradientCommonDesc,
     pub center: [f32; 2],
     pub shape: RadialGradientShape,
     pub size: RadialGradientSize,
+}
+
+impl RadialGradientDesc {
+    pub fn new(
+        center: [f32; 2],
+        shape: RadialGradientShape,
+        size: RadialGradientSize,
+        stops: impl Into<GradientStops>,
+    ) -> Self {
+        Self {
+            common: GradientCommonDesc::new(stops),
+            center,
+            shape,
+            size,
+        }
+    }
+
+    pub fn with_units(mut self, units: GradientUnits) -> Self {
+        self.common = self.common.with_units(units);
+        self
+    }
+
+    pub fn with_spread(mut self, spread: SpreadMode) -> Self {
+        self.common = self.common.with_spread(spread);
+        self
+    }
+
+    pub fn with_interpolation(mut self, interpolation: ColorInterpolation) -> Self {
+        self.common = self.common.with_interpolation(interpolation);
+        self
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -154,11 +235,75 @@ pub struct ConicGradientDesc {
     pub start_angle_radians: f32,
 }
 
+impl ConicGradientDesc {
+    pub fn new(
+        center: [f32; 2],
+        start_angle_radians: f32,
+        stops: impl Into<GradientStops>,
+    ) -> Self {
+        Self {
+            common: GradientCommonDesc::new(stops),
+            center,
+            start_angle_radians,
+        }
+    }
+
+    pub fn with_units(mut self, units: GradientUnits) -> Self {
+        self.common = self.common.with_units(units);
+        self
+    }
+
+    pub fn with_spread(mut self, spread: SpreadMode) -> Self {
+        self.common = self.common.with_spread(spread);
+        self
+    }
+
+    pub fn with_interpolation(mut self, interpolation: ColorInterpolation) -> Self {
+        self.common = self.common.with_interpolation(interpolation);
+        self
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct GradientStop {
     pub positions: GradientStopPositions,
     pub color: GradientColor,
     pub hint_to_next_segment: Option<GradientStopOffset>,
+}
+
+impl GradientStop {
+    pub fn auto(color: impl Into<GradientColor>) -> Self {
+        Self {
+            positions: GradientStopPositions::Auto,
+            color: color.into(),
+            hint_to_next_segment: None,
+        }
+    }
+
+    pub fn at_position(position: GradientStopOffset, color: impl Into<GradientColor>) -> Self {
+        Self {
+            positions: GradientStopPositions::Single(position),
+            color: color.into(),
+            hint_to_next_segment: None,
+        }
+    }
+
+    pub fn between_positions(
+        start_position: GradientStopOffset,
+        end_position: GradientStopOffset,
+        color: impl Into<GradientColor>,
+    ) -> Self {
+        Self {
+            positions: GradientStopPositions::Double(start_position, end_position),
+            color: color.into(),
+            hint_to_next_segment: None,
+        }
+    }
+
+    pub fn with_hint_to_next_segment(mut self, hint_to_next_segment: GradientStopOffset) -> Self {
+        self.hint_to_next_segment = Some(hint_to_next_segment);
+        self
+    }
 }
 
 // ── Supporting enums ─────────────────────────────────────────────────────────
@@ -218,6 +363,14 @@ pub enum GradientStopOffset {
 }
 
 impl GradientStopOffset {
+    pub fn linear_radial(value: f32) -> Self {
+        Self::LinearRadial(value)
+    }
+
+    pub fn conic_radians(value: f32) -> Self {
+        Self::ConicRadians(value)
+    }
+
     pub(crate) fn value(&self) -> f32 {
         match self {
             GradientStopOffset::LinearRadial(v) => *v,
@@ -278,6 +431,18 @@ pub enum GradientColor {
         blackness: f32,
         alpha: f32,
     },
+}
+
+impl From<Color> for GradientColor {
+    fn from(color: Color) -> Self {
+        let [red, green, blue, alpha] = color.to_array();
+        Self::Srgb {
+            red: red as f32 / 255.0,
+            green: green as f32 / 255.0,
+            blue: blue as f32 / 255.0,
+            alpha: alpha as f32 / 255.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -903,22 +1068,8 @@ mod tests {
     use super::*;
 
     fn single_stop_common() -> GradientCommonDesc {
-        GradientCommonDesc {
-            stops: vec![GradientStop {
-                color: GradientColor::Srgb {
-                    red: 1.0,
-                    green: 0.0,
-                    blue: 0.0,
-                    alpha: 1.0,
-                },
-                positions: GradientStopPositions::Auto,
-                hint_to_next_segment: None,
-            }]
-            .into(),
-            spread: SpreadMode::Pad,
-            units: GradientUnits::Local,
-            interpolation: ColorInterpolation::SrgbLinear,
-        }
+        GradientCommonDesc::new([GradientStop::auto(Color::rgb(255, 0, 0))])
+            .with_interpolation(ColorInterpolation::SrgbLinear)
     }
 
     #[test]
@@ -984,26 +1135,14 @@ mod tests {
     #[test]
     fn gradient_stops_collect_without_exposing_smallvec() {
         let stops = [
-            GradientStop {
-                positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
-                color: GradientColor::Srgb {
-                    red: 1.0,
-                    green: 0.0,
-                    blue: 0.0,
-                    alpha: 1.0,
-                },
-                hint_to_next_segment: None,
-            },
-            GradientStop {
-                positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
-                color: GradientColor::Srgb {
-                    red: 0.0,
-                    green: 0.0,
-                    blue: 1.0,
-                    alpha: 1.0,
-                },
-                hint_to_next_segment: None,
-            },
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(0.0),
+                Color::rgb(255, 0, 0),
+            ),
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(1.0),
+                Color::rgb(0, 0, 255),
+            ),
         ];
         let first_color = stops[0].color;
         let second_color = stops[1].color;
@@ -1019,43 +1158,25 @@ mod tests {
         let solid_fill = Fill::from(Color::rgb(10, 20, 30));
         assert!(matches!(solid_fill, Fill::Solid(_)));
 
-        let gradient = Gradient::linear(LinearGradientDesc {
-            common: GradientCommonDesc {
-                stops: GradientStops::from([
-                    GradientStop {
-                        positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(
-                            0.0,
-                        )),
-                        color: GradientColor::Srgb {
-                            red: 1.0,
-                            green: 0.0,
-                            blue: 0.0,
-                            alpha: 1.0,
-                        },
-                        hint_to_next_segment: None,
-                    },
-                    GradientStop {
-                        positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(
-                            1.0,
-                        )),
-                        color: GradientColor::Srgb {
-                            red: 0.0,
-                            green: 0.0,
-                            blue: 1.0,
-                            alpha: 1.0,
-                        },
-                        hint_to_next_segment: None,
-                    },
-                ]),
-                spread: SpreadMode::Pad,
-                units: GradientUnits::Local,
-                interpolation: ColorInterpolation::SrgbLinear,
-            },
-            line: LinearGradientLine {
-                start: [0.0, 0.0],
-                end: [10.0, 0.0],
-            },
-        })
+        let gradient = Gradient::linear(
+            LinearGradientDesc::new(
+                LinearGradientLine {
+                    start: [0.0, 0.0],
+                    end: [10.0, 0.0],
+                },
+                [
+                    GradientStop::at_position(
+                        GradientStopOffset::linear_radial(0.0),
+                        Color::rgb(255, 0, 0),
+                    ),
+                    GradientStop::at_position(
+                        GradientStopOffset::linear_radial(1.0),
+                        Color::rgb(0, 0, 255),
+                    ),
+                ],
+            )
+            .with_interpolation(ColorInterpolation::SrgbLinear),
+        )
         .unwrap();
 
         let gradient_fill = Fill::from(gradient);
@@ -1063,43 +1184,106 @@ mod tests {
     }
 
     #[test]
-    fn nonconstant_gradients_start_with_pending_ramp() {
-        let common = GradientCommonDesc {
-            stops: vec![
-                GradientStop {
-                    color: GradientColor::Srgb {
-                        red: 1.0,
-                        green: 0.0,
-                        blue: 0.0,
-                        alpha: 1.0,
-                    },
-                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
-                    hint_to_next_segment: None,
+    fn descriptor_builder_methods_apply_defaults_and_overrides() {
+        let gradient = Gradient::linear(
+            LinearGradientDesc::new(
+                LinearGradientLine {
+                    start: [0.0, 0.0],
+                    end: [10.0, 0.0],
                 },
-                GradientStop {
-                    color: GradientColor::Srgb {
-                        red: 0.0,
-                        green: 0.0,
-                        blue: 1.0,
-                        alpha: 1.0,
-                    },
-                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
-                    hint_to_next_segment: None,
-                },
-            ]
-            .into(),
-            spread: SpreadMode::Pad,
-            units: GradientUnits::Local,
-            interpolation: ColorInterpolation::SrgbLinear,
-        };
+                [
+                    GradientStop::at_position(
+                        GradientStopOffset::linear_radial(0.0),
+                        Color::rgb(255, 0, 0),
+                    )
+                    .with_hint_to_next_segment(GradientStopOffset::linear_radial(0.25)),
+                    GradientStop::between_positions(
+                        GradientStopOffset::linear_radial(0.5),
+                        GradientStopOffset::linear_radial(0.75),
+                        Color::rgb(0, 0, 255),
+                    ),
+                ],
+            )
+            .with_units(GradientUnits::Canvas)
+            .with_spread(SpreadMode::Repeat)
+            .with_interpolation(ColorInterpolation::SrgbLinear),
+        )
+        .unwrap();
 
-        let gradient = Gradient::linear(LinearGradientDesc {
-            common,
-            line: LinearGradientLine {
-                start: [0.0, 0.0],
-                end: [10.0, 0.0],
-            },
-        })
+        assert_eq!(gradient.data.units, GradientUnits::Canvas);
+        assert_eq!(gradient.data.spread, SpreadMode::Repeat);
+        assert!(!gradient.data.is_constant);
+    }
+
+    #[test]
+    fn radial_and_conic_descriptor_builders_set_common_configuration() {
+        let radial_gradient = Gradient::radial(
+            RadialGradientDesc::new(
+                [50.0, 50.0],
+                RadialGradientShape::Circle,
+                RadialGradientSize::ExplicitCircleRadius(20.0),
+                [
+                    GradientStop::at_position(
+                        GradientStopOffset::linear_radial(0.0),
+                        Color::rgb(255, 255, 0),
+                    ),
+                    GradientStop::at_position(
+                        GradientStopOffset::linear_radial(1.0),
+                        Color::rgb(0, 255, 0),
+                    ),
+                ],
+            )
+            .with_units(GradientUnits::Canvas)
+            .with_interpolation(ColorInterpolation::SrgbLinear),
+        )
+        .unwrap();
+
+        let conic_gradient = Gradient::conic(
+            ConicGradientDesc::new(
+                [10.0, 20.0],
+                0.5,
+                [
+                    GradientStop::at_position(
+                        GradientStopOffset::conic_radians(0.0),
+                        Color::rgb(255, 0, 0),
+                    ),
+                    GradientStop::at_position(
+                        GradientStopOffset::conic_radians(std::f32::consts::TAU),
+                        Color::rgb(255, 0, 0),
+                    ),
+                ],
+            )
+            .with_spread(SpreadMode::Repeat),
+        )
+        .unwrap();
+
+        assert_eq!(radial_gradient.data.units, GradientUnits::Canvas);
+        assert_eq!(radial_gradient.data.kind, GradientKind::Radial);
+        assert_eq!(conic_gradient.data.spread, SpreadMode::Repeat);
+        assert_eq!(conic_gradient.data.kind, GradientKind::Conic);
+    }
+
+    #[test]
+    fn nonconstant_gradients_start_with_pending_ramp() {
+        let gradient = Gradient::linear(
+            LinearGradientDesc::new(
+                LinearGradientLine {
+                    start: [0.0, 0.0],
+                    end: [10.0, 0.0],
+                },
+                [
+                    GradientStop::at_position(
+                        GradientStopOffset::linear_radial(0.0),
+                        Color::rgb(255, 0, 0),
+                    ),
+                    GradientStop::at_position(
+                        GradientStopOffset::linear_radial(1.0),
+                        Color::rgb(0, 0, 255),
+                    ),
+                ],
+            )
+            .with_interpolation(ColorInterpolation::SrgbLinear),
+        )
         .unwrap();
 
         assert!(matches!(gradient.data.ramp, GradientRamp::Pending(_)));

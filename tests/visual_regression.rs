@@ -124,43 +124,28 @@ fn gradient_fill_basic() {
     let child = Shape::rect([(10.0, 10.0), (90.0, 90.0)], Stroke::default());
     let child_id = renderer.add_shape(child, Some(root_id), None);
 
-    let gradient = Gradient::linear(LinearGradientDesc {
-        common: GradientCommonDesc {
-            units: GradientUnits::Local,
-            spread: SpreadMode::Pad,
-            interpolation: ColorInterpolation::Srgb,
-            stops: vec![
-                GradientStop {
-                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
-                    color: GradientColor::Srgb {
-                        red: 1.0,
-                        green: 0.0,
-                        blue: 0.0,
-                        alpha: 1.0,
-                    },
-                    hint_to_next_segment: None,
-                },
-                GradientStop {
-                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
-                    color: GradientColor::Srgb {
-                        red: 0.0,
-                        green: 0.0,
-                        blue: 1.0,
-                        alpha: 1.0,
-                    },
-                    hint_to_next_segment: None,
-                },
-            ]
-            .into(),
-        },
-        line: LinearGradientLine {
-            start: [10.0, 50.0],
-            end: [90.0, 50.0],
-        },
-    })
+    let gradient = Gradient::linear(
+        LinearGradientDesc::new(
+            LinearGradientLine {
+                start: [10.0, 50.0],
+                end: [90.0, 50.0],
+            },
+            [
+                GradientStop::at_position(
+                    GradientStopOffset::linear_radial(0.0),
+                    Color::rgb(255, 0, 0),
+                ),
+                GradientStop::at_position(
+                    GradientStopOffset::linear_radial(1.0),
+                    Color::rgb(0, 0, 255),
+                ),
+            ],
+        )
+        .with_interpolation(ColorInterpolation::Srgb),
+    )
     .expect("valid gradient");
 
-    renderer.set_shape_fill(child_id, Some(Fill::Gradient(gradient)));
+    renderer.set_shape_fill(child_id, Some(Fill::from(gradient)));
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
     renderer.render_to_buffer(&mut pixel_buffer);
@@ -198,43 +183,28 @@ fn gradient_survives_pipeline_recreation() {
     let shape = Shape::rect([(10.0, 10.0), (90.0, 90.0)], Stroke::default());
     let id = renderer.add_shape(shape, None, None);
 
-    let gradient = Gradient::linear(LinearGradientDesc {
-        common: GradientCommonDesc {
-            units: GradientUnits::Local,
-            spread: SpreadMode::Pad,
-            interpolation: ColorInterpolation::Srgb,
-            stops: vec![
-                GradientStop {
-                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
-                    color: GradientColor::Srgb {
-                        red: 1.0,
-                        green: 0.0,
-                        blue: 0.0,
-                        alpha: 1.0,
-                    },
-                    hint_to_next_segment: None,
-                },
-                GradientStop {
-                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
-                    color: GradientColor::Srgb {
-                        red: 0.0,
-                        green: 0.0,
-                        blue: 1.0,
-                        alpha: 1.0,
-                    },
-                    hint_to_next_segment: None,
-                },
-            ]
-            .into(),
-        },
-        line: LinearGradientLine {
-            start: [10.0, 50.0],
-            end: [90.0, 50.0],
-        },
-    })
+    let gradient = Gradient::linear(
+        LinearGradientDesc::new(
+            LinearGradientLine {
+                start: [10.0, 50.0],
+                end: [90.0, 50.0],
+            },
+            [
+                GradientStop::at_position(
+                    GradientStopOffset::linear_radial(0.0),
+                    Color::rgb(255, 0, 0),
+                ),
+                GradientStop::at_position(
+                    GradientStopOffset::linear_radial(1.0),
+                    Color::rgb(0, 0, 255),
+                ),
+            ],
+        )
+        .with_interpolation(ColorInterpolation::Srgb),
+    )
     .expect("valid gradient");
 
-    renderer.set_shape_fill(id, Some(Fill::Gradient(gradient)));
+    renderer.set_shape_fill(id, Some(Fill::from(gradient)));
 
     // First render — populates and caches the gradient bind group.
     let mut buf = Vec::new();
@@ -312,43 +282,28 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
         None,
     );
 
-    let gradient = Gradient::linear(LinearGradientDesc {
-        common: GradientCommonDesc {
-            units: GradientUnits::Local,
-            spread: SpreadMode::Pad,
-            interpolation: ColorInterpolation::Srgb,
-            stops: vec![
-                GradientStop {
-                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
-                    color: GradientColor::Srgb {
-                        red: 1.0,
-                        green: 0.0,
-                        blue: 0.0,
-                        alpha: 1.0,
-                    },
-                    hint_to_next_segment: None,
-                },
-                GradientStop {
-                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
-                    color: GradientColor::Srgb {
-                        red: 0.0,
-                        green: 0.0,
-                        blue: 1.0,
-                        alpha: 1.0,
-                    },
-                    hint_to_next_segment: None,
-                },
-            ]
-            .into(),
-        },
-        line: LinearGradientLine {
-            start: [10.0, 50.0],
-            end: [140.0, 50.0],
-        },
-    })
+    let gradient = Gradient::linear(
+        LinearGradientDesc::new(
+            LinearGradientLine {
+                start: [10.0, 50.0],
+                end: [140.0, 50.0],
+            },
+            [
+                GradientStop::at_position(
+                    GradientStopOffset::linear_radial(0.0),
+                    Color::rgb(255, 0, 0),
+                ),
+                GradientStop::at_position(
+                    GradientStopOffset::linear_radial(1.0),
+                    Color::rgb(0, 0, 255),
+                ),
+            ],
+        )
+        .with_interpolation(ColorInterpolation::Srgb),
+    )
     .expect("valid gradient");
 
-    renderer.set_shape_fill(gradient_parent, Some(Fill::Gradient(gradient)));
+    renderer.set_shape_fill(gradient_parent, Some(Fill::from(gradient)));
 
     // Child of gradient parent (makes it non-leaf → StencilIncrement).
     let gradient_child = renderer.add_shape(

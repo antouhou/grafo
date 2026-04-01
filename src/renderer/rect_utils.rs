@@ -144,53 +144,33 @@ mod tests {
     use super::{compute_scissor_rect, should_skip_visible_rect_draw, try_scissor_for_rect};
     use crate::effect::EffectInstance;
     use crate::gradient::types::{
-        ColorInterpolation, Fill, Gradient, GradientColor, GradientCommonDesc, GradientStop,
-        GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
-        LinearGradientLine, SpreadMode,
+        ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset, LinearGradientDesc,
+        LinearGradientLine,
     };
     use crate::renderer::types::DrawCommand;
     use crate::{Color, Shape, Stroke, TransformInstance};
     use ahash::{HashMap, HashMapExt};
 
     fn create_test_gradient() -> Gradient {
-        Gradient::linear(LinearGradientDesc {
-            common: GradientCommonDesc {
-                units: GradientUnits::Local,
-                spread: SpreadMode::Pad,
-                interpolation: ColorInterpolation::Srgb,
-                stops: vec![
-                    GradientStop {
-                        positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(
-                            0.0,
-                        )),
-                        color: GradientColor::Srgb {
-                            red: 1.0,
-                            green: 0.0,
-                            blue: 0.0,
-                            alpha: 1.0,
-                        },
-                        hint_to_next_segment: None,
-                    },
-                    GradientStop {
-                        positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(
-                            1.0,
-                        )),
-                        color: GradientColor::Srgb {
-                            red: 0.0,
-                            green: 0.0,
-                            blue: 1.0,
-                            alpha: 1.0,
-                        },
-                        hint_to_next_segment: None,
-                    },
-                ]
-                .into(),
-            },
-            line: LinearGradientLine {
-                start: [0.0, 5.0],
-                end: [10.0, 5.0],
-            },
-        })
+        Gradient::linear(
+            LinearGradientDesc::new(
+                LinearGradientLine {
+                    start: [0.0, 5.0],
+                    end: [10.0, 5.0],
+                },
+                [
+                    GradientStop::at_position(
+                        GradientStopOffset::linear_radial(0.0),
+                        Color::rgb(255, 0, 0),
+                    ),
+                    GradientStop::at_position(
+                        GradientStopOffset::linear_radial(1.0),
+                        Color::rgb(0, 0, 255),
+                    ),
+                ],
+            )
+            .with_interpolation(ColorInterpolation::Srgb),
+        )
         .expect("valid test gradient")
     }
 
