@@ -2,6 +2,7 @@
 
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::time::Duration;
 
 use ahash::{HashMap, HashMapExt};
 use lyon::tessellation::FillTessellator;
@@ -242,6 +243,20 @@ pub struct Renderer<'a> {
     /// Per-frame pipeline switch counts for the most recently rendered frame.
     last_pipeline_switch_counts: self::metrics::PipelineSwitchCounts,
 
+    /// Wall-clock CPU time spent inside the most recent `prepare_render()` call.
+    ///
+    /// This measures CPU-side draw-tree traversal, geometry/instance aggregation,
+    /// and buffer upload submission via `queue.write_buffer`, but excludes later
+    /// render-pass encoding, presentation, readback, and any forced GPU waits.
+    last_prepare_cpu_time: Duration,
+
+    /// Wall-clock CPU time spent inside the most recent `render_to_texture_view()` call.
+    ///
+    /// This measures CPU-side traversal planning, render/effect pass encoding,
+    /// and `queue.submit`, but excludes presentation, readback mapping, and any
+    /// forced GPU waits after submission.
+    last_render_to_texture_view_cpu_time: Duration,
+
     // ── Reusable scratch state ───────────────────────────────────────────
     scratch: RendererScratch,
 }
@@ -262,5 +277,15 @@ impl<'a> Renderer<'a> {
         // memory hygiene for long-running sessions.
         self.buffers_pool_manager.trim();
         self.scratch.trim_to_policy();
+    }
+
+    /// Returns the wall-clock CPU time spent in the most recent `prepare_render()` call.
+    pub fn last_prepare_cpu_time(&self) -> Duration {
+        self.last_prepare_cpu_time
+    }
+
+    /// Returns the wall-clock CPU time spent in the most recent `render_to_texture_view()` call.
+    pub fn last_render_to_texture_view_cpu_time(&self) -> Duration {
+        self.last_render_to_texture_view_cpu_time
     }
 }

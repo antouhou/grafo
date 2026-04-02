@@ -109,6 +109,8 @@ impl<'a> Renderer<'a> {
     }
 
     pub(super) fn prepare_render(&mut self) {
+        let prepare_started_at = std::time::Instant::now();
+
         self.temp_vertices.clear();
         self.temp_indices.clear();
         self.temp_instance_transforms.clear();
@@ -250,5 +252,7 @@ impl<'a> Renderer<'a> {
                 BufferUsages::VERTEX | BufferUsages::COPY_DST,
             );
         }
+
+        self.last_prepare_cpu_time = prepare_started_at.elapsed();
     }
 }

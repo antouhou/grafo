@@ -10,8 +10,11 @@ impl<'a> Renderer<'a> {
         texture_view: &wgpu::TextureView,
         output_texture: Option<&wgpu::Texture>,
     ) {
+        let render_to_texture_view_started_at = std::time::Instant::now();
+
         // Nothing to render when the draw queue is empty.
         if self.draw_tree.is_empty() {
+            self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
             return;
         }
 
@@ -382,6 +385,8 @@ impl<'a> Renderer<'a> {
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
+
+        self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
 
         self.offscreen_texture_pool
             .recycle(&mut textures_to_recycle);

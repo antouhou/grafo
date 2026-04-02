@@ -337,6 +337,8 @@ impl<'a> Renderer<'a> {
             last_phase_timings: Default::default(),
             #[cfg(feature = "render_metrics")]
             last_pipeline_switch_counts: Default::default(),
+            last_prepare_cpu_time: Default::default(),
+            last_render_to_texture_view_cpu_time: Default::default(),
             scratch: RendererScratch::new(),
         };
 
