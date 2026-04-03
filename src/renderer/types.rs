@@ -33,6 +33,13 @@ impl DrawCommand {
             DrawCommand::CachedShape(s) => s.is_leaf = false,
         }
     }
+
+    pub(super) fn set_leaf_state(&mut self, is_leaf: bool) {
+        match self {
+            DrawCommand::Shape(shape) => shape.is_leaf = is_leaf,
+            DrawCommand::CachedShape(cached_shape) => cached_shape.is_leaf = is_leaf,
+        }
+    }
 }
 
 impl DrawCommand {

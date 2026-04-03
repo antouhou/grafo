@@ -1,5 +1,6 @@
 use super::*;
 use crate::gradient::types::Fill;
+use ahash::HashSet;
 
 impl<'a> Renderer<'a> {
     pub fn add_shape(
@@ -63,6 +64,23 @@ impl<'a> Renderer<'a> {
         self.trim_scratch_on_resize_or_policy();
     }
 
+    pub fn remove_subtree(&mut self, node_id: usize) {
+        if self.draw_tree.get(node_id).is_none() {
+            return;
+        }
+
+        let parent_node_id = self.draw_tree.parent_index_unchecked(node_id);
+        let removed_node_ids = collect_subtree_node_ids(&self.draw_tree, node_id);
+        let removed_node_id_set: HashSet<usize> = removed_node_ids.iter().copied().collect();
+
+        self.draw_tree.remove_subtree(node_id);
+        self.remove_metadata_and_effects_for_removed_nodes(&removed_node_id_set);
+
+        if let Some(parent_node_id) = parent_node_id {
+            self.sync_leaf_state(parent_node_id);
+        }
+    }
+
     fn add_draw_command(
         &mut self,
         draw_command: DrawCommand,
@@ -82,6 +100,30 @@ impl<'a> Renderer<'a> {
                 root.set_not_leaf();
             }
             self.draw_tree.add_child_to_root(draw_command)
+        }
+    }
+
+    fn remove_metadata_and_effects_for_removed_nodes(
+        &mut self,
+        removed_node_id_set: &HashSet<usize>,
+    ) {
+        self.metadata_to_clips.retain(|node_id, clip_node_id| {
+            !removed_node_id_set.contains(node_id) && !removed_node_id_set.contains(clip_node_id)
+        });
+        self.group_effects
+            .retain(|node_id, _| !removed_node_id_set.contains(node_id));
+        self.backdrop_effects
+            .retain(|node_id, _| !removed_node_id_set.contains(node_id));
+    }
+
+    fn sync_leaf_state(&mut self, node_id: usize) {
+        if self.draw_tree.get(node_id).is_none() {
+            return;
+        }
+
+        let node_has_children = !self.draw_tree.children(node_id).is_empty();
+        if let Some(draw_command) = self.draw_tree.get_mut(node_id) {
+            draw_command.set_leaf_state(!node_has_children);
         }
     }
 
@@ -175,4 +217,27 @@ impl<'a> Renderer<'a> {
             self.gradient_bind_group_layout_epoch,
         );
     }
+}
+
+fn collect_subtree_node_ids(
+    draw_tree: &easy_tree::Tree<DrawCommand>,
+    root_node_id: usize,
+) -> Vec<usize> {
+    if draw_tree.get(root_node_id).is_none() {
+        return Vec::new();
+    }
+
+    let mut subtree_node_ids = Vec::new();
+    let mut node_stack = vec![root_node_id];
+
+    while let Some(node_id) = node_stack.pop() {
+        if draw_tree.get(node_id).is_none() {
+            continue;
+        }
+
+        subtree_node_ids.push(node_id);
+        node_stack.extend(draw_tree.children(node_id).iter().copied());
+    }
+
+    subtree_node_ids
 }
