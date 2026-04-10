@@ -1,7 +1,8 @@
 use super::types::{ClipKind, TraversalEvent};
 use super::*;
 use crate::renderer::rect_utils::{
-    intersect_scissor, should_skip_visible_rect_draw, try_scissor_for_rect,
+    intersect_scissor, should_skip_visible_rect_draw, should_use_discard_rect_clip,
+    try_logical_clip_rect_for_draw_command, try_scissor_for_rect, LogicalClipRect,
 };
 
 /// Dispatch on `DrawCommand::Shape` / `DrawCommand::CachedShape`, binding the
@@ -234,6 +235,46 @@ pub(super) fn bind_instance_buffers(
 
 fn pipeline_has_shared_geometry_bindings(pipeline: crate::renderer::types::Pipeline) -> bool {
     !matches!(pipeline, crate::renderer::types::Pipeline::None)
+}
+
+fn push_logical_clip_rect(
+    logical_clip_stack: &mut Vec<LogicalClipRect>,
+    clip_rect: LogicalClipRect,
+) {
+    let merged_clip_rect = logical_clip_stack
+        .last()
+        .copied()
+        .map(|current_clip_rect| current_clip_rect.intersect(clip_rect))
+        .unwrap_or(clip_rect);
+    logical_clip_stack.push(merged_clip_rect);
+}
+
+fn apply_fullscreen_clip_scissor(
+    render_pass: &mut wgpu::RenderPass<'_>,
+    scissor_stack: &[(u32, u32, u32, u32)],
+    logical_clip_stack: &[LogicalClipRect],
+    scale_factor: f64,
+    physical_size: (u32, u32),
+) -> bool {
+    let viewport_scissor = (0u32, 0u32, physical_size.0, physical_size.1);
+    let mut scissor_rect = scissor_stack.last().copied().unwrap_or(viewport_scissor);
+    if let Some(current_clip_rect) = logical_clip_stack.last().copied() {
+        scissor_rect = intersect_scissor(
+            scissor_rect,
+            current_clip_rect.to_physical_scissor(scale_factor, physical_size),
+        );
+    }
+    if scissor_rect == viewport_scissor {
+        return false;
+    }
+
+    render_pass.set_scissor_rect(
+        scissor_rect.0,
+        scissor_rect.1,
+        scissor_rect.2,
+        scissor_rect.3,
+    );
+    true
 }
 
 pub(super) fn handle_increment_pass<'rp>(
@@ -619,6 +660,7 @@ pub(super) fn render_segments(
     backdrop_work_textures: &mut Vec<wgpu::Texture>,
     stencil_stack: &mut Vec<u32>,
     scissor_stack: &mut Vec<(u32, u32, u32, u32)>,
+    logical_clip_stack: &mut Vec<LogicalClipRect>,
     clip_kind_stack: &mut Vec<ClipKind>,
     scale_factor: f64,
     physical_size: (u32, u32),
@@ -635,6 +677,7 @@ pub(super) fn render_segments(
     stencil_stack.clear();
     scissor_stack.clear();
     scissor_stack.push(viewport_scissor);
+    logical_clip_stack.clear();
     backdrop_work_textures.clear();
     clip_kind_stack.clear();
 
@@ -716,7 +759,22 @@ pub(super) fn render_segments(
                                 render_pass.set_pipeline(pipeline);
                                 render_pass.set_bind_group(0, result_bind_group, &[]);
                                 render_pass.set_stencil_reference(parent_stencil);
+                                let applied_clip_scissor = apply_fullscreen_clip_scissor(
+                                    &mut render_pass,
+                                    scissor_stack,
+                                    logical_clip_stack,
+                                    scale_factor,
+                                    physical_size,
+                                );
                                 render_pass.draw(0..3, 0..1);
+                                if applied_clip_scissor {
+                                    render_pass.set_scissor_rect(
+                                        viewport_scissor.0,
+                                        viewport_scissor.1,
+                                        viewport_scissor.2,
+                                        viewport_scissor.3,
+                                    );
+                                }
                                 currently_set_pipeline.switch_to(types::Pipeline::None);
                                 bound_texture_state.invalidate();
                             }
@@ -816,40 +874,88 @@ pub(super) fn render_segments(
                                 });
                                 stencil_stack.push(parent_stencil);
                                 clip_kind_stack.push(ClipKind::NonClipping);
-                            } else if let Some(scissor_rect) =
-                                try_scissor_for_rect(draw_command, scale_factor, physical_size)
+                            } else if let Some(logical_clip_rect) =
+                                try_logical_clip_rect_for_draw_command(draw_command)
                             {
-                                // Scissor optimization: rect parent with axis-aligned
-                                // transform. Use hardware scissor instead of stencil.
-                                let current_scissor =
-                                    scissor_stack.last().copied().unwrap_or(viewport_scissor);
-                                let clipped = intersect_scissor(current_scissor, scissor_rect);
-                                scissor_stack.push(clipped);
-                                render_pass
-                                    .set_scissor_rect(clipped.0, clipped.1, clipped.2, clipped.3);
-                                #[cfg(feature = "render_metrics")]
-                                currently_set_pipeline.record_scissor_clip();
+                                if should_use_discard_rect_clip(
+                                    logical_clip_rect,
+                                    (
+                                        width as f32 / scale_factor as f32,
+                                        height as f32 / scale_factor as f32,
+                                    ),
+                                ) {
+                                    // Tight axis-aligned rect parent: descendants inherit a
+                                    // per-instance logical clip rect, so we avoid mutating
+                                    // render-pass scissor state for every subtree boundary.
+                                    let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                                    with_shape_mut!(draw_command, shape => {
+                                        *shape.stencil_ref_mut() = Some(parent_stencil);
+                                        if !should_skip_visible_draw {
+                                            handle_leaf_draw_pass(
+                                                &mut render_pass,
+                                                &mut currently_set_pipeline,
+                                                &mut bound_texture_state,
+                                                stencil_stack,
+                                                shape,
+                                                pipelines,
+                                                buffers,
+                                            );
+                                        }
+                                    });
+                                    push_logical_clip_rect(logical_clip_stack, logical_clip_rect);
+                                    stencil_stack.push(parent_stencil);
+                                    clip_kind_stack.push(ClipKind::DiscardRectClip);
+                                } else if let Some(scissor_rect) =
+                                    try_scissor_for_rect(draw_command, scale_factor, physical_size)
+                                {
+                                    // Large rect clip: fixed-function scissor is still cheaper
+                                    // than per-fragment discard.
+                                    let current_scissor =
+                                        scissor_stack.last().copied().unwrap_or(viewport_scissor);
+                                    let clipped = intersect_scissor(current_scissor, scissor_rect);
+                                    scissor_stack.push(clipped);
+                                    render_pass.set_scissor_rect(
+                                        clipped.0, clipped.1, clipped.2, clipped.3,
+                                    );
+                                    #[cfg(feature = "render_metrics")]
+                                    currently_set_pipeline.record_scissor_clip();
 
-                                // Draw the rect itself as a visible shape.
-                                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
-                                with_shape_mut!(draw_command, shape => {
-                                    *shape.stencil_ref_mut() = Some(parent_stencil);
-                                    if !should_skip_visible_draw {
-                                        handle_leaf_draw_pass(
-                                            &mut render_pass,
-                                            &mut currently_set_pipeline,
-                                            &mut bound_texture_state,
-                                            stencil_stack,
-                                            shape,
-                                            pipelines,
-                                            buffers,
-                                        );
-                                    }
-                                });
-                                // Push same stencil — children are clipped by scissor
-                                // hardware, not by stencil buffer values.
-                                stencil_stack.push(parent_stencil);
-                                clip_kind_stack.push(ClipKind::Scissor);
+                                    let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                                    with_shape_mut!(draw_command, shape => {
+                                        *shape.stencil_ref_mut() = Some(parent_stencil);
+                                        if !should_skip_visible_draw {
+                                            handle_leaf_draw_pass(
+                                                &mut render_pass,
+                                                &mut currently_set_pipeline,
+                                                &mut bound_texture_state,
+                                                stencil_stack,
+                                                shape,
+                                                pipelines,
+                                                buffers,
+                                            );
+                                        }
+                                    });
+                                    stencil_stack.push(parent_stencil);
+                                    clip_kind_stack.push(ClipKind::Scissor);
+                                } else {
+                                    let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                                    with_shape_mut!(draw_command, shape => {
+                                        *shape.stencil_ref_mut() = Some(parent_stencil);
+                                        if !should_skip_visible_draw {
+                                            handle_leaf_draw_pass(
+                                                &mut render_pass,
+                                                &mut currently_set_pipeline,
+                                                &mut bound_texture_state,
+                                                stencil_stack,
+                                                shape,
+                                                pipelines,
+                                                buffers,
+                                            );
+                                        }
+                                    });
+                                    stencil_stack.push(parent_stencil);
+                                    clip_kind_stack.push(ClipKind::NonClipping);
+                                }
                             } else {
                                 // Fall back to stencil increment.
                                 with_shape_mut!(draw_command, shape => {
@@ -898,6 +1004,18 @@ pub(super) fn render_segments(
                                     let prev =
                                         scissor_stack.last().copied().unwrap_or(viewport_scissor);
                                     render_pass.set_scissor_rect(prev.0, prev.1, prev.2, prev.3);
+                                    stencil_stack.pop();
+                                }
+                                Some(ClipKind::DiscardRectClip) => {
+                                    flush_pending_leaf_batch(
+                                        &mut pending_leaf_batch,
+                                        &mut render_pass,
+                                        &mut currently_set_pipeline,
+                                        &mut bound_texture_state,
+                                        pipelines,
+                                        buffers,
+                                    );
+                                    logical_clip_stack.pop();
                                     stencil_stack.pop();
                                 }
                                 Some(ClipKind::Stencil) => {
@@ -1029,7 +1147,6 @@ pub(super) fn render_segments(
                 },
             );
 
-            // Restore scissor in the backdrop pass.
             let current_scissor = scissor_stack.last().copied().unwrap_or(viewport_scissor);
             if current_scissor != viewport_scissor {
                 render_pass.set_scissor_rect(

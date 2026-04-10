@@ -1474,7 +1474,6 @@ pub(crate) trait DrawShapeCommand {
     fn index_buffer_range(&self) -> Option<(usize, usize)>; // (start_index, index_count)
     fn is_empty(&self) -> bool;
     fn stencil_ref_mut(&mut self) -> &mut Option<u32>;
-    fn instance_index_mut(&mut self) -> &mut Option<usize>;
     fn instance_index(&self) -> Option<usize>;
     fn transform(&self) -> Option<InstanceTransform>;
     fn set_transform(&mut self, t: InstanceTransform);
@@ -1504,11 +1503,6 @@ impl DrawShapeCommand for ShapeDrawData {
     #[inline]
     fn stencil_ref_mut(&mut self) -> &mut Option<u32> {
         &mut self.stencil_ref
-    }
-
-    #[inline]
-    fn instance_index_mut(&mut self) -> &mut Option<usize> {
-        &mut self.instance_index
     }
 
     #[inline]
@@ -1599,11 +1593,6 @@ impl DrawShapeCommand for CachedShapeDrawData {
     #[inline]
     fn stencil_ref_mut(&mut self) -> &mut Option<u32> {
         &mut self.stencil_ref
-    }
-
-    #[inline]
-    fn instance_index_mut(&mut self) -> &mut Option<usize> {
-        &mut self.instance_index
     }
 
     #[inline]

@@ -4,6 +4,66 @@ use super::types::DrawCommand;
 use crate::effect::EffectInstance;
 use crate::vertex::InstanceTransform;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct LogicalClipRect {
+    pub(super) min_x: f32,
+    pub(super) min_y: f32,
+    pub(super) max_x: f32,
+    pub(super) max_y: f32,
+}
+
+impl LogicalClipRect {
+    pub(super) fn intersect(self, other: Self) -> Self {
+        Self {
+            min_x: self.min_x.max(other.min_x),
+            min_y: self.min_y.max(other.min_y),
+            max_x: self.max_x.min(other.max_x),
+            max_y: self.max_y.min(other.max_y),
+        }
+    }
+
+    pub(super) fn to_physical_scissor(
+        self,
+        scale_factor: f64,
+        physical_size: (u32, u32),
+    ) -> (u32, u32, u32, u32) {
+        let scale_factor = scale_factor as f32;
+        let px_min_x = ((self.min_x * scale_factor).floor().max(0.0) as u32).min(physical_size.0);
+        let px_min_y = ((self.min_y * scale_factor).floor().max(0.0) as u32).min(physical_size.1);
+        let px_max_x = (self.max_x * scale_factor)
+            .ceil()
+            .clamp(0.0, physical_size.0 as f32) as u32;
+        let px_max_y = (self.max_y * scale_factor)
+            .ceil()
+            .clamp(0.0, physical_size.1 as f32) as u32;
+
+        (
+            px_min_x,
+            px_min_y,
+            px_max_x.saturating_sub(px_min_x),
+            px_max_y.saturating_sub(px_min_y),
+        )
+    }
+}
+
+pub(super) fn should_use_discard_rect_clip(
+    clip_rect: LogicalClipRect,
+    canvas_logical_size: (f32, f32),
+) -> bool {
+    let canvas_clip_rect = LogicalClipRect {
+        min_x: 0.0,
+        min_y: 0.0,
+        max_x: canvas_logical_size.0,
+        max_y: canvas_logical_size.1,
+    };
+    let effective_clip_rect = clip_rect.intersect(canvas_clip_rect);
+    let clip_width = (effective_clip_rect.max_x - effective_clip_rect.min_x).max(0.0);
+    let clip_height = (effective_clip_rect.max_y - effective_clip_rect.min_y).max(0.0);
+    let canvas_area = (canvas_logical_size.0 * canvas_logical_size.1).max(1.0);
+
+    clip_width * clip_height <= canvas_area * 0.25
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct AxisAlignedRectTransform {
     pub(super) scale_x: f32,
@@ -66,6 +126,36 @@ pub(super) fn should_skip_visible_rect_draw(
     extract_axis_aligned_rect_transform(draw_command.transform()).is_some()
 }
 
+pub(super) fn compute_logical_clip_rect(
+    rect: [(f32, f32); 2],
+    transform: Option<InstanceTransform>,
+) -> Option<LogicalClipRect> {
+    let axis_aligned_transform = extract_axis_aligned_rect_transform(transform)?;
+
+    let x0 = rect[0].0 * axis_aligned_transform.scale_x + axis_aligned_transform.translate_x;
+    let y0 = rect[0].1 * axis_aligned_transform.scale_y + axis_aligned_transform.translate_y;
+    let x1 = rect[1].0 * axis_aligned_transform.scale_x + axis_aligned_transform.translate_x;
+    let y1 = rect[1].1 * axis_aligned_transform.scale_y + axis_aligned_transform.translate_y;
+
+    Some(LogicalClipRect {
+        min_x: x0.min(x1),
+        min_y: y0.min(y1),
+        max_x: x0.max(x1),
+        max_y: y0.max(y1),
+    })
+}
+
+pub(super) fn try_logical_clip_rect_for_draw_command(
+    draw_command: &DrawCommand,
+) -> Option<LogicalClipRect> {
+    if !draw_command.is_rect() {
+        return None;
+    }
+
+    let rect_bounds = draw_command.rect_bounds()?;
+    compute_logical_clip_rect(rect_bounds, draw_command.transform())
+}
+
 /// Compute a screen-space scissor rect from a local-space axis-aligned rect and its transform.
 ///
 /// Returns `Some((x, y, width, height))` in physical pixels if the transform preserves
@@ -77,32 +167,28 @@ pub(super) fn compute_scissor_rect(
     scale_factor: f64,
     physical_size: (u32, u32),
 ) -> Option<(u32, u32, u32, u32)> {
-    let axis_aligned_transform = extract_axis_aligned_rect_transform(transform)?;
-
-    let x0 = rect[0].0 * axis_aligned_transform.scale_x + axis_aligned_transform.translate_x;
-    let y0 = rect[0].1 * axis_aligned_transform.scale_y + axis_aligned_transform.translate_y;
-    let x1 = rect[1].0 * axis_aligned_transform.scale_x + axis_aligned_transform.translate_x;
-    let y1 = rect[1].1 * axis_aligned_transform.scale_y + axis_aligned_transform.translate_y;
-
-    let min_x = x0.min(x1);
-    let min_y = y0.min(y1);
-    let max_x = x0.max(x1);
-    let max_y = y0.max(y1);
-
-    let scale_factor = scale_factor as f32;
-    let px_min_x = ((min_x * scale_factor).floor().max(0.0) as u32).min(physical_size.0);
-    let px_min_y = ((min_y * scale_factor).floor().max(0.0) as u32).min(physical_size.1);
-    let px_max_x = (max_x * scale_factor).ceil().min(physical_size.0 as f32) as u32;
-    let px_max_y = (max_y * scale_factor).ceil().min(physical_size.1 as f32) as u32;
-
-    let width = px_max_x.saturating_sub(px_min_x);
-    let height = px_max_y.saturating_sub(px_min_y);
-
-    Some((px_min_x, px_min_y, width, height))
+    Some(
+        compute_logical_clip_rect(rect, transform)?
+            .to_physical_scissor(scale_factor, physical_size),
+    )
 }
 
-/// Intersect two scissor rects, returning the overlapping region.
-/// If the rects don't overlap, returns a zero-size rect.
+/// Check whether a non-leaf draw command is eligible for scissor clipping,
+/// and if so, compute the scissor rect. This centralizes the eligibility logic
+/// so pre-visit and post-visit make the same deterministic decision.
+pub(super) fn try_scissor_for_rect(
+    draw_command: &DrawCommand,
+    scale_factor: f64,
+    physical_size: (u32, u32),
+) -> Option<(u32, u32, u32, u32)> {
+    if !draw_command.is_rect() {
+        return None;
+    }
+    let rect_bounds = draw_command.rect_bounds()?;
+    let transform = draw_command.transform();
+    compute_scissor_rect(rect_bounds, transform, scale_factor, physical_size)
+}
+
 pub(super) fn intersect_scissor(
     a: (u32, u32, u32, u32),
     b: (u32, u32, u32, u32),
@@ -123,25 +209,12 @@ pub(super) fn intersect_scissor(
     (left, top, width, height)
 }
 
-/// Check whether a non-leaf draw command is eligible for scissor clipping,
-/// and if so, compute the scissor rect. This centralizes the eligibility logic
-/// so pre-visit and post-visit make the same deterministic decision.
-pub(super) fn try_scissor_for_rect(
-    draw_command: &DrawCommand,
-    scale_factor: f64,
-    physical_size: (u32, u32),
-) -> Option<(u32, u32, u32, u32)> {
-    if !draw_command.is_rect() {
-        return None;
-    }
-    let rect_bounds = draw_command.rect_bounds()?;
-    let transform = draw_command.transform();
-    compute_scissor_rect(rect_bounds, transform, scale_factor, physical_size)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{compute_scissor_rect, should_skip_visible_rect_draw, try_scissor_for_rect};
+    use super::{
+        compute_logical_clip_rect, compute_scissor_rect, should_skip_visible_rect_draw,
+        try_logical_clip_rect_for_draw_command, try_scissor_for_rect, LogicalClipRect,
+    };
     use crate::effect::EffectInstance;
     use crate::gradient::types::{
         ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset, LinearGradientDesc,
@@ -182,6 +255,23 @@ mod tests {
             compute_scissor_rect([(0.0, 0.0), (10.0, 5.0)], Some(transform), 1.0, (100, 100));
 
         assert_eq!(scissor, Some((10, 5, 20, 15)));
+    }
+
+    #[test]
+    fn logical_clip_rect_preserves_logical_coordinates() {
+        let transform = TransformInstance::affine_2d(2.0, 0.0, 0.0, -3.0, 10.0, 20.0);
+
+        let clip_rect = compute_logical_clip_rect([(0.0, 0.0), (10.0, 5.0)], Some(transform));
+
+        assert_eq!(
+            clip_rect,
+            Some(LogicalClipRect {
+                min_x: 10.0,
+                min_y: 5.0,
+                max_x: 30.0,
+                max_y: 20.0,
+            })
+        );
     }
 
     #[test]
@@ -238,6 +328,25 @@ mod tests {
             &HashMap::new(),
             &backdrop_effects,
         ));
+    }
+
+    #[test]
+    fn logical_clip_rect_for_draw_command_accepts_axis_aligned_rect() {
+        let mut draw_command = DrawCommand::Shape(crate::shape::ShapeDrawData::new(
+            Shape::rect([(0.0, 0.0), (10.0, 10.0)], Stroke::default()),
+            None,
+        ));
+        draw_command.set_transform(TransformInstance::translation(5.0, 8.0));
+
+        assert_eq!(
+            try_logical_clip_rect_for_draw_command(&draw_command),
+            Some(LogicalClipRect {
+                min_x: 5.0,
+                min_y: 8.0,
+                max_x: 15.0,
+                max_y: 18.0,
+            })
+        );
     }
 
     #[test]

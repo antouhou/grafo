@@ -292,6 +292,11 @@ pub struct InstanceMetadata {
     /// Bitmask indicating which texture layers are active for this instance.
     /// 0 = no textures (solid fill only), 1 = layer 0, 2 = layer 1, 3 = both.
     pub texture_flags: f32,
+    /// Inclusive min logical clip coordinate inherited from axis-aligned clip ancestors.
+    /// An invalid range (`min > max`) means "no inherited rect clip".
+    pub clip_rect_min: [f32; 2],
+    /// Exclusive max logical clip coordinate inherited from axis-aligned clip ancestors.
+    pub clip_rect_max: [f32; 2],
 }
 
 impl Default for InstanceMetadata {
@@ -299,6 +304,8 @@ impl Default for InstanceMetadata {
         Self {
             draw_order: 0.0,
             texture_flags: 0.0,
+            clip_rect_min: [1.0, 1.0],
+            clip_rect_max: [0.0, 0.0],
         }
     }
 }
@@ -318,6 +325,16 @@ impl InstanceMetadata {
                     format: wgpu::VertexFormat::Float32,
                     offset: std::mem::size_of::<f32>() as wgpu::BufferAddress,
                     shader_location: 10,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: (std::mem::size_of::<f32>() * 2) as wgpu::BufferAddress,
+                    shader_location: 11,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: (std::mem::size_of::<f32>() * 4) as wgpu::BufferAddress,
+                    shader_location: 12,
                 },
             ],
         }

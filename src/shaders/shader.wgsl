@@ -19,6 +19,10 @@ struct VertexInput {
     // Per-instance bitmask: bit 0 = layer 0 active, bit 1 = layer 1 active.
     // 0 = solid fill only (skip all texture samples).
     @location(10) texture_flags: f32,
+    // Inherited axis-aligned clip rect in logical screen coordinates.
+    // `clip_rect_min.x > clip_rect_max.x` means "no inherited rect clip".
+    @location(11) clip_rect_min: vec2<f32>,
+    @location(12) clip_rect_max: vec2<f32>,
 };
 
 struct VertexOutput {
@@ -27,6 +31,9 @@ struct VertexOutput {
     @location(1) tex_coords: vec2<f32>,
     @location(2) coverage: f32,
     @location(3) @interpolate(flat) texture_flags: f32,
+    @location(4) screen_pos: vec2<f32>,
+    @location(5) @interpolate(flat) clip_rect_min: vec2<f32>,
+    @location(6) @interpolate(flat) clip_rect_max: vec2<f32>,
 };
 
 struct GradientVertexOutput {
@@ -39,6 +46,13 @@ struct GradientVertexOutput {
     @location(4) model_pos: vec2<f32>,
     // Screen-space position (pixel coordinates, after transform)
     @location(5) screen_pos: vec2<f32>,
+    @location(6) @interpolate(flat) clip_rect_min: vec2<f32>,
+    @location(7) @interpolate(flat) clip_rect_max: vec2<f32>,
+};
+
+struct PositionedVertex {
+    clip_position: vec4<f32>,
+    screen_pos: vec2<f32>,
 };
 
 // This is a struct that will be used for position normalization
@@ -188,7 +202,7 @@ fn evaluate_gradient(model_pos: vec2<f32>, screen_pos: vec2<f32>) -> vec4<f32> {
     return textureSampleLevel(t_gradient_ramp, s_gradient_ramp, uv, 0.0);
 }
 
-fn compute_vertex_position(input: VertexInput) -> vec4<f32> {
+fn compute_positioned_vertex(input: VertexInput) -> PositionedVertex {
     // Build the transform matrix from column-major CPU data.
     // Each vec4 (t_col0..t_col3) is one column of the matrix. WGSL's mat4x4
     // constructor treats each argument as a column, so this is a direct mapping.
@@ -266,57 +280,56 @@ fn compute_vertex_position(input: VertexInput) -> vec4<f32> {
     //  I don't have a particular use case for it right now, so I'm leaving it as is.
     //  If you want to enable intersection without transparency, change the pipeline to enable depth test/write with
     //  less-equal function. (set depth_compare: wgpu::CompareFunction::LessEqual on the stencil/depth state)
-    return vec4<f32>(ndc_x, ndc_y, biased_depth, 1.0);
+    return PositionedVertex(
+        vec4<f32>(ndc_x, ndc_y, biased_depth, 1.0),
+        vec2<f32>(final_px, final_py),
+    );
 }
 
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = compute_vertex_position(input);
+    let positioned_vertex = compute_positioned_vertex(input);
+    output.position = positioned_vertex.clip_position;
     output.color = input.color;
     output.tex_coords = input.tex_coords;
     output.coverage = input.coverage;
     output.texture_flags = input.texture_flags;
+    output.screen_pos = positioned_vertex.screen_pos;
+    output.clip_rect_min = input.clip_rect_min;
+    output.clip_rect_max = input.clip_rect_max;
     return output;
 }
 
 @vertex
 fn vs_main_gradient(input: VertexInput) -> GradientVertexOutput {
     var output: GradientVertexOutput;
-    output.position = compute_vertex_position(input);
+    let positioned_vertex = compute_positioned_vertex(input);
+    output.position = positioned_vertex.clip_position;
     output.color = input.color;
     output.tex_coords = input.tex_coords;
     output.coverage = input.coverage;
     output.texture_flags = input.texture_flags;
     output.model_pos = input.position;
+    output.screen_pos = positioned_vertex.screen_pos;
+    output.clip_rect_min = input.clip_rect_min;
+    output.clip_rect_max = input.clip_rect_max;
+    return output;
+}
 
-    let model: mat4x4<f32> = mat4x4<f32>(input.t_col0, input.t_col1, input.t_col2, input.t_col3);
-    let p = model * vec4<f32>(input.position, 0.0, 1.0);
-    let invw = 1.0 / max(abs(p.w), 1e-6);
-    let px = p.x * invw;
-    let py = p.y * invw;
-
-    var final_px = px;
-    var final_py = py;
-    if (input.coverage < 1.0) {
-        let epsilon = 0.01;
-        let p2 = model * vec4<f32>(input.position + input.normal * epsilon, 0.0, 1.0);
-        let invw2 = 1.0 / max(abs(p2.w), 1e-6);
-        let px2 = p2.x * invw2;
-        let py2 = p2.y * invw2;
-        let screen_dir = vec2<f32>(px2 - px, py2 - py);
-        let screen_len = length(screen_dir);
-
-        if (screen_len > 1e-8) {
-            let unit_dir = screen_dir / screen_len;
-            let fringe_width = uniforms.fringe_width / uniforms.scale_factor;
-            final_px = px + unit_dir.x * fringe_width;
-            final_py = py + unit_dir.y * fringe_width;
-        }
+fn should_discard_for_clip_rect(
+    screen_pos: vec2<f32>,
+    clip_rect_min: vec2<f32>,
+    clip_rect_max: vec2<f32>,
+) -> bool {
+    if clip_rect_min.x > clip_rect_max.x || clip_rect_min.y > clip_rect_max.y {
+        return false;
     }
 
-    output.screen_pos = vec2<f32>(final_px, final_py);
-    return output;
+    return screen_pos.x < clip_rect_min.x
+        || screen_pos.y < clip_rect_min.y
+        || screen_pos.x >= clip_rect_max.x
+        || screen_pos.y >= clip_rect_max.y;
 }
 
 // Computes the final premultiplied color for a fragment given fill color, texture
@@ -398,7 +411,13 @@ fn fs_main(
     @location(1) tex_coords: vec2<f32>,
     @location(2) coverage: f32,
     @location(3) @interpolate(flat) texture_flags: f32,
+    @location(4) screen_pos: vec2<f32>,
+    @location(5) @interpolate(flat) clip_rect_min: vec2<f32>,
+    @location(6) @interpolate(flat) clip_rect_max: vec2<f32>,
 ) -> @location(0) vec4<f32> {
+    if should_discard_for_clip_rect(screen_pos, clip_rect_min, clip_rect_max) {
+        discard;
+    }
     return compute_fragment_color(color, tex_coords, coverage, texture_flags);
 }
 
@@ -410,15 +429,27 @@ fn fs_main_gradient(
     @location(3) @interpolate(flat) texture_flags: f32,
     @location(4) model_pos: vec2<f32>,
     @location(5) screen_pos: vec2<f32>,
+    @location(6) @interpolate(flat) clip_rect_min: vec2<f32>,
+    @location(7) @interpolate(flat) clip_rect_max: vec2<f32>,
 ) -> @location(0) vec4<f32> {
+    if should_discard_for_clip_rect(screen_pos, clip_rect_min, clip_rect_max) {
+        discard;
+    }
     return compute_gradient_fragment_color(tex_coords, coverage, texture_flags, model_pos, screen_pos);
 }
 
 // Used by stencil-only passes that write no color. Color work is skipped entirely;
 // only the fixed-function stencil operation matters for these draws.
-// NOTE: do not add discard here — that would also kill the stencil write.
+// Inherited rect clips still need to suppress stencil writes outside the clip.
 @fragment
-fn fs_stencil_only() -> @location(0) vec4<f32> {
+fn fs_stencil_only(
+    @location(4) screen_pos: vec2<f32>,
+    @location(5) @interpolate(flat) clip_rect_min: vec2<f32>,
+    @location(6) @interpolate(flat) clip_rect_max: vec2<f32>,
+) -> @location(0) vec4<f32> {
+    if should_discard_for_clip_rect(screen_pos, clip_rect_min, clip_rect_max) {
+        discard;
+    }
     return vec4<f32>(0.0, 0.0, 0.0, 0.0);
 }
 
@@ -431,7 +462,13 @@ fn fs_passthrough(
     @location(1) tex_coords: vec2<f32>,
     @location(2) coverage: f32,
     @location(3) @interpolate(flat) texture_flags: f32,
+    @location(4) screen_pos: vec2<f32>,
+    @location(5) @interpolate(flat) clip_rect_min: vec2<f32>,
+    @location(6) @interpolate(flat) clip_rect_max: vec2<f32>,
 ) -> @location(0) vec4<f32> {
+    if should_discard_for_clip_rect(screen_pos, clip_rect_min, clip_rect_max) {
+        discard;
+    }
     return compute_fragment_color(color, tex_coords, coverage, texture_flags);
 }
 
@@ -443,6 +480,11 @@ fn fs_passthrough_gradient(
     @location(3) @interpolate(flat) texture_flags: f32,
     @location(4) model_pos: vec2<f32>,
     @location(5) screen_pos: vec2<f32>,
+    @location(6) @interpolate(flat) clip_rect_min: vec2<f32>,
+    @location(7) @interpolate(flat) clip_rect_max: vec2<f32>,
 ) -> @location(0) vec4<f32> {
+    if should_discard_for_clip_rect(screen_pos, clip_rect_min, clip_rect_max) {
+        discard;
+    }
     return compute_gradient_fragment_color(tex_coords, coverage, texture_flags, model_pos, screen_pos);
 }
