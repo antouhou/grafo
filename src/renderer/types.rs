@@ -4,6 +4,7 @@ use ahash::{HashMap, HashMapExt};
 
 use crate::effect::{self, EffectInstance, LoadedEffect};
 use crate::gradient::types::Fill;
+use crate::renderer::rect_utils::LogicalClipRect;
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, ShapeDrawData};
 use crate::texture_manager::TextureManager;
 use crate::util::GradientCache;
@@ -86,6 +87,13 @@ impl DrawCommand {
         match self {
             DrawCommand::Shape(shape) => shape.instance_color_override(),
             DrawCommand::CachedShape(cached_shape) => cached_shape.instance_color_override(),
+        }
+    }
+
+    pub(super) fn instance_index(&self) -> Option<usize> {
+        match self {
+            DrawCommand::Shape(shape) => shape.instance_index(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.instance_index(),
         }
     }
 
@@ -174,14 +182,36 @@ impl DrawCommand {
         }
     }
 
+    pub(super) fn set_prepared_geometry(
+        &mut self,
+        index_buffer_range: Option<(usize, usize)>,
+        is_empty: bool,
+    ) {
+        match self {
+            DrawCommand::Shape(shape) => {
+                shape.index_buffer_range = index_buffer_range;
+                shape.is_empty = is_empty;
+            }
+            DrawCommand::CachedShape(cached_shape) => {
+                cached_shape.index_buffer_range = index_buffer_range;
+                cached_shape.is_empty = is_empty;
+            }
+        }
+    }
+
+    pub(super) fn set_instance_index(&mut self, instance_index: Option<usize>) {
+        match self {
+            DrawCommand::Shape(shape) => shape.instance_index = instance_index,
+            DrawCommand::CachedShape(cached_shape) => cached_shape.instance_index = instance_index,
+        }
+    }
+
     pub(super) fn clear_frame_state(&mut self) {
         match self {
             DrawCommand::Shape(shape) => {
-                shape.index_buffer_range = None;
                 shape.stencil_ref = None;
             }
             DrawCommand::CachedShape(cached_shape) => {
-                cached_shape.index_buffer_range = None;
                 cached_shape.stencil_ref = None;
             }
         }
@@ -213,6 +243,8 @@ pub(super) enum ClipKind {
     NonClipping,
     /// Parent clips children via hardware scissor rect.
     Scissor,
+    /// Parent clips children via inherited per-instance rect discard.
+    DiscardRectClip,
     /// Parent clips children via stencil increment/decrement.
     Stencil,
 }
@@ -358,9 +390,11 @@ pub(super) struct RendererScratch {
     pub(super) effect_output_textures: Vec<wgpu::Texture>,
     pub(super) stencil_stack: Vec<u32>,
     pub(super) skipped_stack: Vec<usize>,
-    /// Stack of intersected scissor rects (x, y, width, height) in physical pixels.
-    /// Used to replace stencil clipping for axis-aligned rect parents.
+    /// Temporary scissor stack in physical pixels, used only for fullscreen effect
+    /// composite draws that cannot consume per-instance clip metadata.
     pub(super) scissor_stack: Vec<(u32, u32, u32, u32)>,
+    /// Stack of intersected logical clip rects inherited from axis-aligned clip parents.
+    pub(super) logical_clip_stack: Vec<LogicalClipRect>,
     /// Parallel stack to `stencil_stack`: records which clipping strategy each
     /// non-leaf parent used so the `Post` path avoids re-evaluating eligibility.
     pub(super) clip_kind_stack: Vec<ClipKind>,
@@ -381,6 +415,7 @@ impl RendererScratch {
             stencil_stack: Vec::new(),
             skipped_stack: Vec::new(),
             scissor_stack: Vec::new(),
+            logical_clip_stack: Vec::new(),
             clip_kind_stack: Vec::new(),
             backdrop_work_textures: Vec::new(),
             readback_bytes: Vec::new(),
@@ -396,6 +431,7 @@ impl RendererScratch {
         self.stencil_stack.clear();
         self.skipped_stack.clear();
         self.scissor_stack.clear();
+        self.logical_clip_stack.clear();
         self.clip_kind_stack.clear();
         self.backdrop_work_textures.clear();
         self.traversal_scratch.begin();
@@ -414,6 +450,7 @@ impl RendererScratch {
         trim_vector_if_needed(&mut self.stencil_stack, MAX_STENCIL_STACK_CAPACITY);
         trim_vector_if_needed(&mut self.skipped_stack, MAX_SKIPPED_STACK_CAPACITY);
         trim_vector_if_needed(&mut self.scissor_stack, MAX_SCISSOR_STACK_CAPACITY);
+        trim_vector_if_needed(&mut self.logical_clip_stack, MAX_SCISSOR_STACK_CAPACITY);
         trim_vector_if_needed(&mut self.clip_kind_stack, MAX_SCISSOR_STACK_CAPACITY);
         trim_vector_if_needed(
             &mut self.backdrop_work_textures,
@@ -445,6 +482,7 @@ where
 #[derive(Debug, Clone, Copy)]
 pub(super) struct BufferSizingDecision {
     pub(super) should_reallocate: bool,
+    pub(super) target_size: u64,
 }
 
 pub(super) fn decide_buffer_sizing(
@@ -452,11 +490,23 @@ pub(super) fn decide_buffer_sizing(
     required_size: usize,
 ) -> BufferSizingDecision {
     let required_size = required_size as u64;
-    let should_reallocate = existing_size
-        .map(|size| size < required_size)
-        .unwrap_or(true);
+    let current_size = existing_size.unwrap_or(0);
+    let should_reallocate = current_size < required_size;
 
-    BufferSizingDecision { should_reallocate }
+    let target_size = if should_reallocate {
+        let mut next_size = current_size.max(256);
+        while next_size < required_size {
+            next_size = next_size.saturating_mul(2);
+        }
+        next_size
+    } else {
+        current_size
+    };
+
+    BufferSizingDecision {
+        should_reallocate,
+        target_size,
+    }
 }
 
 #[cfg(test)]
@@ -467,18 +517,21 @@ mod tests {
     fn decide_buffer_sizing_reallocates_when_missing() {
         let decision = decide_buffer_sizing(None, 128);
         assert!(decision.should_reallocate);
+        assert!(decision.target_size >= 128);
     }
 
     #[test]
     fn decide_buffer_sizing_reallocates_when_too_small() {
         let decision = decide_buffer_sizing(Some(64), 128);
         assert!(decision.should_reallocate);
+        assert!(decision.target_size >= 128);
     }
 
     #[test]
     fn decide_buffer_sizing_keeps_buffer_when_large_enough() {
         let decision = decide_buffer_sizing(Some(512), 128);
         assert!(!decision.should_reallocate);
+        assert_eq!(decision.target_size, 512);
     }
 
     #[test]

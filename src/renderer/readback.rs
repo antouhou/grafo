@@ -25,6 +25,37 @@ fn copy_padded_readback_rows(
 }
 
 impl<'a> Renderer<'a> {
+    pub fn render_headless_frame(&mut self) {
+        self.prepare_render();
+
+        let (width, height) = self.physical_size;
+        let size_changed = self.rtb_cached_width != width || self.rtb_cached_height != height;
+        if size_changed {
+            self.rtb_cached_width = width;
+            self.rtb_cached_height = height;
+        }
+
+        if size_changed || self.rtb_offscreen_texture.is_none() {
+            self.rtb_offscreen_texture = Some(create_offscreen_color_texture(
+                &self.device,
+                (width, height),
+                self.config.format,
+            ));
+        }
+
+        let texture_view = self
+            .rtb_offscreen_texture
+            .as_ref()
+            .unwrap()
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let output_texture = self.rtb_offscreen_texture.take();
+        self.render_to_texture_view(&texture_view, output_texture.as_ref());
+        self.rtb_offscreen_texture = output_texture;
+
+        let _ = self.device.poll(wgpu::MaintainBase::Wait);
+    }
+
     fn map_readback_buffer_into(
         device: &wgpu::Device,
         buffer: &wgpu::Buffer,

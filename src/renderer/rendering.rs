@@ -28,6 +28,7 @@ impl<'a> Renderer<'a> {
         let mut stencil_stack = std::mem::take(&mut self.scratch.stencil_stack);
         let skipped_stack = std::mem::take(&mut self.scratch.skipped_stack);
         let mut scissor_stack = std::mem::take(&mut self.scratch.scissor_stack);
+        let mut logical_clip_stack = std::mem::take(&mut self.scratch.logical_clip_stack);
         let mut clip_kind_stack = std::mem::take(&mut self.scratch.clip_kind_stack);
         let mut backdrop_work_textures = std::mem::take(&mut self.scratch.backdrop_work_textures);
 
@@ -185,6 +186,7 @@ impl<'a> Renderer<'a> {
                         &mut backdrop_work_textures,
                         &mut stencil_stack,
                         &mut scissor_stack,
+                        &mut logical_clip_stack,
                         &mut clip_kind_stack,
                         self.scale_factor,
                         self.physical_size,
@@ -264,6 +266,7 @@ impl<'a> Renderer<'a> {
                     &mut backdrop_work_textures,
                     &mut stencil_stack,
                     &mut scissor_stack,
+                    &mut logical_clip_stack,
                     &mut clip_kind_stack,
                     scale_factor,
                     physical_size,
@@ -374,6 +377,7 @@ impl<'a> Renderer<'a> {
                 &mut backdrop_work_textures,
                 &mut stencil_stack,
                 &mut scissor_stack,
+                &mut logical_clip_stack,
                 &mut clip_kind_stack,
                 self.scale_factor,
                 self.physical_size,
@@ -404,6 +408,7 @@ impl<'a> Renderer<'a> {
         self.scratch.stencil_stack = stencil_stack;
         self.scratch.skipped_stack = skipped_stack;
         self.scratch.scissor_stack = scissor_stack;
+        self.scratch.logical_clip_stack = logical_clip_stack;
         self.scratch.clip_kind_stack = clip_kind_stack;
         self.scratch.backdrop_work_textures = backdrop_work_textures;
 

@@ -277,12 +277,7 @@ impl<'a> Renderer<'a> {
             decrementing_bind_group,
             draw_tree: easy_tree::Tree::new(),
             metadata_to_clips: HashMap::new(),
-            temp_vertices: Vec::new(),
-            temp_indices: Vec::new(),
-            geometry_dedup_map: HashMap::new(),
-            temp_instance_transforms: Vec::new(),
-            temp_instance_colors: Vec::new(),
-            temp_instance_metadata: Vec::new(),
+            prepared_scene: PreparedScene::new(),
             aggregated_vertex_buffer: None,
             aggregated_index_buffer: None,
             aggregated_instance_transform_buffer: None,
@@ -357,36 +352,47 @@ impl<'a> Renderer<'a> {
             self.metadata_to_clips.len()
         );
 
-        println!("\n--- Temporary Vectors ---");
+        println!("\n--- Prepared Scene ---");
         println!(
-            "Temp vertices: {} items, {} capacity, ~{} bytes",
-            self.temp_vertices.len(),
-            self.temp_vertices.capacity(),
-            self.temp_vertices.capacity() * std::mem::size_of::<crate::vertex::CustomVertex>()
+            "Geometry vertices: {} items, {} capacity, ~{} bytes",
+            self.prepared_scene.geometry_vertices_len(),
+            self.prepared_scene.geometry_vertices.capacity(),
+            self.prepared_scene.geometry_vertices.capacity()
+                * std::mem::size_of::<crate::vertex::CustomVertex>()
         );
         println!(
-            "Temp indices: {} items, {} capacity, ~{} bytes",
-            self.temp_indices.len(),
-            self.temp_indices.capacity(),
-            self.temp_indices.capacity() * std::mem::size_of::<u16>()
+            "Geometry indices: {} items, {} capacity, ~{} bytes",
+            self.prepared_scene.geometry_indices_len(),
+            self.prepared_scene.geometry_indices.capacity(),
+            self.prepared_scene.geometry_indices.capacity() * std::mem::size_of::<u16>()
         );
         println!(
-            "Temp instance transforms: {} items, {} capacity, ~{} bytes",
-            self.temp_instance_transforms.len(),
-            self.temp_instance_transforms.capacity(),
-            self.temp_instance_transforms.capacity() * std::mem::size_of::<InstanceTransform>()
+            "Instance transforms: {} items, {} capacity, ~{} bytes",
+            self.prepared_scene.instance_transforms.len(),
+            self.prepared_scene.instance_transforms.capacity(),
+            self.prepared_scene.instance_transforms.capacity()
+                * std::mem::size_of::<InstanceTransform>()
         );
         println!(
-            "Temp instance colors: {} items, {} capacity, ~{} bytes",
-            self.temp_instance_colors.len(),
-            self.temp_instance_colors.capacity(),
-            self.temp_instance_colors.capacity() * std::mem::size_of::<InstanceColor>()
+            "Instance colors: {} items, {} capacity, ~{} bytes",
+            self.prepared_scene.instance_colors.len(),
+            self.prepared_scene.instance_colors.capacity(),
+            self.prepared_scene.instance_colors.capacity() * std::mem::size_of::<InstanceColor>()
         );
         println!(
-            "Temp instance metadata: {} items, {} capacity, ~{} bytes",
-            self.temp_instance_metadata.len(),
-            self.temp_instance_metadata.capacity(),
-            self.temp_instance_metadata.capacity() * std::mem::size_of::<InstanceMetadata>()
+            "Instance metadata: {} items, {} capacity, ~{} bytes",
+            self.prepared_scene.instance_metadata.len(),
+            self.prepared_scene.instance_metadata.capacity(),
+            self.prepared_scene.instance_metadata.capacity()
+                * std::mem::size_of::<InstanceMetadata>()
+        );
+        println!(
+            "Prepared geometry entries: {}",
+            self.prepared_scene.geometry_entries.len()
+        );
+        println!(
+            "Prepared node bindings: {}",
+            self.prepared_scene.node_geometry_keys.len()
         );
 
         println!("\n--- GPU Buffers ---");

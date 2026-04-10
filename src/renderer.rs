@@ -29,6 +29,7 @@ use crate::Color;
 
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
+use self::prepared_scene::PreparedScene;
 use self::types::{DrawCommand, RendererScratch};
 
 mod construction;
@@ -38,6 +39,7 @@ mod effects;
 pub mod metrics;
 mod passes;
 mod preparation;
+mod prepared_scene;
 mod readback;
 mod rect_utils;
 
@@ -121,20 +123,7 @@ pub struct Renderer<'a> {
     /// Bind group for the decrementing pipeline.
     decrementing_bind_group: BindGroup,
 
-    temp_vertices: Vec<crate::vertex::CustomVertex>,
-    temp_indices: Vec<u16>,
-
-    /// Per-frame map from cache key to (index_start, index_count) in the
-    /// aggregated buffers, used to avoid duplicating vertex/index data for
-    /// cached shapes that share the same geometry.
-    geometry_dedup_map: HashMap<u64, (usize, usize)>,
-
-    /// Per-frame instance transforms for shapes.
-    temp_instance_transforms: Vec<InstanceTransform>,
-    /// Per-frame instance colors for shapes.
-    temp_instance_colors: Vec<InstanceColor>,
-    /// Per-frame instance metadata (draw order) for shapes.
-    temp_instance_metadata: Vec<InstanceMetadata>,
+    prepared_scene: PreparedScene,
 
     aggregated_vertex_buffer: Option<wgpu::Buffer>,
     aggregated_index_buffer: Option<wgpu::Buffer>,
