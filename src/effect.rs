@@ -132,6 +132,13 @@ pub(crate) struct OffscreenTexturePool {
     available: Vec<PooledTexture>,
 }
 
+pub(crate) struct OffscreenTexturePoolStats {
+    pub pooled_textures: usize,
+    pub estimated_color_bytes: u64,
+    pub estimated_resolve_bytes: u64,
+    pub estimated_depth_stencil_bytes: u64,
+}
+
 /// Maximum number of textures to keep in the pool.
 const MAX_POOL_SIZE: usize = 8;
 
@@ -140,6 +147,10 @@ impl OffscreenTexturePool {
         Self {
             available: Vec::new(),
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.available.clear();
     }
 
     /// Return textures for reuse in future frames.
@@ -182,6 +193,28 @@ impl OffscreenTexturePool {
             self.available.swap_remove(idx)
         } else {
             Self::create_pooled_texture(device, width, height, format, sample_count)
+        }
+    }
+
+    pub(crate) fn stats(&self) -> OffscreenTexturePoolStats {
+        let mut estimated_color_bytes = 0_u64;
+        let mut estimated_resolve_bytes = 0_u64;
+        let mut estimated_depth_stencil_bytes = 0_u64;
+
+        for texture in &self.available {
+            let pixels = texture.width as u64 * texture.height as u64;
+            estimated_color_bytes += pixels * 4 * texture.sample_count as u64;
+            if texture.resolve_texture.is_some() {
+                estimated_resolve_bytes += pixels * 4;
+            }
+            estimated_depth_stencil_bytes += pixels * 4 * texture.sample_count as u64;
+        }
+
+        OffscreenTexturePoolStats {
+            pooled_textures: self.available.len(),
+            estimated_color_bytes,
+            estimated_resolve_bytes,
+            estimated_depth_stencil_bytes,
         }
     }
 

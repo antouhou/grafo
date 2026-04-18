@@ -66,6 +66,7 @@ pub struct TextureManager {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     sampler: Arc<wgpu::Sampler>,
+    cache_bind_groups: bool,
     /// Textures is raw image data, without any screen position information
     texture_storage: Arc<RwLock<HashMap<u64, wgpu::Texture>>>,
     /// Cache for shape texture bind groups keyed by (texture_id, layout_epoch)
@@ -75,12 +76,17 @@ pub struct TextureManager {
 type BindGroupCache = HashMap<(u64, u64), Arc<wgpu::BindGroup>>;
 
 impl TextureManager {
-    pub(crate) fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+    pub(crate) fn new(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        cache_bind_groups: bool,
+    ) -> Self {
         let sampler = Self::create_sampler(&device);
         Self {
             device,
             queue,
             sampler: Arc::new(sampler),
+            cache_bind_groups,
             texture_storage: Arc::new(RwLock::new(HashMap::new())),
             shape_bind_group_cache: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -269,14 +275,16 @@ impl TextureManager {
         texture_id: u64,
     ) -> Result<Arc<wgpu::BindGroup>, TextureManagerError> {
         // Fast path: check cache
-        if let Some(bg) = self
-            .shape_bind_group_cache
-            .read()
-            .unwrap()
-            .get(&(texture_id, layout_epoch))
-            .cloned()
-        {
-            return Ok(bg);
+        if self.cache_bind_groups {
+            if let Some(bg) = self
+                .shape_bind_group_cache
+                .read()
+                .unwrap()
+                .get(&(texture_id, layout_epoch))
+                .cloned()
+            {
+                return Ok(bg);
+            }
         }
 
         // Create bind group
@@ -301,10 +309,12 @@ impl TextureManager {
         }));
 
         // Insert into cache
-        self.shape_bind_group_cache
-            .write()
-            .unwrap()
-            .insert((texture_id, layout_epoch), bind_group.clone());
+        if self.cache_bind_groups {
+            self.shape_bind_group_cache
+                .write()
+                .unwrap()
+                .insert((texture_id, layout_epoch), bind_group.clone());
+        }
 
         Ok(bind_group)
     }
