@@ -1735,7 +1735,7 @@ mod tests {
     fn rect_tessellation_uses_shared_quad_corners() {
         let rect_shape = RectShape::new([(10.0, 20.0), (30.0, 50.0)], Stroke::default());
         let mut tessellator = FillTessellator::new();
-        let mut pool_manager = PoolManager::new(NonZeroUsize::new(1).unwrap());
+        let mut pool_manager = PoolManager::new(NonZeroUsize::new(1).unwrap(), true);
 
         let tessellated_geometry =
             Shape::Rect(rect_shape).tessellate(&mut tessellator, &mut pool_manager, None);

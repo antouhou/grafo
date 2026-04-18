@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashSet;
 use tracing::{info, warn};
 
 fn pick_surface_format(surface_formats: &[wgpu::TextureFormat]) -> wgpu::TextureFormat {
@@ -63,13 +64,14 @@ pub enum RendererCreationError {
 }
 
 impl<'a> Renderer<'a> {
-    pub async fn new(
+    pub async fn new_with_options(
         window: impl Into<SurfaceTarget<'static>>,
         physical_size: (u32, u32),
         scale_factor: f64,
         vsync: bool,
         transparent: bool,
         msaa_samples: u32,
+        options: RendererOptions,
     ) -> Self {
         let size = physical_size;
 
@@ -133,8 +135,29 @@ impl<'a> Renderer<'a> {
             size,
             scale_factor,
             msaa_sample_count,
+            options,
         )
         .expect("Failed to build renderer from device")
+    }
+
+    pub async fn new(
+        window: impl Into<SurfaceTarget<'static>>,
+        physical_size: (u32, u32),
+        scale_factor: f64,
+        vsync: bool,
+        transparent: bool,
+        msaa_samples: u32,
+    ) -> Self {
+        Self::new_with_options(
+            window,
+            physical_size,
+            scale_factor,
+            vsync,
+            transparent,
+            msaa_samples,
+            RendererOptions::default(),
+        )
+        .await
     }
 
     /// Shared constructor: takes the wgpu primitives produced by `new()` or
@@ -149,6 +172,7 @@ impl<'a> Renderer<'a> {
         physical_size: (u32, u32),
         scale_factor: f64,
         msaa_sample_count: u32,
+        renderer_options: RendererOptions,
     ) -> Result<Self, RendererCreationError> {
         if !scale_factor.is_finite() || scale_factor <= 0.0 {
             return Err(RendererCreationError::InvalidScaleFactor(scale_factor));
@@ -235,7 +259,11 @@ impl<'a> Renderer<'a> {
         let device = Arc::new(device);
         let queue = Arc::new(queue);
 
-        let texture_manager = TextureManager::new(device.clone(), queue.clone());
+        let texture_manager = TextureManager::new(
+            device.clone(),
+            queue.clone(),
+            renderer_options.enable_reusable_caches,
+        );
 
         let (default_shape_texture_bind_group_layer0, shape_texture_bind_group_layout_layer0) =
             Self::create_default_shape_texture_bind_group(&device, &queue, &and_texture_bgl_layer0);
@@ -250,11 +278,13 @@ impl<'a> Renderer<'a> {
             config,
             physical_size,
             scale_factor,
+            renderer_options,
             fringe_width: Self::DEFAULT_FRINGE_WIDTH,
             tessellator: FillTessellator::new(),
             texture_manager,
             buffers_pool_manager: PoolManager::new(
                 NonZeroUsize::new(MAX_CACHED_SHAPES).expect("Cache size to be greater than 0"),
+                renderer_options.enable_reusable_caches,
             ),
             and_pipeline: Arc::new(and_pipeline),
             and_uniforms,
@@ -348,9 +378,36 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn print_memory_usage_info(&self) {
-        println!("=== Memory Usage Info ===");
+        let mut unique_cached_geometries = HashSet::new();
+        let mut cached_shape_vertex_count = 0_usize;
+        let mut cached_shape_index_count = 0_usize;
+        let mut cached_shape_geometry_bytes = 0_usize;
 
-        println!("Cached shapes: {}", self.shape_cache.len());
+        for cached_shape in self.shape_cache.values() {
+            let geometry_ptr = std::sync::Arc::as_ptr(&cached_shape.vertex_buffers) as usize;
+            if unique_cached_geometries.insert(geometry_ptr) {
+                cached_shape_vertex_count += cached_shape.vertex_buffers.vertices.capacity();
+                cached_shape_index_count += cached_shape.vertex_buffers.indices.capacity();
+                cached_shape_geometry_bytes += cached_shape.vertex_buffers.vertices.capacity()
+                    * std::mem::size_of::<crate::vertex::CustomVertex>();
+                cached_shape_geometry_bytes += cached_shape.vertex_buffers.indices.capacity()
+                    * std::mem::size_of::<u16>();
+            }
+        }
+
+        println!("=== Memory Usage Info ===");
+        println!(
+            "Reusable caches enabled: {}",
+            self.renderer_options.enable_reusable_caches
+        );
+
+        println!(
+            "Cached shapes: {} (~{} unique geometry bytes across {} vertices / {} indices)",
+            self.shape_cache.len(),
+            cached_shape_geometry_bytes,
+            cached_shape_vertex_count,
+            cached_shape_index_count,
+        );
         println!("Draw tree size: {}", self.draw_tree.len());
         println!(
             "Metadata to clips mappings: {}",
@@ -414,6 +471,26 @@ impl<'a> Renderer<'a> {
         if let Some(buf) = &self.identity_instance_metadata_buffer {
             println!("Identity instance metadata buffer: {} bytes", buf.size());
         }
+        if let Some(tex) = &self.msaa_color_texture {
+            let size = tex.size();
+            println!(
+                "MSAA color texture: {}x{} samples={} (~{} bytes)",
+                size.width,
+                size.height,
+                self.msaa_sample_count,
+                size.width as u64 * size.height as u64 * 4 * self.msaa_sample_count as u64
+            );
+        }
+        if let Some(tex) = &self.depth_stencil_texture {
+            let size = tex.size();
+            println!(
+                "Depth/stencil texture: {}x{} samples={} (~{} bytes)",
+                size.width,
+                size.height,
+                self.msaa_sample_count,
+                size.width as u64 * size.height as u64 * 4 * self.msaa_sample_count as u64
+            );
+        }
 
         println!("\n--- ARGB Compute Buffers ---");
         if let Some(buf) = &self.argb_input_buffer {
@@ -466,8 +543,37 @@ impl<'a> Renderer<'a> {
             self.decrementing_uniform_buffer.size()
         );
 
+        println!("\n--- Effect Resources ---");
+        println!("Loaded effects: {}", self.loaded_effects.len());
+        println!("Group effects this frame: {}", self.group_effects.len());
+        println!("Backdrop effects this frame: {}", self.backdrop_effects.len());
+        let offscreen_pool_stats = self.offscreen_texture_pool.stats();
+        println!(
+            "Offscreen texture pool: {} pooled textures (~{} color bytes, ~{} resolve bytes, ~{} depth/stencil bytes, ~{} total)",
+            offscreen_pool_stats.pooled_textures,
+            offscreen_pool_stats.estimated_color_bytes,
+            offscreen_pool_stats.estimated_resolve_bytes,
+            offscreen_pool_stats.estimated_depth_stencil_bytes,
+            offscreen_pool_stats.estimated_color_bytes
+                + offscreen_pool_stats.estimated_resolve_bytes
+                + offscreen_pool_stats.estimated_depth_stencil_bytes,
+        );
+        if let Some(tex) = &self.backdrop_snapshot_texture {
+            let size = tex.size();
+            println!(
+                "Backdrop snapshot texture: {}x{} (~{} bytes)",
+                size.width,
+                size.height,
+                size.width as u64 * size.height as u64 * 4
+            );
+        }
+
         println!("\n--- Texture Manager ---");
-        println!("{:?}", self.texture_manager.size());
+        let (texture_count, bind_group_cache_count) = self.texture_manager.size();
+        println!(
+            "Textures: {}, cached bind groups: {}",
+            texture_count, bind_group_cache_count
+        );
 
         println!("\n--- Buffer Pool Manager ---");
         self.buffers_pool_manager.print_sizes();
@@ -573,6 +679,16 @@ impl<'a> Renderer<'a> {
         physical_size: (u32, u32),
         scale_factor: f64,
     ) -> Result<Self, RendererCreationError> {
+        Self::try_new_headless_with_options(physical_size, scale_factor, RendererOptions::default())
+            .await
+    }
+
+    /// Creates a headless renderer without a window surface using custom renderer options.
+    pub async fn try_new_headless_with_options(
+        physical_size: (u32, u32),
+        scale_factor: f64,
+        options: RendererOptions,
+    ) -> Result<Self, RendererCreationError> {
         let size = physical_size;
 
         let instance = wgpu::Instance::new(&InstanceDescriptor::default());
@@ -623,6 +739,7 @@ impl<'a> Renderer<'a> {
             size,
             scale_factor,
             msaa_sample_count,
+            options,
         )
     }
 
@@ -636,7 +753,17 @@ impl<'a> Renderer<'a> {
     /// For a non-panicking alternative (e.g. in tests), use
     /// [`Self::try_new_headless`] instead.
     pub async fn new_headless(physical_size: (u32, u32), scale_factor: f64) -> Self {
-        Self::try_new_headless(physical_size, scale_factor)
+        Self::new_headless_with_options(physical_size, scale_factor, RendererOptions::default())
+            .await
+    }
+
+    /// Creates a headless renderer without a window surface using custom renderer options.
+    pub async fn new_headless_with_options(
+        physical_size: (u32, u32),
+        scale_factor: f64,
+        options: RendererOptions,
+    ) -> Self {
+        Self::try_new_headless_with_options(physical_size, scale_factor, options)
             .await
             .expect("Failed to create headless renderer")
     }

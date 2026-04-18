@@ -388,8 +388,13 @@ impl<'a> Renderer<'a> {
 
         self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
 
-        self.offscreen_texture_pool
-            .recycle(&mut textures_to_recycle);
+        if self.renderer_options.enable_reusable_caches {
+            self.offscreen_texture_pool
+                .recycle(&mut textures_to_recycle);
+        } else {
+            textures_to_recycle.clear();
+            self.offscreen_texture_pool.clear();
+        }
         effect_output_textures.clear();
 
         self.draw_tree

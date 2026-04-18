@@ -95,33 +95,43 @@ struct CachedGradientRampTexture {
 }
 
 pub(crate) struct GradientCache {
-    ramps: LruCache<GradientRampCacheKey, GradientRamp>,
-    ramp_textures: LruCache<GradientRampCacheKey, Arc<CachedGradientRampTexture>>,
-    bind_groups: LruCache<GradientBindGroupCacheKey, Arc<wgpu::BindGroup>>,
+    enabled: bool,
+    ramps: Option<LruCache<GradientRampCacheKey, GradientRamp>>,
+    ramp_textures: Option<LruCache<GradientRampCacheKey, Arc<CachedGradientRampTexture>>>,
+    bind_groups: Option<LruCache<GradientBindGroupCacheKey, Arc<wgpu::BindGroup>>>,
     default_ramp_texture: Option<Arc<CachedGradientRampTexture>>,
 }
 
 impl GradientCache {
-    fn new() -> Self {
+    fn new(enabled: bool) -> Self {
         Self {
-            ramps: LruCache::new(
-                NonZeroUsize::new(MAX_GRADIENT_RAMP_CACHE_SIZE)
-                    .expect("gradient ramp cache size must be greater than 0"),
-            ),
-            ramp_textures: LruCache::new(
-                NonZeroUsize::new(MAX_GRADIENT_RAMP_CACHE_SIZE)
-                    .expect("gradient ramp cache size must be greater than 0"),
-            ),
-            bind_groups: LruCache::new(
-                NonZeroUsize::new(MAX_GRADIENT_BIND_GROUP_CACHE_SIZE)
-                    .expect("gradient bind group cache size must be greater than 0"),
-            ),
+            enabled,
+            ramps: enabled.then(|| {
+                LruCache::new(
+                    NonZeroUsize::new(MAX_GRADIENT_RAMP_CACHE_SIZE)
+                        .expect("gradient ramp cache size must be greater than 0"),
+                )
+            }),
+            ramp_textures: enabled.then(|| {
+                LruCache::new(
+                    NonZeroUsize::new(MAX_GRADIENT_RAMP_CACHE_SIZE)
+                        .expect("gradient ramp cache size must be greater than 0"),
+                )
+            }),
+            bind_groups: enabled.then(|| {
+                LruCache::new(
+                    NonZeroUsize::new(MAX_GRADIENT_BIND_GROUP_CACHE_SIZE)
+                        .expect("gradient bind group cache size must be greater than 0"),
+                )
+            }),
             default_ramp_texture: None,
         }
     }
 
     pub(crate) fn clear_bind_groups(&mut self) {
-        self.bind_groups.clear();
+        if let Some(bind_groups) = self.bind_groups.as_mut() {
+            bind_groups.clear();
+        }
     }
 
     fn get_or_create_default_ramp_texture(
@@ -129,8 +139,10 @@ impl GradientCache {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Arc<CachedGradientRampTexture> {
-        if let Some(default_ramp_texture) = &self.default_ramp_texture {
-            return default_ramp_texture.clone();
+        if self.enabled {
+            if let Some(default_ramp_texture) = &self.default_ramp_texture {
+                return default_ramp_texture.clone();
+            }
         }
 
         let (texture, view) = create_default_ramp_texture(device, queue);
@@ -138,7 +150,11 @@ impl GradientCache {
             _texture: texture,
             view: Arc::new(view),
         });
-        self.default_ramp_texture = Some(default_ramp_texture.clone());
+
+        if self.enabled {
+            self.default_ramp_texture = Some(default_ramp_texture.clone());
+        }
+
         default_ramp_texture
     }
 
@@ -150,7 +166,11 @@ impl GradientCache {
             GradientRamp::Pending(_) => {}
         }
 
-        if let Some(ramp) = self.ramps.get(&gradient_data.ramp_cache_key).cloned() {
+        if let Some(ramp) = self
+            .ramps
+            .as_mut()
+            .and_then(|ramps| ramps.get(&gradient_data.ramp_cache_key).cloned())
+        {
             gradient_data.ramp = ramp.clone();
             return ramp;
         }
@@ -160,8 +180,9 @@ impl GradientCache {
             GradientRamp::Constant(_) | GradientRamp::Sampled(_) => unreachable!(),
         };
 
-        self.ramps
-            .put(gradient_data.ramp_cache_key.clone(), baked_ramp.clone());
+        if let Some(ramps) = self.ramps.as_mut() {
+            ramps.put(gradient_data.ramp_cache_key.clone(), baked_ramp.clone());
+        }
         gradient_data.ramp = baked_ramp.clone();
         baked_ramp
     }
@@ -172,8 +193,12 @@ impl GradientCache {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Arc<CachedGradientRampTexture> {
-        if let Some(ramp_texture) = self.ramp_textures.get(&gradient_data.ramp_cache_key) {
-            return ramp_texture.clone();
+        if let Some(ramp_texture) = self
+            .ramp_textures
+            .as_mut()
+            .and_then(|ramp_textures| ramp_textures.get(&gradient_data.ramp_cache_key).cloned())
+        {
+            return ramp_texture;
         }
 
         let ramp = self.get_or_create_ramp(gradient_data);
@@ -182,8 +207,9 @@ impl GradientCache {
             _texture: texture,
             view: Arc::new(view),
         });
-        self.ramp_textures
-            .put(gradient_data.ramp_cache_key.clone(), ramp_texture.clone());
+        if let Some(ramp_textures) = self.ramp_textures.as_mut() {
+            ramp_textures.put(gradient_data.ramp_cache_key.clone(), ramp_texture.clone());
+        }
         ramp_texture
     }
 
@@ -203,8 +229,12 @@ impl GradientCache {
             ramp_key: gradient_data.ramp_cache_key.clone(),
         };
 
-        if let Some(bind_group) = self.bind_groups.get(&cache_key) {
-            return bind_group.clone();
+        if let Some(bind_group) = self
+            .bind_groups
+            .as_mut()
+            .and_then(|bind_groups| bind_groups.get(&cache_key).cloned())
+        {
+            return bind_group;
         }
 
         let ramp_texture = if gradient_data.is_constant {
@@ -239,16 +269,27 @@ impl GradientCache {
             ],
         }));
 
-        self.bind_groups.put(cache_key, bind_group.clone());
+        if let Some(bind_groups) = self.bind_groups.as_mut() {
+            bind_groups.put(cache_key, bind_group.clone());
+        }
         bind_group
     }
 
     fn trim(&mut self) {}
 
     fn print_sizes(&self) {
-        println!("Gradient ramps: {}", self.ramps.len());
-        println!("Gradient ramp textures: {}", self.ramp_textures.len());
-        println!("Gradient bind groups: {}", self.bind_groups.len());
+        println!(
+            "Gradient ramps: {}",
+            self.ramps.as_ref().map_or(0, LruCache::len)
+        );
+        println!(
+            "Gradient ramp textures: {}",
+            self.ramp_textures.as_ref().map_or(0, LruCache::len)
+        );
+        println!(
+            "Gradient bind groups: {}",
+            self.bind_groups.as_ref().map_or(0, LruCache::len)
+        );
     }
 }
 
@@ -317,12 +358,12 @@ pub(crate) struct PoolManager {
 }
 
 impl PoolManager {
-    pub(crate) fn new(tesselation_cache_size: NonZeroUsize) -> Self {
+    pub(crate) fn new(tesselation_cache_size: NonZeroUsize, enable_reusable_caches: bool) -> Self {
         Self {
             lyon_vertex_buffers_pool: LyonVertexBuffersPool::new(),
-            tessellation_cache: Cache::new(tesselation_cache_size),
+            tessellation_cache: Cache::new(tesselation_cache_size, enable_reusable_caches),
             aa_fringe_scratch: AaFringeScratch::new(),
-            gradient_cache: GradientCache::new(),
+            gradient_cache: GradientCache::new(enable_reusable_caches),
         }
     }
 
@@ -355,6 +396,7 @@ mod tests {
         GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
         LinearGradientLine, SpreadMode,
     };
+    use lru::LruCache;
     use std::sync::Arc;
 
     #[test]
@@ -423,7 +465,7 @@ mod tests {
         })
         .unwrap();
 
-        let mut gradient_cache = GradientCache::new();
+        let mut gradient_cache = GradientCache::new(true);
         let first_ramp = gradient_cache.get_or_create_ramp(&mut first.data);
         let second_ramp = gradient_cache.get_or_create_ramp(&mut second.data);
 
@@ -435,5 +477,55 @@ mod tests {
         };
 
         assert!(Arc::ptr_eq(&first_ramp, &second_ramp));
+    }
+
+    #[test]
+    fn disabled_gradient_cache_does_not_retain_entries() {
+        let common = GradientCommonDesc {
+            units: GradientUnits::Local,
+            spread: SpreadMode::Pad,
+            interpolation: ColorInterpolation::SrgbLinear,
+            stops: vec![
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(0.0)),
+                    color: GradientColor::Srgb {
+                        red: 1.0,
+                        green: 0.0,
+                        blue: 0.0,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+                GradientStop {
+                    positions: GradientStopPositions::Single(GradientStopOffset::LinearRadial(1.0)),
+                    color: GradientColor::Srgb {
+                        red: 0.0,
+                        green: 0.0,
+                        blue: 1.0,
+                        alpha: 1.0,
+                    },
+                    hint_to_next_segment: None,
+                },
+            ]
+            .into(),
+        };
+
+        let mut gradient = Gradient::linear(LinearGradientDesc {
+            common,
+            line: LinearGradientLine {
+                start: [0.0, 0.0],
+                end: [10.0, 0.0],
+            },
+        })
+        .unwrap();
+
+        let mut gradient_cache = GradientCache::new(false);
+        let ramp = gradient_cache.get_or_create_ramp(&mut gradient.data);
+
+        assert!(matches!(
+            ramp,
+            GradientRamp::Sampled(_) | GradientRamp::Constant(_)
+        ));
+        assert_eq!(gradient_cache.ramps.as_ref().map_or(0, LruCache::len), 0);
     }
 }

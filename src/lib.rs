@@ -164,6 +164,7 @@ pub use gradient::types::{
 pub use renderer::MathRect;
 pub use renderer::Renderer;
 pub use renderer::RendererCreationError;
+pub use renderer::RendererOptions;
 pub use renderer::TextureLayer;
 pub use shape::*;
 pub use stroke::Stroke;

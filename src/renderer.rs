@@ -52,6 +52,35 @@ pub type MathRect = lyon::math::Box2D;
 // TODO: move to the config/constructor
 const MAX_CACHED_SHAPES: usize = 1024;
 
+/// Renderer construction options for runtime-tunable performance behavior.
+///
+/// `enable_reusable_caches` controls renderer-managed performance caches such as
+/// tessellation reuse, gradient LRUs, and texture bind-group reuse.
+///
+/// Explicit resource stores like `load_shape()` geometry and loaded effects are
+/// intentionally not affected, because disabling them would change renderer
+/// behavior rather than just cache policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RendererOptions {
+    pub enable_reusable_caches: bool,
+}
+
+impl Default for RendererOptions {
+    fn default() -> Self {
+        Self {
+            enable_reusable_caches: true,
+        }
+    }
+}
+
+impl RendererOptions {
+    pub const fn without_reusable_caches() -> Self {
+        Self {
+            enable_reusable_caches: false,
+        }
+    }
+}
+
 /// Semantic texture layers for a shape. Background is layer 0, Foreground is layer 1.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum TextureLayer {
@@ -86,6 +115,7 @@ pub struct Renderer<'a> {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     config: wgpu::SurfaceConfiguration,
+    renderer_options: RendererOptions,
 
     tessellator: FillTessellator,
     buffers_pool_manager: PoolManager,
