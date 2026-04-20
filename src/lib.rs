@@ -161,14 +161,10 @@ pub use gradient::types::{
     GradientUnits, HueComponent, HueInterpolationMethod, LinearGradientDesc, LinearGradientLine,
     RadialGradientDesc, RadialGradientShape, RadialGradientSize, SpreadMode,
 };
-pub use renderer::MathRect;
-pub use renderer::Renderer;
-pub use renderer::RendererCreationError;
-pub use renderer::TextureLayer;
+pub use renderer::{MathRect, Renderer, RendererCreationError, TextureLayer, types::DrawCommandError};
 pub use shape::*;
 pub use stroke::Stroke;
-pub use texture_manager::premultiply_rgba8_srgb_inplace;
-pub use texture_manager::TextureManager;
+pub use texture_manager::{premultiply_rgba8_srgb_inplace, TextureManager};
 pub use vertex::InstanceTransform as TransformInstance;
 
 #[cfg(feature = "render_metrics")]

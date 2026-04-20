@@ -1,11 +1,6 @@
 use super::*;
 use crate::gradient::types::Fill;
-
-#[derive(thiserror::Error, Debug)]
-pub enum DrawCommandError {
-    #[error("Shape with id {0} doesn't exist in the draw tree.")]
-    InvalidShapeId(usize),
-}
+use super::types::DrawCommandError;
 
 impl<'a> Renderer<'a> {
     pub fn add_shape(

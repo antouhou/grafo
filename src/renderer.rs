@@ -45,7 +45,7 @@ pub use construction::RendererCreationError;
 mod rendering;
 mod surface;
 mod traversal;
-mod types;
+pub(crate) mod types;
 
 pub type MathRect = lyon::math::Box2D;
 
