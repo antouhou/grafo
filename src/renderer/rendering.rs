@@ -103,7 +103,7 @@ impl<'a> Renderer<'a> {
                     effect_node_ids.push((node_id, depth));
                 }
             }
-            effect_node_ids.sort_by(|left, right| right.1.cmp(&left.1));
+            effect_node_ids.sort_by_key(|right| std::cmp::Reverse(right.1));
 
             let (width, height) = self.physical_size;
             let physical_size = self.physical_size;
