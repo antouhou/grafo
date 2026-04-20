@@ -74,8 +74,11 @@ impl<'a> Renderer<'a> {
             // Mark the parent as non-leaf since it now has a child.
             if let Some(parent) = self.draw_tree.get_mut(clip_to_shape) {
                 parent.set_not_leaf();
+                self.draw_tree.add_child(clip_to_shape, draw_command)
+            } else {
+                warn!("Invalid clip_to_shape id: {}. The node with this id doesn't exist in the draw tree.", clip_to_shape);
+                0
             }
-            self.draw_tree.add_child(clip_to_shape, draw_command)
         } else {
             // Adding to root — mark root as non-leaf.
             if let Some(root) = self.draw_tree.get_mut(0) {
