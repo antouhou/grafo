@@ -96,7 +96,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     ],
                     Stroke::new(0.0, Color::rgb(0, 0, 0)),
                 );
-                let background_id = renderer.add_shape(background, None, None);
+                let background_id = renderer.add_shape(background, None, None).unwrap();
                 renderer.set_shape_color(background_id, Some(Color::rgb(30, 30, 30)));
 
                 // A white rounded rect that we will texture
@@ -105,7 +105,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     BorderRadii::new(20.0),
                     Stroke::new(2.0, Color::rgb(200, 200, 200)),
                 );
-                let rect_id = renderer.add_shape(textured_rect, Some(background_id), None);
+                let rect_id = renderer
+                    .add_shape(textured_rect, Some(background_id), None)
+                    .unwrap();
                 renderer.set_shape_color(rect_id, Some(Color::rgb(255, 255, 255))); // white so texture shows un-tinted
                                                                                     // Previously this shape used an offset of (100, 100)
                 renderer.set_shape_transform(

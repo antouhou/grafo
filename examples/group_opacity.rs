@@ -102,7 +102,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(50.0, 50.0), (750.0, 550.0)],
                     Stroke::new(2.0, Color::BLACK),
                 );
-                let bg_id = renderer.add_shape(bg, None, None);
+                let bg_id = renderer.add_shape(bg, None, None).unwrap();
                 renderer.set_shape_color(bg_id, Some(Color::rgb(200, 200, 220)));
 
                 // ── Group 1: 50% opacity ─────────────────────────────────
@@ -110,7 +110,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(100.0, 100.0), (400.0, 350.0)],
                     Stroke::new(0.0, Color::TRANSPARENT),
                 );
-                let group1 = renderer.add_shape(group1_bg, None, None);
+                let group1 = renderer.add_shape(group1_bg, None, None).unwrap();
                 renderer.set_shape_color(group1, Some(Color::rgb(255, 100, 100)));
 
                 // Child 1: overlapping blue rectangle
@@ -118,7 +118,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(120.0, 120.0), (300.0, 250.0)],
                     Stroke::new(2.0, Color::BLACK),
                 );
-                let c1 = renderer.add_shape(child1, Some(group1), None);
+                let c1 = renderer.add_shape(child1, Some(group1), None).unwrap();
                 renderer.set_shape_color(c1, Some(Color::rgb(50, 100, 255)));
 
                 // Child 2: overlapping green rectangle
@@ -126,7 +126,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(200.0, 180.0), (380.0, 320.0)],
                     Stroke::new(2.0, Color::BLACK),
                 );
-                let c2 = renderer.add_shape(child2, Some(group1), None);
+                let c2 = renderer.add_shape(child2, Some(group1), None).unwrap();
                 renderer.set_shape_color(c2, Some(Color::rgb(50, 200, 50)));
 
                 // Attach 50% opacity to group1
@@ -140,14 +140,14 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(350.0, 100.0), (700.0, 350.0)],
                     Stroke::new(0.0, Color::TRANSPARENT),
                 );
-                let group2 = renderer.add_shape(group2_bg, None, None);
+                let group2 = renderer.add_shape(group2_bg, None, None).unwrap();
                 renderer.set_shape_color(group2, Some(Color::rgb(255, 200, 50)));
 
                 let child3 = Shape::rect(
                     [(370.0, 130.0), (680.0, 320.0)],
                     Stroke::new(2.0, Color::BLACK),
                 );
-                let c3 = renderer.add_shape(child3, Some(group2), None);
+                let c3 = renderer.add_shape(child3, Some(group2), None).unwrap();
                 renderer.set_shape_color(c3, Some(Color::rgb(128, 0, 200)));
 
                 let opacity2: f32 = 0.8;

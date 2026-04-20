@@ -1,3 +1,4 @@
+use super::types::DrawCommandError;
 use super::*;
 use crate::gradient::types::Fill;
 
@@ -7,7 +8,7 @@ impl<'a> Renderer<'a> {
         shape: impl Into<Shape>,
         clip_to_shape: Option<usize>,
         cache_key: Option<u64>,
-    ) -> usize {
+    ) -> Result<usize, DrawCommandError> {
         self.add_draw_command(
             DrawCommand::Shape(ShapeDrawData::new(shape, cache_key)),
             clip_to_shape,
@@ -33,7 +34,7 @@ impl<'a> Renderer<'a> {
         &mut self,
         cache_key: u64,
         clip_to_shape: Option<usize>,
-    ) -> usize {
+    ) -> Result<usize, DrawCommandError> {
         let draw_data = if let Some(cached) = self.shape_cache.get(&cache_key) {
             if cached.is_rect {
                 if let Some(bounds) = cached.rect_bounds {
@@ -67,21 +68,23 @@ impl<'a> Renderer<'a> {
         &mut self,
         draw_command: DrawCommand,
         clip_to_shape: Option<usize>,
-    ) -> usize {
+    ) -> Result<usize, DrawCommandError> {
         if self.draw_tree.is_empty() {
-            self.draw_tree.add_node(draw_command)
+            Ok(self.draw_tree.add_node(draw_command))
         } else if let Some(clip_to_shape) = clip_to_shape {
             // Mark the parent as non-leaf since it now has a child.
             if let Some(parent) = self.draw_tree.get_mut(clip_to_shape) {
                 parent.set_not_leaf();
+                Ok(self.draw_tree.add_child(clip_to_shape, draw_command))
+            } else {
+                Err(DrawCommandError::InvalidShapeId(clip_to_shape))
             }
-            self.draw_tree.add_child(clip_to_shape, draw_command)
         } else {
             // Adding to root — mark root as non-leaf.
             if let Some(root) = self.draw_tree.get_mut(0) {
                 root.set_not_leaf();
             }
-            self.draw_tree.add_child_to_root(draw_command)
+            Ok(self.draw_tree.add_child_to_root(draw_command))
         }
     }
 

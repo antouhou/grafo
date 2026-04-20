@@ -82,7 +82,7 @@
 //!             [(0.0, 0.0), (200.0, 100.0)],
 //!             Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
 //!         );
-//!         let rect_id = renderer.add_shape(rect, None, None);
+//!         let rect_id = renderer.add_shape(rect, None, None).expect("to add shape to the renderer");
 //!         // Set per-instance fill color (shapes are transparent by default)
 //!         renderer.set_shape_color(rect_id, Some(Color::rgb(0, 128, 255)));
 //!         renderer.set_shape_transform(rect_id, grafo::TransformInstance::identity());
@@ -161,14 +161,12 @@ pub use gradient::types::{
     GradientUnits, HueComponent, HueInterpolationMethod, LinearGradientDesc, LinearGradientLine,
     RadialGradientDesc, RadialGradientShape, RadialGradientSize, SpreadMode,
 };
-pub use renderer::MathRect;
-pub use renderer::Renderer;
-pub use renderer::RendererCreationError;
-pub use renderer::TextureLayer;
+pub use renderer::{
+    types::DrawCommandError, MathRect, Renderer, RendererCreationError, TextureLayer,
+};
 pub use shape::*;
 pub use stroke::Stroke;
-pub use texture_manager::premultiply_rgba8_srgb_inplace;
-pub use texture_manager::TextureManager;
+pub use texture_manager::{premultiply_rgba8_srgb_inplace, TextureManager};
 pub use vertex::InstanceTransform as TransformInstance;
 
 #[cfg(feature = "render_metrics")]

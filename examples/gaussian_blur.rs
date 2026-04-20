@@ -153,7 +153,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(30.0, 30.0), (770.0, 570.0)],
                     Stroke::new(2.0, Color::BLACK),
                 );
-                let bg_id = renderer.add_shape(bg, None, None);
+                let bg_id = renderer.add_shape(bg, None, None).unwrap();
                 renderer.set_shape_color(bg_id, Some(Color::rgb(240, 240, 245)));
 
                 // ── Label text (just a thin rectangle as a visual marker) ─
@@ -161,7 +161,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(310.0, 200.0), (750.0, 230.0)],
                     Stroke::new(1.0, Color::BLACK),
                 );
-                let l = renderer.add_shape(label, Some(bg_id), None);
+                let l = renderer.add_shape(label, Some(bg_id), None).unwrap();
                 renderer.set_shape_color(l, Some(Color::rgb(200, 200, 255)));
 
                 // ── Blurred group ────────────────────────────────────────
@@ -170,7 +170,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(80.0, 80.0), (500.0, 400.0)],
                     Stroke::new(0.0, Color::TRANSPARENT),
                 );
-                let group = renderer.add_shape(group_bg, None, None);
+                let group = renderer.add_shape(group_bg, None, None).unwrap();
                 renderer.set_shape_color(group, Some(Color::rgba(255, 100, 100, 100)));
 
                 // Child shapes inside the group
@@ -178,14 +178,14 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(100.0, 100.0), (300.0, 280.0)],
                     Stroke::new(3.0, Color::rgb(0, 0, 0)),
                 );
-                let c1 = renderer.add_shape(child1, Some(group), None);
+                let c1 = renderer.add_shape(child1, Some(group), None).unwrap();
                 renderer.set_shape_color(c1, Some(Color::rgb(50, 120, 255)));
 
                 let child2 = Shape::rect(
                     [(200.0, 180.0), (450.0, 360.0)],
                     Stroke::new(3.0, Color::rgb(0, 0, 0)),
                 );
-                let c2 = renderer.add_shape(child2, Some(group), None);
+                let c2 = renderer.add_shape(child2, Some(group), None).unwrap();
                 renderer.set_shape_color(c2, Some(Color::rgb(50, 220, 80)));
 
                 // Attach the blur effect with radius = 8 pixels
@@ -203,21 +203,21 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(80.0, 420.0), (500.0, 560.0)],
                     Stroke::new(0.0, Color::TRANSPARENT),
                 );
-                let sharp = renderer.add_shape(sharp_bg, None, None);
+                let sharp = renderer.add_shape(sharp_bg, None, None).unwrap();
                 renderer.set_shape_color(sharp, Some(Color::rgb(255, 100, 100)));
 
                 let sc1 = Shape::rect(
                     [(100.0, 430.0), (300.0, 550.0)],
                     Stroke::new(3.0, Color::rgb(0, 0, 0)),
                 );
-                let s1 = renderer.add_shape(sc1, Some(sharp), None);
+                let s1 = renderer.add_shape(sc1, Some(sharp), None).unwrap();
                 renderer.set_shape_color(s1, Some(Color::rgb(50, 120, 255)));
 
                 let sc2 = Shape::rect(
                     [(200.0, 440.0), (450.0, 550.0)],
                     Stroke::new(3.0, Color::rgb(0, 0, 0)),
                 );
-                let s2 = renderer.add_shape(sc2, Some(sharp), None);
+                let s2 = renderer.add_shape(sc2, Some(sharp), None).unwrap();
                 renderer.set_shape_color(s2, Some(Color::rgb(50, 220, 80)));
 
                 // ── Render ───────────────────────────────────────────────
