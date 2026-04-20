@@ -1,6 +1,6 @@
+use super::types::DrawCommandError;
 use super::*;
 use crate::gradient::types::Fill;
-use super::types::DrawCommandError;
 
 impl<'a> Renderer<'a> {
     pub fn add_shape(

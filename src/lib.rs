@@ -161,7 +161,9 @@ pub use gradient::types::{
     GradientUnits, HueComponent, HueInterpolationMethod, LinearGradientDesc, LinearGradientLine,
     RadialGradientDesc, RadialGradientShape, RadialGradientSize, SpreadMode,
 };
-pub use renderer::{MathRect, Renderer, RendererCreationError, TextureLayer, types::DrawCommandError};
+pub use renderer::{
+    types::DrawCommandError, MathRect, Renderer, RendererCreationError, TextureLayer,
+};
 pub use shape::*;
 pub use stroke::Stroke;
 pub use texture_manager::{premultiply_rgba8_srgb_inplace, TextureManager};
