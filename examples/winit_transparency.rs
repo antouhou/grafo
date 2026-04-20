@@ -72,7 +72,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(100.0, 100.0), (300.0, 200.0)],
                     Stroke::new(3.0, Color::BLACK),
                 );
-                let id = renderer.add_shape(rect, None, None);
+                let id = renderer.add_shape(rect, None, None).unwrap();
                 renderer.set_shape_color(id, Some(Color::rgb(255, 100, 50)));
 
                 // Create a rounded rectangle to test different shapes
@@ -81,7 +81,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     BorderRadii::new(50.0),
                     Stroke::new(2.0, Color::rgb(0, 100, 200)),
                 );
-                let rid = renderer.add_shape(rounded_rect, None, None);
+                let rid = renderer.add_shape(rounded_rect, None, None).unwrap();
                 renderer.set_shape_color(rid, Some(Color::rgb(100, 200, 255)));
 
                 // Render the frame

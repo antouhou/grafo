@@ -345,7 +345,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(0.0, 0.0), (logical_w, logical_h)],
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let background_id = renderer.add_shape(background, None, None);
+                let background_id = renderer.add_shape(background, None, None).unwrap();
                 renderer.set_shape_color(background_id, Some(Color::BLACK));
 
                 // Compute transforms in euclid space (same as before)
@@ -479,12 +479,12 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(2.0, Color::BLACK),
                 ));
 
-                let red = renderer.add_shape(red_shape, None, None);
-                let green = renderer.add_shape(green_shape, None, None);
-                let blue = renderer.add_shape(blue_shape, None, None);
-                let jelly = renderer.add_shape(jelly_shape, None, None);
-                let heart = renderer.add_shape(heart_shape, None, None);
-                let perspective = renderer.add_shape(perspective_shape, None, None);
+                let red = renderer.add_shape(red_shape, None, None).unwrap();
+                let green = renderer.add_shape(green_shape, None, None).unwrap();
+                let blue = renderer.add_shape(blue_shape, None, None).unwrap();
+                let jelly = renderer.add_shape(jelly_shape, None, None).unwrap();
+                let heart = renderer.add_shape(heart_shape, None, None).unwrap();
+                let perspective = renderer.add_shape(perspective_shape, None, None).unwrap();
 
                 // Set per-instance colors
                 renderer.set_shape_color(

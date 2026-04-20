@@ -101,7 +101,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     ],
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let background_id = renderer.add_shape(background, None, None);
+                let background_id = renderer.add_shape(background, None, None).unwrap();
                 renderer.set_shape_color(background_id, Some(Color::rgb(255, 255, 200)));
 
                 let red = Shape::rounded_rect(
@@ -109,7 +109,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     BorderRadii::new(0.0),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let red_id = renderer.add_shape(red, Some(background_id), None);
+                let red_id = renderer.add_shape(red, Some(background_id), None).unwrap();
                 renderer.set_shape_color(red_id, Some(Color::rgb(255, 0, 0)));
 
                 let green = Shape::rounded_rect(
@@ -117,7 +117,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     BorderRadii::new(0.0),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let green_id = renderer.add_shape(green, Some(red_id), None);
+                let green_id = renderer.add_shape(green, Some(red_id), None).unwrap();
                 renderer.set_shape_color(green_id, Some(Color::rgb(0, 255, 0)));
 
                 let blue = Shape::rounded_rect(
@@ -125,7 +125,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     BorderRadii::new(10.0),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let blue_id = renderer.add_shape(blue, Some(green_id), None);
+                let blue_id = renderer.add_shape(blue, Some(green_id), None).unwrap();
                 renderer.set_shape_color(blue_id, Some(Color::rgb(0, 0, 255)));
 
                 let yellow = Shape::rounded_rect(
@@ -133,7 +133,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     BorderRadii::new(0.0),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let yellow_id = renderer.add_shape(yellow, Some(green_id), None);
+                let yellow_id = renderer.add_shape(yellow, Some(green_id), None).unwrap();
                 renderer.set_shape_color(yellow_id, Some(Color::rgb(255, 255, 0)));
 
                 let white = Shape::rounded_rect(
@@ -141,7 +141,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     BorderRadii::new(0.0),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let white_id = renderer.add_shape(white, Some(red_id), None);
+                let white_id = renderer.add_shape(white, Some(red_id), None).unwrap();
                 renderer.set_shape_color(white_id, Some(Color::rgb(255, 255, 255)));
 
                 let shape_that_doesnt_fit = Shape::rounded_rect(
@@ -149,7 +149,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     BorderRadii::new(0.0),
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let doesnt_fit_id = renderer.add_shape(shape_that_doesnt_fit, Some(blue_id), None);
+                let doesnt_fit_id = renderer
+                    .add_shape(shape_that_doesnt_fit, Some(blue_id), None)
+                    .unwrap();
 
                 // ids were created above
 
@@ -191,9 +193,11 @@ impl<'a> ApplicationHandler for App<'a> {
                 let img_rect2 = img_rect1.clone();
                 let img_rect3 = img_rect1.clone();
 
-                let img_rect1_id = renderer.add_shape(img_rect1, Some(red_id), None);
-                let img_rect2_id = renderer.add_shape(img_rect2, Some(background_id), None);
-                let img_rect3_id = renderer.add_shape(img_rect3, None, None);
+                let img_rect1_id = renderer.add_shape(img_rect1, Some(red_id), None).unwrap();
+                let img_rect2_id = renderer
+                    .add_shape(img_rect2, Some(background_id), None)
+                    .unwrap();
+                let img_rect3_id = renderer.add_shape(img_rect3, None, None).unwrap();
 
                 renderer.set_shape_texture(img_rect1_id, Some(texture_id));
                 renderer.set_shape_texture(img_rect2_id, Some(texture_id));

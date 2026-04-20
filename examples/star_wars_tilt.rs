@@ -83,14 +83,16 @@ impl<'a> ApplicationHandler for App<'a> {
                     // Create shape if it doesn't exist yet
                     if self.rect_id.is_none() {
                         // We need some background TODO: mention this in the docs
-                        let background = renderer.add_shape(
-                            Shape::rect(
-                                [(0.0, 0.0), (width as f32, height as f32)],
-                                Stroke::new(2.0, Color::TRANSPARENT),
-                            ),
-                            None,
-                            None,
-                        );
+                        let background = renderer
+                            .add_shape(
+                                Shape::rect(
+                                    [(0.0, 0.0), (width as f32, height as f32)],
+                                    Stroke::new(2.0, Color::TRANSPARENT),
+                                ),
+                                None,
+                                None,
+                            )
+                            .unwrap();
                         renderer.set_shape_color(background, Some(Color::rgb(30, 30, 30)));
 
                         // Create a 100x100 rectangle (matching the HTML)
@@ -100,7 +102,7 @@ impl<'a> ApplicationHandler for App<'a> {
                             Stroke::new(2.0, Color::TRANSPARENT),
                         );
 
-                        let rect_id = renderer.add_shape(rect_shape, None, None);
+                        let rect_id = renderer.add_shape(rect_shape, None, None).unwrap();
 
                         // Set the fill color to gold
                         renderer.set_shape_color(rect_id, Some(Color::TRANSPARENT));
@@ -111,12 +113,15 @@ impl<'a> ApplicationHandler for App<'a> {
                             Shape::rect([(0.0, 0.0), (35.0, 80.0)], Stroke::new(1.0, Color::BLACK));
 
                         // TODO: clip
-                        let inner_rect_1 = renderer.add_shape(inner_rect_shape.clone(), None, None);
+                        let inner_rect_1 = renderer
+                            .add_shape(inner_rect_shape.clone(), None, None)
+                            .unwrap();
                         renderer.set_shape_color(inner_rect_1, Some(Color::rgb(125, 0, 0)));
                         self.inner_rect_1 = Some(inner_rect_1);
 
                         // TODO: clip
-                        let inner_rect_2 = renderer.add_shape(inner_rect_shape, None, None);
+                        let inner_rect_2 =
+                            renderer.add_shape(inner_rect_shape, None, None).unwrap();
                         renderer.set_shape_color(inner_rect_2, Some(Color::rgb(0, 125, 0)));
                         self.inner_rect_2 = Some(inner_rect_2);
                     }
