@@ -182,6 +182,7 @@ impl DrawCommand {
 }
 
 #[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum DrawCommandError {
     #[error("Shape with id {0} doesn't exist in the draw tree.")]
     InvalidShapeId(usize),
