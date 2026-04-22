@@ -813,20 +813,22 @@ pub(super) fn render_segments(
                                 // Non-clipping parent: draw as leaf, children inherit
                                 // the same stencil.
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
-                                with_shape_mut!(draw_command, shape => {
-                                    *shape.stencil_ref_mut() = Some(parent_stencil);
-                                    if !should_skip_visible_draw {
-                                        handle_leaf_draw_pass(
-                                            &mut render_pass,
-                                            &mut currently_set_pipeline,
-                                            &mut bound_texture_state,
-                                            stencil_stack,
-                                            shape,
-                                            pipelines,
-                                            buffers,
-                                        );
-                                    }
-                                });
+                                if !draw_command.is_clip_rect() {
+                                    with_shape_mut!(draw_command, shape => {
+                                        *shape.stencil_ref_mut() = Some(parent_stencil);
+                                        if !should_skip_visible_draw {
+                                            handle_leaf_draw_pass(
+                                                &mut render_pass,
+                                                &mut currently_set_pipeline,
+                                                &mut bound_texture_state,
+                                                stencil_stack,
+                                                shape,
+                                                pipelines,
+                                                buffers,
+                                            );
+                                        }
+                                    });
+                                }
                                 stencil_stack.push(parent_stencil);
                                 clip_kind_stack.push(ClipKind::NonClipping);
                             } else if let Some(scissor_rect) =

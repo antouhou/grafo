@@ -68,6 +68,22 @@ impl From<TextureLayer> for usize {
     }
 }
 
+/// Controls whether a shape clips descendants attached to it in the draw tree.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
+pub enum ShapeOverflow {
+    /// Descendants are clipped to this shape. This is the default.
+    #[default]
+    Hidden,
+    /// Descendants can render outside this shape, while still inheriting ancestor clips.
+    Visible,
+}
+
+impl ShapeOverflow {
+    pub(crate) fn clips_children(self) -> bool {
+        matches!(self, ShapeOverflow::Hidden)
+    }
+}
+
 /// The renderer for the Grafo library. This is the main struct used to render shapes and images.
 pub struct Renderer<'a> {
     // Window information

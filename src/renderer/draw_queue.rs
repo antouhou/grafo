@@ -7,32 +7,40 @@ fn clip_rect_supports_transform(transform: InstanceTransform) -> bool {
 }
 
 impl<'a> Renderer<'a> {
+    /// Adds a shape to the draw tree.
+    ///
+    /// When `parent_shape_id` is `Some`, the new shape is attached as a child of that node.
+    /// Children are clipped to their parent unless the parent uses [`ShapeOverflow::Visible`].
     pub fn add_shape(
         &mut self,
         shape: impl Into<Shape>,
-        clip_to_shape: Option<usize>,
+        parent_shape_id: Option<usize>,
         cache_key: Option<u64>,
     ) -> Result<usize, DrawCommandError> {
         self.add_draw_command(
             DrawCommand::Shape(ShapeDrawData::new(shape, cache_key)),
-            clip_to_shape,
+            parent_shape_id,
         )
     }
 
     /// Adds an axis-aligned scissor clipping rectangle without preparing geometry.
     ///
-    /// This node clips its children like a transparent rect parent when its transform
-    /// preserves axis alignment. Rotated, skewed, or perspective transforms are
-    /// rejected by the transform setters because this node intentionally has no
-    /// geometry for stencil fallback.
+    /// This node clips its children like a transparent rect parent by default when its
+    /// transform preserves axis alignment. Rotated, skewed, or perspective transforms are
+    /// rejected by the transform setters because this node intentionally has no geometry
+    /// for stencil fallback. Use [`Renderer::set_shape_overflow`] with
+    /// [`ShapeOverflow::Visible`] when the node should only group descendants.
+    ///
+    /// When `parent_shape_id` is `Some`, the clipping rectangle is attached as a child of
+    /// that node and inherits ancestor clips.
     pub fn add_clipping_rect(
         &mut self,
         rect_bounds: [(f32, f32); 2],
-        clip_to_shape: Option<usize>,
+        parent_shape_id: Option<usize>,
     ) -> Result<usize, DrawCommandError> {
         self.add_draw_command(
             DrawCommand::ClipRect(ClipRectDrawData::new(rect_bounds)),
-            clip_to_shape,
+            parent_shape_id,
         )
     }
 
@@ -51,10 +59,14 @@ impl<'a> Renderer<'a> {
         self.shape_cache.insert(cache_key, cached_shape);
     }
 
+    /// Adds a previously loaded cached shape to the draw tree.
+    ///
+    /// When `parent_shape_id` is `Some`, the cached shape is attached as a child of that node.
+    /// Children are clipped to their parent unless the parent uses [`ShapeOverflow::Visible`].
     pub fn add_cached_shape_to_the_render_queue(
         &mut self,
         cache_key: u64,
-        clip_to_shape: Option<usize>,
+        parent_shape_id: Option<usize>,
     ) -> Result<usize, DrawCommandError> {
         let draw_data = if let Some(cached) = self.shape_cache.get(&cache_key) {
             if cached.is_rect {
@@ -69,7 +81,7 @@ impl<'a> Renderer<'a> {
         } else {
             CachedShapeDrawData::new(cache_key)
         };
-        self.add_draw_command(DrawCommand::CachedShape(draw_data), clip_to_shape)
+        self.add_draw_command(DrawCommand::CachedShape(draw_data), parent_shape_id)
     }
 
     pub fn texture_manager(&self) -> &TextureManager {
@@ -89,7 +101,7 @@ impl<'a> Renderer<'a> {
     fn add_draw_command(
         &mut self,
         draw_command: DrawCommand,
-        clip_to_shape: Option<usize>,
+        parent_shape_id: Option<usize>,
     ) -> Result<usize, DrawCommandError> {
         let has_prepare_geometry = draw_command.has_prepare_geometry();
         if self.draw_tree.is_empty() {
@@ -98,17 +110,17 @@ impl<'a> Renderer<'a> {
                 self.geometry_node_ids.push(node_id);
             }
             Ok(node_id)
-        } else if let Some(clip_to_shape) = clip_to_shape {
+        } else if let Some(parent_shape_id) = parent_shape_id {
             // Mark the parent as non-leaf since it now has a child.
-            if let Some(parent) = self.draw_tree.get_mut(clip_to_shape) {
+            if let Some(parent) = self.draw_tree.get_mut(parent_shape_id) {
                 parent.set_not_leaf();
-                let node_id = self.draw_tree.add_child(clip_to_shape, draw_command);
+                let node_id = self.draw_tree.add_child(parent_shape_id, draw_command);
                 if has_prepare_geometry {
                     self.geometry_node_ids.push(node_id);
                 }
                 Ok(node_id)
             } else {
-                Err(DrawCommandError::InvalidShapeId(clip_to_shape))
+                Err(DrawCommandError::InvalidShapeId(parent_shape_id))
             }
         } else {
             // Adding to root — mark root as non-leaf.
@@ -152,6 +164,38 @@ impl<'a> Renderer<'a> {
             return Err(DrawCommandError::UnsupportedClipRectTransform(node_id));
         }
         draw_command.set_transform(transform);
+        Ok(())
+    }
+
+    /// Sets whether a shape or clipping rectangle clips child nodes attached to it.
+    ///
+    /// [`ShapeOverflow::Hidden`] clips descendants to this shape, while
+    /// [`ShapeOverflow::Visible`] lets descendants render outside this shape and inherit the
+    /// nearest ancestor clip instead.
+    pub fn set_shape_overflow(
+        &mut self,
+        node_id: usize,
+        overflow: ShapeOverflow,
+    ) -> Result<(), DrawCommandError> {
+        let draw_command = self
+            .draw_tree
+            .get_mut(node_id)
+            .ok_or(DrawCommandError::InvalidShapeId(node_id))?;
+        draw_command.set_clips_children(overflow.clips_children());
+        Ok(())
+    }
+
+    /// Same as for set_shape_overflow, but you can pass the boolean directly
+    pub fn set_clips_children(
+        &mut self,
+        node_id: usize,
+        clips_children: bool,
+    ) -> Result<(), DrawCommandError> {
+        let draw_command = self
+            .draw_tree
+            .get_mut(node_id)
+            .ok_or(DrawCommandError::InvalidShapeId(node_id))?;
+        draw_command.set_clips_children(clips_children);
         Ok(())
     }
 

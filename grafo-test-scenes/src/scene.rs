@@ -2,7 +2,7 @@ use grafo::{
     BorderRadii, Color, ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor,
     GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
     LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientShape,
-    RadialGradientSize, Renderer, Shape, SpreadMode, Stroke, TransformInstance,
+    RadialGradientSize, Renderer, Shape, ShapeOverflow, SpreadMode, Stroke, TransformInstance,
 };
 
 use crate::expectations::PixelExpectation;
@@ -103,6 +103,8 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_47_gradient_nonleaf_stencil(renderer));
     expectations.extend(tile_48_gradient_state_leak(renderer));
     expectations.extend(tile_49_conic_quadrant_colors(renderer));
+    expectations.extend(tile_50_overflow_visible_delegates_to_ancestor(renderer));
+    expectations.extend(tile_51_clip_rect_overflow_visible_container(renderer));
 
     expectations
 }
@@ -2893,6 +2895,135 @@ fn tile_49_conic_quadrant_colors(renderer: &mut Renderer) -> Vec<PixelExpectatio
             0,
             40,
             "t49_top_yellow_270deg",
+        ),
+    ]
+}
+
+/// Tile 50 — Overflow visible: children skip the immediate parent clip while
+/// still inheriting the nearest clipping ancestor.
+fn tile_50_overflow_visible_delegates_to_ancestor(
+    renderer: &mut Renderer,
+) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(50);
+
+    let outer = Shape::rounded_rect(
+        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
+        BorderRadii::new(12.0),
+        Stroke::default(),
+    );
+    let outer_id = renderer.add_shape(outer, None, None).unwrap();
+    renderer
+        .set_shape_color(outer_id, Some(Color::rgb(180, 180, 220)))
+        .unwrap();
+
+    let middle = Shape::rounded_rect(
+        [(ox + 25.0, oy + 25.0), (ox + 55.0, oy + 55.0)],
+        BorderRadii::new(6.0),
+        Stroke::default(),
+    );
+    let middle_id = renderer.add_shape(middle, Some(outer_id), None).unwrap();
+    renderer
+        .set_shape_color(middle_id, Some(Color::rgb(100, 200, 120)))
+        .unwrap();
+    renderer
+        .set_shape_overflow(middle_id, ShapeOverflow::Visible)
+        .unwrap();
+
+    let child = Shape::rect(
+        [(ox + 0.0, oy + 35.0), (ox + 80.0, oy + 50.0)],
+        Stroke::default(),
+    );
+    let child_id = renderer.add_shape(child, Some(middle_id), None).unwrap();
+    renderer
+        .set_shape_color(child_id, Some(Color::rgb(220, 60, 60)))
+        .unwrap();
+
+    vec![
+        PixelExpectation::opaque(
+            ox as u32 + 15,
+            oy as u32 + 42,
+            220,
+            60,
+            60,
+            "t50_child_visible_outside_middle",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 40,
+            oy as u32 + 42,
+            220,
+            60,
+            60,
+            "t50_child_over_middle",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 2,
+            oy as u32 + 42,
+            255,
+            255,
+            255,
+            "t50_outer_still_clips_child",
+        ),
+    ]
+}
+
+/// Tile 51 — A clipping rectangle can act as a non-clipping container while
+/// descendants still inherit clipping from an ancestor.
+fn tile_51_clip_rect_overflow_visible_container(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(51);
+
+    let outer = Shape::rounded_rect(
+        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
+        BorderRadii::new(12.0),
+        Stroke::default(),
+    );
+    let outer_id = renderer.add_shape(outer, None, None).unwrap();
+    renderer
+        .set_shape_color(outer_id, Some(Color::rgb(180, 180, 220)))
+        .unwrap();
+
+    let container_id = renderer
+        .add_clipping_rect(
+            [(ox + 25.0, oy + 25.0), (ox + 55.0, oy + 55.0)],
+            Some(outer_id),
+        )
+        .unwrap();
+    renderer
+        .set_shape_overflow(container_id, ShapeOverflow::Visible)
+        .unwrap();
+
+    let child = Shape::rect(
+        [(ox + 0.0, oy + 35.0), (ox + 80.0, oy + 50.0)],
+        Stroke::default(),
+    );
+    let child_id = renderer.add_shape(child, Some(container_id), None).unwrap();
+    renderer
+        .set_shape_color(child_id, Some(Color::rgb(70, 80, 220)))
+        .unwrap();
+
+    vec![
+        PixelExpectation::opaque(
+            ox as u32 + 15,
+            oy as u32 + 42,
+            70,
+            80,
+            220,
+            "t51_child_visible_outside_clip_rect",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 40,
+            oy as u32 + 42,
+            70,
+            80,
+            220,
+            "t51_child_inside_clip_rect",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 2,
+            oy as u32 + 42,
+            255,
+            255,
+            255,
+            "t51_outer_still_clips_child",
         ),
     ]
 }
