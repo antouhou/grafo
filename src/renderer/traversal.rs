@@ -1,17 +1,13 @@
-use super::types::{trim_hash_map_if_needed, trim_vector_if_needed, TraversalEvent};
+use super::types::{trim_vector_if_needed, TraversalEvent};
 use super::*;
 
 const MAX_TRAVERSAL_EVENTS_CAPACITY: usize = 32_768;
 const MAX_TRAVERSAL_STACK_CAPACITY: usize = 16_384;
-const MAX_TRAVERSAL_MAP_CAPACITY: usize = 16_384;
 
 #[derive(Default)]
 pub(super) struct TraversalScratch {
     events: Vec<TraversalEvent>,
-    stencil_refs: HashMap<usize, u32>,
-    parent_stencils: HashMap<usize, u32>,
     skipped_stack: Vec<usize>,
-    stencil_stack: Vec<u32>,
     excluded_depth: usize,
 }
 
@@ -22,33 +18,17 @@ impl TraversalScratch {
 
     pub(super) fn begin(&mut self) {
         self.events.clear();
-        self.stencil_refs.clear();
-        self.parent_stencils.clear();
         self.skipped_stack.clear();
-        self.stencil_stack.clear();
         self.excluded_depth = 0;
     }
 
     pub(super) fn trim_to_policy(&mut self) {
         trim_vector_if_needed(&mut self.events, MAX_TRAVERSAL_EVENTS_CAPACITY);
         trim_vector_if_needed(&mut self.skipped_stack, MAX_TRAVERSAL_STACK_CAPACITY);
-        trim_vector_if_needed(&mut self.stencil_stack, MAX_TRAVERSAL_STACK_CAPACITY);
-        trim_hash_map_if_needed(&mut self.stencil_refs, MAX_TRAVERSAL_MAP_CAPACITY);
-        trim_hash_map_if_needed(&mut self.parent_stencils, MAX_TRAVERSAL_MAP_CAPACITY);
     }
 
     pub(super) fn events(&self) -> &[TraversalEvent] {
         &self.events
-    }
-
-    #[cfg(test)]
-    pub(super) fn stencil_refs(&self) -> &HashMap<usize, u32> {
-        &self.stencil_refs
-    }
-
-    #[cfg(test)]
-    pub(super) fn parent_stencils(&self) -> &HashMap<usize, u32> {
-        &self.parent_stencils
     }
 }
 
@@ -110,11 +90,6 @@ pub(super) fn plan_traversal_in_place(
             return;
         }
 
-        let parent_stencil = state.stencil_stack.last().copied().unwrap_or(0);
-        let this_stencil = parent_stencil + 1;
-        state.parent_stencils.insert(node_id, parent_stencil);
-        state.stencil_refs.insert(node_id, this_stencil);
-        state.stencil_stack.push(this_stencil);
         state.events.push(TraversalEvent::Pre(node_id));
     };
 
@@ -128,7 +103,6 @@ pub(super) fn plan_traversal_in_place(
 
             if state.skipped_stack.last().copied() == Some(node_id) {
                 state.skipped_stack.pop();
-                state.stencil_stack.pop();
                 state.events.push(TraversalEvent::Post(node_id));
                 return;
             }
@@ -137,7 +111,6 @@ pub(super) fn plan_traversal_in_place(
                 return;
             }
 
-            state.stencil_stack.pop();
             state.events.push(TraversalEvent::Post(node_id));
         };
 
@@ -182,12 +155,11 @@ mod tests {
     }
 
     #[test]
-    fn plan_traversal_produces_balanced_events_and_stencil_refs() {
+    fn plan_traversal_produces_balanced_events() {
         let mut tree = easy_tree::Tree::new();
         let root = tree.add_node(DrawCommand::CachedShape(CachedShapeDrawData::new(1)));
         let child = tree.add_child(root, DrawCommand::CachedShape(CachedShapeDrawData::new(2)));
-        let grandchild =
-            tree.add_child(child, DrawCommand::CachedShape(CachedShapeDrawData::new(3)));
+        tree.add_child(child, DrawCommand::CachedShape(CachedShapeDrawData::new(3)));
 
         let effect_results: HashMap<usize, wgpu::BindGroup> = HashMap::new();
         let mut traversal_scratch = TraversalScratch::new();
@@ -200,15 +172,6 @@ mod tests {
         );
 
         assert_eq!(traversal_scratch.events().len(), 6);
-        assert_eq!(traversal_scratch.stencil_refs().get(&root), Some(&1));
-        assert_eq!(traversal_scratch.stencil_refs().get(&child), Some(&2));
-        assert_eq!(traversal_scratch.stencil_refs().get(&grandchild), Some(&3));
-        assert_eq!(traversal_scratch.parent_stencils().get(&root), Some(&0));
-        assert_eq!(traversal_scratch.parent_stencils().get(&child), Some(&1));
-        assert_eq!(
-            traversal_scratch.parent_stencils().get(&grandchild),
-            Some(&2)
-        );
     }
 
     #[test]
@@ -229,8 +192,6 @@ mod tests {
             &mut traversal_scratch,
         );
         let events_capacity = traversal_scratch.events.capacity();
-        let refs_capacity = traversal_scratch.stencil_refs.capacity();
-        let parents_capacity = traversal_scratch.parent_stencils.capacity();
 
         plan_traversal_in_place(
             &mut tree,
@@ -240,8 +201,6 @@ mod tests {
             &mut traversal_scratch,
         );
         assert!(traversal_scratch.events.capacity() >= events_capacity);
-        assert!(traversal_scratch.stencil_refs.capacity() >= refs_capacity);
-        assert!(traversal_scratch.parent_stencils.capacity() >= parents_capacity);
     }
 
     #[test]

@@ -35,7 +35,7 @@ fn assert_pixels_match(pixel_buffer: &[u8], expectations: &[grafo_test_scenes::P
     }
 }
 
-/// Main regression test — renders all 38 tiles and validates pixel expectations.
+/// Main regression test — renders all shared visual-regression tiles.
 #[test]
 fn main_scene_pixel_expectations() {
     let Some(mut renderer) = create_headless_renderer() else {

@@ -23,6 +23,7 @@ pub(super) struct ClipRectDrawData {
     pub(super) rect_bounds: [(f32, f32); 2],
     pub(super) transform: Option<InstanceTransform>,
     pub(super) is_leaf: bool,
+    pub(super) clips_children: bool,
 }
 
 impl ClipRectDrawData {
@@ -31,6 +32,7 @@ impl ClipRectDrawData {
             rect_bounds,
             transform: None,
             is_leaf: true,
+            clips_children: true,
         }
     }
 }
@@ -188,7 +190,17 @@ impl DrawCommand {
         match self {
             DrawCommand::Shape(shape) => shape.clips_children(),
             DrawCommand::CachedShape(cached_shape) => cached_shape.clips_children(),
-            DrawCommand::ClipRect(_) => true,
+            DrawCommand::ClipRect(clip_rect) => clip_rect.clips_children,
+        }
+    }
+
+    pub(super) fn set_clips_children(&mut self, clips_children: bool) {
+        match self {
+            DrawCommand::Shape(shape) => shape.set_clips_children(clips_children),
+            DrawCommand::CachedShape(cached_shape) => {
+                cached_shape.set_clips_children(clips_children)
+            }
+            DrawCommand::ClipRect(clip_rect) => clip_rect.clips_children = clips_children,
         }
     }
 

@@ -14,6 +14,7 @@ range of applications, from simple graphical interfaces to complex rendering eng
 * Shape Rendering: Create and render vector shapes (with optional texture layers).
 * (Text rendering was previously integrated; it has now been extracted into a separate crate - https://crates.io/crates/protextinator)
 * Stencil Operations: Advanced stencil operations for clipping and masking.
+* Shape hierarchy: Attach shapes to parent nodes and choose whether each parent clips descendants.
 * Per-instance data: Set transform and color per shape instance (no fill color stored on geometry).
 * Antialiasing: You can choose between built-in support of inflated geometry or MSAA
 
@@ -54,6 +55,43 @@ renderer.set_shape_transform(id, grafo::TransformInstance::translation(100.0, 10
 // Render one frame (typical winit loop would call this on RedrawRequested)
 renderer.render().unwrap();
 renderer.clear_draw_queue();
+```
+
+### Shape hierarchy and overflow
+
+The second argument to `add_shape` and `add_clipping_rect` is the optional
+`parent_shape_id`. A child is drawn inside that parent in the draw tree.
+By default, children are clipped to their parent:
+
+```rust
+use grafo::{Color, Shape, ShapeOverflow, Stroke};
+
+let parent_id = renderer
+    .add_shape(
+        Shape::rect([(0.0, 0.0), (120.0, 80.0)], Stroke::default()),
+        None,
+        None,
+    )
+    .unwrap();
+
+let child_id = renderer
+    .add_shape(
+        Shape::rect([(80.0, 20.0), (160.0, 60.0)], Stroke::default()),
+        Some(parent_id),
+        None,
+    )
+    .unwrap();
+
+renderer.set_shape_color(parent_id, Some(Color::rgb(220, 220, 220))).unwrap();
+renderer.set_shape_color(child_id, Some(Color::rgb(220, 80, 80))).unwrap();
+
+// Let the child render outside `parent_id`, while still respecting any ancestor clip.
+renderer
+    .set_shape_overflow(parent_id, ShapeOverflow::Visible)
+    .unwrap();
+
+// The same call works for ids returned by `add_clipping_rect`, so clip rectangles
+// can also be used as non-clipping containers.
 ```
 
 ## Examples

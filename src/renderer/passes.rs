@@ -813,20 +813,22 @@ pub(super) fn render_segments(
                                 // Non-clipping parent: draw as leaf, children inherit
                                 // the same stencil.
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
-                                with_shape_mut!(draw_command, shape => {
-                                    *shape.stencil_ref_mut() = Some(parent_stencil);
-                                    if !should_skip_visible_draw {
-                                        handle_leaf_draw_pass(
-                                            &mut render_pass,
-                                            &mut currently_set_pipeline,
-                                            &mut bound_texture_state,
-                                            stencil_stack,
-                                            shape,
-                                            pipelines,
-                                            buffers,
-                                        );
-                                    }
-                                });
+                                if !draw_command.is_clip_rect() {
+                                    with_shape_mut!(draw_command, shape => {
+                                        *shape.stencil_ref_mut() = Some(parent_stencil);
+                                        if !should_skip_visible_draw {
+                                            handle_leaf_draw_pass(
+                                                &mut render_pass,
+                                                &mut currently_set_pipeline,
+                                                &mut bound_texture_state,
+                                                stencil_stack,
+                                                shape,
+                                                pipelines,
+                                                buffers,
+                                            );
+                                        }
+                                    });
+                                }
                                 stencil_stack.push(parent_stencil);
                                 clip_kind_stack.push(ClipKind::NonClipping);
                             } else if let Some(scissor_rect) =
@@ -1102,10 +1104,14 @@ pub(super) fn render_segments(
             render_pass.set_stencil_reference(this_stencil);
             render_pass.draw(0..3, 0..1);
 
-            // Determine whether the backdrop node has children.
+            // Determine whether the backdrop node has children and whether those children should
+            // inherit this node's stencil or the nearest ancestor stencil.
             let backdrop_is_leaf = draw_tree
                 .get(backdrop_node_id)
                 .is_none_or(|cmd| cmd.is_leaf());
+            let backdrop_clips_children = draw_tree
+                .get(backdrop_node_id)
+                .is_none_or(|cmd| cmd.clips_children());
 
             // Step 3: Color draw (Equal + Keep).
             if let Some(draw_command) = draw_tree.get_mut(backdrop_node_id) {
@@ -1163,10 +1169,9 @@ pub(super) fn render_segments(
                     let end = (idx_range.0 + idx_range.1) as u32;
                     render_pass.draw_indexed(start..end, 0, 0..1);
 
-                    // Step 4: Decrement stencil — only for leaf backdrop nodes.
-                    // Non-leaf nodes keep the stencil at `this_stencil` so
-                    // children are clipped; the normal Post handler decrements.
-                    if backdrop_is_leaf {
+                    // Step 4: Decrement stencil when no child traversal should inherit this
+                    // node's stencil. Non-leaf clipping nodes keep `this_stencil` until Post.
+                    if backdrop_is_leaf || !backdrop_clips_children {
                         render_pass.set_pipeline(pipelines.decrementing_pipeline);
                         render_pass.set_bind_group(0, pipelines.decrementing_bind_group, &[]);
                         render_pass.set_bind_group(
@@ -1192,13 +1197,17 @@ pub(super) fn render_segments(
             if backdrop_is_leaf {
                 // Leaf: skip both Pre and Post events.
                 event_idx += 2;
-            } else {
-                // Non-leaf: children must still be rendered, clipped by the
-                // backdrop shape's stencil. Push stencil/clip state and
-                // advance past only the Pre event — children and the
-                // matching Post will be processed by the normal loop.
+            } else if backdrop_clips_children {
+                // Non-leaf clipping node: children inherit the backdrop shape's stencil. The
+                // normal Post handler decrements after descendants render.
                 stencil_stack.push(this_stencil);
                 clip_kind_stack.push(ClipKind::Stencil);
+                event_idx += 1;
+            } else {
+                // Non-leaf visible-overflow node: the backdrop effect itself used this node's
+                // stencil, but descendants inherit the nearest ancestor clip.
+                stencil_stack.push(parent_stencil);
+                clip_kind_stack.push(ClipKind::NonClipping);
                 event_idx += 1;
             }
         }

@@ -16,6 +16,7 @@
 //! * Shape Rendering: Create and render complex vector shapes.
 //! * Shape Texturing: Apply up to two texture layers per shape with hierarchical clipping.
 //! * Stencil Operations: Advanced stencil operations for clipping and masking.
+//! * Shape Hierarchy: Attach shapes to parent nodes and choose whether each parent clips children.
 //!
 //! Grafo [available on crates.io](https://crates.io/crates/grafo), and
 //! [API Documentation is available on docs.rs](https://docs.rs/grafo/).
@@ -86,6 +87,7 @@
 //!         // Set per-instance fill color (shapes are transparent by default)
 //!         renderer.set_shape_color(rect_id, Some(Color::rgb(0, 128, 255))).unwrap();
 //!         renderer.set_shape_transform(rect_id, grafo::TransformInstance::identity()).unwrap();
+//!         renderer.set_shape_overflow(rect_id, grafo::ShapeOverflow::Hidden).unwrap();
 //!
 //!         self.window = Some(window);
 //!         self.renderer = Some(renderer);
@@ -162,7 +164,7 @@ pub use gradient::types::{
     RadialGradientDesc, RadialGradientShape, RadialGradientSize, SpreadMode,
 };
 pub use renderer::{
-    types::DrawCommandError, MathRect, Renderer, RendererCreationError, TextureLayer,
+    types::DrawCommandError, MathRect, Renderer, RendererCreationError, ShapeOverflow, TextureLayer,
 };
 pub use shape::*;
 pub use stroke::Stroke;

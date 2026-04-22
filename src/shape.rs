@@ -1486,6 +1486,7 @@ pub(crate) trait DrawShapeCommand {
     fn has_gradient_fill(&self) -> bool;
     fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>>;
     fn clips_children(&self) -> bool;
+    fn set_clips_children(&mut self, clips_children: bool);
     fn is_rect(&self) -> bool;
     fn rect_bounds(&self) -> Option<[(f32, f32); 2]>;
 }
@@ -1569,6 +1570,11 @@ impl DrawShapeCommand for ShapeDrawData {
     #[inline]
     fn clips_children(&self) -> bool {
         self.clips_children
+    }
+
+    #[inline]
+    fn set_clips_children(&mut self, clips_children: bool) {
+        self.clips_children = clips_children;
     }
 
     #[inline]
@@ -1664,6 +1670,11 @@ impl DrawShapeCommand for CachedShapeDrawData {
     #[inline]
     fn clips_children(&self) -> bool {
         self.clips_children
+    }
+
+    #[inline]
+    fn set_clips_children(&mut self, clips_children: bool) {
+        self.clips_children = clips_children;
     }
 
     #[inline]
