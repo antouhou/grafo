@@ -3095,6 +3095,23 @@ fn tile_52_backdrop_overflow_visible_children(renderer: &mut Renderer) -> Vec<Pi
             70,
             "t52_child_inside_backdrop",
         ),
+        PixelExpectation::opaque_approx(
+            ox as u32 + 40,
+            oy as u32 + 30,
+            207,
+            207,
+            231,
+            25,
+            "t52_panel_pass_inside_outside_child",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 40,
+            oy as u32 + 22,
+            185,
+            185,
+            220,
+            "t52_outside_panel_shows_outer",
+        ),
         PixelExpectation::opaque(
             ox as u32 + 2,
             oy as u32 + 42,
