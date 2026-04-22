@@ -157,7 +157,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(2.0, Color::BLACK),
                 );
                 let bg_id = renderer.add_shape(bg, None, None).unwrap();
-                renderer.set_shape_color(bg_id, Some(Color::rgb(245, 245, 250)));
+                renderer
+                    .set_shape_color(bg_id, Some(Color::rgb(245, 245, 250)))
+                    .unwrap();
 
                 // Colorful rectangles that will be visible through the panel
                 let r1 = Shape::rect(
@@ -165,28 +167,36 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(2.0, Color::rgb(0, 0, 0)),
                 );
                 let r1_id = renderer.add_shape(r1, Some(bg_id), None).unwrap();
-                renderer.set_shape_color(r1_id, Some(Color::rgb(220, 50, 50)));
+                renderer
+                    .set_shape_color(r1_id, Some(Color::rgb(220, 50, 50)))
+                    .unwrap();
 
                 let r2 = Shape::rect(
                     [(180.0, 160.0), (420.0, 380.0)],
                     Stroke::new(2.0, Color::rgb(0, 0, 0)),
                 );
                 let r2_id = renderer.add_shape(r2, Some(bg_id), None).unwrap();
-                renderer.set_shape_color(r2_id, Some(Color::rgb(50, 160, 50)));
+                renderer
+                    .set_shape_color(r2_id, Some(Color::rgb(50, 160, 50)))
+                    .unwrap();
 
                 let r3 = Shape::rect(
                     [(340.0, 100.0), (560.0, 300.0)],
                     Stroke::new(2.0, Color::rgb(0, 0, 0)),
                 );
                 let r3_id = renderer.add_shape(r3, Some(bg_id), None).unwrap();
-                renderer.set_shape_color(r3_id, Some(Color::rgb(50, 80, 220)));
+                renderer
+                    .set_shape_color(r3_id, Some(Color::rgb(50, 80, 220)))
+                    .unwrap();
 
                 let r4 = Shape::rect(
                     [(100.0, 350.0), (700.0, 540.0)],
                     Stroke::new(2.0, Color::rgb(0, 0, 0)),
                 );
                 let r4_id = renderer.add_shape(r4, Some(bg_id), None).unwrap();
-                renderer.set_shape_color(r4_id, Some(Color::rgb(200, 180, 50)));
+                renderer
+                    .set_shape_color(r4_id, Some(Color::rgb(200, 180, 50)))
+                    .unwrap();
 
                 // ── Frosted-glass panel with backdrop blur ───────────────
                 // This shape is rendered on top; the backdrop effect blurs
@@ -197,7 +207,9 @@ impl<'a> ApplicationHandler for App<'a> {
                 );
                 let panel_id = renderer.add_shape(panel, None, None).unwrap();
                 // Semi-transparent white so the blurred background shows through
-                renderer.set_shape_color(panel_id, Some(Color::rgba(255, 255, 255, 100)));
+                renderer
+                    .set_shape_color(panel_id, Some(Color::rgba(255, 255, 255, 100)))
+                    .unwrap();
 
                 // To test that clipping works correctly with the blur
                 let panel_content = Shape::rounded_rect(
@@ -208,7 +220,9 @@ impl<'a> ApplicationHandler for App<'a> {
                 let content_id = renderer
                     .add_shape(panel_content, Some(panel_id), None)
                     .unwrap();
-                renderer.set_shape_color(content_id, Some(Color::rgba(200, 220, 255, 120)));
+                renderer
+                    .set_shape_color(content_id, Some(Color::rgba(200, 220, 255, 120)))
+                    .unwrap();
 
                 let blur_params = BlurParams {
                     radius: 12.0,
@@ -229,7 +243,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(2.0, Color::rgb(80, 80, 80)),
                 );
                 let panel2_id = renderer.add_shape(panel2, None, None).unwrap();
-                renderer.set_shape_color(panel2_id, Some(Color::rgba(200, 220, 255, 120)));
+                renderer
+                    .set_shape_color(panel2_id, Some(Color::rgba(200, 220, 255, 120)))
+                    .unwrap();
 
                 let blur_params2 = BlurParams {
                     radius: 20.0,

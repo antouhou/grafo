@@ -74,7 +74,7 @@ fn draw_card(
         Stroke::new(0.0, Color::TRANSPARENT),
     );
     let card = renderer.add_shape(card_shape, None, None).unwrap();
-    renderer.set_shape_color(card, Some(card_color));
+    renderer.set_shape_color(card, Some(card_color)).unwrap();
 
     let params = BoxShadowParams {
         box_min: [x, y],
@@ -245,7 +245,9 @@ impl<'a> ApplicationHandler for App<'a> {
                 let scene_bg =
                     Shape::rect([(0.0, 0.0), (pw, ph)], Stroke::new(0.0, Color::TRANSPARENT));
                 let bg_id = renderer.add_shape(scene_bg, None, None).unwrap();
-                renderer.set_shape_color(bg_id, Some(Color::rgb(235, 235, 240)));
+                renderer
+                    .set_shape_color(bg_id, Some(Color::rgb(235, 235, 240)))
+                    .unwrap();
 
                 let vp = (pw, ph);
 

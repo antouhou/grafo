@@ -97,7 +97,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(0.0, Color::rgb(0, 0, 0)),
                 );
                 let background_id = renderer.add_shape(background, None, None).unwrap();
-                renderer.set_shape_color(background_id, Some(Color::rgb(30, 30, 30)));
+                renderer
+                    .set_shape_color(background_id, Some(Color::rgb(30, 30, 30)))
+                    .unwrap();
 
                 // A white rounded rect that we will texture
                 let textured_rect = Shape::rounded_rect(
@@ -108,12 +110,16 @@ impl<'a> ApplicationHandler for App<'a> {
                 let rect_id = renderer
                     .add_shape(textured_rect, Some(background_id), None)
                     .unwrap();
-                renderer.set_shape_color(rect_id, Some(Color::rgb(255, 255, 255))); // white so texture shows un-tinted
-                                                                                    // Previously this shape used an offset of (100, 100)
-                renderer.set_shape_transform(
-                    rect_id,
-                    grafo::TransformInstance::translation(100.0, 100.0),
-                );
+                renderer
+                    .set_shape_color(rect_id, Some(Color::rgb(255, 255, 255)))
+                    .unwrap(); // white so texture shows un-tinted
+                               // Previously this shape used an offset of (100, 100)
+                renderer
+                    .set_shape_transform(
+                        rect_id,
+                        grafo::TransformInstance::translation(100.0, 100.0),
+                    )
+                    .unwrap();
 
                 // Upload texture once per frame here for demo purposes. In a real app, do this once.
                 let texture_id = 100u64;
@@ -130,7 +136,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     .unwrap();
 
                 // Associate the uploaded texture with our shape
-                renderer.set_shape_texture(rect_id, Some(texture_id));
+                renderer
+                    .set_shape_texture(rect_id, Some(texture_id))
+                    .unwrap();
 
                 let timer = Instant::now();
                 match renderer.render() {

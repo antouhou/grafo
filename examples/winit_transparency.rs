@@ -73,7 +73,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(3.0, Color::BLACK),
                 );
                 let id = renderer.add_shape(rect, None, None).unwrap();
-                renderer.set_shape_color(id, Some(Color::rgb(255, 100, 50)));
+                renderer
+                    .set_shape_color(id, Some(Color::rgb(255, 100, 50)))
+                    .unwrap();
 
                 // Create a rounded rectangle to test different shapes
                 let rounded_rect = Shape::rounded_rect(
@@ -82,7 +84,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(2.0, Color::rgb(0, 100, 200)),
                 );
                 let rid = renderer.add_shape(rounded_rect, None, None).unwrap();
-                renderer.set_shape_color(rid, Some(Color::rgb(100, 200, 255)));
+                renderer
+                    .set_shape_color(rid, Some(Color::rgb(100, 200, 255)))
+                    .unwrap();
 
                 // Render the frame
                 match renderer.render() {

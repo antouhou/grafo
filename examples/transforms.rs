@@ -346,7 +346,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
                 let background_id = renderer.add_shape(background, None, None).unwrap();
-                renderer.set_shape_color(background_id, Some(Color::BLACK));
+                renderer
+                    .set_shape_color(background_id, Some(Color::BLACK))
+                    .unwrap();
 
                 // Compute transforms in euclid space (same as before)
                 let red_tx = Transform3D::rotation(0.0, 0.0, 1.0, Angle::degrees(45.0))
@@ -487,67 +489,93 @@ impl<'a> ApplicationHandler for App<'a> {
                 let perspective = renderer.add_shape(perspective_shape, None, None).unwrap();
 
                 // Set per-instance colors
-                renderer.set_shape_color(
-                    red,
-                    Some(if red_hover {
-                        self.red_color.1
-                    } else {
-                        self.red_color.0
-                    }),
-                );
-                renderer.set_shape_color(
-                    green,
-                    Some(if green_hover {
-                        self.green_color.1
-                    } else {
-                        self.green_color.0
-                    }),
-                );
-                renderer.set_shape_color(
-                    blue,
-                    Some(if blue_hover {
-                        self.blue_color.1
-                    } else {
-                        self.blue_color.0
-                    }),
-                );
-                renderer.set_shape_color(
-                    jelly,
-                    Some(if jelly_hover {
-                        self.jelly_color.1
-                    } else {
-                        self.jelly_color.0
-                    }),
-                );
-                renderer.set_shape_color(
-                    heart,
-                    Some(if heart_hover {
-                        self.heart_color.1
-                    } else {
-                        self.heart_color.0
-                    }),
-                );
-                renderer.set_shape_color(
-                    perspective,
-                    Some(if perspective_hover {
-                        self.perspective_color.1
-                    } else {
-                        self.perspective_color.0
-                    }),
-                );
+                renderer
+                    .set_shape_color(
+                        red,
+                        Some(if red_hover {
+                            self.red_color.1
+                        } else {
+                            self.red_color.0
+                        }),
+                    )
+                    .unwrap();
+                renderer
+                    .set_shape_color(
+                        green,
+                        Some(if green_hover {
+                            self.green_color.1
+                        } else {
+                            self.green_color.0
+                        }),
+                    )
+                    .unwrap();
+                renderer
+                    .set_shape_color(
+                        blue,
+                        Some(if blue_hover {
+                            self.blue_color.1
+                        } else {
+                            self.blue_color.0
+                        }),
+                    )
+                    .unwrap();
+                renderer
+                    .set_shape_color(
+                        jelly,
+                        Some(if jelly_hover {
+                            self.jelly_color.1
+                        } else {
+                            self.jelly_color.0
+                        }),
+                    )
+                    .unwrap();
+                renderer
+                    .set_shape_color(
+                        heart,
+                        Some(if heart_hover {
+                            self.heart_color.1
+                        } else {
+                            self.heart_color.0
+                        }),
+                    )
+                    .unwrap();
+                renderer
+                    .set_shape_color(
+                        perspective,
+                        Some(if perspective_hover {
+                            self.perspective_color.1
+                        } else {
+                            self.perspective_color.0
+                        }),
+                    )
+                    .unwrap();
 
                 // Give the blue shape a texture
-                renderer.set_shape_texture(blue, Some(self.rust_logo_texture_id));
+                renderer
+                    .set_shape_texture(blue, Some(self.rust_logo_texture_id))
+                    .unwrap();
 
-                renderer.set_shape_transform(red, transform_instance_from_euclid(red_tx));
-                renderer.set_shape_transform(green, transform_instance_from_euclid(green_tx));
-                renderer.set_shape_transform(blue, transform_instance_from_euclid(blue_tx));
-                renderer.set_shape_transform(jelly, transform_instance_from_euclid(jelly_tx));
-                renderer.set_shape_transform(heart, transform_instance_from_euclid(heart_tx));
-                renderer.set_shape_transform(
-                    perspective,
-                    transform_instance_from_euclid(perspective_tx),
-                );
+                renderer
+                    .set_shape_transform(red, transform_instance_from_euclid(red_tx))
+                    .unwrap();
+                renderer
+                    .set_shape_transform(green, transform_instance_from_euclid(green_tx))
+                    .unwrap();
+                renderer
+                    .set_shape_transform(blue, transform_instance_from_euclid(blue_tx))
+                    .unwrap();
+                renderer
+                    .set_shape_transform(jelly, transform_instance_from_euclid(jelly_tx))
+                    .unwrap();
+                renderer
+                    .set_shape_transform(heart, transform_instance_from_euclid(heart_tx))
+                    .unwrap();
+                renderer
+                    .set_shape_transform(
+                        perspective,
+                        transform_instance_from_euclid(perspective_tx),
+                    )
+                    .unwrap();
 
                 // Advance animation angle
                 self.angle = (self.angle + 0.02) % (std::f32::consts::TAU);

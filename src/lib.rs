@@ -84,8 +84,8 @@
 //!         );
 //!         let rect_id = renderer.add_shape(rect, None, None).expect("to add shape to the renderer");
 //!         // Set per-instance fill color (shapes are transparent by default)
-//!         renderer.set_shape_color(rect_id, Some(Color::rgb(0, 128, 255)));
-//!         renderer.set_shape_transform(rect_id, grafo::TransformInstance::identity());
+//!         renderer.set_shape_color(rect_id, Some(Color::rgb(0, 128, 255))).unwrap();
+//!         renderer.set_shape_transform(rect_id, grafo::TransformInstance::identity()).unwrap();
 //!
 //!         self.window = Some(window);
 //!         self.renderer = Some(renderer);

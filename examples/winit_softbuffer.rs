@@ -129,7 +129,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
                 let bg_id = renderer_guard.add_shape(background, None, None).unwrap();
-                renderer_guard.set_shape_color(bg_id, Some(Color::rgb(255, 255, 200)));
+                renderer_guard
+                    .set_shape_color(bg_id, Some(Color::rgb(255, 255, 200)))
+                    .unwrap();
 
                 let red_id = renderer_guard
                     .add_shape(
@@ -141,8 +143,12 @@ impl<'a> ApplicationHandler for App<'a> {
                         None,
                     )
                     .unwrap();
-                renderer_guard.set_shape_color(red_id, Some(Color::rgb(255, 0, 0)));
-                renderer_guard.set_shape_transform(red_id, grafo::TransformInstance::identity());
+                renderer_guard
+                    .set_shape_color(red_id, Some(Color::rgb(255, 0, 0)))
+                    .unwrap();
+                renderer_guard
+                    .set_shape_transform(red_id, grafo::TransformInstance::identity())
+                    .unwrap();
 
                 let blue_id = renderer_guard
                     .add_shape(
@@ -154,11 +160,12 @@ impl<'a> ApplicationHandler for App<'a> {
                         None,
                     )
                     .unwrap();
-                renderer_guard.set_shape_color(blue_id, Some(Color::rgb(0, 0, 255)));
-                renderer_guard.set_shape_transform(
-                    blue_id,
-                    grafo::TransformInstance::translation(220.0, 0.0),
-                );
+                renderer_guard
+                    .set_shape_color(blue_id, Some(Color::rgb(0, 0, 255)))
+                    .unwrap();
+                renderer_guard
+                    .set_shape_transform(blue_id, grafo::TransformInstance::translation(220.0, 0.0))
+                    .unwrap();
 
                 // Render to GPU offscreen texture and get ARGB32 pixels
                 let render_start = std::time::Instant::now();

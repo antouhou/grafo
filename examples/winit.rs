@@ -102,7 +102,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
                 let background_id = renderer.add_shape(background, None, None).unwrap();
-                renderer.set_shape_color(background_id, Some(Color::rgb(255, 255, 200)));
+                renderer
+                    .set_shape_color(background_id, Some(Color::rgb(255, 255, 200)))
+                    .unwrap();
 
                 let red = Shape::rounded_rect(
                     [(0.0, 0.0), (200.0, 200.0)],
@@ -110,7 +112,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
                 let red_id = renderer.add_shape(red, Some(background_id), None).unwrap();
-                renderer.set_shape_color(red_id, Some(Color::rgb(255, 0, 0)));
+                renderer
+                    .set_shape_color(red_id, Some(Color::rgb(255, 0, 0)))
+                    .unwrap();
 
                 let green = Shape::rounded_rect(
                     [(0.0, 0.0), (200.0, 200.0)],
@@ -118,7 +122,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
                 let green_id = renderer.add_shape(green, Some(red_id), None).unwrap();
-                renderer.set_shape_color(green_id, Some(Color::rgb(0, 255, 0)));
+                renderer
+                    .set_shape_color(green_id, Some(Color::rgb(0, 255, 0)))
+                    .unwrap();
 
                 let blue = Shape::rounded_rect(
                     [(0.0, 0.0), (200.0, 200.0)],
@@ -126,7 +132,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
                 let blue_id = renderer.add_shape(blue, Some(green_id), None).unwrap();
-                renderer.set_shape_color(blue_id, Some(Color::rgb(0, 0, 255)));
+                renderer
+                    .set_shape_color(blue_id, Some(Color::rgb(0, 0, 255)))
+                    .unwrap();
 
                 let yellow = Shape::rounded_rect(
                     [(0.0, 0.0), (150.0, 150.0)],
@@ -134,7 +142,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
                 let yellow_id = renderer.add_shape(yellow, Some(green_id), None).unwrap();
-                renderer.set_shape_color(yellow_id, Some(Color::rgb(255, 255, 0)));
+                renderer
+                    .set_shape_color(yellow_id, Some(Color::rgb(255, 255, 0)))
+                    .unwrap();
 
                 let white = Shape::rounded_rect(
                     [(0.0, 0.0), (20.0, 20.0)],
@@ -142,7 +152,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
                 let white_id = renderer.add_shape(white, Some(red_id), None).unwrap();
-                renderer.set_shape_color(white_id, Some(Color::rgb(255, 255, 255)));
+                renderer
+                    .set_shape_color(white_id, Some(Color::rgb(255, 255, 255)))
+                    .unwrap();
 
                 let shape_that_doesnt_fit = Shape::rounded_rect(
                     [(0.0, 0.0), (20.0, 20.0)],
@@ -156,14 +168,18 @@ impl<'a> ApplicationHandler for App<'a> {
                 // ids were created above
 
                 // Recreate previous offsets with transforms
-                renderer.set_shape_transform(
-                    green_id,
-                    grafo::TransformInstance::translation(100.0, 100.0),
-                );
-                renderer.set_shape_transform(
-                    blue_id,
-                    grafo::TransformInstance::translation(150.0, 150.0),
-                );
+                renderer
+                    .set_shape_transform(
+                        green_id,
+                        grafo::TransformInstance::translation(100.0, 100.0),
+                    )
+                    .unwrap();
+                renderer
+                    .set_shape_transform(
+                        blue_id,
+                        grafo::TransformInstance::translation(150.0, 150.0),
+                    )
+                    .unwrap();
                 // yellow, white, shape_that_doesnt_fit used (0,0) so identity is fine
                 let _ = (yellow_id, white_id, doesnt_fit_id);
 
@@ -199,25 +215,43 @@ impl<'a> ApplicationHandler for App<'a> {
                     .unwrap();
                 let img_rect3_id = renderer.add_shape(img_rect3, None, None).unwrap();
 
-                renderer.set_shape_texture(img_rect1_id, Some(texture_id));
-                renderer.set_shape_texture(img_rect2_id, Some(texture_id));
-                renderer.set_shape_texture(img_rect3_id, Some(texture_id));
-                renderer.set_shape_color(img_rect1_id, Some(Color::rgb(255, 255, 255)));
-                renderer.set_shape_color(img_rect2_id, Some(Color::rgb(255, 255, 255)));
-                renderer.set_shape_color(img_rect3_id, Some(Color::rgb(255, 255, 255)));
+                renderer
+                    .set_shape_texture(img_rect1_id, Some(texture_id))
+                    .unwrap();
+                renderer
+                    .set_shape_texture(img_rect2_id, Some(texture_id))
+                    .unwrap();
+                renderer
+                    .set_shape_texture(img_rect3_id, Some(texture_id))
+                    .unwrap();
+                renderer
+                    .set_shape_color(img_rect1_id, Some(Color::rgb(255, 255, 255)))
+                    .unwrap();
+                renderer
+                    .set_shape_color(img_rect2_id, Some(Color::rgb(255, 255, 255)))
+                    .unwrap();
+                renderer
+                    .set_shape_color(img_rect3_id, Some(Color::rgb(255, 255, 255)))
+                    .unwrap();
 
-                renderer.set_shape_transform(
-                    img_rect1_id,
-                    grafo::TransformInstance::translation(100.0, 100.0),
-                );
-                renderer.set_shape_transform(
-                    img_rect2_id,
-                    grafo::TransformInstance::translation(200.0, 200.0),
-                );
-                renderer.set_shape_transform(
-                    img_rect3_id,
-                    grafo::TransformInstance::translation(400.0, 400.0),
-                );
+                renderer
+                    .set_shape_transform(
+                        img_rect1_id,
+                        grafo::TransformInstance::translation(100.0, 100.0),
+                    )
+                    .unwrap();
+                renderer
+                    .set_shape_transform(
+                        img_rect2_id,
+                        grafo::TransformInstance::translation(200.0, 200.0),
+                    )
+                    .unwrap();
+                renderer
+                    .set_shape_transform(
+                        img_rect3_id,
+                        grafo::TransformInstance::translation(400.0, 400.0),
+                    )
+                    .unwrap();
 
                 let timer = Instant::now();
                 match renderer.render() {

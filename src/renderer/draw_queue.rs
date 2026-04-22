@@ -2,6 +2,10 @@ use super::types::{ClipRectDrawData, DrawCommandError};
 use super::*;
 use crate::gradient::types::Fill;
 
+fn clip_rect_supports_transform(transform: InstanceTransform) -> bool {
+    super::rect_utils::extract_axis_aligned_rect_transform(Some(transform)).is_some()
+}
+
 impl<'a> Renderer<'a> {
     pub fn add_shape(
         &mut self,
@@ -18,8 +22,9 @@ impl<'a> Renderer<'a> {
     /// Adds an axis-aligned scissor clipping rectangle without preparing geometry.
     ///
     /// This node clips its children like a transparent rect parent when its transform
-    /// preserves axis alignment. Rotated, skewed, or perspective transforms cannot
-    /// fall back to stencil because this node intentionally has no geometry.
+    /// preserves axis alignment. Rotated, skewed, or perspective transforms are
+    /// rejected by the transform setters because this node intentionally has no
+    /// geometry for stencil fallback.
     pub fn add_clipping_rect(
         &mut self,
         rect_bounds: [(f32, f32); 2],
@@ -118,7 +123,11 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    pub fn set_shape_transform_cols(&mut self, node_id: usize, cols: [[f32; 4]; 4]) {
+    pub fn set_shape_transform_cols(
+        &mut self,
+        node_id: usize,
+        cols: [[f32; 4]; 4],
+    ) -> Result<(), DrawCommandError> {
         let transform = InstanceTransform {
             col0: cols[0],
             col1: cols[1],
@@ -126,22 +135,32 @@ impl<'a> Renderer<'a> {
             col3: cols[3],
         };
 
-        let Some(draw_command) = self.draw_tree.get_mut(node_id) else {
-            return;
-        };
-        draw_command.set_transform(transform);
+        self.set_shape_transform(node_id, transform)
     }
 
-    pub fn set_shape_transform(&mut self, node_id: usize, transform: impl Into<InstanceTransform>) {
+    pub fn set_shape_transform(
+        &mut self,
+        node_id: usize,
+        transform: impl Into<InstanceTransform>,
+    ) -> Result<(), DrawCommandError> {
         let transform = transform.into();
-        let Some(draw_command) = self.draw_tree.get_mut(node_id) else {
-            return;
-        };
+        let draw_command = self
+            .draw_tree
+            .get_mut(node_id)
+            .ok_or(DrawCommandError::InvalidShapeId(node_id))?;
+        if draw_command.is_clip_rect() && !clip_rect_supports_transform(transform) {
+            return Err(DrawCommandError::UnsupportedClipRectTransform(node_id));
+        }
         draw_command.set_transform(transform);
+        Ok(())
     }
 
-    pub fn set_shape_texture(&mut self, node_id: usize, texture_id: Option<u64>) {
-        self.set_shape_texture_layer(node_id, 0, texture_id);
+    pub fn set_shape_texture(
+        &mut self,
+        node_id: usize,
+        texture_id: Option<u64>,
+    ) -> Result<(), DrawCommandError> {
+        self.set_shape_texture_layer(node_id, 0, texture_id)
     }
 
     pub fn set_shape_texture_layer(
@@ -149,15 +168,22 @@ impl<'a> Renderer<'a> {
         node_id: usize,
         layer: usize,
         texture_id: Option<u64>,
-    ) {
+    ) -> Result<(), DrawCommandError> {
         if layer > 1 {
-            return;
+            return Err(DrawCommandError::InvalidTextureLayer(layer));
         }
 
-        let Some(draw_command) = self.draw_tree.get_mut(node_id) else {
-            return;
-        };
+        let draw_command = self
+            .draw_tree
+            .get_mut(node_id)
+            .ok_or(DrawCommandError::InvalidShapeId(node_id))?;
+        if draw_command.is_clip_rect() {
+            return Err(DrawCommandError::UnsupportedClipRectOperation(
+                node_id, "textures",
+            ));
+        }
         draw_command.set_texture_id(layer, texture_id);
+        Ok(())
     }
 
     pub fn set_shape_texture_on(
@@ -165,15 +191,25 @@ impl<'a> Renderer<'a> {
         node_id: usize,
         layer: TextureLayer,
         texture_id: Option<u64>,
-    ) {
-        self.set_shape_texture_layer(node_id, layer.into(), texture_id);
+    ) -> Result<(), DrawCommandError> {
+        self.set_shape_texture_layer(node_id, layer.into(), texture_id)
     }
 
-    pub fn set_shape_color(&mut self, node_id: usize, color: Option<Color>) {
+    pub fn set_shape_color(
+        &mut self,
+        node_id: usize,
+        color: Option<Color>,
+    ) -> Result<(), DrawCommandError> {
         let normalized_color = color.map(|value| value.normalize());
-        let Some(draw_command) = self.draw_tree.get_mut(node_id) else {
-            return;
-        };
+        let draw_command = self
+            .draw_tree
+            .get_mut(node_id)
+            .ok_or(DrawCommandError::InvalidShapeId(node_id))?;
+        if draw_command.is_clip_rect() {
+            return Err(DrawCommandError::UnsupportedClipRectOperation(
+                node_id, "color",
+            ));
+        }
         draw_command.set_instance_color_override(normalized_color);
         // set_shape_color is sugar for Fill::Solid / None
         let fill = color.map(Fill::Solid);
@@ -186,12 +222,23 @@ impl<'a> Renderer<'a> {
             &self.gradient_ramp_sampler,
             self.gradient_bind_group_layout_epoch,
         );
+        Ok(())
     }
 
-    pub fn set_shape_fill(&mut self, node_id: usize, fill: Option<Fill>) {
-        let Some(draw_command) = self.draw_tree.get_mut(node_id) else {
-            return;
-        };
+    pub fn set_shape_fill(
+        &mut self,
+        node_id: usize,
+        fill: Option<Fill>,
+    ) -> Result<(), DrawCommandError> {
+        let draw_command = self
+            .draw_tree
+            .get_mut(node_id)
+            .ok_or(DrawCommandError::InvalidShapeId(node_id))?;
+        if draw_command.is_clip_rect() {
+            return Err(DrawCommandError::UnsupportedClipRectOperation(
+                node_id, "fill",
+            ));
+        }
         // Derive color_override from fill for the solid fast path
         let color_override = match &fill {
             Some(Fill::Solid(color)) => Some(color.normalize()),
@@ -207,5 +254,6 @@ impl<'a> Renderer<'a> {
             &self.gradient_ramp_sampler,
             self.gradient_bind_group_layout_epoch,
         );
+        Ok(())
     }
 }

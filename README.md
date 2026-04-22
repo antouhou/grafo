@@ -45,11 +45,11 @@ let rect = Shape::rect(
     [(0.0, 0.0), (200.0, 100.0)],
     Stroke::new(2.0, Color::BLACK),
 );
-let id = renderer.add_shape(rect, None, None);
+let id = renderer.add_shape(rect, None, None).unwrap();
 
 // Set per-instance properties
-renderer.set_shape_color(id, Some(Color::rgb(0, 128, 255))); // Blue fill
-renderer.set_shape_transform(id, grafo::TransformInstance::translation(100.0, 100.0));
+renderer.set_shape_color(id, Some(Color::rgb(0, 128, 255))).unwrap(); // Blue fill
+renderer.set_shape_transform(id, grafo::TransformInstance::translation(100.0, 100.0)).unwrap();
 
 // Render one frame (typical winit loop would call this on RedrawRequested)
 renderer.render().unwrap();
@@ -86,14 +86,14 @@ let id = renderer.add_shape(
     Shape::rect([(0.0,0.0),(300.0,200.0)], Stroke::new(1.0, Color::BLACK)),
     None,
     None,
-);
-renderer.set_shape_color(id, Some(Color::rgb(40, 40, 40))); // base color under textures
-renderer.set_shape_texture_on(id, TextureLayer::Background, Some(bg_tex_id));
-renderer.set_shape_texture_on(id, TextureLayer::Foreground, Some(fg_tex_id));
+).unwrap();
+renderer.set_shape_color(id, Some(Color::rgb(40, 40, 40))).unwrap(); // base color under textures
+renderer.set_shape_texture_on(id, TextureLayer::Background, Some(bg_tex_id)).unwrap();
+renderer.set_shape_texture_on(id, TextureLayer::Foreground, Some(fg_tex_id)).unwrap();
 
 // Single-layer helper (Background):
-renderer.set_shape_texture(id, Some(bg_tex_id));
-renderer.set_shape_color(id, Some(Color::WHITE)); // useful when texture transparency should reveal white
+renderer.set_shape_texture(id, Some(bg_tex_id)).unwrap();
+renderer.set_shape_color(id, Some(Color::WHITE)).unwrap(); // useful when texture transparency should reveal white
 ```
 
 See `examples/multi_texture.rs` for a runnable demo that generates procedural background & foreground textures.
@@ -110,11 +110,11 @@ Use per-shape transforms to position shapes. Common helpers:
 Example:
 
 ```rust
-let id = renderer.add_shape(my_shape, None, None);
+let id = renderer.add_shape(my_shape, None, None).unwrap();
 let r = grafo::TransformInstance::rotation_z_deg(15.0);
 let t = grafo::TransformInstance::translation(150.0, 80.0);
 // Rotate first, then translate
-renderer.set_shape_transform(id, r.then(&t));
+renderer.set_shape_transform(id, r.then(&t)).unwrap();
 ```
 
 ## Documentation

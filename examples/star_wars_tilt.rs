@@ -93,7 +93,9 @@ impl<'a> ApplicationHandler for App<'a> {
                                 None,
                             )
                             .unwrap();
-                        renderer.set_shape_color(background, Some(Color::rgb(30, 30, 30)));
+                        renderer
+                            .set_shape_color(background, Some(Color::rgb(30, 30, 30)))
+                            .unwrap();
 
                         // Create a 100x100 rectangle (matching the HTML)
                         // Gold color (#FFD700 = rgb(255, 215, 0)) with white border (2px)
@@ -105,7 +107,9 @@ impl<'a> ApplicationHandler for App<'a> {
                         let rect_id = renderer.add_shape(rect_shape, None, None).unwrap();
 
                         // Set the fill color to gold
-                        renderer.set_shape_color(rect_id, Some(Color::TRANSPARENT));
+                        renderer
+                            .set_shape_color(rect_id, Some(Color::TRANSPARENT))
+                            .unwrap();
 
                         self.rect_id = Some(rect_id);
 
@@ -116,13 +120,17 @@ impl<'a> ApplicationHandler for App<'a> {
                         let inner_rect_1 = renderer
                             .add_shape(inner_rect_shape.clone(), None, None)
                             .unwrap();
-                        renderer.set_shape_color(inner_rect_1, Some(Color::rgb(125, 0, 0)));
+                        renderer
+                            .set_shape_color(inner_rect_1, Some(Color::rgb(125, 0, 0)))
+                            .unwrap();
                         self.inner_rect_1 = Some(inner_rect_1);
 
                         // TODO: clip
                         let inner_rect_2 =
                             renderer.add_shape(inner_rect_shape, None, None).unwrap();
-                        renderer.set_shape_color(inner_rect_2, Some(Color::rgb(0, 125, 0)));
+                        renderer
+                            .set_shape_color(inner_rect_2, Some(Color::rgb(0, 125, 0)))
+                            .unwrap();
                         self.inner_rect_2 = Some(inner_rect_2);
                     }
 
@@ -168,7 +176,9 @@ impl<'a> ApplicationHandler for App<'a> {
                         .with_origin(50.0, 50.0)
                         .compose_2(&transformator::Transform::new());
 
-                    renderer.set_shape_transform_cols(rect_id, parent_local.rows_world());
+                    renderer
+                        .set_shape_transform_cols(rect_id, parent_local.rows_world())
+                        .unwrap();
 
                     // Inner rectangles inherit parent transform and sit inside with 10px padding.
                     // Layout: padding(10) + rect(35) + gap(10) + rect(35) + padding(10) = 100 total width.
@@ -179,14 +189,18 @@ impl<'a> ApplicationHandler for App<'a> {
                         .then_rotate_y_deg(20.0)
                         .with_origin(17.5, 40.0)
                         .compose_2(&parent_local);
-                    renderer.set_shape_transform_cols(inner_rect_1, child1.rows_world());
+                    renderer
+                        .set_shape_transform_cols(inner_rect_1, child1.rows_world())
+                        .unwrap();
 
                     let child2 = transformator::Transform::new()
                         .with_position_relative_to_parent(55.0, 10.0)
                         .then_rotate_y_deg(20.0)
                         .with_origin(17.5, 40.0)
                         .compose_2(&parent_local);
-                    renderer.set_shape_transform_cols(inner_rect_2, child2.rows_world());
+                    renderer
+                        .set_shape_transform_cols(inner_rect_2, child2.rows_world())
+                        .unwrap();
 
                     // Hit testing: transform mouse position to local coordinates for each shape
                     // Check children first (they're on top)
@@ -223,26 +237,38 @@ impl<'a> ApplicationHandler for App<'a> {
 
                     // Update colors based on hover state
                     if self.parent_hovered {
-                        renderer.set_shape_color(rect_id, Some(Color::rgba(255, 235, 100, 200)));
+                        renderer
+                            .set_shape_color(rect_id, Some(Color::rgba(255, 235, 100, 200)))
+                            .unwrap();
                     // Brighter gold
                     } else {
-                        renderer.set_shape_color(rect_id, Some(Color::rgba(255, 215, 0, 200)));
+                        renderer
+                            .set_shape_color(rect_id, Some(Color::rgba(255, 215, 0, 200)))
+                            .unwrap();
                         // Normal gold
                     }
 
                     if self.child1_hovered {
-                        renderer.set_shape_color(inner_rect_1, Some(Color::rgb(200, 50, 50)));
+                        renderer
+                            .set_shape_color(inner_rect_1, Some(Color::rgb(200, 50, 50)))
+                            .unwrap();
                     // Brighter red
                     } else {
-                        renderer.set_shape_color(inner_rect_1, Some(Color::rgb(125, 0, 0)));
+                        renderer
+                            .set_shape_color(inner_rect_1, Some(Color::rgb(125, 0, 0)))
+                            .unwrap();
                         // Normal red
                     }
 
                     if self.child2_hovered {
-                        renderer.set_shape_color(inner_rect_2, Some(Color::rgb(50, 200, 50)));
+                        renderer
+                            .set_shape_color(inner_rect_2, Some(Color::rgb(50, 200, 50)))
+                            .unwrap();
                     // Brighter green
                     } else {
-                        renderer.set_shape_color(inner_rect_2, Some(Color::rgb(0, 125, 0)));
+                        renderer
+                            .set_shape_color(inner_rect_2, Some(Color::rgb(0, 125, 0)))
+                            .unwrap();
                         // Normal green
                     }
 
