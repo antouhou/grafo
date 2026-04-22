@@ -295,7 +295,9 @@ mod tests {
             DrawCommand::Shape(shape) => {
                 shape.fill = Some(Fill::Gradient(create_test_gradient()));
             }
-            DrawCommand::CachedShape(_) => unreachable!("test constructs a non-cached shape"),
+            DrawCommand::CachedShape(_) | DrawCommand::ClipRect(_) => {
+                unreachable!("test constructs a non-cached shape")
+            }
         }
 
         assert!(!should_skip_visible_rect_draw(

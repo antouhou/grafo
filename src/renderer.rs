@@ -93,6 +93,10 @@ pub struct Renderer<'a> {
 
     /// Tree structure holding shapes to be rendered.
     draw_tree: easy_tree::Tree<DrawCommand>,
+    /// Draw-tree node ids that own geometry and need CPU/GPU preparation.
+    ///
+    /// Subtree removal must keep this list in sync when that API is added.
+    geometry_node_ids: Vec<usize>,
     /// Maps node metadata indices to their clip-parent node ids.
     metadata_to_clips: HashMap<usize, usize>,
 

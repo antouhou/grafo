@@ -15,6 +15,24 @@ use super::traversal::TraversalScratch;
 pub(super) enum DrawCommand {
     Shape(ShapeDrawData),
     CachedShape(CachedShapeDrawData),
+    ClipRect(ClipRectDrawData),
+}
+
+#[derive(Debug)]
+pub(super) struct ClipRectDrawData {
+    pub(super) rect_bounds: [(f32, f32); 2],
+    pub(super) transform: Option<InstanceTransform>,
+    pub(super) is_leaf: bool,
+}
+
+impl ClipRectDrawData {
+    pub(super) fn new(rect_bounds: [(f32, f32); 2]) -> Self {
+        Self {
+            rect_bounds,
+            transform: None,
+            is_leaf: true,
+        }
+    }
 }
 
 impl DrawCommand {
@@ -24,6 +42,7 @@ impl DrawCommand {
         match self {
             DrawCommand::Shape(s) => s.is_leaf,
             DrawCommand::CachedShape(s) => s.is_leaf,
+            DrawCommand::ClipRect(clip_rect) => clip_rect.is_leaf,
         }
     }
 
@@ -31,7 +50,16 @@ impl DrawCommand {
         match self {
             DrawCommand::Shape(s) => s.is_leaf = false,
             DrawCommand::CachedShape(s) => s.is_leaf = false,
+            DrawCommand::ClipRect(clip_rect) => clip_rect.is_leaf = false,
         }
+    }
+
+    pub(super) fn has_prepare_geometry(&self) -> bool {
+        matches!(self, DrawCommand::Shape(_) | DrawCommand::CachedShape(_))
+    }
+
+    pub(super) fn is_clip_rect(&self) -> bool {
+        matches!(self, DrawCommand::ClipRect(_))
     }
 }
 
@@ -40,6 +68,7 @@ impl DrawCommand {
         match self {
             DrawCommand::Shape(shape) => shape.set_transform(transform),
             DrawCommand::CachedShape(cached_shape) => cached_shape.set_transform(transform),
+            DrawCommand::ClipRect(clip_rect) => clip_rect.transform = Some(transform),
         }
     }
 
@@ -47,6 +76,7 @@ impl DrawCommand {
         match self {
             DrawCommand::Shape(shape) => shape.transform(),
             DrawCommand::CachedShape(cached_shape) => cached_shape.transform(),
+            DrawCommand::ClipRect(clip_rect) => clip_rect.transform,
         }
     }
 
@@ -56,6 +86,7 @@ impl DrawCommand {
             DrawCommand::CachedShape(cached_shape) => {
                 cached_shape.set_texture_id(layer, texture_id)
             }
+            DrawCommand::ClipRect(_) => {}
         }
     }
 
@@ -65,6 +96,7 @@ impl DrawCommand {
             DrawCommand::CachedShape(cached_shape) => {
                 cached_shape.set_instance_color_override(color)
             }
+            DrawCommand::ClipRect(_) => {}
         }
     }
 
@@ -72,6 +104,7 @@ impl DrawCommand {
         match self {
             DrawCommand::Shape(shape) => shape.texture_id(layer),
             DrawCommand::CachedShape(cached_shape) => cached_shape.texture_id(layer),
+            DrawCommand::ClipRect(_) => None,
         }
     }
 
@@ -79,6 +112,7 @@ impl DrawCommand {
         match self {
             DrawCommand::Shape(shape) => shape.instance_color_override(),
             DrawCommand::CachedShape(cached_shape) => cached_shape.instance_color_override(),
+            DrawCommand::ClipRect(_) => None,
         }
     }
 
@@ -86,6 +120,7 @@ impl DrawCommand {
         match self {
             DrawCommand::Shape(shape) => shape.set_fill(fill),
             DrawCommand::CachedShape(cached_shape) => cached_shape.set_fill(fill),
+            DrawCommand::ClipRect(_) => {}
         }
     }
 
@@ -93,6 +128,7 @@ impl DrawCommand {
         match self {
             DrawCommand::Shape(shape) => shape.has_gradient_fill(),
             DrawCommand::CachedShape(cached_shape) => cached_shape.has_gradient_fill(),
+            DrawCommand::ClipRect(_) => false,
         }
     }
 
@@ -100,6 +136,7 @@ impl DrawCommand {
         match self {
             DrawCommand::Shape(shape) => shape.gradient_bind_group(),
             DrawCommand::CachedShape(cached_shape) => cached_shape.gradient_bind_group(),
+            DrawCommand::ClipRect(_) => None,
         }
     }
 
@@ -128,6 +165,7 @@ impl DrawCommand {
                     _ => None,
                 };
             }
+            DrawCommand::ClipRect(_) => {}
             DrawCommand::CachedShape(cached_shape) => {
                 cached_shape.gradient_bind_group = match cached_shape.fill.as_mut() {
                     Some(Fill::Gradient(gradient)) => {
@@ -150,6 +188,7 @@ impl DrawCommand {
         match self {
             DrawCommand::Shape(shape) => shape.clips_children(),
             DrawCommand::CachedShape(cached_shape) => cached_shape.clips_children(),
+            DrawCommand::ClipRect(_) => true,
         }
     }
 
@@ -157,6 +196,7 @@ impl DrawCommand {
         match self {
             DrawCommand::Shape(shape) => shape.is_rect(),
             DrawCommand::CachedShape(cached_shape) => cached_shape.is_rect(),
+            DrawCommand::ClipRect(_) => true,
         }
     }
 
@@ -164,6 +204,7 @@ impl DrawCommand {
         match self {
             DrawCommand::Shape(shape) => shape.rect_bounds(),
             DrawCommand::CachedShape(cached_shape) => cached_shape.rect_bounds(),
+            DrawCommand::ClipRect(clip_rect) => Some(clip_rect.rect_bounds),
         }
     }
 
@@ -177,6 +218,7 @@ impl DrawCommand {
                 cached_shape.index_buffer_range = None;
                 cached_shape.stencil_ref = None;
             }
+            DrawCommand::ClipRect(_) => {}
         }
     }
 }
@@ -301,8 +343,8 @@ impl BoundTextureState {
 }
 
 pub(super) struct Buffers<'a> {
-    pub(super) aggregated_vertex_buffer: &'a wgpu::Buffer,
-    pub(super) aggregated_index_buffer: &'a wgpu::Buffer,
+    pub(super) aggregated_vertex_buffer: Option<&'a wgpu::Buffer>,
+    pub(super) aggregated_index_buffer: Option<&'a wgpu::Buffer>,
     pub(super) identity_instance_transform_buffer: &'a wgpu::Buffer,
     pub(super) identity_instance_color_buffer: &'a wgpu::Buffer,
     pub(super) identity_instance_metadata_buffer: &'a wgpu::Buffer,

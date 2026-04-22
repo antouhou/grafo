@@ -106,6 +106,54 @@ fn single_root_no_children() {
     assert_pixels_match(&pixel_buffer, &expectations);
 }
 
+/// Regression test — scissor-only clipping rect clips children without drawing itself.
+#[test]
+fn clipping_rect_clips_child_without_visible_surface() {
+    let Some(mut renderer) = create_headless_renderer() else {
+        return;
+    };
+
+    let clip_rect_id = renderer
+        .add_clipping_rect([(20.0, 20.0), (80.0, 80.0)], None)
+        .unwrap();
+    let child = grafo::Shape::rect([(0.0, 0.0), (100.0, 100.0)], grafo::Stroke::default());
+    let child_id = renderer.add_shape(child, Some(clip_rect_id), None).unwrap();
+    renderer.set_shape_color(child_id, Some(grafo::Color::rgb(200, 50, 50)));
+
+    let mut pixel_buffer: Vec<u8> = Vec::new();
+    renderer.render_to_buffer(&mut pixel_buffer);
+
+    let expectations = vec![
+        grafo_test_scenes::PixelExpectation::opaque(50, 50, 200, 50, 50, "inside_clip_rect"),
+        grafo_test_scenes::PixelExpectation::transparent(10, 50, "left_of_clip_rect"),
+        grafo_test_scenes::PixelExpectation::transparent(50, 10, "above_clip_rect"),
+        grafo_test_scenes::PixelExpectation::transparent(90, 50, "right_of_clip_rect"),
+        grafo_test_scenes::PixelExpectation::transparent(50, 90, "below_clip_rect"),
+    ];
+
+    assert_pixels_match(&pixel_buffer, &expectations);
+}
+
+/// Regression test — standalone clipping rect is a no-op and does not enter shape drawing.
+#[test]
+fn standalone_clipping_rect_does_not_panic() {
+    let Some(mut renderer) = create_headless_renderer() else {
+        return;
+    };
+
+    renderer
+        .add_clipping_rect([(20.0, 20.0), (80.0, 80.0)], None)
+        .unwrap();
+
+    let mut pixel_buffer: Vec<u8> = Vec::new();
+    renderer.render_to_buffer(&mut pixel_buffer);
+
+    assert!(
+        pixel_buffer.iter().all(|&byte| byte == 0),
+        "Standalone clipping rect should not draw any pixels",
+    );
+}
+
 /// Smoke test — gradient fill should produce non-transparent pixels.
 #[test]
 fn gradient_fill_basic() {

@@ -1,4 +1,4 @@
-use super::types::DrawCommandError;
+use super::types::{ClipRectDrawData, DrawCommandError};
 use super::*;
 use crate::gradient::types::Fill;
 
@@ -11,6 +11,22 @@ impl<'a> Renderer<'a> {
     ) -> Result<usize, DrawCommandError> {
         self.add_draw_command(
             DrawCommand::Shape(ShapeDrawData::new(shape, cache_key)),
+            clip_to_shape,
+        )
+    }
+
+    /// Adds an axis-aligned scissor clipping rectangle without preparing geometry.
+    ///
+    /// This node clips its children like a transparent rect parent when its transform
+    /// preserves axis alignment. Rotated, skewed, or perspective transforms cannot
+    /// fall back to stencil because this node intentionally has no geometry.
+    pub fn add_clipping_rect(
+        &mut self,
+        rect_bounds: [(f32, f32); 2],
+        clip_to_shape: Option<usize>,
+    ) -> Result<usize, DrawCommandError> {
+        self.add_draw_command(
+            DrawCommand::ClipRect(ClipRectDrawData::new(rect_bounds)),
             clip_to_shape,
         )
     }
@@ -57,6 +73,7 @@ impl<'a> Renderer<'a> {
 
     pub fn clear_draw_queue(&mut self) {
         self.draw_tree.clear();
+        self.geometry_node_ids.clear();
         self.metadata_to_clips.clear();
         self.group_effects.clear();
         self.backdrop_effects.clear();
@@ -69,13 +86,22 @@ impl<'a> Renderer<'a> {
         draw_command: DrawCommand,
         clip_to_shape: Option<usize>,
     ) -> Result<usize, DrawCommandError> {
+        let has_prepare_geometry = draw_command.has_prepare_geometry();
         if self.draw_tree.is_empty() {
-            Ok(self.draw_tree.add_node(draw_command))
+            let node_id = self.draw_tree.add_node(draw_command);
+            if has_prepare_geometry {
+                self.geometry_node_ids.push(node_id);
+            }
+            Ok(node_id)
         } else if let Some(clip_to_shape) = clip_to_shape {
             // Mark the parent as non-leaf since it now has a child.
             if let Some(parent) = self.draw_tree.get_mut(clip_to_shape) {
                 parent.set_not_leaf();
-                Ok(self.draw_tree.add_child(clip_to_shape, draw_command))
+                let node_id = self.draw_tree.add_child(clip_to_shape, draw_command);
+                if has_prepare_geometry {
+                    self.geometry_node_ids.push(node_id);
+                }
+                Ok(node_id)
             } else {
                 Err(DrawCommandError::InvalidShapeId(clip_to_shape))
             }
@@ -84,7 +110,11 @@ impl<'a> Renderer<'a> {
             if let Some(root) = self.draw_tree.get_mut(0) {
                 root.set_not_leaf();
             }
-            Ok(self.draw_tree.add_child_to_root(draw_command))
+            let node_id = self.draw_tree.add_child_to_root(draw_command);
+            if has_prepare_geometry {
+                self.geometry_node_ids.push(node_id);
+            }
+            Ok(node_id)
         }
     }
 

@@ -12,6 +12,7 @@ macro_rules! with_shape_mut {
         match $cmd {
             DrawCommand::Shape($shape) => $body,
             DrawCommand::CachedShape($shape) => $body,
+            DrawCommand::ClipRect(_) => unreachable!("clip rectangles do not own shape geometry"),
         }
     };
 }
@@ -236,6 +237,22 @@ fn pipeline_has_shared_geometry_bindings(pipeline: crate::renderer::types::Pipel
     !matches!(pipeline, crate::renderer::types::Pipeline::None)
 }
 
+fn bind_aggregated_geometry_buffers(
+    render_pass: &mut wgpu::RenderPass<'_>,
+    buffers: &crate::renderer::types::Buffers,
+) -> bool {
+    let (Some(aggregated_vertex_buffer), Some(aggregated_index_buffer)) = (
+        buffers.aggregated_vertex_buffer,
+        buffers.aggregated_index_buffer,
+    ) else {
+        return false;
+    };
+
+    render_pass.set_vertex_buffer(0, aggregated_vertex_buffer.slice(..));
+    render_pass.set_index_buffer(aggregated_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+    true
+}
+
 pub(super) fn handle_increment_pass<'rp>(
     render_pass: &mut wgpu::RenderPass<'rp>,
     currently_set_pipeline: &mut crate::renderer::types::PipelineTracker,
@@ -270,12 +287,10 @@ pub(super) fn handle_increment_pass<'rp>(
             bound_texture_state.mark_bound(0, None);
             bound_texture_state.mark_bound(1, None);
 
-            if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current) {
-                render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    buffers.aggregated_index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint16,
-                );
+            if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current)
+                && !bind_aggregated_geometry_buffers(render_pass, buffers)
+            {
+                return;
             }
 
             currently_set_pipeline.switch_to(target_pipeline);
@@ -335,12 +350,10 @@ pub(super) fn handle_decrement_pass<'rp>(
             bound_texture_state.mark_bound(0, None);
             bound_texture_state.mark_bound(1, None);
 
-            if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current) {
-                render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    buffers.aggregated_index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint16,
-                );
+            if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current)
+                && !bind_aggregated_geometry_buffers(render_pass, buffers)
+            {
+                return;
             }
 
             currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::StencilDecrement);
@@ -393,12 +406,10 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
             bound_texture_state.mark_bound(0, None);
             bound_texture_state.mark_bound(1, None);
 
-            if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current) {
-                render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    buffers.aggregated_index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint16,
-                );
+            if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current)
+                && !bind_aggregated_geometry_buffers(render_pass, buffers)
+            {
+                return;
             }
 
             currently_set_pipeline.switch_to(target_pipeline);
@@ -487,12 +498,10 @@ pub(super) fn flush_pending_leaf_batch(
         bound_texture_state.mark_bound(0, None);
         bound_texture_state.mark_bound(1, None);
 
-        if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current) {
-            render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
-            render_pass.set_index_buffer(
-                buffers.aggregated_index_buffer.slice(..),
-                wgpu::IndexFormat::Uint16,
-            );
+        if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current)
+            && !bind_aggregated_geometry_buffers(render_pass, buffers)
+        {
+            return;
         }
 
         currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::LeafDraw);
@@ -733,6 +742,10 @@ pub(super) fn render_segments(
 
                             // --- Leaf node ---
                             if draw_command.is_leaf() {
+                                if draw_command.is_clip_rect() {
+                                    continue;
+                                }
+
                                 if should_skip_visible_draw {
                                     let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
                                     with_shape_mut!(draw_command, shape => {
@@ -832,24 +845,30 @@ pub(super) fn render_segments(
 
                                 // Draw the rect itself as a visible shape.
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
-                                with_shape_mut!(draw_command, shape => {
-                                    *shape.stencil_ref_mut() = Some(parent_stencil);
-                                    if !should_skip_visible_draw {
-                                        handle_leaf_draw_pass(
-                                            &mut render_pass,
-                                            &mut currently_set_pipeline,
-                                            &mut bound_texture_state,
-                                            stencil_stack,
-                                            shape,
-                                            pipelines,
-                                            buffers,
-                                        );
-                                    }
-                                });
+                                if !draw_command.is_clip_rect() {
+                                    with_shape_mut!(draw_command, shape => {
+                                        *shape.stencil_ref_mut() = Some(parent_stencil);
+                                        if !should_skip_visible_draw {
+                                            handle_leaf_draw_pass(
+                                                &mut render_pass,
+                                                &mut currently_set_pipeline,
+                                                &mut bound_texture_state,
+                                                stencil_stack,
+                                                shape,
+                                                pipelines,
+                                                buffers,
+                                            );
+                                        }
+                                    });
+                                }
                                 // Push same stencil — children are clipped by scissor
                                 // hardware, not by stencil buffer values.
                                 stencil_stack.push(parent_stencil);
                                 clip_kind_stack.push(ClipKind::Scissor);
+                            } else if draw_command.is_clip_rect() {
+                                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                                stencil_stack.push(parent_stencil);
+                                clip_kind_stack.push(ClipKind::NonClipping);
                             } else {
                                 // Fall back to stencil increment.
                                 with_shape_mut!(draw_command, shape => {
@@ -1054,11 +1073,9 @@ pub(super) fn render_segments(
                     &*pipelines.default_shape_texture_bind_groups[1],
                     &[],
                 );
-                render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    buffers.aggregated_index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint16,
-                );
+                if !bind_aggregated_geometry_buffers(&mut render_pass, buffers) {
+                    continue;
+                }
 
                 let shape_index_range = with_shape_mut!(draw_command, shape => {
                     bind_instance_buffers(&mut render_pass, shape, buffers);
@@ -1109,11 +1126,9 @@ pub(super) fn render_segments(
                     &*pipelines.default_shape_texture_bind_groups[1],
                     &[],
                 );
-                render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    buffers.aggregated_index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint16,
-                );
+                if !bind_aggregated_geometry_buffers(&mut render_pass, buffers) {
+                    continue;
+                }
 
                 let (texture_ids, shape_index_range) = with_shape_mut!(draw_command, shape => {
                     bind_instance_buffers(&mut render_pass, shape, buffers);

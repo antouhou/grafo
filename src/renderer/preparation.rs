@@ -118,7 +118,11 @@ impl<'a> Renderer<'a> {
         self.temp_instance_metadata.clear();
         self.geometry_dedup_map.clear();
 
-        for (_node_id, draw_command) in self.draw_tree.iter_mut() {
+        for &node_id in &self.geometry_node_ids {
+            let Some(draw_command) = self.draw_tree.get_mut(node_id) else {
+                continue;
+            };
+
             match draw_command {
                 DrawCommand::Shape(shape) => {
                     let tessellated_geometry =
@@ -193,6 +197,7 @@ impl<'a> Renderer<'a> {
                         cached_shape_data.is_empty = true;
                     }
                 }
+                DrawCommand::ClipRect(_) => {}
             }
         }
 

@@ -276,6 +276,7 @@ impl<'a> Renderer<'a> {
             decrementing_uniform_buffer,
             decrementing_bind_group,
             draw_tree: easy_tree::Tree::new(),
+            geometry_node_ids: Vec::new(),
             metadata_to_clips: HashMap::new(),
             temp_vertices: Vec::new(),
             temp_indices: Vec::new(),

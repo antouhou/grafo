@@ -140,6 +140,15 @@ impl<'a> Renderer<'a> {
         if self.draw_tree.get(node_id).is_none() {
             return Err(EffectError::NodeNotFound(node_id));
         }
+        if self
+            .draw_tree
+            .get(node_id)
+            .is_some_and(DrawCommand::is_clip_rect)
+        {
+            return Err(EffectError::InvalidParams(
+                "clip rectangles do not support group effects".to_string(),
+            ));
+        }
 
         validate_effect_params(&self.loaded_effects, effect_id, params)?;
 
@@ -191,6 +200,15 @@ impl<'a> Renderer<'a> {
     ) -> Result<(), EffectError> {
         if self.draw_tree.get(node_id).is_none() {
             return Err(EffectError::NodeNotFound(node_id));
+        }
+        if self
+            .draw_tree
+            .get(node_id)
+            .is_some_and(DrawCommand::is_clip_rect)
+        {
+            return Err(EffectError::InvalidParams(
+                "clip rectangles do not support backdrop effects".to_string(),
+            ));
         }
 
         validate_effect_params(&self.loaded_effects, effect_id, params)?;

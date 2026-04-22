@@ -77,8 +77,8 @@ impl<'a> Renderer<'a> {
         };
 
         let buffers = crate::renderer::types::Buffers {
-            aggregated_vertex_buffer: self.aggregated_vertex_buffer.as_ref().unwrap(),
-            aggregated_index_buffer: self.aggregated_index_buffer.as_ref().unwrap(),
+            aggregated_vertex_buffer: self.aggregated_vertex_buffer.as_ref(),
+            aggregated_index_buffer: self.aggregated_index_buffer.as_ref(),
             identity_instance_transform_buffer: self
                 .identity_instance_transform_buffer
                 .as_ref()
@@ -392,9 +392,11 @@ impl<'a> Renderer<'a> {
             .recycle(&mut textures_to_recycle);
         effect_output_textures.clear();
 
-        self.draw_tree
-            .iter_mut()
-            .for_each(|(_, draw_command)| draw_command.clear_frame_state());
+        for &node_id in &self.geometry_node_ids {
+            if let Some(draw_command) = self.draw_tree.get_mut(node_id) {
+                draw_command.clear_frame_state();
+            }
+        }
 
         self.scratch.traversal_scratch = traversal_scratch;
         self.scratch.effect_results = effect_results;
