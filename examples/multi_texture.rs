@@ -54,7 +54,9 @@ impl ApplicationHandler for App {
                 None,
             )
             .unwrap();
-        renderer.set_shape_color(shape_id, Some(Color::rgb(200, 200, 200)));
+        renderer
+            .set_shape_color(shape_id, Some(Color::rgb(200, 200, 200)))
+            .unwrap();
 
         // Allocate two textures (background checker, foreground circle mask for demo)
         let tex_mgr = renderer.texture_manager();
@@ -100,8 +102,12 @@ impl ApplicationHandler for App {
         tex_mgr.allocate_texture_with_data(self.fg_tex_id, (w, h), &fg);
 
         // Assign textures to background + foreground layers
-        renderer.set_shape_texture_on(shape_id, TextureLayer::Background, Some(self.bg_tex_id));
-        renderer.set_shape_texture_on(shape_id, TextureLayer::Foreground, Some(self.fg_tex_id));
+        renderer
+            .set_shape_texture_on(shape_id, TextureLayer::Background, Some(self.bg_tex_id))
+            .unwrap();
+        renderer
+            .set_shape_texture_on(shape_id, TextureLayer::Foreground, Some(self.fg_tex_id))
+            .unwrap();
 
         self.shape_id = Some(shape_id);
         self.renderer = Some(renderer);

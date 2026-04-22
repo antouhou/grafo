@@ -154,7 +154,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(2.0, Color::BLACK),
                 );
                 let bg_id = renderer.add_shape(bg, None, None).unwrap();
-                renderer.set_shape_color(bg_id, Some(Color::rgb(240, 240, 245)));
+                renderer
+                    .set_shape_color(bg_id, Some(Color::rgb(240, 240, 245)))
+                    .unwrap();
 
                 // ── Label text (just a thin rectangle as a visual marker) ─
                 let label = Shape::rect(
@@ -162,7 +164,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(1.0, Color::BLACK),
                 );
                 let l = renderer.add_shape(label, Some(bg_id), None).unwrap();
-                renderer.set_shape_color(l, Some(Color::rgb(200, 200, 255)));
+                renderer
+                    .set_shape_color(l, Some(Color::rgb(200, 200, 255)))
+                    .unwrap();
 
                 // ── Blurred group ────────────────────────────────────────
                 // Parent shape defines the group boundary
@@ -171,7 +175,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(0.0, Color::TRANSPARENT),
                 );
                 let group = renderer.add_shape(group_bg, None, None).unwrap();
-                renderer.set_shape_color(group, Some(Color::rgba(255, 100, 100, 100)));
+                renderer
+                    .set_shape_color(group, Some(Color::rgba(255, 100, 100, 100)))
+                    .unwrap();
 
                 // Child shapes inside the group
                 let child1 = Shape::rect(
@@ -179,14 +185,18 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(3.0, Color::rgb(0, 0, 0)),
                 );
                 let c1 = renderer.add_shape(child1, Some(group), None).unwrap();
-                renderer.set_shape_color(c1, Some(Color::rgb(50, 120, 255)));
+                renderer
+                    .set_shape_color(c1, Some(Color::rgb(50, 120, 255)))
+                    .unwrap();
 
                 let child2 = Shape::rect(
                     [(200.0, 180.0), (450.0, 360.0)],
                     Stroke::new(3.0, Color::rgb(0, 0, 0)),
                 );
                 let c2 = renderer.add_shape(child2, Some(group), None).unwrap();
-                renderer.set_shape_color(c2, Some(Color::rgb(50, 220, 80)));
+                renderer
+                    .set_shape_color(c2, Some(Color::rgb(50, 220, 80)))
+                    .unwrap();
 
                 // Attach the blur effect with radius = 8 pixels
                 let blur_params = BlurParams {
@@ -204,21 +214,27 @@ impl<'a> ApplicationHandler for App<'a> {
                     Stroke::new(0.0, Color::TRANSPARENT),
                 );
                 let sharp = renderer.add_shape(sharp_bg, None, None).unwrap();
-                renderer.set_shape_color(sharp, Some(Color::rgb(255, 100, 100)));
+                renderer
+                    .set_shape_color(sharp, Some(Color::rgb(255, 100, 100)))
+                    .unwrap();
 
                 let sc1 = Shape::rect(
                     [(100.0, 430.0), (300.0, 550.0)],
                     Stroke::new(3.0, Color::rgb(0, 0, 0)),
                 );
                 let s1 = renderer.add_shape(sc1, Some(sharp), None).unwrap();
-                renderer.set_shape_color(s1, Some(Color::rgb(50, 120, 255)));
+                renderer
+                    .set_shape_color(s1, Some(Color::rgb(50, 120, 255)))
+                    .unwrap();
 
                 let sc2 = Shape::rect(
                     [(200.0, 440.0), (450.0, 550.0)],
                     Stroke::new(3.0, Color::rgb(0, 0, 0)),
                 );
                 let s2 = renderer.add_shape(sc2, Some(sharp), None).unwrap();
-                renderer.set_shape_color(s2, Some(Color::rgb(50, 220, 80)));
+                renderer
+                    .set_shape_color(s2, Some(Color::rgb(50, 220, 80)))
+                    .unwrap();
 
                 // ── Render ───────────────────────────────────────────────
                 match renderer.render() {
