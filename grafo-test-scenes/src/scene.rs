@@ -105,6 +105,7 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_49_conic_quadrant_colors(renderer));
     expectations.extend(tile_50_overflow_visible_delegates_to_ancestor(renderer));
     expectations.extend(tile_51_clip_rect_overflow_visible_container(renderer));
+    expectations.extend(tile_52_backdrop_overflow_visible_children(renderer));
 
     expectations
 }
@@ -3024,6 +3025,83 @@ fn tile_51_clip_rect_overflow_visible_container(renderer: &mut Renderer) -> Vec<
             255,
             255,
             "t51_outer_still_clips_child",
+        ),
+    ]
+}
+
+/// Tile 52 — A backdrop-effect parent with visible overflow only clips its own
+/// backdrop/color passes; descendants inherit the ancestor clip.
+fn tile_52_backdrop_overflow_visible_children(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(52);
+
+    let outer = Shape::rounded_rect(
+        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
+        BorderRadii::new(12.0),
+        Stroke::default(),
+    );
+    let outer_id = renderer.add_shape(outer, None, None).unwrap();
+    renderer
+        .set_shape_color(outer_id, Some(Color::rgb(185, 185, 220)))
+        .unwrap();
+
+    let backdrop_panel = Shape::rounded_rect(
+        [(ox + 25.0, oy + 25.0), (ox + 55.0, oy + 55.0)],
+        BorderRadii::new(6.0),
+        Stroke::default(),
+    );
+    let panel_id = renderer
+        .add_shape(backdrop_panel, Some(outer_id), None)
+        .unwrap();
+    renderer
+        .set_shape_color(panel_id, Some(Color::rgba(255, 255, 255, 80)))
+        .unwrap();
+    renderer
+        .set_shape_overflow(panel_id, ShapeOverflow::Visible)
+        .unwrap();
+
+    let (width, height) = renderer.size();
+    let blur_params = BlurParams {
+        radius: 5.0,
+        _pad: 0.0,
+        tex_size: [width as f32, height as f32],
+    };
+    renderer
+        .set_shape_backdrop_effect(panel_id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
+        .expect("Failed to set backdrop effect");
+
+    let child = Shape::rect(
+        [(ox + 0.0, oy + 35.0), (ox + 80.0, oy + 50.0)],
+        Stroke::default(),
+    );
+    let child_id = renderer.add_shape(child, Some(panel_id), None).unwrap();
+    renderer
+        .set_shape_color(child_id, Some(Color::rgb(230, 70, 70)))
+        .unwrap();
+
+    vec![
+        PixelExpectation::opaque(
+            ox as u32 + 15,
+            oy as u32 + 42,
+            230,
+            70,
+            70,
+            "t52_child_visible_outside_backdrop",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 40,
+            oy as u32 + 42,
+            230,
+            70,
+            70,
+            "t52_child_inside_backdrop",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 2,
+            oy as u32 + 42,
+            255,
+            255,
+            255,
+            "t52_outer_still_clips_child",
         ),
     ]
 }
