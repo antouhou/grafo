@@ -228,7 +228,7 @@ impl<'a> Renderer<'a> {
                 ))
             } else {
                 Ok(())
-            }
+            };
         }
         draw_command.set_texture_id(layer, texture_id);
         Ok(())
