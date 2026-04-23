@@ -411,7 +411,6 @@ impl<'a> Renderer<'a> {
 
         #[cfg(feature = "render_metrics")]
         {
-            println!("stencil passes: {}", frame_pipeline_counts.stencil_passes);
             self.last_pipeline_switch_counts = frame_pipeline_counts;
         }
     }
