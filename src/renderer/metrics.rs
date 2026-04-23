@@ -7,7 +7,8 @@ use super::Renderer;
 ///
 /// Each field counts how many times the corresponding `set_pipeline` call was issued
 /// during a single frame. `scissor_clips` counts how many times a scissor rect was
-/// used *instead* of a stencil increment/decrement pair.
+/// used *instead* of a stencil increment/decrement pair. `stencil_passes` counts
+/// actual indexed draws that modify the stencil buffer.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PipelineSwitchCounts {
     /// Number of switches to the stencil-increment pipeline.
@@ -22,6 +23,8 @@ pub struct PipelineSwitchCounts {
     pub total_switches: u32,
     /// Number of parent shapes clipped via scissor rect instead of stencil.
     pub scissor_clips: u32,
+    /// Number of stencil-modifying draw passes.
+    pub stencil_passes: u32,
 }
 
 impl PipelineSwitchCounts {
@@ -33,6 +36,7 @@ impl PipelineSwitchCounts {
         self.to_composite += other.to_composite;
         self.total_switches += other.total_switches;
         self.scissor_clips += other.scissor_clips;
+        self.stencil_passes += other.stencil_passes;
     }
 }
 
