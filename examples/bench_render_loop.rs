@@ -305,6 +305,7 @@ fn print_metrics(renderer: &mut grafo::Renderer<'_>) {
     println!("  Composite:        {}", pc.to_composite);
     println!("  Total switches:   {}", pc.total_switches);
     println!("  Scissor clips:    {}", pc.scissor_clips);
+    println!("  Stencil passes:   {}", pc.stencil_passes);
 }
 
 // ── Event-loop–driven benchmark ──────────────────────────────────────────────

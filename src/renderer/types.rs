@@ -322,6 +322,12 @@ impl PipelineTracker {
     pub(super) fn record_scissor_clip(&mut self) {
         self.counts.scissor_clips += 1;
     }
+
+    /// Record one draw pass that modifies the stencil buffer.
+    #[cfg(feature = "render_metrics")]
+    pub(super) fn record_stencil_pass(&mut self) {
+        self.counts.stencil_passes += 1;
+    }
 }
 
 /// Tracks the currently-bound texture bind groups to skip redundant `set_bind_group` calls.

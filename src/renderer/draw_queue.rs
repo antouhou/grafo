@@ -222,9 +222,13 @@ impl<'a> Renderer<'a> {
             .get_mut(node_id)
             .ok_or(DrawCommandError::InvalidShapeId(node_id))?;
         if draw_command.is_clip_rect() {
-            return Err(DrawCommandError::UnsupportedClipRectOperation(
-                node_id, "textures",
-            ));
+            return if texture_id.is_some() {
+                Err(DrawCommandError::UnsupportedClipRectOperation(
+                    node_id, "textures",
+                ))
+            } else {
+                Ok(())
+            };
         }
         draw_command.set_texture_id(layer, texture_id);
         Ok(())

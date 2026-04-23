@@ -318,6 +318,8 @@ pub(super) fn handle_increment_pass<'rp>(
 
         let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
         render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
+        #[cfg(feature = "render_metrics")]
+        currently_set_pipeline.record_stencil_pass();
 
         let this_stencil = parent_stencil + 1;
         *shape.stencil_ref_mut() = Some(this_stencil);
@@ -363,6 +365,8 @@ pub(super) fn handle_decrement_pass<'rp>(
 
         let this_shape_stencil = shape.stencil_ref_mut().unwrap_or(0);
         render_buffer_range_to_texture(index_range, render_pass, this_shape_stencil);
+        #[cfg(feature = "render_metrics")]
+        currently_set_pipeline.record_stencil_pass();
 
         if shape.stencil_ref_mut().is_some() {
             stencil_stack.pop();
@@ -1089,6 +1093,8 @@ pub(super) fn render_segments(
                     let start = idx_range.0 as u32;
                     let end = (idx_range.0 + idx_range.1) as u32;
                     render_pass.draw_indexed(start..end, 0, 0..1);
+                    #[cfg(feature = "render_metrics")]
+                    currently_set_pipeline.record_stencil_pass();
                 }
 
                 with_shape_mut!(draw_command, shape => {
@@ -1186,6 +1192,8 @@ pub(super) fn render_segments(
                         );
                         render_pass.set_stencil_reference(this_stencil);
                         render_pass.draw_indexed(start..end, 0, 0..1);
+                        #[cfg(feature = "render_metrics")]
+                        currently_set_pipeline.record_stencil_pass();
                     }
                 }
             }
