@@ -201,6 +201,12 @@ impl<'a> Renderer<'a> {
             }
         }
 
+        self.upload_buffers_for_frame();
+
+        self.last_prepare_cpu_time = prepare_started_at.elapsed();
+    }
+
+    pub(super) fn upload_buffers_for_frame(&mut self) {
         if !self.temp_vertices.is_empty() {
             upsert_gpu_buffer(
                 &self.device,
@@ -257,7 +263,5 @@ impl<'a> Renderer<'a> {
                 BufferUsages::VERTEX | BufferUsages::COPY_DST,
             );
         }
-
-        self.last_prepare_cpu_time = prepare_started_at.elapsed();
     }
 }
