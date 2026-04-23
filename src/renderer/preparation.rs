@@ -108,15 +108,78 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    pub(super) fn prepare_render(&mut self) {
-        let prepare_started_at = std::time::Instant::now();
-
+    pub(super) fn clear_buffers(&mut self) {
         self.temp_vertices.clear();
         self.temp_indices.clear();
         self.temp_instance_transforms.clear();
         self.temp_instance_colors.clear();
         self.temp_instance_metadata.clear();
         self.geometry_dedup_map.clear();
+    }
+
+    pub(super) fn upload_buffers_for_frame(&mut self) {
+        if !self.temp_vertices.is_empty() {
+            upsert_gpu_buffer(
+                &self.device,
+                &self.queue,
+                &mut self.aggregated_vertex_buffer,
+                "Aggregated Vertex Buffer",
+                bytemuck::cast_slice(&self.temp_vertices),
+                BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            );
+        }
+
+        if !self.temp_indices.is_empty() {
+            upsert_gpu_buffer(
+                &self.device,
+                &self.queue,
+                &mut self.aggregated_index_buffer,
+                "Aggregated Index Buffer",
+                bytemuck::cast_slice(&self.temp_indices),
+                BufferUsages::INDEX | BufferUsages::COPY_DST,
+            );
+        }
+
+        self.ensure_identity_instance_buffers();
+
+        if !self.temp_instance_transforms.is_empty() {
+            upsert_gpu_buffer(
+                &self.device,
+                &self.queue,
+                &mut self.aggregated_instance_transform_buffer,
+                "Aggregated Instance Transform Buffer",
+                bytemuck::cast_slice(&self.temp_instance_transforms),
+                BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            );
+        }
+
+        if !self.temp_instance_colors.is_empty() {
+            upsert_gpu_buffer(
+                &self.device,
+                &self.queue,
+                &mut self.aggregated_instance_color_buffer,
+                "Aggregated Instance Color Buffer",
+                bytemuck::cast_slice(&self.temp_instance_colors),
+                BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            );
+        }
+
+        if !self.temp_instance_metadata.is_empty() {
+            upsert_gpu_buffer(
+                &self.device,
+                &self.queue,
+                &mut self.aggregated_instance_metadata_buffer,
+                "Aggregated Instance Metadata Buffer",
+                bytemuck::cast_slice(&self.temp_instance_metadata),
+                BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            );
+        }
+    }
+
+    pub(super) fn prepare_render(&mut self) {
+        let prepare_started_at = std::time::Instant::now();
+
+        self.clear_buffers();
 
         for &node_id in &self.geometry_node_ids {
             let Some(draw_command) = self.draw_tree.get_mut(node_id) else {
@@ -204,64 +267,5 @@ impl<'a> Renderer<'a> {
         self.upload_buffers_for_frame();
 
         self.last_prepare_cpu_time = prepare_started_at.elapsed();
-    }
-
-    pub(super) fn upload_buffers_for_frame(&mut self) {
-        if !self.temp_vertices.is_empty() {
-            upsert_gpu_buffer(
-                &self.device,
-                &self.queue,
-                &mut self.aggregated_vertex_buffer,
-                "Aggregated Vertex Buffer",
-                bytemuck::cast_slice(&self.temp_vertices),
-                BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            );
-        }
-
-        if !self.temp_indices.is_empty() {
-            upsert_gpu_buffer(
-                &self.device,
-                &self.queue,
-                &mut self.aggregated_index_buffer,
-                "Aggregated Index Buffer",
-                bytemuck::cast_slice(&self.temp_indices),
-                BufferUsages::INDEX | BufferUsages::COPY_DST,
-            );
-        }
-
-        self.ensure_identity_instance_buffers();
-
-        if !self.temp_instance_transforms.is_empty() {
-            upsert_gpu_buffer(
-                &self.device,
-                &self.queue,
-                &mut self.aggregated_instance_transform_buffer,
-                "Aggregated Instance Transform Buffer",
-                bytemuck::cast_slice(&self.temp_instance_transforms),
-                BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            );
-        }
-
-        if !self.temp_instance_colors.is_empty() {
-            upsert_gpu_buffer(
-                &self.device,
-                &self.queue,
-                &mut self.aggregated_instance_color_buffer,
-                "Aggregated Instance Color Buffer",
-                bytemuck::cast_slice(&self.temp_instance_colors),
-                BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            );
-        }
-
-        if !self.temp_instance_metadata.is_empty() {
-            upsert_gpu_buffer(
-                &self.device,
-                &self.queue,
-                &mut self.aggregated_instance_metadata_buffer,
-                "Aggregated Instance Metadata Buffer",
-                bytemuck::cast_slice(&self.temp_instance_metadata),
-                BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            );
-        }
     }
 }
