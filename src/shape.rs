@@ -91,6 +91,11 @@ impl TessellatedGeometry {
     }
 }
 
+pub enum ShapeType {
+    Path,
+    Rect,
+}
+
 impl CachedShapeHandle {
     /// Creates a new `CachedShape` with the specified shape and depth.
     /// Note that tessellator_cache_key is different from the shape cache key; a Shape cache key is
@@ -238,6 +243,15 @@ impl Shape {
                 path_shape.tessellate(tessellator, buffers_pool, tesselation_cache_key)
             }
             Shape::Rect(rect_shape) => {
+                if let Some(cache_key) = tesselation_cache_key {
+                    if let Some(cached_vertex_buffers) = buffers_pool
+                        .tessellation_cache
+                        .get_vertex_buffers(&cache_key)
+                    {
+                        return TessellatedGeometry::Shared(cached_vertex_buffers);
+                    }
+                }
+
                 let min_width = rect_shape.rect[0].0;
                 let min_height = rect_shape.rect[0].1;
                 let max_width = rect_shape.rect[1].0;
@@ -289,7 +303,16 @@ impl Shape {
                     &mut buffers_pool.aa_fringe_scratch,
                 );
 
-                TessellatedGeometry::Owned(vertex_buffers)
+                let geometry = if let Some(tesselation_cache_key) = tesselation_cache_key {
+                    let arc_buffers = Arc::new(vertex_buffers);
+                    buffers_pool
+                        .tessellation_cache
+                        .insert_vertex_buffers(tesselation_cache_key, Arc::clone(&arc_buffers));
+                    TessellatedGeometry::Shared(arc_buffers)
+                } else {
+                    TessellatedGeometry::Owned(vertex_buffers)
+                };
+                geometry
             }
         }
     }
