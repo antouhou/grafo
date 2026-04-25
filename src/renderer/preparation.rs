@@ -188,14 +188,11 @@ impl<'a> Renderer<'a> {
 
             match draw_command {
                 DrawCommand::Shape(shape) => {
-                    let tessellated_geometry =
-                        shape.tessellate(&mut self.tessellator, &mut self.buffers_pool_manager);
-
                     if let Some((index_start, index_count)) = append_aggregated_geometry(
                         &mut self.temp_vertices,
                         &mut self.temp_indices,
-                        tessellated_geometry.vertices(),
-                        tessellated_geometry.indices(),
+                        &shape.vertex_buffers.vertices,
+                        &shape.vertex_buffers.indices,
                     ) {
                         shape.index_buffer_range = Some((index_start, index_count));
                         let instance_index = append_instance_data(
@@ -210,12 +207,6 @@ impl<'a> Renderer<'a> {
                         shape.is_empty = false;
                     } else {
                         shape.is_empty = true;
-                    }
-
-                    if let Some(owned_vertex_buffers) = tessellated_geometry.into_owned() {
-                        self.buffers_pool_manager
-                            .lyon_vertex_buffers_pool
-                            .return_vertex_buffers(owned_vertex_buffers);
                     }
                 }
                 DrawCommand::CachedShape(cached_shape_data) => {

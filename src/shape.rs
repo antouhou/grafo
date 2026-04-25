@@ -59,6 +59,7 @@ pub struct CachedShapeHandle {
 }
 
 pub(crate) enum TessellatedGeometry {
+    /// When the cache key is not provided, or the geometry is a simple rect
     Owned(VertexBuffers<CustomVertex, u16>),
     Shared(Arc<VertexBuffers<CustomVertex, u16>>),
 }
@@ -1025,12 +1026,13 @@ impl PathShape {
 /// directly by library users.
 #[derive(Debug)]
 pub(crate) struct ShapeDrawData {
+    pub(crate) vertex_buffers: Arc<VertexBuffers<CustomVertex, u16>>,
+    /// Range in the aggregated index buffer (start_index, count)
+    pub(crate) index_buffer_range: Option<(usize, usize)>,
     /// The shape associated with this draw data.
     pub(crate) shape: Shape,
     /// Optional cache key for the shape, used for caching tessellated buffers.
-    pub(crate) cache_key: Option<u64>,
-    /// Range in the aggregated index buffer (start_index, count)  
-    pub(crate) index_buffer_range: Option<(usize, usize)>,
+    pub(crate) geometry_id: Option<u64>,
     /// Indicates whether the shape is empty (no vertices or indices).
     pub(crate) is_empty: bool,
     /// Stencil reference assigned during render traversal (parent + 1). Cleared after frame.
@@ -1060,13 +1062,19 @@ pub(crate) struct ShapeDrawData {
 }
 
 impl ShapeDrawData {
-    pub fn new(shape: impl Into<Shape>, cache_key: Option<u64>) -> Self {
+    pub fn new(shape: impl Into<Shape>, geometry_id: Option<u64>, tessellator: &mut FillTessellator, pool: &mut PoolManager) -> Self {
         let shape = shape.into();
         let is_rect = matches!(shape, Shape::Rect(_));
 
+        let vertices = match shape.tessellate(tessellator, pool, geometry_id) {
+            TessellatedGeometry::Owned(vertex_buffers) => Arc::new(vertex_buffers),
+            TessellatedGeometry::Shared(vertex_buffers) => vertex_buffers,
+        };
+
         ShapeDrawData {
+            vertex_buffers: vertices,
             shape,
-            cache_key,
+            geometry_id,
             index_buffer_range: None,
             is_empty: false,
             stencil_ref: None,
@@ -1090,7 +1098,7 @@ impl ShapeDrawData {
         buffers_pool: &mut PoolManager,
     ) -> TessellatedGeometry {
         self.shape
-            .tessellate(tessellator, buffers_pool, self.cache_key)
+            .tessellate(tessellator, buffers_pool, self.geometry_id)
     }
 }
 
