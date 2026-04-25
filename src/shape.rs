@@ -65,6 +65,7 @@ pub(crate) enum TessellatedGeometry {
 }
 
 impl TessellatedGeometry {
+    #[cfg(test)]
     pub(crate) fn vertices(&self) -> &[CustomVertex] {
         match self {
             Self::Owned(vertex_buffers) => &vertex_buffers.vertices,
@@ -72,6 +73,7 @@ impl TessellatedGeometry {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn indices(&self) -> &[u16] {
         match self {
             Self::Owned(vertex_buffers) => &vertex_buffers.indices,
@@ -80,6 +82,7 @@ impl TessellatedGeometry {
     }
 
     /// Returns the vertex buffers if they are owned, or `None` if they are shared (cached).
+    #[cfg(test)]
     pub(crate) fn into_owned(self) -> Option<VertexBuffers<CustomVertex, u16>> {
         match self {
             Self::Owned(vertex_buffers) => Some(vertex_buffers),
@@ -1093,17 +1096,6 @@ impl ShapeDrawData {
             clips_children: true,
             is_rect,
         }
-    }
-
-    /// Tessellates complex shapes and stores the resulting buffers.
-    #[inline(always)]
-    pub(crate) fn tessellate(
-        &mut self,
-        tessellator: &mut FillTessellator,
-        buffers_pool: &mut PoolManager,
-    ) -> TessellatedGeometry {
-        self.shape
-            .tessellate(tessellator, buffers_pool, self.geometry_id)
     }
 }
 
