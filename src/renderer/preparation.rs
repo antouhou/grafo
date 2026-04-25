@@ -188,6 +188,12 @@ impl<'a> Renderer<'a> {
 
             match draw_command {
                 DrawCommand::Shape(shape) => {
+                    if let Some(geometry_id) = shape.geometry_id {
+                        self.buffers_pool_manager
+                            .tessellation_cache
+                            .refresh_vertex_buffers(geometry_id, &shape.vertex_buffers);
+                    }
+
                     if let Some((index_start, index_count)) = append_aggregated_geometry(
                         &mut self.temp_vertices,
                         &mut self.temp_indices,
@@ -210,6 +216,15 @@ impl<'a> Renderer<'a> {
                     }
                 }
                 DrawCommand::CachedShape(cached_shape_data) => {
+                    if let Some(geometry_id) = cached_shape_data.cached_shape.geometry_id {
+                        self.buffers_pool_manager
+                            .tessellation_cache
+                            .refresh_vertex_buffers(
+                                geometry_id,
+                                &cached_shape_data.cached_shape.vertex_buffers,
+                            );
+                    }
+
                     // Geometry deduplication: if we already appended this cache
                     // key's vertices/indices, reuse the same range.
                     let geometry_id = cached_shape_data.cached_shape.geometry_id;

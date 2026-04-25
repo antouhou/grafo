@@ -20,11 +20,13 @@ impl<'a> Renderer<'a> {
         parent_shape_id: Option<usize>,
         cache_key: Option<u64>,
     ) -> Result<usize, DrawCommandError> {
-        let draw_data = ShapeDrawData::new(shape, cache_key, &mut self.tessellator, &mut self.buffers_pool_manager);
-        self.add_draw_command(
-            DrawCommand::Shape(draw_data),
-            parent_shape_id,
-        )
+        let draw_data = ShapeDrawData::new(
+            shape,
+            cache_key,
+            &mut self.tessellator,
+            &mut self.buffers_pool_manager,
+        );
+        self.add_draw_command(DrawCommand::Shape(draw_data), parent_shape_id)
     }
 
     pub fn add_shape_command(

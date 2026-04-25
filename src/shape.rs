@@ -111,7 +111,7 @@ impl CachedShapeHandle {
             vertex_buffers: vertices,
             is_rect,
             rect_bounds,
-            geometry_id
+            geometry_id,
         }
     }
 }
@@ -1062,7 +1062,12 @@ pub(crate) struct ShapeDrawData {
 }
 
 impl ShapeDrawData {
-    pub fn new(shape: impl Into<Shape>, geometry_id: Option<u64>, tessellator: &mut FillTessellator, pool: &mut PoolManager) -> Self {
+    pub fn new(
+        shape: impl Into<Shape>,
+        geometry_id: Option<u64>,
+        tessellator: &mut FillTessellator,
+        pool: &mut PoolManager,
+    ) -> Self {
         let shape = shape.into();
         let is_rect = matches!(shape, Shape::Rect(_));
 

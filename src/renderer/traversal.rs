@@ -143,13 +143,25 @@ mod tests {
     };
     use crate::effect::EffectInstance;
     use crate::renderer::types::DrawCommand;
-    use crate::shape::CachedShapeDrawData;
+    use crate::shape::{CachedShapeDrawData, CachedShapeHandle};
+    use crate::vertex::CustomVertex;
     use ahash::{HashMap, HashMapExt};
+    use lyon::tessellation::VertexBuffers;
+    use std::sync::Arc;
+
+    fn cached_draw_data() -> CachedShapeDrawData {
+        CachedShapeDrawData::new(CachedShapeHandle {
+            vertex_buffers: Arc::new(VertexBuffers::<CustomVertex, u16>::new()),
+            is_rect: false,
+            rect_bounds: None,
+            geometry_id: None,
+        })
+    }
 
     #[test]
     fn compute_node_depth_returns_zero_for_root() {
         let mut tree = easy_tree::Tree::new();
-        let root = tree.add_node(DrawCommand::CachedShape(CachedShapeDrawData::new(1)));
+        let root = tree.add_node(DrawCommand::CachedShape(cached_draw_data()));
 
         assert_eq!(compute_node_depth(&tree, root), 0);
     }
@@ -157,9 +169,9 @@ mod tests {
     #[test]
     fn plan_traversal_produces_balanced_events() {
         let mut tree = easy_tree::Tree::new();
-        let root = tree.add_node(DrawCommand::CachedShape(CachedShapeDrawData::new(1)));
-        let child = tree.add_child(root, DrawCommand::CachedShape(CachedShapeDrawData::new(2)));
-        tree.add_child(child, DrawCommand::CachedShape(CachedShapeDrawData::new(3)));
+        let root = tree.add_node(DrawCommand::CachedShape(cached_draw_data()));
+        let child = tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
+        tree.add_child(child, DrawCommand::CachedShape(cached_draw_data()));
 
         let effect_results: HashMap<usize, wgpu::BindGroup> = HashMap::new();
         let mut traversal_scratch = TraversalScratch::new();
@@ -177,9 +189,9 @@ mod tests {
     #[test]
     fn plan_traversal_reuses_allocated_capacity() {
         let mut tree = easy_tree::Tree::new();
-        let root = tree.add_node(DrawCommand::CachedShape(CachedShapeDrawData::new(1)));
-        tree.add_child(root, DrawCommand::CachedShape(CachedShapeDrawData::new(2)));
-        tree.add_child(root, DrawCommand::CachedShape(CachedShapeDrawData::new(3)));
+        let root = tree.add_node(DrawCommand::CachedShape(cached_draw_data()));
+        tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
+        tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
 
         let effect_results: HashMap<usize, wgpu::BindGroup> = HashMap::new();
         let mut traversal_scratch = TraversalScratch::new();
@@ -206,10 +218,9 @@ mod tests {
     #[test]
     fn subtree_has_backdrop_effects_detects_descendants() {
         let mut tree = easy_tree::Tree::new();
-        let root = tree.add_node(DrawCommand::CachedShape(CachedShapeDrawData::new(1)));
-        let child = tree.add_child(root, DrawCommand::CachedShape(CachedShapeDrawData::new(2)));
-        let grandchild =
-            tree.add_child(child, DrawCommand::CachedShape(CachedShapeDrawData::new(3)));
+        let root = tree.add_node(DrawCommand::CachedShape(cached_draw_data()));
+        let child = tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
+        let grandchild = tree.add_child(child, DrawCommand::CachedShape(cached_draw_data()));
 
         let mut backdrop_effects = HashMap::new();
         backdrop_effects.insert(

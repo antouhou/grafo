@@ -148,8 +148,12 @@ mod tests {
         LinearGradientLine,
     };
     use crate::renderer::types::DrawCommand;
+    use crate::shape::ShapeDrawData;
+    use crate::util::PoolManager;
     use crate::{Color, Shape, Stroke, TransformInstance};
     use ahash::{HashMap, HashMapExt};
+    use lyon::tessellation::FillTessellator;
+    use std::num::NonZeroUsize;
 
     fn create_test_gradient() -> Gradient {
         Gradient::linear(
@@ -174,6 +178,17 @@ mod tests {
         .expect("valid test gradient")
     }
 
+    fn rect_draw_command() -> DrawCommand {
+        let mut tessellator = FillTessellator::new();
+        let mut pool = PoolManager::new(NonZeroUsize::new(4).unwrap());
+        DrawCommand::Shape(ShapeDrawData::new(
+            Shape::rect([(0.0, 0.0), (10.0, 10.0)], Stroke::default()),
+            None,
+            &mut tessellator,
+            &mut pool,
+        ))
+    }
+
     #[test]
     fn axis_aligned_rect_transform_accepts_translation_and_scale() {
         let transform = TransformInstance::affine_2d(2.0, 0.0, 0.0, -3.0, 10.0, 20.0);
@@ -186,10 +201,7 @@ mod tests {
 
     #[test]
     fn scissor_rejects_non_axis_aligned_transform() {
-        let mut draw_command = DrawCommand::Shape(crate::shape::ShapeDrawData::new(
-            Shape::rect([(0.0, 0.0), (10.0, 10.0)], Stroke::default()),
-            None,
-        ));
+        let mut draw_command = rect_draw_command();
         draw_command.set_transform(TransformInstance::affine_2d(1.0, 0.0, 0.5, 1.0, 5.0, 5.0));
 
         assert!(try_scissor_for_rect(&draw_command, 1.0, (100, 100)).is_none());
@@ -197,10 +209,7 @@ mod tests {
 
     #[test]
     fn skip_visible_rect_draw_rejects_effect_nodes() {
-        let draw_command = DrawCommand::Shape(crate::shape::ShapeDrawData::new(
-            Shape::rect([(0.0, 0.0), (10.0, 10.0)], Stroke::default()),
-            None,
-        ));
+        let draw_command = rect_draw_command();
         let node_id = 7usize;
 
         let mut group_effects = HashMap::new();
@@ -242,10 +251,7 @@ mod tests {
 
     #[test]
     fn skip_visible_rect_draw_accepts_untextured_none_color_rect() {
-        let draw_command = DrawCommand::Shape(crate::shape::ShapeDrawData::new(
-            Shape::rect([(0.0, 0.0), (10.0, 10.0)], Stroke::default()),
-            None,
-        ));
+        let draw_command = rect_draw_command();
 
         assert!(should_skip_visible_rect_draw(
             1,
@@ -257,10 +263,7 @@ mod tests {
 
     #[test]
     fn skip_visible_rect_draw_rejects_opaque_color_and_textures() {
-        let mut opaque_draw_command = DrawCommand::Shape(crate::shape::ShapeDrawData::new(
-            Shape::rect([(0.0, 0.0), (10.0, 10.0)], Stroke::default()),
-            None,
-        ));
+        let mut opaque_draw_command = rect_draw_command();
         opaque_draw_command.set_instance_color_override(Some(Color::WHITE.normalize()));
 
         assert!(!should_skip_visible_rect_draw(
@@ -270,10 +273,7 @@ mod tests {
             &HashMap::new(),
         ));
 
-        let mut textured_draw_command = DrawCommand::Shape(crate::shape::ShapeDrawData::new(
-            Shape::rect([(0.0, 0.0), (10.0, 10.0)], Stroke::default()),
-            None,
-        ));
+        let mut textured_draw_command = rect_draw_command();
         textured_draw_command.set_texture_id(0, Some(9));
 
         assert!(!should_skip_visible_rect_draw(
@@ -286,10 +286,7 @@ mod tests {
 
     #[test]
     fn skip_visible_rect_draw_rejects_gradient_rects() {
-        let mut draw_command = DrawCommand::Shape(crate::shape::ShapeDrawData::new(
-            Shape::rect([(0.0, 0.0), (10.0, 10.0)], Stroke::default()),
-            None,
-        ));
+        let mut draw_command = rect_draw_command();
 
         match &mut draw_command {
             DrawCommand::Shape(shape) => {
