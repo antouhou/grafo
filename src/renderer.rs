@@ -31,7 +31,6 @@ use crate::Color;
 use self::metrics::RenderLoopMetricsTracker;
 use self::types::{DrawCommand, RendererScratch};
 
-mod command_builder;
 mod construction;
 mod draw_queue;
 mod effects;
@@ -42,7 +41,6 @@ mod preparation;
 mod readback;
 mod rect_utils;
 
-pub use command_builder::{CachedShapeCommand, ClippingRectCommand, ShapeCommand};
 pub use construction::RendererCreationError;
 mod rendering;
 mod surface;

@@ -164,8 +164,8 @@ pub use gradient::types::{
     RadialGradientDesc, RadialGradientShape, RadialGradientSize, SpreadMode,
 };
 pub use renderer::{
-    types::DrawCommandError, CachedShapeCommand, ClippingRectCommand, MathRect, Renderer,
-    RendererCreationError, ShapeCommand, ShapeOverflow, TextureLayer,
+    types::DrawCommandError, MathRect, Renderer,
+    RendererCreationError, ShapeOverflow, TextureLayer,
 };
 pub use shape::*;
 pub use stroke::Stroke;
