@@ -148,9 +148,9 @@ mod tests {
         LinearGradientLine,
     };
     use crate::renderer::types::DrawCommand;
-    use crate::shape::ShapeDrawData;
+    use crate::shape::CachedShapeDrawData;
     use crate::util::PoolManager;
-    use crate::{Color, Shape, Stroke, TransformInstance};
+    use crate::{CachedShapeHandle, Color, Shape, Stroke, TransformInstance};
     use ahash::{HashMap, HashMapExt};
     use lyon::tessellation::FillTessellator;
     use std::num::NonZeroUsize;
@@ -181,12 +181,13 @@ mod tests {
     fn rect_draw_command() -> DrawCommand {
         let mut tessellator = FillTessellator::new();
         let mut pool = PoolManager::new(NonZeroUsize::new(4).unwrap());
-        DrawCommand::Shape(ShapeDrawData::new(
-            Shape::rect([(0.0, 0.0), (10.0, 10.0)], Stroke::default()),
-            None,
+        let shape_handle = CachedShapeHandle::new(
+            &Shape::rect([(0.0, 0.0), (10.0, 10.0)], Stroke::default()),
             &mut tessellator,
             &mut pool,
-        ))
+            None,
+        );
+        DrawCommand::CachedShape(CachedShapeDrawData::new(shape_handle))
     }
 
     #[test]
@@ -289,12 +290,10 @@ mod tests {
         let mut draw_command = rect_draw_command();
 
         match &mut draw_command {
-            DrawCommand::Shape(shape) => {
+            DrawCommand::CachedShape(shape) => {
                 shape.fill = Some(Fill::Gradient(create_test_gradient()));
             }
-            DrawCommand::CachedShape(_) | DrawCommand::ClipRect(_) => {
-                unreachable!("test constructs a non-cached shape")
-            }
+            _ => unreachable!(),
         }
 
         assert!(!should_skip_visible_rect_draw(

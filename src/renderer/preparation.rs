@@ -187,34 +187,6 @@ impl<'a> Renderer<'a> {
             };
 
             match draw_command {
-                DrawCommand::Shape(shape) => {
-                    if let Some(geometry_id) = shape.geometry_id {
-                        self.buffers_pool_manager
-                            .tessellation_cache
-                            .refresh_vertex_buffers(geometry_id, &shape.vertex_buffers);
-                    }
-
-                    if let Some((index_start, index_count)) = append_aggregated_geometry(
-                        &mut self.temp_vertices,
-                        &mut self.temp_indices,
-                        &shape.vertex_buffers.vertices,
-                        &shape.vertex_buffers.indices,
-                    ) {
-                        shape.index_buffer_range = Some((index_start, index_count));
-                        let instance_index = append_instance_data(
-                            &mut self.temp_instance_transforms,
-                            &mut self.temp_instance_colors,
-                            &mut self.temp_instance_metadata,
-                            shape.transform(),
-                            shape.instance_color_override(),
-                            shape.texture_ids,
-                        );
-                        *shape.instance_index_mut() = Some(instance_index);
-                        shape.is_empty = false;
-                    } else {
-                        shape.is_empty = true;
-                    }
-                }
                 DrawCommand::CachedShape(cached_shape_data) => {
                     if let Some(geometry_id) = cached_shape_data.cached_shape.geometry_id {
                         self.buffers_pool_manager

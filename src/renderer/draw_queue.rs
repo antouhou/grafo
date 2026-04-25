@@ -13,17 +13,18 @@ impl<'a> Renderer<'a> {
     /// Children are clipped to their parent unless the parent uses [`ShapeOverflow::Visible`].
     pub fn add_shape(
         &mut self,
-        shape: impl Into<Shape>,
+        shape: impl AsRef<Shape>,
         parent_shape_id: Option<usize>,
-        cache_key: Option<u64>,
+        geometry_id: Option<u64>,
     ) -> Result<usize, DrawCommandError> {
-        let draw_data = ShapeDrawData::new(
-            shape,
-            cache_key,
+        let cached_shape = CachedShapeHandle::new(
+            shape.as_ref(),
             &mut self.tessellator,
             &mut self.buffers_pool_manager,
+            geometry_id,
         );
-        self.add_draw_command(DrawCommand::Shape(draw_data), parent_shape_id)
+        let draw_data = CachedShapeDrawData::new(cached_shape);
+        self.add_draw_command(DrawCommand::CachedShape(draw_data), parent_shape_id)
     }
 
     /// Adds an axis-aligned scissor clipping rectangle without preparing geometry.

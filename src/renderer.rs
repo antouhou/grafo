@@ -20,7 +20,7 @@ use crate::pipeline::{
     create_storage_output_buffer, encode_copy_texture_to_buffer, render_buffer_range_to_texture,
     ArgbParams, PipelineType, Uniforms,
 };
-use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
+use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
 use crate::vertex::{InstanceColor, InstanceMetadata, InstanceTransform};
