@@ -62,9 +62,7 @@ pub(crate) fn append_aggregated_geometry_for_shape(
     let geometry_id = cached_shape_data.cached_shape.geometry_id;
     // Geometry deduplication: if we already appended this cache
     // key's vertices/indices, reuse the same range.
-    if let Some(&existing_range) =
-        geometry_id.and_then(|id| geometry_dedup_map.get(&id))
-    {
+    if let Some(&existing_range) = geometry_id.and_then(|id| geometry_dedup_map.get(&id)) {
         Some(existing_range)
     } else {
         let cached_shape = &cached_shape_data.cached_shape;
@@ -82,7 +80,7 @@ pub(crate) fn append_aggregated_geometry_for_shape(
     }
 }
 
-fn append_instance_data(
+pub(crate) fn append_instance_data(
     temp_instance_transforms: &mut Vec<InstanceTransform>,
     temp_instance_colors: &mut Vec<InstanceColor>,
     temp_instance_metadata: &mut Vec<InstanceMetadata>,
@@ -208,28 +206,28 @@ impl<'a> Renderer<'a> {
     pub(super) fn prepare_render(&mut self) {
         let prepare_started_at = std::time::Instant::now();
 
-        for &node_id in &self.geometry_node_ids {
-            let Some(draw_command) = self.draw_tree.get_mut(node_id) else {
-                continue;
-            };
-
-            match draw_command {
-                DrawCommand::CachedShape(cached_shape_data) => {
-                    if let Some((index_start, index_count)) = cached_shape_data.index_buffer_range {
-                        let instance_index = append_instance_data(
-                            &mut self.temp_instance_transforms,
-                            &mut self.temp_instance_colors,
-                            &mut self.temp_instance_metadata,
-                            cached_shape_data.transform(),
-                            cached_shape_data.instance_color_override(),
-                            cached_shape_data.texture_ids,
-                        );
-                        *cached_shape_data.instance_index_mut() = Some(instance_index);
-                    }
-                }
-                DrawCommand::ClipRect(_) => {}
-            }
-        }
+        // for &node_id in &self.geometry_node_ids {
+        //     let Some(draw_command) = self.draw_tree.get_mut(node_id) else {
+        //         continue;
+        //     };
+        //
+        //     match draw_command {
+        //         DrawCommand::CachedShape(cached_shape_data) => {
+        //             if let Some((index_start, index_count)) = cached_shape_data.index_buffer_range {
+        //                 // let instance_index = append_instance_data(
+        //                 //     &mut self.temp_instance_transforms,
+        //                 //     &mut self.temp_instance_colors,
+        //                 //     &mut self.temp_instance_metadata,
+        //                 //     cached_shape_data.transform(),
+        //                 //     cached_shape_data.instance_color_override(),
+        //                 //     cached_shape_data.texture_ids,
+        //                 // );
+        //                 // *cached_shape_data.instance_index_mut() = Some(instance_index);
+        //             }
+        //         }
+        //         DrawCommand::ClipRect(_) => {}
+        //     }
+        // }
 
         self.upload_buffers_for_frame();
 

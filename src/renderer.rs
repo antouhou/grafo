@@ -9,6 +9,9 @@ use lyon::tessellation::FillTessellator;
 use tracing::warn;
 use wgpu::{BindGroup, BufferUsages, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
 
+#[cfg(feature = "render_metrics")]
+use self::metrics::RenderLoopMetricsTracker;
+use self::types::{DrawCommand, RendererScratch};
 use crate::effect::{
     self, compile_composite_pipeline, compile_effect_pipeline, create_params_bind_group,
     EffectError, EffectInstance, LoadedEffect, OffscreenTexturePool,
@@ -25,11 +28,7 @@ use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
 use crate::vertex::{InstanceColor, InstanceMetadata, InstanceTransform};
 use crate::CachedShapeHandle;
-use crate::Color;
-
-#[cfg(feature = "render_metrics")]
-use self::metrics::RenderLoopMetricsTracker;
-use self::types::{DrawCommand, RendererScratch};
+pub use construction::RendererCreationError;
 
 mod construction;
 mod draw_queue;
@@ -40,8 +39,6 @@ mod passes;
 mod preparation;
 mod readback;
 mod rect_utils;
-
-pub use construction::RendererCreationError;
 mod rendering;
 mod surface;
 mod traversal;
@@ -109,10 +106,6 @@ pub struct Renderer<'a> {
 
     /// Tree structure holding shapes to be rendered.
     draw_tree: easy_tree::Tree<DrawCommand>,
-    /// Draw-tree node ids that own geometry and need CPU/GPU preparation.
-    ///
-    /// Subtree removal must keep this list in sync when that API is added.
-    geometry_node_ids: Vec<usize>,
     /// Maps node metadata indices to their clip-parent node ids.
     metadata_to_clips: HashMap<usize, usize>,
 

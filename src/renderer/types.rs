@@ -26,12 +26,16 @@ pub(super) struct ClipRectDrawData {
 }
 
 impl ClipRectDrawData {
-    pub(super) fn new(rect_bounds: [(f32, f32); 2]) -> Self {
+    pub(super) fn new(
+        rect_bounds: [(f32, f32); 2],
+        transform: Option<InstanceTransform>,
+        clips_children: bool,
+    ) -> Self {
         Self {
             rect_bounds,
-            transform: None,
+            transform,
+            clips_children,
             is_leaf: true,
-            clips_children: true,
         }
     }
 }
@@ -53,10 +57,6 @@ impl DrawCommand {
         }
     }
 
-    pub(super) fn has_prepare_geometry(&self) -> bool {
-        matches!(self, DrawCommand::CachedShape(_))
-    }
-
     pub(super) fn as_shape_draw_data_mut(&mut self) -> Option<&mut CachedShapeDrawData> {
         match self {
             DrawCommand::CachedShape(cached_shape) => Some(cached_shape),
@@ -70,35 +70,10 @@ impl DrawCommand {
 }
 
 impl DrawCommand {
-    pub(super) fn set_transform(&mut self, transform: InstanceTransform) {
-        match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.set_transform(transform),
-            DrawCommand::ClipRect(clip_rect) => clip_rect.transform = Some(transform),
-        }
-    }
-
     pub(super) fn transform(&self) -> Option<InstanceTransform> {
         match self {
             DrawCommand::CachedShape(cached_shape) => cached_shape.transform(),
             DrawCommand::ClipRect(clip_rect) => clip_rect.transform,
-        }
-    }
-
-    pub(super) fn set_texture_id(&mut self, layer: usize, texture_id: Option<u64>) {
-        match self {
-            DrawCommand::CachedShape(cached_shape) => {
-                cached_shape.set_texture_id(layer, texture_id)
-            }
-            DrawCommand::ClipRect(_) => {}
-        }
-    }
-
-    pub(super) fn set_instance_color_override(&mut self, color: Option<[f32; 4]>) {
-        match self {
-            DrawCommand::CachedShape(cached_shape) => {
-                cached_shape.set_instance_color_override(color)
-            }
-            DrawCommand::ClipRect(_) => {}
         }
     }
 
@@ -113,13 +88,6 @@ impl DrawCommand {
         match self {
             DrawCommand::CachedShape(cached_shape) => cached_shape.instance_color_override(),
             DrawCommand::ClipRect(_) => None,
-        }
-    }
-
-    pub(super) fn set_fill(&mut self, fill: Option<Fill>) {
-        match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.set_fill(fill),
-            DrawCommand::ClipRect(_) => {}
         }
     }
 
@@ -173,15 +141,6 @@ impl DrawCommand {
         }
     }
 
-    pub(super) fn set_clips_children(&mut self, clips_children: bool) {
-        match self {
-            DrawCommand::CachedShape(cached_shape) => {
-                cached_shape.set_clips_children(clips_children)
-            }
-            DrawCommand::ClipRect(clip_rect) => clip_rect.clips_children = clips_children,
-        }
-    }
-
     pub(super) fn is_rect(&self) -> bool {
         match self {
             DrawCommand::CachedShape(cached_shape) => cached_shape.is_rect(),
@@ -217,8 +176,8 @@ pub enum DrawCommandError {
     ShapeNotLoaded(u64),
     #[error("Texture layer {0} is invalid; expected 0 or 1.")]
     InvalidTextureLayer(usize),
-    #[error("Clip rect node {0} only supports axis-aligned transforms.")]
-    UnsupportedClipRectTransform(usize),
+    #[error("Clip rect node only supports axis-aligned transforms.")]
+    UnsupportedClipRectTransform,
     #[error("Clip rect commands only support axis-aligned transforms.")]
     UnsupportedClipRectCommandTransform,
     #[error("Clip rect node {0} does not support {1}.")]

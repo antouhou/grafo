@@ -1045,6 +1045,52 @@ impl PathShape {
         );
     }
 }
+
+#[derive(Clone, Debug, Default)]
+pub struct ShapeDrawCommandOptions {
+    pub transform: Option<InstanceTransform>,
+    pub clips_children: bool,
+    pub background_texture_id: Option<u64>,
+    pub foreground_texture_id: Option<u64>,
+    pub fill: Option<Fill>,
+}
+
+impl ShapeDrawCommandOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn transform(mut self, transform: InstanceTransform) -> Self {
+        self.transform = Some(transform);
+        self
+    }
+
+    pub fn clips_children(mut self, clips_children: bool) -> Self {
+        self.clips_children = clips_children;
+        self
+    }
+
+    pub fn background_texture_id(mut self, background_texture_id: u64) -> Self {
+        self.background_texture_id = Some(background_texture_id);
+        self
+    }
+
+    pub fn foreground_texture_id(mut self, foreground_texture_id: u64) -> Self {
+        self.foreground_texture_id = Some(foreground_texture_id);
+        self
+    }
+
+    pub fn fill(mut self, fill: Fill) -> Self {
+        self.fill = Some(fill);
+        self
+    }
+
+    pub fn color(mut self, color: Color) -> Self {
+        self.fill = Some(Fill::Solid(color));
+        self
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct CachedShapeDrawData {
     pub(crate) cached_shape: CachedShapeHandle,
@@ -1072,20 +1118,27 @@ pub(crate) struct CachedShapeDrawData {
 }
 
 impl CachedShapeDrawData {
-    pub fn new(cached_shape: CachedShapeHandle) -> Self {
+    pub fn new(cached_shape: CachedShapeHandle, options: ShapeDrawCommandOptions) -> Self {
         Self {
             cached_shape,
+            // Will be set during add_command
             index_buffer_range: None,
             is_empty: false,
-            stencil_ref: None,
+            // Data from options
+            transform: options.transform,
+            texture_ids: [options.background_texture_id, options.foreground_texture_id],
+            clips_children: options.clips_children,
+            color_override: match options.fill.as_ref() {
+                Some(Fill::Solid(color)) => Some(color.normalize()),
+                _ => None,
+            },
+            fill: options.fill,
+            // Set later after buffer update
             instance_index: None,
-            transform: None,
-            texture_ids: [None, None],
-            color_override: None,
-            fill: None,
+            // Set during render traversal
+            stencil_ref: None,
             gradient_bind_group: None,
             is_leaf: true,
-            clips_children: true,
         }
     }
 }
@@ -1417,16 +1470,11 @@ pub(crate) trait DrawShapeCommand {
     fn instance_index_mut(&mut self) -> &mut Option<usize>;
     fn instance_index(&self) -> Option<usize>;
     fn transform(&self) -> Option<InstanceTransform>;
-    fn set_transform(&mut self, t: InstanceTransform);
     fn texture_id(&self, layer: usize) -> Option<u64>;
-    fn set_texture_id(&mut self, layer: usize, id: Option<u64>);
     fn instance_color_override(&self) -> Option<[f32; 4]>;
-    fn set_instance_color_override(&mut self, color: Option<[f32; 4]>);
-    fn set_fill(&mut self, fill: Option<Fill>);
     fn has_gradient_fill(&self) -> bool;
     fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>>;
     fn clips_children(&self) -> bool;
-    fn set_clips_children(&mut self, clips_children: bool);
     fn is_rect(&self) -> bool;
     fn rect_bounds(&self) -> Option<[(f32, f32); 2]>;
 }
@@ -1463,38 +1511,13 @@ impl DrawShapeCommand for CachedShapeDrawData {
     }
 
     #[inline]
-    fn set_transform(&mut self, t: InstanceTransform) {
-        self.transform = Some(t);
-    }
-
-    #[inline]
     fn texture_id(&self, layer: usize) -> Option<u64> {
         self.texture_ids.get(layer).copied().unwrap_or(None)
     }
 
     #[inline]
-    fn set_texture_id(&mut self, layer: usize, id: Option<u64>) {
-        if let Some(slot) = self.texture_ids.get_mut(layer) {
-            *slot = id;
-        }
-    }
-
-    #[inline]
     fn instance_color_override(&self) -> Option<[f32; 4]> {
         self.color_override
-    }
-
-    #[inline]
-    fn set_instance_color_override(&mut self, color: Option<[f32; 4]>) {
-        self.color_override = color;
-    }
-
-    #[inline]
-    fn set_fill(&mut self, fill: Option<Fill>) {
-        self.fill = fill;
-        // Invalidate cached GPU resources so the renderer can rebuild them
-        // against the current layout outside the render loop.
-        self.gradient_bind_group = None;
     }
 
     #[inline]
@@ -1510,11 +1533,6 @@ impl DrawShapeCommand for CachedShapeDrawData {
     #[inline]
     fn clips_children(&self) -> bool {
         self.clips_children
-    }
-
-    #[inline]
-    fn set_clips_children(&mut self, clips_children: bool) {
-        self.clips_children = clips_children;
     }
 
     #[inline]
