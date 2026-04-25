@@ -53,6 +53,35 @@ fn append_aggregated_geometry(
     Some((index_start, indices.len()))
 }
 
+pub(crate) fn append_aggregated_geometry_for_shape(
+    cached_shape_data: &CachedShapeDrawData,
+    temp_vertices: &mut Vec<crate::vertex::CustomVertex>,
+    temp_indices: &mut Vec<u16>,
+    geometry_dedup_map: &mut HashMap<u64, (usize, usize)>,
+) -> Option<(usize, usize)> {
+    let geometry_id = cached_shape_data.cached_shape.geometry_id;
+    // Geometry deduplication: if we already appended this cache
+    // key's vertices/indices, reuse the same range.
+    if let Some(&existing_range) =
+        geometry_id.and_then(|id| geometry_dedup_map.get(&id))
+    {
+        Some(existing_range)
+    } else {
+        let cached_shape = &cached_shape_data.cached_shape;
+        let vertex_buffers = &cached_shape.vertex_buffers;
+        let range = append_aggregated_geometry(
+            temp_vertices,
+            temp_indices,
+            &vertex_buffers.vertices,
+            &vertex_buffers.indices,
+        );
+        if let (Some(id), Some(range)) = (geometry_id, range) {
+            geometry_dedup_map.insert(id, range);
+        }
+        range
+    }
+}
+
 fn append_instance_data(
     temp_instance_transforms: &mut Vec<InstanceTransform>,
     temp_instance_colors: &mut Vec<InstanceColor>,
@@ -179,8 +208,6 @@ impl<'a> Renderer<'a> {
     pub(super) fn prepare_render(&mut self) {
         let prepare_started_at = std::time::Instant::now();
 
-        self.clear_buffers();
-
         for &node_id in &self.geometry_node_ids {
             let Some(draw_command) = self.draw_tree.get_mut(node_id) else {
                 continue;
@@ -188,40 +215,7 @@ impl<'a> Renderer<'a> {
 
             match draw_command {
                 DrawCommand::CachedShape(cached_shape_data) => {
-                    if let Some(geometry_id) = cached_shape_data.cached_shape.geometry_id {
-                        self.buffers_pool_manager
-                            .tessellation_cache
-                            .refresh_vertex_buffers(
-                                geometry_id,
-                                &cached_shape_data.cached_shape.vertex_buffers,
-                            );
-                    }
-
-                    // Geometry deduplication: if we already appended this cache
-                    // key's vertices/indices, reuse the same range.
-                    let geometry_id = cached_shape_data.cached_shape.geometry_id;
-                    let index_range = if let Some(&existing_range) =
-                        geometry_id.and_then(|id| self.geometry_dedup_map.get(&id))
-                    {
-                        Some(existing_range)
-                    } else {
-                        let cached_shape = &cached_shape_data.cached_shape;
-                        let vertex_buffers = &cached_shape.vertex_buffers;
-                        let range = append_aggregated_geometry(
-                            &mut self.temp_vertices,
-                            &mut self.temp_indices,
-                            &vertex_buffers.vertices,
-                            &vertex_buffers.indices,
-                        );
-                        if let (Some(id), Some(range)) = (geometry_id, range) {
-                            self.geometry_dedup_map.insert(id, range);
-                        }
-                        range
-                    };
-
-                    if let Some((index_start, index_count)) = index_range {
-                        cached_shape_data.index_buffer_range = Some((index_start, index_count));
-                        cached_shape_data.is_empty = false;
+                    if let Some((index_start, index_count)) = cached_shape_data.index_buffer_range {
                         let instance_index = append_instance_data(
                             &mut self.temp_instance_transforms,
                             &mut self.temp_instance_colors,
@@ -231,8 +225,6 @@ impl<'a> Renderer<'a> {
                             cached_shape_data.texture_ids,
                         );
                         *cached_shape_data.instance_index_mut() = Some(instance_index);
-                    } else {
-                        cached_shape_data.is_empty = true;
                     }
                 }
                 DrawCommand::ClipRect(_) => {}

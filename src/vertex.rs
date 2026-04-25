@@ -289,8 +289,6 @@ impl InstanceTransform {
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct InstanceMetadata {
     pub draw_order: f32,
-    /// Bitmask indicating which texture layers are active for this instance.
-    /// 0 = no textures (solid fill only), 1 = layer 0, 2 = layer 1, 3 = both.
     pub texture_flags: f32,
 }
 

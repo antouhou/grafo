@@ -119,17 +119,47 @@ impl<'a> Renderer<'a> {
         self.backdrop_effects.clear();
         // Keep scratch storage bounded even if queue contents fluctuate frame-to-frame.
         self.trim_scratch_on_resize_or_policy();
+        // Clear memory buffers that are used for GPU upload
+        self.clear_buffers();
+    }
+
+    fn refresh_geometry_cache(&mut self, cached_shape_data: &CachedShapeDrawData) {
+        if let Some(geometry_id) = cached_shape_data.cached_shape.geometry_id {
+            self.buffers_pool_manager
+                .tessellation_cache
+                .refresh_vertex_buffers(
+                    geometry_id,
+                    &cached_shape_data.cached_shape.vertex_buffers,
+                );
+        }
     }
 
     fn add_draw_command(
         &mut self,
-        draw_command: DrawCommand,
+        mut draw_command: DrawCommand,
         parent_shape_id: Option<usize>,
     ) -> Result<usize, DrawCommandError> {
-        let has_prepare_geometry = draw_command.has_prepare_geometry();
+        let shape_geometry = draw_command.as_shape_draw_data_mut();
+        let has_geometry = shape_geometry.is_some();
+        if let Some(cached_shape_data) = shape_geometry {
+            self.refresh_geometry_cache(cached_shape_data);
+            let index_range = preparation::append_aggregated_geometry_for_shape(
+                &cached_shape_data,
+                &mut self.temp_vertices,
+                &mut self.temp_indices,
+                &mut self.geometry_dedup_map,
+            );
+            if let Some((index_start, index_count)) = index_range {
+                cached_shape_data.index_buffer_range = Some((index_start, index_count));
+                cached_shape_data.is_empty = false;
+            } else {
+                cached_shape_data.is_empty = true;
+            }
+        }
+
         if self.draw_tree.is_empty() {
             let node_id = self.draw_tree.add_node(draw_command);
-            if has_prepare_geometry {
+            if has_geometry {
                 self.geometry_node_ids.push(node_id);
             }
             Ok(node_id)
@@ -138,7 +168,7 @@ impl<'a> Renderer<'a> {
             if let Some(parent) = self.draw_tree.get_mut(parent_shape_id) {
                 parent.set_not_leaf();
                 let node_id = self.draw_tree.add_child(parent_shape_id, draw_command);
-                if has_prepare_geometry {
+                if has_geometry {
                     self.geometry_node_ids.push(node_id);
                 }
                 Ok(node_id)
@@ -151,7 +181,7 @@ impl<'a> Renderer<'a> {
                 root.set_not_leaf();
             }
             let node_id = self.draw_tree.add_child_to_root(draw_command);
-            if has_prepare_geometry {
+            if has_geometry {
                 self.geometry_node_ids.push(node_id);
             }
             Ok(node_id)

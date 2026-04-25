@@ -57,6 +57,13 @@ impl DrawCommand {
         matches!(self, DrawCommand::CachedShape(_))
     }
 
+    pub(super) fn as_shape_draw_data_mut(&mut self) -> Option<&mut CachedShapeDrawData> {
+        match self {
+            DrawCommand::CachedShape(cached_shape) => Some(cached_shape),
+            _ => None,
+        }
+    }
+
     pub(super) fn is_clip_rect(&self) -> bool {
         matches!(self, DrawCommand::ClipRect(_))
     }
@@ -192,7 +199,8 @@ impl DrawCommand {
     pub(super) fn clear_frame_state(&mut self) {
         match self {
             DrawCommand::CachedShape(cached_shape) => {
-                cached_shape.index_buffer_range = None;
+                // Geometry ranges are stable across frames until the draw queue is rebuilt.
+                // Clearing them here makes the next frame silently skip the shape.
                 cached_shape.stencil_ref = None;
             }
             DrawCommand::ClipRect(_) => {}
