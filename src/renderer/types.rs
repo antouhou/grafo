@@ -240,10 +240,14 @@ impl DrawCommand {
 pub enum DrawCommandError {
     #[error("Shape with id {0} doesn't exist in the draw tree.")]
     InvalidShapeId(usize),
+    #[error("Shape with id {0} has not been loaded yet")]
+    ShapeNotLoaded(u64),
     #[error("Texture layer {0} is invalid; expected 0 or 1.")]
     InvalidTextureLayer(usize),
     #[error("Clip rect node {0} only supports axis-aligned transforms.")]
     UnsupportedClipRectTransform(usize),
+    #[error("Clip rect commands only support axis-aligned transforms.")]
+    UnsupportedClipRectCommandTransform,
     #[error("Clip rect node {0} does not support {1}.")]
     UnsupportedClipRectOperation(usize, &'static str),
 }

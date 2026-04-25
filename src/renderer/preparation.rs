@@ -221,13 +221,13 @@ impl<'a> Renderer<'a> {
                 DrawCommand::CachedShape(cached_shape_data) => {
                     // Geometry deduplication: if we already appended this cache
                     // key's vertices/indices, reuse the same range.
+                    let geometry_id = cached_shape_data.cached_shape.geometry_id;
                     let index_range = if let Some(&existing_range) =
-                        self.geometry_dedup_map.get(&cached_shape_data.id)
+                        geometry_id.and_then(|id| self.geometry_dedup_map.get(&id))
                     {
                         Some(existing_range)
-                    } else if let Some(cached_shape) =
-                        self.shape_cache.get_mut(&cached_shape_data.id)
-                    {
+                    } else {
+                        let cached_shape = &cached_shape_data.cached_shape;
                         let vertex_buffers = &cached_shape.vertex_buffers;
                         let range = append_aggregated_geometry(
                             &mut self.temp_vertices,
@@ -235,13 +235,10 @@ impl<'a> Renderer<'a> {
                             &vertex_buffers.vertices,
                             &vertex_buffers.indices,
                         );
-                        if let Some(range) = range {
-                            self.geometry_dedup_map.insert(cached_shape_data.id, range);
+                        if let (Some(id), Some(range)) = (geometry_id, range) {
+                            self.geometry_dedup_map.insert(id, range);
                         }
                         range
-                    } else {
-                        warn!("Cached shape not found in cache");
-                        None
                     };
 
                     if let Some((index_start, index_count)) = index_range {

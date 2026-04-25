@@ -409,6 +409,8 @@ impl<'a> Renderer<'a> {
         self.scratch.clip_kind_stack = clip_kind_stack;
         self.scratch.backdrop_work_textures = backdrop_work_textures;
 
+        // println!("Tesselation cache size: {}", self.buffers_pool_manager.tessellation_cache.len());
+
         #[cfg(feature = "render_metrics")]
         {
             self.last_pipeline_switch_counts = frame_pipeline_counts;

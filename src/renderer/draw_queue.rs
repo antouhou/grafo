@@ -1,3 +1,6 @@
+use super::command_builder::{
+    CachedShapeCommand, ClippingRectCommand, ShapeCommand, ShapeCommandStyleOwned,
+};
 use super::types::{ClipRectDrawData, DrawCommandError};
 use super::*;
 use crate::gradient::types::Fill;
@@ -23,6 +26,20 @@ impl<'a> Renderer<'a> {
         )
     }
 
+    pub fn add_shape_command(
+        &mut self,
+        command: ShapeCommand<'_>,
+    ) -> Result<usize, DrawCommandError> {
+        let (shape, tessellation_cache_key, style) = command.into_parts();
+        let parent_shape_id = style.parent_shape_id;
+        let mut draw_command = DrawCommand::Shape(ShapeDrawData::new(
+            shape.into_owned(),
+            tessellation_cache_key,
+        ));
+        self.apply_shape_command_style(&mut draw_command, style);
+        self.add_draw_command(draw_command, parent_shape_id)
+    }
+
     /// Adds an axis-aligned scissor clipping rectangle without preparing geometry.
     ///
     /// This node clips its children like a transparent rect parent by default when its
@@ -44,19 +61,55 @@ impl<'a> Renderer<'a> {
         )
     }
 
+    pub fn add_clipping_rect_command(
+        &mut self,
+        command: ClippingRectCommand,
+    ) -> Result<usize, DrawCommandError> {
+        let (rect_bounds, parent_shape_id, transform, clips_children) = command.into_parts();
+        let mut draw_command = DrawCommand::ClipRect(ClipRectDrawData::new(rect_bounds));
+
+        if let Some(transform) = transform {
+            if !clip_rect_supports_transform(transform) {
+                return Err(DrawCommandError::UnsupportedClipRectCommandTransform);
+            }
+            draw_command.set_transform(transform);
+        }
+
+        draw_command.set_clips_children(clips_children);
+        self.add_draw_command(draw_command, parent_shape_id)
+    }
+
     pub fn load_shape(
         &mut self,
         shape: impl AsRef<Shape>,
         cache_key: u64,
-        tessellation_cache_key: Option<u64>,
+        // id to identify the geometry for that shape; Geometry will be deduped by this id when
+        //  the geometry is loaded to the GPU.
+        geometry_id: Option<u64>,
     ) {
-        let cached_shape = CachedShape::new(
+        let cached_shape = CachedShapeHandle::new(
             shape.as_ref(),
             &mut self.tessellator,
             &mut self.buffers_pool_manager,
-            tessellation_cache_key,
+            geometry_id,
         );
         self.shape_cache.insert(cache_key, cached_shape);
+    }
+
+    pub fn load_shape_2(
+        &mut self,
+        shape: impl AsRef<Shape>,
+        // id to identify the geometry for that shape; Geometry will be deduped by this id when
+        //  the geometry is loaded to the GPU.
+        geometry_id: Option<u64>,
+    ) -> CachedShapeHandle {
+        let cached_shape = CachedShapeHandle::new(
+            shape.as_ref(),
+            &mut self.tessellator,
+            &mut self.buffers_pool_manager,
+            geometry_id,
+        );
+        cached_shape
     }
 
     /// Adds a previously loaded cached shape to the draw tree.
@@ -68,20 +121,38 @@ impl<'a> Renderer<'a> {
         cache_key: u64,
         parent_shape_id: Option<usize>,
     ) -> Result<usize, DrawCommandError> {
-        let draw_data = if let Some(cached) = self.shape_cache.get(&cache_key) {
-            if cached.is_rect {
-                if let Some(bounds) = cached.rect_bounds {
-                    CachedShapeDrawData::new_rect(cache_key, bounds)
-                } else {
-                    CachedShapeDrawData::new(cache_key)
-                }
-            } else {
-                CachedShapeDrawData::new(cache_key)
-            }
+        let draw_data = if let Some(cached_shape_handle) = self.shape_cache.get(&cache_key) {
+            CachedShapeDrawData::new(cached_shape_handle.clone())
         } else {
-            CachedShapeDrawData::new(cache_key)
+            return Err(DrawCommandError::ShapeNotLoaded(cache_key));
         };
         self.add_draw_command(DrawCommand::CachedShape(draw_data), parent_shape_id)
+    }
+
+    pub fn add_cached_shape_to_the_render_queue_by_handle(
+        &mut self,
+        cached_shape_handle: &CachedShapeHandle,
+        parent_shape_id: Option<usize>,
+    ) -> Result<usize, DrawCommandError> {
+        let draw_data = CachedShapeDrawData::new(cached_shape_handle.clone());
+        self.add_draw_command(DrawCommand::CachedShape(draw_data), parent_shape_id)
+    }
+
+    pub fn add_cached_shape_command(
+        &mut self,
+        command: CachedShapeCommand<'_>,
+    ) -> Result<usize, DrawCommandError> {
+        let (cache_key, style) = command.into_parts();
+        let parent_shape_id = style.parent_shape_id;
+        let draw_data = if let Some(cached_shape_handle) = self.shape_cache.get(&cache_key) {
+            CachedShapeDrawData::new(cached_shape_handle.clone())
+        } else {
+            return Err(DrawCommandError::ShapeNotLoaded(cache_key));
+        };
+
+        let mut draw_command = DrawCommand::CachedShape(draw_data);
+        self.apply_shape_command_style(&mut draw_command, style);
+        self.add_draw_command(draw_command, parent_shape_id)
     }
 
     pub fn texture_manager(&self) -> &TextureManager {
@@ -133,6 +204,36 @@ impl<'a> Renderer<'a> {
             }
             Ok(node_id)
         }
+    }
+
+    fn apply_shape_command_style(
+        &mut self,
+        draw_command: &mut DrawCommand,
+        style: ShapeCommandStyleOwned,
+    ) {
+        if let Some(transform) = style.transform {
+            draw_command.set_transform(transform);
+        }
+
+        for (layer, texture_id) in style.texture_ids.into_iter().enumerate() {
+            draw_command.set_texture_id(layer, texture_id);
+        }
+
+        let color_override = match &style.fill {
+            Some(Fill::Solid(color)) => Some(color.normalize()),
+            _ => None,
+        };
+        draw_command.set_instance_color_override(color_override);
+        draw_command.set_fill(style.fill);
+        draw_command.refresh_gradient_bind_group(
+            &mut self.buffers_pool_manager.gradient_cache,
+            &self.device,
+            &self.queue,
+            &self.gradient_bind_group_layout,
+            &self.gradient_ramp_sampler,
+            self.gradient_bind_group_layout_epoch,
+        );
+        draw_command.set_clips_children(style.clips_children);
     }
 
     pub fn set_shape_transform_cols(

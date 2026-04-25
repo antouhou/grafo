@@ -24,13 +24,14 @@ use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
 use crate::vertex::{InstanceColor, InstanceMetadata, InstanceTransform};
-use crate::CachedShape;
+use crate::CachedShapeHandle;
 use crate::Color;
 
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
 use self::types::{DrawCommand, RendererScratch};
 
+mod command_builder;
 mod construction;
 mod draw_queue;
 mod effects;
@@ -41,6 +42,7 @@ mod preparation;
 mod readback;
 mod rect_utils;
 
+pub use command_builder::{CachedShapeCommand, ClippingRectCommand, ShapeCommand};
 pub use construction::RendererCreationError;
 mod rendering;
 mod surface;
@@ -168,7 +170,7 @@ pub struct Renderer<'a> {
 
     /// Loaded shapes to reuse later during rendering without loading/tessellating again.
     /// Not an LRU cache: evicting a shape also results in it not being rendered.
-    shape_cache: HashMap<u64, CachedShape>,
+    shape_cache: HashMap<u64, CachedShapeHandle>,
 
     // Cached resources for render_to_argb32 compute swizzle path
     argb_cs_bgl: Option<wgpu::BindGroupLayout>,

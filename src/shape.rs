@@ -47,12 +47,15 @@ use lyon::tessellation::FillVertexConstructor;
 use smallvec::SmallVec;
 use std::sync::Arc;
 
-pub(crate) struct CachedShape {
+#[derive(Debug, Clone)]
+pub struct CachedShapeHandle {
     pub vertex_buffers: Arc<VertexBuffers<CustomVertex, u16>>,
-    /// Whether the original shape was an axis-aligned rectangle.
+    /// Whether the original shape was an axis-aligned rectangle. Used to enable scissor-based
+    /// clipping instead of stencil for rect parents.
     pub(crate) is_rect: bool,
-    /// The local-space bounding rect when `is_rect` is true.
+    /// The local-space bounding rect when `is_rect` is true, for scissor computation.
     pub(crate) rect_bounds: Option<[(f32, f32); 2]>,
+    pub(crate) geometry_id: Option<u64>,
 }
 
 pub(crate) enum TessellatedGeometry {
@@ -84,22 +87,22 @@ impl TessellatedGeometry {
     }
 }
 
-impl CachedShape {
+impl CachedShapeHandle {
     /// Creates a new `CachedShape` with the specified shape and depth.
     /// Note that tessellator_cache_key is different from the shape cache key; a Shape cache key is
     /// the shape identifier, while tesselator_cache_key is used to cache the tessellation of the
     /// shape and should be based on the shape properties, and not the shape identifier
-    pub fn new(
+    pub(crate) fn new(
         shape: &Shape,
         tessellator: &mut FillTessellator,
         pool: &mut PoolManager,
-        tessellator_cache_key: Option<u64>,
+        geometry_id: Option<u64>,
     ) -> Self {
         let (is_rect, rect_bounds) = match shape {
             Shape::Rect(r) => (true, Some(r.rect)),
             _ => (false, None),
         };
-        let vertices = match shape.tessellate(tessellator, pool, tessellator_cache_key) {
+        let vertices = match shape.tessellate(tessellator, pool, geometry_id) {
             TessellatedGeometry::Owned(vertex_buffers) => Arc::new(vertex_buffers),
             TessellatedGeometry::Shared(vertex_buffers) => vertex_buffers,
         };
@@ -107,6 +110,7 @@ impl CachedShape {
             vertex_buffers: vertices,
             is_rect,
             rect_bounds,
+            geometry_id
         }
     }
 }
@@ -932,7 +936,7 @@ impl PathShape {
 
         let mut buffers: VertexBuffers<CustomVertex, u16> =
             buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
-        self.tesselate_into_buffers(
+        self.tessellate_into_buffers(
             &mut buffers,
             tessellator,
             &mut buffers_pool.aa_fringe_scratch,
@@ -955,7 +959,7 @@ impl PathShape {
         }
     }
 
-    fn tesselate_into_buffers(
+    fn tessellate_into_buffers(
         &self,
         buffers: &mut VertexBuffers<CustomVertex, u16>,
         tessellator: &mut FillTessellator,
@@ -1092,7 +1096,7 @@ impl ShapeDrawData {
 
 #[derive(Debug)]
 pub(crate) struct CachedShapeDrawData {
-    pub(crate) id: u64,
+    pub(crate) cached_shape: CachedShapeHandle,
     pub(crate) index_buffer_range: Option<(usize, usize)>,
     pub(crate) is_empty: bool,
     /// Stencil reference assigned during render traversal (parent + 1). Cleared after frame.
@@ -1108,23 +1112,18 @@ pub(crate) struct CachedShapeDrawData {
     /// The fill for this shape (solid color or gradient). If None, transparent.
     pub(crate) fill: Option<Fill>,
     /// Cached gradient bind group, refreshed when the fill or gradient layout changes.
-    pub(crate) gradient_bind_group: Option<std::sync::Arc<wgpu::BindGroup>>,
+    pub(crate) gradient_bind_group: Option<Arc<wgpu::BindGroup>>,
     /// Whether this node is a leaf in the draw tree (no children).
     pub(crate) is_leaf: bool,
     /// When `false`, skip stencil increment/decrement for this parent
     /// (children render without being clipped to this shape).
     pub(crate) clips_children: bool,
-    /// Whether the underlying shape is an axis-aligned rectangle.
-    /// Used to enable scissor-based clipping instead of stencil for rect parents.
-    pub(crate) is_rect: bool,
-    /// The local-space bounding rect when `is_rect` is true, for scissor computation.
-    pub(crate) rect_bounds: Option<[(f32, f32); 2]>,
 }
 
 impl CachedShapeDrawData {
-    pub fn new(id: u64) -> Self {
+    pub fn new(cached_shape: CachedShapeHandle) -> Self {
         Self {
-            id,
+            cached_shape,
             index_buffer_range: None,
             is_empty: false,
             stencil_ref: None,
@@ -1136,16 +1135,6 @@ impl CachedShapeDrawData {
             gradient_bind_group: None,
             is_leaf: true,
             clips_children: true,
-            is_rect: false,
-            rect_bounds: None,
-        }
-    }
-
-    pub fn new_rect(id: u64, rect_bounds: [(f32, f32); 2]) -> Self {
-        Self {
-            is_rect: true,
-            rect_bounds: Some(rect_bounds),
-            ..Self::new(id)
         }
     }
 }
@@ -1679,12 +1668,12 @@ impl DrawShapeCommand for CachedShapeDrawData {
 
     #[inline]
     fn is_rect(&self) -> bool {
-        self.is_rect
+        self.cached_shape.is_rect
     }
 
     #[inline]
     fn rect_bounds(&self) -> Option<[(f32, f32); 2]> {
-        self.rect_bounds
+        self.cached_shape.rect_bounds
     }
 }
 
