@@ -7,6 +7,7 @@ use lyon::algorithms::math::point as algo_point;
 use lyon::geom::point;
 use lyon::path::FillRule;
 use lyon::path::Path;
+use std::sync::Arc;
 
 // Local converter from euclid to grafo's GPU instance layout so we keep euclid out of the main crate.
 fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstance {
@@ -75,7 +76,6 @@ fn world_to_local_2d(tx: &Transform3D<f32>, world: (f32, f32)) -> Option<(f32, f
     }
     Some((lx / lw, ly / lw))
 }
-use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -268,9 +268,11 @@ impl<'a> ApplicationHandler for App<'a> {
                 }
                 window.request_redraw();
             }
-            WindowEvent::MouseInput { state, button, .. }
-                if button == winit::event::MouseButton::Left =>
-            {
+            WindowEvent::MouseInput {
+                state,
+                button: winit::event::MouseButton::Left,
+                ..
+            } => {
                 match state {
                     winit::event::ElementState::Pressed => {
                         self.orbit_dragging = true;

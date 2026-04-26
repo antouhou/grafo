@@ -108,15 +108,6 @@ impl TessellatedGeometry {
             Self::Shared(vertex_buffers) => &vertex_buffers.indices,
         }
     }
-
-    /// Returns the vertex buffers if they are owned, or `None` if they are shared (cached).
-    #[cfg(test)]
-    pub(crate) fn into_owned(self) -> Option<VertexBuffers<CustomVertex, u16>> {
-        match self {
-            Self::Owned(vertex_buffers) => Some(vertex_buffers),
-            Self::Shared(_) => None,
-        }
-    }
 }
 
 pub enum ShapeType {
