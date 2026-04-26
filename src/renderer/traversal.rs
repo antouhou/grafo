@@ -145,17 +145,21 @@ mod tests {
     use crate::renderer::types::DrawCommand;
     use crate::shape::{CachedShapeDrawData, CachedShapeHandle};
     use crate::vertex::CustomVertex;
+    use crate::ShapeDrawCommandOptions;
     use ahash::{HashMap, HashMapExt};
     use lyon::tessellation::VertexBuffers;
     use std::sync::Arc;
 
     fn cached_draw_data() -> CachedShapeDrawData {
-        CachedShapeDrawData::new(CachedShapeHandle {
-            vertex_buffers: Arc::new(VertexBuffers::<CustomVertex, u16>::new()),
-            is_rect: false,
-            rect_bounds: None,
-            geometry_id: None,
-        })
+        CachedShapeDrawData::new(
+            CachedShapeHandle {
+                vertex_buffers: Arc::new(VertexBuffers::<CustomVertex, u16>::new()),
+                is_rect: false,
+                rect_bounds: None,
+                geometry_id: None,
+            },
+            ShapeDrawCommandOptions::new(),
+        )
     }
 
     #[test]

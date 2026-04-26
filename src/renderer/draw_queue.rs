@@ -58,15 +58,6 @@ impl<'a> Renderer<'a> {
         self.add_draw_command(DrawCommand::CachedShape(draw_data), parent_shape_id)
     }
 
-    // pub fn add_cached_shape_to_the_render_queue_by_handle(
-    //     &mut self,
-    //     cached_shape_handle: &CachedShapeHandle,
-    //     parent_shape_id: Option<usize>,
-    // ) -> Result<usize, DrawCommandError> {
-    //     let draw_data = CachedShapeDrawData::new(cached_shape_handle.clone());
-    //     self.add_draw_command(DrawCommand::CachedShape(draw_data), parent_shape_id)
-    // }
-
     /// Adds a shape to the draw tree.
     ///
     /// When `parent_shape_id` is `Some`, the new shape is attached as a child of that node.
@@ -127,19 +118,19 @@ impl<'a> Renderer<'a> {
         mut draw_command: DrawCommand,
         parent_shape_id: Option<usize>,
     ) -> Result<usize, DrawCommandError> {
-        draw_command.refresh_gradient_bind_group(
-            &mut self.buffers_pool_manager.gradient_cache,
-            &self.device,
-            &self.queue,
-            &self.gradient_bind_group_layout,
-            &self.gradient_ramp_sampler,
-            self.gradient_bind_group_layout_epoch,
-        );
         let shape_geometry = draw_command.as_shape_draw_data_mut();
         if let Some(cached_shape_data) = shape_geometry {
             self.refresh_geometry_cache(cached_shape_data);
+            cached_shape_data.refresh_gradient_bind_group(
+                &mut self.buffers_pool_manager.gradient_cache,
+                &self.device,
+                &self.queue,
+                &self.gradient_bind_group_layout,
+                &self.gradient_ramp_sampler,
+                self.gradient_bind_group_layout_epoch,
+            );
             let index_range = preparation::append_aggregated_geometry_for_shape(
-                &cached_shape_data,
+                cached_shape_data,
                 &mut self.temp_vertices,
                 &mut self.temp_indices,
                 &mut self.geometry_dedup_map,

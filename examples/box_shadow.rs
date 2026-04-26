@@ -13,7 +13,7 @@
 /// - A card with a colored shadow and an offset
 use futures::executor::block_on;
 use grafo::{BorderRadii, Shape};
-use grafo::{Color, Stroke};
+use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -73,8 +73,14 @@ fn draw_card(
         BorderRadii::new(radius),
         Stroke::new(0.0, Color::TRANSPARENT),
     );
-    let card = renderer.add_shape(card_shape, None, None).unwrap();
-    renderer.set_shape_color(card, Some(card_color)).unwrap();
+    let card = renderer
+        .add_shape(
+            card_shape,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(card_color),
+        )
+        .unwrap();
 
     let params = BoxShadowParams {
         box_min: [x, y],
@@ -244,9 +250,13 @@ impl<'a> ApplicationHandler for App<'a> {
                 // ── Scene background ─────────────────────────────────────
                 let scene_bg =
                     Shape::rect([(0.0, 0.0), (pw, ph)], Stroke::new(0.0, Color::TRANSPARENT));
-                let bg_id = renderer.add_shape(scene_bg, None, None).unwrap();
                 renderer
-                    .set_shape_color(bg_id, Some(Color::rgb(235, 235, 240)))
+                    .add_shape(
+                        scene_bg,
+                        None,
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(235, 235, 240)),
+                    )
                     .unwrap();
 
                 let vp = (pw, ph);

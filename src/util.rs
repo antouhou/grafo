@@ -9,7 +9,7 @@ use lyon::tessellation::VertexBuffers;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-const MAX_LYON_VERTEX_BUFFER_POOL_SIZE: usize = 256;
+// const MAX_LYON_VERTEX_BUFFER_POOL_SIZE: usize = 256;
 const MAX_GRADIENT_RAMP_CACHE_SIZE: usize = 256;
 const MAX_GRADIENT_BIND_GROUP_CACHE_SIZE: usize = 1024;
 
@@ -271,13 +271,13 @@ impl LyonVertexBuffersPool {
         }
     }
 
-    pub fn return_vertex_buffers(&mut self, mut vertex_buffers: VertexBuffers<CustomVertex, u16>) {
-        vertex_buffers.vertices.clear();
-        vertex_buffers.indices.clear();
-        if self.vertex_buffers.len() < MAX_LYON_VERTEX_BUFFER_POOL_SIZE {
-            self.vertex_buffers.push(vertex_buffers);
-        }
-    }
+    // pub fn return_vertex_buffers(&mut self, mut vertex_buffers: VertexBuffers<CustomVertex, u16>) {
+    //     vertex_buffers.vertices.clear();
+    //     vertex_buffers.indices.clear();
+    //     if self.vertex_buffers.len() < MAX_LYON_VERTEX_BUFFER_POOL_SIZE {
+    //         self.vertex_buffers.push(vertex_buffers);
+    //     }
+    // }
 }
 
 pub(crate) struct PoolManager {
@@ -320,7 +320,7 @@ pub fn to_logical(physical_size: (u32, u32), scale_factor: f64) -> (f32, f32) {
 
 #[cfg(test)]
 mod tests {
-    use super::{GradientCache, GradientRamp, LyonVertexBuffersPool};
+    use super::{GradientCache, GradientRamp};
     use crate::gradient::types::{
         ColorInterpolation, Gradient, GradientColor, GradientCommonDesc, GradientStop,
         GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use ahash::{HashMap, HashMapExt};
 
 use crate::effect::{self, EffectInstance, LoadedEffect};
-use crate::gradient::types::Fill;
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand};
 use crate::texture_manager::TextureManager;
 use crate::util::GradientCache;
@@ -11,6 +10,8 @@ use crate::vertex::InstanceTransform;
 
 use super::traversal::TraversalScratch;
 
+// TODO: probably some parts of it also can be cached, so we don't need to copy it all the time.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub(super) enum DrawCommand {
     CachedShape(CachedShapeDrawData),
@@ -116,21 +117,14 @@ impl DrawCommand {
     ) {
         match self {
             DrawCommand::ClipRect(_) => {}
-            DrawCommand::CachedShape(cached_shape) => {
-                cached_shape.gradient_bind_group = match cached_shape.fill.as_mut() {
-                    Some(Fill::Gradient(gradient)) => {
-                        Some(gradient_cache.get_or_create_bind_group(
-                            &mut gradient.data,
-                            device,
-                            queue,
-                            layout,
-                            sampler,
-                            layout_epoch,
-                        ))
-                    }
-                    _ => None,
-                };
-            }
+            DrawCommand::CachedShape(cached_shape) => cached_shape.refresh_gradient_bind_group(
+                gradient_cache,
+                device,
+                queue,
+                layout,
+                sampler,
+                layout_epoch,
+            ),
         }
     }
 

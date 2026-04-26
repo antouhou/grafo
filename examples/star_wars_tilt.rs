@@ -1,6 +1,6 @@
 use euclid::{Point2D, UnknownUnit};
 use futures::executor::block_on;
-use grafo::{Color, Shape, Stroke};
+use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -10,9 +10,6 @@ use winit::window::{Window, WindowId};
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
-    rect_id: Option<usize>,
-    inner_rect_1: Option<usize>,
-    inner_rect_2: Option<usize>,
     mouse_position: Point2D<f32, UnknownUnit>,
     // Track which shapes are being hovered
     parent_hovered: bool,
@@ -25,9 +22,6 @@ impl<'a> App<'a> {
         Self {
             window: None,
             renderer: None,
-            rect_id: None,
-            inner_rect_1: None,
-            inner_rect_2: None,
             mouse_position: Point2D::new(0.0, 0.0),
             parent_hovered: false,
             child1_hovered: false,
@@ -79,61 +73,8 @@ impl<'a> ApplicationHandler for App<'a> {
             }
             WindowEvent::RedrawRequested => {
                 if let Some(renderer) = &mut self.renderer {
-                    let (width, height) = renderer.size();
-                    // Create shape if it doesn't exist yet
-                    if self.rect_id.is_none() {
-                        // We need some background TODO: mention this in the docs
-                        let background = renderer
-                            .add_shape(
-                                Shape::rect(
-                                    [(0.0, 0.0), (width as f32, height as f32)],
-                                    Stroke::new(2.0, Color::TRANSPARENT),
-                                ),
-                                None,
-                                None,
-                            )
-                            .unwrap();
-                        renderer
-                            .set_shape_color(background, Some(Color::rgb(30, 30, 30)))
-                            .unwrap();
-
-                        // Create a 100x100 rectangle (matching the HTML)
-                        // Gold color (#FFD700 = rgb(255, 215, 0)) with white border (2px)
-                        let rect_shape = Shape::rect(
-                            [(0.0, 0.0), (100.0, 100.0)],
-                            Stroke::new(2.0, Color::TRANSPARENT),
-                        );
-
-                        let rect_id = renderer.add_shape(rect_shape, None, None).unwrap();
-
-                        // Set the fill color to gold
-                        renderer
-                            .set_shape_color(rect_id, Some(Color::TRANSPARENT))
-                            .unwrap();
-
-                        self.rect_id = Some(rect_id);
-
-                        let inner_rect_shape =
-                            Shape::rect([(0.0, 0.0), (35.0, 80.0)], Stroke::new(1.0, Color::BLACK));
-
-                        // TODO: clip
-                        let inner_rect_1 = renderer
-                            .add_shape(inner_rect_shape.clone(), None, None)
-                            .unwrap();
-                        renderer
-                            .set_shape_color(inner_rect_1, Some(Color::rgb(125, 0, 0)))
-                            .unwrap();
-                        self.inner_rect_1 = Some(inner_rect_1);
-
-                        // TODO: clip
-                        let inner_rect_2 =
-                            renderer.add_shape(inner_rect_shape, None, None).unwrap();
-                        renderer
-                            .set_shape_color(inner_rect_2, Some(Color::rgb(0, 125, 0)))
-                            .unwrap();
-                        self.inner_rect_2 = Some(inner_rect_2);
-                    }
-
+                    renderer.clear_draw_queue();
+                    let (_width, _height) = renderer.size();
                     let scale_factor = renderer.scale_factor();
                     let (width, height) = renderer.size();
                     let (width, height) = (
@@ -141,10 +82,6 @@ impl<'a> ApplicationHandler for App<'a> {
                         height as f32 / scale_factor as f32,
                     );
                     let viewport_center = (width / 2.0, height / 2.0);
-
-                    let rect_id = self.rect_id.unwrap();
-                    let inner_rect_1 = self.inner_rect_1.unwrap();
-                    let inner_rect_2 = self.inner_rect_2.unwrap();
 
                     // Mouse position in logical coordinates
                     let mouse_x = self.mouse_position.x / scale_factor as f32;
@@ -176,10 +113,6 @@ impl<'a> ApplicationHandler for App<'a> {
                         .with_origin(50.0, 50.0)
                         .compose_2(&transformator::Transform::new());
 
-                    renderer
-                        .set_shape_transform_cols(rect_id, parent_local.rows_world())
-                        .unwrap();
-
                     // Inner rectangles inherit parent transform and sit inside with 10px padding.
                     // Layout: padding(10) + rect(35) + gap(10) + rect(35) + padding(10) = 100 total width.
                     // Vertical: padding(10) + height(80) + padding(10) = 100 total height.
@@ -189,18 +122,11 @@ impl<'a> ApplicationHandler for App<'a> {
                         .then_rotate_y_deg(20.0)
                         .with_origin(17.5, 40.0)
                         .compose_2(&parent_local);
-                    renderer
-                        .set_shape_transform_cols(inner_rect_1, child1.rows_world())
-                        .unwrap();
-
                     let child2 = transformator::Transform::new()
                         .with_position_relative_to_parent(55.0, 10.0)
                         .then_rotate_y_deg(20.0)
                         .with_origin(17.5, 40.0)
                         .compose_2(&parent_local);
-                    renderer
-                        .set_shape_transform_cols(inner_rect_2, child2.rows_world())
-                        .unwrap();
 
                     // Hit testing: transform mouse position to local coordinates for each shape
                     // Check children first (they're on top)
@@ -235,42 +161,72 @@ impl<'a> ApplicationHandler for App<'a> {
                     self.child1_hovered = child1_hit;
                     self.child2_hovered = child2_hit;
 
-                    // Update colors based on hover state
-                    if self.parent_hovered {
-                        renderer
-                            .set_shape_color(rect_id, Some(Color::rgba(255, 235, 100, 200)))
-                            .unwrap();
-                    // Brighter gold
-                    } else {
-                        renderer
-                            .set_shape_color(rect_id, Some(Color::rgba(255, 215, 0, 200)))
-                            .unwrap();
-                        // Normal gold
-                    }
+                    renderer
+                        .add_shape(
+                            Shape::rect(
+                                [(0.0, 0.0), (width, height)],
+                                Stroke::new(2.0, Color::TRANSPARENT),
+                            ),
+                            None,
+                            None,
+                            ShapeDrawCommandOptions::new().color(Color::rgb(30, 30, 30)),
+                        )
+                        .unwrap();
 
-                    if self.child1_hovered {
-                        renderer
-                            .set_shape_color(inner_rect_1, Some(Color::rgb(200, 50, 50)))
-                            .unwrap();
-                    // Brighter red
-                    } else {
-                        renderer
-                            .set_shape_color(inner_rect_1, Some(Color::rgb(125, 0, 0)))
-                            .unwrap();
-                        // Normal red
-                    }
+                    renderer
+                        .add_shape(
+                            Shape::rect(
+                                [(0.0, 0.0), (100.0, 100.0)],
+                                Stroke::new(2.0, Color::TRANSPARENT),
+                            ),
+                            None,
+                            None,
+                            ShapeDrawCommandOptions::new()
+                                .color(if self.parent_hovered {
+                                    Color::rgba(255, 235, 100, 200)
+                                } else {
+                                    Color::rgba(255, 215, 0, 200)
+                                })
+                                .transform(grafo::TransformInstance::from_cols(
+                                    parent_local.rows_world(),
+                                )),
+                        )
+                        .unwrap();
 
-                    if self.child2_hovered {
-                        renderer
-                            .set_shape_color(inner_rect_2, Some(Color::rgb(50, 200, 50)))
-                            .unwrap();
-                    // Brighter green
-                    } else {
-                        renderer
-                            .set_shape_color(inner_rect_2, Some(Color::rgb(0, 125, 0)))
-                            .unwrap();
-                        // Normal green
-                    }
+                    let inner_rect_shape =
+                        Shape::rect([(0.0, 0.0), (35.0, 80.0)], Stroke::new(1.0, Color::BLACK));
+                    renderer
+                        .add_shape(
+                            inner_rect_shape.clone(),
+                            None,
+                            None,
+                            ShapeDrawCommandOptions::new()
+                                .color(if self.child1_hovered {
+                                    Color::rgb(200, 50, 50)
+                                } else {
+                                    Color::rgb(125, 0, 0)
+                                })
+                                .transform(grafo::TransformInstance::from_cols(
+                                    child1.rows_world(),
+                                )),
+                        )
+                        .unwrap();
+                    renderer
+                        .add_shape(
+                            inner_rect_shape,
+                            None,
+                            None,
+                            ShapeDrawCommandOptions::new()
+                                .color(if self.child2_hovered {
+                                    Color::rgb(50, 200, 50)
+                                } else {
+                                    Color::rgb(0, 125, 0)
+                                })
+                                .transform(grafo::TransformInstance::from_cols(
+                                    child2.rows_world(),
+                                )),
+                        )
+                        .unwrap();
 
                     renderer.render().unwrap();
                 }

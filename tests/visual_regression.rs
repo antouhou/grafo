@@ -92,9 +92,13 @@ fn single_root_no_children() {
     };
 
     let shape = grafo::Shape::rect([(10.0, 10.0), (100.0, 100.0)], grafo::Stroke::default());
-    let id = renderer.add_shape(shape, None, None).unwrap();
     renderer
-        .set_shape_color(id, Some(grafo::Color::rgb(200, 50, 50)))
+        .add_shape(
+            shape,
+            None,
+            None,
+            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(200, 50, 50)),
+        )
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
@@ -116,12 +120,21 @@ fn clipping_rect_clips_child_without_visible_surface() {
     };
 
     let clip_rect_id = renderer
-        .add_clipping_rect([(20.0, 20.0), (80.0, 80.0)], None)
+        .add_clipping_rect(
+            [(20.0, 20.0), (80.0, 80.0)],
+            None,
+            None::<grafo::TransformInstance>,
+            true,
+        )
         .unwrap();
     let child = grafo::Shape::rect([(0.0, 0.0), (100.0, 100.0)], grafo::Stroke::default());
-    let child_id = renderer.add_shape(child, Some(clip_rect_id), None).unwrap();
     renderer
-        .set_shape_color(child_id, Some(grafo::Color::rgb(200, 50, 50)))
+        .add_shape(
+            child,
+            Some(clip_rect_id),
+            None,
+            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(200, 50, 50)),
+        )
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
@@ -146,7 +159,12 @@ fn standalone_clipping_rect_does_not_panic() {
     };
 
     renderer
-        .add_clipping_rect([(20.0, 20.0), (80.0, 80.0)], None)
+        .add_clipping_rect(
+            [(20.0, 20.0), (80.0, 80.0)],
+            None,
+            None::<grafo::TransformInstance>,
+            true,
+        )
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
@@ -166,18 +184,31 @@ fn clipping_rect_rejects_non_axis_aligned_transform() {
     };
 
     let clip_rect_id = renderer
-        .add_clipping_rect([(20.0, 20.0), (80.0, 80.0)], None)
+        .add_clipping_rect(
+            [(20.0, 20.0), (80.0, 80.0)],
+            None,
+            None::<grafo::TransformInstance>,
+            true,
+        )
         .unwrap();
     assert!(matches!(
-        renderer.set_shape_transform(clip_rect_id, grafo::TransformInstance::rotation_z_deg(45.0)),
-        Err(grafo::DrawCommandError::UnsupportedClipRectTransform(node_id))
-            if node_id == clip_rect_id
+        renderer.add_clipping_rect(
+            [(20.0, 20.0), (80.0, 80.0)],
+            None,
+            Some(grafo::TransformInstance::rotation_z_deg(45.0)),
+            true,
+        ),
+        Err(grafo::DrawCommandError::UnsupportedClipRectTransform)
     ));
 
     let child = grafo::Shape::rect([(0.0, 0.0), (100.0, 100.0)], grafo::Stroke::default());
-    let child_id = renderer.add_shape(child, Some(clip_rect_id), None).unwrap();
     renderer
-        .set_shape_color(child_id, Some(grafo::Color::rgb(200, 50, 50)))
+        .add_shape(
+            child,
+            Some(clip_rect_id),
+            None,
+            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(200, 50, 50)),
+        )
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
@@ -209,14 +240,14 @@ fn gradient_fill_basic() {
 
     // Root shape
     let root = Shape::rect([(0.0, 0.0), (100.0, 100.0)], Stroke::default());
-    let root_id = renderer.add_shape(root, None, None).unwrap();
-    renderer
-        .set_shape_color(root_id, Some(Color::WHITE))
+    let root_id = renderer
+        .add_shape(
+            root,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::WHITE),
+        )
         .unwrap();
-
-    // Gradient child
-    let child = Shape::rect([(10.0, 10.0), (90.0, 90.0)], Stroke::default());
-    let child_id = renderer.add_shape(child, Some(root_id), None).unwrap();
 
     let gradient = Gradient::linear(
         LinearGradientDesc::new(
@@ -240,7 +271,12 @@ fn gradient_fill_basic() {
     .expect("valid gradient");
 
     renderer
-        .set_shape_fill(child_id, Some(Fill::from(gradient)))
+        .add_shape(
+            Shape::rect([(10.0, 10.0), (90.0, 90.0)], Stroke::default()),
+            Some(root_id),
+            None,
+            ShapeDrawCommandOptions::new().fill(Fill::from(gradient)),
+        )
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
@@ -275,10 +311,6 @@ fn gradient_survives_pipeline_recreation() {
         return;
     };
 
-    // Set up a gradient shape.
-    let shape = Shape::rect([(10.0, 10.0), (90.0, 90.0)], Stroke::default());
-    let id = renderer.add_shape(shape, None, None).unwrap();
-
     let gradient = Gradient::linear(
         LinearGradientDesc::new(
             LinearGradientLine {
@@ -301,7 +333,12 @@ fn gradient_survives_pipeline_recreation() {
     .expect("valid gradient");
 
     renderer
-        .set_shape_fill(id, Some(Fill::from(gradient)))
+        .add_shape(
+            Shape::rect([(10.0, 10.0), (90.0, 90.0)], Stroke::default()),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().fill(Fill::from(gradient)),
+        )
         .unwrap();
 
     // First render — populates and caches the gradient bind group.
@@ -369,22 +406,11 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
             ),
             None,
             None,
+            ShapeDrawCommandOptions::new().color(Color::rgba(0, 0, 0, 0)),
         )
-        .unwrap();
-    renderer
-        .set_shape_color(root, Some(Color::rgba(0, 0, 0, 0)))
         .unwrap();
 
     let radii = BorderRadii::new(8.0);
-
-    // ── Gradient non-leaf parent (rounded rect → stencil path) ───────────
-    let gradient_parent = renderer
-        .add_shape(
-            Shape::rounded_rect([(10.0, 10.0), (140.0, 90.0)], radii, Stroke::default()),
-            Some(root),
-            None,
-        )
-        .unwrap();
 
     let gradient = Gradient::linear(
         LinearGradientDesc::new(
@@ -407,20 +433,24 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
     )
     .expect("valid gradient");
 
-    renderer
-        .set_shape_fill(gradient_parent, Some(Fill::from(gradient)))
+    // ── Gradient non-leaf parent (rounded rect → stencil path) ───────────
+    let gradient_parent = renderer
+        .add_shape(
+            Shape::rounded_rect([(10.0, 10.0), (140.0, 90.0)], radii, Stroke::default()),
+            Some(root),
+            None,
+            ShapeDrawCommandOptions::new().fill(Fill::from(gradient)),
+        )
         .unwrap();
 
     // Child of gradient parent (makes it non-leaf → StencilIncrement).
-    let gradient_child = renderer
+    renderer
         .add_shape(
             Shape::rect([(20.0, 20.0), (130.0, 80.0)], Stroke::default()),
             Some(gradient_parent),
             None,
+            ShapeDrawCommandOptions::new().color(Color::WHITE),
         )
-        .unwrap();
-    renderer
-        .set_shape_color(gradient_child, Some(Color::WHITE))
         .unwrap();
 
     // ── Solid non-leaf parent (rounded rect → stencil path) ──────────────
@@ -429,22 +459,18 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
             Shape::rounded_rect([(160.0, 10.0), (290.0, 90.0)], radii, Stroke::default()),
             Some(root),
             None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(0, 200, 0)),
         )
-        .unwrap();
-    renderer
-        .set_shape_color(solid_parent, Some(Color::rgb(0, 200, 0)))
         .unwrap();
 
     // Child of solid parent (makes it non-leaf → StencilIncrement too).
-    let solid_child = renderer
+    renderer
         .add_shape(
             Shape::rect([(170.0, 20.0), (280.0, 80.0)], Stroke::default()),
             Some(solid_parent),
             None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(0, 200, 0)),
         )
-        .unwrap();
-    renderer
-        .set_shape_color(solid_child, Some(Color::rgb(0, 200, 0)))
         .unwrap();
 
     // ── Render and verify ─────────────────────────────────────────────────
@@ -479,9 +505,13 @@ fn multi_subpath_fill_has_no_internal_seam() {
         [(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)],
         grafo::Stroke::default(),
     );
-    let canvas_root_id = renderer.add_shape(canvas_root, None, None).unwrap();
-    renderer
-        .set_shape_color(canvas_root_id, Some(grafo::Color::WHITE))
+    let canvas_root_id = renderer
+        .add_shape(
+            canvas_root,
+            None,
+            None,
+            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::WHITE),
+        )
         .unwrap();
 
     let shape = grafo::Shape::builder()
@@ -494,19 +524,23 @@ fn multi_subpath_fill_has_no_internal_seam() {
         .line_to((10.0, 100.0))
         .close()
         .build();
-    let id = renderer
-        .add_shape(shape, Some(canvas_root_id), None)
-        .unwrap();
     renderer
-        .set_shape_color(id, Some(grafo::Color::rgb(200, 50, 50)))
+        .add_shape(
+            shape,
+            Some(canvas_root_id),
+            None,
+            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(200, 50, 50)),
+        )
         .unwrap();
 
     let rect = grafo::Shape::rect([(140.0, 10.0), (230.0, 100.0)], grafo::Stroke::default());
-    let rect_id = renderer
-        .add_shape(rect, Some(canvas_root_id), None)
-        .unwrap();
     renderer
-        .set_shape_color(rect_id, Some(grafo::Color::rgb(200, 50, 50)))
+        .add_shape(
+            rect,
+            Some(canvas_root_id),
+            None,
+            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(200, 50, 50)),
+        )
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();

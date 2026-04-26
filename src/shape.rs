@@ -35,7 +35,7 @@
 //! ```
 
 use crate::gradient::types::Fill;
-use crate::util::PoolManager;
+use crate::util::{GradientCache, PoolManager};
 use crate::vertex::{CustomVertex, InstanceTransform};
 use crate::{Color, Stroke};
 use ahash::AHashMap;
@@ -56,6 +56,34 @@ pub struct CachedShapeHandle {
     /// The local-space bounding rect when `is_rect` is true, for scissor computation.
     pub(crate) rect_bounds: Option<[(f32, f32); 2]>,
     pub(crate) geometry_id: Option<u64>,
+}
+
+impl CachedShapeHandle {
+    /// Creates a new `CachedShape` with the specified shape and depth.
+    /// Note that tessellator_cache_key is different from the shape cache key; a Shape cache key is
+    /// the shape identifier, while tesselator_cache_key is used to cache the tessellation of the
+    /// shape and should be based on the shape properties, and not the shape identifier
+    pub(crate) fn new(
+        shape: &Shape,
+        tessellator: &mut FillTessellator,
+        pool: &mut PoolManager,
+        geometry_id: Option<u64>,
+    ) -> Self {
+        let (is_rect, rect_bounds) = match shape {
+            Shape::Rect(r) => (true, Some(r.rect)),
+            _ => (false, None),
+        };
+        let vertices = match shape.tessellate(tessellator, pool, geometry_id) {
+            TessellatedGeometry::Owned(vertex_buffers) => Arc::new(vertex_buffers),
+            TessellatedGeometry::Shared(vertex_buffers) => vertex_buffers,
+        };
+        Self {
+            vertex_buffers: vertices,
+            is_rect,
+            rect_bounds,
+            geometry_id,
+        }
+    }
 }
 
 pub(crate) enum TessellatedGeometry {
@@ -96,33 +124,6 @@ pub enum ShapeType {
     Rect,
 }
 
-impl CachedShapeHandle {
-    /// Creates a new `CachedShape` with the specified shape and depth.
-    /// Note that tessellator_cache_key is different from the shape cache key; a Shape cache key is
-    /// the shape identifier, while tesselator_cache_key is used to cache the tessellation of the
-    /// shape and should be based on the shape properties, and not the shape identifier
-    pub(crate) fn new(
-        shape: &Shape,
-        tessellator: &mut FillTessellator,
-        pool: &mut PoolManager,
-        geometry_id: Option<u64>,
-    ) -> Self {
-        let (is_rect, rect_bounds) = match shape {
-            Shape::Rect(r) => (true, Some(r.rect)),
-            _ => (false, None),
-        };
-        let vertices = match shape.tessellate(tessellator, pool, geometry_id) {
-            TessellatedGeometry::Owned(vertex_buffers) => Arc::new(vertex_buffers),
-            TessellatedGeometry::Shared(vertex_buffers) => vertex_buffers,
-        };
-        Self {
-            vertex_buffers: vertices,
-            is_rect,
-            rect_bounds,
-            geometry_id,
-        }
-    }
-}
 /// Represents a graphical shape, which can be either a custom path or a simple rectangle.
 ///
 /// # Variants
@@ -303,7 +304,7 @@ impl Shape {
                     &mut buffers_pool.aa_fringe_scratch,
                 );
 
-                let geometry = if let Some(tesselation_cache_key) = tesselation_cache_key {
+                if let Some(tesselation_cache_key) = tesselation_cache_key {
                     let arc_buffers = Arc::new(vertex_buffers);
                     buffers_pool
                         .tessellation_cache
@@ -311,8 +312,7 @@ impl Shape {
                     TessellatedGeometry::Shared(arc_buffers)
                 } else {
                     TessellatedGeometry::Owned(vertex_buffers)
-                };
-                geometry
+                }
             }
         }
     }
@@ -1046,13 +1046,25 @@ impl PathShape {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct ShapeDrawCommandOptions {
     pub transform: Option<InstanceTransform>,
     pub clips_children: bool,
     pub background_texture_id: Option<u64>,
     pub foreground_texture_id: Option<u64>,
     pub fill: Option<Fill>,
+}
+
+impl Default for ShapeDrawCommandOptions {
+    fn default() -> Self {
+        Self {
+            transform: None,
+            clips_children: true,
+            background_texture_id: None,
+            foreground_texture_id: None,
+            fill: None,
+        }
+    }
 }
 
 impl ShapeDrawCommandOptions {
@@ -1140,6 +1152,28 @@ impl CachedShapeDrawData {
             gradient_bind_group: None,
             is_leaf: true,
         }
+    }
+
+    pub fn refresh_gradient_bind_group(
+        &mut self,
+        gradient_cache: &mut GradientCache,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        sampler: &wgpu::Sampler,
+        layout_epoch: u64,
+    ) {
+        self.gradient_bind_group = match self.fill.as_mut() {
+            Some(Fill::Gradient(gradient)) => Some(gradient_cache.get_or_create_bind_group(
+                &mut gradient.data,
+                device,
+                queue,
+                layout,
+                sampler,
+                layout_epoch,
+            )),
+            _ => None,
+        };
     }
 }
 

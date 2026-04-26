@@ -13,7 +13,7 @@
 /// cargo run --example bench_render_loop --features render_metrics --release
 /// ```
 use futures::executor::block_on;
-use grafo::{Color, Shape, Stroke, TransformInstance};
+use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke, TransformInstance};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
@@ -121,49 +121,43 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
     let mut total_shapes = 0;
 
     for c in 0..CONTAINERS {
-        let container_id = renderer
-            .add_cached_shape_to_the_render_queue(CACHE_KEY_CONTAINER, None)
-            .unwrap();
-        renderer
-            .set_shape_color(
-                container_id,
-                Some(container_colors[c % container_colors.len()]),
-            )
-            .unwrap();
         let cx = 10.0 + c as f32 * 250.0;
-        renderer
-            .set_shape_transform(container_id, TransformInstance::translation(cx, 10.0))
+        let container_id = renderer
+            .add_cached_shape_to_the_render_queue(
+                CACHE_KEY_CONTAINER,
+                None,
+                ShapeDrawCommandOptions::new()
+                    .color(container_colors[c % container_colors.len()])
+                    .transform(TransformInstance::translation(cx, 10.0)),
+            )
             .unwrap();
         total_shapes += 1;
 
         for r in 0..ROWS_PER_CONTAINER {
-            let row_id = renderer
-                .add_cached_shape_to_the_render_queue(CACHE_KEY_ROW, Some(container_id))
-                .unwrap();
-            renderer
-                .set_shape_color(row_id, Some(Color::rgb(200, 200, 210)))
-                .unwrap();
             let ry = 10.0 + r as f32 * 120.0;
-            renderer
-                .set_shape_transform(row_id, TransformInstance::translation(cx + 10.0, 10.0 + ry))
+            let row_id = renderer
+                .add_cached_shape_to_the_render_queue(
+                    CACHE_KEY_ROW,
+                    Some(container_id),
+                    ShapeDrawCommandOptions::new()
+                        .color(Color::rgb(200, 200, 210))
+                        .transform(TransformInstance::translation(cx + 10.0, 10.0 + ry)),
+                )
                 .unwrap();
             total_shapes += 1;
 
             for cell in 0..CELLS_PER_ROW {
-                let cell_id = renderer
-                    .add_cached_shape_to_the_render_queue(CACHE_KEY_CELL, Some(row_id))
-                    .unwrap();
                 let brightness = (100u8).saturating_add((cell * 30) as u8);
-                renderer
-                    .set_shape_color(
-                        cell_id,
-                        Some(Color::rgb(brightness, brightness, brightness)),
-                    )
-                    .unwrap();
                 let cellx = cx + 20.0 + cell as f32 * 42.0;
                 let celly = 20.0 + ry + 10.0;
                 renderer
-                    .set_shape_transform(cell_id, TransformInstance::translation(cellx, celly))
+                    .add_cached_shape_to_the_render_queue(
+                        CACHE_KEY_CELL,
+                        Some(row_id),
+                        ShapeDrawCommandOptions::new()
+                            .color(Color::rgb(brightness, brightness, brightness))
+                            .transform(TransformInstance::translation(cellx, celly)),
+                    )
                     .unwrap();
                 total_shapes += 1;
             }
@@ -173,27 +167,27 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
     // Sidebar with circles
     let sidebar_x = 10.0 + CONTAINERS as f32 * 250.0;
     let sidebar_id = renderer
-        .add_cached_shape_to_the_render_queue(CACHE_KEY_SIDEBAR, None)
-        .unwrap();
-    renderer
-        .set_shape_color(sidebar_id, Some(Color::rgb(50, 50, 70)))
-        .unwrap();
-    renderer
-        .set_shape_transform(sidebar_id, TransformInstance::translation(sidebar_x, 10.0))
+        .add_cached_shape_to_the_render_queue(
+            CACHE_KEY_SIDEBAR,
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgb(50, 50, 70))
+                .transform(TransformInstance::translation(sidebar_x, 10.0)),
+        )
         .unwrap();
     total_shapes += 1;
 
     for i in 0..CIRCLES_IN_SIDEBAR {
-        let circle_id = renderer
-            .add_cached_shape_to_the_render_queue(CACHE_KEY_CIRCLE, Some(sidebar_id))
-            .unwrap();
         renderer
-            .set_shape_color(circle_id, Some(Color::rgb(220, 180, 50)))
-            .unwrap();
-        renderer
-            .set_shape_transform(
-                circle_id,
-                TransformInstance::translation(sidebar_x + 30.0, 30.0 + i as f32 * 60.0),
+            .add_cached_shape_to_the_render_queue(
+                CACHE_KEY_CIRCLE,
+                Some(sidebar_id),
+                ShapeDrawCommandOptions::new()
+                    .color(Color::rgb(220, 180, 50))
+                    .transform(TransformInstance::translation(
+                        sidebar_x + 30.0,
+                        30.0 + i as f32 * 60.0,
+                    )),
             )
             .unwrap();
         total_shapes += 1;
@@ -202,19 +196,19 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
     // Textured elements — 25 shapes with distinct textures, some overlapping
     // Laid out in a 5×5 grid starting below the containers, partially overlapping by 30px
     for i in 0..TEXTURED_ELEMENTS {
-        let tex_id = renderer
-            .add_cached_shape_to_the_render_queue(CACHE_KEY_TEXTURED, None)
-            .unwrap();
-        renderer
-            .set_shape_texture(tex_id, Some(TEXTURE_ID_BASE + i as u64))
-            .unwrap();
         let col = i % 5;
         let row = i / 5;
         // Overlap: offset by 220px instead of 250px so they overlap by 30px
         let tx = 10.0 + col as f32 * 220.0;
         let ty = 520.0 + row as f32 * 220.0;
         renderer
-            .set_shape_transform(tex_id, TransformInstance::translation(tx, ty))
+            .add_cached_shape_to_the_render_queue(
+                CACHE_KEY_TEXTURED,
+                None,
+                ShapeDrawCommandOptions::new()
+                    .background_texture_id(TEXTURE_ID_BASE + i as u64)
+                    .transform(TransformInstance::translation(tx, ty)),
+            )
             .unwrap();
         total_shapes += 1;
     }

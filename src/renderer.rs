@@ -75,12 +75,6 @@ pub enum ShapeOverflow {
     Visible,
 }
 
-impl ShapeOverflow {
-    pub(crate) fn clips_children(self) -> bool {
-        matches!(self, ShapeOverflow::Hidden)
-    }
-}
-
 /// The renderer for the Grafo library. This is the main struct used to render shapes and images.
 pub struct Renderer<'a> {
     // Window information
@@ -256,13 +250,6 @@ pub struct Renderer<'a> {
     /// Per-frame pipeline switch counts for the most recently rendered frame.
     last_pipeline_switch_counts: self::metrics::PipelineSwitchCounts,
 
-    /// Wall-clock CPU time spent inside the most recent `prepare_render()` call.
-    ///
-    /// This measures CPU-side draw-tree traversal, geometry/instance aggregation,
-    /// and buffer upload submission via `queue.write_buffer`, but excludes later
-    /// render-pass encoding, presentation, readback, and any forced GPU waits.
-    last_prepare_cpu_time: Duration,
-
     /// Wall-clock CPU time spent inside the most recent `render_to_texture_view()` call.
     ///
     /// This measures CPU-side traversal planning, render/effect pass encoding,
@@ -290,11 +277,6 @@ impl<'a> Renderer<'a> {
         // memory hygiene for long-running sessions.
         self.buffers_pool_manager.trim();
         self.scratch.trim_to_policy();
-    }
-
-    /// Returns the wall-clock CPU time spent in the most recent `prepare_render()` call.
-    pub fn last_prepare_cpu_time(&self) -> Duration {
-        self.last_prepare_cpu_time
     }
 
     /// Returns the wall-clock CPU time spent in the most recent `render_to_texture_view()` call.

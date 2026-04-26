@@ -13,7 +13,7 @@
 /// Behind everything, colorful rectangles provide content for the blur to act on.
 use futures::executor::block_on;
 use grafo::{BorderRadii, Shape};
-use grafo::{Color, Stroke};
+use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -230,9 +230,13 @@ impl<'a> ApplicationHandler for App<'a> {
                 // ── Scene background ─────────────────────────────────────
                 let scene_bg =
                     Shape::rect([(0.0, 0.0), (pw, ph)], Stroke::new(0.0, Color::TRANSPARENT));
-                let bg_id = renderer.add_shape(scene_bg, None, None).unwrap();
-                renderer
-                    .set_shape_color(bg_id, Some(Color::rgb(235, 235, 240)))
+                let bg_id = renderer
+                    .add_shape(
+                        scene_bg,
+                        None,
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(235, 235, 240)),
+                    )
                     .unwrap();
 
                 // ── Colorful background content (for the blur to act on) ─
@@ -240,36 +244,52 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(40.0, 60.0), (300.0, 280.0)],
                     Stroke::new(2.0, Color::BLACK),
                 );
-                let r1_id = renderer.add_shape(r1, Some(bg_id), None).unwrap();
                 renderer
-                    .set_shape_color(r1_id, Some(Color::rgb(220, 50, 50)))
+                    .add_shape(
+                        r1,
+                        Some(bg_id),
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+                    )
                     .unwrap();
 
                 let r2 = Shape::rect(
                     [(200.0, 150.0), (500.0, 400.0)],
                     Stroke::new(2.0, Color::BLACK),
                 );
-                let r2_id = renderer.add_shape(r2, Some(bg_id), None).unwrap();
                 renderer
-                    .set_shape_color(r2_id, Some(Color::rgb(50, 160, 50)))
+                    .add_shape(
+                        r2,
+                        Some(bg_id),
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(50, 160, 50)),
+                    )
                     .unwrap();
 
                 let r3 = Shape::rect(
                     [(400.0, 80.0), (700.0, 320.0)],
                     Stroke::new(2.0, Color::BLACK),
                 );
-                let r3_id = renderer.add_shape(r3, Some(bg_id), None).unwrap();
                 renderer
-                    .set_shape_color(r3_id, Some(Color::rgb(50, 80, 220)))
+                    .add_shape(
+                        r3,
+                        Some(bg_id),
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(50, 80, 220)),
+                    )
                     .unwrap();
 
                 let r4 = Shape::rect(
                     [(100.0, 380.0), (650.0, 550.0)],
                     Stroke::new(2.0, Color::BLACK),
                 );
-                let r4_id = renderer.add_shape(r4, Some(bg_id), None).unwrap();
                 renderer
-                    .set_shape_color(r4_id, Some(Color::rgb(200, 180, 50)))
+                    .add_shape(
+                        r4,
+                        Some(bg_id),
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(200, 180, 50)),
+                    )
                     .unwrap();
 
                 // ── Panel: parent with box shadow (group effect) ─────────
@@ -286,11 +306,13 @@ impl<'a> ApplicationHandler for App<'a> {
                     BorderRadii::new(panel_radius),
                     Stroke::new(0.0, Color::TRANSPARENT),
                 );
-                let panel = renderer.add_shape(panel_shape, None, None).unwrap();
-                // Fully transparent — the visual fill comes from the child
-                // with the backdrop blur. The parent only contributes the shadow.
-                renderer
-                    .set_shape_color(panel, Some(Color::TRANSPARENT))
+                let panel = renderer
+                    .add_shape(
+                        panel_shape,
+                        None,
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::TRANSPARENT),
+                    )
                     .unwrap();
 
                 // Attach box shadow as a group effect on the parent
@@ -318,10 +340,13 @@ impl<'a> ApplicationHandler for App<'a> {
                     BorderRadii::new(panel_radius),
                     Stroke::new(1.0, Color::rgba(255, 255, 255, 80)),
                 );
-                let glass = renderer.add_shape(glass_shape, Some(panel), None).unwrap();
-                // Semi-transparent white tint over the blurred background
-                renderer
-                    .set_shape_color(glass, Some(Color::rgba(255, 255, 255, 60)))
+                let glass = renderer
+                    .add_shape(
+                        glass_shape,
+                        Some(panel),
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgba(255, 255, 255, 60)),
+                    )
                     .unwrap();
 
                 // Attach backdrop blur on the child

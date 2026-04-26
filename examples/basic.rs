@@ -1,6 +1,6 @@
 use futures::executor::block_on;
 use grafo::Shape;
-use grafo::{Color, Stroke};
+use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -40,9 +40,13 @@ impl<'a> ApplicationHandler for App<'a> {
             [(100.0, 100.0), (300.0, 200.0)],
             Stroke::new(2.0, Color::BLACK),
         );
-        let id = renderer.add_shape(rect, None, None).unwrap();
         renderer
-            .set_shape_color(id, Some(Color::rgb(0, 128, 255)))
+            .add_shape(
+                rect,
+                None,
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(0, 128, 255)),
+            )
             .unwrap();
 
         self.window = Some(window);
@@ -77,18 +81,26 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(100.0, 100.0), (300.0, 200.0)],
                     Stroke::new(2.0, Color::BLACK),
                 );
-                let id = renderer.add_shape(rect, None, None).unwrap();
                 renderer
-                    .set_shape_color(id, Some(Color::rgb(0, 128, 255)))
+                    .add_shape(
+                        rect,
+                        None,
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(0, 128, 255)),
+                    )
                     .unwrap();
 
                 let rect = Shape::rect(
                     [(500.0, 100.0), (600.0, 200.0)],
                     Stroke::new(2.0, Color::BLACK),
                 );
-                let id2 = renderer.add_shape(rect, None, None).unwrap();
                 renderer
-                    .set_shape_color(id2, Some(Color::rgb(0, 128, 0)))
+                    .add_shape(
+                        rect,
+                        None,
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(0, 128, 0)),
+                    )
                     .unwrap();
 
                 match renderer.render() {

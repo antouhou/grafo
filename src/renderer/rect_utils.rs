@@ -150,7 +150,9 @@ mod tests {
     use crate::renderer::types::DrawCommand;
     use crate::shape::CachedShapeDrawData;
     use crate::util::PoolManager;
-    use crate::{CachedShapeHandle, Color, Shape, Stroke, TransformInstance};
+    use crate::{
+        CachedShapeHandle, Color, Shape, ShapeDrawCommandOptions, Stroke, TransformInstance,
+    };
     use ahash::{HashMap, HashMapExt};
     use lyon::tessellation::FillTessellator;
     use std::num::NonZeroUsize;
@@ -178,7 +180,7 @@ mod tests {
         .expect("valid test gradient")
     }
 
-    fn rect_draw_command() -> DrawCommand {
+    fn rect_draw_command_with_options(options: ShapeDrawCommandOptions) -> DrawCommand {
         let mut tessellator = FillTessellator::new();
         let mut pool = PoolManager::new(NonZeroUsize::new(4).unwrap());
         let shape_handle = CachedShapeHandle::new(
@@ -187,7 +189,11 @@ mod tests {
             &mut pool,
             None,
         );
-        DrawCommand::CachedShape(CachedShapeDrawData::new(shape_handle))
+        DrawCommand::CachedShape(CachedShapeDrawData::new(shape_handle, options))
+    }
+
+    fn rect_draw_command() -> DrawCommand {
+        rect_draw_command_with_options(ShapeDrawCommandOptions::new())
     }
 
     #[test]
@@ -202,8 +208,10 @@ mod tests {
 
     #[test]
     fn scissor_rejects_non_axis_aligned_transform() {
-        let mut draw_command = rect_draw_command();
-        draw_command.set_transform(TransformInstance::affine_2d(1.0, 0.0, 0.5, 1.0, 5.0, 5.0));
+        let draw_command = rect_draw_command_with_options(
+            ShapeDrawCommandOptions::new()
+                .transform(TransformInstance::affine_2d(1.0, 0.0, 0.5, 1.0, 5.0, 5.0)),
+        );
 
         assert!(try_scissor_for_rect(&draw_command, 1.0, (100, 100)).is_none());
     }
@@ -264,8 +272,8 @@ mod tests {
 
     #[test]
     fn skip_visible_rect_draw_rejects_opaque_color_and_textures() {
-        let mut opaque_draw_command = rect_draw_command();
-        opaque_draw_command.set_instance_color_override(Some(Color::WHITE.normalize()));
+        let opaque_draw_command =
+            rect_draw_command_with_options(ShapeDrawCommandOptions::new().color(Color::WHITE));
 
         assert!(!should_skip_visible_rect_draw(
             1,
@@ -274,8 +282,8 @@ mod tests {
             &HashMap::new(),
         ));
 
-        let mut textured_draw_command = rect_draw_command();
-        textured_draw_command.set_texture_id(0, Some(9));
+        let textured_draw_command =
+            rect_draw_command_with_options(ShapeDrawCommandOptions::new().background_texture_id(9));
 
         assert!(!should_skip_visible_rect_draw(
             2,
