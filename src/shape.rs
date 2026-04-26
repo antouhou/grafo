@@ -1551,7 +1551,7 @@ impl DrawShapeCommand for CachedShapeDrawData {
 
     #[inline]
     fn has_gradient_fill(&self) -> bool {
-        self.gradient_bind_group.is_some()
+        matches!(&self.fill, Some(Fill::Gradient(_)))
     }
 
     #[inline]
