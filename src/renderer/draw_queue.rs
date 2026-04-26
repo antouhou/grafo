@@ -32,7 +32,8 @@ impl<'a> Renderer<'a> {
     /// Adds a previously loaded cached shape to the draw tree.
     ///
     /// When `parent_shape_id` is `Some`, the cached shape is attached as a child of that node.
-    /// Children are clipped to their parent unless the parent uses [`ShapeOverflow::Visible`].
+    /// Children are clipped to their parent unless the parent was queued with
+    /// [`ShapeDrawCommandOptions::clips_children(false)`].
     pub fn add_cached_shape_to_the_render_queue(
         &mut self,
         cache_key: u64,
@@ -50,7 +51,8 @@ impl<'a> Renderer<'a> {
     /// Adds a shape to the draw tree.
     ///
     /// When `parent_shape_id` is `Some`, the new shape is attached as a child of that node.
-    /// Children are clipped to their parent unless the parent uses [`ShapeOverflow::Visible`].
+    /// Children are clipped to their parent unless the parent was queued with
+    /// [`ShapeDrawCommandOptions::clips_children(false)`].
     pub fn add_shape(
         &mut self,
         shape: impl AsRef<Shape>,
@@ -74,8 +76,9 @@ impl<'a> Renderer<'a> {
     /// This node clips its children like a transparent rect parent by default when its
     /// transform preserves axis alignment. Rotated, skewed, or perspective transforms are
     /// rejected by the transform setters because this node intentionally has no geometry
-    /// for stencil fallback. Use [`Renderer::set_shape_overflow`] with
-    /// [`ShapeOverflow::Visible`] when the node should only group descendants.
+    /// for stencil fallback. To let children overflow from a shape parent, queue that parent with
+    /// [`ShapeDrawCommandOptions::clips_children(false)`] instead of relying on the older
+    /// overflow API wording.
     ///
     /// When `parent_shape_id` is `Some`, the clipping rectangle is attached as a child of
     /// that node and inherits ancestor clips.

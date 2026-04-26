@@ -172,8 +172,6 @@ pub enum DrawCommandError {
     InvalidTextureLayer(usize),
     #[error("Clip rect node only supports axis-aligned transforms.")]
     UnsupportedClipRectTransform,
-    #[error("Clip rect commands only support axis-aligned transforms.")]
-    UnsupportedClipRectCommandTransform,
     #[error("Clip rect node {0} does not support {1}.")]
     UnsupportedClipRectOperation(usize, &'static str),
 }

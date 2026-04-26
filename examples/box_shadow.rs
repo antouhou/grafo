@@ -86,10 +86,11 @@ fn draw_card(
         )
         .unwrap();
 
+    let [red, green, blue, alpha] = card_spec.shadow_rgba;
     let params = BoxShadowParams {
         box_min: [x, y],
         box_max: [x + width, y + height],
-        shadow_color: card_spec.shadow_rgba,
+        shadow_color: [red * alpha, green * alpha, blue * alpha, alpha],
         offset: card_spec.shadow_offset,
         sigma: card_spec.shadow_sigma,
         corner_radius: card_spec.corner_radius,

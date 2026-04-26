@@ -82,6 +82,13 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
+const RED_SHAPE_CACHE_KEY: u64 = 1;
+const GREEN_SHAPE_CACHE_KEY: u64 = 2;
+const BLUE_SHAPE_CACHE_KEY: u64 = 3;
+const JELLY_SHAPE_CACHE_KEY: u64 = 4;
+const HEART_SHAPE_CACHE_KEY: u64 = 5;
+const PERSPECTIVE_SHAPE_CACHE_KEY: u64 = 6;
+
 // Simple helpers to build a few paths for the demo
 fn build_rect_path(w: f32, h: f32) -> Path {
     let mut pb = Path::builder();
@@ -177,7 +184,7 @@ impl<'a> ApplicationHandler for App<'a> {
         let physical_size = (window_size.width, window_size.height);
 
         // Initialize the renderer
-        let renderer = block_on(grafo::Renderer::new(
+        let mut renderer = block_on(grafo::Renderer::new(
             window.clone(),
             physical_size,
             scale_factor,
@@ -212,6 +219,55 @@ impl<'a> ApplicationHandler for App<'a> {
         self.jelly_path = build_rect_path(200.0, 100.0);
         self.heart_path = build_heart_path();
         self.perspective_path = build_perspective_demo_path();
+
+        renderer.load_shape(
+            Shape::Path(grafo::PathShape::new(
+                self.red_path.clone(),
+                Stroke::new(2.0, Color::BLACK),
+            )),
+            RED_SHAPE_CACHE_KEY,
+            Some(RED_SHAPE_CACHE_KEY),
+        );
+        renderer.load_shape(
+            Shape::Path(grafo::PathShape::new(
+                self.green_path.clone(),
+                Stroke::new(2.0, Color::BLACK),
+            )),
+            GREEN_SHAPE_CACHE_KEY,
+            Some(GREEN_SHAPE_CACHE_KEY),
+        );
+        renderer.load_shape(
+            Shape::Path(grafo::PathShape::new(
+                self.blue_path.clone(),
+                Stroke::new(2.0, Color::BLACK),
+            )),
+            BLUE_SHAPE_CACHE_KEY,
+            Some(BLUE_SHAPE_CACHE_KEY),
+        );
+        renderer.load_shape(
+            Shape::Path(grafo::PathShape::new(
+                self.jelly_path.clone(),
+                Stroke::new(2.0, Color::BLACK),
+            )),
+            JELLY_SHAPE_CACHE_KEY,
+            Some(JELLY_SHAPE_CACHE_KEY),
+        );
+        renderer.load_shape(
+            Shape::Path(grafo::PathShape::new(
+                self.heart_path.clone(),
+                Stroke::new(2.0, Color::BLACK),
+            )),
+            HEART_SHAPE_CACHE_KEY,
+            Some(HEART_SHAPE_CACHE_KEY),
+        );
+        renderer.load_shape(
+            Shape::Path(grafo::PathShape::new(
+                self.perspective_path.clone(),
+                Stroke::new(2.0, Color::BLACK),
+            )),
+            PERSPECTIVE_SHAPE_CACHE_KEY,
+            Some(PERSPECTIVE_SHAPE_CACHE_KEY),
+        );
 
         // Colors for hover states
         self.red_color = (Color::rgb(200, 60, 60), Color::rgb(255, 120, 120));
@@ -461,36 +517,9 @@ impl<'a> ApplicationHandler for App<'a> {
                     .then(&persp);
                 let perspective_hover = is_hover(&self.perspective_path, &perspective_tx, mouse);
 
-                // Re-add shapes each frame using lyon paths for hit testing and dynamic color
-                let red_shape = Shape::Path(grafo::PathShape::new(
-                    self.red_path.clone(),
-                    Stroke::new(2.0, Color::BLACK),
-                ));
-                let green_shape = Shape::Path(grafo::PathShape::new(
-                    self.green_path.clone(),
-                    Stroke::new(2.0, Color::BLACK),
-                ));
-                let blue_shape = Shape::Path(grafo::PathShape::new(
-                    self.blue_path.clone(),
-                    Stroke::new(2.0, Color::BLACK),
-                ));
-                let jelly_shape = Shape::Path(grafo::PathShape::new(
-                    self.jelly_path.clone(),
-                    Stroke::new(2.0, Color::BLACK),
-                ));
-                let heart_shape = Shape::Path(grafo::PathShape::new(
-                    self.heart_path.clone(),
-                    Stroke::new(2.0, Color::BLACK),
-                ));
-                let perspective_shape = Shape::Path(grafo::PathShape::new(
-                    self.perspective_path.clone(),
-                    Stroke::new(2.0, Color::BLACK),
-                ));
-
                 renderer
-                    .add_shape(
-                        red_shape,
-                        None,
+                    .add_cached_shape_to_the_render_queue(
+                        RED_SHAPE_CACHE_KEY,
                         None,
                         ShapeDrawCommandOptions::new()
                             .color(if red_hover {
@@ -502,9 +531,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
                 renderer
-                    .add_shape(
-                        green_shape,
-                        None,
+                    .add_cached_shape_to_the_render_queue(
+                        GREEN_SHAPE_CACHE_KEY,
                         None,
                         ShapeDrawCommandOptions::new()
                             .color(if green_hover {
@@ -516,9 +544,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
                 renderer
-                    .add_shape(
-                        blue_shape,
-                        None,
+                    .add_cached_shape_to_the_render_queue(
+                        BLUE_SHAPE_CACHE_KEY,
                         None,
                         ShapeDrawCommandOptions::new()
                             .color(if blue_hover {
@@ -531,9 +558,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
                 renderer
-                    .add_shape(
-                        jelly_shape,
-                        None,
+                    .add_cached_shape_to_the_render_queue(
+                        JELLY_SHAPE_CACHE_KEY,
                         None,
                         ShapeDrawCommandOptions::new()
                             .color(if jelly_hover {
@@ -545,9 +571,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
                 renderer
-                    .add_shape(
-                        heart_shape,
-                        None,
+                    .add_cached_shape_to_the_render_queue(
+                        HEART_SHAPE_CACHE_KEY,
                         None,
                         ShapeDrawCommandOptions::new()
                             .color(if heart_hover {
@@ -559,9 +584,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
                 renderer
-                    .add_shape(
-                        perspective_shape,
-                        None,
+                    .add_cached_shape_to_the_render_queue(
+                        PERSPECTIVE_SHAPE_CACHE_KEY,
                         None,
                         ShapeDrawCommandOptions::new()
                             .color(if perspective_hover {

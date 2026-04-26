@@ -59,10 +59,19 @@ pub struct CachedShapeHandle {
 }
 
 impl CachedShapeHandle {
-    /// Creates a new `CachedShape` with the specified shape and depth.
-    /// Note that tessellator_cache_key is different from the shape cache key; a Shape cache key is
-    /// the shape identifier, while tesselator_cache_key is used to cache the tessellation of the
-    /// shape and should be based on the shape properties, and not the shape identifier
+    /// Creates a new `CachedShapeHandle`.
+    ///
+    /// `geometry_id` is the tessellator cache key. Callers such as
+    /// [`Renderer::load_shape`](crate::Renderer::load_shape) and
+    /// [`Renderer::add_shape`](crate::Renderer::add_shape) must derive it from shape content, not
+    /// draw-tree identity: two different shapes must not share the same `geometry_id` unless
+    /// their tessellated geometry is identical.
+    ///
+    /// This value flows into the tessellation cache and later into
+    /// `preparation::append_aggregated_geometry_for_shape`, so collisions are a correctness
+    /// hazard rather than just a performance miss. A stable hash of the path or other
+    /// content-derived shape data is a good way to satisfy this contract. Pass `None` when no
+    /// reliable content-derived id is available.
     pub(crate) fn new(
         shape: &Shape,
         tessellator: &mut FillTessellator,
@@ -108,11 +117,6 @@ impl TessellatedGeometry {
             Self::Shared(vertex_buffers) => &vertex_buffers.indices,
         }
     }
-}
-
-pub enum ShapeType {
-    Path,
-    Rect,
 }
 
 /// Represents a graphical shape, which can be either a custom path or a simple rectangle.
