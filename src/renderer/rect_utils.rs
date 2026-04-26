@@ -189,7 +189,7 @@ mod tests {
             &mut pool,
             None,
         );
-        DrawCommand::CachedShape(CachedShapeDrawData::new(shape_handle, options))
+        DrawCommand::CachedShape(CachedShapeDrawData::new(shape_handle, &options))
     }
 
     fn rect_draw_command() -> DrawCommand {

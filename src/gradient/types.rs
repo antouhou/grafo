@@ -522,6 +522,16 @@ pub enum Fill {
     Gradient(Gradient),
 }
 
+impl Fill {
+    #[inline]
+    pub fn to_normalized_solid(&self) -> Option<[f32; 4]> {
+        match self {
+            Fill::Solid(color) => Some(color.normalize()),
+            _ => None,
+        }
+    }
+}
+
 impl From<Color> for Fill {
     fn from(color: Color) -> Self {
         Self::Solid(color)

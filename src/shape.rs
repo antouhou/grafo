@@ -1125,7 +1125,7 @@ pub(crate) struct CachedShapeDrawData {
 }
 
 impl CachedShapeDrawData {
-    pub fn new(cached_shape: CachedShapeHandle, options: ShapeDrawCommandOptions) -> Self {
+    pub fn new(cached_shape: CachedShapeHandle, options: &ShapeDrawCommandOptions) -> Self {
         Self {
             cached_shape,
             // Will be set during add_command
@@ -1139,7 +1139,7 @@ impl CachedShapeDrawData {
                 Some(Fill::Solid(color)) => Some(color.normalize()),
                 _ => None,
             },
-            fill: options.fill,
+            fill: options.fill.clone(),
             // Set later after buffer update
             instance_index: None,
             // Set during render traversal

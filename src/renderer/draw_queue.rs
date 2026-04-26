@@ -1,6 +1,6 @@
 use super::types::{ClipRectDrawData, DrawCommandError};
 use super::*;
-use crate::ShapeDrawCommandOptions;
+use crate::{ShapeDrawCommandOptions};
 
 fn clip_rect_supports_transform(transform: InstanceTransform) -> bool {
     rect_utils::extract_axis_aligned_rect_transform(Some(transform)).is_some()
@@ -40,11 +40,12 @@ impl<'a> Renderer<'a> {
         parent_shape_id: Option<usize>,
         options: ShapeDrawCommandOptions,
     ) -> Result<usize, DrawCommandError> {
-        let draw_data = if let Some(cached_shape_handle) = self.shape_cache.get(&cache_key) {
-            CachedShapeDrawData::new(cached_shape_handle.clone(), options)
+        let mut draw_data = if let Some(cached_shape_handle) = self.shape_cache.get(&cache_key) {
+            CachedShapeDrawData::new(cached_shape_handle.clone(), &options)
         } else {
             return Err(DrawCommandError::ShapeNotLoaded(cache_key));
         };
+        self.append_buffers_for_shape(&mut draw_data, &options);
         self.add_draw_command(DrawCommand::CachedShape(draw_data), parent_shape_id)
     }
 
@@ -66,8 +67,9 @@ impl<'a> Renderer<'a> {
             &mut self.buffers_pool_manager,
             geometry_id,
         );
-        let draw_data = CachedShapeDrawData::new(cached_shape, options);
+        let mut draw_data = CachedShapeDrawData::new(cached_shape, &options);
 
+        self.append_buffers_for_shape(&mut draw_data, &options);
         self.add_draw_command(DrawCommand::CachedShape(draw_data), parent_shape_id)
     }
 
@@ -105,45 +107,47 @@ impl<'a> Renderer<'a> {
         )
     }
 
+    fn append_buffers_for_shape(&mut self, cached_shape_data: &mut CachedShapeDrawData, draw_options: &ShapeDrawCommandOptions) {
+        self.refresh_geometry_cache(cached_shape_data);
+        cached_shape_data.refresh_gradient_bind_group(
+            &mut self.buffers_pool_manager.gradient_cache,
+            &self.device,
+            &self.queue,
+            &self.gradient_bind_group_layout,
+            &self.gradient_ramp_sampler,
+            self.gradient_bind_group_layout_epoch,
+        );
+        let index_range = preparation::append_aggregated_geometry_for_shape(
+            cached_shape_data,
+            &mut self.temp_vertices,
+            &mut self.temp_indices,
+            &mut self.geometry_dedup_map,
+        );
+        if let Some((index_start, index_count)) = index_range {
+            cached_shape_data.index_buffer_range = Some((index_start, index_count));
+            cached_shape_data.is_empty = false;
+            let instance_index = preparation::append_instance_data(
+                &mut self.temp_instance_transforms,
+                &mut self.temp_instance_colors,
+                &mut self.temp_instance_metadata,
+                draw_options.transform,
+                match &draw_options.fill {
+                    None => None,
+                    Some(fill) => { fill.to_normalized_solid() }
+                },
+                cached_shape_data.texture_ids,
+            );
+            *cached_shape_data.instance_index_mut() = Some(instance_index);
+        } else {
+            cached_shape_data.is_empty = true;
+        }
+    }
+
     fn add_draw_command(
         &mut self,
-        mut draw_command: DrawCommand,
+        draw_command: DrawCommand,
         parent_shape_id: Option<usize>,
     ) -> Result<usize, DrawCommandError> {
-        let shape_geometry = draw_command.as_shape_draw_data_mut();
-        if let Some(cached_shape_data) = shape_geometry {
-            self.refresh_geometry_cache(cached_shape_data);
-            cached_shape_data.refresh_gradient_bind_group(
-                &mut self.buffers_pool_manager.gradient_cache,
-                &self.device,
-                &self.queue,
-                &self.gradient_bind_group_layout,
-                &self.gradient_ramp_sampler,
-                self.gradient_bind_group_layout_epoch,
-            );
-            let index_range = preparation::append_aggregated_geometry_for_shape(
-                cached_shape_data,
-                &mut self.temp_vertices,
-                &mut self.temp_indices,
-                &mut self.geometry_dedup_map,
-            );
-            if let Some((index_start, index_count)) = index_range {
-                cached_shape_data.index_buffer_range = Some((index_start, index_count));
-                cached_shape_data.is_empty = false;
-                let instance_index = preparation::append_instance_data(
-                    &mut self.temp_instance_transforms,
-                    &mut self.temp_instance_colors,
-                    &mut self.temp_instance_metadata,
-                    cached_shape_data.transform(),
-                    cached_shape_data.instance_color_override(),
-                    cached_shape_data.texture_ids,
-                );
-                *cached_shape_data.instance_index_mut() = Some(instance_index);
-            } else {
-                cached_shape_data.is_empty = true;
-            }
-        }
-
         if self.draw_tree.is_empty() {
             let node_id = self.draw_tree.add_node(draw_command);
             Ok(node_id)

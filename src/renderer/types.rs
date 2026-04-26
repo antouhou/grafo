@@ -58,13 +58,6 @@ impl DrawCommand {
         }
     }
 
-    pub(super) fn as_shape_draw_data_mut(&mut self) -> Option<&mut CachedShapeDrawData> {
-        match self {
-            DrawCommand::CachedShape(cached_shape) => Some(cached_shape),
-            _ => None,
-        }
-    }
-
     pub(super) fn is_clip_rect(&self) -> bool {
         matches!(self, DrawCommand::ClipRect(_))
     }
