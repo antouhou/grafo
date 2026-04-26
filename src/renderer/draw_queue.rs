@@ -7,6 +7,11 @@ fn clip_rect_supports_transform(transform: InstanceTransform) -> bool {
 }
 
 impl<'a> Renderer<'a> {
+    /// Tessellates the shape and stores the tessellated result in a cache, so it can be accessed
+    /// later with the provided it. Accepts optional `geometry_id` to dedupe geometry and avoid
+    /// loading the same geometry multiple times. `geometry_id` should be a stable id describing
+    /// that particular shape path. Pass `None` if you're not sure what that means. Or use a hash
+    /// of the points in the path if you're sure that you're going to draw a lot of the same shapes.
     pub fn load_shape(
         &mut self,
         shape: impl AsRef<Shape>,
@@ -22,22 +27,6 @@ impl<'a> Renderer<'a> {
             geometry_id,
         );
         self.shape_cache.insert(cache_key, cached_shape);
-    }
-
-    pub fn load_shape_2(
-        &mut self,
-        shape: impl AsRef<Shape>,
-        // id to identify the geometry for that shape; Geometry will be deduped by this id when
-        //  the geometry is loaded to the GPU.
-        geometry_id: Option<u64>,
-    ) -> CachedShapeHandle {
-        let cached_shape = CachedShapeHandle::new(
-            shape.as_ref(),
-            &mut self.tessellator,
-            &mut self.buffers_pool_manager,
-            geometry_id,
-        );
-        cached_shape
     }
 
     /// Adds a previously loaded cached shape to the draw tree.
