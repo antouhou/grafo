@@ -2,7 +2,7 @@ use grafo::{
     BorderRadii, Color, ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor,
     GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
     LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientShape,
-    RadialGradientSize, Renderer, Shape, ShapeDrawCommandOptions, ShapeOverflow, SpreadMode,
+    RadialGradientSize, Renderer, Shape, ShapeDrawCommandOptions, SpreadMode,
     Stroke, TransformInstance,
 };
 
@@ -44,7 +44,7 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         [(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)],
         Stroke::default(),
     );
-    let canvas_root_id = renderer
+    renderer
         .add_shape(
             canvas_root,
             None,

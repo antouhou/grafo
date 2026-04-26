@@ -39,18 +39,23 @@ log = "0.4"         # For logging
 Below is a minimal snippet showing how to create a shape, set per-instance color and transform, and render. For a complete runnable window using `winit` 0.30 (ApplicationHandler API), see `examples/basic.rs`.
 
 ```rust
-use grafo::{Shape, Color, Stroke};
+use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke};
 
 // Create a rectangle shape (no fill color on the shape itself)
 let rect = Shape::rect(
     [(0.0, 0.0), (200.0, 100.0)],
     Stroke::new(2.0, Color::BLACK),
 );
-let id = renderer.add_shape(rect, None, None).unwrap();
-
-// Set per-instance properties
-renderer.set_shape_color(id, Some(Color::rgb(0, 128, 255))).unwrap(); // Blue fill
-renderer.set_shape_transform(id, grafo::TransformInstance::translation(100.0, 100.0)).unwrap();
+renderer
+    .add_shape(
+        rect,
+        None,
+        None,
+        ShapeDrawCommandOptions::new()
+            .color(Color::rgb(0, 128, 255))
+            .transform(grafo::TransformInstance::translation(100.0, 100.0)),
+    )
+    .unwrap();
 
 // Render one frame (typical winit loop would call this on RedrawRequested)
 renderer.render().unwrap();
@@ -64,30 +69,45 @@ The second argument to `add_shape` and `add_clipping_rect` is the optional
 By default, children are clipped to their parent:
 
 ```rust
-use grafo::{Color, Shape, ShapeOverflow, Stroke};
+use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke};
 
-let parent_id = renderer
+let clipping_parent_id = renderer
     .add_shape(
         Shape::rect([(0.0, 0.0), (120.0, 80.0)], Stroke::default()),
         None,
         None,
+        ShapeDrawCommandOptions::new().color(Color::rgb(220, 220, 220)),
     )
     .unwrap();
 
-let child_id = renderer
+renderer
     .add_shape(
         Shape::rect([(80.0, 20.0), (160.0, 60.0)], Stroke::default()),
-        Some(parent_id),
+        Some(clipping_parent_id),
         None,
+        ShapeDrawCommandOptions::new().color(Color::rgb(220, 80, 80)),
     )
     .unwrap();
 
-renderer.set_shape_color(parent_id, Some(Color::rgb(220, 220, 220))).unwrap();
-renderer.set_shape_color(child_id, Some(Color::rgb(220, 80, 80))).unwrap();
+// Let children render outside `overflow_parent_id`, while still respecting any ancestor clip.
+let overflow_parent_id = renderer
+    .add_shape(
+        Shape::rect([(0.0, 0.0), (120.0, 80.0)], Stroke::default()),
+        None,
+        None,
+        ShapeDrawCommandOptions::new()
+            .color(Color::rgb(220, 220, 220))
+            .clips_children(false),
+    )
+    .unwrap();
 
-// Let the child render outside `parent_id`, while still respecting any ancestor clip.
 renderer
-    .set_shape_overflow(parent_id, ShapeOverflow::Visible)
+    .add_shape(
+        Shape::rect([(80.0, 20.0), (160.0, 60.0)], Stroke::default()),
+        Some(overflow_parent_id),
+        None,
+        ShapeDrawCommandOptions::new().color(Color::rgb(220, 80, 80)),
+    )
     .unwrap();
 
 // The same call works for ids returned by `add_clipping_rect`, so clip rectangles
@@ -117,21 +137,32 @@ Composition order (bottom to top):
 API:
 
 ```rust
-use grafo::{Renderer, Shape, Color, Stroke, TextureLayer};
+use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke};
 
 // After allocating textures via renderer.texture_manager()
-let id = renderer.add_shape(
-    Shape::rect([(0.0,0.0),(300.0,200.0)], Stroke::new(1.0, Color::BLACK)),
-    None,
-    None,
-).unwrap();
-renderer.set_shape_color(id, Some(Color::rgb(40, 40, 40))).unwrap(); // base color under textures
-renderer.set_shape_texture_on(id, TextureLayer::Background, Some(bg_tex_id)).unwrap();
-renderer.set_shape_texture_on(id, TextureLayer::Foreground, Some(fg_tex_id)).unwrap();
+renderer
+    .add_shape(
+        Shape::rect([(0.0, 0.0), (300.0, 200.0)], Stroke::new(1.0, Color::BLACK)),
+        None,
+        None,
+        ShapeDrawCommandOptions::new()
+            .color(Color::rgb(40, 40, 40))
+            .background_texture_id(bg_tex_id)
+            .foreground_texture_id(fg_tex_id),
+    )
+    .unwrap();
 
 // Single-layer helper (Background):
-renderer.set_shape_texture(id, Some(bg_tex_id)).unwrap();
-renderer.set_shape_color(id, Some(Color::WHITE)).unwrap(); // useful when texture transparency should reveal white
+renderer
+    .add_shape(
+        Shape::rect([(0.0, 0.0), (300.0, 200.0)], Stroke::new(1.0, Color::BLACK)),
+        None,
+        None,
+        ShapeDrawCommandOptions::new()
+            .color(Color::WHITE)
+            .background_texture_id(bg_tex_id),
+    )
+    .unwrap(); // useful when texture transparency should reveal white
 ```
 
 See `examples/multi_texture.rs` for a runnable demo that generates procedural background & foreground textures.
@@ -148,11 +179,19 @@ Use per-shape transforms to position shapes. Common helpers:
 Example:
 
 ```rust
-let id = renderer.add_shape(my_shape, None, None).unwrap();
+use grafo::ShapeDrawCommandOptions;
+
 let r = grafo::TransformInstance::rotation_z_deg(15.0);
 let t = grafo::TransformInstance::translation(150.0, 80.0);
 // Rotate first, then translate
-renderer.set_shape_transform(id, r.then(&t)).unwrap();
+renderer
+    .add_shape(
+        my_shape,
+        None,
+        None,
+        ShapeDrawCommandOptions::new().transform(r.then(&t)),
+    )
+    .unwrap();
 ```
 
 ## Documentation
