@@ -158,7 +158,7 @@ mod tests {
                 rect_bounds: None,
                 geometry_id: None,
             },
-            ShapeDrawCommandOptions::new(),
+            &ShapeDrawCommandOptions::new(),
         )
     }
 
