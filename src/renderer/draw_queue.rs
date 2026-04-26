@@ -1,6 +1,6 @@
 use super::types::{ClipRectDrawData, DrawCommandError};
 use super::*;
-use crate::{ShapeDrawCommandOptions};
+use crate::ShapeDrawCommandOptions;
 
 fn clip_rect_supports_transform(transform: InstanceTransform) -> bool {
     rect_utils::extract_axis_aligned_rect_transform(Some(transform)).is_some()
@@ -107,7 +107,11 @@ impl<'a> Renderer<'a> {
         )
     }
 
-    fn append_buffers_for_shape(&mut self, cached_shape_data: &mut CachedShapeDrawData, draw_options: &ShapeDrawCommandOptions) {
+    fn append_buffers_for_shape(
+        &mut self,
+        cached_shape_data: &mut CachedShapeDrawData,
+        draw_options: &ShapeDrawCommandOptions,
+    ) {
         self.refresh_geometry_cache(cached_shape_data);
         cached_shape_data.refresh_gradient_bind_group(
             &mut self.buffers_pool_manager.gradient_cache,
@@ -133,7 +137,7 @@ impl<'a> Renderer<'a> {
                 draw_options.transform,
                 match &draw_options.fill {
                     None => None,
-                    Some(fill) => { fill.to_normalized_solid() }
+                    Some(fill) => fill.to_normalized_solid(),
                 },
                 cached_shape_data.texture_ids,
             );
