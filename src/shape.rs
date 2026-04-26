@@ -35,7 +35,7 @@
 //! ```
 
 use crate::gradient::types::Fill;
-use crate::util::PoolManager;
+use crate::util::{GradientCache, PoolManager};
 use crate::vertex::{CustomVertex, InstanceTransform};
 use crate::{Color, Stroke};
 use ahash::AHashMap;
@@ -47,59 +47,42 @@ use lyon::tessellation::FillVertexConstructor;
 use smallvec::SmallVec;
 use std::sync::Arc;
 
-pub(crate) struct CachedShape {
+#[derive(Debug, Clone)]
+pub struct CachedShapeHandle {
     pub vertex_buffers: Arc<VertexBuffers<CustomVertex, u16>>,
-    /// Whether the original shape was an axis-aligned rectangle.
+    /// Whether the original shape was an axis-aligned rectangle. Used to enable scissor-based
+    /// clipping instead of stencil for rect parents.
     pub(crate) is_rect: bool,
-    /// The local-space bounding rect when `is_rect` is true.
+    /// The local-space bounding rect when `is_rect` is true, for scissor computation.
     pub(crate) rect_bounds: Option<[(f32, f32); 2]>,
+    pub(crate) geometry_id: Option<u64>,
 }
 
-pub(crate) enum TessellatedGeometry {
-    Owned(VertexBuffers<CustomVertex, u16>),
-    Shared(Arc<VertexBuffers<CustomVertex, u16>>),
-}
-
-impl TessellatedGeometry {
-    pub(crate) fn vertices(&self) -> &[CustomVertex] {
-        match self {
-            Self::Owned(vertex_buffers) => &vertex_buffers.vertices,
-            Self::Shared(vertex_buffers) => &vertex_buffers.vertices,
-        }
-    }
-
-    pub(crate) fn indices(&self) -> &[u16] {
-        match self {
-            Self::Owned(vertex_buffers) => &vertex_buffers.indices,
-            Self::Shared(vertex_buffers) => &vertex_buffers.indices,
-        }
-    }
-
-    /// Returns the vertex buffers if they are owned, or `None` if they are shared (cached).
-    pub(crate) fn into_owned(self) -> Option<VertexBuffers<CustomVertex, u16>> {
-        match self {
-            Self::Owned(vertex_buffers) => Some(vertex_buffers),
-            Self::Shared(_) => None,
-        }
-    }
-}
-
-impl CachedShape {
-    /// Creates a new `CachedShape` with the specified shape and depth.
-    /// Note that tessellator_cache_key is different from the shape cache key; a Shape cache key is
-    /// the shape identifier, while tesselator_cache_key is used to cache the tessellation of the
-    /// shape and should be based on the shape properties, and not the shape identifier
-    pub fn new(
+impl CachedShapeHandle {
+    /// Creates a new `CachedShapeHandle`.
+    ///
+    /// `geometry_id` is the tessellator cache key. Callers such as
+    /// [`Renderer::load_shape`](crate::Renderer::load_shape) and
+    /// [`Renderer::add_shape`](crate::Renderer::add_shape) must derive it from shape content, not
+    /// draw-tree identity: two different shapes must not share the same `geometry_id` unless
+    /// their tessellated geometry is identical.
+    ///
+    /// This value flows into the tessellation cache and later into
+    /// `preparation::append_aggregated_geometry_for_shape`, so collisions are a correctness
+    /// hazard rather than just a performance miss. A stable hash of the path or other
+    /// content-derived shape data is a good way to satisfy this contract. Pass `None` when no
+    /// reliable content-derived id is available.
+    pub(crate) fn new(
         shape: &Shape,
         tessellator: &mut FillTessellator,
         pool: &mut PoolManager,
-        tessellator_cache_key: Option<u64>,
+        geometry_id: Option<u64>,
     ) -> Self {
         let (is_rect, rect_bounds) = match shape {
             Shape::Rect(r) => (true, Some(r.rect)),
             _ => (false, None),
         };
-        let vertices = match shape.tessellate(tessellator, pool, tessellator_cache_key) {
+        let vertices = match shape.tessellate(tessellator, pool, geometry_id) {
             TessellatedGeometry::Owned(vertex_buffers) => Arc::new(vertex_buffers),
             TessellatedGeometry::Shared(vertex_buffers) => vertex_buffers,
         };
@@ -107,9 +90,35 @@ impl CachedShape {
             vertex_buffers: vertices,
             is_rect,
             rect_bounds,
+            geometry_id,
         }
     }
 }
+
+pub(crate) enum TessellatedGeometry {
+    /// When the cache key is not provided, or the geometry is a simple rect
+    Owned(VertexBuffers<CustomVertex, u16>),
+    Shared(Arc<VertexBuffers<CustomVertex, u16>>),
+}
+
+impl TessellatedGeometry {
+    #[cfg(test)]
+    pub(crate) fn vertices(&self) -> &[CustomVertex] {
+        match self {
+            Self::Owned(vertex_buffers) => &vertex_buffers.vertices,
+            Self::Shared(vertex_buffers) => &vertex_buffers.vertices,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn indices(&self) -> &[u16] {
+        match self {
+            Self::Owned(vertex_buffers) => &vertex_buffers.indices,
+            Self::Shared(vertex_buffers) => &vertex_buffers.indices,
+        }
+    }
+}
+
 /// Represents a graphical shape, which can be either a custom path or a simple rectangle.
 ///
 /// # Variants
@@ -230,6 +239,15 @@ impl Shape {
                 path_shape.tessellate(tessellator, buffers_pool, tesselation_cache_key)
             }
             Shape::Rect(rect_shape) => {
+                if let Some(cache_key) = tesselation_cache_key {
+                    if let Some(cached_vertex_buffers) = buffers_pool
+                        .tessellation_cache
+                        .get_vertex_buffers(&cache_key)
+                    {
+                        return TessellatedGeometry::Shared(cached_vertex_buffers);
+                    }
+                }
+
                 let min_width = rect_shape.rect[0].0;
                 let min_height = rect_shape.rect[0].1;
                 let max_width = rect_shape.rect[1].0;
@@ -281,7 +299,15 @@ impl Shape {
                     &mut buffers_pool.aa_fringe_scratch,
                 );
 
-                TessellatedGeometry::Owned(vertex_buffers)
+                if let Some(tesselation_cache_key) = tesselation_cache_key {
+                    let arc_buffers = Arc::new(vertex_buffers);
+                    buffers_pool
+                        .tessellation_cache
+                        .insert_vertex_buffers(tesselation_cache_key, Arc::clone(&arc_buffers));
+                    TessellatedGeometry::Shared(arc_buffers)
+                } else {
+                    TessellatedGeometry::Owned(vertex_buffers)
+                }
             }
         }
     }
@@ -932,7 +958,7 @@ impl PathShape {
 
         let mut buffers: VertexBuffers<CustomVertex, u16> =
             buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
-        self.tesselate_into_buffers(
+        self.tessellate_into_buffers(
             &mut buffers,
             tessellator,
             &mut buffers_pool.aa_fringe_scratch,
@@ -955,7 +981,7 @@ impl PathShape {
         }
     }
 
-    fn tesselate_into_buffers(
+    fn tessellate_into_buffers(
         &self,
         buffers: &mut VertexBuffers<CustomVertex, u16>,
         tessellator: &mut FillTessellator,
@@ -1015,84 +1041,66 @@ impl PathShape {
     }
 }
 
-/// Contains the data required to draw a shape, including vertex and index buffers.
-///
-/// This struct is used internally by the renderer and typically does not need to be used
-/// directly by library users.
-#[derive(Debug)]
-pub(crate) struct ShapeDrawData {
-    /// The shape associated with this draw data.
-    pub(crate) shape: Shape,
-    /// Optional cache key for the shape, used for caching tessellated buffers.
-    pub(crate) cache_key: Option<u64>,
-    /// Range in the aggregated index buffer (start_index, count)  
-    pub(crate) index_buffer_range: Option<(usize, usize)>,
-    /// Indicates whether the shape is empty (no vertices or indices).
-    pub(crate) is_empty: bool,
-    /// Stencil reference assigned during render traversal (parent + 1). Cleared after frame.
-    pub(crate) stencil_ref: Option<u32>,
-    /// Index into the per-frame instance transform buffer
-    pub(crate) instance_index: Option<usize>,
-    /// Optional per-shape transform applied in clip-space (post-normalization)
-    pub(crate) transform: Option<InstanceTransform>,
-    /// Optional texture ids associated with this shape for multi-texturing layers.
-    /// Layer 0: background/base
-    /// Layer 1: foreground/overlay (e.g. text or decals) blended on top
-    pub(crate) texture_ids: [Option<u64>; 2],
-    /// Optional per-instance color override (normalized [0,1]). If None, use shape's fill.
-    pub(crate) color_override: Option<[f32; 4]>,
-    /// The fill for this shape (solid color or gradient). If None, transparent.
-    pub(crate) fill: Option<Fill>,
-    /// Cached gradient bind group, refreshed when the fill or gradient layout changes.
-    pub(crate) gradient_bind_group: Option<std::sync::Arc<wgpu::BindGroup>>,
-    /// Whether this node is a leaf in the draw tree (no children).
-    pub(crate) is_leaf: bool,
-    /// When `false`, skip stencil increment/decrement for this parent
-    /// (children render without being clipped to this shape).
-    pub(crate) clips_children: bool,
-    /// Whether the underlying shape is an axis-aligned rectangle (`Shape::Rect`).
-    /// Used to enable scissor-based clipping instead of stencil for rect parents.
-    pub(crate) is_rect: bool,
+#[derive(Clone, Debug)]
+pub struct ShapeDrawCommandOptions {
+    pub transform: Option<InstanceTransform>,
+    pub clips_children: bool,
+    pub background_texture_id: Option<u64>,
+    pub foreground_texture_id: Option<u64>,
+    pub fill: Option<Fill>,
 }
 
-impl ShapeDrawData {
-    pub fn new(shape: impl Into<Shape>, cache_key: Option<u64>) -> Self {
-        let shape = shape.into();
-        let is_rect = matches!(shape, Shape::Rect(_));
-
-        ShapeDrawData {
-            shape,
-            cache_key,
-            index_buffer_range: None,
-            is_empty: false,
-            stencil_ref: None,
-            instance_index: None,
+impl Default for ShapeDrawCommandOptions {
+    fn default() -> Self {
+        Self {
             transform: None,
-            texture_ids: [None, None],
-            color_override: None,
-            fill: None,
-            gradient_bind_group: None,
-            is_leaf: true,
             clips_children: true,
-            is_rect,
+            background_texture_id: None,
+            foreground_texture_id: None,
+            fill: None,
         }
     }
+}
 
-    /// Tessellates complex shapes and stores the resulting buffers.
-    #[inline(always)]
-    pub(crate) fn tessellate(
-        &mut self,
-        tessellator: &mut FillTessellator,
-        buffers_pool: &mut PoolManager,
-    ) -> TessellatedGeometry {
-        self.shape
-            .tessellate(tessellator, buffers_pool, self.cache_key)
+impl ShapeDrawCommandOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn transform(mut self, transform: InstanceTransform) -> Self {
+        self.transform = Some(transform);
+        self
+    }
+
+    pub fn clips_children(mut self, clips_children: bool) -> Self {
+        self.clips_children = clips_children;
+        self
+    }
+
+    pub fn background_texture_id(mut self, background_texture_id: u64) -> Self {
+        self.background_texture_id = Some(background_texture_id);
+        self
+    }
+
+    pub fn foreground_texture_id(mut self, foreground_texture_id: u64) -> Self {
+        self.foreground_texture_id = Some(foreground_texture_id);
+        self
+    }
+
+    pub fn fill(mut self, fill: Fill) -> Self {
+        self.fill = Some(fill);
+        self
+    }
+
+    pub fn color(mut self, color: Color) -> Self {
+        self.fill = Some(Fill::Solid(color));
+        self
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct CachedShapeDrawData {
-    pub(crate) id: u64,
+    pub(crate) cached_shape: CachedShapeHandle,
     pub(crate) index_buffer_range: Option<(usize, usize)>,
     pub(crate) is_empty: bool,
     /// Stencil reference assigned during render traversal (parent + 1). Cleared after frame.
@@ -1108,45 +1116,59 @@ pub(crate) struct CachedShapeDrawData {
     /// The fill for this shape (solid color or gradient). If None, transparent.
     pub(crate) fill: Option<Fill>,
     /// Cached gradient bind group, refreshed when the fill or gradient layout changes.
-    pub(crate) gradient_bind_group: Option<std::sync::Arc<wgpu::BindGroup>>,
+    pub(crate) gradient_bind_group: Option<Arc<wgpu::BindGroup>>,
     /// Whether this node is a leaf in the draw tree (no children).
     pub(crate) is_leaf: bool,
     /// When `false`, skip stencil increment/decrement for this parent
     /// (children render without being clipped to this shape).
     pub(crate) clips_children: bool,
-    /// Whether the underlying shape is an axis-aligned rectangle.
-    /// Used to enable scissor-based clipping instead of stencil for rect parents.
-    pub(crate) is_rect: bool,
-    /// The local-space bounding rect when `is_rect` is true, for scissor computation.
-    pub(crate) rect_bounds: Option<[(f32, f32); 2]>,
 }
 
 impl CachedShapeDrawData {
-    pub fn new(id: u64) -> Self {
+    pub fn new(cached_shape: CachedShapeHandle, options: ShapeDrawCommandOptions) -> Self {
         Self {
-            id,
+            cached_shape,
+            // Will be set during add_command
             index_buffer_range: None,
             is_empty: false,
-            stencil_ref: None,
+            // Data from options
+            transform: options.transform,
+            texture_ids: [options.background_texture_id, options.foreground_texture_id],
+            clips_children: options.clips_children,
+            color_override: match options.fill.as_ref() {
+                Some(Fill::Solid(color)) => Some(color.normalize()),
+                _ => None,
+            },
+            fill: options.fill,
+            // Set later after buffer update
             instance_index: None,
-            transform: None,
-            texture_ids: [None, None],
-            color_override: None,
-            fill: None,
+            // Set during render traversal
+            stencil_ref: None,
             gradient_bind_group: None,
             is_leaf: true,
-            clips_children: true,
-            is_rect: false,
-            rect_bounds: None,
         }
     }
 
-    pub fn new_rect(id: u64, rect_bounds: [(f32, f32); 2]) -> Self {
-        Self {
-            is_rect: true,
-            rect_bounds: Some(rect_bounds),
-            ..Self::new(id)
-        }
+    pub fn refresh_gradient_bind_group(
+        &mut self,
+        gradient_cache: &mut GradientCache,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        sampler: &wgpu::Sampler,
+        layout_epoch: u64,
+    ) {
+        self.gradient_bind_group = match self.fill.as_mut() {
+            Some(Fill::Gradient(gradient)) => Some(gradient_cache.get_or_create_bind_group(
+                &mut gradient.data,
+                device,
+                queue,
+                layout,
+                sampler,
+                layout_epoch,
+            )),
+            _ => None,
+        };
     }
 }
 
@@ -1477,118 +1499,13 @@ pub(crate) trait DrawShapeCommand {
     fn instance_index_mut(&mut self) -> &mut Option<usize>;
     fn instance_index(&self) -> Option<usize>;
     fn transform(&self) -> Option<InstanceTransform>;
-    fn set_transform(&mut self, t: InstanceTransform);
     fn texture_id(&self, layer: usize) -> Option<u64>;
-    fn set_texture_id(&mut self, layer: usize, id: Option<u64>);
     fn instance_color_override(&self) -> Option<[f32; 4]>;
-    fn set_instance_color_override(&mut self, color: Option<[f32; 4]>);
-    fn set_fill(&mut self, fill: Option<Fill>);
     fn has_gradient_fill(&self) -> bool;
     fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>>;
     fn clips_children(&self) -> bool;
-    fn set_clips_children(&mut self, clips_children: bool);
     fn is_rect(&self) -> bool;
     fn rect_bounds(&self) -> Option<[(f32, f32); 2]>;
-}
-
-impl DrawShapeCommand for ShapeDrawData {
-    #[inline]
-    fn index_buffer_range(&self) -> Option<(usize, usize)> {
-        self.index_buffer_range
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        self.is_empty
-    }
-
-    #[inline]
-    fn stencil_ref_mut(&mut self) -> &mut Option<u32> {
-        &mut self.stencil_ref
-    }
-
-    #[inline]
-    fn instance_index_mut(&mut self) -> &mut Option<usize> {
-        &mut self.instance_index
-    }
-
-    #[inline]
-    fn instance_index(&self) -> Option<usize> {
-        self.instance_index
-    }
-
-    #[inline]
-    fn transform(&self) -> Option<InstanceTransform> {
-        self.transform
-    }
-
-    #[inline]
-    fn set_transform(&mut self, t: InstanceTransform) {
-        self.transform = Some(t);
-    }
-
-    #[inline]
-    fn texture_id(&self, layer: usize) -> Option<u64> {
-        self.texture_ids.get(layer).copied().unwrap_or(None)
-    }
-
-    #[inline]
-    fn set_texture_id(&mut self, layer: usize, id: Option<u64>) {
-        if let Some(slot) = self.texture_ids.get_mut(layer) {
-            *slot = id;
-        }
-    }
-
-    #[inline]
-    fn instance_color_override(&self) -> Option<[f32; 4]> {
-        self.color_override
-    }
-
-    #[inline]
-    fn set_instance_color_override(&mut self, color: Option<[f32; 4]>) {
-        self.color_override = color;
-    }
-
-    #[inline]
-    fn set_fill(&mut self, fill: Option<Fill>) {
-        self.fill = fill;
-        // Invalidate cached GPU resources so the renderer can rebuild them
-        // against the current layout outside the render loop.
-        self.gradient_bind_group = None;
-    }
-
-    #[inline]
-    fn has_gradient_fill(&self) -> bool {
-        matches!(self.fill, Some(Fill::Gradient(_)))
-    }
-
-    #[inline]
-    fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>> {
-        self.gradient_bind_group.as_ref()
-    }
-
-    #[inline]
-    fn clips_children(&self) -> bool {
-        self.clips_children
-    }
-
-    #[inline]
-    fn set_clips_children(&mut self, clips_children: bool) {
-        self.clips_children = clips_children;
-    }
-
-    #[inline]
-    fn is_rect(&self) -> bool {
-        self.is_rect
-    }
-
-    #[inline]
-    fn rect_bounds(&self) -> Option<[(f32, f32); 2]> {
-        match &self.shape {
-            Shape::Rect(r) => Some(r.rect),
-            _ => None,
-        }
-    }
 }
 
 impl DrawShapeCommand for CachedShapeDrawData {
@@ -1623,38 +1540,13 @@ impl DrawShapeCommand for CachedShapeDrawData {
     }
 
     #[inline]
-    fn set_transform(&mut self, t: InstanceTransform) {
-        self.transform = Some(t);
-    }
-
-    #[inline]
     fn texture_id(&self, layer: usize) -> Option<u64> {
         self.texture_ids.get(layer).copied().unwrap_or(None)
     }
 
     #[inline]
-    fn set_texture_id(&mut self, layer: usize, id: Option<u64>) {
-        if let Some(slot) = self.texture_ids.get_mut(layer) {
-            *slot = id;
-        }
-    }
-
-    #[inline]
     fn instance_color_override(&self) -> Option<[f32; 4]> {
         self.color_override
-    }
-
-    #[inline]
-    fn set_instance_color_override(&mut self, color: Option<[f32; 4]>) {
-        self.color_override = color;
-    }
-
-    #[inline]
-    fn set_fill(&mut self, fill: Option<Fill>) {
-        self.fill = fill;
-        // Invalidate cached GPU resources so the renderer can rebuild them
-        // against the current layout outside the render loop.
-        self.gradient_bind_group = None;
     }
 
     #[inline]
@@ -1673,18 +1565,13 @@ impl DrawShapeCommand for CachedShapeDrawData {
     }
 
     #[inline]
-    fn set_clips_children(&mut self, clips_children: bool) {
-        self.clips_children = clips_children;
-    }
-
-    #[inline]
     fn is_rect(&self) -> bool {
-        self.is_rect
+        self.cached_shape.is_rect
     }
 
     #[inline]
     fn rect_bounds(&self) -> Option<[(f32, f32); 2]> {
-        self.rect_bounds
+        self.cached_shape.rect_bounds
     }
 }
 

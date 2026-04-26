@@ -4,7 +4,7 @@
 /// compare edge quality between MSAA off (1x) and MSAA on (4x).
 use futures::executor::block_on;
 use grafo::{BorderRadii, Shape};
-use grafo::{Color, Stroke};
+use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
@@ -104,9 +104,13 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(0.0, 0.0), (800.0, 600.0)],
                     Stroke::new(2.0, Color::rgb(255, 0, 0)),
                 );
-                let back_id = renderer.add_shape(background, None, None).unwrap();
                 renderer
-                    .set_shape_color(back_id, Some(Color::BLACK))
+                    .add_shape(
+                        background,
+                        None,
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::BLACK),
+                    )
                     .unwrap();
 
                 // Draw a triangle — diagonal edges show aliasing clearly
@@ -117,9 +121,13 @@ impl<'a> ApplicationHandler for App<'a> {
                     .line_to((320.0, 350.0))
                     .close()
                     .build();
-                let id = renderer.add_shape(triangle, Some(0), None).unwrap();
                 renderer
-                    .set_shape_color(id, Some(Color::rgb(0, 128, 255)))
+                    .add_shape(
+                        triangle,
+                        Some(0),
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(0, 128, 255)),
+                    )
                     .unwrap();
 
                 // Draw a rounded rectangle — curved edges benefit from MSAA
@@ -128,9 +136,13 @@ impl<'a> ApplicationHandler for App<'a> {
                     BorderRadii::new(30.0),
                     Stroke::new(2.0, Color::rgb(255, 0, 0)),
                 );
-                let id2 = renderer.add_shape(rounded_rect, Some(0), None).unwrap();
                 renderer
-                    .set_shape_color(id2, Some(Color::rgb(255, 100, 50)))
+                    .add_shape(
+                        rounded_rect,
+                        Some(0),
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(255, 100, 50)),
+                    )
                     .unwrap();
 
                 // Draw a circle (approximated with a rounded rect)
@@ -139,9 +151,13 @@ impl<'a> ApplicationHandler for App<'a> {
                     BorderRadii::new(80.0),
                     Stroke::new(2.0, Color::BLACK),
                 );
-                let id3 = renderer.add_shape(circle, Some(0), None).unwrap();
                 renderer
-                    .set_shape_color(id3, Some(Color::rgb(50, 200, 100)))
+                    .add_shape(
+                        circle,
+                        Some(0),
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(50, 200, 100)),
+                    )
                     .unwrap();
 
                 // Draw a small detailed shape - thin diagonal lines are great for MSAA testing
@@ -149,9 +165,13 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(400.0, 280.0), (550.0, 420.0)],
                     Stroke::new(1.0, Color::rgb(100, 0, 150)),
                 );
-                let id4 = renderer.add_shape(small_rect, None, None).unwrap();
                 renderer
-                    .set_shape_color(id4, Some(Color::rgb(200, 200, 255)))
+                    .add_shape(
+                        small_rect,
+                        None,
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(200, 200, 255)),
+                    )
                     .unwrap();
 
                 match renderer.render() {

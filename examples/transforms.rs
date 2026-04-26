@@ -1,12 +1,13 @@
 use euclid::{default::Transform3D, Angle};
 use futures::executor::block_on;
 use grafo::{premultiply_rgba8_srgb_inplace, Shape};
-use grafo::{Color, Stroke};
+use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use lyon::algorithms::hit_test::hit_test_path;
 use lyon::algorithms::math::point as algo_point;
 use lyon::geom::point;
 use lyon::path::FillRule;
 use lyon::path::Path;
+use std::sync::Arc;
 
 // Local converter from euclid to grafo's GPU instance layout so we keep euclid out of the main crate.
 fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstance {
@@ -75,12 +76,18 @@ fn world_to_local_2d(tx: &Transform3D<f32>, world: (f32, f32)) -> Option<(f32, f
     }
     Some((lx / lw, ly / lw))
 }
-use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
+
+const RED_SHAPE_CACHE_KEY: u64 = 1;
+const GREEN_SHAPE_CACHE_KEY: u64 = 2;
+const BLUE_SHAPE_CACHE_KEY: u64 = 3;
+const JELLY_SHAPE_CACHE_KEY: u64 = 4;
+const HEART_SHAPE_CACHE_KEY: u64 = 5;
+const PERSPECTIVE_SHAPE_CACHE_KEY: u64 = 6;
 
 // Simple helpers to build a few paths for the demo
 fn build_rect_path(w: f32, h: f32) -> Path {
@@ -177,7 +184,7 @@ impl<'a> ApplicationHandler for App<'a> {
         let physical_size = (window_size.width, window_size.height);
 
         // Initialize the renderer
-        let renderer = block_on(grafo::Renderer::new(
+        let mut renderer = block_on(grafo::Renderer::new(
             window.clone(),
             physical_size,
             scale_factor,
@@ -212,6 +219,55 @@ impl<'a> ApplicationHandler for App<'a> {
         self.jelly_path = build_rect_path(200.0, 100.0);
         self.heart_path = build_heart_path();
         self.perspective_path = build_perspective_demo_path();
+
+        renderer.load_shape(
+            Shape::Path(grafo::PathShape::new(
+                self.red_path.clone(),
+                Stroke::new(2.0, Color::BLACK),
+            )),
+            RED_SHAPE_CACHE_KEY,
+            Some(RED_SHAPE_CACHE_KEY),
+        );
+        renderer.load_shape(
+            Shape::Path(grafo::PathShape::new(
+                self.green_path.clone(),
+                Stroke::new(2.0, Color::BLACK),
+            )),
+            GREEN_SHAPE_CACHE_KEY,
+            Some(GREEN_SHAPE_CACHE_KEY),
+        );
+        renderer.load_shape(
+            Shape::Path(grafo::PathShape::new(
+                self.blue_path.clone(),
+                Stroke::new(2.0, Color::BLACK),
+            )),
+            BLUE_SHAPE_CACHE_KEY,
+            Some(BLUE_SHAPE_CACHE_KEY),
+        );
+        renderer.load_shape(
+            Shape::Path(grafo::PathShape::new(
+                self.jelly_path.clone(),
+                Stroke::new(2.0, Color::BLACK),
+            )),
+            JELLY_SHAPE_CACHE_KEY,
+            Some(JELLY_SHAPE_CACHE_KEY),
+        );
+        renderer.load_shape(
+            Shape::Path(grafo::PathShape::new(
+                self.heart_path.clone(),
+                Stroke::new(2.0, Color::BLACK),
+            )),
+            HEART_SHAPE_CACHE_KEY,
+            Some(HEART_SHAPE_CACHE_KEY),
+        );
+        renderer.load_shape(
+            Shape::Path(grafo::PathShape::new(
+                self.perspective_path.clone(),
+                Stroke::new(2.0, Color::BLACK),
+            )),
+            PERSPECTIVE_SHAPE_CACHE_KEY,
+            Some(PERSPECTIVE_SHAPE_CACHE_KEY),
+        );
 
         // Colors for hover states
         self.red_color = (Color::rgb(200, 60, 60), Color::rgb(255, 120, 120));
@@ -268,18 +324,20 @@ impl<'a> ApplicationHandler for App<'a> {
                 }
                 window.request_redraw();
             }
-            WindowEvent::MouseInput { state, button, .. } => {
-                if button == winit::event::MouseButton::Left {
-                    match state {
-                        winit::event::ElementState::Pressed => {
-                            self.orbit_dragging = true;
-                            // Start orbit deltas from current cursor pos if available
-                            self.orbit_last_mouse_pos = self.last_mouse_pos;
-                        }
-                        winit::event::ElementState::Released => {
-                            self.orbit_dragging = false;
-                            self.orbit_last_mouse_pos = None;
-                        }
+            WindowEvent::MouseInput {
+                state,
+                button: winit::event::MouseButton::Left,
+                ..
+            } => {
+                match state {
+                    winit::event::ElementState::Pressed => {
+                        self.orbit_dragging = true;
+                        // Start orbit deltas from current cursor pos if available
+                        self.orbit_last_mouse_pos = self.last_mouse_pos;
+                    }
+                    winit::event::ElementState::Released => {
+                        self.orbit_dragging = false;
+                        self.orbit_last_mouse_pos = None;
                     }
                 }
             }
@@ -345,9 +403,13 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(0.0, 0.0), (logical_w, logical_h)],
                     Stroke::new(1.0, Color::rgb(0, 0, 0)),
                 );
-                let background_id = renderer.add_shape(background, None, None).unwrap();
                 renderer
-                    .set_shape_color(background_id, Some(Color::BLACK))
+                    .add_shape(
+                        background,
+                        None,
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::BLACK),
+                    )
                     .unwrap();
 
                 // Compute transforms in euclid space (same as before)
@@ -455,125 +517,83 @@ impl<'a> ApplicationHandler for App<'a> {
                     .then(&persp);
                 let perspective_hover = is_hover(&self.perspective_path, &perspective_tx, mouse);
 
-                // Re-add shapes each frame using lyon paths for hit testing and dynamic color
-                let red_shape = Shape::Path(grafo::PathShape::new(
-                    self.red_path.clone(),
-                    Stroke::new(2.0, Color::BLACK),
-                ));
-                let green_shape = Shape::Path(grafo::PathShape::new(
-                    self.green_path.clone(),
-                    Stroke::new(2.0, Color::BLACK),
-                ));
-                let blue_shape = Shape::Path(grafo::PathShape::new(
-                    self.blue_path.clone(),
-                    Stroke::new(2.0, Color::BLACK),
-                ));
-                let jelly_shape = Shape::Path(grafo::PathShape::new(
-                    self.jelly_path.clone(),
-                    Stroke::new(2.0, Color::BLACK),
-                ));
-                let heart_shape = Shape::Path(grafo::PathShape::new(
-                    self.heart_path.clone(),
-                    Stroke::new(2.0, Color::BLACK),
-                ));
-                let perspective_shape = Shape::Path(grafo::PathShape::new(
-                    self.perspective_path.clone(),
-                    Stroke::new(2.0, Color::BLACK),
-                ));
-
-                let red = renderer.add_shape(red_shape, None, None).unwrap();
-                let green = renderer.add_shape(green_shape, None, None).unwrap();
-                let blue = renderer.add_shape(blue_shape, None, None).unwrap();
-                let jelly = renderer.add_shape(jelly_shape, None, None).unwrap();
-                let heart = renderer.add_shape(heart_shape, None, None).unwrap();
-                let perspective = renderer.add_shape(perspective_shape, None, None).unwrap();
-
-                // Set per-instance colors
                 renderer
-                    .set_shape_color(
-                        red,
-                        Some(if red_hover {
-                            self.red_color.1
-                        } else {
-                            self.red_color.0
-                        }),
+                    .add_cached_shape_to_the_render_queue(
+                        RED_SHAPE_CACHE_KEY,
+                        None,
+                        ShapeDrawCommandOptions::new()
+                            .color(if red_hover {
+                                self.red_color.1
+                            } else {
+                                self.red_color.0
+                            })
+                            .transform(transform_instance_from_euclid(red_tx)),
                     )
                     .unwrap();
                 renderer
-                    .set_shape_color(
-                        green,
-                        Some(if green_hover {
-                            self.green_color.1
-                        } else {
-                            self.green_color.0
-                        }),
+                    .add_cached_shape_to_the_render_queue(
+                        GREEN_SHAPE_CACHE_KEY,
+                        None,
+                        ShapeDrawCommandOptions::new()
+                            .color(if green_hover {
+                                self.green_color.1
+                            } else {
+                                self.green_color.0
+                            })
+                            .transform(transform_instance_from_euclid(green_tx)),
                     )
                     .unwrap();
                 renderer
-                    .set_shape_color(
-                        blue,
-                        Some(if blue_hover {
-                            self.blue_color.1
-                        } else {
-                            self.blue_color.0
-                        }),
+                    .add_cached_shape_to_the_render_queue(
+                        BLUE_SHAPE_CACHE_KEY,
+                        None,
+                        ShapeDrawCommandOptions::new()
+                            .color(if blue_hover {
+                                self.blue_color.1
+                            } else {
+                                self.blue_color.0
+                            })
+                            .background_texture_id(self.rust_logo_texture_id)
+                            .transform(transform_instance_from_euclid(blue_tx)),
                     )
                     .unwrap();
                 renderer
-                    .set_shape_color(
-                        jelly,
-                        Some(if jelly_hover {
-                            self.jelly_color.1
-                        } else {
-                            self.jelly_color.0
-                        }),
+                    .add_cached_shape_to_the_render_queue(
+                        JELLY_SHAPE_CACHE_KEY,
+                        None,
+                        ShapeDrawCommandOptions::new()
+                            .color(if jelly_hover {
+                                self.jelly_color.1
+                            } else {
+                                self.jelly_color.0
+                            })
+                            .transform(transform_instance_from_euclid(jelly_tx)),
                     )
                     .unwrap();
                 renderer
-                    .set_shape_color(
-                        heart,
-                        Some(if heart_hover {
-                            self.heart_color.1
-                        } else {
-                            self.heart_color.0
-                        }),
+                    .add_cached_shape_to_the_render_queue(
+                        HEART_SHAPE_CACHE_KEY,
+                        None,
+                        ShapeDrawCommandOptions::new()
+                            .color(if heart_hover {
+                                self.heart_color.1
+                            } else {
+                                self.heart_color.0
+                            })
+                            .transform(transform_instance_from_euclid(heart_tx)),
                     )
                     .unwrap();
                 renderer
-                    .set_shape_color(
-                        perspective,
-                        Some(if perspective_hover {
-                            self.perspective_color.1
-                        } else {
-                            self.perspective_color.0
-                        }),
-                    )
-                    .unwrap();
-
-                // Give the blue shape a texture
-                renderer
-                    .set_shape_texture(blue, Some(self.rust_logo_texture_id))
-                    .unwrap();
-
-                renderer
-                    .set_shape_transform(red, transform_instance_from_euclid(red_tx))
-                    .unwrap();
-                renderer
-                    .set_shape_transform(green, transform_instance_from_euclid(green_tx))
-                    .unwrap();
-                renderer
-                    .set_shape_transform(blue, transform_instance_from_euclid(blue_tx))
-                    .unwrap();
-                renderer
-                    .set_shape_transform(jelly, transform_instance_from_euclid(jelly_tx))
-                    .unwrap();
-                renderer
-                    .set_shape_transform(heart, transform_instance_from_euclid(heart_tx))
-                    .unwrap();
-                renderer
-                    .set_shape_transform(
-                        perspective,
-                        transform_instance_from_euclid(perspective_tx),
+                    .add_cached_shape_to_the_render_queue(
+                        PERSPECTIVE_SHAPE_CACHE_KEY,
+                        None,
+                        ShapeDrawCommandOptions::new()
+                            .color(if perspective_hover {
+                                self.perspective_color.1
+                            } else {
+                                self.perspective_color.0
+                            })
+                            .transform(transform_instance_from_euclid(perspective_tx)),
                     )
                     .unwrap();
 

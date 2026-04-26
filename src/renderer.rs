@@ -9,6 +9,9 @@ use lyon::tessellation::FillTessellator;
 use tracing::warn;
 use wgpu::{BindGroup, BufferUsages, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
 
+#[cfg(feature = "render_metrics")]
+use self::metrics::RenderLoopMetricsTracker;
+use self::types::{DrawCommand, RendererScratch};
 use crate::effect::{
     self, compile_composite_pipeline, compile_effect_pipeline, create_params_bind_group,
     EffectError, EffectInstance, LoadedEffect, OffscreenTexturePool,
@@ -20,16 +23,12 @@ use crate::pipeline::{
     create_storage_output_buffer, encode_copy_texture_to_buffer, render_buffer_range_to_texture,
     ArgbParams, PipelineType, Uniforms,
 };
-use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape, ShapeDrawData};
+use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
 use crate::vertex::{InstanceColor, InstanceMetadata, InstanceTransform};
-use crate::CachedShape;
-use crate::Color;
-
-#[cfg(feature = "render_metrics")]
-use self::metrics::RenderLoopMetricsTracker;
-use self::types::{DrawCommand, RendererScratch};
+use crate::CachedShapeHandle;
+pub use construction::RendererCreationError;
 
 mod construction;
 mod draw_queue;
@@ -40,8 +39,6 @@ mod passes;
 mod preparation;
 mod readback;
 mod rect_utils;
-
-pub use construction::RendererCreationError;
 mod rendering;
 mod surface;
 mod traversal;
@@ -78,12 +75,6 @@ pub enum ShapeOverflow {
     Visible,
 }
 
-impl ShapeOverflow {
-    pub(crate) fn clips_children(self) -> bool {
-        matches!(self, ShapeOverflow::Hidden)
-    }
-}
-
 /// The renderer for the Grafo library. This is the main struct used to render shapes and images.
 pub struct Renderer<'a> {
     // Window information
@@ -109,10 +100,6 @@ pub struct Renderer<'a> {
 
     /// Tree structure holding shapes to be rendered.
     draw_tree: easy_tree::Tree<DrawCommand>,
-    /// Draw-tree node ids that own geometry and need CPU/GPU preparation.
-    ///
-    /// Subtree removal must keep this list in sync when that API is added.
-    geometry_node_ids: Vec<usize>,
     /// Maps node metadata indices to their clip-parent node ids.
     metadata_to_clips: HashMap<usize, usize>,
 
@@ -168,7 +155,7 @@ pub struct Renderer<'a> {
 
     /// Loaded shapes to reuse later during rendering without loading/tessellating again.
     /// Not an LRU cache: evicting a shape also results in it not being rendered.
-    shape_cache: HashMap<u64, CachedShape>,
+    shape_cache: HashMap<u64, CachedShapeHandle>,
 
     // Cached resources for render_to_argb32 compute swizzle path
     argb_cs_bgl: Option<wgpu::BindGroupLayout>,
@@ -263,13 +250,6 @@ pub struct Renderer<'a> {
     /// Per-frame pipeline switch counts for the most recently rendered frame.
     last_pipeline_switch_counts: self::metrics::PipelineSwitchCounts,
 
-    /// Wall-clock CPU time spent inside the most recent `prepare_render()` call.
-    ///
-    /// This measures CPU-side draw-tree traversal, geometry/instance aggregation,
-    /// and buffer upload submission via `queue.write_buffer`, but excludes later
-    /// render-pass encoding, presentation, readback, and any forced GPU waits.
-    last_prepare_cpu_time: Duration,
-
     /// Wall-clock CPU time spent inside the most recent `render_to_texture_view()` call.
     ///
     /// This measures CPU-side traversal planning, render/effect pass encoding,
@@ -297,11 +277,6 @@ impl<'a> Renderer<'a> {
         // memory hygiene for long-running sessions.
         self.buffers_pool_manager.trim();
         self.scratch.trim_to_policy();
-    }
-
-    /// Returns the wall-clock CPU time spent in the most recent `prepare_render()` call.
-    pub fn last_prepare_cpu_time(&self) -> Duration {
-        self.last_prepare_cpu_time
     }
 
     /// Returns the wall-clock CPU time spent in the most recent `render_to_texture_view()` call.

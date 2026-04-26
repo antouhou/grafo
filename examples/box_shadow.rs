@@ -13,7 +13,7 @@
 /// - A card with a colored shadow and an offset
 use futures::executor::block_on;
 use grafo::{BorderRadii, Shape};
-use grafo::{Color, Stroke};
+use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -47,6 +47,16 @@ struct BoxShadowParams {
     _pad: [f32; 2],
 }
 
+struct CardSpec {
+    position: (f32, f32),
+    size: (f32, f32),
+    corner_radius: f32,
+    shadow_sigma: f32,
+    shadow_offset: [f32; 2],
+    shadow_rgba: [f32; 4],
+    card_color: Color,
+}
+
 /// Creates a card with a box shadow effect attached directly to it.
 ///
 /// The shadow is computed analytically in the shader and composited behind the
@@ -57,32 +67,33 @@ struct BoxShadowParams {
 /// Returns the node id of the card, so children can be added to it.
 fn draw_card(
     renderer: &mut grafo::Renderer,
-    x: f32,
-    y: f32,
-    w: f32,
-    h: f32,
-    radius: f32,
-    shadow_sigma: f32,
-    shadow_offset: [f32; 2],
-    shadow_rgba: [f32; 4],
-    card_color: Color,
+    card_spec: CardSpec,
     viewport_size: (f32, f32),
 ) -> usize {
+    let (x, y) = card_spec.position;
+    let (width, height) = card_spec.size;
     let card_shape = Shape::rounded_rect(
-        [(x, y), (x + w, y + h)],
-        BorderRadii::new(radius),
+        [(x, y), (x + width, y + height)],
+        BorderRadii::new(card_spec.corner_radius),
         Stroke::new(0.0, Color::TRANSPARENT),
     );
-    let card = renderer.add_shape(card_shape, None, None).unwrap();
-    renderer.set_shape_color(card, Some(card_color)).unwrap();
+    let card = renderer
+        .add_shape(
+            card_shape,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(card_spec.card_color),
+        )
+        .unwrap();
 
+    let [red, green, blue, alpha] = card_spec.shadow_rgba;
     let params = BoxShadowParams {
         box_min: [x, y],
-        box_max: [x + w, y + h],
-        shadow_color: shadow_rgba,
-        offset: shadow_offset,
-        sigma: shadow_sigma,
-        corner_radius: radius,
+        box_max: [x + width, y + height],
+        shadow_color: [red * alpha, green * alpha, blue * alpha, alpha],
+        offset: card_spec.shadow_offset,
+        sigma: card_spec.shadow_sigma,
+        corner_radius: card_spec.corner_radius,
         tex_size: [viewport_size.0, viewport_size.1],
         _pad: [0.0, 0.0],
     };
@@ -244,9 +255,13 @@ impl<'a> ApplicationHandler for App<'a> {
                 // ── Scene background ─────────────────────────────────────
                 let scene_bg =
                     Shape::rect([(0.0, 0.0), (pw, ph)], Stroke::new(0.0, Color::TRANSPARENT));
-                let bg_id = renderer.add_shape(scene_bg, None, None).unwrap();
                 renderer
-                    .set_shape_color(bg_id, Some(Color::rgb(235, 235, 240)))
+                    .add_shape(
+                        scene_bg,
+                        None,
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(235, 235, 240)),
+                    )
                     .unwrap();
 
                 let vp = (pw, ph);
@@ -254,60 +269,60 @@ impl<'a> ApplicationHandler for App<'a> {
                 // ── Card 1: Soft, large shadow ───────────────────────────
                 draw_card(
                     renderer,
-                    80.0,
-                    60.0, // position
-                    280.0,
-                    180.0,                 // size
-                    16.0,                  // corner radius
-                    12.0,                  // shadow sigma (blur amount)
-                    [0.0, 4.0],            // shadow offset (x, y)
-                    [0.0, 0.0, 0.0, 0.35], // shadow color (black, 35% opacity)
-                    Color::WHITE,          // card color
+                    CardSpec {
+                        position: (80.0, 60.0),
+                        size: (280.0, 180.0),
+                        corner_radius: 16.0,
+                        shadow_sigma: 12.0,
+                        shadow_offset: [0.0, 4.0],
+                        shadow_rgba: [0.0, 0.0, 0.0, 0.35],
+                        card_color: Color::WHITE,
+                    },
                     vp,
                 );
 
                 // ── Card 2: Tight, dark shadow ───────────────────────────
                 draw_card(
                     renderer,
-                    420.0,
-                    60.0,
-                    280.0,
-                    180.0,
-                    8.0,                  // smaller corner radius
-                    4.0,                  // tight blur
-                    [0.0, 2.0],           // small offset
-                    [0.0, 0.0, 0.0, 0.6], // darker shadow
-                    Color::WHITE,
+                    CardSpec {
+                        position: (420.0, 60.0),
+                        size: (280.0, 180.0),
+                        corner_radius: 8.0,
+                        shadow_sigma: 4.0,
+                        shadow_offset: [0.0, 2.0],
+                        shadow_rgba: [0.0, 0.0, 0.0, 0.6],
+                        card_color: Color::WHITE,
+                    },
                     vp,
                 );
 
                 // ── Card 3: Colored shadow with offset ───────────────────
                 draw_card(
                     renderer,
-                    80.0,
-                    320.0,
-                    280.0,
-                    180.0,
-                    20.0,                      // rounder corners
-                    16.0,                      // big soft blur
-                    [8.0, 8.0],                // noticeable offset
-                    [0.2, 0.0, 0.5, 0.4],      // purple-tinted shadow
-                    Color::rgb(240, 245, 255), // slightly blue card
+                    CardSpec {
+                        position: (80.0, 320.0),
+                        size: (280.0, 180.0),
+                        corner_radius: 20.0,
+                        shadow_sigma: 16.0,
+                        shadow_offset: [8.0, 8.0],
+                        shadow_rgba: [0.2, 0.0, 0.5, 0.4],
+                        card_color: Color::rgb(240, 245, 255),
+                    },
                     vp,
                 );
 
                 // ── Card 4: Subtle elevation shadow ──────────────────────
                 draw_card(
                     renderer,
-                    420.0,
-                    320.0,
-                    280.0,
-                    180.0,
-                    12.0,
-                    8.0,
-                    [0.0, 6.0],                // vertical offset only (light from above)
-                    [0.0, 0.0, 0.0, 0.2],      // very subtle
-                    Color::rgb(255, 250, 240), // warm white card
+                    CardSpec {
+                        position: (420.0, 320.0),
+                        size: (280.0, 180.0),
+                        corner_radius: 12.0,
+                        shadow_sigma: 8.0,
+                        shadow_offset: [0.0, 6.0],
+                        shadow_rgba: [0.0, 0.0, 0.0, 0.2],
+                        card_color: Color::rgb(255, 250, 240),
+                    },
                     vp,
                 );
 

@@ -10,7 +10,6 @@ use crate::renderer::rect_utils::{
 macro_rules! with_shape_mut {
     ($cmd:expr, $shape:ident => $body:expr) => {
         match $cmd {
-            DrawCommand::Shape($shape) => $body,
             DrawCommand::CachedShape($shape) => $body,
             DrawCommand::ClipRect(_) => unreachable!("clip rectangles do not own shape geometry"),
         }

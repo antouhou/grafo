@@ -1,7 +1,7 @@
 //! Example demonstrating multi-texturing (background + foreground) on a single shape.
 //! Run with: `cargo run --example multi_texture`
 
-use grafo::{Color, Renderer, Shape, Stroke, TextureLayer};
+use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -11,7 +11,6 @@ struct App {
     renderer: Option<Renderer<'static>>,
     bg_tex_id: u64,
     fg_tex_id: u64,
-    shape_id: Option<usize>,
 }
 
 impl Default for App {
@@ -20,7 +19,6 @@ impl Default for App {
             renderer: None,
             bg_tex_id: 100,
             fg_tex_id: 101,
-            shape_id: None,
         }
     }
 }
@@ -42,21 +40,6 @@ impl ApplicationHandler for App {
             false,
             1, // msaa_samples
         ));
-
-        // Create a simple rectangle shape
-        let shape_id = renderer
-            .add_shape(
-                Shape::rect(
-                    [(100.0, 100.0), (500.0, 400.0)],
-                    Stroke::new(1.0, Color::BLACK),
-                ),
-                None,
-                None,
-            )
-            .unwrap();
-        renderer
-            .set_shape_color(shape_id, Some(Color::rgb(200, 200, 200)))
-            .unwrap();
 
         // Allocate two textures (background checker, foreground circle mask for demo)
         let tex_mgr = renderer.texture_manager();
@@ -101,15 +84,20 @@ impl ApplicationHandler for App {
         }
         tex_mgr.allocate_texture_with_data(self.fg_tex_id, (w, h), &fg);
 
-        // Assign textures to background + foreground layers
         renderer
-            .set_shape_texture_on(shape_id, TextureLayer::Background, Some(self.bg_tex_id))
+            .add_shape(
+                Shape::rect(
+                    [(100.0, 100.0), (500.0, 400.0)],
+                    Stroke::new(1.0, Color::BLACK),
+                ),
+                None,
+                None,
+                ShapeDrawCommandOptions::new()
+                    .color(Color::rgb(200, 200, 200))
+                    .background_texture_id(self.bg_tex_id)
+                    .foreground_texture_id(self.fg_tex_id),
+            )
             .unwrap();
-        renderer
-            .set_shape_texture_on(shape_id, TextureLayer::Foreground, Some(self.fg_tex_id))
-            .unwrap();
-
-        self.shape_id = Some(shape_id);
         self.renderer = Some(renderer);
 
         if let Some(r) = self.renderer.as_mut() {

@@ -14,7 +14,7 @@
 /// *group* effect.
 use futures::executor::block_on;
 use grafo::{BorderRadii, Shape};
-use grafo::{Color, Stroke};
+use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -156,9 +156,13 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(20.0, 20.0), (780.0, 580.0)],
                     Stroke::new(2.0, Color::BLACK),
                 );
-                let bg_id = renderer.add_shape(bg, None, None).unwrap();
-                renderer
-                    .set_shape_color(bg_id, Some(Color::rgb(245, 245, 250)))
+                let bg_id = renderer
+                    .add_shape(
+                        bg,
+                        None,
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(245, 245, 250)),
+                    )
                     .unwrap();
 
                 // Colorful rectangles that will be visible through the panel
@@ -166,36 +170,52 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(60.0, 80.0), (260.0, 260.0)],
                     Stroke::new(2.0, Color::rgb(0, 0, 0)),
                 );
-                let r1_id = renderer.add_shape(r1, Some(bg_id), None).unwrap();
                 renderer
-                    .set_shape_color(r1_id, Some(Color::rgb(220, 50, 50)))
+                    .add_shape(
+                        r1,
+                        Some(bg_id),
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+                    )
                     .unwrap();
 
                 let r2 = Shape::rect(
                     [(180.0, 160.0), (420.0, 380.0)],
                     Stroke::new(2.0, Color::rgb(0, 0, 0)),
                 );
-                let r2_id = renderer.add_shape(r2, Some(bg_id), None).unwrap();
                 renderer
-                    .set_shape_color(r2_id, Some(Color::rgb(50, 160, 50)))
+                    .add_shape(
+                        r2,
+                        Some(bg_id),
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(50, 160, 50)),
+                    )
                     .unwrap();
 
                 let r3 = Shape::rect(
                     [(340.0, 100.0), (560.0, 300.0)],
                     Stroke::new(2.0, Color::rgb(0, 0, 0)),
                 );
-                let r3_id = renderer.add_shape(r3, Some(bg_id), None).unwrap();
                 renderer
-                    .set_shape_color(r3_id, Some(Color::rgb(50, 80, 220)))
+                    .add_shape(
+                        r3,
+                        Some(bg_id),
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(50, 80, 220)),
+                    )
                     .unwrap();
 
                 let r4 = Shape::rect(
                     [(100.0, 350.0), (700.0, 540.0)],
                     Stroke::new(2.0, Color::rgb(0, 0, 0)),
                 );
-                let r4_id = renderer.add_shape(r4, Some(bg_id), None).unwrap();
                 renderer
-                    .set_shape_color(r4_id, Some(Color::rgb(200, 180, 50)))
+                    .add_shape(
+                        r4,
+                        Some(bg_id),
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(200, 180, 50)),
+                    )
                     .unwrap();
 
                 // ── Frosted-glass panel with backdrop blur ───────────────
@@ -205,10 +225,13 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(120.0, 120.0), (520.0, 460.0)],
                     Stroke::new(2.0, Color::rgb(100, 100, 100)),
                 );
-                let panel_id = renderer.add_shape(panel, None, None).unwrap();
-                // Semi-transparent white so the blurred background shows through
-                renderer
-                    .set_shape_color(panel_id, Some(Color::rgba(255, 255, 255, 100)))
+                let panel_id = renderer
+                    .add_shape(
+                        panel,
+                        None,
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgba(255, 255, 255, 100)),
+                    )
                     .unwrap();
 
                 // To test that clipping works correctly with the blur
@@ -217,11 +240,13 @@ impl<'a> ApplicationHandler for App<'a> {
                     BorderRadii::new(100.0),
                     Stroke::new(1.0, Color::rgb(80, 80, 80)),
                 );
-                let content_id = renderer
-                    .add_shape(panel_content, Some(panel_id), None)
-                    .unwrap();
                 renderer
-                    .set_shape_color(content_id, Some(Color::rgba(200, 220, 255, 120)))
+                    .add_shape(
+                        panel_content,
+                        Some(panel_id),
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgba(200, 220, 255, 120)),
+                    )
                     .unwrap();
 
                 let blur_params = BlurParams {
@@ -242,9 +267,13 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(560.0, 200.0), (740.0, 400.0)],
                     Stroke::new(2.0, Color::rgb(80, 80, 80)),
                 );
-                let panel2_id = renderer.add_shape(panel2, None, None).unwrap();
-                renderer
-                    .set_shape_color(panel2_id, Some(Color::rgba(200, 220, 255, 120)))
+                let panel2_id = renderer
+                    .add_shape(
+                        panel2,
+                        None,
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgba(200, 220, 255, 120)),
+                    )
                     .unwrap();
 
                 let blur_params2 = BlurParams {

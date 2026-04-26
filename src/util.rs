@@ -9,7 +9,7 @@ use lyon::tessellation::VertexBuffers;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-const MAX_LYON_VERTEX_BUFFER_POOL_SIZE: usize = 256;
+// const MAX_LYON_VERTEX_BUFFER_POOL_SIZE: usize = 256;
 const MAX_GRADIENT_RAMP_CACHE_SIZE: usize = 256;
 const MAX_GRADIENT_BIND_GROUP_CACHE_SIZE: usize = 1024;
 
@@ -37,8 +37,6 @@ fn srgb_u8_to_linear(value: u8) -> f32 {
 
 pub struct LyonVertexBuffersPool {
     vertex_buffers: Vec<VertexBuffers<CustomVertex, u16>>,
-    #[cfg(test)]
-    stats: PoolReuseStats,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -252,20 +250,10 @@ impl GradientCache {
     }
 }
 
-#[cfg(test)]
-#[derive(Default, Clone, Copy)]
-pub(crate) struct PoolReuseStats {
-    pub(crate) reused: usize,
-    pub(crate) created: usize,
-    pub(crate) returned: usize,
-}
-
 impl LyonVertexBuffersPool {
     pub fn new() -> Self {
         Self {
             vertex_buffers: Vec::new(),
-            #[cfg(test)]
-            stats: PoolReuseStats::default(),
         }
     }
 
@@ -277,36 +265,19 @@ impl LyonVertexBuffersPool {
         if let Some(mut vertex_buffers) = self.vertex_buffers.pop() {
             vertex_buffers.vertices.clear();
             vertex_buffers.indices.clear();
-            #[cfg(test)]
-            {
-                self.stats.reused += 1;
-            }
             vertex_buffers
         } else {
-            #[cfg(test)]
-            {
-                self.stats.created += 1;
-            }
             VertexBuffers::new()
         }
     }
 
-    pub fn return_vertex_buffers(&mut self, mut vertex_buffers: VertexBuffers<CustomVertex, u16>) {
-        vertex_buffers.vertices.clear();
-        vertex_buffers.indices.clear();
-        if self.vertex_buffers.len() < MAX_LYON_VERTEX_BUFFER_POOL_SIZE {
-            self.vertex_buffers.push(vertex_buffers);
-            #[cfg(test)]
-            {
-                self.stats.returned += 1;
-            }
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn stats(&self) -> PoolReuseStats {
-        self.stats
-    }
+    // pub fn return_vertex_buffers(&mut self, mut vertex_buffers: VertexBuffers<CustomVertex, u16>) {
+    //     vertex_buffers.vertices.clear();
+    //     vertex_buffers.indices.clear();
+    //     if self.vertex_buffers.len() < MAX_LYON_VERTEX_BUFFER_POOL_SIZE {
+    //         self.vertex_buffers.push(vertex_buffers);
+    //     }
+    // }
 }
 
 pub(crate) struct PoolManager {
@@ -349,31 +320,13 @@ pub fn to_logical(physical_size: (u32, u32), scale_factor: f64) -> (f32, f32) {
 
 #[cfg(test)]
 mod tests {
-    use super::{GradientCache, GradientRamp, LyonVertexBuffersPool};
+    use super::{GradientCache, GradientRamp};
     use crate::gradient::types::{
         ColorInterpolation, Gradient, GradientColor, GradientCommonDesc, GradientStop,
         GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
         LinearGradientLine, SpreadMode,
     };
     use std::sync::Arc;
-
-    #[test]
-    fn vertex_buffer_pool_reuses_returned_buffers() {
-        let mut pool = LyonVertexBuffersPool::new();
-        let mut first = pool.get_vertex_buffers();
-        first.vertices.reserve(128);
-        first.indices.reserve(256);
-        pool.return_vertex_buffers(first);
-
-        let second = pool.get_vertex_buffers();
-        assert!(second.vertices.capacity() >= 128);
-        assert!(second.indices.capacity() >= 256);
-
-        let stats = pool.stats();
-        assert_eq!(stats.created, 1);
-        assert_eq!(stats.returned, 1);
-        assert_eq!(stats.reused, 1);
-    }
 
     #[test]
     fn gradient_cache_reuses_sampled_ramps_without_globals() {

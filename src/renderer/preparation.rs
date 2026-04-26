@@ -53,7 +53,34 @@ fn append_aggregated_geometry(
     Some((index_start, indices.len()))
 }
 
-fn append_instance_data(
+pub(crate) fn append_aggregated_geometry_for_shape(
+    cached_shape_data: &CachedShapeDrawData,
+    temp_vertices: &mut Vec<crate::vertex::CustomVertex>,
+    temp_indices: &mut Vec<u16>,
+    geometry_dedup_map: &mut HashMap<u64, (usize, usize)>,
+) -> Option<(usize, usize)> {
+    let geometry_id = cached_shape_data.cached_shape.geometry_id;
+    // Geometry deduplication: if we already appended this cache
+    // key's vertices/indices, reuse the same range.
+    if let Some(&existing_range) = geometry_id.and_then(|id| geometry_dedup_map.get(&id)) {
+        Some(existing_range)
+    } else {
+        let cached_shape = &cached_shape_data.cached_shape;
+        let vertex_buffers = &cached_shape.vertex_buffers;
+        let range = append_aggregated_geometry(
+            temp_vertices,
+            temp_indices,
+            &vertex_buffers.vertices,
+            &vertex_buffers.indices,
+        );
+        if let (Some(id), Some(range)) = (geometry_id, range) {
+            geometry_dedup_map.insert(id, range);
+        }
+        range
+    }
+}
+
+pub(crate) fn append_instance_data(
     temp_instance_transforms: &mut Vec<InstanceTransform>,
     temp_instance_colors: &mut Vec<InstanceColor>,
     temp_instance_metadata: &mut Vec<InstanceMetadata>,
@@ -108,99 +135,16 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    pub(super) fn prepare_render(&mut self) {
-        let prepare_started_at = std::time::Instant::now();
-
+    pub(super) fn clear_buffers(&mut self) {
         self.temp_vertices.clear();
         self.temp_indices.clear();
         self.temp_instance_transforms.clear();
         self.temp_instance_colors.clear();
         self.temp_instance_metadata.clear();
         self.geometry_dedup_map.clear();
+    }
 
-        for &node_id in &self.geometry_node_ids {
-            let Some(draw_command) = self.draw_tree.get_mut(node_id) else {
-                continue;
-            };
-
-            match draw_command {
-                DrawCommand::Shape(shape) => {
-                    let tessellated_geometry =
-                        shape.tessellate(&mut self.tessellator, &mut self.buffers_pool_manager);
-
-                    if let Some((index_start, index_count)) = append_aggregated_geometry(
-                        &mut self.temp_vertices,
-                        &mut self.temp_indices,
-                        tessellated_geometry.vertices(),
-                        tessellated_geometry.indices(),
-                    ) {
-                        shape.index_buffer_range = Some((index_start, index_count));
-                        let instance_index = append_instance_data(
-                            &mut self.temp_instance_transforms,
-                            &mut self.temp_instance_colors,
-                            &mut self.temp_instance_metadata,
-                            shape.transform(),
-                            shape.instance_color_override(),
-                            shape.texture_ids,
-                        );
-                        *shape.instance_index_mut() = Some(instance_index);
-                        shape.is_empty = false;
-                    } else {
-                        shape.is_empty = true;
-                    }
-
-                    if let Some(owned_vertex_buffers) = tessellated_geometry.into_owned() {
-                        self.buffers_pool_manager
-                            .lyon_vertex_buffers_pool
-                            .return_vertex_buffers(owned_vertex_buffers);
-                    }
-                }
-                DrawCommand::CachedShape(cached_shape_data) => {
-                    // Geometry deduplication: if we already appended this cache
-                    // key's vertices/indices, reuse the same range.
-                    let index_range = if let Some(&existing_range) =
-                        self.geometry_dedup_map.get(&cached_shape_data.id)
-                    {
-                        Some(existing_range)
-                    } else if let Some(cached_shape) =
-                        self.shape_cache.get_mut(&cached_shape_data.id)
-                    {
-                        let vertex_buffers = &cached_shape.vertex_buffers;
-                        let range = append_aggregated_geometry(
-                            &mut self.temp_vertices,
-                            &mut self.temp_indices,
-                            &vertex_buffers.vertices,
-                            &vertex_buffers.indices,
-                        );
-                        if let Some(range) = range {
-                            self.geometry_dedup_map.insert(cached_shape_data.id, range);
-                        }
-                        range
-                    } else {
-                        warn!("Cached shape not found in cache");
-                        None
-                    };
-
-                    if let Some((index_start, index_count)) = index_range {
-                        cached_shape_data.index_buffer_range = Some((index_start, index_count));
-                        cached_shape_data.is_empty = false;
-                        let instance_index = append_instance_data(
-                            &mut self.temp_instance_transforms,
-                            &mut self.temp_instance_colors,
-                            &mut self.temp_instance_metadata,
-                            cached_shape_data.transform(),
-                            cached_shape_data.instance_color_override(),
-                            cached_shape_data.texture_ids,
-                        );
-                        *cached_shape_data.instance_index_mut() = Some(instance_index);
-                    } else {
-                        cached_shape_data.is_empty = true;
-                    }
-                }
-                DrawCommand::ClipRect(_) => {}
-            }
-        }
-
+    pub(super) fn upload_buffers_for_frame(&mut self) {
         if !self.temp_vertices.is_empty() {
             upsert_gpu_buffer(
                 &self.device,
@@ -257,7 +201,9 @@ impl<'a> Renderer<'a> {
                 BufferUsages::VERTEX | BufferUsages::COPY_DST,
             );
         }
+    }
 
-        self.last_prepare_cpu_time = prepare_started_at.elapsed();
+    pub(super) fn prepare_render(&mut self) {
+        self.upload_buffers_for_frame();
     }
 }

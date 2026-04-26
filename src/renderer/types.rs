@@ -3,17 +3,17 @@ use std::sync::Arc;
 use ahash::{HashMap, HashMapExt};
 
 use crate::effect::{self, EffectInstance, LoadedEffect};
-use crate::gradient::types::Fill;
-use crate::shape::{CachedShapeDrawData, DrawShapeCommand, ShapeDrawData};
+use crate::shape::{CachedShapeDrawData, DrawShapeCommand};
 use crate::texture_manager::TextureManager;
 use crate::util::GradientCache;
 use crate::vertex::InstanceTransform;
 
 use super::traversal::TraversalScratch;
 
+// TODO: probably some parts of it also can be cached, so we don't need to copy it all the time.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub(super) enum DrawCommand {
-    Shape(ShapeDrawData),
     CachedShape(CachedShapeDrawData),
     ClipRect(ClipRectDrawData),
 }
@@ -27,12 +27,16 @@ pub(super) struct ClipRectDrawData {
 }
 
 impl ClipRectDrawData {
-    pub(super) fn new(rect_bounds: [(f32, f32); 2]) -> Self {
+    pub(super) fn new(
+        rect_bounds: [(f32, f32); 2],
+        transform: Option<InstanceTransform>,
+        clips_children: bool,
+    ) -> Self {
         Self {
             rect_bounds,
-            transform: None,
+            transform,
+            clips_children,
             is_leaf: true,
-            clips_children: true,
         }
     }
 }
@@ -42,7 +46,6 @@ impl DrawCommand {
     /// Starts as `true`; set to `false` when a child is added.
     pub(super) fn is_leaf(&self) -> bool {
         match self {
-            DrawCommand::Shape(s) => s.is_leaf,
             DrawCommand::CachedShape(s) => s.is_leaf,
             DrawCommand::ClipRect(clip_rect) => clip_rect.is_leaf,
         }
@@ -50,14 +53,16 @@ impl DrawCommand {
 
     pub(super) fn set_not_leaf(&mut self) {
         match self {
-            DrawCommand::Shape(s) => s.is_leaf = false,
             DrawCommand::CachedShape(s) => s.is_leaf = false,
             DrawCommand::ClipRect(clip_rect) => clip_rect.is_leaf = false,
         }
     }
 
-    pub(super) fn has_prepare_geometry(&self) -> bool {
-        matches!(self, DrawCommand::Shape(_) | DrawCommand::CachedShape(_))
+    pub(super) fn as_shape_draw_data_mut(&mut self) -> Option<&mut CachedShapeDrawData> {
+        match self {
+            DrawCommand::CachedShape(cached_shape) => Some(cached_shape),
+            _ => None,
+        }
     }
 
     pub(super) fn is_clip_rect(&self) -> bool {
@@ -66,45 +71,15 @@ impl DrawCommand {
 }
 
 impl DrawCommand {
-    pub(super) fn set_transform(&mut self, transform: InstanceTransform) {
-        match self {
-            DrawCommand::Shape(shape) => shape.set_transform(transform),
-            DrawCommand::CachedShape(cached_shape) => cached_shape.set_transform(transform),
-            DrawCommand::ClipRect(clip_rect) => clip_rect.transform = Some(transform),
-        }
-    }
-
     pub(super) fn transform(&self) -> Option<InstanceTransform> {
         match self {
-            DrawCommand::Shape(shape) => shape.transform(),
             DrawCommand::CachedShape(cached_shape) => cached_shape.transform(),
             DrawCommand::ClipRect(clip_rect) => clip_rect.transform,
         }
     }
 
-    pub(super) fn set_texture_id(&mut self, layer: usize, texture_id: Option<u64>) {
-        match self {
-            DrawCommand::Shape(shape) => shape.set_texture_id(layer, texture_id),
-            DrawCommand::CachedShape(cached_shape) => {
-                cached_shape.set_texture_id(layer, texture_id)
-            }
-            DrawCommand::ClipRect(_) => {}
-        }
-    }
-
-    pub(super) fn set_instance_color_override(&mut self, color: Option<[f32; 4]>) {
-        match self {
-            DrawCommand::Shape(shape) => shape.set_instance_color_override(color),
-            DrawCommand::CachedShape(cached_shape) => {
-                cached_shape.set_instance_color_override(color)
-            }
-            DrawCommand::ClipRect(_) => {}
-        }
-    }
-
     pub(super) fn texture_id(&self, layer: usize) -> Option<u64> {
         match self {
-            DrawCommand::Shape(shape) => shape.texture_id(layer),
             DrawCommand::CachedShape(cached_shape) => cached_shape.texture_id(layer),
             DrawCommand::ClipRect(_) => None,
         }
@@ -112,23 +87,13 @@ impl DrawCommand {
 
     pub(super) fn instance_color_override(&self) -> Option<[f32; 4]> {
         match self {
-            DrawCommand::Shape(shape) => shape.instance_color_override(),
             DrawCommand::CachedShape(cached_shape) => cached_shape.instance_color_override(),
             DrawCommand::ClipRect(_) => None,
         }
     }
 
-    pub(super) fn set_fill(&mut self, fill: Option<Fill>) {
-        match self {
-            DrawCommand::Shape(shape) => shape.set_fill(fill),
-            DrawCommand::CachedShape(cached_shape) => cached_shape.set_fill(fill),
-            DrawCommand::ClipRect(_) => {}
-        }
-    }
-
     pub(super) fn has_gradient_fill(&self) -> bool {
         match self {
-            DrawCommand::Shape(shape) => shape.has_gradient_fill(),
             DrawCommand::CachedShape(cached_shape) => cached_shape.has_gradient_fill(),
             DrawCommand::ClipRect(_) => false,
         }
@@ -136,7 +101,6 @@ impl DrawCommand {
 
     pub(super) fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>> {
         match self {
-            DrawCommand::Shape(shape) => shape.gradient_bind_group(),
             DrawCommand::CachedShape(cached_shape) => cached_shape.gradient_bind_group(),
             DrawCommand::ClipRect(_) => None,
         }
@@ -152,61 +116,27 @@ impl DrawCommand {
         layout_epoch: u64,
     ) {
         match self {
-            DrawCommand::Shape(shape) => {
-                shape.gradient_bind_group = match shape.fill.as_mut() {
-                    Some(Fill::Gradient(gradient)) => {
-                        Some(gradient_cache.get_or_create_bind_group(
-                            &mut gradient.data,
-                            device,
-                            queue,
-                            layout,
-                            sampler,
-                            layout_epoch,
-                        ))
-                    }
-                    _ => None,
-                };
-            }
             DrawCommand::ClipRect(_) => {}
-            DrawCommand::CachedShape(cached_shape) => {
-                cached_shape.gradient_bind_group = match cached_shape.fill.as_mut() {
-                    Some(Fill::Gradient(gradient)) => {
-                        Some(gradient_cache.get_or_create_bind_group(
-                            &mut gradient.data,
-                            device,
-                            queue,
-                            layout,
-                            sampler,
-                            layout_epoch,
-                        ))
-                    }
-                    _ => None,
-                };
-            }
+            DrawCommand::CachedShape(cached_shape) => cached_shape.refresh_gradient_bind_group(
+                gradient_cache,
+                device,
+                queue,
+                layout,
+                sampler,
+                layout_epoch,
+            ),
         }
     }
 
     pub(super) fn clips_children(&self) -> bool {
         match self {
-            DrawCommand::Shape(shape) => shape.clips_children(),
             DrawCommand::CachedShape(cached_shape) => cached_shape.clips_children(),
             DrawCommand::ClipRect(clip_rect) => clip_rect.clips_children,
         }
     }
 
-    pub(super) fn set_clips_children(&mut self, clips_children: bool) {
-        match self {
-            DrawCommand::Shape(shape) => shape.set_clips_children(clips_children),
-            DrawCommand::CachedShape(cached_shape) => {
-                cached_shape.set_clips_children(clips_children)
-            }
-            DrawCommand::ClipRect(clip_rect) => clip_rect.clips_children = clips_children,
-        }
-    }
-
     pub(super) fn is_rect(&self) -> bool {
         match self {
-            DrawCommand::Shape(shape) => shape.is_rect(),
             DrawCommand::CachedShape(cached_shape) => cached_shape.is_rect(),
             DrawCommand::ClipRect(_) => true,
         }
@@ -214,7 +144,6 @@ impl DrawCommand {
 
     pub(super) fn rect_bounds(&self) -> Option<[(f32, f32); 2]> {
         match self {
-            DrawCommand::Shape(shape) => shape.rect_bounds(),
             DrawCommand::CachedShape(cached_shape) => cached_shape.rect_bounds(),
             DrawCommand::ClipRect(clip_rect) => Some(clip_rect.rect_bounds),
         }
@@ -222,12 +151,9 @@ impl DrawCommand {
 
     pub(super) fn clear_frame_state(&mut self) {
         match self {
-            DrawCommand::Shape(shape) => {
-                shape.index_buffer_range = None;
-                shape.stencil_ref = None;
-            }
             DrawCommand::CachedShape(cached_shape) => {
-                cached_shape.index_buffer_range = None;
+                // Geometry ranges are stable across frames until the draw queue is rebuilt.
+                // Clearing them here makes the next frame silently skip the shape.
                 cached_shape.stencil_ref = None;
             }
             DrawCommand::ClipRect(_) => {}
@@ -240,10 +166,12 @@ impl DrawCommand {
 pub enum DrawCommandError {
     #[error("Shape with id {0} doesn't exist in the draw tree.")]
     InvalidShapeId(usize),
+    #[error("Shape with id {0} has not been loaded yet")]
+    ShapeNotLoaded(u64),
     #[error("Texture layer {0} is invalid; expected 0 or 1.")]
     InvalidTextureLayer(usize),
-    #[error("Clip rect node {0} only supports axis-aligned transforms.")]
-    UnsupportedClipRectTransform(usize),
+    #[error("Clip rect node only supports axis-aligned transforms.")]
+    UnsupportedClipRectTransform,
     #[error("Clip rect node {0} does not support {1}.")]
     UnsupportedClipRectOperation(usize, &'static str),
 }

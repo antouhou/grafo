@@ -276,7 +276,6 @@ impl<'a> Renderer<'a> {
             decrementing_uniform_buffer,
             decrementing_bind_group,
             draw_tree: easy_tree::Tree::new(),
-            geometry_node_ids: Vec::new(),
             metadata_to_clips: HashMap::new(),
             temp_vertices: Vec::new(),
             temp_indices: Vec::new(),
@@ -338,7 +337,6 @@ impl<'a> Renderer<'a> {
             last_phase_timings: Default::default(),
             #[cfg(feature = "render_metrics")]
             last_pipeline_switch_counts: Default::default(),
-            last_prepare_cpu_time: Default::default(),
             last_render_to_texture_view_cpu_time: Default::default(),
             scratch: RendererScratch::new(),
         };

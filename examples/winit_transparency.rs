@@ -1,5 +1,5 @@
 use futures::executor::block_on;
-use grafo::{BorderRadii, Color, Shape, Stroke};
+use grafo::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use std::time::Instant;
 use winit::application::ApplicationHandler;
@@ -72,9 +72,13 @@ impl<'a> ApplicationHandler for App<'a> {
                     [(100.0, 100.0), (300.0, 200.0)],
                     Stroke::new(3.0, Color::BLACK),
                 );
-                let id = renderer.add_shape(rect, None, None).unwrap();
                 renderer
-                    .set_shape_color(id, Some(Color::rgb(255, 100, 50)))
+                    .add_shape(
+                        rect,
+                        None,
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(255, 100, 50)),
+                    )
                     .unwrap();
 
                 // Create a rounded rectangle to test different shapes
@@ -83,9 +87,13 @@ impl<'a> ApplicationHandler for App<'a> {
                     BorderRadii::new(50.0),
                     Stroke::new(2.0, Color::rgb(0, 100, 200)),
                 );
-                let rid = renderer.add_shape(rounded_rect, None, None).unwrap();
                 renderer
-                    .set_shape_color(rid, Some(Color::rgb(100, 200, 255)))
+                    .add_shape(
+                        rounded_rect,
+                        None,
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(100, 200, 255)),
+                    )
                     .unwrap();
 
                 // Render the frame

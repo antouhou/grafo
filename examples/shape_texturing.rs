@@ -1,6 +1,6 @@
 use futures::executor::block_on;
 use grafo::{BorderRadii, Shape};
-use grafo::{Color, Stroke};
+use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use std::time::Instant;
 use winit::application::ApplicationHandler;
@@ -96,9 +96,13 @@ impl<'a> ApplicationHandler for App<'a> {
                     ],
                     Stroke::new(0.0, Color::rgb(0, 0, 0)),
                 );
-                let background_id = renderer.add_shape(background, None, None).unwrap();
-                renderer
-                    .set_shape_color(background_id, Some(Color::rgb(30, 30, 30)))
+                let background_id = renderer
+                    .add_shape(
+                        background,
+                        None,
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(30, 30, 30)),
+                    )
                     .unwrap();
 
                 // A white rounded rect that we will texture
@@ -107,20 +111,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     BorderRadii::new(20.0),
                     Stroke::new(2.0, Color::rgb(200, 200, 200)),
                 );
-                let rect_id = renderer
-                    .add_shape(textured_rect, Some(background_id), None)
-                    .unwrap();
-                renderer
-                    .set_shape_color(rect_id, Some(Color::rgb(255, 255, 255)))
-                    .unwrap(); // white so texture shows un-tinted
-                               // Previously this shape used an offset of (100, 100)
-                renderer
-                    .set_shape_transform(
-                        rect_id,
-                        grafo::TransformInstance::translation(100.0, 100.0),
-                    )
-                    .unwrap();
-
                 // Upload texture once per frame here for demo purposes. In a real app, do this once.
                 let texture_id = 100u64;
                 renderer
@@ -135,9 +125,16 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Associate the uploaded texture with our shape
                 renderer
-                    .set_shape_texture(rect_id, Some(texture_id))
+                    .add_shape(
+                        textured_rect,
+                        Some(background_id),
+                        None,
+                        ShapeDrawCommandOptions::new()
+                            .color(Color::rgb(255, 255, 255))
+                            .background_texture_id(texture_id)
+                            .transform(grafo::TransformInstance::translation(100.0, 100.0)),
+                    )
                     .unwrap();
 
                 let timer = Instant::now();

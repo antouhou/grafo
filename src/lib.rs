@@ -43,7 +43,7 @@
 //! ```rust,no_run
 //! use futures::executor::block_on;
 //! use grafo::{BorderRadii, Shape};
-//! use grafo::{Color, Stroke};
+//! use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 //! use std::sync::Arc;
 //! use winit::application::ApplicationHandler;
 //! use winit::event::WindowEvent;
@@ -83,11 +83,17 @@
 //!             [(0.0, 0.0), (200.0, 100.0)],
 //!             Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
 //!         );
-//!         let rect_id = renderer.add_shape(rect, None, None).expect("to add shape to the renderer");
-//!         // Set per-instance fill color (shapes are transparent by default)
-//!         renderer.set_shape_color(rect_id, Some(Color::rgb(0, 128, 255))).unwrap();
-//!         renderer.set_shape_transform(rect_id, grafo::TransformInstance::identity()).unwrap();
-//!         renderer.set_shape_overflow(rect_id, grafo::ShapeOverflow::Hidden).unwrap();
+//!         renderer
+//!             .add_shape(
+//!                 rect,
+//!                 None,
+//!                 None,
+//!                 ShapeDrawCommandOptions::new()
+//!                     .color(Color::rgb(0, 128, 255))
+//!                     .transform(grafo::TransformInstance::identity())
+//!                     .clips_children(true),
+//!             )
+//!             .expect("to add shape to the renderer");
 //!
 //!         self.window = Some(window);
 //!         self.renderer = Some(renderer);

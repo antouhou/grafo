@@ -14,6 +14,7 @@ impl<'a> Renderer<'a> {
 
         // Nothing to render when the draw queue is empty.
         if self.draw_tree.is_empty() {
+            self.buffers_pool_manager.tessellation_cache.end_frame();
             self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
             return;
         }
@@ -392,11 +393,11 @@ impl<'a> Renderer<'a> {
             .recycle(&mut textures_to_recycle);
         effect_output_textures.clear();
 
-        for &node_id in &self.geometry_node_ids {
-            if let Some(draw_command) = self.draw_tree.get_mut(node_id) {
+        self.draw_tree
+            .iter_mut()
+            .for_each(|(_node_id, draw_command)| {
                 draw_command.clear_frame_state();
-            }
-        }
+            });
 
         self.scratch.traversal_scratch = traversal_scratch;
         self.scratch.effect_results = effect_results;
@@ -408,6 +409,9 @@ impl<'a> Renderer<'a> {
         self.scratch.scissor_stack = scissor_stack;
         self.scratch.clip_kind_stack = clip_kind_stack;
         self.scratch.backdrop_work_textures = backdrop_work_textures;
+        self.buffers_pool_manager.tessellation_cache.end_frame();
+
+        // println!("Tesselation cache size: {}", self.buffers_pool_manager.tessellation_cache.len());
 
         #[cfg(feature = "render_metrics")]
         {
