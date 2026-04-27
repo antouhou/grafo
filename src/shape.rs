@@ -1092,9 +1092,9 @@ pub enum ShapeTextureFitMode {
     Stretch,
     /// Treat one texture texel as one physical pixel before the shape transform is applied.
     /// Translation does not affect the mapping, while scale, rotation, and perspective affect
-    /// the texture together with the shape. Sampling outside the original texture area uses
-    /// clamp-to-edge behavior, so textures should include a transparent 1px padding border for
-    /// the unclipped area to appear transparent as intended.
+    /// the texture together with the shape. Outside the original texture footprint, sampling does
+    /// not crop to transparency; the unclipped area instead shows the underlying fill/background
+    /// according to normal compositing.
     OriginalSize,
 }
 

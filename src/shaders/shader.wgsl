@@ -326,10 +326,6 @@ fn vs_main_gradient(input: VertexInput) -> GradientVertexOutput {
     return output;
 }
 
-fn texture_coords_are_in_bounds(tex_coords: vec2<f32>) -> bool {
-    return all(tex_coords >= vec2<f32>(0.0, 0.0)) && all(tex_coords <= vec2<f32>(1.0, 1.0));
-}
-
 // Computes the final premultiplied color for a fragment given fill color, texture
 // coordinates, and AA coverage.
 fn compute_fragment_color(
