@@ -1,6 +1,7 @@
 use super::types::{ClipRectDrawData, DrawCommandError};
 use super::*;
 use crate::ShapeDrawCommandOptions;
+use crate::ShapeTextureFitMode;
 
 fn clip_rect_supports_transform(transform: InstanceTransform) -> bool {
     rect_utils::extract_axis_aligned_rect_transform(Some(transform)).is_some()
@@ -130,6 +131,10 @@ impl<'a> Renderer<'a> {
         if let Some((index_start, index_count)) = index_range {
             cached_shape_data.index_buffer_range = Some((index_start, index_count));
             cached_shape_data.is_empty = false;
+            let texture_uv_scales = self.compute_texture_uv_scales(
+                cached_shape_data.cached_shape.texture_mapping_size,
+                draw_options,
+            );
             let instance_index = preparation::append_instance_data(
                 &mut self.temp_instance_transforms,
                 &mut self.temp_instance_colors,
@@ -139,7 +144,10 @@ impl<'a> Renderer<'a> {
                     None => None,
                     Some(fill) => fill.to_normalized_solid(),
                 },
-                cached_shape_data.texture_ids,
+                preparation::InstanceTextureData {
+                    texture_ids: cached_shape_data.texture_ids,
+                    texture_uv_scales,
+                },
             );
             *cached_shape_data.instance_index_mut() = Some(instance_index);
         } else {
@@ -198,5 +206,50 @@ impl<'a> Renderer<'a> {
         self.trim_scratch_on_resize_or_policy();
         // Clear memory buffers that are used for GPU upload
         self.clear_buffers();
+    }
+
+    fn compute_texture_uv_scales(
+        &self,
+        texture_mapping_size: [f32; 2],
+        draw_options: &ShapeDrawCommandOptions,
+    ) -> [[f32; 2]; 2] {
+        [
+            self.compute_texture_uv_scale_for_layer(
+                draw_options.background_texture.texture_id,
+                draw_options.background_texture.fit_mode,
+                texture_mapping_size,
+            ),
+            self.compute_texture_uv_scale_for_layer(
+                draw_options.foreground_texture.texture_id,
+                draw_options.foreground_texture.fit_mode,
+                texture_mapping_size,
+            ),
+        ]
+    }
+
+    fn compute_texture_uv_scale_for_layer(
+        &self,
+        texture_id: Option<u64>,
+        texture_fit_mode: ShapeTextureFitMode,
+        texture_mapping_size: [f32; 2],
+    ) -> [f32; 2] {
+        if texture_fit_mode != ShapeTextureFitMode::OriginalSize {
+            return [1.0, 1.0];
+        }
+
+        let Some(texture_id) = texture_id else {
+            return [1.0, 1.0];
+        };
+
+        let Some((texture_width, texture_height)) =
+            self.texture_manager.texture_dimensions(texture_id)
+        else {
+            return [1.0, 1.0];
+        };
+
+        [
+            texture_mapping_size[0] * self.scale_factor as f32 / texture_width.max(1) as f32,
+            texture_mapping_size[1] * self.scale_factor as f32 / texture_height.max(1) as f32,
+        ]
     }
 }

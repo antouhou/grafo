@@ -315,6 +315,17 @@ impl TextureManager {
             .unwrap()
             .contains_key(&texture_id)
     }
+
+    pub(crate) fn texture_dimensions(&self, texture_id: u64) -> Option<(u32, u32)> {
+        self.texture_storage
+            .read()
+            .unwrap()
+            .get(&texture_id)
+            .map(|texture| {
+                let size = texture.size();
+                (size.width, size.height)
+            })
+    }
 }
 
 // Converts an RGBA8 sRGB image in-place to premultiplied alpha.

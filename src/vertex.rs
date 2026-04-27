@@ -290,6 +290,8 @@ impl InstanceTransform {
 pub struct InstanceMetadata {
     pub draw_order: f32,
     pub texture_flags: f32,
+    pub texture_uv_scale_layer0: [f32; 2],
+    pub texture_uv_scale_layer1: [f32; 2],
 }
 
 impl Default for InstanceMetadata {
@@ -297,6 +299,8 @@ impl Default for InstanceMetadata {
         Self {
             draw_order: 0.0,
             texture_flags: 0.0,
+            texture_uv_scale_layer0: [1.0, 1.0],
+            texture_uv_scale_layer1: [1.0, 1.0],
         }
     }
 }
@@ -316,6 +320,16 @@ impl InstanceMetadata {
                     format: wgpu::VertexFormat::Float32,
                     offset: std::mem::size_of::<f32>() as wgpu::BufferAddress,
                     shader_location: 10,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
+                    shader_location: 11,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+                    shader_location: 12,
                 },
             ],
         }

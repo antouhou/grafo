@@ -2,8 +2,8 @@ use grafo::{
     BorderRadii, Color, ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor,
     GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
     LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientShape,
-    RadialGradientSize, Renderer, Shape, ShapeDrawCommandOptions, SpreadMode, Stroke,
-    TransformInstance,
+    RadialGradientSize, Renderer, Shape, ShapeDrawCommandOptions, ShapeTextureFitMode,
+    ShapeTextureOptions, SpreadMode, Stroke, TransformInstance,
 };
 
 use crate::expectations::PixelExpectation;
@@ -21,6 +21,8 @@ pub const CANVAS_HEIGHT: u32 = TILE_SIZE * ROWS;
 const BLUR_EFFECT_ID: u64 = 1;
 const CHECKERBOARD_TEXTURE_ID: u64 = 100;
 const SOLID_GREEN_TEXTURE_ID: u64 = 101;
+const SOLID_GREEN_20X20_TEXTURE_ID: u64 = 102;
+const SOLID_RED_TEXTURE_ID: u64 = 103;
 
 /// Returns the pixel origin (top-left corner) of tile number `n` (1-based).
 fn tile_origin(tile_number: u32) -> (f32, f32) {
@@ -111,6 +113,8 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_50_overflow_visible_delegates_to_ancestor(renderer));
     expectations.extend(tile_51_clip_rect_overflow_visible_container(renderer));
     expectations.extend(tile_52_backdrop_overflow_visible_children(renderer));
+    expectations.extend(tile_53_texture_original_size(renderer));
+    expectations.extend(tile_54_texture_original_size_scaled(renderer));
 
     expectations
 }
@@ -144,6 +148,21 @@ fn load_shared_resources(renderer: &mut Renderer) {
         SOLID_GREEN_TEXTURE_ID,
         (1, 1),
         &[0, 255, 0, 255],
+    );
+    renderer.texture_manager().allocate_texture_with_data(
+        SOLID_RED_TEXTURE_ID,
+        (1, 1),
+        &[255, 0, 0, 255],
+    );
+
+    let solid_green_20x20 = vec![255u8; 20 * 20 * 4]
+        .chunks_exact(4)
+        .flat_map(|_| [0u8, 255u8, 0u8, 255u8])
+        .collect::<Vec<_>>();
+    renderer.texture_manager().allocate_texture_with_data(
+        SOLID_GREEN_20X20_TEXTURE_ID,
+        (20, 20),
+        &solid_green_20x20,
     );
 }
 
@@ -3501,6 +3520,100 @@ fn tile_52_backdrop_overflow_visible_children(renderer: &mut Renderer) -> Vec<Pi
             255,
             255,
             "t52_outer_still_clips_child",
+        ),
+    ]
+}
+
+fn tile_53_texture_original_size(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(53);
+    let shape = Shape::rect(
+        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
+        Stroke::default(),
+    );
+    renderer
+        .add_shape(
+            shape,
+            None,
+            None,
+            ShapeDrawCommandOptions::new()
+                .background_texture(ShapeTextureOptions::new(SOLID_RED_TEXTURE_ID))
+                .foreground_texture(
+                    ShapeTextureOptions::new(SOLID_GREEN_20X20_TEXTURE_ID)
+                        .fit_mode(ShapeTextureFitMode::OriginalSize),
+                )
+                .color(Color::WHITE),
+        )
+        .unwrap();
+
+    vec![
+        PixelExpectation::opaque(
+            ox as u32 + 20,
+            oy as u32 + 20,
+            0,
+            255,
+            0,
+            "t53_original_size_texture_visible",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 45,
+            oy as u32 + 20,
+            255,
+            0,
+            0,
+            "t53_foreground_original_size_does_not_stretch",
+        ),
+    ]
+}
+
+fn tile_54_texture_original_size_scaled(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(54);
+    let shape = Shape::rect([(0.0, 0.0), (20.0, 20.0)], Stroke::default());
+    renderer
+        .add_shape(
+            shape,
+            None,
+            None,
+            ShapeDrawCommandOptions::new()
+                .background_texture(
+                    ShapeTextureOptions::new(SOLID_GREEN_20X20_TEXTURE_ID)
+                        .fit_mode(ShapeTextureFitMode::OriginalSize),
+                )
+                .color(Color::WHITE)
+                .transform(TransformInstance::affine_2d(
+                    2.0,
+                    0.0,
+                    0.0,
+                    2.0,
+                    ox + 10.0,
+                    oy + 10.0,
+                )),
+        )
+        .unwrap();
+
+    vec![
+        PixelExpectation::opaque(
+            ox as u32 + 30,
+            oy as u32 + 30,
+            0,
+            255,
+            0,
+            "t54_scaled_original_size_texture_scales_with_shape_center",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 45,
+            oy as u32 + 20,
+            0,
+            255,
+            0,
+            "t54_scaled_original_size_texture_scales_with_shape_edge",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 55,
+            oy as u32 + 20,
+            255,
+            255,
+            255,
+            "t54_scaled_original_size_texture_clipped_outside_scaled_shape",
         ),
     ]
 }

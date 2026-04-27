@@ -55,6 +55,8 @@ pub struct CachedShapeHandle {
     pub(crate) is_rect: bool,
     /// The local-space bounding rect when `is_rect` is true, for scissor computation.
     pub(crate) rect_bounds: Option<[(f32, f32); 2]>,
+    /// Width and height of the local-space bounds used to normalize texture coordinates.
+    pub(crate) texture_mapping_size: [f32; 2],
     pub(crate) geometry_id: Option<u64>,
 }
 
@@ -86,13 +88,54 @@ impl CachedShapeHandle {
             TessellatedGeometry::Owned(vertex_buffers) => Arc::new(vertex_buffers),
             TessellatedGeometry::Shared(vertex_buffers) => vertex_buffers,
         };
+        let texture_mapping_size = rect_bounds
+            .map(rect_size)
+            .unwrap_or_else(|| compute_texture_mapping_size(&vertices));
         Self {
             vertex_buffers: vertices,
             is_rect,
             rect_bounds,
+            texture_mapping_size,
             geometry_id,
         }
     }
+}
+
+fn rect_size(rect_bounds: [(f32, f32); 2]) -> [f32; 2] {
+    [
+        (rect_bounds[1].0 - rect_bounds[0].0).abs().max(1e-6),
+        (rect_bounds[1].1 - rect_bounds[0].1).abs().max(1e-6),
+    ]
+}
+
+fn compute_texture_mapping_size(vertex_buffers: &VertexBuffers<CustomVertex, u16>) -> [f32; 2] {
+    if vertex_buffers.vertices.is_empty() {
+        return [1.0, 1.0];
+    }
+
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+
+    for vertex in &vertex_buffers.vertices {
+        let x = vertex.position[0];
+        let y = vertex.position[1];
+        if x < min_x {
+            min_x = x;
+        }
+        if y < min_y {
+            min_y = y;
+        }
+        if x > max_x {
+            max_x = x;
+        }
+        if y > max_y {
+            max_y = y;
+        }
+    }
+
+    [(max_x - min_x).max(1e-6), (max_y - min_y).max(1e-6)]
 }
 
 pub(crate) enum TessellatedGeometry {
@@ -1041,12 +1084,46 @@ impl PathShape {
     }
 }
 
+/// Controls how bound textures are fit into a shape's local texture-coordinate space.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
+pub enum ShapeTextureFitMode {
+    /// Normalize the shape bounds to `[0, 1]` and stretch the texture to cover them fully.
+    #[default]
+    Stretch,
+    /// Treat one texture texel as one physical pixel before the shape transform is applied.
+    /// Translation does not affect the mapping, while scale, rotation, and perspective affect
+    /// the texture together with the shape. Sampling outside the original texture area uses
+    /// clamp-to-edge behavior, so textures should include a transparent 1px padding border for
+    /// the unclipped area to appear transparent as intended.
+    OriginalSize,
+}
+
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
+pub struct ShapeTextureOptions {
+    pub texture_id: Option<u64>,
+    pub fit_mode: ShapeTextureFitMode,
+}
+
+impl ShapeTextureOptions {
+    pub fn new(texture_id: u64) -> Self {
+        Self {
+            texture_id: Some(texture_id),
+            fit_mode: ShapeTextureFitMode::Stretch,
+        }
+    }
+
+    pub fn fit_mode(mut self, fit_mode: ShapeTextureFitMode) -> Self {
+        self.fit_mode = fit_mode;
+        self
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ShapeDrawCommandOptions {
     pub transform: Option<InstanceTransform>,
     pub clips_children: bool,
-    pub background_texture_id: Option<u64>,
-    pub foreground_texture_id: Option<u64>,
+    pub background_texture: ShapeTextureOptions,
+    pub foreground_texture: ShapeTextureOptions,
     pub fill: Option<Fill>,
 }
 
@@ -1055,8 +1132,8 @@ impl Default for ShapeDrawCommandOptions {
         Self {
             transform: None,
             clips_children: true,
-            background_texture_id: None,
-            foreground_texture_id: None,
+            background_texture: ShapeTextureOptions::default(),
+            foreground_texture: ShapeTextureOptions::default(),
             fill: None,
         }
     }
@@ -1077,13 +1154,45 @@ impl ShapeDrawCommandOptions {
         self
     }
 
+    pub fn background_texture(mut self, background_texture: ShapeTextureOptions) -> Self {
+        self.background_texture = background_texture;
+        self
+    }
+
+    pub fn foreground_texture(mut self, foreground_texture: ShapeTextureOptions) -> Self {
+        self.foreground_texture = foreground_texture;
+        self
+    }
+
     pub fn background_texture_id(mut self, background_texture_id: u64) -> Self {
-        self.background_texture_id = Some(background_texture_id);
+        self.background_texture.texture_id = Some(background_texture_id);
         self
     }
 
     pub fn foreground_texture_id(mut self, foreground_texture_id: u64) -> Self {
-        self.foreground_texture_id = Some(foreground_texture_id);
+        self.foreground_texture.texture_id = Some(foreground_texture_id);
+        self
+    }
+
+    pub fn texture_fit_mode(mut self, texture_fit_mode: ShapeTextureFitMode) -> Self {
+        self.background_texture.fit_mode = texture_fit_mode;
+        self.foreground_texture.fit_mode = texture_fit_mode;
+        self
+    }
+
+    pub fn background_texture_fit_mode(
+        mut self,
+        background_texture_fit_mode: ShapeTextureFitMode,
+    ) -> Self {
+        self.background_texture.fit_mode = background_texture_fit_mode;
+        self
+    }
+
+    pub fn foreground_texture_fit_mode(
+        mut self,
+        foreground_texture_fit_mode: ShapeTextureFitMode,
+    ) -> Self {
+        self.foreground_texture.fit_mode = foreground_texture_fit_mode;
         self
     }
 
@@ -1133,7 +1242,10 @@ impl CachedShapeDrawData {
             is_empty: false,
             // Data from options
             transform: options.transform,
-            texture_ids: [options.background_texture_id, options.foreground_texture_id],
+            texture_ids: [
+                options.background_texture.texture_id,
+                options.foreground_texture.texture_id,
+            ],
             clips_children: options.clips_children,
             color_override: match options.fill.as_ref() {
                 Some(Fill::Solid(color)) => Some(color.normalize()),

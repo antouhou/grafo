@@ -10,9 +10,16 @@ use grafo_test_scenes::{build_main_scene, check_pixels, CANVAS_HEIGHT, CANVAS_WI
 /// Creates a headless renderer, returning `None` (and printing a skip message)
 /// when no suitable GPU adapter is available.
 fn create_headless_renderer() -> Option<grafo::Renderer<'static>> {
+    create_headless_renderer_with_size_and_scale((CANVAS_WIDTH, CANVAS_HEIGHT), 1.0)
+}
+
+fn create_headless_renderer_with_size_and_scale(
+    physical_size: (u32, u32),
+    scale_factor: f64,
+) -> Option<grafo::Renderer<'static>> {
     match block_on(grafo::Renderer::try_new_headless(
-        (CANVAS_WIDTH, CANVAS_HEIGHT),
-        1.0,
+        physical_size,
+        scale_factor,
     )) {
         Ok(r) => Some(r),
         Err(grafo::RendererCreationError::AdapterNotAvailable(_)) => {
@@ -110,6 +117,82 @@ fn single_root_no_children() {
     ];
 
     assert_pixels_match(&pixel_buffer, &expectations);
+}
+
+/// Regression test — OriginalSize texture fit uses physical pixels, not logical units.
+#[test]
+fn original_size_texture_fit_uses_physical_pixels_on_hidpi() {
+    let physical_size = (200, 200);
+    let scale_factor = 2.0;
+    let Some(mut renderer) =
+        create_headless_renderer_with_size_and_scale(physical_size, scale_factor)
+    else {
+        return;
+    };
+
+    let green_texture_id = 9_001u64;
+    let solid_green_20x20 = vec![255u8; 20 * 20 * 4]
+        .chunks_exact(4)
+        .flat_map(|_| [0u8, 255u8, 0u8, 255u8])
+        .collect::<Vec<_>>();
+    renderer.texture_manager().allocate_texture_with_data(
+        green_texture_id,
+        (20, 20),
+        &solid_green_20x20,
+    );
+
+    let shape = grafo::Shape::rect([(10.0, 10.0), (70.0, 70.0)], grafo::Stroke::default());
+    renderer
+        .add_shape(
+            shape,
+            None,
+            None,
+            grafo::ShapeDrawCommandOptions::new()
+                .background_texture(
+                    grafo::ShapeTextureOptions::new(green_texture_id)
+                        .fit_mode(grafo::ShapeTextureFitMode::OriginalSize),
+                )
+                .color(grafo::Color::WHITE),
+        )
+        .unwrap();
+
+    let mut pixel_buffer: Vec<u8> = Vec::new();
+    renderer.render_to_buffer(&mut pixel_buffer);
+
+    let expectations = vec![
+        grafo_test_scenes::PixelExpectation::opaque(
+            30,
+            30,
+            0,
+            255,
+            0,
+            "inside_20px_physical_texture_region",
+        ),
+        grafo_test_scenes::PixelExpectation::opaque(
+            60,
+            30,
+            255,
+            255,
+            255,
+            "outside_texture_region_inside_shape",
+        ),
+        grafo_test_scenes::PixelExpectation::transparent(5, 5, "outside_shape"),
+    ];
+
+    let failures = check_pixels(
+        &pixel_buffer,
+        physical_size.0,
+        physical_size.1,
+        &expectations,
+    );
+    if !failures.is_empty() {
+        let message = format!(
+            "{} pixel expectation(s) failed:\n{}",
+            failures.len(),
+            failures.join("\n"),
+        );
+        panic!("{message}");
+    }
 }
 
 /// Regression test — scissor-only clipping rect clips children without drawing itself.

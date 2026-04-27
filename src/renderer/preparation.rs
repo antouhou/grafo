@@ -1,6 +1,12 @@
 use super::types::decide_buffer_sizing;
 use super::*;
 
+#[derive(Copy, Clone)]
+pub(crate) struct InstanceTextureData {
+    pub(crate) texture_ids: [Option<u64>; 2],
+    pub(crate) texture_uv_scales: [[f32; 2]; 2],
+}
+
 fn upsert_gpu_buffer(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -86,18 +92,20 @@ pub(crate) fn append_instance_data(
     temp_instance_metadata: &mut Vec<InstanceMetadata>,
     transform: Option<InstanceTransform>,
     color_override: Option<[f32; 4]>,
-    texture_ids: [Option<u64>; 2],
+    texture_data: InstanceTextureData,
 ) -> usize {
     let instance_index = temp_instance_transforms.len();
     temp_instance_transforms.push(transform.unwrap_or_else(InstanceTransform::identity));
     temp_instance_colors.push(InstanceColor {
         color: color_override.unwrap_or([0.0, 0.0, 0.0, 0.0]),
     });
-    let texture_flags =
-        (texture_ids[0].is_some() as u32) | ((texture_ids[1].is_some() as u32) << 1);
+    let texture_flags = (texture_data.texture_ids[0].is_some() as u32)
+        | ((texture_data.texture_ids[1].is_some() as u32) << 1);
     temp_instance_metadata.push(InstanceMetadata {
         draw_order: instance_index as f32,
         texture_flags: texture_flags as f32,
+        texture_uv_scale_layer0: texture_data.texture_uv_scales[0],
+        texture_uv_scale_layer1: texture_data.texture_uv_scales[1],
     });
     instance_index
 }

@@ -156,6 +156,7 @@ mod tests {
                 vertex_buffers: Arc::new(VertexBuffers::<CustomVertex, u16>::new()),
                 is_rect: false,
                 rect_bounds: None,
+                texture_mapping_size: [1.0, 1.0],
                 geometry_id: None,
             },
             &ShapeDrawCommandOptions::new(),
