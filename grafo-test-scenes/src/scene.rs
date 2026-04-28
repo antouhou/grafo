@@ -155,9 +155,16 @@ fn load_shared_resources(renderer: &mut Renderer) {
         &[255, 0, 0, 255],
     );
 
-    let solid_green_20x20 = vec![255u8; 20 * 20 * 4]
-        .chunks_exact(4)
-        .flat_map(|_| [0u8, 255u8, 0u8, 255u8])
+    let solid_green_20x20 = (0..20u32)
+        .flat_map(|y| {
+            (0..20u32).flat_map(move |x| {
+                if x == 0 || x == 19 || y == 0 || y == 19 {
+                    [0u8, 0u8, 0u8, 0u8]
+                } else {
+                    [0u8, 255u8, 0u8, 255u8]
+                }
+            })
+        })
         .collect::<Vec<_>>();
     renderer.texture_manager().allocate_texture_with_data(
         SOLID_GREEN_20X20_TEXTURE_ID,

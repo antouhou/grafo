@@ -131,14 +131,21 @@ fn original_size_texture_fit_uses_physical_pixels_on_hidpi() {
     };
 
     let green_texture_id = 9_001u64;
-    let solid_green_20x20 = vec![255u8; 20 * 20 * 4]
-        .chunks_exact(4)
-        .flat_map(|_| [0u8, 255u8, 0u8, 255u8])
+    let green_texture_with_transparent_border_20x20 = (0..20u32)
+        .flat_map(|y| {
+            (0..20u32).flat_map(move |x| {
+                if x == 0 || x == 19 || y == 0 || y == 19 {
+                    [0u8, 0u8, 0u8, 0u8]
+                } else {
+                    [0u8, 255u8, 0u8, 255u8]
+                }
+            })
+        })
         .collect::<Vec<_>>();
     renderer.texture_manager().allocate_texture_with_data(
         green_texture_id,
         (20, 20),
-        &solid_green_20x20,
+        &green_texture_with_transparent_border_20x20,
     );
 
     let shape = grafo::Shape::rect([(10.0, 10.0), (70.0, 70.0)], grafo::Stroke::default());
