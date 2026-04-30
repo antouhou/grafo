@@ -64,3 +64,11 @@ pub struct BlurParams {
     pub _pad: f32,
     pub tex_size: [f32; 2],
 }
+
+/// Single-pass no-op effect used to validate backdrop capture placement without blur math.
+pub const PASSTHROUGH_WGSL: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    return textureSample(t_input, s_input, uv);
+}
+"#;

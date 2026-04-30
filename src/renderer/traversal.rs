@@ -156,6 +156,7 @@ mod tests {
                 vertex_buffers: Arc::new(VertexBuffers::<CustomVertex, u16>::new()),
                 is_rect: false,
                 rect_bounds: None,
+                local_bounds: [(0.0, 0.0), (1.0, 1.0)],
                 texture_mapping_size: [1.0, 1.0],
                 geometry_id: None,
             },
@@ -235,6 +236,10 @@ mod tests {
                 params: Vec::new(),
                 params_buffer: None,
                 params_bind_group: None,
+                backdrop_config: None,
+                backdrop_material_params_buffer: None,
+                backdrop_texture_bind_group: None,
+                backdrop_texture_id: None,
             },
         );
 

@@ -2,12 +2,12 @@
 
 use super::types::{GradientData, GradientKind};
 
-/// GPU-side gradient parameters packed into a uniform/storage-friendly struct.
-/// Matches the WGSL `GradientParams` struct in shader.wgsl.
+/// GPU-side gradient-only parameters packed into a uniform-friendly struct.
+/// Matches the WGSL `GradientColorParams` struct in shader.wgsl.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 #[allow(dead_code)]
-pub(crate) struct GpuGradientParams {
+pub(crate) struct GpuGradientColorParams {
     // gradient_type: 1=linear, 2=radial, 3=conic, 0=none
     pub gradient_type: u32,
     // spread_mode: 0=pad, 1=repeat
@@ -42,7 +42,7 @@ pub(crate) struct GpuGradientParams {
     pub _padding: f32,
 }
 
-impl GpuGradientParams {
+impl GpuGradientColorParams {
     pub fn from_gradient_data(data: &GradientData) -> Self {
         let gradient_type = match data.kind {
             GradientKind::Linear => 1u32,
@@ -76,7 +76,7 @@ impl GpuGradientParams {
             (data.period_start, data.period_len)
         };
 
-        GpuGradientParams {
+        GpuGradientColorParams {
             gradient_type,
             spread_mode,
             units,
@@ -115,6 +115,79 @@ impl GpuGradientParams {
             ramp_end: 1.0,
             _padding: 0.0,
         }
+    }
+}
+
+/// GPU-side backdrop sampling metadata reused by both solid and gradient backdrop draws.
+/// Matches the WGSL `BackdropSamplingParams` struct in shader.wgsl.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct GpuBackdropSamplingParams {
+    pub capture_origin: [f32; 2],
+    pub inverse_capture_size: [f32; 2],
+}
+
+impl Default for GpuBackdropSamplingParams {
+    fn default() -> Self {
+        Self {
+            capture_origin: [0.0, 0.0],
+            inverse_capture_size: [1.0, 1.0],
+        }
+    }
+}
+
+impl GpuBackdropSamplingParams {
+    pub fn from_sampling_uniform(
+        sampling_uniform: crate::pipeline::BackdropSamplingUniform,
+    ) -> Self {
+        Self {
+            capture_origin: sampling_uniform.capture_origin,
+            inverse_capture_size: sampling_uniform.inverse_capture_size,
+        }
+    }
+}
+
+/// GPU-side material parameters bound at group 3 binding 0.
+///
+/// This uniform layout is shared across regular gradient fills and backdrop-capable pipelines.
+/// Solid backdrop draws leave `gradient` in its inert `none()` state and only populate
+/// `backdrop_sampling`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct GpuMaterialParams {
+    pub gradient: GpuGradientColorParams,
+    pub backdrop_sampling: GpuBackdropSamplingParams,
+}
+
+impl Default for GpuMaterialParams {
+    fn default() -> Self {
+        Self {
+            gradient: GpuGradientColorParams::none(),
+            backdrop_sampling: GpuBackdropSamplingParams::default(),
+        }
+    }
+}
+
+impl GpuMaterialParams {
+    pub fn from_gradient_data(data: &GradientData) -> Self {
+        Self {
+            gradient: GpuGradientColorParams::from_gradient_data(data),
+            backdrop_sampling: GpuBackdropSamplingParams::default(),
+        }
+    }
+
+    pub fn with_backdrop_sampling(
+        mut self,
+        sampling_uniform: crate::pipeline::BackdropSamplingUniform,
+    ) -> Self {
+        self.backdrop_sampling = GpuBackdropSamplingParams::from_sampling_uniform(sampling_uniform);
+        self
+    }
+
+    pub fn for_backdrop_sampling(
+        sampling_uniform: crate::pipeline::BackdropSamplingUniform,
+    ) -> Self {
+        Self::default().with_backdrop_sampling(sampling_uniform)
     }
 }
 

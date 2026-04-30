@@ -36,6 +36,34 @@ impl Uniforms {
     }
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct BackdropSamplingUniform {
+    pub capture_origin: [f32; 2],
+    pub inverse_capture_size: [f32; 2],
+}
+
+impl BackdropSamplingUniform {
+    pub fn new(capture_origin: (i32, i32), capture_size: (u32, u32)) -> Self {
+        Self {
+            capture_origin: [capture_origin.0 as f32, capture_origin.1 as f32],
+            inverse_capture_size: [
+                1.0 / capture_size.0.max(1) as f32,
+                1.0 / capture_size.1.max(1) as f32,
+            ],
+        }
+    }
+}
+
+impl Default for BackdropSamplingUniform {
+    fn default() -> Self {
+        Self {
+            capture_origin: [0.0, 0.0],
+            inverse_capture_size: [1.0, 1.0],
+        }
+    }
+}
+
 fn create_equal_increment_stencil_state() -> wgpu::StencilState {
     // In this stencil state we will only draw where the stencil value is equal to the reference value,
     //  and all outside areas are zeroed.
@@ -216,6 +244,90 @@ pub fn create_gradient_bind_group_layout(device: &Device) -> BindGroupLayout {
             },
         ],
         label: Some("gradient_bind_group_layout"),
+    })
+}
+
+pub fn create_backdrop_texture_bind_group_layout(device: &Device) -> BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    multisampled: false,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 4,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+        label: Some("backdrop_texture_bind_group_layout"),
+    })
+}
+
+pub fn create_backdrop_gradient_bind_group_layout(device: &Device) -> BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    multisampled: false,
+                    view_dimension: wgpu::TextureViewDimension::D1,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    multisampled: false,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 4,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+        label: Some("backdrop_gradient_bind_group_layout"),
     })
 }
 
@@ -995,6 +1107,96 @@ pub fn create_stencil_keep_color_pipeline(
     })
 }
 
+pub fn create_backdrop_stencil_keep_color_pipeline(
+    device: &Device,
+    format: wgpu::TextureFormat,
+    sample_count: u32,
+    uniform_bgl: &wgpu::BindGroupLayout,
+    texture_bgl_layer0: &wgpu::BindGroupLayout,
+    texture_bgl_layer1: &wgpu::BindGroupLayout,
+    backdrop_texture_bgl: &wgpu::BindGroupLayout,
+) -> RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("backdrop_stencil_keep_color_shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
+    });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("backdrop_stencil_keep_color_pipeline_layout"),
+        bind_group_layouts: &[
+            uniform_bgl,
+            texture_bgl_layer0,
+            texture_bgl_layer1,
+            backdrop_texture_bgl,
+        ],
+        push_constant_ranges: &[],
+    });
+
+    let stencil_face = wgpu::StencilFaceState {
+        compare: wgpu::CompareFunction::Equal,
+        fail_op: wgpu::StencilOperation::Keep,
+        depth_fail_op: wgpu::StencilOperation::Keep,
+        pass_op: wgpu::StencilOperation::Keep,
+    };
+
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("backdrop_stencil_keep_color_pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
+            buffers: &[
+                CustomVertex::desc(),
+                InstanceTransform::desc(),
+                InstanceColor::desc(),
+                InstanceMetadata::desc(),
+            ],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_backdrop_passthrough"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                }),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth24PlusStencil8,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::Always,
+            stencil: wgpu::StencilState {
+                front: stencil_face,
+                back: stencil_face,
+                read_mask: 0xff,
+                write_mask: 0x00,
+            },
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState {
+            count: sample_count,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview: None,
+        cache: None,
+    })
+}
+
 pub fn create_gradient_stencil_keep_color_pipeline(
     device: &Device,
     format: wgpu::TextureFormat,
@@ -1044,6 +1246,96 @@ pub fn create_gradient_stencil_keep_color_pipeline(
         fragment: Some(wgpu::FragmentState {
             module: &shader,
             entry_point: Some("fs_main_gradient"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                }),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth24PlusStencil8,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::Always,
+            stencil: wgpu::StencilState {
+                front: stencil_face,
+                back: stencil_face,
+                read_mask: 0xff,
+                write_mask: 0x00,
+            },
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState {
+            count: sample_count,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview: None,
+        cache: None,
+    })
+}
+
+pub fn create_backdrop_gradient_stencil_keep_color_pipeline(
+    device: &Device,
+    format: wgpu::TextureFormat,
+    sample_count: u32,
+    uniform_bgl: &wgpu::BindGroupLayout,
+    texture_bgl_layer0: &wgpu::BindGroupLayout,
+    texture_bgl_layer1: &wgpu::BindGroupLayout,
+    backdrop_gradient_bgl: &wgpu::BindGroupLayout,
+) -> RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("backdrop_gradient_stencil_keep_color_shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
+    });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("backdrop_gradient_stencil_keep_color_pipeline_layout"),
+        bind_group_layouts: &[
+            uniform_bgl,
+            texture_bgl_layer0,
+            texture_bgl_layer1,
+            backdrop_gradient_bgl,
+        ],
+        push_constant_ranges: &[],
+    });
+
+    let stencil_face = wgpu::StencilFaceState {
+        compare: wgpu::CompareFunction::Equal,
+        fail_op: wgpu::StencilOperation::Keep,
+        depth_fail_op: wgpu::StencilOperation::Keep,
+        pass_op: wgpu::StencilOperation::Keep,
+    };
+
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("backdrop_gradient_stencil_keep_color_pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main_gradient"),
+            compilation_options: Default::default(),
+            buffers: &[
+                CustomVertex::desc(),
+                InstanceTransform::desc(),
+                InstanceColor::desc(),
+                InstanceMetadata::desc(),
+            ],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_backdrop_passthrough_gradient"),
             compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format,

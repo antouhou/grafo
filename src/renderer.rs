@@ -114,10 +114,14 @@ pub struct Renderer<'a> {
     /// Bind group layouts for shape texture layers (groups 1 and 2).
     shape_texture_bind_group_layout_background: Arc<wgpu::BindGroupLayout>,
     shape_texture_bind_group_layout_foreground: Arc<wgpu::BindGroupLayout>,
+    /// Bind group layout for backdrop textures (group 3, bindings 3 and 4).
+    backdrop_texture_bind_group_layout: Arc<wgpu::BindGroupLayout>,
     /// Monotonic counter to invalidate cached shape texture bind groups when the layout changes.
     shape_texture_layout_epoch: u64,
     /// Default transparent texture bind groups for both layers.
     default_shape_texture_bind_groups: [Arc<wgpu::BindGroup>; 2], // [background, foreground]
+    /// Default transparent bind group for backdrop sampling.
+    default_backdrop_texture_bind_group: Arc<wgpu::BindGroup>,
 
     /// Render pipeline for decrementing stencil values.
     decrementing_pipeline: Arc<wgpu::RenderPipeline>,
@@ -210,9 +214,8 @@ pub struct Renderer<'a> {
     effect_sampler: Option<wgpu::Sampler>,
 
     // ── Backdrop effect infrastructure ─────────────────────────────────
-    /// Snapshot texture for backdrop effects (copy of current render target).
-    backdrop_snapshot_texture: Option<wgpu::Texture>,
-    backdrop_snapshot_view: Option<wgpu::TextureView>,
+    /// Fullscreen sampling pipeline used to downsample a captured backdrop region.
+    texture_blit_pipeline: Option<wgpu::RenderPipeline>,
     /// Stencil-only pipeline: writes stencil but no color output.
     /// Used for Step 1 of the three-step backdrop draw.
     stencil_only_pipeline: Option<wgpu::RenderPipeline>,
@@ -233,6 +236,8 @@ pub struct Renderer<'a> {
     // ── Gradient fill infrastructure ───────────────────────────────────
     /// Bind group layout for gradient resources (group 3 in shader).
     gradient_bind_group_layout: wgpu::BindGroupLayout,
+    /// Bind group layout for gradient resources plus backdrop sampling.
+    backdrop_gradient_bind_group_layout: wgpu::BindGroupLayout,
     /// Monotonic counter to invalidate cached gradient bind groups when the layout changes.
     gradient_bind_group_layout_epoch: u64,
     /// Sampler for gradient ramp textures (nearest, clamp-to-edge).

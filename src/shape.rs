@@ -55,6 +55,8 @@ pub struct CachedShapeHandle {
     pub(crate) is_rect: bool,
     /// The local-space bounding rect when `is_rect` is true, for scissor computation.
     pub(crate) rect_bounds: Option<[(f32, f32); 2]>,
+    /// Local-space axis-aligned bounds for the tessellated shape.
+    pub(crate) local_bounds: [(f32, f32); 2],
     /// Width and height of the local-space bounds used to normalize texture coordinates.
     pub(crate) texture_mapping_size: [f32; 2],
     pub(crate) geometry_id: Option<u64>,
@@ -88,13 +90,13 @@ impl CachedShapeHandle {
             TessellatedGeometry::Owned(vertex_buffers) => Arc::new(vertex_buffers),
             TessellatedGeometry::Shared(vertex_buffers) => vertex_buffers,
         };
-        let texture_mapping_size = rect_bounds
-            .map(rect_size)
-            .unwrap_or_else(|| compute_texture_mapping_size(&vertices));
+        let local_bounds = rect_bounds.unwrap_or_else(|| compute_vertex_bounds(&vertices));
+        let texture_mapping_size = rect_size(local_bounds);
         Self {
             vertex_buffers: vertices,
             is_rect,
             rect_bounds,
+            local_bounds,
             texture_mapping_size,
             geometry_id,
         }
@@ -108,9 +110,9 @@ fn rect_size(rect_bounds: [(f32, f32); 2]) -> [f32; 2] {
     ]
 }
 
-fn compute_texture_mapping_size(vertex_buffers: &VertexBuffers<CustomVertex, u16>) -> [f32; 2] {
+fn compute_vertex_bounds(vertex_buffers: &VertexBuffers<CustomVertex, u16>) -> [(f32, f32); 2] {
     if vertex_buffers.vertices.is_empty() {
-        return [1.0, 1.0];
+        return [(0.0, 0.0), (1.0, 1.0)];
     }
 
     let mut min_x = f32::INFINITY;
@@ -135,7 +137,7 @@ fn compute_texture_mapping_size(vertex_buffers: &VertexBuffers<CustomVertex, u16
         }
     }
 
-    [(max_x - min_x).max(1e-6), (max_y - min_y).max(1e-6)]
+    [(min_x, min_y), (max_x, max_y)]
 }
 
 pub(crate) enum TessellatedGeometry {
@@ -1226,6 +1228,12 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) fill: Option<Fill>,
     /// Cached gradient bind group, refreshed when the fill or gradient layout changes.
     pub(crate) gradient_bind_group: Option<Arc<wgpu::BindGroup>>,
+    /// Persistent uniform buffer for backdrop material parameters.
+    pub(crate) backdrop_material_params_buffer: Option<wgpu::Buffer>,
+    /// Cached gradient+backdrop bind group reused while the captured output texture is stable.
+    pub(crate) backdrop_gradient_bind_group: Option<wgpu::BindGroup>,
+    /// Stable id of the pooled texture referenced by `backdrop_gradient_bind_group`.
+    pub(crate) backdrop_gradient_texture_id: Option<u64>,
     /// Whether this node is a leaf in the draw tree (no children).
     pub(crate) is_leaf: bool,
     /// When `false`, skip stencil increment/decrement for this parent
@@ -1257,6 +1265,9 @@ impl CachedShapeDrawData {
             // Set during render traversal
             stencil_ref: None,
             gradient_bind_group: None,
+            backdrop_material_params_buffer: None,
+            backdrop_gradient_bind_group: None,
+            backdrop_gradient_texture_id: None,
             is_leaf: true,
         }
     }
@@ -1281,6 +1292,72 @@ impl CachedShapeDrawData {
             )),
             _ => None,
         };
+    }
+
+    pub fn prepare_gradient_backdrop_material_params_buffer(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        backdrop_sampling_uniform: crate::pipeline::BackdropSamplingUniform,
+    ) -> Option<wgpu::Buffer> {
+        let params = {
+            let gradient = match self.fill.as_ref() {
+                Some(Fill::Gradient(gradient)) => gradient,
+                _ => return None,
+            };
+
+            crate::gradient::gpu::GpuMaterialParams::from_gradient_data(&gradient.data)
+                .with_backdrop_sampling(backdrop_sampling_uniform)
+        };
+
+        if let Some(existing_buffer) = self.backdrop_material_params_buffer.as_ref() {
+            queue.write_buffer(existing_buffer, 0, bytemuck::bytes_of(&params));
+        } else {
+            self.backdrop_material_params_buffer = Some(crate::pipeline::create_buffer_init(
+                device,
+                Some("gradient_backdrop_material_params_buffer"),
+                bytemuck::bytes_of(&params),
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            ));
+        }
+
+        self.backdrop_material_params_buffer.clone()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn prepare_backdrop_gradient_bind_group(
+        &mut self,
+        gradient_cache: &mut GradientCache,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        material_params_buffer: &wgpu::Buffer,
+        gradient_sampler: &wgpu::Sampler,
+        backdrop_texture_id: u64,
+        backdrop_view: &wgpu::TextureView,
+        backdrop_sampler: &wgpu::Sampler,
+    ) -> Option<&wgpu::BindGroup> {
+        if self.backdrop_gradient_texture_id != Some(backdrop_texture_id) {
+            let gradient = match self.fill.as_mut() {
+                Some(Fill::Gradient(gradient)) => gradient,
+                _ => return None,
+            };
+
+            self.backdrop_gradient_bind_group =
+                Some(gradient_cache.create_backdrop_gradient_bind_group(
+                    &mut gradient.data,
+                    device,
+                    queue,
+                    layout,
+                    material_params_buffer,
+                    gradient_sampler,
+                    backdrop_view,
+                    backdrop_sampler,
+                ));
+            self.backdrop_gradient_texture_id = Some(backdrop_texture_id);
+        }
+
+        self.backdrop_gradient_bind_group.as_ref()
     }
 }
 
@@ -1612,6 +1689,7 @@ pub(crate) trait DrawShapeCommand {
     fn instance_index(&self) -> Option<usize>;
     fn transform(&self) -> Option<InstanceTransform>;
     fn texture_id(&self, layer: usize) -> Option<u64>;
+    fn local_bounds(&self) -> [(f32, f32); 2];
     fn instance_color_override(&self) -> Option<[f32; 4]>;
     fn has_gradient_fill(&self) -> bool;
     fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>>;
@@ -1654,6 +1732,11 @@ impl DrawShapeCommand for CachedShapeDrawData {
     #[inline]
     fn texture_id(&self, layer: usize) -> Option<u64> {
         self.texture_ids.get(layer).copied().unwrap_or(None)
+    }
+
+    #[inline]
+    fn local_bounds(&self) -> [(f32, f32); 2] {
+        self.cached_shape.local_bounds
     }
 
     #[inline]

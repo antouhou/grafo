@@ -1,24 +1,26 @@
 use grafo::{
-    BorderRadii, Color, ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor,
-    GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
-    LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientShape,
-    RadialGradientSize, Renderer, Shape, ShapeDrawCommandOptions, ShapeTextureFitMode,
-    ShapeTextureOptions, SpreadMode, Stroke, TransformInstance,
+    BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color, ColorInterpolation,
+    ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc, GradientStop,
+    GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
+    LinearGradientLine, RadialGradientDesc, RadialGradientShape, RadialGradientSize, Renderer,
+    Shape, ShapeDrawCommandOptions, ShapeTextureFitMode, ShapeTextureOptions, SpreadMode, Stroke,
+    TransformInstance,
 };
 
 use crate::expectations::PixelExpectation;
-use crate::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
+use crate::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, PASSTHROUGH_WGSL, VERTICAL_BLUR_WGSL};
 
 // ── Grid layout constants ────────────────────────────────────────────────────
 
 const TILE_SIZE: u32 = 80;
 const COLUMNS: u32 = 6;
-const ROWS: u32 = 9;
+const ROWS: u32 = 10;
 
 pub const CANVAS_WIDTH: u32 = TILE_SIZE * COLUMNS;
 pub const CANVAS_HEIGHT: u32 = TILE_SIZE * ROWS;
 
 const BLUR_EFFECT_ID: u64 = 1;
+const PASSTHROUGH_EFFECT_ID: u64 = 2;
 const CHECKERBOARD_TEXTURE_ID: u64 = 100;
 const SOLID_GREEN_TEXTURE_ID: u64 = 101;
 const SOLID_GREEN_20X20_TEXTURE_ID: u64 = 102;
@@ -115,6 +117,15 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_52_backdrop_overflow_visible_children(renderer));
     expectations.extend(tile_53_texture_original_size(renderer));
     expectations.extend(tile_54_texture_original_size_scaled(renderer));
+    expectations.extend(tile_55_backdrop_capture_screen_rect(renderer));
+    expectations.extend(tile_56_backdrop_capture_downsampled(renderer));
+    expectations.extend(tile_57_gradient_backdrop_oversized_capture_falls_back(
+        renderer,
+    ));
+    expectations.extend(tile_58_backdrop_budgeted_capture_falls_back(renderer));
+    expectations.extend(tile_59_backdrop_node_bounds_offscreen_preserves_size(
+        renderer,
+    ));
 
     expectations
 }
@@ -125,6 +136,9 @@ fn load_shared_resources(renderer: &mut Renderer) {
     renderer
         .load_effect(BLUR_EFFECT_ID, &[HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL])
         .expect("Failed to compile blur effect");
+    renderer
+        .load_effect(PASSTHROUGH_EFFECT_ID, &[PASSTHROUGH_WGSL])
+        .expect("Failed to compile passthrough effect");
 
     // 4×4 checkerboard: alternating white and black pixels, RGBA
     let mut checkerboard = [0u8; 4 * 4 * 4];
@@ -1852,18 +1866,22 @@ fn tile_29_backdrop_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> 
         )
         .unwrap();
 
-    let (pw, ph) = renderer.size();
     let blur_params = BlurParams {
         radius: 10.0,
         _pad: 0.0,
-        tex_size: [pw as f32, ph as f32],
+        tex_size: [40.0, 50.0],
     };
     renderer
-        .set_shape_backdrop_effect(panel_id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
+        .set_shape_backdrop_effect(
+            panel_id,
+            BLUR_EFFECT_ID,
+            bytemuck::bytes_of(&blur_params),
+            BackdropEffectConfig::default(),
+        )
         .expect("Failed to set backdrop effect");
 
     vec![
-        // Panel interior: blurred mix of red bg + blue stripe + white overlay
+        // Panel interior: blurred mix of red bg + blue stripe under the panel's white fill
         PixelExpectation::new(
             ox as u32 + 40,
             oy as u32 + 40,
@@ -1873,7 +1891,7 @@ fn tile_29_backdrop_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> 
             255,
             "t29_backdrop_interior",
         )
-        .with_tolerance(40),
+        .with_tolerance(20),
         // Blue stripe outside panel stays sharp and fully blue
         PixelExpectation::opaque(
             ox as u32 + 12,
@@ -1945,14 +1963,18 @@ fn tile_30_backdrop_blur_nonleaf(renderer: &mut Renderer) -> Vec<PixelExpectatio
         )
         .unwrap();
 
-    let (pw, ph) = renderer.size();
     let blur_params = BlurParams {
         radius: 8.0,
         _pad: 0.0,
-        tex_size: [pw as f32, ph as f32],
+        tex_size: [50.0, 60.0],
     };
     renderer
-        .set_shape_backdrop_effect(panel_id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
+        .set_shape_backdrop_effect(
+            panel_id,
+            BLUR_EFFECT_ID,
+            bytemuck::bytes_of(&blur_params),
+            BackdropEffectConfig::default(),
+        )
         .expect("Failed to set backdrop effect");
 
     vec![
@@ -2037,18 +2059,22 @@ fn tile_31_backdrop_under_scissor(renderer: &mut Renderer) -> Vec<PixelExpectati
         )
         .unwrap();
 
-    let (pw, ph) = renderer.size();
     let blur_params = BlurParams {
         radius: 6.0,
         _pad: 0.0,
-        tex_size: [pw as f32, ph as f32],
+        tex_size: [40.0, 50.0],
     };
     renderer
-        .set_shape_backdrop_effect(panel_id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
+        .set_shape_backdrop_effect(
+            panel_id,
+            BLUR_EFFECT_ID,
+            bytemuck::bytes_of(&blur_params),
+            BackdropEffectConfig::default(),
+        )
         .expect("Failed to set backdrop effect");
 
     vec![
-        // Panel interior: blurred mix of yellow bg + blue stripe + white overlay
+        // Panel interior: blurred mix of yellow bg + blue stripe under the panel's white fill
         PixelExpectation::new(
             ox as u32 + 35,
             oy as u32 + 40,
@@ -2058,7 +2084,7 @@ fn tile_31_backdrop_under_scissor(renderer: &mut Renderer) -> Vec<PixelExpectati
             255,
             "t31_backdrop_in_scissor",
         )
-        .with_tolerance(40),
+        .with_tolerance(20),
         // Blue stripe outside panel stays sharp
         PixelExpectation::opaque(
             ox as u32 + 65,
@@ -2976,28 +3002,32 @@ fn tile_46_gradient_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectati
         )
         .unwrap();
 
-    let (pw, ph) = renderer.size();
     let blur_params = BlurParams {
         radius: 10.0,
         _pad: 0.0,
-        tex_size: [pw as f32, ph as f32],
+        tex_size: [40.0, 50.0],
     };
     renderer
-        .set_shape_backdrop_effect(panel_id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
+        .set_shape_backdrop_effect(
+            panel_id,
+            BLUR_EFFECT_ID,
+            bytemuck::bytes_of(&blur_params),
+            BackdropEffectConfig::default(),
+        )
         .expect("Failed to set backdrop effect");
 
     vec![
-        // Panel interior: blurred mix of red bg + gradient stripe + white overlay
+        // Panel interior: blurred mix of red bg + gradient stripe under the panel's white fill
         PixelExpectation::new(
             ox as u32 + 40,
             oy as u32 + 40,
-            150,
-            150,
-            180,
+            158,
+            185,
+            183,
             255,
             "t46_backdrop_interior",
         )
-        .with_tolerance(50),
+        .with_tolerance(25),
         // Gradient stripe outside panel — should be crisp blue (left side)
         PixelExpectation::opaque(
             ox as u32 + 12,
@@ -3463,14 +3493,18 @@ fn tile_52_backdrop_overflow_visible_children(renderer: &mut Renderer) -> Vec<Pi
         )
         .unwrap();
 
-    let (width, height) = renderer.size();
     let blur_params = BlurParams {
         radius: 5.0,
         _pad: 0.0,
-        tex_size: [width as f32, height as f32],
+        tex_size: [30.0, 30.0],
     };
     renderer
-        .set_shape_backdrop_effect(panel_id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
+        .set_shape_backdrop_effect(
+            panel_id,
+            BLUR_EFFECT_ID,
+            bytemuck::bytes_of(&blur_params),
+            BackdropEffectConfig::default(),
+        )
         .expect("Failed to set backdrop effect");
 
     let child = Shape::rect(
@@ -3621,6 +3655,412 @@ fn tile_54_texture_original_size_scaled(renderer: &mut Renderer) -> Vec<PixelExp
             255,
             255,
             "t54_scaled_original_size_texture_clipped_outside_scaled_shape",
+        ),
+    ]
+}
+
+fn tile_55_backdrop_capture_screen_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(55);
+
+    let red_source = Shape::rect(
+        [(ox + 5.0, oy + 10.0), (ox + 35.0, oy + 40.0)],
+        Stroke::default(),
+    );
+    renderer
+        .add_shape(
+            red_source,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+        )
+        .unwrap();
+
+    let blue_behind_panel = Shape::rect(
+        [(ox + 45.0, oy + 20.0), (ox + 75.0, oy + 50.0)],
+        Stroke::default(),
+    );
+    renderer
+        .add_shape(
+            blue_behind_panel,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(50, 50, 220)),
+        )
+        .unwrap();
+
+    let panel = Shape::rect(
+        [(ox + 45.0, oy + 20.0), (ox + 75.0, oy + 50.0)],
+        Stroke::default(),
+    );
+    let panel_id = renderer
+        .add_shape(panel, None, None, ShapeDrawCommandOptions::new())
+        .unwrap();
+
+    renderer
+        .set_shape_backdrop_effect(
+            panel_id,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::new()
+                .capture_area(BackdropCaptureArea::ScreenRect([
+                    (ox + 5.0, oy + 10.0),
+                    (ox + 35.0, oy + 40.0),
+                ]))
+                .downsample(1.0),
+        )
+        .expect("Failed to set backdrop screen-rect effect");
+
+    vec![
+        PixelExpectation::opaque(
+            ox as u32 + 60,
+            oy as u32 + 35,
+            220,
+            50,
+            50,
+            "t55_panel_uses_captured_rect",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 40,
+            oy as u32 + 35,
+            255,
+            255,
+            255,
+            "t55_outside_panel_stays_canvas_bg",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 20,
+            oy as u32 + 25,
+            220,
+            50,
+            50,
+            "t55_source_rect_stays_red",
+        ),
+    ]
+}
+
+fn tile_56_backdrop_capture_downsampled(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(56);
+
+    let green_source = Shape::rect(
+        [(ox + 5.0, oy + 10.0), (ox + 45.0, oy + 50.0)],
+        Stroke::default(),
+    );
+    renderer
+        .add_shape(
+            green_source,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(50, 180, 50)),
+        )
+        .unwrap();
+
+    let red_behind_panel = Shape::rect(
+        [(ox + 50.0, oy + 15.0), (ox + 75.0, oy + 55.0)],
+        Stroke::default(),
+    );
+    renderer
+        .add_shape(
+            red_behind_panel,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+        )
+        .unwrap();
+
+    let panel = Shape::rect(
+        [(ox + 50.0, oy + 15.0), (ox + 75.0, oy + 55.0)],
+        Stroke::default(),
+    );
+    let panel_id = renderer
+        .add_shape(panel, None, None, ShapeDrawCommandOptions::new())
+        .unwrap();
+
+    renderer
+        .set_shape_backdrop_effect(
+            panel_id,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::new()
+                .capture_area(BackdropCaptureArea::ScreenRect([
+                    (ox + 5.0, oy + 10.0),
+                    (ox + 45.0, oy + 50.0),
+                ]))
+                .downsample(0.5),
+        )
+        .expect("Failed to set downsampled backdrop effect");
+
+    vec![
+        PixelExpectation::opaque(
+            ox as u32 + 62,
+            oy as u32 + 35,
+            50,
+            180,
+            50,
+            "t56_downsampled_panel_stays_green",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 47,
+            oy as u32 + 35,
+            255,
+            255,
+            255,
+            "t56_gap_between_source_and_panel_is_canvas_bg",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 20,
+            oy as u32 + 25,
+            50,
+            180,
+            50,
+            "t56_source_rect_stays_green",
+        ),
+    ]
+}
+
+fn tile_57_gradient_backdrop_oversized_capture_falls_back(
+    renderer: &mut Renderer,
+) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(57);
+
+    let panel = Shape::rect(
+        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
+        Stroke::default(),
+    );
+    let gradient = Gradient::linear(LinearGradientDesc {
+        common: two_stop_common((220, 30, 30), (30, 30, 220), SpreadMode::Pad),
+        line: LinearGradientLine {
+            start: [ox + 10.0, oy + 40.0],
+            end: [ox + 70.0, oy + 40.0],
+        },
+    })
+    .expect("valid gradient");
+
+    let panel_id = renderer
+        .add_shape(
+            panel,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+        )
+        .unwrap();
+
+    renderer
+        .set_shape_backdrop_effect(
+            panel_id,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::new().capture_area(BackdropCaptureArea::ScreenRect([
+                (0.0, 0.0),
+                (20_000.0, 20_000.0),
+            ])),
+        )
+        .expect("Failed to set oversized gradient backdrop effect");
+
+    vec![
+        PixelExpectation::opaque_approx(
+            ox as u32 + 20,
+            oy as u32 + 40,
+            190,
+            30,
+            60,
+            60,
+            "t57_left_side_remains_gradient_red",
+        ),
+        PixelExpectation::opaque_approx(
+            ox as u32 + 60,
+            oy as u32 + 40,
+            60,
+            30,
+            190,
+            60,
+            "t57_right_side_remains_gradient_blue",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 5,
+            oy as u32 + 5,
+            255,
+            255,
+            255,
+            "t57_outside_panel_stays_canvas_bg",
+        ),
+    ]
+}
+
+fn tile_58_backdrop_budgeted_capture_falls_back(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(58);
+
+    let red_source = Shape::rect(
+        [(ox + 5.0, oy + 10.0), (ox + 75.0, oy + 45.0)],
+        Stroke::default(),
+    );
+    renderer
+        .add_shape(
+            red_source,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+        )
+        .unwrap();
+
+    let blue_behind_panel = Shape::rect(
+        [(ox + 45.0, oy + 20.0), (ox + 75.0, oy + 50.0)],
+        Stroke::default(),
+    );
+    renderer
+        .add_shape(
+            blue_behind_panel,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(50, 50, 220)),
+        )
+        .unwrap();
+
+    let panel = Shape::rect(
+        [(ox + 45.0, oy + 20.0), (ox + 75.0, oy + 50.0)],
+        Stroke::default(),
+    );
+    let panel_id = renderer
+        .add_shape(panel, None, None, ShapeDrawCommandOptions::new())
+        .unwrap();
+
+    renderer
+        .set_shape_backdrop_effect(
+            panel_id,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::new().capture_area(BackdropCaptureArea::ScreenRect([
+                (ox + 5.0, oy + 10.0),
+                (ox + 1_505.0, oy + 1_510.0),
+            ])),
+        )
+        .expect("Failed to set budgeted backdrop effect");
+
+    vec![
+        PixelExpectation::opaque(
+            ox as u32 + 60,
+            oy as u32 + 35,
+            50,
+            50,
+            220,
+            "t58_panel_stays_underlying_blue_when_capture_budget_skips",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 20,
+            oy as u32 + 25,
+            220,
+            50,
+            50,
+            "t58_source_rect_stays_red",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 40,
+            oy as u32 + 60,
+            255,
+            255,
+            255,
+            "t58_outside_panel_stays_canvas_bg",
+        ),
+    ]
+}
+
+fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
+    renderer: &mut Renderer,
+) -> Vec<PixelExpectation> {
+    let (ox, oy) = tile_origin(59);
+
+    let red_band = Shape::rect(
+        [(ox + 60.0, oy + 15.0), (ox + 70.0, oy + 55.0)],
+        Stroke::default(),
+    );
+    renderer
+        .add_shape(
+            red_band,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+        )
+        .unwrap();
+
+    let green_band = Shape::rect(
+        [(ox + 70.0, oy + 15.0), (ox + 80.0, oy + 55.0)],
+        Stroke::default(),
+    );
+    renderer
+        .add_shape(
+            green_band,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(50, 180, 50)),
+        )
+        .unwrap();
+
+    let blue_offscreen_band = Shape::rect(
+        [(ox + 80.0, oy + 15.0), (ox + 90.0, oy + 55.0)],
+        Stroke::default(),
+    );
+    renderer
+        .add_shape(
+            blue_offscreen_band,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(50, 50, 220)),
+        )
+        .unwrap();
+
+    let yellow_offscreen_band = Shape::rect(
+        [(ox + 90.0, oy + 15.0), (ox + 100.0, oy + 55.0)],
+        Stroke::default(),
+    );
+    renderer
+        .add_shape(
+            yellow_offscreen_band,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 50)),
+        )
+        .unwrap();
+
+    let panel = Shape::rect(
+        [(ox + 60.0, oy + 15.0), (ox + 100.0, oy + 55.0)],
+        Stroke::default(),
+    );
+    let panel_id = renderer
+        .add_shape(panel, None, None, ShapeDrawCommandOptions::new())
+        .unwrap();
+
+    renderer
+        .set_shape_backdrop_effect(
+            panel_id,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::default(),
+        )
+        .expect("Failed to set offscreen node-bounds backdrop effect");
+
+    vec![
+        PixelExpectation::opaque(
+            ox as u32 + 65,
+            oy as u32 + 35,
+            220,
+            50,
+            50,
+            "t59_visible_left_half_stays_red",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 75,
+            oy as u32 + 35,
+            50,
+            180,
+            50,
+            "t59_visible_right_half_stays_green",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 55,
+            oy as u32 + 35,
+            255,
+            255,
+            255,
+            "t59_outside_panel_stays_canvas_bg",
         ),
     ]
 }

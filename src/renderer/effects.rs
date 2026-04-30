@@ -44,11 +44,45 @@ fn validate_effect_params(
     )
 }
 
+fn validate_backdrop_config(config: &effect::BackdropEffectConfig) -> Result<(), EffectError> {
+    if !(config.downsample > 0.0 && config.downsample <= 1.0) {
+        return Err(EffectError::InvalidParams(format!(
+            "backdrop downsample must be in the range (0.0, 1.0], got {}",
+            config.downsample
+        )));
+    }
+
+    if !config.padding.is_finite() || config.padding < 0.0 {
+        return Err(EffectError::InvalidParams(format!(
+            "backdrop padding must be finite and non-negative, got {}",
+            config.padding
+        )));
+    }
+
+    if let effect::BackdropCaptureArea::ScreenRect([(x0, y0), (x1, y1)]) = config.capture_area {
+        if !(x0.is_finite() && y0.is_finite() && x1.is_finite() && y1.is_finite()) {
+            return Err(EffectError::InvalidParams(
+                "backdrop screen capture rectangles must use only finite coordinates".to_string(),
+            ));
+        }
+
+        if !(x1 > x0 && y1 > y0) {
+            return Err(EffectError::InvalidParams(
+                "backdrop screen capture rectangles must have positive width and height"
+                    .to_string(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 fn build_effect_instance(
     device: &wgpu::Device,
     loaded_effects: &HashMap<u64, LoadedEffect>,
     effect_id: u64,
     params: &[u8],
+    backdrop_config: Option<effect::BackdropEffectConfig>,
     params_buffer_label: &'static str,
 ) -> EffectInstance {
     let mut instance = EffectInstance {
@@ -56,6 +90,10 @@ fn build_effect_instance(
         params: params.to_vec(),
         params_buffer: None,
         params_bind_group: None,
+        backdrop_config,
+        backdrop_material_params_buffer: None,
+        backdrop_texture_bind_group: None,
+        backdrop_texture_id: None,
     };
 
     if params.is_empty() {
@@ -157,6 +195,7 @@ impl<'a> Renderer<'a> {
             &self.loaded_effects,
             effect_id,
             params,
+            None,
             "effect_params_buffer",
         );
 
@@ -197,6 +236,7 @@ impl<'a> Renderer<'a> {
         node_id: usize,
         effect_id: u64,
         params: &[u8],
+        backdrop_config: effect::BackdropEffectConfig,
     ) -> Result<(), EffectError> {
         if self.draw_tree.get(node_id).is_none() {
             return Err(EffectError::NodeNotFound(node_id));
@@ -212,16 +252,35 @@ impl<'a> Renderer<'a> {
         }
 
         validate_effect_params(&self.loaded_effects, effect_id, params)?;
+        validate_backdrop_config(&backdrop_config)?;
 
         let instance = build_effect_instance(
             &self.device,
             &self.loaded_effects,
             effect_id,
             params,
+            Some(backdrop_config),
             "backdrop_effect_params_buffer",
         );
 
         self.backdrop_effects.insert(node_id, instance);
+        Ok(())
+    }
+
+    pub fn update_backdrop_effect_config(
+        &mut self,
+        node_id: usize,
+        backdrop_config: effect::BackdropEffectConfig,
+    ) -> Result<(), EffectError> {
+        validate_backdrop_config(&backdrop_config)?;
+
+        let instance = self
+            .backdrop_effects
+            .get_mut(&node_id)
+            .ok_or(EffectError::NodeNotFound(node_id))?;
+        instance.backdrop_config = Some(backdrop_config);
+        instance.backdrop_texture_bind_group = None;
+        instance.backdrop_texture_id = None;
         Ok(())
     }
 
@@ -270,6 +329,22 @@ impl<'a> Renderer<'a> {
         }
     }
 
+    pub(super) fn ensure_texture_blit_pipeline(&mut self) {
+        if self.texture_blit_pipeline.is_some() {
+            return;
+        }
+
+        let composite_bind_group_layout = self
+            .composite_bgl
+            .as_ref()
+            .expect("composite bind group layout must exist before the texture blit pipeline");
+        self.texture_blit_pipeline = Some(effect::compile_texture_blit_pipeline(
+            &self.device,
+            self.config.format,
+            composite_bind_group_layout,
+        ));
+    }
+
     pub(super) fn ensure_effect_sampler(&mut self) {
         if self.effect_sampler.is_none() {
             self.effect_sampler = Some(self.device.create_sampler(&wgpu::SamplerDescriptor {
@@ -281,37 +356,6 @@ impl<'a> Renderer<'a> {
                 mipmap_filter: wgpu::FilterMode::Linear,
                 ..Default::default()
             }));
-        }
-    }
-
-    pub(super) fn ensure_backdrop_snapshot_texture(&mut self) {
-        let (width, height) = self.physical_size;
-        let needs_recreate = match &self.backdrop_snapshot_texture {
-            Some(texture) => {
-                let size = texture.size();
-                size.width != width || size.height != height
-            }
-            None => true,
-        };
-
-        if needs_recreate {
-            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("backdrop_snapshot"),
-                size: wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: self.config.format,
-                usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            });
-            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            self.backdrop_snapshot_texture = Some(texture);
-            self.backdrop_snapshot_view = Some(view);
         }
     }
 
@@ -338,13 +382,14 @@ impl<'a> Renderer<'a> {
         }
 
         let uniform_bind_group_layout = self.and_pipeline.get_bind_group_layout(0);
-        let pipeline = crate::pipeline::create_stencil_keep_color_pipeline(
+        let pipeline = crate::pipeline::create_backdrop_stencil_keep_color_pipeline(
             &self.device,
             self.config.format,
             self.msaa_sample_count,
             &uniform_bind_group_layout,
             &self.shape_texture_bind_group_layout_background,
             &self.shape_texture_bind_group_layout_foreground,
+            &self.backdrop_texture_bind_group_layout,
         );
         self.backdrop_color_pipeline = Some(pipeline);
     }
@@ -355,14 +400,14 @@ impl<'a> Renderer<'a> {
         }
 
         let uniform_bind_group_layout = self.and_pipeline.get_bind_group_layout(0);
-        let pipeline = crate::pipeline::create_gradient_stencil_keep_color_pipeline(
+        let pipeline = crate::pipeline::create_backdrop_gradient_stencil_keep_color_pipeline(
             &self.device,
             self.config.format,
             self.msaa_sample_count,
             &uniform_bind_group_layout,
             &self.shape_texture_bind_group_layout_background,
             &self.shape_texture_bind_group_layout_foreground,
-            &self.gradient_bind_group_layout,
+            &self.backdrop_gradient_bind_group_layout,
         );
         self.backdrop_color_gradient_pipeline = Some(pipeline);
     }
@@ -370,7 +415,8 @@ impl<'a> Renderer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_params_expectation;
+    use super::{validate_backdrop_config, validate_params_expectation};
+    use crate::effect::{BackdropCaptureArea, BackdropEffectConfig};
 
     #[test]
     fn validate_effect_params_rejects_missing_required_params() {
@@ -394,5 +440,34 @@ mod tests {
     fn validate_effect_params_allows_non_empty_for_param_effect() {
         let result = validate_params_expectation(1, true, &[1, 2, 3, 4]);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_backdrop_config_rejects_non_positive_downsample() {
+        let result = validate_backdrop_config(&BackdropEffectConfig::new().downsample(0.0));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_backdrop_config_rejects_negative_padding() {
+        let result = validate_backdrop_config(&BackdropEffectConfig::new().padding(-1.0));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_backdrop_config_rejects_inverted_screen_rect() {
+        let result = validate_backdrop_config(
+            &BackdropEffectConfig::new()
+                .capture_area(BackdropCaptureArea::ScreenRect([(10.0, 10.0), (5.0, 15.0)])),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_backdrop_config_rejects_non_finite_screen_rect() {
+        let result = validate_backdrop_config(&BackdropEffectConfig::new().capture_area(
+            BackdropCaptureArea::ScreenRect([(0.0, 0.0), (f32::INFINITY, 15.0)]),
+        ));
+        assert!(result.is_err());
     }
 }

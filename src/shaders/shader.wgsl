@@ -62,9 +62,8 @@ struct Uniforms {
 // Layer 1 (foreground/overlay)
 @group(2) @binding(0) var t_shape_layer1: texture_2d<f32>;
 @group(2) @binding(1) var s_shape_layer1: sampler;
-
-// Gradient resources (group 3)
-struct GradientParams {
+// Shared material resources (group 3)
+struct GradientColorParams {
     gradient_type: u32,   // 0=none, 1=linear, 2=radial, 3=conic
     spread_mode: u32,     // 0=pad, 1=repeat
     units: u32,           // 0=local (model space), 1=canvas (screen space)
@@ -83,9 +82,22 @@ struct GradientParams {
     _padding: f32,
 };
 
-@group(3) @binding(0) var<uniform> gradient_params: GradientParams;
+struct BackdropSamplingParams {
+    capture_origin: vec2<f32>,
+    inverse_capture_size: vec2<f32>,
+};
+
+struct MaterialParams {
+    gradient: GradientColorParams,
+    backdrop_sampling: BackdropSamplingParams,
+};
+
+@group(3) @binding(0) var<uniform> material_params: MaterialParams;
 @group(3) @binding(1) var t_gradient_ramp: texture_1d<f32>;
 @group(3) @binding(2) var s_gradient_ramp: sampler;
+// Specialized backdrop layer used only by backdrop color pipelines.
+@group(3) @binding(3) var t_backdrop_layer: texture_2d<f32>;
+@group(3) @binding(4) var s_backdrop_layer: sampler;
 
 fn to_linear(color: vec3<f32>) -> vec3<f32> {
     let cutoff = vec3<f32>(0.04045);
@@ -105,20 +117,20 @@ fn to_srgb(color: vec3<f32>) -> vec3<f32> {
 
 /// Computes the raw gradient parameter t for the given position.
 fn gradient_raw_t(pos: vec2<f32>) -> f32 {
-    let gtype = gradient_params.gradient_type;
+    let gtype = material_params.gradient.gradient_type;
     if gtype == 1u {
         // Linear
-        let d = gradient_params.linear_end - gradient_params.linear_start;
+        let d = material_params.gradient.linear_end - material_params.gradient.linear_start;
         let len_sq = dot(d, d);
         if len_sq < 1e-12 {
             return 0.0;
         }
-        return dot(pos - gradient_params.linear_start, d) / len_sq;
+        return dot(pos - material_params.gradient.linear_start, d) / len_sq;
     } else if gtype == 2u {
         // Radial (elliptical)
-        let diff = pos - gradient_params.radial_center;
-        let rx = gradient_params.radial_radius.x;
-        let ry = gradient_params.radial_radius.y;
+        let diff = pos - material_params.gradient.radial_center;
+        let rx = material_params.gradient.radial_radius.x;
+        let ry = material_params.gradient.radial_radius.y;
         if rx < 1e-6 || ry < 1e-6 {
             return 0.0;
         }
@@ -127,9 +139,9 @@ fn gradient_raw_t(pos: vec2<f32>) -> f32 {
         return length(vec2<f32>(nx, ny));
     } else if gtype == 3u {
         // Conic
-        let diff = pos - gradient_params.conic_center;
+        let diff = pos - material_params.gradient.conic_center;
         var angle = atan2(diff.y, diff.x); // [-pi, pi]
-        angle = angle - gradient_params.conic_start_angle;
+        angle = angle - material_params.gradient.conic_start_angle;
         // Normalize to [0, 1)
         let tau = 6.283185307179586;
         angle = angle - floor(angle / tau) * tau;
@@ -140,10 +152,10 @@ fn gradient_raw_t(pos: vec2<f32>) -> f32 {
 
 /// Applies the spread mode (pad or repeat) and maps t to the ramp UV.
 fn gradient_apply_spread(raw_t: f32) -> f32 {
-    let period_start = gradient_params.period_start;
-    let period_len = gradient_params.period_len;
-    let ramp_start = gradient_params.ramp_start;
-    let ramp_end = gradient_params.ramp_end;
+    let period_start = material_params.gradient.period_start;
+    let period_len = material_params.gradient.period_len;
+    let ramp_start = material_params.gradient.ramp_start;
+    let ramp_end = material_params.gradient.ramp_end;
 
     if period_len <= 0.0 {
         // Non-repeating: clamp to ramp domain
@@ -155,7 +167,7 @@ fn gradient_apply_spread(raw_t: f32) -> f32 {
     }
 
     // Repeating gradient: wrap into the period
-    let spread = gradient_params.spread_mode;
+    let spread = material_params.gradient.spread_mode;
     var t = raw_t;
 
     if spread == 1u {
@@ -175,17 +187,17 @@ fn gradient_apply_spread(raw_t: f32) -> f32 {
 /// Evaluates the gradient at the given model and screen positions.
 /// Returns a premultiplied linear RGBA color from the pre-baked ramp.
 fn evaluate_gradient(model_pos: vec2<f32>, screen_pos: vec2<f32>) -> vec4<f32> {
-    let gtype = gradient_params.gradient_type;
+    let gtype = material_params.gradient.gradient_type;
     if gtype == 0u {
         // No gradient — return transparent (caller uses solid fill)
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
 
-    if gradient_params.is_constant != 0u {
-        return gradient_params.constant_color;
+    if material_params.gradient.is_constant != 0u {
+        return material_params.gradient.constant_color;
     }
 
-    let pos = select(screen_pos, model_pos, gradient_params.units == 0u);
+    let pos = select(screen_pos, model_pos, material_params.gradient.units == 0u);
     let raw_t = gradient_raw_t(pos);
     let uv = gradient_apply_spread(raw_t);
 
@@ -401,6 +413,65 @@ fn compute_gradient_fragment_color(
     return final_pma * coverage;
 }
 
+fn compute_fragment_color_with_backdrop(
+    fragment_position: vec4<f32>,
+    color: vec4<f32>,
+    layer0_tex_coords: vec2<f32>,
+    layer1_tex_coords: vec2<f32>,
+    coverage: f32,
+    texture_flags: f32,
+) -> vec4<f32> {
+    let fill_pma = vec4<f32>(color.rgb * color.a, color.a);
+    let backdrop_uv = (fragment_position.xy - material_params.backdrop_sampling.capture_origin)
+        * material_params.backdrop_sampling.inverse_capture_size;
+    let backdrop_pma = textureSampleLevel(t_backdrop_layer, s_backdrop_layer, backdrop_uv, 0.0);
+
+    let flags = u32(texture_flags);
+    var base_pma = fill_pma + backdrop_pma * (1.0 - fill_pma.a);
+    if ((flags & 1u) != 0u) {
+            let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0);
+            base_pma = layer0_pma + base_pma * (1.0 - layer0_pma.a);
+    }
+
+    var final_pma = base_pma;
+    if ((flags & 2u) != 0u) {
+            let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, layer1_tex_coords, 0.0);
+            final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
+    }
+
+    return final_pma * coverage;
+}
+
+fn compute_gradient_fragment_color_with_backdrop(
+    fragment_position: vec4<f32>,
+    layer0_tex_coords: vec2<f32>,
+    layer1_tex_coords: vec2<f32>,
+    coverage: f32,
+    texture_flags: f32,
+    model_pos: vec2<f32>,
+    screen_pos: vec2<f32>,
+) -> vec4<f32> {
+    let fill_pma = evaluate_gradient(model_pos, screen_pos);
+    let backdrop_uv = (fragment_position.xy - material_params.backdrop_sampling.capture_origin)
+        * material_params.backdrop_sampling.inverse_capture_size;
+    let backdrop_pma = textureSampleLevel(t_backdrop_layer, s_backdrop_layer, backdrop_uv, 0.0);
+
+    let flags = u32(texture_flags);
+    var base_pma = fill_pma + backdrop_pma * (1.0 - fill_pma.a);
+    if ((flags & 1u) != 0u) {
+            let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0);
+            base_pma = layer0_pma + base_pma * (1.0 - layer0_pma.a);
+    }
+
+    var final_pma = base_pma;
+    if ((flags & 2u) != 0u) {
+            let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, layer1_tex_coords, 0.0);
+            final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
+    }
+
+    return final_pma * coverage;
+}
+
 @fragment
 fn fs_main(
     @location(0) color: vec4<f32>,
@@ -477,6 +548,47 @@ fn fs_passthrough_gradient(
     @location(6) screen_pos: vec2<f32>,
 ) -> @location(0) vec4<f32> {
     return compute_gradient_fragment_color(
+        layer0_tex_coords,
+        layer1_tex_coords,
+        coverage,
+        texture_flags,
+        model_pos,
+        screen_pos,
+    );
+}
+
+@fragment
+fn fs_backdrop_passthrough(
+    @builtin(position) fragment_position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+    @location(1) layer0_tex_coords: vec2<f32>,
+    @location(2) layer1_tex_coords: vec2<f32>,
+    @location(3) coverage: f32,
+    @location(4) @interpolate(flat) texture_flags: f32,
+) -> @location(0) vec4<f32> {
+    return compute_fragment_color_with_backdrop(
+        fragment_position,
+        color,
+        layer0_tex_coords,
+        layer1_tex_coords,
+        coverage,
+        texture_flags,
+    );
+}
+
+@fragment
+fn fs_backdrop_passthrough_gradient(
+    @builtin(position) fragment_position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+    @location(1) layer0_tex_coords: vec2<f32>,
+    @location(2) layer1_tex_coords: vec2<f32>,
+    @location(3) coverage: f32,
+    @location(4) @interpolate(flat) texture_flags: f32,
+    @location(5) model_pos: vec2<f32>,
+    @location(6) screen_pos: vec2<f32>,
+) -> @location(0) vec4<f32> {
+    return compute_gradient_fragment_color_with_backdrop(
+        fragment_position,
         layer0_tex_coords,
         layer1_tex_coords,
         coverage,

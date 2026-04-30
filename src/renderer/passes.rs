@@ -17,21 +17,45 @@ macro_rules! with_shape_mut {
 }
 
 pub(super) struct AppliedEffectOutput {
-    pub(super) composite_bind_group: wgpu::BindGroup,
-    pub(super) primary_work_texture: wgpu::Texture,
-    pub(super) secondary_work_texture: Option<wgpu::Texture>,
+    pub(super) composite_bind_group: Option<wgpu::BindGroup>,
+    pub(super) primary_work_texture: effect::PooledTexture,
+    pub(super) secondary_work_texture: Option<effect::PooledTexture>,
+    pub(super) final_texture_is_primary: bool,
 }
 
 impl AppliedEffectOutput {
     pub(super) fn push_work_textures_into(
         self,
-        output_textures: &mut Vec<wgpu::Texture>,
-    ) -> wgpu::BindGroup {
+        output_textures: &mut Vec<effect::PooledTexture>,
+    ) -> Option<wgpu::BindGroup> {
         output_textures.push(self.primary_work_texture);
         if let Some(secondary_work_texture) = self.secondary_work_texture {
             output_textures.push(secondary_work_texture);
         }
         self.composite_bind_group
+    }
+
+    pub(super) fn final_output_view(&self) -> &wgpu::TextureView {
+        if self.final_texture_is_primary {
+            &self.primary_work_texture.color_view
+        } else {
+            &self
+                .secondary_work_texture
+                .as_ref()
+                .expect("secondary effect texture must exist when it is the final output")
+                .color_view
+        }
+    }
+
+    pub(super) fn final_output_texture_id(&self) -> u64 {
+        if self.final_texture_is_primary {
+            self.primary_work_texture.texture_id
+        } else {
+            self.secondary_work_texture
+                .as_ref()
+                .expect("secondary effect texture must exist when it is the final output")
+                .texture_id
+        }
     }
 }
 
@@ -41,6 +65,7 @@ pub(super) struct EffectPassRunConfig<'a> {
     pub(super) source_view: &'a wgpu::TextureView,
     pub(super) effect_sampler: &'a wgpu::Sampler,
     pub(super) composite_bind_group_layout: &'a wgpu::BindGroupLayout,
+    pub(super) create_composite_bind_group: bool,
     pub(super) width: u32,
     pub(super) height: u32,
     pub(super) texture_format: wgpu::TextureFormat,
@@ -50,55 +75,38 @@ pub(super) struct EffectPassRunConfig<'a> {
 pub(super) fn apply_effect_passes(
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
+    texture_pool: &mut OffscreenTexturePool,
     config: EffectPassRunConfig<'_>,
 ) -> AppliedEffectOutput {
     let number_of_passes = config.loaded_effect.passes.len();
 
-    let effect_texture_a = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some(&format!("{}_work_a", config.label_prefix)),
-        size: wgpu::Extent3d {
-            width: config.width,
-            height: config.height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: config.texture_format,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    });
-    let effect_view_a = effect_texture_a.create_view(&wgpu::TextureViewDescriptor::default());
+    let effect_texture_a = texture_pool.acquire_color_only(
+        device,
+        config.width,
+        config.height,
+        config.texture_format,
+        1,
+    );
 
     let effect_texture_b = if number_of_passes > 1 {
-        Some(device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(&format!("{}_work_b", config.label_prefix)),
-            size: wgpu::Extent3d {
-                width: config.width,
-                height: config.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: config.texture_format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        }))
+        Some(texture_pool.acquire_color_only(
+            device,
+            config.width,
+            config.height,
+            config.texture_format,
+            1,
+        ))
     } else {
         None
     };
-    let effect_view_b = effect_texture_b
-        .as_ref()
-        .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()));
 
     let mut previous_input_view: &wgpu::TextureView = config.source_view;
 
     for (pass_index, effect_pass) in config.loaded_effect.passes.iter().enumerate() {
         let output_view = if pass_index % 2 == 0 {
-            &effect_view_a
+            &effect_texture_a.color_view
         } else {
-            effect_view_b.as_ref().unwrap()
+            &effect_texture_b.as_ref().unwrap().color_view
         };
 
         let input_bind_group = effect::create_texture_sample_bind_group(
@@ -140,18 +148,21 @@ pub(super) fn apply_effect_passes(
         previous_input_view = output_view;
     }
 
-    let composite_bind_group = effect::create_texture_sample_bind_group(
-        device,
-        config.composite_bind_group_layout,
-        previous_input_view,
-        config.effect_sampler,
-        Some(&format!("{}_composite_bg", config.label_prefix)),
-    );
+    let composite_bind_group = config.create_composite_bind_group.then(|| {
+        effect::create_texture_sample_bind_group(
+            device,
+            config.composite_bind_group_layout,
+            previous_input_view,
+            config.effect_sampler,
+            Some(&format!("{}_composite_bg", config.label_prefix)),
+        )
+    });
 
     AppliedEffectOutput {
         composite_bind_group,
         primary_work_texture: effect_texture_a,
         secondary_work_texture: effect_texture_b,
+        final_texture_is_primary: number_of_passes % 2 == 1,
     }
 }
 
@@ -597,6 +608,312 @@ pub(super) fn try_batch_leaf(
     false
 }
 
+fn transform_point_to_logical_screen(
+    point: (f32, f32),
+    transform: Option<InstanceTransform>,
+) -> (f32, f32) {
+    let transform = transform.unwrap_or_else(InstanceTransform::identity);
+    let homogeneous_x =
+        transform.col0[0] * point.0 + transform.col1[0] * point.1 + transform.col3[0];
+    let homogeneous_y =
+        transform.col0[1] * point.0 + transform.col1[1] * point.1 + transform.col3[1];
+    let homogeneous_w =
+        transform.col0[3] * point.0 + transform.col1[3] * point.1 + transform.col3[3];
+    let inverse_w = 1.0 / homogeneous_w.abs().max(1e-6);
+    (homogeneous_x * inverse_w, homogeneous_y * inverse_w)
+}
+
+fn transformed_bounds_to_logical_screen_rect(
+    local_bounds: [(f32, f32); 2],
+    transform: Option<InstanceTransform>,
+) -> [(f32, f32); 2] {
+    let corners = [
+        (local_bounds[0].0, local_bounds[0].1),
+        (local_bounds[1].0, local_bounds[0].1),
+        (local_bounds[1].0, local_bounds[1].1),
+        (local_bounds[0].0, local_bounds[1].1),
+    ];
+
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+
+    for corner in corners {
+        let (x, y) = transform_point_to_logical_screen(corner, transform);
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    }
+
+    [(min_x, min_y), (max_x, max_y)]
+}
+
+fn inflate_logical_rect(logical_rect: [(f32, f32); 2], padding: f32) -> [(f32, f32); 2] {
+    if padding <= 0.0 {
+        return logical_rect;
+    }
+
+    let min_x = logical_rect[0].0.min(logical_rect[1].0) - padding;
+    let min_y = logical_rect[0].1.min(logical_rect[1].1) - padding;
+    let max_x = logical_rect[0].0.max(logical_rect[1].0) + padding;
+    let max_y = logical_rect[0].1.max(logical_rect[1].1) + padding;
+
+    [(min_x, min_y), (max_x, max_y)]
+}
+
+fn logical_rect_is_finite(logical_rect: [(f32, f32); 2]) -> bool {
+    logical_rect[0].0.is_finite()
+        && logical_rect[0].1.is_finite()
+        && logical_rect[1].0.is_finite()
+        && logical_rect[1].1.is_finite()
+}
+
+fn round_capture_coordinate(value: f32, scale_factor: f32, round_outward: bool) -> Option<i32> {
+    let scaled_value = value * scale_factor;
+    if !scaled_value.is_finite() {
+        return None;
+    }
+
+    let rounded_value = if round_outward {
+        scaled_value.ceil()
+    } else {
+        scaled_value.floor()
+    };
+    if !rounded_value.is_finite()
+        || rounded_value < i32::MIN as f32
+        || rounded_value > i32::MAX as f32
+    {
+        return None;
+    }
+
+    Some(rounded_value as i32)
+}
+
+fn logical_rect_to_physical_capture_rect(
+    logical_rect: [(f32, f32); 2],
+    scale_factor: f64,
+) -> Option<(i32, i32, u32, u32)> {
+    let scale_factor = scale_factor as f32;
+    if !scale_factor.is_finite() || scale_factor <= 0.0 || !logical_rect_is_finite(logical_rect) {
+        return None;
+    }
+
+    let min_x = logical_rect[0].0.min(logical_rect[1].0);
+    let min_y = logical_rect[0].1.min(logical_rect[1].1);
+    let max_x = logical_rect[0].0.max(logical_rect[1].0);
+    let max_y = logical_rect[0].1.max(logical_rect[1].1);
+
+    let physical_min_x = round_capture_coordinate(min_x, scale_factor, false)?;
+    let physical_min_y = round_capture_coordinate(min_y, scale_factor, false)?;
+    let physical_max_x = round_capture_coordinate(max_x, scale_factor, true)?;
+    let physical_max_y = round_capture_coordinate(max_y, scale_factor, true)?;
+
+    let width = physical_max_x.saturating_sub(physical_min_x) as u32;
+    let height = physical_max_y.saturating_sub(physical_min_y) as u32;
+    if width == 0 || height == 0 {
+        return None;
+    }
+
+    Some((physical_min_x, physical_min_y, width, height))
+}
+
+fn capture_size_exceeds_limits(capture_size: (u32, u32), max_capture_dimension: u32) -> bool {
+    capture_size.0 > max_capture_dimension || capture_size.1 > max_capture_dimension
+}
+
+const MAX_BACKDROP_CAPTURE_VIEWPORT_TEXEL_MULTIPLIER: u64 = 4;
+
+fn max_backdrop_capture_texels(physical_size: (u32, u32)) -> u64 {
+    u64::from(physical_size.0)
+        .saturating_mul(u64::from(physical_size.1))
+        .saturating_mul(MAX_BACKDROP_CAPTURE_VIEWPORT_TEXEL_MULTIPLIER)
+}
+
+fn capture_size_exceeds_budget(capture_size: (u32, u32), physical_size: (u32, u32)) -> bool {
+    let capture_texels = u64::from(capture_size.0).saturating_mul(u64::from(capture_size.1));
+    capture_texels > max_backdrop_capture_texels(physical_size)
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+struct BackdropCaptureRegion {
+    capture_origin: (i32, i32),
+    capture_size: (u32, u32),
+    copy_source_origin: Option<(u32, u32)>,
+    copy_destination_origin: (u32, u32),
+    copy_size: (u32, u32),
+}
+
+impl BackdropCaptureRegion {
+    fn sample_uniform(self) -> crate::pipeline::BackdropSamplingUniform {
+        crate::pipeline::BackdropSamplingUniform::new(self.capture_origin, self.capture_size)
+    }
+}
+
+#[cfg(test)]
+fn screen_point_to_capture_uv(
+    sample_transform: crate::pipeline::BackdropSamplingUniform,
+    screen_point: (f32, f32),
+) -> (f32, f32) {
+    (
+        (screen_point.0 - sample_transform.capture_origin[0])
+            * sample_transform.inverse_capture_size[0],
+        (screen_point.1 - sample_transform.capture_origin[1])
+            * sample_transform.inverse_capture_size[1],
+    )
+}
+
+fn resolve_capture_region_to_viewport(
+    requested_rect: (i32, i32, u32, u32),
+    physical_size: (u32, u32),
+) -> BackdropCaptureRegion {
+    let (capture_x, capture_y, capture_width, capture_height) = requested_rect;
+    let capture_right = capture_x.saturating_add(capture_width as i32);
+    let capture_bottom = capture_y.saturating_add(capture_height as i32);
+
+    let overlap_left = capture_x.max(0);
+    let overlap_top = capture_y.max(0);
+    let overlap_right = capture_right.min(physical_size.0 as i32);
+    let overlap_bottom = capture_bottom.min(physical_size.1 as i32);
+
+    let overlap_width = overlap_right.saturating_sub(overlap_left) as u32;
+    let overlap_height = overlap_bottom.saturating_sub(overlap_top) as u32;
+    let has_overlap = overlap_width > 0 && overlap_height > 0;
+
+    BackdropCaptureRegion {
+        capture_origin: (capture_x, capture_y),
+        capture_size: (capture_width, capture_height),
+        copy_source_origin: has_overlap.then_some((overlap_left as u32, overlap_top as u32)),
+        copy_destination_origin: (
+            overlap_left.saturating_sub(capture_x) as u32,
+            overlap_top.saturating_sub(capture_y) as u32,
+        ),
+        copy_size: (overlap_width, overlap_height),
+    }
+}
+
+fn compute_backdrop_capture_region(
+    draw_command: &DrawCommand,
+    backdrop_config: effect::BackdropEffectConfig,
+    scale_factor: f64,
+    physical_size: (u32, u32),
+    max_capture_dimension: u32,
+) -> Option<BackdropCaptureRegion> {
+    let logical_rect = match backdrop_config.capture_area {
+        effect::BackdropCaptureArea::NodeBounds => transformed_bounds_to_logical_screen_rect(
+            draw_command.local_bounds(),
+            draw_command.transform(),
+        ),
+        effect::BackdropCaptureArea::FullScene => {
+            let logical_width = physical_size.0 as f32 / scale_factor as f32;
+            let logical_height = physical_size.1 as f32 / scale_factor as f32;
+            [(0.0, 0.0), (logical_width, logical_height)]
+        }
+        effect::BackdropCaptureArea::ScreenRect(rect) => rect,
+    };
+
+    let logical_rect = inflate_logical_rect(logical_rect, backdrop_config.padding);
+
+    logical_rect_to_physical_capture_rect(logical_rect, scale_factor).and_then(|requested_rect| {
+        let capture_size = (requested_rect.2, requested_rect.3);
+        if capture_size_exceeds_limits(capture_size, max_capture_dimension) {
+            warn!(
+                requested_width = capture_size.0,
+                requested_height = capture_size.1,
+                max_capture_dimension,
+                "Skipping backdrop capture that exceeds supported texture dimensions"
+            );
+            return None;
+        }
+
+        if capture_size_exceeds_budget(capture_size, physical_size) {
+            warn!(
+                requested_width = capture_size.0,
+                requested_height = capture_size.1,
+                requested_texels =
+                    u64::from(capture_size.0).saturating_mul(u64::from(capture_size.1)),
+                max_capture_texels = max_backdrop_capture_texels(physical_size),
+                viewport_width = physical_size.0,
+                viewport_height = physical_size.1,
+                "Skipping backdrop capture that exceeds the per-viewport texel budget"
+            );
+            return None;
+        }
+
+        Some(resolve_capture_region_to_viewport(
+            requested_rect,
+            physical_size,
+        ))
+    })
+}
+
+fn compute_downsampled_dimensions(capture_size: (u32, u32), downsample: f32) -> (u32, u32) {
+    (
+        ((capture_size.0 as f32) * downsample).ceil().max(1.0) as u32,
+        ((capture_size.1 as f32) * downsample).ceil().max(1.0) as u32,
+    )
+}
+
+fn clear_texture_to_transparent(
+    encoder: &mut wgpu::CommandEncoder,
+    output_view: &wgpu::TextureView,
+    label: &str,
+) {
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some(label),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: output_view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn blit_texture_to_texture(
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    pipeline: &wgpu::RenderPipeline,
+    bind_group_layout: &wgpu::BindGroupLayout,
+    input_view: &wgpu::TextureView,
+    output_view: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+    label: &str,
+) {
+    let bind_group = effect::create_texture_sample_bind_group(
+        device,
+        bind_group_layout,
+        input_view,
+        sampler,
+        Some(label),
+    );
+
+    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some(label),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: output_view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+    });
+    render_pass.set_pipeline(pipeline);
+    render_pass.set_bind_group(0, &bind_group, &[]);
+    render_pass.draw(0..3, 0..1);
+}
+
 /// Unified rendering function for all paths: main scene, effect subtrees,
 /// and behind-group rendering. Processes a flat event list from
 /// `plan_traversal_in_place`, breaking render passes at backdrop effect
@@ -618,7 +935,7 @@ pub(super) fn render_segments(
     events: &[TraversalEvent],
     effect_results: &HashMap<usize, wgpu::BindGroup>,
     group_effects: &HashMap<usize, EffectInstance>,
-    backdrop_effects: &HashMap<usize, EffectInstance>,
+    backdrop_effects: &mut HashMap<usize, EffectInstance>,
     color_view: &wgpu::TextureView,
     color_resolve_target: Option<&wgpu::TextureView>,
     depth_stencil_view: &wgpu::TextureView,
@@ -626,9 +943,11 @@ pub(super) fn render_segments(
     clear_first: bool,
     pipelines: &crate::renderer::types::Pipelines,
     buffers: &crate::renderer::types::Buffers,
+    gradient_cache: &mut crate::util::GradientCache,
+    texture_pool: &mut OffscreenTexturePool,
     composite_pipeline: Option<&wgpu::RenderPipeline>,
     backdrop_ctx: Option<&crate::renderer::types::BackdropContext>,
-    backdrop_work_textures: &mut Vec<wgpu::Texture>,
+    backdrop_work_textures: &mut Vec<effect::PooledTexture>,
     stencil_stack: &mut Vec<u32>,
     scissor_stack: &mut Vec<(u32, u32, u32, u32)>,
     clip_kind_stack: &mut Vec<ClipKind>,
@@ -654,10 +973,10 @@ pub(super) fn render_segments(
         // --- Scan for the next backdrop boundary ---
         let mut segment_end = events.len();
         let mut backdrop_node_id: Option<usize> = None;
-        if let Some(bctx) = backdrop_ctx {
+        if backdrop_ctx.is_some() {
             for (idx, event) in events.iter().enumerate().skip(event_idx) {
                 if let TraversalEvent::Pre(node_id) = event {
-                    if bctx.backdrop_effects.contains_key(node_id) {
+                    if backdrop_effects.contains_key(node_id) {
                         segment_end = idx;
                         backdrop_node_id = Some(*node_id);
                         break;
@@ -995,49 +1314,186 @@ pub(super) fn render_segments(
                 );
             }
 
-            // Copy current framebuffer to the backdrop snapshot texture.
-            let copy_src =
-                copy_source_texture.expect("copy_source_texture required for backdrop effects");
-            encoder.copy_texture_to_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: copy_src,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::TexelCopyTextureInfo {
-                    texture: bctx.backdrop_snapshot_texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-            );
+            let mut solid_backdrop_bind_group: Option<wgpu::BindGroup> = None;
+            let mut gradient_backdrop_bind_group: Option<wgpu::BindGroup> = None;
 
-            // Apply the backdrop effect (blur etc.) via ping-pong passes.
-            let effect_instance = bctx.backdrop_effects.get(&backdrop_node_id).unwrap();
-            let loaded_effect = bctx.loaded_effects.get(&effect_instance.effect_id).unwrap();
-            let effect_output = apply_effect_passes(
-                bctx.device,
-                encoder,
-                EffectPassRunConfig {
-                    loaded_effect,
-                    params_bind_group: effect_instance.params_bind_group.as_ref(),
-                    source_view: bctx.backdrop_snapshot_view,
-                    effect_sampler: bctx.effect_sampler,
-                    composite_bind_group_layout: bctx.composite_bgl,
-                    width,
-                    height,
-                    texture_format: bctx.config_format,
-                    label_prefix: "backdrop_effect",
-                },
-            );
-            let backdrop_composite_bind_group =
-                effect_output.push_work_textures_into(backdrop_work_textures);
+            if let Some(draw_command) = draw_tree.get_mut(backdrop_node_id) {
+                let effect_instance = backdrop_effects
+                    .get_mut(&backdrop_node_id)
+                    .expect("backdrop node must have an attached effect instance");
+                let backdrop_config = effect_instance.backdrop_config.unwrap_or_default();
+
+                if let Some(capture_region) = compute_backdrop_capture_region(
+                    draw_command,
+                    backdrop_config,
+                    scale_factor,
+                    physical_size,
+                    bctx.max_texture_dimension_2d,
+                ) {
+                    let backdrop_sampling_uniform = capture_region.sample_uniform();
+                    let (capture_width, capture_height) = capture_region.capture_size;
+                    let copy_source_texture = copy_source_texture
+                        .expect("copy_source_texture required for backdrop effects");
+                    let backdrop_capture_texture = texture_pool.acquire_color_only(
+                        bctx.device,
+                        capture_width,
+                        capture_height,
+                        bctx.config_format,
+                        1,
+                    );
+                    if capture_region.copy_size != capture_region.capture_size {
+                        clear_texture_to_transparent(
+                            encoder,
+                            &backdrop_capture_texture.color_view,
+                            "backdrop_capture_clear",
+                        );
+                    }
+                    if let Some((copy_source_x, copy_source_y)) = capture_region.copy_source_origin
+                    {
+                        encoder.copy_texture_to_texture(
+                            wgpu::TexelCopyTextureInfo {
+                                texture: copy_source_texture,
+                                mip_level: 0,
+                                origin: wgpu::Origin3d {
+                                    x: copy_source_x,
+                                    y: copy_source_y,
+                                    z: 0,
+                                },
+                                aspect: wgpu::TextureAspect::All,
+                            },
+                            wgpu::TexelCopyTextureInfo {
+                                texture: &backdrop_capture_texture.color_texture,
+                                mip_level: 0,
+                                origin: wgpu::Origin3d {
+                                    x: capture_region.copy_destination_origin.0,
+                                    y: capture_region.copy_destination_origin.1,
+                                    z: 0,
+                                },
+                                aspect: wgpu::TextureAspect::All,
+                            },
+                            wgpu::Extent3d {
+                                width: capture_region.copy_size.0,
+                                height: capture_region.copy_size.1,
+                                depth_or_array_layers: 1,
+                            },
+                        );
+                    }
+
+                    let effect_input_size = compute_downsampled_dimensions(
+                        (capture_width, capture_height),
+                        backdrop_config.downsample,
+                    );
+                    let mut downsampled_capture_texture: Option<effect::PooledTexture> = None;
+
+                    if effect_input_size != (capture_width, capture_height) {
+                        let downsampled_capture_target = texture_pool.acquire_color_only(
+                            bctx.device,
+                            effect_input_size.0,
+                            effect_input_size.1,
+                            bctx.config_format,
+                            1,
+                        );
+                        blit_texture_to_texture(
+                            bctx.device,
+                            encoder,
+                            bctx.texture_blit_pipeline,
+                            bctx.composite_bgl,
+                            &backdrop_capture_texture.color_view,
+                            &downsampled_capture_target.color_view,
+                            bctx.effect_sampler,
+                            "backdrop_capture_downsample",
+                        );
+                        downsampled_capture_texture = Some(downsampled_capture_target);
+                    }
+
+                    let loaded_effect = bctx
+                        .loaded_effects
+                        .get(&effect_instance.effect_id)
+                        .expect("loaded backdrop effect must exist");
+                    let effect_output = apply_effect_passes(
+                        bctx.device,
+                        encoder,
+                        texture_pool,
+                        EffectPassRunConfig {
+                            loaded_effect,
+                            params_bind_group: effect_instance.params_bind_group.as_ref(),
+                            source_view: downsampled_capture_texture
+                                .as_ref()
+                                .map(|texture| &texture.color_view)
+                                .unwrap_or(&backdrop_capture_texture.color_view),
+                            effect_sampler: bctx.effect_sampler,
+                            composite_bind_group_layout: bctx.composite_bgl,
+                            create_composite_bind_group: false,
+                            width: effect_input_size.0,
+                            height: effect_input_size.1,
+                            texture_format: bctx.config_format,
+                            label_prefix: "backdrop_effect",
+                        },
+                    );
+
+                    let uses_gradient_backdrop = draw_command.has_gradient_fill();
+                    if let DrawCommand::CachedShape(cached_shape) = draw_command {
+                        if uses_gradient_backdrop {
+                            let gradient_backdrop_material_params_buffer = cached_shape
+                                .prepare_gradient_backdrop_material_params_buffer(
+                                    bctx.device,
+                                    bctx.queue,
+                                    backdrop_sampling_uniform,
+                                )
+                                .expect(
+                                    "gradient backdrop shapes must prepare a backdrop material params buffer",
+                                );
+                            let backdrop_view = effect_output.final_output_view();
+                            gradient_backdrop_bind_group = cached_shape
+                                .prepare_backdrop_gradient_bind_group(
+                                    gradient_cache,
+                                    bctx.device,
+                                    bctx.queue,
+                                    bctx.backdrop_gradient_bind_group_layout,
+                                    &gradient_backdrop_material_params_buffer,
+                                    bctx.gradient_ramp_sampler,
+                                    effect_output.final_output_texture_id(),
+                                    backdrop_view,
+                                    bctx.effect_sampler,
+                                )
+                                .cloned();
+                        } else {
+                            let solid_backdrop_material_params_buffer =
+                                effect::prepare_solid_backdrop_material_params_buffer(
+                                    bctx.device,
+                                    bctx.queue,
+                                    &mut effect_instance.backdrop_material_params_buffer,
+                                    backdrop_sampling_uniform,
+                                );
+
+                            if effect_instance.backdrop_texture_id
+                                != Some(effect_output.final_output_texture_id())
+                            {
+                                effect_instance.backdrop_texture_bind_group =
+                                    Some(effect::create_backdrop_texture_sample_bind_group(
+                                        bctx.device,
+                                        bctx.backdrop_texture_bind_group_layout,
+                                        &solid_backdrop_material_params_buffer,
+                                        effect_output.final_output_view(),
+                                        bctx.effect_sampler,
+                                        Some("backdrop_shape_background_bind_group"),
+                                    ));
+                                effect_instance.backdrop_texture_id =
+                                    Some(effect_output.final_output_texture_id());
+                            }
+
+                            solid_backdrop_bind_group =
+                                effect_instance.backdrop_texture_bind_group.clone();
+                        }
+                    }
+
+                    backdrop_work_textures.push(backdrop_capture_texture);
+                    if let Some(downsampled_capture_texture) = downsampled_capture_texture {
+                        backdrop_work_textures.push(downsampled_capture_texture);
+                    }
+                    effect_output.push_work_textures_into(backdrop_work_textures);
+                }
+            }
 
             // Begin the self-contained backdrop shape pass.
             let mut render_pass = crate::pipeline::begin_render_pass_with_load_ops(
@@ -1101,14 +1557,6 @@ pub(super) fn render_segments(
                 });
             }
 
-            // Step 2: Composite the blurred backdrop (stencil-masked fullscreen quad).
-            let composite_pipeline =
-                composite_pipeline.expect("composite_pipeline required for backdrop effects");
-            render_pass.set_pipeline(composite_pipeline);
-            render_pass.set_bind_group(0, &backdrop_composite_bind_group, &[]);
-            render_pass.set_stencil_reference(this_stencil);
-            render_pass.draw(0..3, 0..1);
-
             // Determine whether the backdrop node has children and whether those children should
             // inherit this node's stencil or the nearest ancestor stencil.
             let backdrop_is_leaf = draw_tree
@@ -1121,8 +1569,12 @@ pub(super) fn render_segments(
             // Step 3: Color draw (Equal + Keep).
             if let Some(draw_command) = draw_tree.get_mut(backdrop_node_id) {
                 let uses_gradient = draw_command.has_gradient_fill();
-                render_pass.set_pipeline(if uses_gradient {
+                let use_backdrop_gradient_pipeline =
+                    uses_gradient && gradient_backdrop_bind_group.is_some();
+                render_pass.set_pipeline(if use_backdrop_gradient_pipeline {
                     bctx.backdrop_color_gradient_pipeline
+                } else if uses_gradient {
+                    pipelines.leaf_draw_gradient_pipeline
                 } else {
                     bctx.backdrop_color_pipeline
                 });
@@ -1137,6 +1589,8 @@ pub(super) fn render_segments(
                     &*pipelines.default_shape_texture_bind_groups[1],
                     &[],
                 );
+                bound_texture_state.mark_bound(0, None);
+                bound_texture_state.mark_bound(1, None);
                 if !bind_aggregated_geometry_buffers(&mut render_pass, buffers) {
                     continue;
                 }
@@ -1150,11 +1604,24 @@ pub(super) fn render_segments(
                 });
 
                 if uses_gradient {
-                    let gradient_bg = draw_tree
-                        .get(backdrop_node_id)
-                        .and_then(|draw_command| draw_command.gradient_bind_group())
-                        .expect("gradient backdrop shapes must prepare a gradient bind group");
-                    render_pass.set_bind_group(3, gradient_bg.as_ref(), &[]);
+                    if let Some(gradient_backdrop_bind_group) =
+                        gradient_backdrop_bind_group.as_ref()
+                    {
+                        render_pass.set_bind_group(3, gradient_backdrop_bind_group, &[]);
+                    } else {
+                        let gradient_bind_group = draw_command
+                            .gradient_bind_group()
+                            .expect("gradient backdrop fallback should reuse the prepared gradient bind group");
+                        render_pass.set_bind_group(3, gradient_bind_group.as_ref(), &[]);
+                    }
+                } else {
+                    render_pass.set_bind_group(
+                        3,
+                        solid_backdrop_bind_group
+                            .as_ref()
+                            .unwrap_or(bctx.default_backdrop_texture_bind_group),
+                        &[],
+                    );
                 }
 
                 bind_shape_texture_layers(
@@ -1222,4 +1689,85 @@ pub(super) fn render_segments(
 
     #[cfg(feature = "render_metrics")]
     pipeline_counts_out.accumulate(&currently_set_pipeline.counts);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        capture_size_exceeds_budget, capture_size_exceeds_limits, inflate_logical_rect,
+        logical_rect_to_physical_capture_rect, resolve_capture_region_to_viewport,
+        screen_point_to_capture_uv,
+    };
+
+    #[test]
+    fn physical_capture_rect_preserves_requested_size_outside_viewport() {
+        let requested_rect =
+            logical_rect_to_physical_capture_rect([(-10.0, 5.0), (30.0, 25.0)], 1.0)
+                .expect("capture rect should be non-empty");
+
+        assert_eq!(requested_rect, (-10, 5, 40, 20));
+    }
+
+    #[test]
+    fn physical_capture_rect_rejects_non_finite_coordinates() {
+        let requested_rect =
+            logical_rect_to_physical_capture_rect([(0.0, 0.0), (f32::INFINITY, 25.0)], 1.0);
+
+        assert!(requested_rect.is_none());
+    }
+
+    #[test]
+    fn capture_size_exceeds_limits_rejects_oversized_regions() {
+        let max_capture_dimension = 4_096u32;
+
+        assert!(capture_size_exceeds_limits(
+            (max_capture_dimension + 1, 64),
+            max_capture_dimension,
+        ));
+        assert!(!capture_size_exceeds_limits(
+            (max_capture_dimension, max_capture_dimension),
+            max_capture_dimension,
+        ));
+    }
+
+    #[test]
+    fn capture_size_exceeds_budget_rejects_large_dimension_valid_regions() {
+        assert!(capture_size_exceeds_budget((1_500, 1_500), (480, 800)));
+        assert!(!capture_size_exceeds_budget((480, 800), (480, 800)));
+    }
+
+    #[test]
+    fn capture_region_offsets_visible_copy_into_transparent_texture() {
+        let region = resolve_capture_region_to_viewport((-10, 5, 40, 20), (100, 100));
+
+        assert_eq!(region.capture_origin, (-10, 5));
+        assert_eq!(region.capture_size, (40, 20));
+        assert_eq!(region.copy_source_origin, Some((0, 5)));
+        assert_eq!(region.copy_destination_origin, (10, 0));
+        assert_eq!(region.copy_size, (30, 20));
+    }
+
+    #[test]
+    fn inflate_logical_rect_expands_symmetrically() {
+        let rect = inflate_logical_rect([(10.0, 20.0), (30.0, 40.0)], 5.0);
+
+        assert_eq!(rect, [(5.0, 15.0), (35.0, 45.0)]);
+    }
+
+    #[test]
+    fn padded_capture_preserves_node_window_inside_capture() {
+        let padded_rect = inflate_logical_rect([(100.0, 100.0), (200.0, 200.0)], 20.0);
+        let requested_rect = logical_rect_to_physical_capture_rect(padded_rect, 1.0)
+            .expect("capture rect should be non-empty");
+        let capture_region = resolve_capture_region_to_viewport(requested_rect, (1_000, 1_000));
+        let sample_transform = capture_region.sample_uniform();
+
+        let top_left_uv = screen_point_to_capture_uv(sample_transform, (100.5, 100.5));
+        let bottom_right_uv = screen_point_to_capture_uv(sample_transform, (199.5, 199.5));
+
+        assert!((top_left_uv.0 - (20.5 / 140.0)).abs() < 1e-6);
+        assert!((top_left_uv.1 - (20.5 / 140.0)).abs() < 1e-6);
+        assert!((bottom_right_uv.0 - (119.5 / 140.0)).abs() < 1e-6);
+        assert!((bottom_right_uv.1 - (119.5 / 140.0)).abs() < 1e-6);
+    }
 }

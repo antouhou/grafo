@@ -108,8 +108,7 @@ impl<'a> Renderer<'a> {
             self.msaa_color_texture_view = None;
         }
 
-        self.backdrop_snapshot_texture = None;
-        self.backdrop_snapshot_view = None;
+        self.texture_blit_pipeline = None;
         self.stencil_only_pipeline = None;
         self.backdrop_color_pipeline = None;
         self.backdrop_color_gradient_pipeline = None;
