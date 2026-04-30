@@ -42,6 +42,18 @@ fn assert_pixels_match(pixel_buffer: &[u8], expectations: &[grafo_test_scenes::P
     }
 }
 
+fn read_pixel_rgba(pixel_buffer: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
+    let stride = (width as usize) * 4;
+    let offset = (y as usize) * stride + (x as usize) * 4;
+
+    [
+        pixel_buffer[offset + 2],
+        pixel_buffer[offset + 1],
+        pixel_buffer[offset],
+        pixel_buffer[offset + 3],
+    ]
+}
+
 /// Main regression test — renders all shared visual-regression tiles.
 #[test]
 fn main_scene_pixel_expectations() {
@@ -239,6 +251,121 @@ fn clipping_rect_clips_child_without_visible_surface() {
     ];
 
     assert_pixels_match(&pixel_buffer, &expectations);
+}
+
+/// Regression test — partially offscreen backdrop captures clear untouched pooled pixels.
+#[test]
+fn partially_offscreen_backdrop_capture_clears_reused_texture_space() {
+    let physical_size = (100, 80);
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale(physical_size, 1.0)
+    else {
+        return;
+    };
+
+    const AVERAGE_WITH_RIGHT_NEIGHBOR_EFFECT_ID: u64 = 9_101;
+    const AVERAGE_WITH_RIGHT_NEIGHBOR_WGSL: &str = r#"
+const LOOKAHEAD_UV: vec2<f32> = vec2<f32>(0.4, 0.0);
+
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let base = textureSample(t_input, s_input, uv);
+    let lookahead = textureSample(t_input, s_input, uv + LOOKAHEAD_UV);
+    return 0.5 * (base + lookahead);
+}
+"#;
+
+    renderer
+        .load_effect(
+            AVERAGE_WITH_RIGHT_NEIGHBOR_EFFECT_ID,
+            &[AVERAGE_WITH_RIGHT_NEIGHBOR_WGSL],
+        )
+        .expect("Failed to compile deterministic backdrop test effect");
+
+    let seeded_blue_panel =
+        grafo::Shape::rect([(20.0, 20.0), (60.0, 60.0)], grafo::Stroke::default());
+    renderer
+        .add_shape(
+            seeded_blue_panel.clone(),
+            None,
+            None,
+            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(40, 40, 220)),
+        )
+        .unwrap();
+    let seeded_blue_panel_id = renderer
+        .add_shape(
+            seeded_blue_panel,
+            None,
+            None,
+            grafo::ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    renderer
+        .set_shape_backdrop_effect(
+            seeded_blue_panel_id,
+            AVERAGE_WITH_RIGHT_NEIGHBOR_EFFECT_ID,
+            &[],
+            grafo::BackdropEffectConfig::new().capture_area(
+                grafo::BackdropCaptureArea::ScreenRect([(20.0, 20.0), (60.0, 60.0)]),
+            ),
+        )
+        .unwrap();
+
+    let mut seeded_frame: Vec<u8> = Vec::new();
+    renderer.render_to_buffer(&mut seeded_frame);
+
+    renderer.clear_draw_queue();
+
+    let visible_red_source =
+        grafo::Shape::rect([(70.0, 20.0), (100.0, 60.0)], grafo::Stroke::default());
+    renderer
+        .add_shape(
+            visible_red_source,
+            None,
+            None,
+            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(220, 40, 40)),
+        )
+        .unwrap();
+
+    let partially_offscreen_panel =
+        grafo::Shape::rect([(70.0, 20.0), (100.0, 60.0)], grafo::Stroke::default());
+    let partially_offscreen_panel_id = renderer
+        .add_shape(
+            partially_offscreen_panel,
+            None,
+            None,
+            grafo::ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    renderer
+        .set_shape_backdrop_effect(
+            partially_offscreen_panel_id,
+            AVERAGE_WITH_RIGHT_NEIGHBOR_EFFECT_ID,
+            &[],
+            grafo::BackdropEffectConfig::new().capture_area(
+                grafo::BackdropCaptureArea::ScreenRect([(70.0, 20.0), (110.0, 60.0)]),
+            ),
+        )
+        .unwrap();
+
+    let mut pixel_buffer: Vec<u8> = Vec::new();
+    renderer.render_to_buffer(&mut pixel_buffer);
+
+    let sampled_pixel = read_pixel_rgba(&pixel_buffer, physical_size.0, 86, 40);
+    assert!(
+        sampled_pixel[0] > 80,
+        "expected visible red contribution after clearing untouched capture space, got {:?}",
+        sampled_pixel
+    );
+    assert!(
+        sampled_pixel[2] <= 50,
+        "expected offscreen capture space to stay transparent instead of leaking recycled blue, got {:?}",
+        sampled_pixel
+    );
+    assert!(
+        sampled_pixel[3] > 240,
+        "expected the cleared backdrop sample to composite back over the visible red source, got {:?}",
+        sampled_pixel
+    );
 }
 
 /// Regression test — standalone clipping rect is a no-op and does not enter shape drawing.
