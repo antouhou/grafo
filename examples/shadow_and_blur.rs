@@ -100,7 +100,6 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 struct BlurParams {
     radius: f32,
     _pad: f32,
-    _unused_capture_size: [f32; 2],
 }
 
 const HORIZONTAL_BLUR_WGSL: &str = r#"
@@ -109,7 +108,6 @@ const DIRECTION: vec2<f32> = vec2<f32>(1.0, 0.0);
 struct Params {
     radius: f32,
     _pad: f32,
-    _unused_capture_size: vec2<f32>,
 }
 @group(1) @binding(0) var<uniform> params: Params;
 
@@ -136,7 +134,6 @@ const DIRECTION: vec2<f32> = vec2<f32>(0.0, 1.0);
 struct Params {
     radius: f32,
     _pad: f32,
-    _unused_capture_size: vec2<f32>,
 }
 @group(1) @binding(0) var<uniform> params: Params;
 
@@ -353,7 +350,6 @@ impl<'a> ApplicationHandler for App<'a> {
                 let blur_params = BlurParams {
                     radius: 14.0,
                     _pad: 0.0,
-                    _unused_capture_size: [panel_w, panel_h],
                 };
                 renderer
                     .set_shape_backdrop_effect(

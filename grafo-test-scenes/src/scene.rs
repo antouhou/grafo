@@ -3995,7 +3995,7 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
         .unwrap();
 
     let blue_offscreen_band = Shape::rect(
-        [(ox + 80.0, oy + 15.0), (ox + 90.0, oy + 55.0)],
+        [(ox + 80.0, oy + 15.0), (ox + 170.0, oy + 55.0)],
         Stroke::default(),
     );
     renderer
@@ -4008,7 +4008,7 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
         .unwrap();
 
     let yellow_offscreen_band = Shape::rect(
-        [(ox + 90.0, oy + 15.0), (ox + 100.0, oy + 55.0)],
+        [(ox + 170.0, oy + 15.0), (ox + 190.0, oy + 55.0)],
         Stroke::default(),
     );
     renderer
@@ -4021,7 +4021,7 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
         .unwrap();
 
     let panel = Shape::rect(
-        [(ox + 60.0, oy + 15.0), (ox + 100.0, oy + 55.0)],
+        [(ox + 60.0, oy + 15.0), (ox + 190.0, oy + 55.0)],
         Stroke::default(),
     );
     let panel_id = renderer

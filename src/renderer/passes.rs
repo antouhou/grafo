@@ -619,7 +619,8 @@ fn transform_point_to_logical_screen(
         transform.col0[1] * point.0 + transform.col1[1] * point.1 + transform.col3[1];
     let homogeneous_w =
         transform.col0[3] * point.0 + transform.col1[3] * point.1 + transform.col3[3];
-    let inverse_w = 1.0 / homogeneous_w.abs().max(1e-6);
+    let clamped_w = homogeneous_w.signum() * homogeneous_w.abs().max(1e-6);
+    let inverse_w = 1.0 / clamped_w;
     (homogeneous_x * inverse_w, homogeneous_y * inverse_w)
 }
 
@@ -1696,8 +1697,9 @@ mod tests {
     use super::{
         capture_size_exceeds_budget, capture_size_exceeds_limits, inflate_logical_rect,
         logical_rect_to_physical_capture_rect, resolve_capture_region_to_viewport,
-        screen_point_to_capture_uv,
+        screen_point_to_capture_uv, transform_point_to_logical_screen,
     };
+    use crate::vertex::InstanceTransform;
 
     #[test]
     fn physical_capture_rect_preserves_requested_size_outside_viewport() {
@@ -1706,6 +1708,20 @@ mod tests {
                 .expect("capture rect should be non-empty");
 
         assert_eq!(requested_rect, (-10, 5, 40, 20));
+    }
+
+    #[test]
+    fn transform_point_to_logical_screen_preserves_negative_w_sign() {
+        let transform = InstanceTransform {
+            col0: [2.0, 0.0, 0.0, 0.0],
+            col1: [0.0, 3.0, 0.0, 0.0],
+            col2: [0.0, 0.0, 1.0, 0.0],
+            col3: [0.0, 0.0, 0.0, -2.0],
+        };
+
+        let point = transform_point_to_logical_screen((1.0, 1.0), Some(transform));
+
+        assert_eq!(point, (-1.0, -1.5));
     }
 
     #[test]
