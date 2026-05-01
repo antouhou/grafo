@@ -192,6 +192,10 @@ impl<'a> Renderer<'a> {
 
         let gradient_bind_group_layout =
             crate::pipeline::create_gradient_bind_group_layout(&device);
+        let backdrop_texture_bind_group_layout =
+            crate::pipeline::create_backdrop_texture_bind_group_layout(&device);
+        let backdrop_gradient_bind_group_layout =
+            crate::pipeline::create_backdrop_gradient_bind_group_layout(&device);
         let and_gradient_pipeline = crate::pipeline::create_gradient_increment_pipeline(
             &device,
             config.format,
@@ -241,6 +245,11 @@ impl<'a> Renderer<'a> {
             Self::create_default_shape_texture_bind_group(&device, &queue, &and_texture_bgl_layer0);
         let (default_shape_texture_bind_group_layer1, shape_texture_bind_group_layout_layer1) =
             Self::create_default_shape_texture_bind_group(&device, &queue, &and_texture_bgl_layer1);
+        let default_backdrop_texture_bind_group = Self::create_default_backdrop_texture_bind_group(
+            &device,
+            &queue,
+            &backdrop_texture_bind_group_layout,
+        );
 
         let mut renderer = Self {
             instance,
@@ -266,11 +275,13 @@ impl<'a> Renderer<'a> {
             shape_texture_bind_group_layout_foreground: Arc::new(
                 shape_texture_bind_group_layout_layer1,
             ),
+            backdrop_texture_bind_group_layout: Arc::new(backdrop_texture_bind_group_layout),
             shape_texture_layout_epoch: 0,
             default_shape_texture_bind_groups: [
                 Arc::new(default_shape_texture_bind_group_layer0),
                 Arc::new(default_shape_texture_bind_group_layer1),
             ],
+            default_backdrop_texture_bind_group: Arc::new(default_backdrop_texture_bind_group),
             decrementing_pipeline: Arc::new(decrementing_pipeline),
             decrementing_uniforms,
             decrementing_uniform_buffer,
@@ -320,8 +331,7 @@ impl<'a> Renderer<'a> {
             composite_pipeline: None,
             composite_bgl: None,
             effect_sampler: None,
-            backdrop_snapshot_texture: None,
-            backdrop_snapshot_view: None,
+            texture_blit_pipeline: None,
             stencil_only_pipeline: None,
             backdrop_color_pipeline: None,
             backdrop_color_gradient_pipeline: None,
@@ -329,6 +339,7 @@ impl<'a> Renderer<'a> {
             leaf_draw_gradient_pipeline: Arc::new(leaf_draw_gradient_pipeline),
             and_gradient_pipeline: Arc::new(and_gradient_pipeline),
             gradient_bind_group_layout,
+            backdrop_gradient_bind_group_layout,
             gradient_bind_group_layout_epoch: 0,
             gradient_ramp_sampler,
             #[cfg(feature = "render_metrics")]
@@ -543,6 +554,84 @@ impl<'a> Renderer<'a> {
         (bind_group, shape_texture_bind_group_layout.clone())
     }
 
+    fn create_default_backdrop_texture_bind_group(
+        device: &Arc<wgpu::Device>,
+        queue: &Arc<wgpu::Queue>,
+        backdrop_texture_bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> wgpu::BindGroup {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("default_transparent_backdrop_texture"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let transparent: [u8; 4] = [0, 0, 0, 0];
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &transparent,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        let material_params_buffer = crate::pipeline::create_buffer_init(
+            device,
+            Some("default_backdrop_material_params_buffer"),
+            bytemuck::bytes_of(&crate::gradient::gpu::GpuMaterialParams::default()),
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
+
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: backdrop_texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: material_params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+            label: Some("default_backdrop_texture_bind_group_transparent"),
+        })
+    }
+
     pub async fn new_transparent(
         window: impl Into<SurfaceTarget<'static>>,
         physical_size: (u32, u32),
@@ -689,10 +778,15 @@ impl<'a> Renderer<'a> {
 
         self.shape_texture_bind_group_layout_background = Arc::new(and_texture_bgl_layer0);
         self.shape_texture_bind_group_layout_foreground = Arc::new(and_texture_bgl_layer1);
+        self.backdrop_texture_bind_group_layout = Arc::new(
+            crate::pipeline::create_backdrop_texture_bind_group_layout(&self.device),
+        );
         self.shape_texture_layout_epoch += 1;
 
         self.gradient_bind_group_layout =
             crate::pipeline::create_gradient_bind_group_layout(&self.device);
+        self.backdrop_gradient_bind_group_layout =
+            crate::pipeline::create_backdrop_gradient_bind_group_layout(&self.device);
         self.gradient_bind_group_layout_epoch += 1;
         self.gradient_ramp_sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("gradient_ramp_sampler"),
@@ -723,10 +817,16 @@ impl<'a> Renderer<'a> {
                 &self.queue,
                 &self.shape_texture_bind_group_layout_foreground,
             );
+        let default_backdrop_texture_bind_group = Self::create_default_backdrop_texture_bind_group(
+            &self.device,
+            &self.queue,
+            &self.backdrop_texture_bind_group_layout,
+        );
         self.default_shape_texture_bind_groups = [
             Arc::new(default_shape_texture_bind_group_background),
             Arc::new(default_shape_texture_bind_group_foreground),
         ];
+        self.default_backdrop_texture_bind_group = Arc::new(default_backdrop_texture_bind_group);
 
         self.composite_pipeline = None;
         self.composite_bgl = None;
@@ -752,6 +852,7 @@ impl<'a> Renderer<'a> {
         );
 
         // Reset lazily-created pipelines so they pick up the new layout
+        self.texture_blit_pipeline = None;
         self.stencil_only_pipeline = None;
         self.backdrop_color_pipeline = None;
         self.backdrop_color_gradient_pipeline = None;
@@ -768,6 +869,16 @@ impl<'a> Renderer<'a> {
                 &self.gradient_ramp_sampler,
                 self.gradient_bind_group_layout_epoch,
             );
+
+            if let crate::renderer::types::DrawCommand::CachedShape(cached_shape) = draw_command {
+                cached_shape.backdrop_gradient_bind_group = None;
+                cached_shape.backdrop_gradient_texture_id = None;
+            }
+        }
+
+        for effect_instance in self.backdrop_effects.values_mut() {
+            effect_instance.backdrop_texture_bind_group = None;
+            effect_instance.backdrop_texture_id = None;
         }
     }
 }

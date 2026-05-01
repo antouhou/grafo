@@ -12,7 +12,7 @@
 ///
 /// Behind everything, colorful rectangles provide content for the blur to act on.
 use futures::executor::block_on;
-use grafo::{BorderRadii, Shape};
+use grafo::{BackdropEffectConfig, BorderRadii, Shape};
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -100,7 +100,6 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 struct BlurParams {
     radius: f32,
     _pad: f32,
-    tex_size: [f32; 2],
 }
 
 const HORIZONTAL_BLUR_WGSL: &str = r#"
@@ -109,13 +108,12 @@ const DIRECTION: vec2<f32> = vec2<f32>(1.0, 0.0);
 struct Params {
     radius: f32,
     _pad: f32,
-    tex_size: vec2<f32>,
 }
 @group(1) @binding(0) var<uniform> params: Params;
 
 @fragment
 fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let pixel = DIRECTION / params.tex_size;
+    let pixel = DIRECTION / vec2<f32>(textureDimensions(t_input));
     let sigma = max(params.radius / 3.0, 0.001);
     var color = vec4<f32>(0.0);
     var total_weight = 0.0;
@@ -136,13 +134,12 @@ const DIRECTION: vec2<f32> = vec2<f32>(0.0, 1.0);
 struct Params {
     radius: f32,
     _pad: f32,
-    tex_size: vec2<f32>,
 }
 @group(1) @binding(0) var<uniform> params: Params;
 
 @fragment
 fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let pixel = DIRECTION / params.tex_size;
+    let pixel = DIRECTION / vec2<f32>(textureDimensions(t_input));
     let sigma = max(params.radius / 3.0, 0.001);
     var color = vec4<f32>(0.0);
     var total_weight = 0.0;
@@ -353,10 +350,14 @@ impl<'a> ApplicationHandler for App<'a> {
                 let blur_params = BlurParams {
                     radius: 14.0,
                     _pad: 0.0,
-                    tex_size: [pw, ph],
                 };
                 renderer
-                    .set_shape_backdrop_effect(glass, BLUR_EFFECT, bytemuck::bytes_of(&blur_params))
+                    .set_shape_backdrop_effect(
+                        glass,
+                        BLUR_EFFECT,
+                        bytemuck::bytes_of(&blur_params),
+                        BackdropEffectConfig::default().padding(blur_params.radius),
+                    )
                     .expect("Failed to set backdrop blur effect");
 
                 // ── Render ───────────────────────────────────────────────

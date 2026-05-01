@@ -1,5 +1,7 @@
 use crate::cache::Cache;
-use crate::gradient::gpu::{create_default_ramp_texture, create_ramp_texture, GpuGradientParams};
+use crate::gradient::gpu::{
+    create_default_ramp_texture, create_ramp_texture, GpuGradientColorParams, GpuMaterialParams,
+};
 use crate::gradient::sampling::bake_gradient_ramp;
 use crate::gradient::types::{GradientData, GradientRamp, GradientRampCacheKey};
 use crate::shape::AaFringeScratch;
@@ -42,12 +44,12 @@ pub struct LyonVertexBuffersPool {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct GradientBindGroupCacheKey {
     layout_epoch: u64,
-    params: GpuGradientParamsKey,
+    params: GpuGradientColorParamsKey,
     ramp_key: GradientRampCacheKey,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct GpuGradientParamsKey {
+struct GpuGradientColorParamsKey {
     gradient_type: u32,
     spread_mode: u32,
     units: u32,
@@ -65,8 +67,8 @@ struct GpuGradientParamsKey {
     ramp_end: u32,
 }
 
-impl GpuGradientParamsKey {
-    fn from_params(params: GpuGradientParams) -> Self {
+impl GpuGradientColorParamsKey {
+    fn from_params(params: GpuGradientColorParams) -> Self {
         Self {
             gradient_type: params.gradient_type,
             spread_mode: params.spread_mode,
@@ -194,10 +196,10 @@ impl GradientCache {
         sampler: &wgpu::Sampler,
         layout_epoch: u64,
     ) -> Arc<wgpu::BindGroup> {
-        let params = GpuGradientParams::from_gradient_data(gradient_data);
+        let material_params = GpuMaterialParams::from_gradient_data(gradient_data);
         let cache_key = GradientBindGroupCacheKey {
             layout_epoch,
-            params: GpuGradientParamsKey::from_params(params),
+            params: GpuGradientColorParamsKey::from_params(material_params.gradient),
             ramp_key: gradient_data.ramp_cache_key.clone(),
         };
 
@@ -213,8 +215,8 @@ impl GradientCache {
 
         let params_buffer = crate::pipeline::create_buffer_init(
             device,
-            Some("Gradient Params Buffer"),
-            bytemuck::cast_slice(&[params]),
+            Some("Material Params Buffer"),
+            bytemuck::cast_slice(&[material_params]),
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
 
@@ -239,6 +241,52 @@ impl GradientCache {
 
         self.bind_groups.put(cache_key, bind_group.clone());
         bind_group
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn create_backdrop_gradient_bind_group(
+        &mut self,
+        gradient_data: &mut GradientData,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        material_params_buffer: &wgpu::Buffer,
+        gradient_sampler: &wgpu::Sampler,
+        backdrop_view: &wgpu::TextureView,
+        backdrop_sampler: &wgpu::Sampler,
+    ) -> wgpu::BindGroup {
+        let ramp_texture = if gradient_data.is_constant {
+            self.get_or_create_default_ramp_texture(device, queue)
+        } else {
+            self.get_or_create_ramp_texture(gradient_data, device, queue)
+        };
+
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Backdrop Gradient Material Bind Group"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: material_params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(ramp_texture.view.as_ref()),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(gradient_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(backdrop_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(backdrop_sampler),
+                },
+            ],
+        })
     }
 
     fn trim(&mut self) {}

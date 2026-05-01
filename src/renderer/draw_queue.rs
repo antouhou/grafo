@@ -132,7 +132,7 @@ impl<'a> Renderer<'a> {
             cached_shape_data.index_buffer_range = Some((index_start, index_count));
             cached_shape_data.is_empty = false;
             let texture_uv_scales = self.compute_texture_uv_scales(
-                cached_shape_data.cached_shape.texture_mapping_size,
+                cached_shape_data.cached_shape.texture_mapping_size(),
                 draw_options,
             );
             let instance_index = preparation::append_instance_data(
@@ -186,10 +186,7 @@ impl<'a> Renderer<'a> {
         if let Some(geometry_id) = cached_shape_data.cached_shape.geometry_id {
             self.buffers_pool_manager
                 .tessellation_cache
-                .refresh_vertex_buffers(
-                    geometry_id,
-                    &cached_shape_data.cached_shape.vertex_buffers,
-                );
+                .refresh_vertex_buffers(geometry_id, &cached_shape_data.cached_shape.tessellation);
         }
     }
 
@@ -247,9 +244,20 @@ impl<'a> Renderer<'a> {
             return [1.0, 1.0];
         };
 
+        self.compute_texture_uv_scale_from_dimensions(
+            texture_mapping_size,
+            (texture_width, texture_height),
+        )
+    }
+
+    pub(super) fn compute_texture_uv_scale_from_dimensions(
+        &self,
+        texture_mapping_size: [f32; 2],
+        texture_dimensions: (u32, u32),
+    ) -> [f32; 2] {
         [
-            texture_mapping_size[0] * self.scale_factor as f32 / texture_width.max(1) as f32,
-            texture_mapping_size[1] * self.scale_factor as f32 / texture_height.max(1) as f32,
+            texture_mapping_size[0] * self.scale_factor as f32 / texture_dimensions.0.max(1) as f32,
+            texture_mapping_size[1] * self.scale_factor as f32 / texture_dimensions.1.max(1) as f32,
         ]
     }
 }

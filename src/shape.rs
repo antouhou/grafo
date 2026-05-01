@@ -34,6 +34,7 @@
 //!     .build();
 //! ```
 
+use crate::cache::CachedTessellation;
 use crate::gradient::types::Fill;
 use crate::util::{GradientCache, PoolManager};
 use crate::vertex::{CustomVertex, InstanceTransform};
@@ -49,14 +50,12 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct CachedShapeHandle {
-    pub vertex_buffers: Arc<VertexBuffers<CustomVertex, u16>>,
+    pub(crate) tessellation: Arc<CachedTessellation>,
     /// Whether the original shape was an axis-aligned rectangle. Used to enable scissor-based
     /// clipping instead of stencil for rect parents.
     pub(crate) is_rect: bool,
     /// The local-space bounding rect when `is_rect` is true, for scissor computation.
     pub(crate) rect_bounds: Option<[(f32, f32); 2]>,
-    /// Width and height of the local-space bounds used to normalize texture coordinates.
-    pub(crate) texture_mapping_size: [f32; 2],
     pub(crate) geometry_id: Option<u64>,
 }
 
@@ -84,20 +83,28 @@ impl CachedShapeHandle {
             Shape::Rect(r) => (true, Some(r.rect)),
             _ => (false, None),
         };
-        let vertices = match shape.tessellate(tessellator, pool, geometry_id) {
-            TessellatedGeometry::Owned(vertex_buffers) => Arc::new(vertex_buffers),
-            TessellatedGeometry::Shared(vertex_buffers) => vertex_buffers,
-        };
-        let texture_mapping_size = rect_bounds
-            .map(rect_size)
-            .unwrap_or_else(|| compute_texture_mapping_size(&vertices));
+        let tessellation = shape.tessellate(tessellator, pool, geometry_id);
         Self {
-            vertex_buffers: vertices,
+            tessellation,
             is_rect,
             rect_bounds,
-            texture_mapping_size,
             geometry_id,
         }
+    }
+
+    #[inline]
+    pub(crate) fn vertex_buffers(&self) -> &Arc<VertexBuffers<CustomVertex, u16>> {
+        &self.tessellation.vertex_buffers
+    }
+
+    #[inline]
+    pub(crate) fn local_bounds(&self) -> [(f32, f32); 2] {
+        self.tessellation.local_bounds
+    }
+
+    #[inline]
+    pub(crate) fn texture_mapping_size(&self) -> [f32; 2] {
+        self.tessellation.texture_mapping_size
     }
 }
 
@@ -108,9 +115,9 @@ fn rect_size(rect_bounds: [(f32, f32); 2]) -> [f32; 2] {
     ]
 }
 
-fn compute_texture_mapping_size(vertex_buffers: &VertexBuffers<CustomVertex, u16>) -> [f32; 2] {
-    if vertex_buffers.vertices.is_empty() {
-        return [1.0, 1.0];
+fn compute_vertex_bounds(vertices: &[CustomVertex]) -> [(f32, f32); 2] {
+    if vertices.is_empty() {
+        return [(0.0, 0.0), (1.0, 1.0)];
     }
 
     let mut min_x = f32::INFINITY;
@@ -118,7 +125,7 @@ fn compute_texture_mapping_size(vertex_buffers: &VertexBuffers<CustomVertex, u16
     let mut max_x = f32::NEG_INFINITY;
     let mut max_y = f32::NEG_INFINITY;
 
-    for vertex in &vertex_buffers.vertices {
+    for vertex in vertices {
         let x = vertex.position[0];
         let y = vertex.position[1];
         if x < min_x {
@@ -135,31 +142,7 @@ fn compute_texture_mapping_size(vertex_buffers: &VertexBuffers<CustomVertex, u16
         }
     }
 
-    [(max_x - min_x).max(1e-6), (max_y - min_y).max(1e-6)]
-}
-
-pub(crate) enum TessellatedGeometry {
-    /// When the cache key is not provided, or the geometry is a simple rect
-    Owned(VertexBuffers<CustomVertex, u16>),
-    Shared(Arc<VertexBuffers<CustomVertex, u16>>),
-}
-
-impl TessellatedGeometry {
-    #[cfg(test)]
-    pub(crate) fn vertices(&self) -> &[CustomVertex] {
-        match self {
-            Self::Owned(vertex_buffers) => &vertex_buffers.vertices,
-            Self::Shared(vertex_buffers) => &vertex_buffers.vertices,
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn indices(&self) -> &[u16] {
-        match self {
-            Self::Owned(vertex_buffers) => &vertex_buffers.indices,
-            Self::Shared(vertex_buffers) => &vertex_buffers.indices,
-        }
-    }
+    [(min_x, min_y), (max_x, max_y)]
 }
 
 /// Represents a graphical shape, which can be either a custom path or a simple rectangle.
@@ -276,18 +259,18 @@ impl Shape {
         tessellator: &mut FillTessellator,
         buffers_pool: &mut PoolManager,
         tesselation_cache_key: Option<u64>,
-    ) -> TessellatedGeometry {
+    ) -> Arc<CachedTessellation> {
         match &self {
             Shape::Path(path_shape) => {
                 path_shape.tessellate(tessellator, buffers_pool, tesselation_cache_key)
             }
             Shape::Rect(rect_shape) => {
                 if let Some(cache_key) = tesselation_cache_key {
-                    if let Some(cached_vertex_buffers) = buffers_pool
+                    if let Some(cached_tessellation) = buffers_pool
                         .tessellation_cache
                         .get_vertex_buffers(&cache_key)
                     {
-                        return TessellatedGeometry::Shared(cached_vertex_buffers);
+                        return cached_tessellation;
                     }
                 }
 
@@ -329,6 +312,7 @@ impl Shape {
                     },
                 ];
                 let indices = [0u16, 1, 2, 0, 2, 3];
+                let local_bounds = rect_shape.rect;
 
                 let mut vertex_buffers = buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
 
@@ -342,15 +326,19 @@ impl Shape {
                     &mut buffers_pool.aa_fringe_scratch,
                 );
 
+                let tessellation = Arc::new(CachedTessellation {
+                    vertex_buffers: Arc::new(vertex_buffers),
+                    local_bounds,
+                    texture_mapping_size: rect_size(local_bounds),
+                });
+
                 if let Some(tesselation_cache_key) = tesselation_cache_key {
-                    let arc_buffers = Arc::new(vertex_buffers);
                     buffers_pool
                         .tessellation_cache
-                        .insert_vertex_buffers(tesselation_cache_key, Arc::clone(&arc_buffers));
-                    TessellatedGeometry::Shared(arc_buffers)
-                } else {
-                    TessellatedGeometry::Owned(vertex_buffers)
+                        .insert_vertex_buffers(tesselation_cache_key, Arc::clone(&tessellation));
                 }
+
+                tessellation
             }
         }
     }
@@ -989,19 +977,19 @@ impl PathShape {
         tessellator: &mut FillTessellator,
         buffers_pool: &mut PoolManager,
         tesselation_cache_key: Option<u64>,
-    ) -> TessellatedGeometry {
+    ) -> Arc<CachedTessellation> {
         if let Some(cache_key) = tesselation_cache_key {
-            if let Some(cached_vertex_buffers) = buffers_pool
+            if let Some(cached_tessellation) = buffers_pool
                 .tessellation_cache
                 .get_vertex_buffers(&cache_key)
             {
-                return TessellatedGeometry::Shared(cached_vertex_buffers);
+                return cached_tessellation;
             }
         }
 
         let mut buffers: VertexBuffers<CustomVertex, u16> =
             buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
-        self.tessellate_into_buffers(
+        let local_bounds = self.tessellate_into_buffers(
             &mut buffers,
             tessellator,
             &mut buffers_pool.aa_fringe_scratch,
@@ -1013,15 +1001,19 @@ impl PathShape {
             buffers.indices.push(0);
         }
 
+        let tessellation = Arc::new(CachedTessellation {
+            vertex_buffers: Arc::new(buffers),
+            local_bounds,
+            texture_mapping_size: rect_size(local_bounds),
+        });
+
         if let Some(cache_key) = tesselation_cache_key {
-            let shared_vertex_buffers = Arc::new(buffers);
             buffers_pool
                 .tessellation_cache
-                .insert_vertex_buffers(cache_key, shared_vertex_buffers.clone());
-            TessellatedGeometry::Shared(shared_vertex_buffers)
-        } else {
-            TessellatedGeometry::Owned(buffers)
+                .insert_vertex_buffers(cache_key, Arc::clone(&tessellation));
         }
+
+        tessellation
     }
 
     fn tessellate_into_buffers(
@@ -1029,7 +1021,7 @@ impl PathShape {
         buffers: &mut VertexBuffers<CustomVertex, u16>,
         tessellator: &mut FillTessellator,
         aa_fringe_scratch: &mut AaFringeScratch,
-    ) {
+    ) -> [(f32, f32); 2] {
         let options = FillOptions::default();
 
         let vertex_converter = VertexConverter::new();
@@ -1042,34 +1034,15 @@ impl PathShape {
             )
             .unwrap();
 
+        let local_bounds = compute_vertex_bounds(&buffers.vertices);
+
         // Generate UVs for the tessellated path using its axis-aligned bounding box in local space
         if !buffers.vertices.is_empty() {
-            // Compute AABB of positions before offset translation
-            let mut min_x = f32::INFINITY;
-            let mut min_y = f32::INFINITY;
-            let mut max_x = f32::NEG_INFINITY;
-            let mut max_y = f32::NEG_INFINITY;
-            for v in buffers.vertices.iter() {
-                let x = v.position[0];
-                let y = v.position[1];
-                if x < min_x {
-                    min_x = x;
-                }
-                if y < min_y {
-                    min_y = y;
-                }
-                if x > max_x {
-                    max_x = x;
-                }
-                if y > max_y {
-                    max_y = y;
-                }
-            }
-            let w = (max_x - min_x).max(1e-6);
-            let h = (max_y - min_y).max(1e-6);
+            let w = (local_bounds[1].0 - local_bounds[0].0).max(1e-6);
+            let h = (local_bounds[1].1 - local_bounds[0].1).max(1e-6);
             for v in buffers.vertices.iter_mut() {
-                let u = (v.position[0] - min_x) / w;
-                let vcoord = (v.position[1] - min_y) / h;
+                let u = (v.position[0] - local_bounds[0].0) / w;
+                let vcoord = (v.position[1] - local_bounds[0].1) / h;
                 v.tex_coords = [u, vcoord];
             }
         }
@@ -1081,6 +1054,8 @@ impl PathShape {
             &mut buffers.indices,
             aa_fringe_scratch,
         );
+
+        local_bounds
     }
 }
 
@@ -1226,6 +1201,12 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) fill: Option<Fill>,
     /// Cached gradient bind group, refreshed when the fill or gradient layout changes.
     pub(crate) gradient_bind_group: Option<Arc<wgpu::BindGroup>>,
+    /// Persistent uniform buffer for backdrop material parameters.
+    pub(crate) backdrop_material_params_buffer: Option<wgpu::Buffer>,
+    /// Cached gradient+backdrop bind group reused while the captured output texture is stable.
+    pub(crate) backdrop_gradient_bind_group: Option<wgpu::BindGroup>,
+    /// Stable id of the pooled texture referenced by `backdrop_gradient_bind_group`.
+    pub(crate) backdrop_gradient_texture_id: Option<u64>,
     /// Whether this node is a leaf in the draw tree (no children).
     pub(crate) is_leaf: bool,
     /// When `false`, skip stencil increment/decrement for this parent
@@ -1257,6 +1238,9 @@ impl CachedShapeDrawData {
             // Set during render traversal
             stencil_ref: None,
             gradient_bind_group: None,
+            backdrop_material_params_buffer: None,
+            backdrop_gradient_bind_group: None,
+            backdrop_gradient_texture_id: None,
             is_leaf: true,
         }
     }
@@ -1281,6 +1265,72 @@ impl CachedShapeDrawData {
             )),
             _ => None,
         };
+    }
+
+    pub fn prepare_gradient_backdrop_material_params_buffer(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        backdrop_sampling_uniform: crate::pipeline::BackdropSamplingUniform,
+    ) -> Option<wgpu::Buffer> {
+        let params = {
+            let gradient = match self.fill.as_ref() {
+                Some(Fill::Gradient(gradient)) => gradient,
+                _ => return None,
+            };
+
+            crate::gradient::gpu::GpuMaterialParams::from_gradient_data(&gradient.data)
+                .with_backdrop_sampling(backdrop_sampling_uniform)
+        };
+
+        if let Some(existing_buffer) = self.backdrop_material_params_buffer.as_ref() {
+            queue.write_buffer(existing_buffer, 0, bytemuck::bytes_of(&params));
+        } else {
+            self.backdrop_material_params_buffer = Some(crate::pipeline::create_buffer_init(
+                device,
+                Some("gradient_backdrop_material_params_buffer"),
+                bytemuck::bytes_of(&params),
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            ));
+        }
+
+        self.backdrop_material_params_buffer.clone()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn prepare_backdrop_gradient_bind_group(
+        &mut self,
+        gradient_cache: &mut GradientCache,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        material_params_buffer: &wgpu::Buffer,
+        gradient_sampler: &wgpu::Sampler,
+        backdrop_texture_id: u64,
+        backdrop_view: &wgpu::TextureView,
+        backdrop_sampler: &wgpu::Sampler,
+    ) -> Option<&wgpu::BindGroup> {
+        if self.backdrop_gradient_texture_id != Some(backdrop_texture_id) {
+            let gradient = match self.fill.as_mut() {
+                Some(Fill::Gradient(gradient)) => gradient,
+                _ => return None,
+            };
+
+            self.backdrop_gradient_bind_group =
+                Some(gradient_cache.create_backdrop_gradient_bind_group(
+                    &mut gradient.data,
+                    device,
+                    queue,
+                    layout,
+                    material_params_buffer,
+                    gradient_sampler,
+                    backdrop_view,
+                    backdrop_sampler,
+                ));
+            self.backdrop_gradient_texture_id = Some(backdrop_texture_id);
+        }
+
+        self.backdrop_gradient_bind_group.as_ref()
     }
 }
 
@@ -1612,6 +1662,7 @@ pub(crate) trait DrawShapeCommand {
     fn instance_index(&self) -> Option<usize>;
     fn transform(&self) -> Option<InstanceTransform>;
     fn texture_id(&self, layer: usize) -> Option<u64>;
+    fn local_bounds(&self) -> [(f32, f32); 2];
     fn instance_color_override(&self) -> Option<[f32; 4]>;
     fn has_gradient_fill(&self) -> bool;
     fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>>;
@@ -1654,6 +1705,11 @@ impl DrawShapeCommand for CachedShapeDrawData {
     #[inline]
     fn texture_id(&self, layer: usize) -> Option<u64> {
         self.texture_ids.get(layer).copied().unwrap_or(None)
+    }
+
+    #[inline]
+    fn local_bounds(&self) -> [(f32, f32); 2] {
+        self.cached_shape.local_bounds()
     }
 
     #[inline]
@@ -1750,11 +1806,12 @@ mod tests {
         let tessellated_geometry =
             Shape::Rect(rect_shape).tessellate(&mut tessellator, &mut pool_manager, None);
 
-        assert_eq!(tessellated_geometry.vertices().len(), 8);
-        assert_eq!(tessellated_geometry.indices().len(), 30);
+        assert_eq!(tessellated_geometry.vertex_buffers.vertices.len(), 8);
+        assert_eq!(tessellated_geometry.vertex_buffers.indices.len(), 30);
 
         let fill_vertex_count = tessellated_geometry
-            .vertices()
+            .vertex_buffers
+            .vertices
             .iter()
             .filter(|vertex| vertex.coverage == 1.0)
             .count();

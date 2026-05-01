@@ -40,7 +40,7 @@ impl<'a> Renderer<'a> {
             self.ensure_effect_sampler();
         }
         if has_backdrop_effects {
-            self.ensure_backdrop_snapshot_texture();
+            self.ensure_texture_blit_pipeline();
             self.ensure_stencil_only_pipeline();
             self.ensure_backdrop_color_pipeline();
             self.ensure_backdrop_color_gradient_pipeline();
@@ -120,7 +120,7 @@ impl<'a> Renderer<'a> {
                     continue;
                 }
 
-                let subtree_texture = self.offscreen_texture_pool.acquire(
+                let subtree_texture = self.offscreen_texture_pool.acquire_with_depth(
                     &self.device,
                     width,
                     height,
@@ -133,7 +133,7 @@ impl<'a> Renderer<'a> {
 
                 // --- Behind-group rendering (when subtree has backdrop effects) ---
                 let behind_texture = if subtree_needs_backdrop_effects {
-                    let behind_tex = self.offscreen_texture_pool.acquire(
+                    let behind_tex = self.offscreen_texture_pool.acquire_color_only(
                         &self.device,
                         width,
                         height,
@@ -173,7 +173,7 @@ impl<'a> Renderer<'a> {
                         traversal_scratch.events(),
                         &effect_results,
                         &self.group_effects,
-                        &self.backdrop_effects,
+                        &mut self.backdrop_effects,
                         behind_color_view,
                         behind_resolve_target,
                         &behind_depth_view,
@@ -181,6 +181,8 @@ impl<'a> Renderer<'a> {
                         true,
                         &pipelines,
                         &buffers,
+                        &mut self.buffers_pool_manager.gradient_cache,
+                        &mut self.offscreen_texture_pool,
                         self.composite_pipeline.as_ref(),
                         None,
                         &mut backdrop_work_textures,
@@ -219,10 +221,11 @@ impl<'a> Renderer<'a> {
 
                 let backdrop_ctx_opt = if subtree_needs_backdrop_effects {
                     Some(crate::renderer::types::BackdropContext {
-                        backdrop_effects: &self.backdrop_effects,
                         loaded_effects: &self.loaded_effects,
                         composite_bgl: self.composite_bgl.as_ref().unwrap(),
                         effect_sampler: self.effect_sampler.as_ref().unwrap(),
+                        gradient_ramp_sampler: &self.gradient_ramp_sampler,
+                        texture_blit_pipeline: self.texture_blit_pipeline.as_ref().unwrap(),
                         stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
                         backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
                         backdrop_color_gradient_pipeline: self
@@ -230,9 +233,15 @@ impl<'a> Renderer<'a> {
                             .as_ref()
                             .unwrap(),
                         device: &self.device,
+                        queue: &self.queue,
                         config_format: self.config.format,
-                        backdrop_snapshot_texture: self.backdrop_snapshot_texture.as_ref().unwrap(),
-                        backdrop_snapshot_view: self.backdrop_snapshot_view.as_ref().unwrap(),
+                        max_texture_dimension_2d: self.device.limits().max_texture_dimension_2d,
+                        backdrop_texture_bind_group_layout: &self
+                            .backdrop_texture_bind_group_layout,
+                        default_backdrop_texture_bind_group: &self
+                            .default_backdrop_texture_bind_group,
+                        backdrop_gradient_bind_group_layout: &self
+                            .backdrop_gradient_bind_group_layout,
                     })
                 } else {
                     None
@@ -252,14 +261,19 @@ impl<'a> Renderer<'a> {
                     traversal_scratch.events(),
                     &effect_results,
                     &self.group_effects,
-                    &self.backdrop_effects,
+                    &mut self.backdrop_effects,
                     subtree_color_view,
                     subtree_resolve_target,
-                    &subtree_texture.depth_stencil_view,
+                    subtree_texture
+                        .depth_stencil_view
+                        .as_ref()
+                        .expect("subtree render targets must include a depth/stencil attachment"),
                     copy_source,
                     true,
                     &pipelines,
                     &buffers,
+                    &mut self.buffers_pool_manager.gradient_cache,
+                    &mut self.offscreen_texture_pool,
                     self.composite_pipeline.as_ref(),
                     backdrop_ctx_opt.as_ref(),
                     &mut backdrop_work_textures,
@@ -287,12 +301,14 @@ impl<'a> Renderer<'a> {
                 let effect_output = apply_effect_passes(
                     &self.device,
                     &mut encoder,
+                    &mut self.offscreen_texture_pool,
                     EffectPassRunConfig {
                         loaded_effect,
                         params_bind_group: effect_instance.params_bind_group.as_ref(),
                         source_view,
                         effect_sampler: self.effect_sampler.as_ref().unwrap(),
                         composite_bind_group_layout: self.composite_bgl.as_ref().unwrap(),
+                        create_composite_bind_group: true,
                         width,
                         height,
                         texture_format: self.config.format,
@@ -300,8 +316,9 @@ impl<'a> Renderer<'a> {
                     },
                 );
 
-                let composite_bind_group =
-                    effect_output.push_work_textures_into(&mut effect_output_textures);
+                let composite_bind_group = effect_output
+                    .push_work_textures_into(&mut effect_output_textures)
+                    .expect("group effects must create a composite bind group");
                 effect_results.insert(node_id, composite_bind_group);
                 textures_to_recycle.push(subtree_texture);
             }
@@ -331,10 +348,11 @@ impl<'a> Renderer<'a> {
 
             let backdrop_ctx_opt = if has_backdrop_effects {
                 Some(crate::renderer::types::BackdropContext {
-                    backdrop_effects: &self.backdrop_effects,
                     loaded_effects: &self.loaded_effects,
                     composite_bgl: self.composite_bgl.as_ref().unwrap(),
                     effect_sampler: self.effect_sampler.as_ref().unwrap(),
+                    gradient_ramp_sampler: &self.gradient_ramp_sampler,
+                    texture_blit_pipeline: self.texture_blit_pipeline.as_ref().unwrap(),
                     stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
                     backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
                     backdrop_color_gradient_pipeline: self
@@ -342,9 +360,12 @@ impl<'a> Renderer<'a> {
                         .as_ref()
                         .unwrap(),
                     device: &self.device,
+                    queue: &self.queue,
                     config_format: self.config.format,
-                    backdrop_snapshot_texture: self.backdrop_snapshot_texture.as_ref().unwrap(),
-                    backdrop_snapshot_view: self.backdrop_snapshot_view.as_ref().unwrap(),
+                    max_texture_dimension_2d: self.device.limits().max_texture_dimension_2d,
+                    backdrop_texture_bind_group_layout: &self.backdrop_texture_bind_group_layout,
+                    default_backdrop_texture_bind_group: &self.default_backdrop_texture_bind_group,
+                    backdrop_gradient_bind_group_layout: &self.backdrop_gradient_bind_group_layout,
                 })
             } else {
                 None
@@ -362,7 +383,7 @@ impl<'a> Renderer<'a> {
                 traversal_scratch.events(),
                 &effect_results,
                 &self.group_effects,
-                &self.backdrop_effects,
+                &mut self.backdrop_effects,
                 phase2_color_view,
                 phase2_resolve_target,
                 depth_texture_view,
@@ -370,6 +391,8 @@ impl<'a> Renderer<'a> {
                 true,
                 &pipelines,
                 &buffers,
+                &mut self.buffers_pool_manager.gradient_cache,
+                &mut self.offscreen_texture_pool,
                 self.composite_pipeline.as_ref(),
                 backdrop_ctx_opt.as_ref(),
                 &mut backdrop_work_textures,
@@ -381,17 +404,16 @@ impl<'a> Renderer<'a> {
                 #[cfg(feature = "render_metrics")]
                 &mut frame_pipeline_counts,
             );
-
-            backdrop_work_textures.clear();
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
 
         self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
 
+        effect_output_textures.append(&mut backdrop_work_textures);
+        textures_to_recycle.append(&mut effect_output_textures);
         self.offscreen_texture_pool
             .recycle(&mut textures_to_recycle);
-        effect_output_textures.clear();
 
         self.draw_tree
             .iter_mut()

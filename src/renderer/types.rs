@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use ahash::{HashMap, HashMapExt};
 
-use crate::effect::{self, EffectInstance, LoadedEffect};
+use crate::effect::{self, LoadedEffect};
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand};
 use crate::texture_manager::TextureManager;
 use crate::util::GradientCache;
@@ -75,6 +75,13 @@ impl DrawCommand {
         match self {
             DrawCommand::CachedShape(cached_shape) => cached_shape.texture_id(layer),
             DrawCommand::ClipRect(_) => None,
+        }
+    }
+
+    pub(super) fn local_bounds(&self) -> [(f32, f32); 2] {
+        match self {
+            DrawCommand::CachedShape(cached_shape) => cached_shape.local_bounds(),
+            DrawCommand::ClipRect(clip_rect) => clip_rect.rect_bounds,
         }
     }
 
@@ -316,17 +323,21 @@ pub(super) struct Pipelines<'a> {
 /// Backdrop-specific rendering resources. Only needed when backdrop effects exist.
 /// General resources (pipelines, buffers, textures) are passed separately.
 pub(super) struct BackdropContext<'a> {
-    pub(super) backdrop_effects: &'a HashMap<usize, EffectInstance>,
     pub(super) loaded_effects: &'a HashMap<u64, LoadedEffect>,
     pub(super) composite_bgl: &'a wgpu::BindGroupLayout,
     pub(super) effect_sampler: &'a wgpu::Sampler,
+    pub(super) gradient_ramp_sampler: &'a wgpu::Sampler,
+    pub(super) texture_blit_pipeline: &'a wgpu::RenderPipeline,
     pub(super) stencil_only_pipeline: &'a wgpu::RenderPipeline,
     pub(super) backdrop_color_pipeline: &'a wgpu::RenderPipeline,
     pub(super) backdrop_color_gradient_pipeline: &'a wgpu::RenderPipeline,
     pub(super) device: &'a wgpu::Device,
+    pub(super) queue: &'a wgpu::Queue,
     pub(super) config_format: wgpu::TextureFormat,
-    pub(super) backdrop_snapshot_texture: &'a wgpu::Texture,
-    pub(super) backdrop_snapshot_view: &'a wgpu::TextureView,
+    pub(super) max_texture_dimension_2d: u32,
+    pub(super) backdrop_texture_bind_group_layout: &'a wgpu::BindGroupLayout,
+    pub(super) default_backdrop_texture_bind_group: &'a wgpu::BindGroup,
+    pub(super) backdrop_gradient_bind_group_layout: &'a wgpu::BindGroupLayout,
 }
 
 const MAX_EFFECT_RESULTS_CAPACITY: usize = 4_096;
@@ -342,7 +353,7 @@ pub(super) struct RendererScratch {
     pub(super) effect_results: HashMap<usize, wgpu::BindGroup>,
     pub(super) effect_node_ids: Vec<(usize, usize)>,
     pub(super) textures_to_recycle: Vec<effect::PooledTexture>,
-    pub(super) effect_output_textures: Vec<wgpu::Texture>,
+    pub(super) effect_output_textures: Vec<effect::PooledTexture>,
     pub(super) stencil_stack: Vec<u32>,
     pub(super) skipped_stack: Vec<usize>,
     /// Stack of intersected scissor rects (x, y, width, height) in physical pixels.
@@ -351,7 +362,7 @@ pub(super) struct RendererScratch {
     /// Parallel stack to `stencil_stack`: records which clipping strategy each
     /// non-leaf parent used so the `Post` path avoids re-evaluating eligibility.
     pub(super) clip_kind_stack: Vec<ClipKind>,
-    pub(super) backdrop_work_textures: Vec<wgpu::Texture>,
+    pub(super) backdrop_work_textures: Vec<effect::PooledTexture>,
     /// Reused across readback calls; intentionally not cleared on `begin_frame`
     /// because readback may run after render submission and reuse prior capacity.
     pub(super) readback_bytes: Vec<u8>,
