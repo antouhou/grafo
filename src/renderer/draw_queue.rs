@@ -132,7 +132,7 @@ impl<'a> Renderer<'a> {
             cached_shape_data.index_buffer_range = Some((index_start, index_count));
             cached_shape_data.is_empty = false;
             let texture_uv_scales = self.compute_texture_uv_scales(
-                cached_shape_data.cached_shape.texture_mapping_size,
+                cached_shape_data.cached_shape.texture_mapping_size(),
                 draw_options,
             );
             let instance_index = preparation::append_instance_data(
@@ -186,10 +186,7 @@ impl<'a> Renderer<'a> {
         if let Some(geometry_id) = cached_shape_data.cached_shape.geometry_id {
             self.buffers_pool_manager
                 .tessellation_cache
-                .refresh_vertex_buffers(
-                    geometry_id,
-                    &cached_shape_data.cached_shape.vertex_buffers,
-                );
+                .refresh_vertex_buffers(geometry_id, &cached_shape_data.cached_shape.tessellation);
         }
     }
 

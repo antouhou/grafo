@@ -4055,6 +4055,14 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
             "t59_visible_right_half_stays_green",
         ),
         PixelExpectation::opaque(
+            ox as u32 + 85,
+            oy as u32 + 35,
+            50,
+            50,
+            220,
+            "t59_preserves_size_middle_is_blue",
+        ),
+        PixelExpectation::opaque(
             ox as u32 + 55,
             oy as u32 + 35,
             255,

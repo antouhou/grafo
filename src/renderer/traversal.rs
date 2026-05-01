@@ -141,6 +141,7 @@ mod tests {
     use super::{
         compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects, TraversalScratch,
     };
+    use crate::cache::CachedTessellation;
     use crate::effect::EffectInstance;
     use crate::renderer::types::DrawCommand;
     use crate::shape::{CachedShapeDrawData, CachedShapeHandle};
@@ -153,11 +154,13 @@ mod tests {
     fn cached_draw_data() -> CachedShapeDrawData {
         CachedShapeDrawData::new(
             CachedShapeHandle {
-                vertex_buffers: Arc::new(VertexBuffers::<CustomVertex, u16>::new()),
+                tessellation: Arc::new(CachedTessellation {
+                    vertex_buffers: Arc::new(VertexBuffers::<CustomVertex, u16>::new()),
+                    local_bounds: [(0.0, 0.0), (1.0, 1.0)],
+                    texture_mapping_size: [1.0, 1.0],
+                }),
                 is_rect: false,
                 rect_bounds: None,
-                local_bounds: [(0.0, 0.0), (1.0, 1.0)],
-                texture_mapping_size: [1.0, 1.0],
                 geometry_id: None,
             },
             &ShapeDrawCommandOptions::new(),

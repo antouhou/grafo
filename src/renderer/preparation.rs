@@ -72,7 +72,7 @@ pub(crate) fn append_aggregated_geometry_for_shape(
         Some(existing_range)
     } else {
         let cached_shape = &cached_shape_data.cached_shape;
-        let vertex_buffers = &cached_shape.vertex_buffers;
+        let vertex_buffers = cached_shape.vertex_buffers();
         let range = append_aggregated_geometry(
             temp_vertices,
             temp_indices,
