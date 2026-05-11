@@ -30,6 +30,11 @@ impl<'a> Renderer<'a> {
         self.shape_cache.insert(cache_key, cached_shape);
     }
 
+    /// Removes a loaded shape from the cache.
+    pub fn remove_shape(&mut self, cache_key: u64) {
+        self.shape_cache.remove(&cache_key);
+    }
+
     /// Adds a previously loaded cached shape to the draw tree.
     ///
     /// When `parent_shape_id` is `Some`, the cached shape is attached as a child of that node.
@@ -50,7 +55,8 @@ impl<'a> Renderer<'a> {
         self.add_draw_command(DrawCommand::CachedShape(draw_data), parent_shape_id)
     }
 
-    /// Adds a shape to the draw tree.
+    /// Adds a shape to the draw tree. Doesn't cache the shape, so for performance reasons it's
+    /// recommended to use [`load_shape`] and [`add_cached_shape_to_the_render_queue`] instead.
     ///
     /// When `parent_shape_id` is `Some`, the new shape is attached as a child of that node.
     /// Children are clipped to their parent unless the parent was queued with
