@@ -31,10 +31,7 @@ impl<'a> Renderer<'a> {
     }
 
     /// Removes a loaded shape from the cache.
-    pub fn remove_shape(
-        &mut self,
-        cache_key: u64,
-    ) {
+    pub fn remove_shape(&mut self, cache_key: u64) {
         self.shape_cache.remove(&cache_key);
     }
 
