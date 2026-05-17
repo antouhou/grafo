@@ -46,6 +46,23 @@ pub(crate) struct NormalizedGradient {
 }
 
 impl NormalizedGradient {
+    pub(crate) fn heap_bytes(&self) -> u64 {
+        let stops_bytes = if self.stops.spilled() {
+            (self.stops.capacity() as u64)
+                .saturating_mul(std::mem::size_of::<NormalizedStop>() as u64)
+        } else {
+            0
+        };
+        let segments_bytes = if self.segments.spilled() {
+            (self.segments.capacity() as u64)
+                .saturating_mul(std::mem::size_of::<NormalizedSegment>() as u64)
+        } else {
+            0
+        };
+
+        stops_bytes.saturating_add(segments_bytes)
+    }
+
     pub(crate) fn from_common(common: &GradientCommonDesc, kind: GradientKind) -> Self {
         let is_conic = kind == GradientKind::Conic;
 

@@ -1,4 +1,4 @@
-use crate::cache::Cache;
+use crate::cache::{Cache, CachedTessellation};
 use crate::gradient::gpu::{
     create_default_ramp_texture, create_ramp_texture, GpuGradientColorParams, GpuMaterialParams,
 };
@@ -8,12 +8,114 @@ use crate::shape::AaFringeScratch;
 use crate::vertex::CustomVertex;
 use lru::LruCache;
 use lyon::tessellation::VertexBuffers;
+use std::collections::HashSet;
+use std::hash::{BuildHasher, Hash};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 // const MAX_LYON_VERTEX_BUFFER_POOL_SIZE: usize = 256;
 const MAX_GRADIENT_RAMP_CACHE_SIZE: usize = 256;
 const MAX_GRADIENT_BIND_GROUP_CACHE_SIZE: usize = 1024;
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct MemoryUsage {
+    pub(crate) cpu_bytes: u64,
+    pub(crate) gpu_buffer_bytes: u64,
+    pub(crate) gpu_texture_bytes: u64,
+}
+
+impl MemoryUsage {
+    pub(crate) fn total_bytes(self) -> u64 {
+        self.cpu_bytes
+            .saturating_add(self.gpu_buffer_bytes)
+            .saturating_add(self.gpu_texture_bytes)
+    }
+
+    pub(crate) fn add(&mut self, other: Self) {
+        self.cpu_bytes = self.cpu_bytes.saturating_add(other.cpu_bytes);
+        self.gpu_buffer_bytes = self.gpu_buffer_bytes.saturating_add(other.gpu_buffer_bytes);
+        self.gpu_texture_bytes = self
+            .gpu_texture_bytes
+            .saturating_add(other.gpu_texture_bytes);
+    }
+}
+
+pub(crate) fn vector_capacity_bytes<T>(values: &Vec<T>) -> u64 {
+    (values.capacity() as u64).saturating_mul(std::mem::size_of::<T>() as u64)
+}
+
+pub(crate) fn hash_map_capacity_bytes<K, V, S>(values: &std::collections::HashMap<K, V, S>) -> u64
+where
+    S: BuildHasher,
+{
+    (values.capacity() as u64).saturating_mul(
+        std::mem::size_of::<K>()
+            .saturating_add(std::mem::size_of::<V>())
+            .saturating_add(std::mem::size_of::<usize>())
+            .saturating_add(1) as u64,
+    )
+}
+
+pub(crate) fn lru_cache_capacity_bytes<K, V, S>(values: &lru::LruCache<K, V, S>) -> u64
+where
+    K: Eq + Hash,
+    S: BuildHasher,
+{
+    let hash_map_slots = (values.cap().get() as u64).saturating_mul(
+        std::mem::size_of::<usize>()
+            .saturating_add(std::mem::size_of::<*const ()>())
+            .saturating_add(1) as u64,
+    );
+    let linked_entries = (values.len() as u64).saturating_mul(
+        std::mem::size_of::<K>()
+            .saturating_add(std::mem::size_of::<V>())
+            .saturating_add(std::mem::size_of::<*const ()>() * 2) as u64,
+    );
+
+    hash_map_slots.saturating_add(linked_entries)
+}
+
+pub(crate) fn texture_memory_size(
+    size: wgpu::Extent3d,
+    format: wgpu::TextureFormat,
+    sample_count: u32,
+    mip_level_count: u32,
+) -> u64 {
+    let bytes_per_block = texture_format_bytes_per_block(format);
+    let (block_width, block_height) = format.block_dimensions();
+    let mut total = 0_u64;
+    let mut width = size.width.max(1);
+    let mut height = size.height.max(1);
+    let mut depth_or_layers = size.depth_or_array_layers.max(1);
+
+    for _ in 0..mip_level_count.max(1) {
+        let blocks_wide = width.div_ceil(block_width.max(1)) as u64;
+        let blocks_high = height.div_ceil(block_height.max(1)) as u64;
+        total = total.saturating_add(
+            blocks_wide
+                .saturating_mul(blocks_high)
+                .saturating_mul(depth_or_layers as u64)
+                .saturating_mul(bytes_per_block as u64)
+                .saturating_mul(sample_count.max(1) as u64),
+        );
+
+        width = (width / 2).max(1);
+        height = (height / 2).max(1);
+        depth_or_layers = (depth_or_layers / 2).max(1);
+    }
+
+    total
+}
+
+fn texture_format_bytes_per_block(format: wgpu::TextureFormat) -> u32 {
+    format.block_copy_size(None).unwrap_or(match format {
+        // WebGPU leaves these as implementation-defined. Current desktop backends store
+        // Depth24Plus as a 32-bit depth allocation and Depth24PlusStencil8 as D24S8.
+        wgpu::TextureFormat::Depth24Plus | wgpu::TextureFormat::Depth24PlusStencil8 => 4,
+        wgpu::TextureFormat::Depth32FloatStencil8 => 8,
+        _ => 4,
+    })
+}
 
 pub fn normalize_rgba_color(color: &[u8; 4]) -> [f32; 4] {
     [
@@ -94,10 +196,30 @@ struct CachedGradientRampTexture {
     view: Arc<wgpu::TextureView>,
 }
 
+impl CachedGradientRampTexture {
+    fn memory_usage(&self) -> MemoryUsage {
+        MemoryUsage {
+            cpu_bytes: 0,
+            gpu_buffer_bytes: 0,
+            gpu_texture_bytes: texture_memory_size(
+                self._texture.size(),
+                wgpu::TextureFormat::Rgba32Float,
+                1,
+                1,
+            ),
+        }
+    }
+}
+
+struct CachedGradientBindGroup {
+    bind_group: Arc<wgpu::BindGroup>,
+    params_buffer: wgpu::Buffer,
+}
+
 pub(crate) struct GradientCache {
     ramps: LruCache<GradientRampCacheKey, GradientRamp>,
     ramp_textures: LruCache<GradientRampCacheKey, Arc<CachedGradientRampTexture>>,
-    bind_groups: LruCache<GradientBindGroupCacheKey, Arc<wgpu::BindGroup>>,
+    bind_groups: LruCache<GradientBindGroupCacheKey, Arc<CachedGradientBindGroup>>,
     default_ramp_texture: Option<Arc<CachedGradientRampTexture>>,
 }
 
@@ -204,7 +326,7 @@ impl GradientCache {
         };
 
         if let Some(bind_group) = self.bind_groups.get(&cache_key) {
-            return bind_group.clone();
+            return bind_group.bind_group.clone();
         }
 
         let ramp_texture = if gradient_data.is_constant {
@@ -238,8 +360,12 @@ impl GradientCache {
                 },
             ],
         }));
+        let cached_bind_group = Arc::new(CachedGradientBindGroup {
+            bind_group: bind_group.clone(),
+            params_buffer,
+        });
 
-        self.bind_groups.put(cache_key, bind_group.clone());
+        self.bind_groups.put(cache_key, cached_bind_group);
         bind_group
     }
 
@@ -291,6 +417,30 @@ impl GradientCache {
 
     fn trim(&mut self) {}
 
+    pub(crate) fn memory_usage(&self) -> MemoryUsage {
+        let mut usage = MemoryUsage {
+            cpu_bytes: lru_cache_capacity_bytes(&self.ramps)
+                .saturating_add(lru_cache_capacity_bytes(&self.ramp_textures))
+                .saturating_add(lru_cache_capacity_bytes(&self.bind_groups)),
+            gpu_buffer_bytes: 0,
+            gpu_texture_bytes: 0,
+        };
+
+        for (_, ramp_texture) in self.ramp_textures.iter() {
+            usage.add(ramp_texture.memory_usage());
+        }
+        if let Some(default_ramp_texture) = &self.default_ramp_texture {
+            usage.add(default_ramp_texture.memory_usage());
+        }
+        for (_, cached_bind_group) in self.bind_groups.iter() {
+            usage.gpu_buffer_bytes = usage
+                .gpu_buffer_bytes
+                .saturating_add(cached_bind_group.params_buffer.size());
+        }
+
+        usage
+    }
+
     fn print_sizes(&self) {
         println!("Gradient ramps: {}", self.ramps.len());
         println!("Gradient ramp textures: {}", self.ramp_textures.len());
@@ -317,6 +467,23 @@ impl LyonVertexBuffersPool {
         } else {
             VertexBuffers::new()
         }
+    }
+
+    fn memory_usage(&self) -> MemoryUsage {
+        let mut usage = MemoryUsage {
+            cpu_bytes: vector_capacity_bytes(&self.vertex_buffers),
+            gpu_buffer_bytes: 0,
+            gpu_texture_bytes: 0,
+        };
+
+        for vertex_buffers in &self.vertex_buffers {
+            usage.cpu_bytes = usage
+                .cpu_bytes
+                .saturating_add(vector_capacity_bytes(&vertex_buffers.vertices))
+                .saturating_add(vector_capacity_bytes(&vertex_buffers.indices));
+        }
+
+        usage
     }
 
     // pub fn return_vertex_buffers(&mut self, mut vertex_buffers: VertexBuffers<CustomVertex, u16>) {
@@ -348,6 +515,17 @@ impl PoolManager {
     pub(crate) fn trim(&mut self) {
         self.aa_fringe_scratch.trim();
         self.gradient_cache.trim();
+    }
+
+    pub(crate) fn memory_usage(
+        &self,
+        visited_tessellations: &mut HashSet<*const CachedTessellation>,
+    ) -> MemoryUsage {
+        let mut usage = self.lyon_vertex_buffers_pool.memory_usage();
+        usage.add(self.tessellation_cache.memory_usage(visited_tessellations));
+        usage.add(self.aa_fringe_scratch.memory_usage());
+        usage.add(self.gradient_cache.memory_usage());
+        usage
     }
 
     pub fn print_sizes(&self) {

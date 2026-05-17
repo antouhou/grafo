@@ -30,6 +30,11 @@ impl TraversalScratch {
     pub(super) fn events(&self) -> &[TraversalEvent] {
         &self.events
     }
+
+    pub(super) fn cpu_heap_bytes(&self) -> u64 {
+        crate::util::vector_capacity_bytes(&self.events)
+            .saturating_add(crate::util::vector_capacity_bytes(&self.skipped_stack))
+    }
 }
 
 pub(super) fn subtree_has_backdrop_effects(

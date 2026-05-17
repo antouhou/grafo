@@ -1,4 +1,10 @@
+use std::collections::HashSet;
+
 use super::*;
+use crate::cache::{cached_tessellation_heap_bytes, CachedTessellation};
+use crate::util::{
+    hash_map_capacity_bytes, texture_memory_size, vector_capacity_bytes, MemoryUsage,
+};
 use tracing::{info, warn};
 
 fn pick_surface_format(surface_formats: &[wgpu::TextureFormat]) -> wgpu::TextureFormat {
@@ -44,6 +50,21 @@ fn pick_alpha_mode(alpha_modes: &[CompositeAlphaMode], transparent: bool) -> Com
                     .copied()
                     .unwrap_or(CompositeAlphaMode::Opaque)
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Renderer;
+
+    #[test]
+    fn format_memory_usage_size_uses_compact_binary_units() {
+        assert_eq!(Renderer::format_memory_usage_size(0), "0B");
+        assert_eq!(Renderer::format_memory_usage_size(1024), "1.00KB");
+        assert_eq!(
+            Renderer::format_memory_usage_size((18.91_f64 * 1024.0 * 1024.0).round() as u64),
+            "18.91MB"
+        );
     }
 }
 
@@ -357,7 +378,40 @@ impl<'a> Renderer<'a> {
         Ok(renderer)
     }
 
+    pub fn format_memory_usage_size(bytes: u64) -> String {
+        const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+        let mut value = bytes as f64;
+        let mut unit_index = 0;
+
+        while value >= 1024.0 && unit_index + 1 < UNITS.len() {
+            value /= 1024.0;
+            unit_index += 1;
+        }
+
+        if unit_index == 0 {
+            format!("{bytes}B")
+        } else {
+            format!("{value:.2}{}", UNITS[unit_index])
+        }
+    }
+
+    pub fn print_memory_usage_info_human_readable(&self) {
+        self.print_memory_usage_info_with_format(true);
+    }
+
     pub fn print_memory_usage_info(&self) {
+        self.print_memory_usage_info_with_format(false);
+    }
+
+    fn print_memory_usage_info_with_format(&self, human_readable_only: bool) {
+        let memory_value = |bytes| Self::memory_value(bytes, human_readable_only);
+        let mut total_usage = MemoryUsage {
+            cpu_bytes: std::mem::size_of_val(self) as u64,
+            gpu_buffer_bytes: 0,
+            gpu_texture_bytes: 0,
+        };
+        let mut visited_tessellations: HashSet<*const CachedTessellation> = HashSet::new();
+
         println!("=== Memory Usage Info ===");
 
         println!("Cached shapes: {}", self.shape_cache.len());
@@ -366,123 +420,453 @@ impl<'a> Renderer<'a> {
             "Metadata to clips mappings: {}",
             self.metadata_to_clips.len()
         );
+        println!(
+            "Renderer CPU inline fields: {}",
+            memory_value(std::mem::size_of_val(self) as u64)
+        );
 
         println!("\n--- Temporary Vectors ---");
+        let temp_vertices_bytes = vector_capacity_bytes(&self.temp_vertices);
+        total_usage.cpu_bytes = total_usage.cpu_bytes.saturating_add(temp_vertices_bytes);
         println!(
-            "Temp vertices: {} items, {} capacity, ~{} bytes",
+            "Temp vertices: {} items, {} capacity, {}",
             self.temp_vertices.len(),
             self.temp_vertices.capacity(),
-            self.temp_vertices.capacity() * std::mem::size_of::<crate::vertex::CustomVertex>()
+            memory_value(temp_vertices_bytes)
         );
+        let temp_indices_bytes = vector_capacity_bytes(&self.temp_indices);
+        total_usage.cpu_bytes = total_usage.cpu_bytes.saturating_add(temp_indices_bytes);
         println!(
-            "Temp indices: {} items, {} capacity, ~{} bytes",
+            "Temp indices: {} items, {} capacity, {}",
             self.temp_indices.len(),
             self.temp_indices.capacity(),
-            self.temp_indices.capacity() * std::mem::size_of::<u16>()
+            memory_value(temp_indices_bytes)
         );
+        let temp_instance_transform_bytes = vector_capacity_bytes(&self.temp_instance_transforms);
+        total_usage.cpu_bytes = total_usage
+            .cpu_bytes
+            .saturating_add(temp_instance_transform_bytes);
         println!(
-            "Temp instance transforms: {} items, {} capacity, ~{} bytes",
+            "Temp instance transforms: {} items, {} capacity, {}",
             self.temp_instance_transforms.len(),
             self.temp_instance_transforms.capacity(),
-            self.temp_instance_transforms.capacity() * std::mem::size_of::<InstanceTransform>()
+            memory_value(temp_instance_transform_bytes)
         );
+        let temp_instance_color_bytes = vector_capacity_bytes(&self.temp_instance_colors);
+        total_usage.cpu_bytes = total_usage
+            .cpu_bytes
+            .saturating_add(temp_instance_color_bytes);
         println!(
-            "Temp instance colors: {} items, {} capacity, ~{} bytes",
+            "Temp instance colors: {} items, {} capacity, {}",
             self.temp_instance_colors.len(),
             self.temp_instance_colors.capacity(),
-            self.temp_instance_colors.capacity() * std::mem::size_of::<InstanceColor>()
+            memory_value(temp_instance_color_bytes)
         );
+        let temp_instance_metadata_bytes = vector_capacity_bytes(&self.temp_instance_metadata);
+        total_usage.cpu_bytes = total_usage
+            .cpu_bytes
+            .saturating_add(temp_instance_metadata_bytes);
         println!(
-            "Temp instance metadata: {} items, {} capacity, ~{} bytes",
+            "Temp instance metadata: {} items, {} capacity, {}",
             self.temp_instance_metadata.len(),
             self.temp_instance_metadata.capacity(),
-            self.temp_instance_metadata.capacity() * std::mem::size_of::<InstanceMetadata>()
+            memory_value(temp_instance_metadata_bytes)
         );
 
         println!("\n--- GPU Buffers ---");
-        if let Some(buf) = &self.aggregated_vertex_buffer {
-            println!("Aggregated vertex buffer: {} bytes", buf.size());
-        }
-        if let Some(buf) = &self.aggregated_index_buffer {
-            println!("Aggregated index buffer: {} bytes", buf.size());
-        }
-        if let Some(buf) = &self.aggregated_instance_transform_buffer {
-            println!("Aggregated instance transform buffer: {} bytes", buf.size());
-        }
-        if let Some(buf) = &self.aggregated_instance_color_buffer {
-            println!("Aggregated instance color buffer: {} bytes", buf.size());
-        }
-        if let Some(buf) = &self.aggregated_instance_metadata_buffer {
-            println!("Aggregated instance metadata buffer: {} bytes", buf.size());
-        }
-        if let Some(buf) = &self.identity_instance_transform_buffer {
-            println!("Identity instance transform buffer: {} bytes", buf.size());
-        }
-        if let Some(buf) = &self.identity_instance_color_buffer {
-            println!("Identity instance color buffer: {} bytes", buf.size());
-        }
-        if let Some(buf) = &self.identity_instance_metadata_buffer {
-            println!("Identity instance metadata buffer: {} bytes", buf.size());
-        }
+        Self::print_optional_buffer(
+            "Aggregated vertex buffer",
+            &self.aggregated_vertex_buffer,
+            &mut total_usage,
+            &memory_value,
+        );
+        Self::print_optional_buffer(
+            "Aggregated index buffer",
+            &self.aggregated_index_buffer,
+            &mut total_usage,
+            &memory_value,
+        );
+        Self::print_optional_buffer(
+            "Aggregated instance transform buffer",
+            &self.aggregated_instance_transform_buffer,
+            &mut total_usage,
+            &memory_value,
+        );
+        Self::print_optional_buffer(
+            "Aggregated instance color buffer",
+            &self.aggregated_instance_color_buffer,
+            &mut total_usage,
+            &memory_value,
+        );
+        Self::print_optional_buffer(
+            "Aggregated instance metadata buffer",
+            &self.aggregated_instance_metadata_buffer,
+            &mut total_usage,
+            &memory_value,
+        );
+        Self::print_optional_buffer(
+            "Identity instance transform buffer",
+            &self.identity_instance_transform_buffer,
+            &mut total_usage,
+            &memory_value,
+        );
+        Self::print_optional_buffer(
+            "Identity instance color buffer",
+            &self.identity_instance_color_buffer,
+            &mut total_usage,
+            &memory_value,
+        );
+        Self::print_optional_buffer(
+            "Identity instance metadata buffer",
+            &self.identity_instance_metadata_buffer,
+            &mut total_usage,
+            &memory_value,
+        );
 
         println!("\n--- ARGB Compute Buffers ---");
-        if let Some(buf) = &self.argb_input_buffer {
+        if let Some(buffer) = &self.argb_input_buffer {
+            total_usage.gpu_buffer_bytes =
+                total_usage.gpu_buffer_bytes.saturating_add(buffer.size());
             println!(
-                "ARGB input buffer: {} bytes (cached size: {})",
-                buf.size(),
-                self.argb_input_buffer_size
+                "ARGB input buffer: {} (cached size: {})",
+                memory_value(buffer.size()),
+                memory_value(self.argb_input_buffer_size)
             );
         }
-        if let Some(buf) = &self.argb_output_storage_buffer {
+        if let Some(buffer) = &self.argb_output_storage_buffer {
+            total_usage.gpu_buffer_bytes =
+                total_usage.gpu_buffer_bytes.saturating_add(buffer.size());
             println!(
-                "ARGB output storage buffer: {} bytes (cached size: {})",
-                buf.size(),
-                self.argb_output_buffer_size
+                "ARGB output storage buffer: {} (cached size: {})",
+                memory_value(buffer.size()),
+                memory_value(self.argb_output_buffer_size)
             );
         }
-        if let Some(buf) = &self.argb_readback_buffer {
-            println!("ARGB readback buffer: {} bytes", buf.size());
-        }
-        if let Some(buf) = &self.argb_params_buffer {
-            println!("ARGB params buffer: {} bytes", buf.size());
-        }
-        if let Some(tex) = &self.argb_offscreen_texture {
-            let size = tex.size();
+        Self::print_optional_buffer(
+            "ARGB readback buffer",
+            &self.argb_readback_buffer,
+            &mut total_usage,
+            &memory_value,
+        );
+        Self::print_optional_buffer(
+            "ARGB params buffer",
+            &self.argb_params_buffer,
+            &mut total_usage,
+            &memory_value,
+        );
+        if let Some(texture) = &self.argb_offscreen_texture {
+            let texture_bytes = texture_memory_size(texture.size(), self.config.format, 1, 1);
+            total_usage.gpu_texture_bytes =
+                total_usage.gpu_texture_bytes.saturating_add(texture_bytes);
+            let size = texture.size();
             println!(
-                "ARGB offscreen texture: {}x{} (cached: {}x{})",
-                size.width, size.height, self.argb_cached_width, self.argb_cached_height
+                "ARGB offscreen texture: {}x{} (cached: {}x{}), {}",
+                size.width,
+                size.height,
+                self.argb_cached_width,
+                self.argb_cached_height,
+                memory_value(texture_bytes)
             );
         }
 
         println!("\n--- Render-to-Buffer Caches ---");
-        if let Some(tex) = &self.rtb_offscreen_texture {
-            let size = tex.size();
+        if let Some(texture) = &self.rtb_offscreen_texture {
+            let texture_bytes = texture_memory_size(texture.size(), self.config.format, 1, 1);
+            total_usage.gpu_texture_bytes =
+                total_usage.gpu_texture_bytes.saturating_add(texture_bytes);
+            let size = texture.size();
             println!(
-                "RTB offscreen texture: {}x{} (cached: {}x{})",
-                size.width, size.height, self.rtb_cached_width, self.rtb_cached_height
+                "RTB offscreen texture: {}x{} (cached: {}x{}), {}",
+                size.width,
+                size.height,
+                self.rtb_cached_width,
+                self.rtb_cached_height,
+                memory_value(texture_bytes)
             );
         }
-        if let Some(buf) = &self.rtb_readback_buffer {
-            println!("RTB readback buffer: {} bytes", buf.size());
-        }
+        Self::print_optional_buffer(
+            "RTB readback buffer",
+            &self.rtb_readback_buffer,
+            &mut total_usage,
+            &memory_value,
+        );
 
         println!("\n--- Uniform Buffers ---");
+        total_usage.gpu_buffer_bytes = total_usage
+            .gpu_buffer_bytes
+            .saturating_add(self.and_uniform_buffer.size())
+            .saturating_add(self.decrementing_uniform_buffer.size());
         println!(
-            "AND uniform buffer: {} bytes",
-            self.and_uniform_buffer.size()
+            "AND uniform buffer: {}",
+            memory_value(self.and_uniform_buffer.size())
         );
         println!(
-            "Decrementing uniform buffer: {} bytes",
-            self.decrementing_uniform_buffer.size()
+            "Decrementing uniform buffer: {}",
+            memory_value(self.decrementing_uniform_buffer.size())
+        );
+
+        println!("\n--- Renderer Textures ---");
+        if let Some(texture) = &self.msaa_color_texture {
+            let texture_bytes = texture_memory_size(
+                texture.size(),
+                self.config.format,
+                self.msaa_sample_count,
+                1,
+            );
+            total_usage.gpu_texture_bytes =
+                total_usage.gpu_texture_bytes.saturating_add(texture_bytes);
+            println!(
+                "MSAA color texture: {} samples, {}",
+                self.msaa_sample_count,
+                memory_value(texture_bytes)
+            );
+        }
+        if let Some(texture) = &self.depth_stencil_texture {
+            let texture_bytes = texture_memory_size(
+                texture.size(),
+                wgpu::TextureFormat::Depth24PlusStencil8,
+                self.msaa_sample_count,
+                1,
+            );
+            total_usage.gpu_texture_bytes =
+                total_usage.gpu_texture_bytes.saturating_add(texture_bytes);
+            println!("Depth/stencil texture: {}", memory_value(texture_bytes));
+        }
+        if self.surface.is_some() {
+            let surface_texture_bytes = texture_memory_size(
+                wgpu::Extent3d {
+                    width: self.config.width,
+                    height: self.config.height,
+                    depth_or_array_layers: 1,
+                },
+                self.config.format,
+                1,
+                1,
+            )
+            .saturating_mul(self.config.desired_maximum_frame_latency as u64);
+            total_usage.gpu_texture_bytes = total_usage
+                .gpu_texture_bytes
+                .saturating_add(surface_texture_bytes);
+            println!(
+                "Surface texture chain estimate: {}",
+                memory_value(surface_texture_bytes)
+            );
+        }
+        let default_texture_bytes = texture_memory_size(
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            1,
+            1,
+        )
+        .saturating_mul(3);
+        let default_backdrop_params_bytes =
+            std::mem::size_of::<crate::gradient::gpu::GpuMaterialParams>() as u64;
+        total_usage.gpu_texture_bytes = total_usage
+            .gpu_texture_bytes
+            .saturating_add(default_texture_bytes);
+        total_usage.gpu_buffer_bytes = total_usage
+            .gpu_buffer_bytes
+            .saturating_add(default_backdrop_params_bytes);
+        println!(
+            "Default bind-group textures: {}",
+            memory_value(default_texture_bytes)
+        );
+        println!(
+            "Default backdrop material buffer: {}",
+            memory_value(default_backdrop_params_bytes)
+        );
+
+        println!("\n--- Draw Data and CPU Caches ---");
+        let draw_tree_bytes = (self.draw_tree.len() as u64).saturating_mul(
+            std::mem::size_of::<DrawCommand>() as u64
+                + std::mem::size_of::<Vec<usize>>() as u64
+                + std::mem::size_of::<Option<usize>>() as u64,
+        );
+        total_usage.cpu_bytes = total_usage.cpu_bytes.saturating_add(draw_tree_bytes);
+        println!("Draw tree node payloads: {}", memory_value(draw_tree_bytes));
+
+        let mut draw_command_heap_bytes = 0_u64;
+        let mut draw_command_gpu_buffer_bytes = 0_u64;
+        for (_, draw_command) in self.draw_tree.iter() {
+            if let DrawCommand::CachedShape(cached_shape) = draw_command {
+                draw_command_heap_bytes =
+                    draw_command_heap_bytes.saturating_add(cached_shape.cpu_heap_bytes());
+                draw_command_heap_bytes =
+                    draw_command_heap_bytes.saturating_add(cached_tessellation_heap_bytes(
+                        &cached_shape.cached_shape.tessellation,
+                        &mut visited_tessellations,
+                    ));
+                draw_command_gpu_buffer_bytes =
+                    draw_command_gpu_buffer_bytes.saturating_add(cached_shape.gpu_buffer_bytes());
+            }
+        }
+        total_usage.cpu_bytes = total_usage
+            .cpu_bytes
+            .saturating_add(draw_command_heap_bytes);
+        total_usage.gpu_buffer_bytes = total_usage
+            .gpu_buffer_bytes
+            .saturating_add(draw_command_gpu_buffer_bytes);
+        println!(
+            "Draw command heap payloads: {}",
+            memory_value(draw_command_heap_bytes)
+        );
+        println!(
+            "Draw command GPU buffers: {}",
+            memory_value(draw_command_gpu_buffer_bytes)
+        );
+
+        let metadata_to_clips_bytes = hash_map_capacity_bytes(&self.metadata_to_clips);
+        let geometry_dedup_map_bytes = hash_map_capacity_bytes(&self.geometry_dedup_map);
+        let shape_cache_map_bytes = hash_map_capacity_bytes(&self.shape_cache);
+        total_usage.cpu_bytes = total_usage
+            .cpu_bytes
+            .saturating_add(metadata_to_clips_bytes)
+            .saturating_add(geometry_dedup_map_bytes)
+            .saturating_add(shape_cache_map_bytes);
+        println!(
+            "Metadata to clips map: {}",
+            memory_value(metadata_to_clips_bytes)
+        );
+        println!(
+            "Geometry dedup map: {}",
+            memory_value(geometry_dedup_map_bytes)
+        );
+        println!("Shape cache map: {}", memory_value(shape_cache_map_bytes));
+
+        let mut shape_cache_tessellation_bytes = 0_u64;
+        for cached_shape in self.shape_cache.values() {
+            shape_cache_tessellation_bytes =
+                shape_cache_tessellation_bytes.saturating_add(cached_tessellation_heap_bytes(
+                    &cached_shape.tessellation,
+                    &mut visited_tessellations,
+                ));
+        }
+        total_usage.cpu_bytes = total_usage
+            .cpu_bytes
+            .saturating_add(shape_cache_tessellation_bytes);
+        println!(
+            "Unique cached tessellations: {}",
+            memory_value(shape_cache_tessellation_bytes)
         );
 
         println!("\n--- Texture Manager ---");
-        println!("{:?}", self.texture_manager.size());
+        let texture_manager_usage = self.texture_manager.memory_usage();
+        total_usage.add(texture_manager_usage);
+        let (texture_count, texture_bind_group_count) = self.texture_manager.size();
+        println!(
+            "Textures: {}, bind groups: {}, CPU {}, GPU textures {}",
+            texture_count,
+            texture_bind_group_count,
+            memory_value(texture_manager_usage.cpu_bytes),
+            memory_value(texture_manager_usage.gpu_texture_bytes)
+        );
 
         println!("\n--- Buffer Pool Manager ---");
         self.buffers_pool_manager.print_sizes();
+        let buffer_pool_usage = self
+            .buffers_pool_manager
+            .memory_usage(&mut visited_tessellations);
+        total_usage.add(buffer_pool_usage);
+        println!(
+            "Buffer pool CPU: {}, GPU buffers: {}, GPU textures: {}",
+            memory_value(buffer_pool_usage.cpu_bytes),
+            memory_value(buffer_pool_usage.gpu_buffer_bytes),
+            memory_value(buffer_pool_usage.gpu_texture_bytes)
+        );
+
+        println!("\n--- Effects ---");
+        let mut effects_usage = MemoryUsage {
+            cpu_bytes: hash_map_capacity_bytes(&self.loaded_effects)
+                .saturating_add(hash_map_capacity_bytes(&self.group_effects))
+                .saturating_add(hash_map_capacity_bytes(&self.backdrop_effects)),
+            gpu_buffer_bytes: 0,
+            gpu_texture_bytes: 0,
+        };
+        for loaded_effect in self.loaded_effects.values() {
+            effects_usage.add(loaded_effect.memory_usage());
+        }
+        for effect_instance in self
+            .group_effects
+            .values()
+            .chain(self.backdrop_effects.values())
+        {
+            effects_usage.add(effect_instance.memory_usage());
+        }
+        total_usage.add(effects_usage);
+        println!(
+            "Loaded effects: {}, group instances: {}, backdrop instances: {}",
+            self.loaded_effects.len(),
+            self.group_effects.len(),
+            self.backdrop_effects.len()
+        );
+        println!(
+            "Effects CPU: {}, GPU buffers: {}",
+            memory_value(effects_usage.cpu_bytes),
+            memory_value(effects_usage.gpu_buffer_bytes)
+        );
+
+        let offscreen_pool_usage = self.offscreen_texture_pool.memory_usage();
+        total_usage.add(offscreen_pool_usage);
+        println!(
+            "Offscreen texture pool CPU: {}, GPU textures: {}",
+            memory_value(offscreen_pool_usage.cpu_bytes),
+            memory_value(offscreen_pool_usage.gpu_texture_bytes)
+        );
+
+        println!("\n--- Renderer Scratch ---");
+        let scratch_usage = self.scratch.memory_usage();
+        total_usage.add(scratch_usage);
+        println!(
+            "Scratch CPU: {}, GPU textures: {}",
+            memory_value(scratch_usage.cpu_bytes),
+            memory_value(scratch_usage.gpu_texture_bytes)
+        );
+
+        println!("\n--- Totals ---");
+        println!(
+            "CPU-side tracked memory: {}",
+            memory_value(total_usage.cpu_bytes)
+        );
+        println!(
+            "GPU buffer memory: {}",
+            memory_value(total_usage.gpu_buffer_bytes)
+        );
+        println!(
+            "GPU texture memory: {}",
+            memory_value(total_usage.gpu_texture_bytes)
+        );
+        println!("Tracked total: {}", memory_value(total_usage.total_bytes()));
+        println!(
+            "Note: WGPU driver-private allocations for pipelines, bind groups, samplers, device, queue, and surface internals are not exposed by wgpu."
+        );
 
         println!("=========================");
+    }
+
+    fn memory_value(bytes: u64, human_readable_only: bool) -> String {
+        let formatted = Self::format_memory_usage_size(bytes);
+        if human_readable_only {
+            formatted
+        } else {
+            format!("{bytes} bytes ({formatted})")
+        }
+    }
+
+    fn print_optional_buffer(
+        label: &str,
+        buffer: &Option<wgpu::Buffer>,
+        total_usage: &mut MemoryUsage,
+        memory_value: &impl Fn(u64) -> String,
+    ) {
+        if let Some(buffer) = buffer {
+            total_usage.gpu_buffer_bytes =
+                total_usage.gpu_buffer_bytes.saturating_add(buffer.size());
+            println!("{label}: {}", memory_value(buffer.size()));
+        }
     }
 
     fn create_default_shape_texture_bind_group(

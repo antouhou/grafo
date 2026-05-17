@@ -1,6 +1,8 @@
+use crate::util::{hash_map_capacity_bytes, vector_capacity_bytes, MemoryUsage};
 use crate::vertex::CustomVertex;
 use ahash::{HashMap, HashMapExt};
 use lyon::tessellation::VertexBuffers;
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -65,6 +67,47 @@ impl Cache {
         std::mem::swap(&mut self.previous_frame, &mut self.current_frame);
         self.current_frame.clear();
     }
+
+    pub(crate) fn memory_usage(
+        &self,
+        visited_tessellations: &mut HashSet<*const CachedTessellation>,
+    ) -> MemoryUsage {
+        let mut usage = MemoryUsage {
+            cpu_bytes: hash_map_capacity_bytes(&self.previous_frame)
+                .saturating_add(hash_map_capacity_bytes(&self.current_frame)),
+            gpu_buffer_bytes: 0,
+            gpu_texture_bytes: 0,
+        };
+
+        for tessellation in self
+            .previous_frame
+            .values()
+            .chain(self.current_frame.values())
+        {
+            usage.cpu_bytes = usage
+                .cpu_bytes
+                .saturating_add(cached_tessellation_heap_bytes(
+                    tessellation,
+                    visited_tessellations,
+                ));
+        }
+
+        usage
+    }
+}
+
+pub(crate) fn cached_tessellation_heap_bytes(
+    tessellation: &Arc<CachedTessellation>,
+    visited_tessellations: &mut HashSet<*const CachedTessellation>,
+) -> u64 {
+    if !visited_tessellations.insert(Arc::as_ptr(tessellation)) {
+        return 0;
+    }
+
+    std::mem::size_of::<CachedTessellation>() as u64
+        + std::mem::size_of::<VertexBuffers<CustomVertex, u16>>() as u64
+        + vector_capacity_bytes(&tessellation.vertex_buffers.vertices)
+        + vector_capacity_bytes(&tessellation.vertex_buffers.indices)
 }
 
 #[cfg(test)]

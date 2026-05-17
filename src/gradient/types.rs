@@ -530,6 +530,13 @@ impl Fill {
             _ => None,
         }
     }
+
+    pub(crate) fn heap_bytes(&self) -> u64 {
+        match self {
+            Fill::Solid(_) => 0,
+            Fill::Gradient(gradient) => gradient.heap_bytes(),
+        }
+    }
 }
 
 impl From<Color> for Fill {
@@ -606,6 +613,10 @@ pub(crate) struct GradientData {
 }
 
 impl Gradient {
+    pub(crate) fn heap_bytes(&self) -> u64 {
+        self.data.heap_bytes()
+    }
+
     pub fn new(desc: GradientDesc) -> Result<Self, GradientError> {
         match desc {
             GradientDesc::Linear(d) => Self::linear(d),
@@ -812,6 +823,43 @@ impl Gradient {
                 constant_color,
             },
         })
+    }
+}
+
+impl GradientData {
+    pub(crate) fn heap_bytes(&self) -> u64 {
+        self.ramp_cache_key
+            .heap_bytes()
+            .saturating_add(self.ramp.heap_bytes())
+    }
+}
+
+impl GradientRampCacheKey {
+    fn heap_bytes(&self) -> u64 {
+        if self.stops.spilled() {
+            (self.stops.capacity() as u64)
+                .saturating_mul(std::mem::size_of::<GradientRampStopKey>() as u64)
+        } else {
+            0
+        }
+    }
+}
+
+impl GradientRamp {
+    fn heap_bytes(&self) -> u64 {
+        match self {
+            GradientRamp::Constant(_) => 0,
+            GradientRamp::Pending(source) => {
+                std::mem::size_of::<GradientRampSource>() as u64 + source.heap_bytes()
+            }
+            GradientRamp::Sampled(_) => std::mem::size_of::<[[f32; 4]; RAMP_RESOLUTION]>() as u64,
+        }
+    }
+}
+
+impl GradientRampSource {
+    fn heap_bytes(&self) -> u64 {
+        self.normalized.heap_bytes()
     }
 }
 
