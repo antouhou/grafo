@@ -977,6 +977,7 @@ dependencies = [
  "euclid",
  "futures",
  "grafo-test-scenes",
+ "half",
  "image",
  "lru",
  "lyon",

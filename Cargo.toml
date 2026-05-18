@@ -26,6 +26,7 @@ regex = "1"
 softbuffer = "0.4.8"
 thiserror = "2.0.18"
 smallvec = "1.13"
+half = "2.4"
 
 [dev-dependencies]
 winit = "0.30"

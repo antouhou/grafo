@@ -232,14 +232,14 @@ pub fn create_gradient_bind_group_layout(device: &Device) -> BindGroupLayout {
                 ty: wgpu::BindingType::Texture {
                     multisampled: false,
                     view_dimension: wgpu::TextureViewDimension::D1,
-                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 },
                 count: None,
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 2,
                 visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
             },
         ],
@@ -300,14 +300,14 @@ pub fn create_backdrop_gradient_bind_group_layout(device: &Device) -> BindGroupL
                 ty: wgpu::BindingType::Texture {
                     multisampled: false,
                     view_dimension: wgpu::TextureViewDimension::D1,
-                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 },
                 count: None,
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 2,
                 visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
             },
             wgpu::BindGroupLayoutEntry {
