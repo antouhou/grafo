@@ -415,8 +415,12 @@ fn compute_gradient_fragment_color(
     texture_flags: f32,
     model_pos: vec2<f32>,
     screen_pos: vec2<f32>,
+    dither_coords: vec2<f32>,
 ) -> vec4<f32> {
-    let fill_pma = evaluate_gradient(model_pos, screen_pos);
+    let fill_pma = apply_gradient_bayer_dither(
+        evaluate_gradient(model_pos, screen_pos),
+        dither_coords,
+    );
 
     let flags = u32(texture_flags);
     if (flags == 0u) {
@@ -476,7 +480,10 @@ fn compute_gradient_fragment_color_with_backdrop(
     model_pos: vec2<f32>,
     screen_pos: vec2<f32>,
 ) -> vec4<f32> {
-    let fill_pma = evaluate_gradient(model_pos, screen_pos);
+    let fill_pma = apply_gradient_bayer_dither(
+        evaluate_gradient(model_pos, screen_pos),
+        fragment_position.xy,
+    );
     let backdrop_uv = (fragment_position.xy - material_params.backdrop_sampling.capture_origin)
         * material_params.backdrop_sampling.inverse_capture_size;
     let backdrop_pma = textureSampleLevel(t_backdrop_layer, s_backdrop_layer, backdrop_uv, 0.0);
@@ -525,14 +532,15 @@ fn fs_main_gradient(
     @location(5) model_pos: vec2<f32>,
     @location(6) screen_pos: vec2<f32>,
 ) -> @location(0) vec4<f32> {
-    return apply_gradient_bayer_dither(compute_gradient_fragment_color(
+    return compute_gradient_fragment_color(
         layer0_tex_coords,
         layer1_tex_coords,
         coverage,
         texture_flags,
         model_pos,
         screen_pos,
-    ), fragment_position.xy);
+        fragment_position.xy,
+    );
 }
 
 // Used by stencil-only passes that write no color. Color work is skipped entirely;
@@ -574,14 +582,15 @@ fn fs_passthrough_gradient(
     @location(5) model_pos: vec2<f32>,
     @location(6) screen_pos: vec2<f32>,
 ) -> @location(0) vec4<f32> {
-    return apply_gradient_bayer_dither(compute_gradient_fragment_color(
+    return compute_gradient_fragment_color(
         layer0_tex_coords,
         layer1_tex_coords,
         coverage,
         texture_flags,
         model_pos,
         screen_pos,
-    ), fragment_position.xy);
+        fragment_position.xy,
+    );
 }
 
 @fragment
@@ -614,7 +623,7 @@ fn fs_backdrop_passthrough_gradient(
     @location(5) model_pos: vec2<f32>,
     @location(6) screen_pos: vec2<f32>,
 ) -> @location(0) vec4<f32> {
-    return apply_gradient_bayer_dither(compute_gradient_fragment_color_with_backdrop(
+    return compute_gradient_fragment_color_with_backdrop(
         fragment_position,
         layer0_tex_coords,
         layer1_tex_coords,
@@ -622,5 +631,5 @@ fn fs_backdrop_passthrough_gradient(
         texture_flags,
         model_pos,
         screen_pos,
-    ), fragment_position.xy);
+    );
 }
