@@ -3,7 +3,7 @@ members = [".", "grafo-test-scenes"]
 
 [package]
 name = "grafo"
-version = "0.16.1"
+version = "0.16.2"
 edition = "2021"
 description = "A GPU-accelerated rendering library for Rust"
 keywords = ["rendering", "vector_graphics", "gui", "graphics", "image"]
@@ -26,6 +26,7 @@ regex = "1"
 softbuffer = "0.4.8"
 thiserror = "2.0.18"
 smallvec = "1.13"
+half = "2.4"
 
 [dev-dependencies]
 winit = "0.30"

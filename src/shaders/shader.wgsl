@@ -113,6 +113,31 @@ fn to_srgb(color: vec3<f32>) -> vec3<f32> {
     return select(higher, lower, color <= cutoff);
 }
 
+const BAYER_4X4_THRESHOLDS: array<f32, 16> = array<f32, 16>(
+    0.0, 8.0, 2.0, 10.0,
+    12.0, 4.0, 14.0, 6.0,
+    3.0, 11.0, 1.0, 9.0,
+    15.0, 7.0, 13.0, 5.0,
+);
+
+fn bayer_4x4_threshold(pixel_pos: vec2<f32>) -> f32 {
+    let x = u32(pixel_pos.x) & 3u;
+    let y = u32(pixel_pos.y) & 3u;
+    return (BAYER_4X4_THRESHOLDS[y * 4u + x] + 0.5) * (1.0 / 16.0);
+}
+
+fn apply_gradient_bayer_dither(color_pma: vec4<f32>, pixel_pos: vec2<f32>) -> vec4<f32> {
+    if color_pma.a <= 1e-6 {
+        return color_pma;
+    }
+
+    let alpha = color_pma.a;
+    let rgb = color_pma.rgb / alpha;
+    let offset = (bayer_4x4_threshold(pixel_pos) - 0.5) * (1.0 / 255.0);
+    let dithered_rgb = clamp(rgb + vec3<f32>(offset), vec3<f32>(0.0), vec3<f32>(1.0));
+    return vec4<f32>(dithered_rgb * alpha, alpha);
+}
+
 // ── Gradient evaluation ─────────────────────────────────────────────
 
 /// Computes the raw gradient parameter t for the given position.
@@ -390,8 +415,12 @@ fn compute_gradient_fragment_color(
     texture_flags: f32,
     model_pos: vec2<f32>,
     screen_pos: vec2<f32>,
+    dither_coords: vec2<f32>,
 ) -> vec4<f32> {
-    let fill_pma = evaluate_gradient(model_pos, screen_pos);
+    let fill_pma = apply_gradient_bayer_dither(
+        evaluate_gradient(model_pos, screen_pos),
+        dither_coords,
+    );
 
     let flags = u32(texture_flags);
     if (flags == 0u) {
@@ -451,7 +480,10 @@ fn compute_gradient_fragment_color_with_backdrop(
     model_pos: vec2<f32>,
     screen_pos: vec2<f32>,
 ) -> vec4<f32> {
-    let fill_pma = evaluate_gradient(model_pos, screen_pos);
+    let fill_pma = apply_gradient_bayer_dither(
+        evaluate_gradient(model_pos, screen_pos),
+        fragment_position.xy,
+    );
     let backdrop_uv = (fragment_position.xy - material_params.backdrop_sampling.capture_origin)
         * material_params.backdrop_sampling.inverse_capture_size;
     let backdrop_pma = textureSampleLevel(t_backdrop_layer, s_backdrop_layer, backdrop_uv, 0.0);
@@ -491,6 +523,7 @@ fn fs_main(
 
 @fragment
 fn fs_main_gradient(
+    @builtin(position) fragment_position: vec4<f32>,
     @location(0) color: vec4<f32>,
     @location(1) layer0_tex_coords: vec2<f32>,
     @location(2) layer1_tex_coords: vec2<f32>,
@@ -506,6 +539,7 @@ fn fs_main_gradient(
         texture_flags,
         model_pos,
         screen_pos,
+        fragment_position.xy,
     );
 }
 
@@ -539,6 +573,7 @@ fn fs_passthrough(
 
 @fragment
 fn fs_passthrough_gradient(
+    @builtin(position) fragment_position: vec4<f32>,
     @location(0) color: vec4<f32>,
     @location(1) layer0_tex_coords: vec2<f32>,
     @location(2) layer1_tex_coords: vec2<f32>,
@@ -554,6 +589,7 @@ fn fs_passthrough_gradient(
         texture_flags,
         model_pos,
         screen_pos,
+        fragment_position.xy,
     );
 }
 

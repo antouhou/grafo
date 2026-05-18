@@ -968,7 +968,7 @@ dependencies = [
 
 [[package]]
 name = "grafo"
-version = "0.16.1"
+version = "0.16.2"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -977,6 +977,7 @@ dependencies = [
  "euclid",
  "futures",
  "grafo-test-scenes",
+ "half",
  "image",
  "lru",
  "lyon",

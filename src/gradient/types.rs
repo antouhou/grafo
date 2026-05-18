@@ -547,7 +547,7 @@ impl From<Gradient> for Fill {
 // ── Validated opaque Gradient ────────────────────────────────────────────────
 
 /// The number of texels in a baked gradient ramp texture.
-pub(crate) const RAMP_RESOLUTION: usize = 256;
+pub(crate) const RAMP_RESOLUTION: usize = 1024;
 
 #[derive(Debug, Clone)]
 pub struct Gradient {

@@ -211,10 +211,16 @@ pub(crate) fn create_ramp_texture(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D1,
-        format: wgpu::TextureFormat::Rgba32Float,
+        // Use half floats so the ramp stays high precision while remaining filterable.
+        format: wgpu::TextureFormat::Rgba16Float,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
+
+    let upload_ramp: Vec<[u16; 4]> = ramp
+        .iter()
+        .map(|texel| texel.map(|channel| half::f16::from_f32(channel).to_bits()))
+        .collect();
 
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
@@ -223,10 +229,10 @@ pub(crate) fn create_ramp_texture(
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        bytemuck::cast_slice(ramp),
+        bytemuck::cast_slice(&upload_ramp),
         wgpu::TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: Some(width * 16), // 4 × f32 = 16 bytes per texel
+            bytes_per_row: Some(width * 8), // 4 × f16 = 8 bytes per texel
             rows_per_image: None,
         },
         wgpu::Extent3d {
