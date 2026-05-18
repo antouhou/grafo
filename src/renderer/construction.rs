@@ -399,8 +399,194 @@ impl<'a> Renderer<'a> {
         self.print_memory_usage_info_with_format(true);
     }
 
+    pub fn print_total_memory_usage_info(&self) {
+        let total_usage = self.total_memory_usage();
+        let gpu_bytes = total_usage
+            .gpu_buffer_bytes
+            .saturating_add(total_usage.gpu_texture_bytes);
+
+        println!(
+            "CPU total RAM consumed by the renderer: {}, GPU total consumed {}",
+            Self::format_memory_usage_size(total_usage.cpu_bytes),
+            Self::format_memory_usage_size(gpu_bytes)
+        );
+    }
+
     pub fn print_memory_usage_info(&self) {
         self.print_memory_usage_info_with_format(false);
+    }
+
+    fn total_memory_usage(&self) -> MemoryUsage {
+        let mut total_usage = MemoryUsage {
+            cpu_bytes: std::mem::size_of_val(self) as u64,
+            gpu_buffer_bytes: 0,
+            gpu_texture_bytes: 0,
+        };
+        let mut visited_tessellations: HashSet<*const CachedTessellation> = HashSet::new();
+
+        total_usage.cpu_bytes = total_usage
+            .cpu_bytes
+            .saturating_add(vector_capacity_bytes(&self.temp_vertices))
+            .saturating_add(vector_capacity_bytes(&self.temp_indices))
+            .saturating_add(vector_capacity_bytes(&self.temp_instance_transforms))
+            .saturating_add(vector_capacity_bytes(&self.temp_instance_colors))
+            .saturating_add(vector_capacity_bytes(&self.temp_instance_metadata));
+
+        Self::add_optional_buffer_usage(&self.aggregated_vertex_buffer, &mut total_usage);
+        Self::add_optional_buffer_usage(&self.aggregated_index_buffer, &mut total_usage);
+        Self::add_optional_buffer_usage(
+            &self.aggregated_instance_transform_buffer,
+            &mut total_usage,
+        );
+        Self::add_optional_buffer_usage(&self.aggregated_instance_color_buffer, &mut total_usage);
+        Self::add_optional_buffer_usage(
+            &self.aggregated_instance_metadata_buffer,
+            &mut total_usage,
+        );
+        Self::add_optional_buffer_usage(&self.identity_instance_transform_buffer, &mut total_usage);
+        Self::add_optional_buffer_usage(&self.identity_instance_color_buffer, &mut total_usage);
+        Self::add_optional_buffer_usage(&self.identity_instance_metadata_buffer, &mut total_usage);
+
+        Self::add_optional_buffer_usage(&self.argb_input_buffer, &mut total_usage);
+        Self::add_optional_buffer_usage(&self.argb_output_storage_buffer, &mut total_usage);
+        Self::add_optional_buffer_usage(&self.argb_readback_buffer, &mut total_usage);
+        Self::add_optional_buffer_usage(&self.argb_params_buffer, &mut total_usage);
+        Self::add_optional_texture_usage(
+            &self.argb_offscreen_texture,
+            self.config.format,
+            1,
+            &mut total_usage,
+        );
+
+        Self::add_optional_texture_usage(
+            &self.rtb_offscreen_texture,
+            self.config.format,
+            1,
+            &mut total_usage,
+        );
+        Self::add_optional_buffer_usage(&self.rtb_readback_buffer, &mut total_usage);
+
+        total_usage.gpu_buffer_bytes = total_usage
+            .gpu_buffer_bytes
+            .saturating_add(self.and_uniform_buffer.size())
+            .saturating_add(self.decrementing_uniform_buffer.size());
+
+        Self::add_optional_texture_usage(
+            &self.msaa_color_texture,
+            self.config.format,
+            self.msaa_sample_count,
+            &mut total_usage,
+        );
+        Self::add_optional_texture_usage(
+            &self.depth_stencil_texture,
+            wgpu::TextureFormat::Depth24PlusStencil8,
+            self.msaa_sample_count,
+            &mut total_usage,
+        );
+
+        if self.surface.is_some() {
+            let surface_texture_bytes = texture_memory_size(
+                wgpu::Extent3d {
+                    width: self.config.width,
+                    height: self.config.height,
+                    depth_or_array_layers: 1,
+                },
+                self.config.format,
+                1,
+                1,
+            )
+            .saturating_mul(self.config.desired_maximum_frame_latency as u64);
+            total_usage.gpu_texture_bytes = total_usage
+                .gpu_texture_bytes
+                .saturating_add(surface_texture_bytes);
+        }
+
+        let default_texture_bytes = texture_memory_size(
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            1,
+            1,
+        )
+        .saturating_mul(3);
+        let default_backdrop_params_bytes =
+            std::mem::size_of::<crate::gradient::gpu::GpuMaterialParams>() as u64;
+        total_usage.gpu_texture_bytes = total_usage
+            .gpu_texture_bytes
+            .saturating_add(default_texture_bytes);
+        total_usage.gpu_buffer_bytes = total_usage
+            .gpu_buffer_bytes
+            .saturating_add(default_backdrop_params_bytes);
+
+        let draw_tree_bytes = (self.draw_tree.len() as u64).saturating_mul(
+            std::mem::size_of::<DrawCommand>() as u64
+                + std::mem::size_of::<Vec<usize>>() as u64
+                + std::mem::size_of::<Option<usize>>() as u64,
+        );
+        total_usage.cpu_bytes = total_usage.cpu_bytes.saturating_add(draw_tree_bytes);
+
+        for (_, draw_command) in self.draw_tree.iter() {
+            if let DrawCommand::CachedShape(cached_shape) = draw_command {
+                total_usage.cpu_bytes = total_usage
+                    .cpu_bytes
+                    .saturating_add(cached_shape.cpu_heap_bytes())
+                    .saturating_add(cached_tessellation_heap_bytes(
+                        &cached_shape.cached_shape.tessellation,
+                        &mut visited_tessellations,
+                    ));
+                total_usage.gpu_buffer_bytes = total_usage
+                    .gpu_buffer_bytes
+                    .saturating_add(cached_shape.gpu_buffer_bytes());
+            }
+        }
+
+        total_usage.cpu_bytes = total_usage
+            .cpu_bytes
+            .saturating_add(hash_map_capacity_bytes(&self.metadata_to_clips))
+            .saturating_add(hash_map_capacity_bytes(&self.geometry_dedup_map))
+            .saturating_add(hash_map_capacity_bytes(&self.shape_cache));
+
+        for cached_shape in self.shape_cache.values() {
+            total_usage.cpu_bytes =
+                total_usage
+                    .cpu_bytes
+                    .saturating_add(cached_tessellation_heap_bytes(
+                        &cached_shape.tessellation,
+                        &mut visited_tessellations,
+                    ));
+        }
+
+        total_usage.add(self.texture_manager.memory_usage());
+        total_usage.add(
+            self.buffers_pool_manager
+                .memory_usage(&mut visited_tessellations),
+        );
+
+        let mut effects_usage = MemoryUsage {
+            cpu_bytes: hash_map_capacity_bytes(&self.loaded_effects)
+                .saturating_add(hash_map_capacity_bytes(&self.group_effects))
+                .saturating_add(hash_map_capacity_bytes(&self.backdrop_effects)),
+            gpu_buffer_bytes: 0,
+            gpu_texture_bytes: 0,
+        };
+        for loaded_effect in self.loaded_effects.values() {
+            effects_usage.add(loaded_effect.memory_usage());
+        }
+        for effect_instance in self
+            .group_effects
+            .values()
+            .chain(self.backdrop_effects.values())
+        {
+            effects_usage.add(effect_instance.memory_usage());
+        }
+        total_usage.add(effects_usage);
+        total_usage.add(self.offscreen_texture_pool.memory_usage());
+        total_usage.add(self.scratch.memory_usage());
+
+        total_usage
     }
 
     fn print_memory_usage_info_with_format(&self, human_readable_only: bool) {
@@ -866,6 +1052,26 @@ impl<'a> Renderer<'a> {
             total_usage.gpu_buffer_bytes =
                 total_usage.gpu_buffer_bytes.saturating_add(buffer.size());
             println!("{label}: {}", memory_value(buffer.size()));
+        }
+    }
+
+    fn add_optional_buffer_usage(buffer: &Option<wgpu::Buffer>, total_usage: &mut MemoryUsage) {
+        if let Some(buffer) = buffer {
+            total_usage.gpu_buffer_bytes =
+                total_usage.gpu_buffer_bytes.saturating_add(buffer.size());
+        }
+    }
+
+    fn add_optional_texture_usage(
+        texture: &Option<wgpu::Texture>,
+        format: wgpu::TextureFormat,
+        sample_count: u32,
+        total_usage: &mut MemoryUsage,
+    ) {
+        if let Some(texture) = texture {
+            total_usage.gpu_texture_bytes = total_usage
+                .gpu_texture_bytes
+                .saturating_add(texture_memory_size(texture.size(), format, sample_count, 1));
         }
     }
 
