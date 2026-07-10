@@ -1,13 +1,11 @@
 //! Renderer for the Grafo library.
-
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-use std::time::Duration;
-
 use ahash::{HashMap, HashMapExt};
 use lyon::tessellation::FillTessellator;
+use std::num::NonZeroUsize;
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use tracing::warn;
-use wgpu::{BindGroup, BufferUsages, CompositeAlphaMode, InstanceDescriptor, SurfaceTarget};
+use wgpu::{BindGroup, BufferUsages, CompositeAlphaMode, SurfaceTarget};
 
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
@@ -76,6 +74,24 @@ pub enum ShapeOverflow {
 }
 
 /// The renderer for the Grafo library. This is the main struct used to render shapes and images.
+///
+/// A [`Renderer`] owns one render surface and one independent draw queue. Create a
+/// [`RendererContext`] once and pass clones of it to additional renderers when multiple
+/// windows should share the same GPU device and texture storage.
+#[derive(Clone)]
+pub struct RendererContext {
+    pub(crate) inner: Arc<RendererContextInner>,
+}
+
+pub(crate) struct RendererContextInner {
+    pub(crate) instance: Arc<wgpu::Instance>,
+    pub(crate) adapter: Arc<wgpu::Adapter>,
+    pub(crate) device: Arc<wgpu::Device>,
+    pub(crate) queue: Arc<wgpu::Queue>,
+    pub(crate) texture_manager: TextureManager,
+    pub(crate) shape_cache: RwLock<HashMap<u64, CachedShapeHandle>>,
+}
+
 pub struct Renderer<'a> {
     // Window information
     /// Size of the window in pixels.
@@ -88,7 +104,8 @@ pub struct Renderer<'a> {
     fringe_width: f32,
 
     // WGPU components
-    instance: wgpu::Instance,
+    context: RendererContext,
+    instance: Arc<wgpu::Instance>,
     surface: Option<wgpu::Surface<'a>>,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
@@ -156,10 +173,6 @@ pub struct Renderer<'a> {
     identity_instance_transform_buffer: Option<wgpu::Buffer>,
     identity_instance_color_buffer: Option<wgpu::Buffer>,
     identity_instance_metadata_buffer: Option<wgpu::Buffer>,
-
-    /// Loaded shapes to reuse later during rendering without loading/tessellating again.
-    /// Not an LRU cache: evicting a shape also results in it not being rendered.
-    shape_cache: HashMap<u64, CachedShapeHandle>,
 
     // Cached resources for render_to_argb32 compute swizzle path
     argb_cs_bgl: Option<wgpu::BindGroupLayout>,

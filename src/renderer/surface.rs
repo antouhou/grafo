@@ -1,6 +1,11 @@
 use super::*;
 
 impl<'a> Renderer<'a> {
+    /// Returns the shared GPU context used by this renderer.
+    pub fn context(&self) -> &RendererContext {
+        &self.context
+    }
+
     pub fn size(&self) -> (u32, u32) {
         self.physical_size
     }

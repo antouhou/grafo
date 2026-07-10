@@ -27,12 +27,22 @@ impl<'a> Renderer<'a> {
             &mut self.buffers_pool_manager,
             geometry_id,
         );
-        self.shape_cache.insert(cache_key, cached_shape);
+        self.context
+            .inner
+            .shape_cache
+            .write()
+            .expect("shared shape cache lock poisoned")
+            .insert(cache_key, cached_shape);
     }
 
     /// Removes a loaded shape from the cache.
     pub fn remove_shape(&mut self, cache_key: u64) {
-        self.shape_cache.remove(&cache_key);
+        self.context
+            .inner
+            .shape_cache
+            .write()
+            .expect("shared shape cache lock poisoned")
+            .remove(&cache_key);
     }
 
     /// Adds a previously loaded cached shape to the draw tree.
@@ -46,7 +56,14 @@ impl<'a> Renderer<'a> {
         parent_shape_id: Option<usize>,
         options: ShapeDrawCommandOptions,
     ) -> Result<usize, DrawCommandError> {
-        let mut draw_data = if let Some(cached_shape_handle) = self.shape_cache.get(&cache_key) {
+        let mut draw_data = if let Some(cached_shape_handle) = self
+            .context
+            .inner
+            .shape_cache
+            .read()
+            .expect("shared shape cache lock poisoned")
+            .get(&cache_key)
+        {
             CachedShapeDrawData::new(cached_shape_handle.clone(), &options)
         } else {
             return Err(DrawCommandError::ShapeNotLoaded(cache_key));

@@ -1,5 +1,6 @@
 use super::*;
 use tracing::{info, warn};
+use wgpu::InstanceDescriptor;
 
 fn pick_surface_format(surface_formats: &[wgpu::TextureFormat]) -> wgpu::TextureFormat {
     const PREFERRED_SURFACE_FORMATS: [wgpu::TextureFormat; 4] = [
@@ -47,8 +48,7 @@ fn pick_alpha_mode(alpha_modes: &[CompositeAlphaMode], transparent: bool) -> Com
     }
 }
 
-/// Errors that can occur when creating a [`Renderer`] via
-/// [`Renderer::try_new_headless`].
+/// Errors that can occur when creating a [`RendererContext`] or [`Renderer`].
 #[derive(Debug, thiserror::Error)]
 pub enum RendererCreationError {
     /// The provided `scale_factor` is not usable (must be finite and positive).
@@ -60,32 +60,30 @@ pub enum RendererCreationError {
     /// The GPU device could not be created.
     #[error("GPU device creation failed: {0}")]
     DeviceCreationFailed(#[from] wgpu::RequestDeviceError),
+    /// The window target could not be converted into a WGPU surface.
+    #[error("Surface creation failed: {0}")]
+    SurfaceCreationFailed(#[from] wgpu::CreateSurfaceError),
+    /// The context's adapter cannot render to the provided surface.
+    #[error("The renderer context adapter does not support the provided surface")]
+    UnsupportedSurface,
 }
 
-impl<'a> Renderer<'a> {
-    pub async fn new(
-        window: impl Into<SurfaceTarget<'static>>,
-        physical_size: (u32, u32),
-        scale_factor: f64,
-        vsync: bool,
-        transparent: bool,
-        msaa_samples: u32,
-    ) -> Self {
-        let size = physical_size;
-
-        let instance = wgpu::Instance::new(&InstanceDescriptor::default());
-        let surface = instance
-            .create_surface(window)
-            .expect("Failed to create surface");
-
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await
-            .unwrap();
+impl RendererContext {
+    /// Creates GPU resources that can be shared by any number of independent renderers.
+    ///
+    /// The context deliberately has no surface. A renderer created from it validates and
+    /// configures its own surface, so windows can be added later without rebuilding the device.
+    pub async fn try_new() -> Result<Self, RendererCreationError> {
+        let instance = Arc::new(wgpu::Instance::new(&InstanceDescriptor::default()));
+        let adapter = Arc::new(
+            instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::HighPerformance,
+                    compatible_surface: None,
+                    force_fallback_adapter: false,
+                })
+                .await?,
+        );
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -99,18 +97,99 @@ impl<'a> Renderer<'a> {
                 memory_hints: Default::default(),
                 trace: Default::default(),
             })
-            .await
-            .unwrap();
+            .await?;
+        let device = Arc::new(device);
+        let queue = Arc::new(queue);
 
-        let surface_caps = surface.get_capabilities(&adapter);
+        Ok(Self {
+            inner: Arc::new(RendererContextInner {
+                instance,
+                adapter,
+                texture_manager: TextureManager::new(device.clone(), queue.clone()),
+                shape_cache: RwLock::new(HashMap::new()),
+                device,
+                queue,
+            }),
+        })
+    }
+
+    /// Creates a shared GPU context, panicking when no compatible device is available.
+    pub async fn new() -> Self {
+        Self::try_new()
+            .await
+            .expect("Failed to create renderer context")
+    }
+}
+
+impl<'a> Renderer<'a> {
+    pub async fn new(
+        window: impl Into<SurfaceTarget<'static>>,
+        physical_size: (u32, u32),
+        scale_factor: f64,
+        vsync: bool,
+        transparent: bool,
+        msaa_samples: u32,
+    ) -> Self {
+        Self::new_with_context(
+            RendererContext::new().await,
+            window,
+            physical_size,
+            scale_factor,
+            vsync,
+            transparent,
+            msaa_samples,
+        )
+    }
+
+    /// Creates a renderer with an existing [`RendererContext`].
+    ///
+    /// Each renderer created through this method owns a distinct surface and draw queue while
+    /// sharing the context's WGPU device, queue, and texture storage.
+    pub fn new_with_context(
+        context: RendererContext,
+        window: impl Into<SurfaceTarget<'static>>,
+        physical_size: (u32, u32),
+        scale_factor: f64,
+        vsync: bool,
+        transparent: bool,
+        msaa_samples: u32,
+    ) -> Self {
+        Self::try_new_with_context(
+            context,
+            window,
+            physical_size,
+            scale_factor,
+            vsync,
+            transparent,
+            msaa_samples,
+        )
+        .expect("Failed to build renderer from context")
+    }
+
+    /// Fallible version of [`Self::new_with_context`].
+    pub fn try_new_with_context(
+        context: RendererContext,
+        window: impl Into<SurfaceTarget<'static>>,
+        physical_size: (u32, u32),
+        scale_factor: f64,
+        vsync: bool,
+        transparent: bool,
+        msaa_samples: u32,
+    ) -> Result<Self, RendererCreationError> {
+        let surface = context.inner.instance.create_surface(window)?;
+
+        let surface_caps = surface.get_capabilities(&context.inner.adapter);
+        if surface_caps.formats.is_empty() {
+            return Err(RendererCreationError::UnsupportedSurface);
+        }
         let swapchain_format = pick_surface_format(&surface_caps.formats);
         let alpha_mode = pick_alpha_mode(&surface_caps.alpha_modes, transparent);
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             format: swapchain_format,
-            width: size.0,
-            height: size.1,
+            width: physical_size.0,
+            height: physical_size.1,
             present_mode: if vsync {
                 wgpu::PresentMode::AutoVsync
             } else {
@@ -120,31 +199,26 @@ impl<'a> Renderer<'a> {
             alpha_mode,
             view_formats: vec![],
         };
-        surface.configure(&device, &config);
+        surface.configure(&context.inner.device, &config);
 
         let msaa_sample_count = Self::validate_sample_count_static(msaa_samples);
 
-        Self::build_from_device(
-            instance,
+        Self::build_from_context(
+            context,
             Some(surface),
-            device,
-            queue,
             config,
-            size,
+            physical_size,
             scale_factor,
             msaa_sample_count,
         )
-        .expect("Failed to build renderer from device")
     }
 
-    /// Shared constructor: takes the wgpu primitives produced by `new()` or
-    /// `new_headless()` and builds the full `Renderer`.
+    /// Shared constructor: takes an existing context plus a surface configuration and builds a
+    /// complete per-surface renderer.
     #[allow(clippy::too_many_arguments)]
-    fn build_from_device(
-        instance: wgpu::Instance,
+    fn build_from_context(
+        context: RendererContext,
         surface: Option<wgpu::Surface<'a>>,
-        device: wgpu::Device,
-        queue: wgpu::Queue,
         config: wgpu::SurfaceConfiguration,
         physical_size: (u32, u32),
         scale_factor: f64,
@@ -154,6 +228,7 @@ impl<'a> Renderer<'a> {
             return Err(RendererCreationError::InvalidScaleFactor(scale_factor));
         }
 
+        let device = context.inner.device.clone();
         let canvas_logical_size = to_logical(physical_size, scale_factor);
 
         let (
@@ -236,10 +311,9 @@ impl<'a> Renderer<'a> {
             ..Default::default()
         });
 
-        let device = Arc::new(device);
-        let queue = Arc::new(queue);
-
-        let texture_manager = TextureManager::new(device.clone(), queue.clone());
+        let instance = context.inner.instance.clone();
+        let queue = context.inner.queue.clone();
+        let texture_manager = context.inner.texture_manager.clone();
 
         let (default_shape_texture_bind_group_layer0, shape_texture_bind_group_layout_layer0) =
             Self::create_default_shape_texture_bind_group(&device, &queue, &and_texture_bgl_layer0);
@@ -252,6 +326,7 @@ impl<'a> Renderer<'a> {
         );
 
         let mut renderer = Self {
+            context,
             instance,
             surface,
             device,
@@ -302,7 +377,6 @@ impl<'a> Renderer<'a> {
             identity_instance_transform_buffer: None,
             identity_instance_color_buffer: None,
             identity_instance_metadata_buffer: None,
-            shape_cache: HashMap::new(),
             argb_cs_bgl: None,
             argb_cs_pipeline: None,
             argb_swizzle_bind_group: None,
@@ -360,7 +434,15 @@ impl<'a> Renderer<'a> {
     pub fn print_memory_usage_info(&self) {
         println!("=== Memory Usage Info ===");
 
-        println!("Cached shapes: {}", self.shape_cache.len());
+        println!(
+            "Cached shapes: {}",
+            self.context
+                .inner
+                .shape_cache
+                .read()
+                .expect("shared shape cache lock poisoned")
+                .len()
+        );
         println!("Draw tree size: {}", self.draw_tree.len());
         println!(
             "Metadata to clips mappings: {}",
@@ -661,39 +743,26 @@ impl<'a> Renderer<'a> {
         physical_size: (u32, u32),
         scale_factor: f64,
     ) -> Result<Self, RendererCreationError> {
-        let size = physical_size;
+        Self::try_new_headless_with_context(
+            RendererContext::try_new().await?,
+            physical_size,
+            scale_factor,
+        )
+    }
 
-        let instance = wgpu::Instance::new(&InstanceDescriptor::default());
-
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: None,
-                force_fallback_adapter: false,
-            })
-            .await?;
-
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                label: None,
-                #[cfg(feature = "performance_measurement")]
-                required_features: wgpu::Features::TIMESTAMP_QUERY
-                    | wgpu::Features::DEPTH32FLOAT_STENCIL8,
-                #[cfg(not(feature = "performance_measurement"))]
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                memory_hints: Default::default(),
-                trace: Default::default(),
-            })
-            .await?;
-
+    /// Creates a headless renderer that shares an existing [`RendererContext`].
+    pub fn try_new_headless_with_context(
+        context: RendererContext,
+        physical_size: (u32, u32),
+        scale_factor: f64,
+    ) -> Result<Self, RendererCreationError> {
         let swapchain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             format: swapchain_format,
-            width: size.0,
-            height: size.1,
+            width: physical_size.0,
+            height: physical_size.1,
             present_mode: wgpu::PresentMode::AutoVsync,
             desired_maximum_frame_latency: 2,
             alpha_mode: CompositeAlphaMode::Opaque,
@@ -702,13 +771,11 @@ impl<'a> Renderer<'a> {
 
         let msaa_sample_count = 1;
 
-        Self::build_from_device(
-            instance,
+        Self::build_from_context(
+            context,
             None,
-            device,
-            queue,
             config,
-            size,
+            physical_size,
             scale_factor,
             msaa_sample_count,
         )

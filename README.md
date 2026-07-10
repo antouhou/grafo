@@ -62,6 +62,28 @@ renderer.render().unwrap();
 renderer.clear_draw_queue();
 ```
 
+### Multiple independent windows
+
+Create a `RendererContext` once, then create one renderer per window. Each renderer has its own
+draw queue and render target, while sharing the WGPU device, queue, and texture storage:
+
+```rust,no_run
+use futures::executor::block_on;
+use grafo::{Renderer, RendererContext};
+
+let context = block_on(RendererContext::new());
+
+let first_renderer = Renderer::new_with_context(
+    context.clone(), first_window, first_size, first_scale_factor, true, false, 1,
+);
+let second_renderer = Renderer::new_with_context(
+    context, second_window, second_size, second_scale_factor, true, false, 1,
+);
+```
+
+Create and drop renderers as windows are opened and closed. Draw calls added to one renderer never
+appear in another renderer's draw queue.
+
 ### Shape hierarchy and overflow
 
 The second argument to `add_shape` and `add_clipping_rect` is the optional
