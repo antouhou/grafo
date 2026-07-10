@@ -1390,7 +1390,7 @@ impl ShapeBuilder {
     /// ```
     pub fn new() -> Self {
         Self {
-            stroke: Stroke::new(1.0, Color::rgb(0, 0, 0)),
+            stroke: Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
             path_builder: lyon::path::Path::builder(),
         }
     }

@@ -5,10 +5,10 @@
 //! cargo bench --bench visual_regression
 //! ```
 
-use std::hint::black_box;
 use criterion::{criterion_group, criterion_main, Criterion};
 use futures::executor::block_on;
 use grafo_test_scenes::{build_main_scene, check_pixels, CANVAS_HEIGHT, CANVAS_WIDTH};
+use std::hint::black_box;
 
 fn create_renderer() -> grafo::Renderer<'static> {
     block_on(grafo::Renderer::try_new_headless(
