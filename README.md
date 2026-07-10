@@ -118,6 +118,13 @@ renderer
 
 - `basic.rs` – draw simple shapes (winit 0.30 ApplicationHandler)
 - `transforms.rs` – demonstrates per-instance transform and color, perspective, and hit-testing
+- `benches/visual_regression.rs` – headless Criterion benchmark for the visual-regression scene
+
+Run the visual-regression benchmark in release mode:
+
+```sh
+cargo bench --bench visual_regression
+```
 
 For a detailed example showcasing advanced features like hierarchical clipping and
 multi-layer shape texturing, please refer to the 
