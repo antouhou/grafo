@@ -5,7 +5,8 @@
 //! cargo bench --bench visual_regression
 //! ```
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
+use criterion::{criterion_group, criterion_main, Criterion};
 use futures::executor::block_on;
 use grafo_test_scenes::{build_main_scene, check_pixels, CANVAS_HEIGHT, CANVAS_WIDTH};
 
