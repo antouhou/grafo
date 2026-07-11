@@ -36,7 +36,9 @@
 
 use crate::cache::CachedTessellation;
 use crate::gradient::types::Fill;
-use crate::util::{GradientCache, PoolManager};
+use crate::util::{
+    hash_map_capacity_bytes, vector_capacity_bytes, GradientCache, MemoryUsage, PoolManager,
+};
 use crate::vertex::{CustomVertex, InstanceTransform};
 use crate::{Color, Stroke};
 use ahash::AHashMap;
@@ -584,6 +586,23 @@ impl AaFringeScratch {
         self.outer_vertex_indices.shrink_to_fit();
         self.boundary_edges.shrink_to_fit();
         self.triangle_stack.shrink_to_fit();
+    }
+
+    pub(crate) fn memory_usage(&self) -> MemoryUsage {
+        MemoryUsage {
+            cpu_bytes: hash_map_capacity_bytes(&self.edge_use_counts)
+                .saturating_add(hash_map_capacity_bytes(&self.edge_owners))
+                .saturating_add(hash_map_capacity_bytes(&self.incident_triangles_by_vertex))
+                .saturating_add(hash_map_capacity_bytes(&self.triangle_adjacency))
+                .saturating_add(hash_map_capacity_bytes(&self.visited_triangles))
+                .saturating_add(hash_map_capacity_bytes(&self.triangle_component_map))
+                .saturating_add(hash_map_capacity_bytes(&self.boundary_corner_normals))
+                .saturating_add(hash_map_capacity_bytes(&self.outer_vertex_indices))
+                .saturating_add(vector_capacity_bytes(&self.boundary_edges))
+                .saturating_add(vector_capacity_bytes(&self.triangle_stack)),
+            gpu_buffer_bytes: 0,
+            gpu_texture_bytes: 0,
+        }
     }
 }
 
@@ -1243,6 +1262,17 @@ impl CachedShapeDrawData {
             backdrop_gradient_texture_id: None,
             is_leaf: true,
         }
+    }
+
+    pub(crate) fn cpu_heap_bytes(&self) -> u64 {
+        self.fill.as_ref().map(Fill::heap_bytes).unwrap_or_default()
+    }
+
+    pub(crate) fn gpu_buffer_bytes(&self) -> u64 {
+        self.backdrop_material_params_buffer
+            .as_ref()
+            .map(wgpu::Buffer::size)
+            .unwrap_or_default()
     }
 
     pub fn refresh_gradient_bind_group(

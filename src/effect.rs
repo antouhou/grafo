@@ -14,6 +14,8 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::Hash;
 use std::sync::OnceLock;
 
+use crate::util::{texture_memory_size, vector_capacity_bytes, MemoryUsage};
+
 // ── Error type ───────────────────────────────────────────────────────────────
 
 /// Errors that can occur when working with the effect system.
@@ -154,6 +156,16 @@ pub(crate) struct LoadedEffect {
     pub params_bind_group_layout: Option<wgpu::BindGroupLayout>,
 }
 
+impl LoadedEffect {
+    pub(crate) fn memory_usage(&self) -> MemoryUsage {
+        MemoryUsage {
+            cpu_bytes: vector_capacity_bytes(&self.passes),
+            gpu_buffer_bytes: 0,
+            gpu_texture_bytes: 0,
+        }
+    }
+}
+
 // ── Per-node effect instance ─────────────────────────────────────────────────
 
 /// A per-node effect instance. Stored in a HashMap<usize, EffectInstance> on the Renderer,
@@ -178,6 +190,27 @@ pub(crate) struct EffectInstance {
     pub backdrop_texture_id: Option<u64>,
 }
 
+impl EffectInstance {
+    pub(crate) fn memory_usage(&self) -> MemoryUsage {
+        let mut usage = MemoryUsage {
+            cpu_bytes: vector_capacity_bytes(&self.params),
+            gpu_buffer_bytes: 0,
+            gpu_texture_bytes: 0,
+        };
+
+        if let Some(params_buffer) = &self.params_buffer {
+            usage.gpu_buffer_bytes = usage.gpu_buffer_bytes.saturating_add(params_buffer.size());
+        }
+        if let Some(backdrop_material_params_buffer) = &self.backdrop_material_params_buffer {
+            usage.gpu_buffer_bytes = usage
+                .gpu_buffer_bytes
+                .saturating_add(backdrop_material_params_buffer.size());
+        }
+
+        usage
+    }
+}
+
 // ── Offscreen texture pool ───────────────────────────────────────────────────
 
 /// A pooled offscreen texture with color, optional depth/stencil, and optional MSAA resolve
@@ -191,7 +224,42 @@ pub(crate) struct PooledTexture {
     pub resolve_view: Option<wgpu::TextureView>,
     pub width: u32,
     pub height: u32,
+    pub format: wgpu::TextureFormat,
     pub sample_count: u32,
+}
+
+impl PooledTexture {
+    pub(crate) fn memory_usage(&self) -> MemoryUsage {
+        let color_size =
+            texture_memory_size(self.color_texture.size(), self.format, self.sample_count, 1);
+        let resolve_size = self
+            .resolve_texture
+            .as_ref()
+            .map(|texture| texture_memory_size(texture.size(), self.format, 1, 1))
+            .unwrap_or(0);
+        let depth_stencil_size = if self.depth_stencil_view.is_some() {
+            texture_memory_size(
+                wgpu::Extent3d {
+                    width: self.width,
+                    height: self.height,
+                    depth_or_array_layers: 1,
+                },
+                wgpu::TextureFormat::Depth24PlusStencil8,
+                self.sample_count,
+                1,
+            )
+        } else {
+            0
+        };
+
+        MemoryUsage {
+            cpu_bytes: 0,
+            gpu_buffer_bytes: 0,
+            gpu_texture_bytes: color_size
+                .saturating_add(resolve_size)
+                .saturating_add(depth_stencil_size),
+        }
+    }
 }
 
 /// Pool of reusable offscreen textures for effect compositing.
@@ -230,6 +298,20 @@ impl OffscreenTexturePool {
         if self.available.len() > MAX_POOL_SIZE {
             self.available.truncate(MAX_POOL_SIZE);
         }
+    }
+
+    pub(crate) fn memory_usage(&self) -> MemoryUsage {
+        let mut usage = MemoryUsage {
+            cpu_bytes: vector_capacity_bytes(&self.available),
+            gpu_buffer_bytes: 0,
+            gpu_texture_bytes: 0,
+        };
+
+        for texture in &self.available {
+            usage.add(texture.memory_usage());
+        }
+
+        usage
     }
 
     /// Acquire a texture matching the given dimensions and sample count, plus a depth/stencil
@@ -363,6 +445,7 @@ impl OffscreenTexturePool {
             resolve_view,
             width,
             height,
+            format,
             sample_count,
         }
     }

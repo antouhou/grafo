@@ -5,7 +5,7 @@ use ahash::{HashMap, HashMapExt};
 use crate::effect::{self, LoadedEffect};
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand};
 use crate::texture_manager::TextureManager;
-use crate::util::GradientCache;
+use crate::util::{hash_map_capacity_bytes, vector_capacity_bytes, GradientCache, MemoryUsage};
 use crate::vertex::InstanceTransform;
 
 use super::traversal::TraversalScratch;
@@ -422,6 +422,35 @@ impl RendererScratch {
         }
         trim_vector_if_needed(&mut self.readback_bytes, MAX_READBACK_BYTES_CAPACITY);
         self.traversal_scratch.trim_to_policy();
+    }
+
+    pub(super) fn memory_usage(&self) -> MemoryUsage {
+        let mut usage = MemoryUsage {
+            cpu_bytes: hash_map_capacity_bytes(&self.effect_results)
+                .saturating_add(vector_capacity_bytes(&self.effect_node_ids))
+                .saturating_add(vector_capacity_bytes(&self.textures_to_recycle))
+                .saturating_add(vector_capacity_bytes(&self.effect_output_textures))
+                .saturating_add(vector_capacity_bytes(&self.stencil_stack))
+                .saturating_add(vector_capacity_bytes(&self.skipped_stack))
+                .saturating_add(vector_capacity_bytes(&self.scissor_stack))
+                .saturating_add(vector_capacity_bytes(&self.clip_kind_stack))
+                .saturating_add(vector_capacity_bytes(&self.backdrop_work_textures))
+                .saturating_add(vector_capacity_bytes(&self.readback_bytes))
+                .saturating_add(self.traversal_scratch.cpu_heap_bytes()),
+            gpu_buffer_bytes: 0,
+            gpu_texture_bytes: 0,
+        };
+
+        for texture in self
+            .textures_to_recycle
+            .iter()
+            .chain(self.effect_output_textures.iter())
+            .chain(self.backdrop_work_textures.iter())
+        {
+            usage.add(texture.memory_usage());
+        }
+
+        usage
     }
 }
 

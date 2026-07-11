@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+use crate::util::{hash_map_capacity_bytes, texture_memory_size, MemoryUsage};
+
 #[derive(Debug, thiserror::Error)]
 pub enum TextureManagerError {
     #[error("Texture {0} not found")]
@@ -96,6 +98,27 @@ impl TextureManager {
             self.texture_storage.read().unwrap().len(),
             self.shape_bind_group_cache.read().unwrap().len(),
         )
+    }
+
+    pub(crate) fn memory_usage(&self) -> MemoryUsage {
+        let texture_storage = self.texture_storage.read().unwrap();
+        let texture_storage_cpu_bytes = hash_map_capacity_bytes(&texture_storage);
+        let texture_gpu_bytes = texture_storage
+            .values()
+            .map(|texture| {
+                texture_memory_size(texture.size(), wgpu::TextureFormat::Rgba8UnormSrgb, 1, 1)
+            })
+            .sum();
+        drop(texture_storage);
+
+        let shape_bind_group_cache = self.shape_bind_group_cache.read().unwrap();
+        let bind_group_cache_cpu_bytes = hash_map_capacity_bytes(&shape_bind_group_cache);
+
+        MemoryUsage {
+            cpu_bytes: texture_storage_cpu_bytes.saturating_add(bind_group_cache_cpu_bytes),
+            gpu_texture_bytes: texture_gpu_bytes,
+            gpu_buffer_bytes: 0,
+        }
     }
 
     fn create_sampler(device: &wgpu::Device) -> wgpu::Sampler {
