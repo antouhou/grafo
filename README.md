@@ -84,6 +84,12 @@ let second_renderer = Renderer::new_with_context(
 Create and drop renderers as windows are opened and closed. Draw calls added to one renderer never
 appear in another renderer's draw queue.
 
+Loaded shapes are also shared by the context. A `cache_key` passed to `load_shape` is scoped to
+the `RendererContext`, so another renderer can reuse that shape through
+`add_cached_shape_to_the_render_queue`. Use a content-derived key when the same geometry should
+be shared; loading a different shape with the same key replaces the shared entry, and
+`remove_shape` removes it for every renderer using the context.
+
 ### Shape hierarchy and overflow
 
 The second argument to `add_shape` and `add_clipping_rect` is the optional

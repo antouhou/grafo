@@ -77,7 +77,10 @@ pub enum ShapeOverflow {
 ///
 /// A [`Renderer`] owns one render surface and one independent draw queue. Create a
 /// [`RendererContext`] once and pass clones of it to additional renderers when multiple
-/// windows should share the same GPU device and texture storage.
+/// windows should share the same GPU device, texture storage, and loaded-shape cache. Shape
+/// cache keys are scoped to the context: use the same content-derived key to reuse a shape across
+/// renderers, and avoid reusing a key for different shapes because loading or removing it affects
+/// every renderer using the context.
 #[derive(Clone)]
 pub struct RendererContext {
     pub(crate) inner: Arc<RendererContextInner>,

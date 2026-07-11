@@ -8,11 +8,12 @@ fn clip_rect_supports_transform(transform: InstanceTransform) -> bool {
 }
 
 impl<'a> Renderer<'a> {
-    /// Tessellates the shape and stores the tessellated result in a cache, so it can be accessed
-    /// later with the provided it. Accepts optional `geometry_id` to dedupe geometry and avoid
-    /// loading the same geometry multiple times. `geometry_id` should be a stable id describing
-    /// that particular shape path. Pass `None` if you're not sure what that means. Or use a hash
-    /// of the points in the path if you're sure that you're going to draw a lot of the same shapes.
+    /// Tessellates the shape and stores the tessellated result in the context-wide cache, so any
+    /// renderer created from the same context can access it with `cache_key`. Accepts optional
+    /// `geometry_id` to dedupe geometry and avoid loading the same geometry multiple times.
+    /// `geometry_id` should be a stable id describing that particular shape path. Pass `None` if
+    /// you're not sure what that means. Or use a hash of the points in the path if you're sure that
+    /// you're going to draw a lot of the same shapes.
     pub fn load_shape(
         &mut self,
         shape: impl AsRef<Shape>,
