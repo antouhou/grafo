@@ -103,6 +103,60 @@ fn empty_draw_queue() {
     );
 }
 
+/// Renderers created from the same context must keep independent draw queues while sharing GPU
+/// resources such as textures.
+#[test]
+fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent() {
+    let context = match block_on(grafo::RendererContext::try_new()) {
+        Ok(context) => context,
+        Err(grafo::RendererCreationError::AdapterNotAvailable(_)) => {
+            println!("Skipping test: no suitable GPU adapter available.");
+            return;
+        }
+        Err(error) => panic!("Failed to create renderer context: {error}"),
+    };
+
+    let mut first = grafo::Renderer::try_new_headless_with_context(context.clone(), (16, 16), 1.0)
+        .expect("to create first headless renderer");
+    let mut second = grafo::Renderer::try_new_headless_with_context(context, (16, 16), 1.0)
+        .expect("to create second headless renderer");
+
+    first
+        .texture_manager()
+        .allocate_texture_with_data(42, (1, 1), &[255, 255, 255, 255]);
+    assert!(second.texture_manager().is_texture_loaded(42));
+
+    first.load_shape(
+        grafo::Shape::rect([(0.0, 0.0), (16.0, 16.0)], grafo::Stroke::default()),
+        99,
+        Some(99),
+    );
+    second
+        .add_cached_shape_to_the_render_queue(
+            99,
+            None,
+            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(0, 255, 0)),
+        )
+        .expect("to add shape loaded by first renderer");
+
+    first
+        .add_shape(
+            grafo::Shape::rect([(0.0, 0.0), (16.0, 16.0)], grafo::Stroke::default()),
+            None,
+            None,
+            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(255, 0, 0)),
+        )
+        .expect("to add shape to first renderer");
+
+    let mut first_pixels = Vec::new();
+    let mut second_pixels = Vec::new();
+    first.render_to_buffer(&mut first_pixels);
+    second.render_to_buffer(&mut second_pixels);
+
+    assert_eq!(read_pixel_rgba(&first_pixels, 16, 8, 8), [255, 0, 0, 255]);
+    assert_eq!(read_pixel_rgba(&second_pixels, 16, 8, 8), [0, 255, 0, 255]);
+}
+
 /// Regression test — single root shape with no children should render correctly.
 #[test]
 fn single_root_no_children() {
