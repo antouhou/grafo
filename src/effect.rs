@@ -166,6 +166,30 @@ fn fs_composite(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 "#;
 
+const BACKDROP_LAYER_COMPOSITE_FS: &str = r#"
+struct BackdropLayerParams {
+    capture_origin: vec2<i32>,
+    source_size: vec2<i32>,
+};
+
+@group(0) @binding(0) var foreground_texture: texture_2d<f32>;
+@group(0) @binding(1) var<uniform> layer_params: BackdropLayerParams;
+
+@fragment
+fn fs_backdrop_layer(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    let destination_pixel = vec2<i32>(position.xy);
+    let source_pixel = layer_params.capture_origin + destination_pixel;
+    if source_pixel.x < 0
+        || source_pixel.y < 0
+        || source_pixel.x >= layer_params.source_size.x
+        || source_pixel.y >= layer_params.source_size.y
+    {
+        return vec4<f32>(0.0);
+    }
+    return textureLoad(foreground_texture, source_pixel, 0);
+}
+"#;
+
 // ── Loaded effect (compiled pipeline) ────────────────────────────────────────
 
 /// A single compiled pass within a multi-pass effect.
@@ -217,10 +241,24 @@ pub(crate) struct EffectInstance {
     pub backdrop_config: Option<BackdropEffectConfig>,
     /// Persistent uniform buffer for backdrop material params bound at group 3 binding 0.
     pub backdrop_material_params_buffer: Option<wgpu::Buffer>,
+    /// Persistent uniform buffer for compositing a group subtree into its backdrop capture.
+    pub backdrop_layer_params_buffer: Option<wgpu::Buffer>,
     /// Cached backdrop bind group reused while the captured output texture identity is stable.
     pub backdrop_texture_bind_group: Option<wgpu::BindGroup>,
     /// Stable id of the pooled texture currently referenced by `backdrop_texture_bind_group`.
     pub backdrop_texture_id: Option<u64>,
+}
+
+pub(crate) fn backdrop_layer_params(
+    capture_origin: (i32, i32),
+    source_size: (u32, u32),
+) -> [i32; 4] {
+    [
+        capture_origin.0,
+        capture_origin.1,
+        i32::try_from(source_size.0).unwrap_or(i32::MAX),
+        i32::try_from(source_size.1).unwrap_or(i32::MAX),
+    ]
 }
 
 // ── Offscreen texture pool ───────────────────────────────────────────────────
@@ -748,6 +786,98 @@ pub(crate) fn compile_texture_blit_pipeline(
     })
 }
 
+/// Compile a fullscreen pipeline that overlays an already-rendered transparent group prefix
+/// onto a backdrop capture using premultiplied-alpha blending.
+pub(crate) fn compile_backdrop_layer_composite_pipeline(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
+    let shader_source = format!("{FULLSCREEN_QUAD_VS}\n{BACKDROP_LAYER_COMPOSITE_FS}");
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("backdrop_layer_composite_shader"),
+        source: wgpu::ShaderSource::Wgsl(shader_source.into()),
+    });
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("backdrop_layer_composite_bind_group_layout"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("backdrop_layer_composite_pipeline_layout"),
+        bind_group_layouts: &[&bind_group_layout],
+        push_constant_ranges: &[],
+    });
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("backdrop_layer_composite_pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_quad"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_backdrop_layer"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    });
+
+    (pipeline, bind_group_layout)
+}
+
+pub(crate) fn create_backdrop_layer_composite_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    foreground_view: &wgpu::TextureView,
+    params_buffer: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("backdrop_layer_composite_bind_group"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(foreground_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: params_buffer.as_entire_binding(),
+            },
+        ],
+    })
+}
+
 /// Create a bind group to sample a texture (for effect input or composite input).
 pub(crate) fn create_texture_sample_bind_group(
     device: &wgpu::Device,
@@ -823,6 +953,29 @@ pub(crate) fn prepare_solid_backdrop_material_params_buffer(
     backdrop_material_params_buffer
         .as_ref()
         .expect("backdrop material params buffer should be initialized")
+        .clone()
+}
+
+pub(crate) fn prepare_backdrop_layer_params_buffer(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    backdrop_layer_params_buffer: &mut Option<wgpu::Buffer>,
+    layer_params: [i32; 4],
+) -> wgpu::Buffer {
+    if let Some(existing_buffer) = backdrop_layer_params_buffer.as_ref() {
+        queue.write_buffer(existing_buffer, 0, bytemuck::bytes_of(&layer_params));
+    } else {
+        *backdrop_layer_params_buffer = Some(crate::pipeline::create_buffer_init(
+            device,
+            Some("backdrop_layer_params_buffer"),
+            bytemuck::bytes_of(&layer_params),
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        ));
+    }
+
+    backdrop_layer_params_buffer
+        .as_ref()
+        .expect("backdrop layer params buffer should be initialized")
         .clone()
 }
 

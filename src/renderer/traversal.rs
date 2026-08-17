@@ -40,6 +40,9 @@ pub(super) fn subtree_has_backdrop_effects(
     if backdrop_effects.is_empty() {
         return false;
     }
+    if backdrop_effects.contains_key(&root_id) {
+        return true;
+    }
 
     fn scan(
         tree: &easy_tree::Tree<DrawCommand>,
@@ -241,6 +244,7 @@ mod tests {
                 params_bind_group: None,
                 backdrop_config: None,
                 backdrop_material_params_buffer: None,
+                backdrop_layer_params_buffer: None,
                 backdrop_texture_bind_group: None,
                 backdrop_texture_id: None,
             },
@@ -252,7 +256,7 @@ mod tests {
             &backdrop_effects,
             child
         ));
-        assert!(!subtree_has_backdrop_effects(
+        assert!(subtree_has_backdrop_effects(
             &tree,
             &backdrop_effects,
             grandchild

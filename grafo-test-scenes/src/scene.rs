@@ -136,6 +136,8 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_62_cached_shape_effect_inside_group_effect(renderer));
     expectations.extend(tile_63_cached_shape_effect_with_backdrop(renderer));
     expectations.extend(tile_64_drop_shadow_with_backdrop_blur(renderer));
+    expectations.extend(tile_65_grouped_shape_effect_in_backdrop(renderer));
+    expectations.extend(tile_66_same_node_shape_backdrop_and_group_effects(renderer));
 
     expectations
 }
@@ -4268,7 +4270,7 @@ fn tile_62_cached_shape_effect_inside_group_effect(
     ]
 }
 
-/// Tile 63 — Backdrop capture completes before the target node's shape effect is drawn.
+/// Tile 63 — A backdrop captures the target node's previously composited shape effect.
 fn tile_63_cached_shape_effect_with_backdrop(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(63);
     let backdrop_source = Shape::rect(
@@ -4318,10 +4320,10 @@ fn tile_63_cached_shape_effect_with_backdrop(renderer: &mut Renderer) -> Vec<Pix
         PixelExpectation::opaque(
             origin_x as u32 + 35,
             origin_y as u32 + 35,
-            220,
-            200,
-            50,
-            "t63_backdrop_excludes_shape_effect",
+            0,
+            0,
+            255,
+            "t63_backdrop_includes_shape_effect",
         ),
         PixelExpectation::opaque(
             origin_x as u32 + 55,
@@ -4412,18 +4414,18 @@ fn tile_64_drop_shadow_with_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelE
         PixelExpectation::opaque_approx(
             origin_x as u32 + 35,
             origin_y as u32 + 30,
-            173,
-            156,
-            190,
+            115,
+            122,
+            187,
             12,
             "t64_translucent_card_tints_blurred_backdrop",
         ),
         PixelExpectation::opaque_approx(
             origin_x as u32 + 35,
             origin_y as u32 + 41,
-            176,
-            171,
-            212,
+            117,
+            129,
+            195,
             12,
             "t64_backdrop_edge_blurs_inside_card",
         ),
@@ -4467,6 +4469,178 @@ fn tile_64_drop_shadow_with_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelE
             255,
             255,
             "t64_shadow_outsets_remain_transparent",
+        ),
+    ]
+}
+
+/// Tile 65 — A grouped backdrop captures the shape effect already drawn in its subtree.
+fn tile_65_grouped_shape_effect_in_backdrop(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(65);
+    let backing_shape = Shape::rect(
+        [
+            (origin_x + 5.0, origin_y + 5.0),
+            (origin_x + 75.0, origin_y + 70.0),
+        ],
+        Stroke::default(),
+    );
+    renderer
+        .add_shape(
+            backing_shape,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 50)),
+        )
+        .unwrap();
+
+    let group_root = Shape::rect(
+        [
+            (origin_x + 8.0, origin_y + 8.0),
+            (origin_x + 72.0, origin_y + 65.0),
+        ],
+        Stroke::default(),
+    );
+    let group_root_id = renderer
+        .add_shape(group_root, None, None, ShapeDrawCommandOptions::new())
+        .unwrap();
+
+    let panel = Shape::rect(
+        [
+            (origin_x + 20.0, origin_y + 20.0),
+            (origin_x + 50.0, origin_y + 50.0),
+        ],
+        Stroke::default(),
+    );
+    let panel_id = renderer
+        .add_shape(
+            panel,
+            Some(group_root_id),
+            Some(65_065),
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            panel_id,
+            SHAPE_DROP_EFFECT_ID,
+            &[],
+            ShapeEffectConfig::new().outset(12.0),
+        )
+        .expect("Failed to attach grouped cached shape effect");
+    renderer
+        .set_shape_backdrop_effect(
+            panel_id,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::default(),
+        )
+        .expect("Failed to attach grouped backdrop effect");
+    renderer
+        .set_group_effect(group_root_id, PASSTHROUGH_EFFECT_ID, &[])
+        .expect("Failed to attach enclosing group effect");
+
+    vec![
+        PixelExpectation::opaque(
+            origin_x as u32 + 35,
+            origin_y as u32 + 35,
+            0,
+            0,
+            255,
+            "t65_grouped_backdrop_includes_shape_effect",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 55,
+            origin_y as u32 + 35,
+            0,
+            0,
+            255,
+            "t65_grouped_shape_effect_draws_outside_panel",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 10,
+            origin_y as u32 + 10,
+            220,
+            200,
+            50,
+            "t65_scene_behind_group_remains_visible",
+        ),
+    ]
+}
+
+/// Tile 66 — Shape, backdrop, and group effects compose in painter order on one node.
+fn tile_66_same_node_shape_backdrop_and_group_effects(
+    renderer: &mut Renderer,
+) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(66);
+    let backing_shape = Shape::rect(
+        [
+            (origin_x + 5.0, origin_y + 5.0),
+            (origin_x + 75.0, origin_y + 70.0),
+        ],
+        Stroke::default(),
+    );
+    renderer
+        .add_shape(
+            backing_shape,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(50, 180, 80)),
+        )
+        .unwrap();
+
+    let panel = Shape::rect(
+        [
+            (origin_x + 20.0, origin_y + 20.0),
+            (origin_x + 50.0, origin_y + 50.0),
+        ],
+        Stroke::default(),
+    );
+    let panel_id = renderer
+        .add_shape(panel, None, Some(66_066), ShapeDrawCommandOptions::new())
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            panel_id,
+            SHAPE_DROP_EFFECT_ID,
+            &[],
+            ShapeEffectConfig::new().outset(12.0),
+        )
+        .expect("Failed to attach same-node cached shape effect");
+    renderer
+        .set_shape_backdrop_effect(
+            panel_id,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::default(),
+        )
+        .expect("Failed to attach same-node backdrop effect");
+    renderer
+        .set_group_effect(panel_id, PASSTHROUGH_EFFECT_ID, &[])
+        .expect("Failed to attach same-node group effect");
+
+    vec![
+        PixelExpectation::opaque(
+            origin_x as u32 + 35,
+            origin_y as u32 + 35,
+            0,
+            0,
+            255,
+            "t66_grouped_backdrop_includes_same_node_shape_effect",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 55,
+            origin_y as u32 + 35,
+            0,
+            0,
+            255,
+            "t66_group_result_contains_shape_effect_outside_panel",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 10,
+            origin_y as u32 + 10,
+            50,
+            180,
+            80,
+            "t66_scene_behind_group_remains_unprocessed",
         ),
     ]
 }

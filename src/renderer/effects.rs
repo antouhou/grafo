@@ -111,6 +111,7 @@ fn build_effect_instance(
         params_bind_group: None,
         backdrop_config,
         backdrop_material_params_buffer: None,
+        backdrop_layer_params_buffer: None,
         backdrop_texture_bind_group: None,
         backdrop_texture_id: None,
     };
@@ -503,6 +504,17 @@ impl<'a> Renderer<'a> {
             self.config.format,
             composite_bind_group_layout,
         ));
+    }
+
+    pub(super) fn ensure_backdrop_layer_composite_pipeline(&mut self) {
+        if self.backdrop_layer_composite_pipeline.is_some() {
+            return;
+        }
+
+        let (pipeline, bind_group_layout) =
+            effect::compile_backdrop_layer_composite_pipeline(&self.device, self.config.format);
+        self.backdrop_layer_composite_pipeline = Some(pipeline);
+        self.backdrop_layer_composite_bind_group_layout = Some(bind_group_layout);
     }
 
     pub(super) fn ensure_effect_sampler(&mut self) {

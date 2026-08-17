@@ -55,6 +55,7 @@ impl<'a> Renderer<'a> {
         }
         if has_backdrop_effects {
             self.ensure_texture_blit_pipeline();
+            self.ensure_backdrop_layer_composite_pipeline();
             self.ensure_stencil_only_pipeline();
             self.ensure_backdrop_color_pipeline();
             self.ensure_backdrop_color_gradient_pipeline();
@@ -259,6 +260,14 @@ impl<'a> Renderer<'a> {
                         effect_sampler: self.effect_sampler.as_ref().unwrap(),
                         gradient_ramp_sampler: &self.gradient_ramp_sampler,
                         texture_blit_pipeline: self.texture_blit_pipeline.as_ref().unwrap(),
+                        backdrop_layer_composite_pipeline: self
+                            .backdrop_layer_composite_pipeline
+                            .as_ref()
+                            .unwrap(),
+                        backdrop_layer_composite_bind_group_layout: self
+                            .backdrop_layer_composite_bind_group_layout
+                            .as_ref()
+                            .unwrap(),
                         stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
                         backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
                         backdrop_color_gradient_pipeline: self
@@ -280,11 +289,20 @@ impl<'a> Renderer<'a> {
                     None
                 };
 
-                let copy_source = behind_texture.as_ref().map(|tex| {
-                    if tex.sample_count > 1 {
-                        tex.resolve_texture.as_ref().unwrap() as &wgpu::Texture
+                let backdrop_source = behind_texture.as_ref().map(|texture| {
+                    let base_texture = if texture.sample_count > 1 {
+                        texture.resolve_texture.as_ref().unwrap()
                     } else {
-                        &tex.color_texture as &wgpu::Texture
+                        &texture.color_texture
+                    };
+                    let foreground_view = if subtree_texture.sample_count > 1 {
+                        subtree_texture.resolve_view.as_ref().unwrap()
+                    } else {
+                        &subtree_texture.color_view
+                    };
+                    crate::renderer::types::BackdropSource::Layered {
+                        base_texture,
+                        foreground_view,
                     }
                 });
 
@@ -303,7 +321,7 @@ impl<'a> Renderer<'a> {
                         .depth_stencil_view
                         .as_ref()
                         .expect("subtree render targets must include a depth/stencil attachment"),
-                    copy_source,
+                    backdrop_source,
                     true,
                     &pipelines,
                     &buffers,
@@ -390,6 +408,14 @@ impl<'a> Renderer<'a> {
                     effect_sampler: self.effect_sampler.as_ref().unwrap(),
                     gradient_ramp_sampler: &self.gradient_ramp_sampler,
                     texture_blit_pipeline: self.texture_blit_pipeline.as_ref().unwrap(),
+                    backdrop_layer_composite_pipeline: self
+                        .backdrop_layer_composite_pipeline
+                        .as_ref()
+                        .unwrap(),
+                    backdrop_layer_composite_bind_group_layout: self
+                        .backdrop_layer_composite_bind_group_layout
+                        .as_ref()
+                        .unwrap(),
                     stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
                     backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
                     backdrop_color_gradient_pipeline: self
@@ -408,8 +434,10 @@ impl<'a> Renderer<'a> {
                 None
             };
 
-            let copy_src = if has_backdrop_effects {
-                Some(output_texture.expect("output_texture required for backdrop effects"))
+            let backdrop_source = if has_backdrop_effects {
+                Some(crate::renderer::types::BackdropSource::Flattened {
+                    texture: output_texture.expect("output_texture required for backdrop effects"),
+                })
             } else {
                 None
             };
@@ -426,7 +454,7 @@ impl<'a> Renderer<'a> {
                 phase2_color_view,
                 phase2_resolve_target,
                 depth_texture_view,
-                copy_src,
+                backdrop_source,
                 true,
                 &pipelines,
                 &buffers,

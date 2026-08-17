@@ -42,6 +42,54 @@ fn assert_pixels_match(pixel_buffer: &[u8], expectations: &[grafo_test_scenes::P
     }
 }
 
+#[test]
+fn shape_effect_is_resolved_before_backdrop_capture_with_msaa() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
+        return;
+    };
+    renderer.set_msaa_samples(4);
+    renderer
+        .load_effect(9_101, &[CACHED_SHAPE_EFFECT_BLUE_DROP])
+        .expect("to load the MSAA shape effect");
+    renderer
+        .load_effect(9_102, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
+        .expect("to load the MSAA backdrop effect");
+
+    renderer
+        .add_shape(
+            grafo::Shape::rect([(0.0, 0.0), (64.0, 64.0)], grafo::Stroke::default()),
+            None,
+            None,
+            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(220, 200, 50)),
+        )
+        .unwrap();
+    let panel_id = renderer
+        .add_shape(
+            grafo::Shape::rect([(16.0, 16.0), (48.0, 48.0)], grafo::Stroke::default()),
+            None,
+            Some(9_103),
+            grafo::ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            panel_id,
+            9_101,
+            &[],
+            grafo::ShapeEffectConfig::new().outset(12.0),
+        )
+        .expect("to attach the MSAA shape effect");
+    renderer
+        .set_shape_backdrop_effect(panel_id, 9_102, &[], grafo::BackdropEffectConfig::default())
+        .expect("to attach the MSAA backdrop effect");
+
+    let mut pixel_buffer = Vec::new();
+    renderer.render_to_buffer(&mut pixel_buffer);
+
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 64, 32, 32), [0, 0, 255, 255]);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 64, 52, 32), [0, 0, 255, 255]);
+}
+
 fn read_pixel_rgba(pixel_buffer: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
     let stride = (width as usize) * 4;
     let offset = (y as usize) * stride + (x as usize) * 4;
@@ -54,11 +102,19 @@ fn read_pixel_rgba(pixel_buffer: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
     ]
 }
 
-#[cfg(feature = "render_metrics")]
 const CACHED_SHAPE_EFFECT_PASSTHROUGH: &str = r#"
 @fragment
 fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     return textureSample(t_input, s_input, uv);
+}
+"#;
+
+const CACHED_SHAPE_EFFECT_BLUE_DROP: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let dimensions = vec2<f32>(textureDimensions(t_input));
+    let coverage = textureSample(t_input, s_input, uv - vec2<f32>(8.0) / dimensions).a;
+    return vec4<f32>(0.0, 0.0, coverage, coverage);
 }
 "#;
 

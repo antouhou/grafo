@@ -941,6 +941,67 @@ fn blit_texture_to_texture(
     render_pass.draw(0..3, 0..1);
 }
 
+fn composite_backdrop_foreground_layer(
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    pipeline: &wgpu::RenderPipeline,
+    bind_group_layout: &wgpu::BindGroupLayout,
+    foreground_view: &wgpu::TextureView,
+    output_view: &wgpu::TextureView,
+    params_buffer: &wgpu::Buffer,
+) {
+    let bind_group = effect::create_backdrop_layer_composite_bind_group(
+        device,
+        bind_group_layout,
+        foreground_view,
+        params_buffer,
+    );
+    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("backdrop_layer_composite_pass"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: output_view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Load,
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+    });
+    render_pass.set_pipeline(pipeline);
+    render_pass.set_bind_group(0, &bind_group, &[]);
+    render_pass.draw(0..3, 0..1);
+}
+
+fn composite_shape_effect_for_node(
+    render_pass: &mut wgpu::RenderPass<'_>,
+    node_id: usize,
+    draw_tree: &easy_tree::Tree<DrawCommand>,
+    shape_effect_results: &HashMap<usize, Arc<crate::renderer::shape_effects::CachedShapeEffect>>,
+    parent_stencil: u32,
+    pipelines: &crate::renderer::types::Pipelines,
+    buffers: &crate::renderer::types::Buffers,
+) -> bool {
+    let Some(cached_shape_effect) = shape_effect_results.get(&node_id) else {
+        return false;
+    };
+    let Some(DrawCommand::CachedShape(cached_shape)) = draw_tree.get(node_id) else {
+        return false;
+    };
+
+    crate::renderer::shape_effects::composite_cached_shape_effect(
+        render_pass,
+        cached_shape_effect,
+        cached_shape.instance_index,
+        parent_stencil,
+        pipelines,
+        buffers,
+    );
+    true
+}
+
 /// Unified rendering function for all paths: main scene, effect subtrees,
 /// and behind-group rendering. Processes a flat event list from
 /// `plan_traversal_in_place`, breaking render passes at backdrop effect
@@ -968,7 +1029,7 @@ pub(super) fn render_segments(
     color_view: &wgpu::TextureView,
     color_resolve_target: Option<&wgpu::TextureView>,
     depth_stencil_view: &wgpu::TextureView,
-    copy_source_texture: Option<&wgpu::Texture>,
+    backdrop_source: Option<crate::renderer::types::BackdropSource<'_>>,
     clear_first: bool,
     pipelines: &crate::renderer::types::Pipelines,
     buffers: &crate::renderer::types::Buffers,
@@ -1007,7 +1068,9 @@ pub(super) fn render_segments(
         if backdrop_ctx.is_some() {
             for (idx, event) in events.iter().enumerate().skip(event_idx) {
                 if let TraversalEvent::Pre(node_id) = event {
-                    if backdrop_effects.contains_key(node_id) {
+                    if backdrop_effects.contains_key(node_id)
+                        && !effect_results.contains_key(node_id)
+                    {
                         segment_end = idx;
                         backdrop_node_id = Some(*node_id);
                         break;
@@ -1017,7 +1080,8 @@ pub(super) fn render_segments(
         }
 
         // --- Process segment events [event_idx .. segment_end) ---
-        if event_idx < segment_end {
+        let segment_has_events = event_idx < segment_end;
+        if segment_has_events {
             let mut render_pass = crate::pipeline::begin_render_pass_with_load_ops(
                 encoder,
                 Some(if is_first_segment {
@@ -1349,10 +1413,90 @@ pub(super) fn render_segments(
                 buffers,
             );
 
+            if let Some(backdrop_node_id) = backdrop_node_id {
+                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                if composite_shape_effect_for_node(
+                    &mut render_pass,
+                    backdrop_node_id,
+                    draw_tree,
+                    shape_effect_results,
+                    parent_stencil,
+                    pipelines,
+                    buffers,
+                ) {
+                    #[cfg(feature = "render_metrics")]
+                    {
+                        shape_effect_cache_metrics.composited_results += 1;
+                    }
+                    currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::None);
+                    bound_texture_state.invalidate();
+                }
+            }
+
             is_first_segment = false;
         }
 
         event_idx = segment_end;
+
+        if !segment_has_events
+            && (is_first_segment
+                || backdrop_node_id
+                    .is_some_and(|node_id| shape_effect_results.contains_key(&node_id)))
+        {
+            let mut render_pass = crate::pipeline::begin_render_pass_with_load_ops(
+                encoder,
+                Some("backdrop_precapture_pass"),
+                color_view,
+                color_resolve_target,
+                depth_stencil_view,
+                crate::pipeline::RenderPassLoadOperations {
+                    color_load_op: if is_first_segment {
+                        wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+                    } else {
+                        wgpu::LoadOp::Load
+                    },
+                    depth_load_op: if is_first_segment {
+                        wgpu::LoadOp::Clear(1.0)
+                    } else {
+                        wgpu::LoadOp::Load
+                    },
+                    stencil_load_op: if is_first_segment {
+                        wgpu::LoadOp::Clear(0)
+                    } else {
+                        wgpu::LoadOp::Load
+                    },
+                },
+            );
+            let current_scissor = scissor_stack.last().copied().unwrap_or(viewport_scissor);
+            if current_scissor != viewport_scissor {
+                render_pass.set_scissor_rect(
+                    current_scissor.0,
+                    current_scissor.1,
+                    current_scissor.2,
+                    current_scissor.3,
+                );
+            }
+            if let Some(backdrop_node_id) = backdrop_node_id {
+                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                if composite_shape_effect_for_node(
+                    &mut render_pass,
+                    backdrop_node_id,
+                    draw_tree,
+                    shape_effect_results,
+                    parent_stencil,
+                    pipelines,
+                    buffers,
+                ) {
+                    #[cfg(feature = "render_metrics")]
+                    {
+                        shape_effect_cache_metrics.composited_results += 1;
+                    }
+                }
+            }
+            is_first_segment = false;
+            currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::None);
+            bound_texture_state.invalidate();
+        }
 
         // --- Handle the backdrop effect node ---
         if let Some(backdrop_node_id) = backdrop_node_id {
@@ -1361,21 +1505,6 @@ pub(super) fn render_segments(
             // optimized ancestors that never wrote to the stencil buffer.
             let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
             let this_stencil = parent_stencil + 1;
-
-            if is_first_segment {
-                crate::pipeline::begin_render_pass_with_load_ops(
-                    encoder,
-                    Some("segment_initial_clear"),
-                    color_view,
-                    color_resolve_target,
-                    depth_stencil_view,
-                    crate::pipeline::RenderPassLoadOperations {
-                        color_load_op: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        depth_load_op: wgpu::LoadOp::Clear(1.0),
-                        stencil_load_op: wgpu::LoadOp::Clear(0),
-                    },
-                );
-            }
 
             let mut solid_backdrop_bind_group: Option<wgpu::BindGroup> = None;
             let mut gradient_backdrop_bind_group: Option<wgpu::BindGroup> = None;
@@ -1395,8 +1524,8 @@ pub(super) fn render_segments(
                 ) {
                     let backdrop_sampling_uniform = capture_region.sample_uniform();
                     let (capture_width, capture_height) = capture_region.capture_size;
-                    let copy_source_texture = copy_source_texture
-                        .expect("copy_source_texture required for backdrop effects");
+                    let backdrop_source =
+                        backdrop_source.expect("backdrop source required for backdrop effects");
                     let backdrop_capture_texture = texture_pool.acquire_color_only(
                         bctx.device,
                         capture_width,
@@ -1415,7 +1544,7 @@ pub(super) fn render_segments(
                     {
                         encoder.copy_texture_to_texture(
                             wgpu::TexelCopyTextureInfo {
-                                texture: copy_source_texture,
+                                texture: backdrop_source.base_texture(),
                                 mip_level: 0,
                                 origin: wgpu::Origin3d {
                                     x: copy_source_x,
@@ -1439,6 +1568,28 @@ pub(super) fn render_segments(
                                 height: capture_region.copy_size.1,
                                 depth_or_array_layers: 1,
                             },
+                        );
+                    }
+
+                    if let Some(foreground_view) = backdrop_source.foreground_view() {
+                        let layer_params = effect::backdrop_layer_params(
+                            capture_region.capture_origin,
+                            physical_size,
+                        );
+                        let layer_params_buffer = effect::prepare_backdrop_layer_params_buffer(
+                            bctx.device,
+                            bctx.queue,
+                            &mut effect_instance.backdrop_layer_params_buffer,
+                            layer_params,
+                        );
+                        composite_backdrop_foreground_layer(
+                            bctx.device,
+                            encoder,
+                            bctx.backdrop_layer_composite_pipeline,
+                            bctx.backdrop_layer_composite_bind_group_layout,
+                            foreground_view,
+                            &backdrop_capture_texture.color_view,
+                            &layer_params_buffer,
                         );
                     }
 
@@ -1581,25 +1732,6 @@ pub(super) fn render_segments(
                     current_scissor.2,
                     current_scissor.3,
                 );
-            }
-
-            if let Some(cached_shape_effect) = shape_effect_results.get(&backdrop_node_id) {
-                if let Some(DrawCommand::CachedShape(cached_shape)) =
-                    draw_tree.get(backdrop_node_id)
-                {
-                    crate::renderer::shape_effects::composite_cached_shape_effect(
-                        &mut render_pass,
-                        cached_shape_effect,
-                        cached_shape.instance_index,
-                        parent_stencil,
-                        pipelines,
-                        buffers,
-                    );
-                    #[cfg(feature = "render_metrics")]
-                    {
-                        shape_effect_cache_metrics.composited_results += 1;
-                    }
-                }
             }
 
             // Step 1: Stencil-only draw (IncrementClamp at parent_stencil).

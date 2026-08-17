@@ -323,6 +323,35 @@ pub(super) struct Pipelines<'a> {
     pub(super) shape_effect_quad_index_buffer: &'a wgpu::Buffer,
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum BackdropSource<'a> {
+    /// The source already contains every layer painted before the backdrop node.
+    Flattened { texture: &'a wgpu::Texture },
+    /// Group rendering keeps the outside scene separate from its transparent subtree output.
+    Layered {
+        base_texture: &'a wgpu::Texture,
+        foreground_view: &'a wgpu::TextureView,
+    },
+}
+
+impl<'a> BackdropSource<'a> {
+    pub(super) fn base_texture(self) -> &'a wgpu::Texture {
+        match self {
+            Self::Flattened { texture } => texture,
+            Self::Layered { base_texture, .. } => base_texture,
+        }
+    }
+
+    pub(super) fn foreground_view(self) -> Option<&'a wgpu::TextureView> {
+        match self {
+            Self::Flattened { .. } => None,
+            Self::Layered {
+                foreground_view, ..
+            } => Some(foreground_view),
+        }
+    }
+}
+
 /// Backdrop-specific rendering resources. Only needed when backdrop effects exist.
 /// General resources (pipelines, buffers, textures) are passed separately.
 pub(super) struct BackdropContext<'a> {
@@ -331,6 +360,8 @@ pub(super) struct BackdropContext<'a> {
     pub(super) effect_sampler: &'a wgpu::Sampler,
     pub(super) gradient_ramp_sampler: &'a wgpu::Sampler,
     pub(super) texture_blit_pipeline: &'a wgpu::RenderPipeline,
+    pub(super) backdrop_layer_composite_pipeline: &'a wgpu::RenderPipeline,
+    pub(super) backdrop_layer_composite_bind_group_layout: &'a wgpu::BindGroupLayout,
     pub(super) stencil_only_pipeline: &'a wgpu::RenderPipeline,
     pub(super) backdrop_color_pipeline: &'a wgpu::RenderPipeline,
     pub(super) backdrop_color_gradient_pipeline: &'a wgpu::RenderPipeline,

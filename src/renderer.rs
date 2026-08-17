@@ -239,6 +239,10 @@ pub struct Renderer<'a> {
     // ── Backdrop effect infrastructure ─────────────────────────────────
     /// Fullscreen sampling pipeline used to downsample a captured backdrop region.
     texture_blit_pipeline: Option<wgpu::RenderPipeline>,
+    /// Premultiplied-alpha pipeline for layering a transparent group prefix into a backdrop.
+    backdrop_layer_composite_pipeline: Option<wgpu::RenderPipeline>,
+    /// Bind group layout used by the group-prefix backdrop compositor.
+    backdrop_layer_composite_bind_group_layout: Option<wgpu::BindGroupLayout>,
     /// Stencil-only pipeline: writes stencil but no color output.
     /// Used for Step 1 of the three-step backdrop draw.
     stencil_only_pipeline: Option<wgpu::RenderPipeline>,

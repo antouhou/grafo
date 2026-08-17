@@ -416,6 +416,8 @@ impl<'a> Renderer<'a> {
             composite_bgl: None,
             effect_sampler: None,
             texture_blit_pipeline: None,
+            backdrop_layer_composite_pipeline: None,
+            backdrop_layer_composite_bind_group_layout: None,
             stencil_only_pipeline: None,
             backdrop_color_pipeline: None,
             backdrop_color_gradient_pipeline: None,
@@ -938,6 +940,8 @@ impl<'a> Renderer<'a> {
 
         // Reset lazily-created pipelines so they pick up the new layout
         self.texture_blit_pipeline = None;
+        self.backdrop_layer_composite_pipeline = None;
+        self.backdrop_layer_composite_bind_group_layout = None;
         self.stencil_only_pipeline = None;
         self.backdrop_color_pipeline = None;
         self.backdrop_color_gradient_pipeline = None;
