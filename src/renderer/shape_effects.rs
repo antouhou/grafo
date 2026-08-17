@@ -1,17 +1,15 @@
 // The bytemuck derive emits private compile-time helpers that trigger false unused warnings.
 #![allow(unused)]
 
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
-
-use bytemuck::{Pod, Zeroable};
-
 use crate::cache::{CachedTessellation, FrameCache};
 use crate::effect::{
     self, create_effect_input_bind_group_layout, PooledTexture, ShapeEffectConfig,
 };
 use crate::pipeline::create_buffer_init;
 use crate::vertex::{CustomVertex, InstanceTransform};
+use bytemuck::{Pod, Zeroable};
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 #[cfg(feature = "render_metrics")]
 use super::metrics::ShapeEffectCacheMetrics;
@@ -621,16 +619,16 @@ impl<'a> Renderer<'a> {
                 continue;
             }
 
+            let Some(loaded_effect) = self.loaded_effects.get(&shape_effect_instance.effect_id)
+            else {
+                continue;
+            };
+
             #[cfg(feature = "render_metrics")]
             {
                 metrics.misses += 1;
                 metrics.generated_masks += 1;
             }
-
-            let Some(loaded_effect) = self.loaded_effects.get(&shape_effect_instance.effect_id)
-            else {
-                continue;
-            };
             let mask_texture = self.offscreen_texture_pool.acquire_color_only(
                 &self.device,
                 width,
@@ -770,14 +768,12 @@ pub(super) fn composite_cached_shape_effect(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use lyon::tessellation::VertexBuffers;
-
     use super::{compute_shape_effect_raster_rect, ShapeEffectCacheKey};
     use crate::cache::CachedTessellation;
     use crate::effect::ShapeEffectConfig;
     use crate::vertex::CustomVertex;
+    use lyon::tessellation::VertexBuffers;
+    use std::sync::Arc;
 
     fn tessellation() -> Arc<CachedTessellation> {
         Arc::new(CachedTessellation {

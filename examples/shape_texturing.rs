@@ -1,14 +1,13 @@
 use futures::executor::block_on;
 use grafo::{BorderRadii, Shape};
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use image::ImageReader;
 use std::sync::Arc;
 use std::time::Instant;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
-
-use image::ImageReader;
 
 struct App<'a> {
     window: Option<Arc<Window>>,

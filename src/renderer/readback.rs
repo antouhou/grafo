@@ -281,10 +281,7 @@ impl<'a> Renderer<'a> {
         };
         let needs_new_params = self.argb_params_buffer.is_none();
         if needs_new_params {
-            self.argb_params_buffer = Some(create_argb_params_buffer(
-                &self.device,
-                &params,
-            ));
+            self.argb_params_buffer = Some(create_argb_params_buffer(&self.device, &params));
         } else {
             self.queue.write_buffer(
                 self.argb_params_buffer.as_ref().unwrap(),

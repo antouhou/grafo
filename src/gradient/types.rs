@@ -1,11 +1,9 @@
+use super::errors::GradientError;
+use super::normalize::NormalizedGradient;
+use crate::Color;
 use smallvec::SmallVec;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
-
-use crate::Color;
-
-use super::errors::GradientError;
-use super::normalize::NormalizedGradient;
 
 // ── Gradient kind discriminant ───────────────────────────────────────────────
 

@@ -65,11 +65,18 @@ fn draw_card(renderer: &mut grafo::Renderer, card_spec: CardSpec) -> usize {
         )
         .unwrap();
 
+    // The shader samples in physical texels, so convert sigma and offset from logical
+    // pixels to physical pixels using the current DPI scale factor. The outsets stay in
+    // logical units: the renderer converts them to physical pixels internally.
+    let scale_factor = renderer.scale_factor() as f32;
     let [red, green, blue, alpha] = card_spec.shadow_rgba;
     let params = BoxShadowParams {
         shadow_color: [red * alpha, green * alpha, blue * alpha, alpha],
-        offset: card_spec.shadow_offset,
-        sigma: card_spec.shadow_sigma,
+        offset: [
+            card_spec.shadow_offset[0] * scale_factor,
+            card_spec.shadow_offset[1] * scale_factor,
+        ],
+        sigma: card_spec.shadow_sigma * scale_factor,
         _padding: 0.0,
     };
     let blur_outset = card_spec.shadow_sigma * 3.0;
@@ -92,7 +99,12 @@ fn draw_card(renderer: &mut grafo::Renderer, card_spec: CardSpec) -> usize {
 }
 
 /// The shader works for any tessellated shape, not only rectangles.
-const BOX_SHADOW_WGSL: &str = r#"
+///
+/// The blur is separable: pass 1 blurs the coverage mask horizontally, pass 2 blurs the
+/// intermediate result vertically and applies the shadow color. This keeps the same
+/// Gaussian result as a 2D kernel at O(radius) sampling cost per pass instead of
+/// O(radius^2) in a single pass.
+const BOX_SHADOW_HORIZONTAL_WGSL: &str = r#"
 struct Params {
     shadow_color: vec4<f32>,
     offset: vec2<f32>,
@@ -109,14 +121,38 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     let source_uv = uv - params.offset / texture_size;
     var coverage = 0.0;
     var total_weight = 0.0;
+    for (var x = -radius; x <= radius; x++) {
+        let weight = exp(-f32(x * x) / (2.0 * sigma * sigma));
+        let sample_uv = source_uv + vec2<f32>(f32(x), 0.0) / texture_size;
+        coverage += textureSample(t_input, s_input, sample_uv).a * weight;
+        total_weight += weight;
+    }
+    // Pass only the horizontally blurred coverage forward; the color is applied in pass 2.
+    return vec4<f32>(0.0, 0.0, 0.0, coverage / max(total_weight, 0.0001));
+}
+"#;
+
+const BOX_SHADOW_VERTICAL_WGSL: &str = r#"
+struct Params {
+    shadow_color: vec4<f32>,
+    offset: vec2<f32>,
+    sigma: f32,
+    _padding: f32,
+}
+@group(1) @binding(0) var<uniform> params: Params;
+
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let texture_size = vec2<f32>(textureDimensions(t_input));
+    let sigma = max(params.sigma, 0.0001);
+    let radius = min(i32(ceil(sigma * 3.0)), 48);
+    var coverage = 0.0;
+    var total_weight = 0.0;
     for (var y = -radius; y <= radius; y++) {
-        for (var x = -radius; x <= radius; x++) {
-            let distance_squared = f32(x * x + y * y);
-            let weight = exp(-distance_squared / (2.0 * sigma * sigma));
-            let sample_uv = source_uv + vec2<f32>(f32(x), f32(y)) / texture_size;
-            coverage += textureSample(t_input, s_input, sample_uv).a * weight;
-            total_weight += weight;
-        }
+        let weight = exp(-f32(y * y) / (2.0 * sigma * sigma));
+        let sample_uv = uv + vec2<f32>(0.0, f32(y)) / texture_size;
+        coverage += textureSample(t_input, s_input, sample_uv).a * weight;
+        total_weight += weight;
     }
     return params.shadow_color * (coverage / max(total_weight, 0.0001));
 }
@@ -151,9 +187,12 @@ impl<'a> ApplicationHandler for App<'a> {
             1,
         ));
 
-        // Load the box shadow effect shader once
+        // Load the box shadow effect shader once (horizontal + vertical blur passes)
         renderer
-            .load_effect(BOX_SHADOW_EFFECT, &[BOX_SHADOW_WGSL])
+            .load_effect(
+                BOX_SHADOW_EFFECT,
+                &[BOX_SHADOW_HORIZONTAL_WGSL, BOX_SHADOW_VERTICAL_WGSL],
+            )
             .expect("Failed to compile box shadow effect");
 
         self.window = Some(window);

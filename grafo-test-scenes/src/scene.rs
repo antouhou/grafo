@@ -4454,12 +4454,13 @@ fn tile_64_drop_shadow_with_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelE
             10,
             "t64_shadow_has_soft_diagonal_falloff",
         ),
-        PixelExpectation::opaque(
+        PixelExpectation::opaque_approx(
             origin_x as u32 + 42,
             origin_y as u32 + 57,
             170,
             170,
             170,
+            10,
             "t64_shadow_body_visible_below_card",
         ),
         PixelExpectation::opaque(

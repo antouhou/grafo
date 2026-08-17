@@ -1,9 +1,8 @@
-use ahash::HashMap;
-
 use super::types::DrawCommand;
 use crate::effect::EffectInstance;
 use crate::effect::ShapeEffectInstance;
 use crate::vertex::InstanceTransform;
+use ahash::HashMap;
 
 #[derive(Clone, Copy)]
 pub(super) struct AxisAlignedRectTransform {
@@ -147,7 +146,7 @@ pub(super) fn try_scissor_for_rect(
 #[cfg(test)]
 mod tests {
     use super::{compute_scissor_rect, should_skip_visible_rect_draw, try_scissor_for_rect};
-    use crate::effect::EffectInstance;
+    use crate::effect::{EffectInstance, ShapeEffectConfig, ShapeEffectInstance};
     use crate::gradient::types::{
         ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset, LinearGradientDesc,
         LinearGradientLine,
@@ -161,6 +160,7 @@ mod tests {
     use ahash::{HashMap, HashMapExt};
     use lyon::tessellation::FillTessellator;
     use std::num::NonZeroUsize;
+    use std::sync::Arc;
 
     fn create_test_gradient() -> Gradient {
         Gradient::linear(
@@ -272,6 +272,30 @@ mod tests {
             &HashMap::new(),
             &backdrop_effects,
             &HashMap::new(),
+        ));
+    }
+
+    #[test]
+    fn skip_visible_rect_draw_rejects_shape_effect_nodes() {
+        let draw_command = rect_draw_command();
+        let node_id = 11usize;
+
+        let mut shape_effects = HashMap::new();
+        shape_effects.insert(
+            node_id,
+            ShapeEffectInstance {
+                effect_id: 3,
+                params: Arc::from(Vec::new()),
+                config: ShapeEffectConfig::new().outset(4.0),
+            },
+        );
+
+        assert!(!should_skip_visible_rect_draw(
+            node_id,
+            &draw_command,
+            &HashMap::new(),
+            &HashMap::new(),
+            &shape_effects,
         ));
     }
 

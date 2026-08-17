@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use crate::pipeline::BackdropSamplingUniform;
 use super::types::{GradientData, GradientKind, GradientUnits, SpreadMode};
+use crate::pipeline::BackdropSamplingUniform;
 
 /// GPU-side gradient-only parameters packed into a uniform-friendly struct.
 /// Matches the WGSL `GradientColorParams` struct in shader.wgsl.
@@ -138,9 +138,7 @@ impl Default for GpuBackdropSamplingParams {
 }
 
 impl GpuBackdropSamplingParams {
-    pub fn from_sampling_uniform(
-        sampling_uniform: BackdropSamplingUniform,
-    ) -> Self {
+    pub fn from_sampling_uniform(sampling_uniform: BackdropSamplingUniform) -> Self {
         Self {
             capture_origin: sampling_uniform.capture_origin,
             inverse_capture_size: sampling_uniform.inverse_capture_size,
@@ -177,17 +175,12 @@ impl GpuMaterialParams {
         }
     }
 
-    pub fn with_backdrop_sampling(
-        mut self,
-        sampling_uniform: BackdropSamplingUniform,
-    ) -> Self {
+    pub fn with_backdrop_sampling(mut self, sampling_uniform: BackdropSamplingUniform) -> Self {
         self.backdrop_sampling = GpuBackdropSamplingParams::from_sampling_uniform(sampling_uniform);
         self
     }
 
-    pub fn for_backdrop_sampling(
-        sampling_uniform: BackdropSamplingUniform,
-    ) -> Self {
+    pub fn for_backdrop_sampling(sampling_uniform: BackdropSamplingUniform) -> Self {
         Self::default().with_backdrop_sampling(sampling_uniform)
     }
 }

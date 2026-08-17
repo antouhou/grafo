@@ -1,17 +1,14 @@
-use std::sync::Arc;
-
-use ahash::{HashMap, HashMapExt};
-
+#[cfg(feature = "render_metrics")]
+use super::metrics::PipelineSwitchCounts;
+use super::shape_effects::CachedShapeEffect;
+use super::traversal::TraversalScratch;
 use crate::effect::{self, LoadedEffect};
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand};
 use crate::texture_manager::TextureManager;
 use crate::util::GradientCache;
 use crate::vertex::InstanceTransform;
-
-use super::shape_effects::CachedShapeEffect;
-use super::traversal::TraversalScratch;
-#[cfg(feature = "render_metrics")]
-use super::metrics::PipelineSwitchCounts;
+use ahash::{HashMap, HashMapExt};
+use std::sync::Arc;
 
 // TODO: probably some parts of it also can be cached, so we don't need to copy it all the time.
 #[allow(clippy::large_enum_variant)]

@@ -276,8 +276,7 @@ impl<'a> Renderer<'a> {
         );
 
         let gradient_bind_group_layout = create_gradient_bind_group_layout(&device);
-        let backdrop_texture_bind_group_layout =
-            create_backdrop_texture_bind_group_layout(&device);
+        let backdrop_texture_bind_group_layout = create_backdrop_texture_bind_group_layout(&device);
         let backdrop_gradient_bind_group_layout =
             create_backdrop_gradient_bind_group_layout(&device);
         let and_gradient_pipeline = create_gradient_increment_pipeline(
@@ -298,16 +297,15 @@ impl<'a> Renderer<'a> {
             &and_texture_bgl_layer0,
             &and_texture_bgl_layer1,
         );
-        let leaf_draw_gradient_pipeline =
-            create_gradient_stencil_keep_color_pipeline(
-                &device,
-                config.format,
-                msaa_sample_count,
-                &and_pipeline.get_bind_group_layout(0),
-                &and_texture_bgl_layer0,
-                &and_texture_bgl_layer1,
-                &gradient_bind_group_layout,
-            );
+        let leaf_draw_gradient_pipeline = create_gradient_stencil_keep_color_pipeline(
+            &device,
+            config.format,
+            msaa_sample_count,
+            &and_pipeline.get_bind_group_layout(0),
+            &and_texture_bgl_layer0,
+            &and_texture_bgl_layer1,
+            &gradient_bind_group_layout,
+        );
 
         let gradient_ramp_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("gradient_ramp_sampler"),
@@ -333,13 +331,12 @@ impl<'a> Renderer<'a> {
             &queue,
             &backdrop_texture_bind_group_layout,
         );
-        let shape_effect_resources =
-            ShapeEffectRendererResources::new(
-                &device,
-                config.format,
-                msaa_sample_count,
-                &and_pipeline.get_bind_group_layout(0),
-            );
+        let shape_effect_resources = ShapeEffectRendererResources::new(
+            &device,
+            config.format,
+            msaa_sample_count,
+            &and_pipeline.get_bind_group_layout(0),
+        );
 
         let mut renderer = Self {
             context,
@@ -868,13 +865,11 @@ impl<'a> Renderer<'a> {
 
         self.shape_texture_bind_group_layout_background = Arc::new(and_texture_bgl_layer0);
         self.shape_texture_bind_group_layout_foreground = Arc::new(and_texture_bgl_layer1);
-        self.backdrop_texture_bind_group_layout = Arc::new(
-            create_backdrop_texture_bind_group_layout(&self.device),
-        );
+        self.backdrop_texture_bind_group_layout =
+            Arc::new(create_backdrop_texture_bind_group_layout(&self.device));
         self.shape_texture_layout_epoch += 1;
 
-        self.gradient_bind_group_layout =
-            create_gradient_bind_group_layout(&self.device);
+        self.gradient_bind_group_layout = create_gradient_bind_group_layout(&self.device);
         self.backdrop_gradient_bind_group_layout =
             create_backdrop_gradient_bind_group_layout(&self.device);
         self.gradient_bind_group_layout_epoch += 1;
@@ -935,17 +930,15 @@ impl<'a> Renderer<'a> {
             &self.shape_texture_bind_group_layout_background,
             &self.shape_texture_bind_group_layout_foreground,
         ));
-        self.leaf_draw_gradient_pipeline = Arc::new(
-            create_gradient_stencil_keep_color_pipeline(
-                &self.device,
-                self.config.format,
-                self.msaa_sample_count,
-                &self.and_pipeline.get_bind_group_layout(0),
-                &self.shape_texture_bind_group_layout_background,
-                &self.shape_texture_bind_group_layout_foreground,
-                &self.gradient_bind_group_layout,
-            ),
-        );
+        self.leaf_draw_gradient_pipeline = Arc::new(create_gradient_stencil_keep_color_pipeline(
+            &self.device,
+            self.config.format,
+            self.msaa_sample_count,
+            &self.and_pipeline.get_bind_group_layout(0),
+            &self.shape_texture_bind_group_layout_background,
+            &self.shape_texture_bind_group_layout_foreground,
+            &self.gradient_bind_group_layout,
+        ));
 
         // Reset lazily-created pipelines so they pick up the new layout
         self.texture_blit_pipeline = None;

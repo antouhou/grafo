@@ -387,10 +387,7 @@ pub(super) fn handle_decrement_pass<'rp>(
             return;
         }
 
-        if !matches!(
-            currently_set_pipeline.current,
-            Pipeline::StencilDecrement
-        ) {
+        if !matches!(currently_set_pipeline.current, Pipeline::StencilDecrement) {
             render_pass.set_pipeline(pipelines.decrementing_pipeline);
             render_pass.set_bind_group(0, pipelines.decrementing_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
@@ -1053,10 +1050,8 @@ pub(super) fn render_segments(
     clip_kind_stack: &mut Vec<ClipKind>,
     scale_factor: f64,
     physical_size: (u32, u32),
-    #[cfg(feature = "render_metrics")]
-    pipeline_counts_out: &mut PipelineSwitchCounts,
-    #[cfg(feature = "render_metrics")]
-    shape_effect_cache_metrics: &mut ShapeEffectCacheMetrics,
+    #[cfg(feature = "render_metrics")] pipeline_counts_out: &mut PipelineSwitchCounts,
+    #[cfg(feature = "render_metrics")] shape_effect_cache_metrics: &mut ShapeEffectCacheMetrics,
 ) {
     let mut event_idx = 0;
     let mut is_first_segment = clear_first;
@@ -1184,8 +1179,7 @@ pub(super) fn render_segments(
                                 {
                                     shape_effect_cache_metrics.composited_results += 1;
                                 }
-                                currently_set_pipeline
-                                    .switch_to(Pipeline::None);
+                                currently_set_pipeline.switch_to(Pipeline::None);
                                 bound_texture_state.invalidate();
                             }
                         }

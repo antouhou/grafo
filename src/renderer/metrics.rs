@@ -1,7 +1,6 @@
+use super::Renderer;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
-
-use super::Renderer;
 
 /// Per-frame activity for the exact cached shape-effect result cache.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -277,9 +276,8 @@ impl<'a> Renderer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
-
     use super::RenderLoopMetricsTracker;
+    use std::time::{Duration, Instant};
 
     fn assert_approximately_equal(left: f64, right: f64, tolerance: f64) {
         assert!(

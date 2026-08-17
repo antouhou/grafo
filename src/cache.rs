@@ -1,11 +1,9 @@
+use crate::vertex::CustomVertex;
+use ahash::{HashMap, HashMapExt};
+use lyon::tessellation::VertexBuffers;
 use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-
-use ahash::{HashMap, HashMapExt};
-use lyon::tessellation::VertexBuffers;
-
-use crate::vertex::CustomVertex;
 
 #[derive(Debug)]
 pub(crate) struct CachedTessellation {

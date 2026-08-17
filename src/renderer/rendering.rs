@@ -1,10 +1,10 @@
 use super::*;
+#[cfg(feature = "render_metrics")]
+use crate::renderer::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
 use crate::renderer::passes::{apply_effect_passes, render_segments, EffectPassRunConfig};
 use crate::renderer::traversal::{
     compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects,
 };
-#[cfg(feature = "render_metrics")]
-use crate::renderer::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
 
 impl<'a> Renderer<'a> {
     pub(super) fn render_to_texture_view(
@@ -20,11 +20,10 @@ impl<'a> Renderer<'a> {
             let _collected_shape_effect_results = self.shape_effect_cache.end_frame();
             #[cfg(feature = "render_metrics")]
             {
-                self.last_shape_effect_cache_metrics =
-                    ShapeEffectCacheMetrics {
-                        collected_results: _collected_shape_effect_results as u64,
-                        ..Default::default()
-                    };
+                self.last_shape_effect_cache_metrics = ShapeEffectCacheMetrics {
+                    collected_results: _collected_shape_effect_results as u64,
+                    ..Default::default()
+                };
             }
             self.buffers_pool_manager.tessellation_cache.end_frame();
             self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
@@ -71,8 +70,7 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         let mut frame_pipeline_counts = PipelineSwitchCounts::default();
         #[cfg(feature = "render_metrics")]
-        let mut shape_effect_cache_metrics =
-            ShapeEffectCacheMetrics::default();
+        let mut shape_effect_cache_metrics = ShapeEffectCacheMetrics::default();
 
         let mut encoder = self
             .device
