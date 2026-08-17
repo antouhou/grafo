@@ -24,6 +24,32 @@ pub(super) struct AppliedEffectOutput {
 }
 
 impl AppliedEffectOutput {
+    pub(super) fn into_final_and_recyclable(
+        self,
+    ) -> (
+        effect::PooledTexture,
+        Option<wgpu::BindGroup>,
+        Vec<effect::PooledTexture>,
+    ) {
+        if self.final_texture_is_primary {
+            let recyclable = self.secondary_work_texture.into_iter().collect();
+            (
+                self.primary_work_texture,
+                self.composite_bind_group,
+                recyclable,
+            )
+        } else {
+            let final_texture = self
+                .secondary_work_texture
+                .expect("secondary effect texture must exist when it is the final output");
+            (
+                final_texture,
+                self.composite_bind_group,
+                vec![self.primary_work_texture],
+            )
+        }
+    }
+
     pub(super) fn push_work_textures_into(
         self,
         output_textures: &mut Vec<effect::PooledTexture>,
@@ -935,8 +961,10 @@ pub(super) fn render_segments(
     encoder: &mut wgpu::CommandEncoder,
     events: &[TraversalEvent],
     effect_results: &HashMap<usize, wgpu::BindGroup>,
+    shape_effect_results: &HashMap<usize, Arc<crate::renderer::shape_effects::CachedShapeEffect>>,
     group_effects: &HashMap<usize, EffectInstance>,
     backdrop_effects: &mut HashMap<usize, EffectInstance>,
+    shape_effects: &HashMap<usize, effect::ShapeEffectInstance>,
     color_view: &wgpu::TextureView,
     color_resolve_target: Option<&wgpu::TextureView>,
     depth_stencil_view: &wgpu::TextureView,
@@ -956,6 +984,8 @@ pub(super) fn render_segments(
     physical_size: (u32, u32),
     #[cfg(feature = "render_metrics")]
     pipeline_counts_out: &mut crate::renderer::metrics::PipelineSwitchCounts,
+    #[cfg(feature = "render_metrics")]
+    shape_effect_cache_metrics: &mut crate::renderer::metrics::ShapeEffectCacheMetrics,
 ) {
     let mut event_idx = 0;
     let mut is_first_segment = clear_first;
@@ -1055,12 +1085,44 @@ pub(super) fn render_segments(
                             continue;
                         }
 
+                        if let Some(cached_shape_effect) = shape_effect_results.get(&node_id) {
+                            flush_pending_leaf_batch(
+                                &mut pending_leaf_batch,
+                                &mut render_pass,
+                                &mut currently_set_pipeline,
+                                &mut bound_texture_state,
+                                pipelines,
+                                buffers,
+                            );
+                            if let Some(DrawCommand::CachedShape(cached_shape)) =
+                                draw_tree.get(node_id)
+                            {
+                                let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                                crate::renderer::shape_effects::composite_cached_shape_effect(
+                                    &mut render_pass,
+                                    cached_shape_effect,
+                                    cached_shape.instance_index,
+                                    parent_stencil,
+                                    pipelines,
+                                    buffers,
+                                );
+                                #[cfg(feature = "render_metrics")]
+                                {
+                                    shape_effect_cache_metrics.composited_results += 1;
+                                }
+                                currently_set_pipeline
+                                    .switch_to(crate::renderer::types::Pipeline::None);
+                                bound_texture_state.invalidate();
+                            }
+                        }
+
                         if let Some(draw_command) = draw_tree.get_mut(node_id) {
                             let should_skip_visible_draw = should_skip_visible_rect_draw(
                                 node_id,
                                 &*draw_command,
                                 group_effects,
                                 backdrop_effects,
+                                shape_effects,
                             );
 
                             // --- Leaf node ---
@@ -1519,6 +1581,25 @@ pub(super) fn render_segments(
                     current_scissor.2,
                     current_scissor.3,
                 );
+            }
+
+            if let Some(cached_shape_effect) = shape_effect_results.get(&backdrop_node_id) {
+                if let Some(DrawCommand::CachedShape(cached_shape)) =
+                    draw_tree.get(backdrop_node_id)
+                {
+                    crate::renderer::shape_effects::composite_cached_shape_effect(
+                        &mut render_pass,
+                        cached_shape_effect,
+                        cached_shape.instance_index,
+                        parent_stencil,
+                        pipelines,
+                        buffers,
+                    );
+                    #[cfg(feature = "render_metrics")]
+                    {
+                        shape_effect_cache_metrics.composited_results += 1;
+                    }
+                }
             }
 
             // Step 1: Stencil-only draw (IncrementClamp at parent_stencil).

@@ -3,24 +3,29 @@ use grafo::{
     ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc, GradientStop,
     GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
     LinearGradientLine, RadialGradientDesc, RadialGradientShape, RadialGradientSize, Renderer,
-    Shape, ShapeDrawCommandOptions, ShapeTextureFitMode, ShapeTextureOptions, SpreadMode, Stroke,
-    TransformInstance,
+    Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
+    SpreadMode, Stroke, TransformInstance,
 };
 
 use crate::expectations::PixelExpectation;
-use crate::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, PASSTHROUGH_WGSL, VERTICAL_BLUR_WGSL};
+use crate::shaders::{
+    BlurParams, DROP_SHADOW_HORIZONTAL_BLUR_WGSL, DROP_SHADOW_VERTICAL_TINT_WGSL,
+    HORIZONTAL_BLUR_WGSL, PASSTHROUGH_WGSL, SHAPE_DROP_WGSL, VERTICAL_BLUR_WGSL,
+};
 
 // ── Grid layout constants ────────────────────────────────────────────────────
 
 const TILE_SIZE: u32 = 80;
 const COLUMNS: u32 = 6;
-const ROWS: u32 = 10;
+const ROWS: u32 = 11;
 
 pub const CANVAS_WIDTH: u32 = TILE_SIZE * COLUMNS;
 pub const CANVAS_HEIGHT: u32 = TILE_SIZE * ROWS;
 
 const BLUR_EFFECT_ID: u64 = 1;
 const PASSTHROUGH_EFFECT_ID: u64 = 2;
+const SHAPE_DROP_EFFECT_ID: u64 = 3;
+const DROP_SHADOW_EFFECT_ID: u64 = 4;
 const CHECKERBOARD_TEXTURE_ID: u64 = 100;
 const SOLID_GREEN_TEXTURE_ID: u64 = 101;
 const SOLID_GREEN_20X20_TEXTURE_ID: u64 = 102;
@@ -126,6 +131,11 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_59_backdrop_node_bounds_offscreen_preserves_size(
         renderer,
     ));
+    expectations.extend(tile_60_cached_shape_effect_rect(renderer));
+    expectations.extend(tile_61_cached_shape_effect_path_clipped(renderer));
+    expectations.extend(tile_62_cached_shape_effect_inside_group_effect(renderer));
+    expectations.extend(tile_63_cached_shape_effect_with_backdrop(renderer));
+    expectations.extend(tile_64_drop_shadow_with_backdrop_blur(renderer));
 
     expectations
 }
@@ -139,6 +149,18 @@ fn load_shared_resources(renderer: &mut Renderer) {
     renderer
         .load_effect(PASSTHROUGH_EFFECT_ID, &[PASSTHROUGH_WGSL])
         .expect("Failed to compile passthrough effect");
+    renderer
+        .load_effect(SHAPE_DROP_EFFECT_ID, &[SHAPE_DROP_WGSL])
+        .expect("Failed to compile cached shape effect");
+    renderer
+        .load_effect(
+            DROP_SHADOW_EFFECT_ID,
+            &[
+                DROP_SHADOW_HORIZONTAL_BLUR_WGSL,
+                DROP_SHADOW_VERTICAL_TINT_WGSL,
+            ],
+        )
+        .expect("Failed to compile visual drop shadow effect");
 
     // 4×4 checkerboard: alternating white and black pixels, RGBA
     let mut checkerboard = [0u8; 4 * 4 * 4];
@@ -4069,6 +4091,382 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
             255,
             255,
             "t59_outside_panel_stays_canvas_bg",
+        ),
+    ]
+}
+
+/// Tile 60 — A cached shape effect draws outside its rectangular source before the source fill.
+fn tile_60_cached_shape_effect_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(60);
+    let shape = Shape::rect(
+        [
+            (origin_x + 20.0, origin_y + 20.0),
+            (origin_x + 50.0, origin_y + 50.0),
+        ],
+        Stroke::default(),
+    );
+    let shape_id = renderer
+        .add_shape(
+            shape,
+            None,
+            Some(60_060),
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            shape_id,
+            SHAPE_DROP_EFFECT_ID,
+            &[],
+            ShapeEffectConfig::new().outset(12.0),
+        )
+        .expect("Failed to attach rectangular cached shape effect");
+
+    vec![
+        PixelExpectation::opaque(
+            origin_x as u32 + 35,
+            origin_y as u32 + 35,
+            220,
+            50,
+            50,
+            "t60_source_draws_over_effect",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 55,
+            origin_y as u32 + 35,
+            0,
+            0,
+            255,
+            "t60_effect_extends_outside_source",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 15,
+            origin_y as u32 + 5,
+            255,
+            255,
+            255,
+            "t60_padding_stays_transparent",
+        ),
+    ]
+}
+
+/// Tile 61 — Arbitrary path effects respect ancestor stencil clipping.
+fn tile_61_cached_shape_effect_path_clipped(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(61);
+    let clip_parent = Shape::rounded_rect(
+        [
+            (origin_x + 10.0, origin_y + 8.0),
+            (origin_x + 60.0, origin_y + 60.0),
+        ],
+        BorderRadii::new(8.0),
+        Stroke::default(),
+    );
+    let clip_parent_id = renderer
+        .add_shape(clip_parent, None, None, ShapeDrawCommandOptions::new())
+        .unwrap();
+
+    let path = Shape::builder()
+        .begin((origin_x + 20.0, origin_y + 15.0))
+        .line_to((origin_x + 50.0, origin_y + 15.0))
+        .line_to((origin_x + 35.0, origin_y + 45.0))
+        .close()
+        .build();
+    let path_id = renderer
+        .add_shape(
+            path,
+            Some(clip_parent_id),
+            Some(61_061),
+            ShapeDrawCommandOptions::new().color(Color::rgb(50, 180, 50)),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            path_id,
+            SHAPE_DROP_EFFECT_ID,
+            &[],
+            ShapeEffectConfig::new().outset(12.0),
+        )
+        .expect("Failed to attach path cached shape effect");
+
+    vec![
+        PixelExpectation::opaque(
+            origin_x as u32 + 35,
+            origin_y as u32 + 25,
+            50,
+            180,
+            50,
+            "t61_path_draws_over_effect",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 53,
+            origin_y as u32 + 28,
+            0,
+            0,
+            255,
+            "t61_path_effect_outside_geometry",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 65,
+            origin_y as u32 + 28,
+            255,
+            255,
+            255,
+            "t61_ancestor_clips_effect",
+        ),
+    ]
+}
+
+/// Tile 62 — Group preprocessing includes a node's shape effect exactly once.
+fn tile_62_cached_shape_effect_inside_group_effect(
+    renderer: &mut Renderer,
+) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(62);
+    let shape = Shape::rect(
+        [
+            (origin_x + 20.0, origin_y + 20.0),
+            (origin_x + 50.0, origin_y + 50.0),
+        ],
+        Stroke::default(),
+    );
+    let shape_id = renderer
+        .add_shape(
+            shape,
+            None,
+            Some(62_062),
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            shape_id,
+            SHAPE_DROP_EFFECT_ID,
+            &[],
+            ShapeEffectConfig::new().outset(12.0),
+        )
+        .unwrap();
+    renderer
+        .set_group_effect(shape_id, PASSTHROUGH_EFFECT_ID, &[])
+        .unwrap();
+
+    vec![
+        PixelExpectation::opaque(
+            origin_x as u32 + 35,
+            origin_y as u32 + 35,
+            220,
+            50,
+            50,
+            "t62_group_keeps_source_over_effect",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 55,
+            origin_y as u32 + 35,
+            0,
+            0,
+            255,
+            "t62_group_contains_shape_effect_once",
+        ),
+    ]
+}
+
+/// Tile 63 — Backdrop capture completes before the target node's shape effect is drawn.
+fn tile_63_cached_shape_effect_with_backdrop(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(63);
+    let backdrop_source = Shape::rect(
+        [
+            (origin_x + 5.0, origin_y + 5.0),
+            (origin_x + 75.0, origin_y + 70.0),
+        ],
+        Stroke::default(),
+    );
+    renderer
+        .add_shape(
+            backdrop_source,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 50)),
+        )
+        .unwrap();
+
+    let panel = Shape::rect(
+        [
+            (origin_x + 20.0, origin_y + 20.0),
+            (origin_x + 50.0, origin_y + 50.0),
+        ],
+        Stroke::default(),
+    );
+    let panel_id = renderer
+        .add_shape(panel, None, Some(63_063), ShapeDrawCommandOptions::new())
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            panel_id,
+            SHAPE_DROP_EFFECT_ID,
+            &[],
+            ShapeEffectConfig::new().outset(12.0),
+        )
+        .unwrap();
+    renderer
+        .set_shape_backdrop_effect(
+            panel_id,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::default(),
+        )
+        .unwrap();
+
+    vec![
+        PixelExpectation::opaque(
+            origin_x as u32 + 35,
+            origin_y as u32 + 35,
+            220,
+            200,
+            50,
+            "t63_backdrop_excludes_shape_effect",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 55,
+            origin_y as u32 + 35,
+            0,
+            0,
+            255,
+            "t63_shape_effect_draws_behind_backdrop_node",
+        ),
+    ]
+}
+
+/// Tile 64 — A translucent backdrop-blur card casts a cached drop shadow over another shape.
+fn tile_64_drop_shadow_with_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(64);
+    let backing_shape = Shape::rect(
+        [
+            (origin_x + 6.0, origin_y + 6.0),
+            (origin_x + 72.0, origin_y + 42.0),
+        ],
+        Stroke::default(),
+    );
+    renderer
+        .add_shape(
+            backing_shape,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(245, 190, 70)),
+        )
+        .unwrap();
+
+    let card = Shape::rounded_rect(
+        [
+            (origin_x + 18.0, origin_y + 14.0),
+            (origin_x + 56.0, origin_y + 52.0),
+        ],
+        BorderRadii::new(8.0),
+        Stroke::default(),
+    );
+    let card_id = renderer
+        .add_shape(
+            card,
+            None,
+            Some(64_064),
+            ShapeDrawCommandOptions::new().color(Color::rgba(75, 125, 235, 150)),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            card_id,
+            DROP_SHADOW_EFFECT_ID,
+            &[],
+            ShapeEffectConfig::new().outsets(8.0, 8.0, 20.0, 22.0),
+        )
+        .expect("Failed to attach visual drop shadow effect");
+    let backdrop_blur_params = BlurParams {
+        radius: 5.0,
+        _pad: 0.0,
+        tex_size: [38.0, 38.0],
+    };
+    renderer
+        .set_shape_backdrop_effect(
+            card_id,
+            BLUR_EFFECT_ID,
+            bytemuck::bytes_of(&backdrop_blur_params),
+            BackdropEffectConfig::default(),
+        )
+        .expect("Failed to attach backdrop blur to shadowed card");
+
+    vec![
+        PixelExpectation::opaque(
+            origin_x as u32 + 10,
+            origin_y as u32 + 20,
+            245,
+            190,
+            70,
+            "t64_backing_shape_is_visible",
+        ),
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + 62,
+            origin_y as u32 + 35,
+            191,
+            148,
+            53,
+            8,
+            "t64_backing_shape_visible_through_shadow",
+        ),
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + 35,
+            origin_y as u32 + 30,
+            173,
+            156,
+            190,
+            12,
+            "t64_translucent_card_tints_blurred_backdrop",
+        ),
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + 35,
+            origin_y as u32 + 41,
+            176,
+            171,
+            212,
+            12,
+            "t64_backdrop_edge_blurs_inside_card",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 10,
+            origin_y as u32 + 41,
+            245,
+            190,
+            70,
+            "t64_backdrop_edge_stays_sharp_outside_card",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 10,
+            origin_y as u32 + 44,
+            255,
+            255,
+            255,
+            "t64_below_backdrop_edge_stays_white_outside_card",
+        ),
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + 62,
+            origin_y as u32 + 57,
+            234,
+            234,
+            234,
+            10,
+            "t64_shadow_has_soft_diagonal_falloff",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 42,
+            origin_y as u32 + 57,
+            170,
+            170,
+            170,
+            "t64_shadow_body_visible_below_card",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 75,
+            origin_y as u32 + 10,
+            255,
+            255,
+            255,
+            "t64_shadow_outsets_remain_transparent",
         ),
     ]
 }

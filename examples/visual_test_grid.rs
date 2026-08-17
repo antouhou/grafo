@@ -1,4 +1,4 @@
-/// Visual confirmation example — renders all 38 test tiles in a 6×7 grid.
+/// Visual confirmation example — renders the shared visual-regression tile grid.
 ///
 /// Run with:    cargo run --example visual_test_grid
 ///

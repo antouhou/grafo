@@ -2,6 +2,7 @@ use ahash::HashMap;
 
 use super::types::DrawCommand;
 use crate::effect::EffectInstance;
+use crate::effect::ShapeEffectInstance;
 use crate::vertex::InstanceTransform;
 
 #[derive(Clone, Copy)]
@@ -38,12 +39,16 @@ pub(super) fn should_skip_visible_rect_draw(
     draw_command: &DrawCommand,
     group_effects: &HashMap<usize, EffectInstance>,
     backdrop_effects: &HashMap<usize, EffectInstance>,
+    shape_effects: &HashMap<usize, ShapeEffectInstance>,
 ) -> bool {
     if !draw_command.is_rect() {
         return false;
     }
 
-    if group_effects.contains_key(&node_id) || backdrop_effects.contains_key(&node_id) {
+    if group_effects.contains_key(&node_id)
+        || backdrop_effects.contains_key(&node_id)
+        || shape_effects.contains_key(&node_id)
+    {
         return false;
     }
 
@@ -241,6 +246,7 @@ mod tests {
             &draw_command,
             &group_effects,
             &HashMap::new(),
+            &HashMap::new(),
         ));
 
         let mut backdrop_effects = HashMap::new();
@@ -263,6 +269,7 @@ mod tests {
             &draw_command,
             &HashMap::new(),
             &backdrop_effects,
+            &HashMap::new(),
         ));
     }
 
@@ -273,6 +280,7 @@ mod tests {
         assert!(should_skip_visible_rect_draw(
             1,
             &draw_command,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
         ));
@@ -288,6 +296,7 @@ mod tests {
             &opaque_draw_command,
             &HashMap::new(),
             &HashMap::new(),
+            &HashMap::new(),
         ));
 
         let textured_draw_command =
@@ -296,6 +305,7 @@ mod tests {
         assert!(!should_skip_visible_rect_draw(
             2,
             &textured_draw_command,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
         ));
@@ -315,6 +325,7 @@ mod tests {
         assert!(!should_skip_visible_rect_draw(
             3,
             &draw_command,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
         ));

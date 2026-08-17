@@ -14,6 +14,16 @@ impl<'a> Renderer<'a> {
 
         // Nothing to render when the draw queue is empty.
         if self.draw_tree.is_empty() {
+            self.scratch.shape_effect_results.clear();
+            let _collected_shape_effect_results = self.shape_effect_cache.end_frame();
+            #[cfg(feature = "render_metrics")]
+            {
+                self.last_shape_effect_cache_metrics =
+                    crate::renderer::metrics::ShapeEffectCacheMetrics {
+                        collected_results: _collected_shape_effect_results as u64,
+                        ..Default::default()
+                    };
+            }
             self.buffers_pool_manager.tessellation_cache.end_frame();
             self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
             return;
@@ -23,6 +33,7 @@ impl<'a> Renderer<'a> {
 
         let mut traversal_scratch = std::mem::take(&mut self.scratch.traversal_scratch);
         let mut effect_results = std::mem::take(&mut self.scratch.effect_results);
+        let mut shape_effect_results = std::mem::take(&mut self.scratch.shape_effect_results);
         let mut effect_node_ids = std::mem::take(&mut self.scratch.effect_node_ids);
         let mut textures_to_recycle = std::mem::take(&mut self.scratch.textures_to_recycle);
         let mut effect_output_textures = std::mem::take(&mut self.scratch.effect_output_textures);
@@ -34,9 +45,12 @@ impl<'a> Renderer<'a> {
 
         let has_group_effects = !self.group_effects.is_empty();
         let has_backdrop_effects = !self.backdrop_effects.is_empty();
+        let has_shape_effects = !self.shape_effects.is_empty();
 
         if has_group_effects || has_backdrop_effects {
             self.ensure_composite_pipeline();
+        }
+        if has_group_effects || has_backdrop_effects || has_shape_effects {
             self.ensure_effect_sampler();
         }
         if has_backdrop_effects {
@@ -53,12 +67,25 @@ impl<'a> Renderer<'a> {
 
         #[cfg(feature = "render_metrics")]
         let mut frame_pipeline_counts = crate::renderer::metrics::PipelineSwitchCounts::default();
+        #[cfg(feature = "render_metrics")]
+        let mut shape_effect_cache_metrics =
+            crate::renderer::metrics::ShapeEffectCacheMetrics::default();
 
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Command Encoder"),
             });
+
+        if has_shape_effects {
+            self.resolve_shape_effects(
+                &mut encoder,
+                &mut shape_effect_results,
+                &mut textures_to_recycle,
+                #[cfg(feature = "render_metrics")]
+                &mut shape_effect_cache_metrics,
+            );
+        }
 
         let pipelines = crate::renderer::types::Pipelines {
             and_pipeline: &self.and_pipeline,
@@ -75,6 +102,8 @@ impl<'a> Renderer<'a> {
             default_shape_texture_bind_groups: &self.default_shape_texture_bind_groups,
             shape_texture_layout_epoch: self.shape_texture_layout_epoch,
             texture_manager: &self.texture_manager,
+            shape_effect_composite_pipeline: &self.shape_effect_resources.composite_pipeline,
+            shape_effect_quad_index_buffer: &self.shape_effect_resources.quad_index_buffer,
         };
 
         let buffers = crate::renderer::types::Buffers {
@@ -172,8 +201,10 @@ impl<'a> Renderer<'a> {
                         &mut encoder,
                         traversal_scratch.events(),
                         &effect_results,
+                        &shape_effect_results,
                         &self.group_effects,
                         &mut self.backdrop_effects,
+                        &self.shape_effects,
                         behind_color_view,
                         behind_resolve_target,
                         &behind_depth_view,
@@ -193,6 +224,8 @@ impl<'a> Renderer<'a> {
                         self.physical_size,
                         #[cfg(feature = "render_metrics")]
                         &mut frame_pipeline_counts,
+                        #[cfg(feature = "render_metrics")]
+                        &mut shape_effect_cache_metrics,
                     );
                     Some(behind_tex)
                 } else {
@@ -260,8 +293,10 @@ impl<'a> Renderer<'a> {
                     &mut encoder,
                     traversal_scratch.events(),
                     &effect_results,
+                    &shape_effect_results,
                     &self.group_effects,
                     &mut self.backdrop_effects,
+                    &self.shape_effects,
                     subtree_color_view,
                     subtree_resolve_target,
                     subtree_texture
@@ -284,6 +319,8 @@ impl<'a> Renderer<'a> {
                     physical_size,
                     #[cfg(feature = "render_metrics")]
                     &mut frame_pipeline_counts,
+                    #[cfg(feature = "render_metrics")]
+                    &mut shape_effect_cache_metrics,
                 );
 
                 effect_output_textures.append(&mut backdrop_work_textures);
@@ -382,8 +419,10 @@ impl<'a> Renderer<'a> {
                 &mut encoder,
                 traversal_scratch.events(),
                 &effect_results,
+                &shape_effect_results,
                 &self.group_effects,
                 &mut self.backdrop_effects,
+                &self.shape_effects,
                 phase2_color_view,
                 phase2_resolve_target,
                 depth_texture_view,
@@ -403,6 +442,8 @@ impl<'a> Renderer<'a> {
                 self.physical_size,
                 #[cfg(feature = "render_metrics")]
                 &mut frame_pipeline_counts,
+                #[cfg(feature = "render_metrics")]
+                &mut shape_effect_cache_metrics,
             );
         }
 
@@ -421,8 +462,11 @@ impl<'a> Renderer<'a> {
                 draw_command.clear_frame_state();
             });
 
+        shape_effect_results.clear();
+
         self.scratch.traversal_scratch = traversal_scratch;
         self.scratch.effect_results = effect_results;
+        self.scratch.shape_effect_results = shape_effect_results;
         self.scratch.effect_node_ids = effect_node_ids;
         self.scratch.textures_to_recycle = textures_to_recycle;
         self.scratch.effect_output_textures = effect_output_textures;
@@ -431,13 +475,16 @@ impl<'a> Renderer<'a> {
         self.scratch.scissor_stack = scissor_stack;
         self.scratch.clip_kind_stack = clip_kind_stack;
         self.scratch.backdrop_work_textures = backdrop_work_textures;
+        let _collected_shape_effect_results = self.shape_effect_cache.end_frame();
         self.buffers_pool_manager.tessellation_cache.end_frame();
 
         // println!("Tesselation cache size: {}", self.buffers_pool_manager.tessellation_cache.len());
 
         #[cfg(feature = "render_metrics")]
         {
+            shape_effect_cache_metrics.collected_results = _collected_shape_effect_results as u64;
             self.last_pipeline_switch_counts = frame_pipeline_counts;
+            self.last_shape_effect_cache_metrics = shape_effect_cache_metrics;
         }
     }
 

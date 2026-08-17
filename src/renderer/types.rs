@@ -8,6 +8,7 @@ use crate::texture_manager::TextureManager;
 use crate::util::GradientCache;
 use crate::vertex::InstanceTransform;
 
+use super::shape_effects::CachedShapeEffect;
 use super::traversal::TraversalScratch;
 
 // TODO: probably some parts of it also can be cached, so we don't need to copy it all the time.
@@ -318,6 +319,8 @@ pub(super) struct Pipelines<'a> {
     pub(super) default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
     pub(super) shape_texture_layout_epoch: u64,
     pub(super) texture_manager: &'a TextureManager,
+    pub(super) shape_effect_composite_pipeline: &'a wgpu::RenderPipeline,
+    pub(super) shape_effect_quad_index_buffer: &'a wgpu::Buffer,
 }
 
 /// Backdrop-specific rendering resources. Only needed when backdrop effects exist.
@@ -341,6 +344,7 @@ pub(super) struct BackdropContext<'a> {
 }
 
 const MAX_EFFECT_RESULTS_CAPACITY: usize = 4_096;
+const MAX_SHAPE_EFFECT_RESULTS_CAPACITY: usize = 4_096;
 const MAX_EFFECT_NODE_IDS_CAPACITY: usize = 4_096;
 const MAX_TEXTURE_RECYCLE_CAPACITY: usize = 1_024;
 const MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY: usize = 2_048;
@@ -351,6 +355,7 @@ const MAX_READBACK_BYTES_CAPACITY: usize = 64 * 1024 * 1024;
 
 pub(super) struct RendererScratch {
     pub(super) effect_results: HashMap<usize, wgpu::BindGroup>,
+    pub(super) shape_effect_results: HashMap<usize, Arc<CachedShapeEffect>>,
     pub(super) effect_node_ids: Vec<(usize, usize)>,
     pub(super) textures_to_recycle: Vec<effect::PooledTexture>,
     pub(super) effect_output_textures: Vec<effect::PooledTexture>,
@@ -373,6 +378,7 @@ impl RendererScratch {
     pub(super) fn new() -> Self {
         Self {
             effect_results: HashMap::new(),
+            shape_effect_results: HashMap::new(),
             effect_node_ids: Vec::new(),
             textures_to_recycle: Vec::new(),
             effect_output_textures: Vec::new(),
@@ -388,6 +394,7 @@ impl RendererScratch {
 
     pub(super) fn begin_frame(&mut self) {
         self.effect_results.clear();
+        self.shape_effect_results.clear();
         self.effect_node_ids.clear();
         self.textures_to_recycle.clear();
         self.effect_output_textures.clear();
@@ -403,6 +410,10 @@ impl RendererScratch {
 
     pub(super) fn trim_to_policy(&mut self) {
         trim_hash_map_if_needed(&mut self.effect_results, MAX_EFFECT_RESULTS_CAPACITY);
+        trim_hash_map_if_needed(
+            &mut self.shape_effect_results,
+            MAX_SHAPE_EFFECT_RESULTS_CAPACITY,
+        );
         trim_vector_if_needed(&mut self.effect_node_ids, MAX_EFFECT_NODE_IDS_CAPACITY);
         trim_vector_if_needed(&mut self.textures_to_recycle, MAX_TEXTURE_RECYCLE_CAPACITY);
         trim_vector_if_needed(

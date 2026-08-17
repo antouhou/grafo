@@ -1,18 +1,16 @@
-//! Effect system for group compositing with custom shaders.
+//! Custom shader effects for groups, backdrops, and cacheable shape-local masks.
 //!
-//! This module provides the infrastructure for rendering subtrees to offscreen textures,
-//! applying user-defined WGSL post-processing effects, and compositing the results back
-//! into the parent render target.
+//! Group effects process a rendered subtree, backdrop effects process previously rendered scene
+//! pixels, and shape effects process a padded white coverage mask without capturing scene content.
 //!
 //! The system separates **loading** (compile once) from **attaching** (use per node, cheap):
 //! - `load_effect()` compiles a WGSL effect shader into a GPU pipeline, cached by `effect_id`.
 //! - `set_group_effect()` attaches a loaded effect to a specific draw tree node with per-instance parameters.
+//! - `set_shape_effect()` caches the generated texture while shape and effect inputs are unchanged.
 //!
 //! Multiple nodes can share the same loaded effect (same compiled pipeline), each with different parameters.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::Hash;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 // ── Error type ───────────────────────────────────────────────────────────────
 
@@ -91,6 +89,43 @@ impl BackdropEffectConfig {
     }
 }
 
+/// Padding around a shape's local bounds for a cached shape effect.
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub struct ShapeEffectConfig {
+    /// Logical-space distance added to the left of the shape's local bounds.
+    pub left_outset: f32,
+    /// Logical-space distance added above the shape's local bounds.
+    pub top_outset: f32,
+    /// Logical-space distance added to the right of the shape's local bounds.
+    pub right_outset: f32,
+    /// Logical-space distance added below the shape's local bounds.
+    pub bottom_outset: f32,
+}
+
+impl ShapeEffectConfig {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets all four outsets to the same logical-space distance.
+    pub fn outset(mut self, outset: f32) -> Self {
+        self.left_outset = outset;
+        self.top_outset = outset;
+        self.right_outset = outset;
+        self.bottom_outset = outset;
+        self
+    }
+
+    /// Sets the left, top, right, and bottom logical-space outsets.
+    pub fn outsets(mut self, left: f32, top: f32, right: f32, bottom: f32) -> Self {
+        self.left_outset = left;
+        self.top_outset = top;
+        self.right_outset = right;
+        self.bottom_outset = bottom;
+        self
+    }
+}
+
 // ── Built-in shaders ─────────────────────────────────────────────────────────
 
 /// Built-in vertex shader for drawing a fullscreen triangle (3 vertices, no vertex buffer).
@@ -145,6 +180,8 @@ pub(crate) struct LoadedEffectPass {
 /// Multiple nodes can reference the same LoadedEffect.
 /// Supports single-pass and multi-pass effects (e.g., separable Gaussian blur).
 pub(crate) struct LoadedEffect {
+    /// Exact pass sources used to compile this effect.
+    pub pass_sources: Box<[Box<str>]>,
     /// Compiled passes, executed sequentially with ping-pong textures.
     pub passes: Vec<LoadedEffectPass>,
     /// A bind group layout for the input texture (group 0): texture and sampler.
@@ -152,6 +189,14 @@ pub(crate) struct LoadedEffect {
     /// Bind group layout for the user's parameter uniform (group 1).
     /// None if no pass uses user params. Shared across all passes that reference it.
     pub params_bind_group_layout: Option<wgpu::BindGroupLayout>,
+}
+
+/// A cached shape effect attachment. GPU parameter resources are created only on cache misses.
+#[derive(Clone)]
+pub(crate) struct ShapeEffectInstance {
+    pub effect_id: u64,
+    pub params: Arc<[u8]>,
+    pub config: ShapeEffectConfig,
 }
 
 // ── Per-node effect instance ─────────────────────────────────────────────────
@@ -482,11 +527,9 @@ pub(crate) fn compile_effect_pipeline(
         None
     };
 
-    let mut hasher = DefaultHasher::new();
     let mut passes = Vec::with_capacity(pass_sources.len());
 
     for (i, &source) in pass_sources.iter().enumerate() {
-        source.hash(&mut hasher);
         let full_wgsl = build_effect_wgsl(source);
         let pass_has_params = has_user_params(source);
 
@@ -563,6 +606,10 @@ pub(crate) fn compile_effect_pipeline(
     }
 
     Ok(LoadedEffect {
+        pass_sources: pass_sources
+            .iter()
+            .map(|source| Box::<str>::from(*source))
+            .collect(),
         passes,
         input_bind_group_layout: input_bgl,
         params_bind_group_layout: params_bgl,

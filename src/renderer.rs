@@ -12,7 +12,7 @@ use self::metrics::RenderLoopMetricsTracker;
 use self::types::{DrawCommand, RendererScratch};
 use crate::effect::{
     self, compile_composite_pipeline, compile_effect_pipeline, create_params_bind_group,
-    EffectError, EffectInstance, LoadedEffect, OffscreenTexturePool,
+    EffectError, EffectInstance, LoadedEffect, OffscreenTexturePool, ShapeEffectInstance,
 };
 use crate::pipeline::{
     compute_padded_bytes_per_row, create_and_depth_texture, create_argb_swizzle_bind_group,
@@ -38,6 +38,7 @@ mod preparation;
 mod readback;
 mod rect_utils;
 mod rendering;
+mod shape_effects;
 mod surface;
 mod traversal;
 pub(crate) mod types;
@@ -219,6 +220,12 @@ pub struct Renderer<'a> {
     /// Per-node backdrop effect instances, keyed by node_id.
     /// A backdrop effect processes the pixels already rendered behind a shape.
     backdrop_effects: HashMap<usize, EffectInstance>,
+    /// Per-node cached shape effect attachments, keyed by node_id.
+    shape_effects: HashMap<usize, ShapeEffectInstance>,
+    /// Exact GPU results retained while referenced by consecutive rendered frames.
+    shape_effect_cache: shape_effects::ShapeEffectResultCache,
+    /// Pipelines and immutable buffers used to generate and composite shape effects.
+    shape_effect_resources: shape_effects::ShapeEffectRendererResources,
     /// Pool of offscreen textures for effect compositing.
     offscreen_texture_pool: OffscreenTexturePool,
     /// Shared composite pipeline for drawing effect results into the parent target.
@@ -270,6 +277,10 @@ pub struct Renderer<'a> {
     #[cfg(feature = "render_metrics")]
     /// Per-frame pipeline switch counts for the most recently rendered frame.
     last_pipeline_switch_counts: self::metrics::PipelineSwitchCounts,
+
+    #[cfg(feature = "render_metrics")]
+    /// Cache activity for shape effects during the most recently rendered frame.
+    last_shape_effect_cache_metrics: self::metrics::ShapeEffectCacheMetrics,
 
     /// Wall-clock CPU time spent inside the most recent `render_to_texture_view()` call.
     ///

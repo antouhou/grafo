@@ -72,3 +72,58 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     return textureSample(t_input, s_input, uv);
 }
 "#;
+
+/// Opaque blue eight-pixel drop used by cached shape-effect regression tiles.
+pub const SHAPE_DROP_WGSL: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let dimensions = vec2<f32>(textureDimensions(t_input));
+    let coverage = textureSample(t_input, s_input, uv - vec2<f32>(8.0) / dimensions).a;
+    return vec4<f32>(0.0, 0.0, coverage, coverage);
+}
+"#;
+
+/// Fixed-radius horizontal Gaussian blur used by the visual drop-shadow tile.
+pub const DROP_SHADOW_HORIZONTAL_BLUR_WGSL: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let dimensions = vec2<f32>(textureDimensions(t_input));
+    let pixel = vec2<f32>(1.0 / dimensions.x, 0.0);
+    let sigma = 2.0;
+    var color = vec4<f32>(0.0);
+    var total_weight = 0.0;
+
+    for (var sample_offset = -5; sample_offset <= 5; sample_offset++) {
+        let distance = f32(sample_offset);
+        let weight = exp(-(distance * distance) / (2.0 * sigma * sigma));
+        color += textureSample(t_input, s_input, uv + pixel * distance) * weight;
+        total_weight += weight;
+    }
+
+    return color / total_weight;
+}
+"#;
+
+/// Vertical Gaussian blur, offset, and premultiplied black tint for a real drop shadow.
+pub const DROP_SHADOW_VERTICAL_TINT_WGSL: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let dimensions = vec2<f32>(textureDimensions(t_input));
+    let pixel = vec2<f32>(0.0, 1.0 / dimensions.y);
+    let shadow_offset = vec2<f32>(7.0, 8.0) / dimensions;
+    let sigma = 2.0;
+    var coverage = 0.0;
+    var total_weight = 0.0;
+
+    for (var sample_offset = -5; sample_offset <= 5; sample_offset++) {
+        let distance = f32(sample_offset);
+        let weight = exp(-(distance * distance) / (2.0 * sigma * sigma));
+        coverage += textureSample(t_input, s_input, uv - shadow_offset + pixel * distance).a
+            * weight;
+        total_weight += weight;
+    }
+
+    let alpha = 0.65 * coverage / total_weight;
+    return vec4<f32>(0.0, 0.0, 0.0, alpha);
+}
+"#;

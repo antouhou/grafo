@@ -324,6 +324,13 @@ impl<'a> Renderer<'a> {
             &queue,
             &backdrop_texture_bind_group_layout,
         );
+        let shape_effect_resources =
+            crate::renderer::shape_effects::ShapeEffectRendererResources::new(
+                &device,
+                config.format,
+                msaa_sample_count,
+                &and_pipeline.get_bind_group_layout(0),
+            );
 
         let mut renderer = Self {
             context,
@@ -401,6 +408,9 @@ impl<'a> Renderer<'a> {
             loaded_effects: HashMap::new(),
             group_effects: HashMap::new(),
             backdrop_effects: HashMap::new(),
+            shape_effects: HashMap::new(),
+            shape_effect_cache: crate::cache::FrameCache::new(),
+            shape_effect_resources,
             offscreen_texture_pool: OffscreenTexturePool::new(),
             composite_pipeline: None,
             composite_bgl: None,
@@ -422,6 +432,8 @@ impl<'a> Renderer<'a> {
             last_phase_timings: Default::default(),
             #[cfg(feature = "render_metrics")]
             last_pipeline_switch_counts: Default::default(),
+            #[cfg(feature = "render_metrics")]
+            last_shape_effect_cache_metrics: Default::default(),
             last_render_to_texture_view_cpu_time: Default::default(),
             scratch: RendererScratch::new(),
         };
@@ -897,6 +909,12 @@ impl<'a> Renderer<'a> {
 
         self.composite_pipeline = None;
         self.composite_bgl = None;
+        self.shape_effect_resources.recreate_pipelines(
+            &self.device,
+            self.config.format,
+            self.msaa_sample_count,
+            &self.and_pipeline.get_bind_group_layout(0),
+        );
 
         self.leaf_draw_pipeline = Arc::new(crate::pipeline::create_stencil_keep_color_pipeline(
             &self.device,

@@ -17,6 +17,7 @@
 //! * Shape Texturing: Apply up to two texture layers per shape with hierarchical clipping.
 //! * Stencil Operations: Advanced stencil operations for clipping and masking.
 //! * Shape Hierarchy: Attach shapes to parent nodes and choose whether each parent clips children.
+//! * Shader Effects: Process complete subtrees, captured backdrops, or cacheable local shape masks.
 //!
 //! Grafo [available on crates.io](https://crates.io/crates/grafo), and
 //! [API Documentation is available on docs.rs](https://docs.rs/grafo/).
@@ -161,7 +162,7 @@ mod shape;
 mod texture_manager;
 
 pub use color::Color;
-pub use effect::{BackdropCaptureArea, BackdropEffectConfig, EffectError};
+pub use effect::{BackdropCaptureArea, BackdropEffectConfig, EffectError, ShapeEffectConfig};
 pub use gradient::errors::GradientError;
 pub use gradient::types::{
     ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
@@ -182,3 +183,5 @@ pub use vertex::InstanceTransform as TransformInstance;
 pub use renderer::metrics::PhaseTimings;
 #[cfg(feature = "render_metrics")]
 pub use renderer::metrics::PipelineSwitchCounts;
+#[cfg(feature = "render_metrics")]
+pub use renderer::metrics::ShapeEffectCacheMetrics;

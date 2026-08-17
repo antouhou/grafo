@@ -3,6 +3,17 @@ use std::time::{Duration, Instant};
 
 use super::Renderer;
 
+/// Per-frame activity for the exact cached shape-effect result cache.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ShapeEffectCacheMetrics {
+    pub hits: u64,
+    pub misses: u64,
+    pub generated_masks: u64,
+    pub executed_passes: u64,
+    pub composited_results: u64,
+    pub collected_results: u64,
+}
+
 /// Per-frame pipeline switch counts for diagnosing GPU state-change overhead.
 ///
 /// Each field counts how many times the corresponding `set_pipeline` call was issued
@@ -256,6 +267,11 @@ impl<'a> Renderer<'a> {
     /// used scissor clipping instead of stencil increment/decrement.
     pub fn last_pipeline_switch_counts(&self) -> PipelineSwitchCounts {
         self.last_pipeline_switch_counts
+    }
+
+    /// Returns cached shape-effect activity for the most recently rendered frame.
+    pub fn last_shape_effect_cache_metrics(&self) -> ShapeEffectCacheMetrics {
+        self.last_shape_effect_cache_metrics
     }
 }
 
