@@ -36,27 +36,19 @@ pub(super) struct AppliedEffectOutput {
 impl AppliedEffectOutput {
     pub(super) fn into_final_and_recyclable(
         self,
-    ) -> (
-        effect::PooledTexture,
-        Option<wgpu::BindGroup>,
-        Vec<effect::PooledTexture>,
-    ) {
+        recyclable: &mut Vec<effect::PooledTexture>,
+    ) -> (effect::PooledTexture, Option<wgpu::BindGroup>) {
         if self.final_texture_is_primary {
-            let recyclable = self.secondary_work_texture.into_iter().collect();
-            (
-                self.primary_work_texture,
-                self.composite_bind_group,
-                recyclable,
-            )
+            if let Some(secondary_work_texture) = self.secondary_work_texture {
+                recyclable.push(secondary_work_texture);
+            }
+            (self.primary_work_texture, self.composite_bind_group)
         } else {
             let final_texture = self
                 .secondary_work_texture
                 .expect("secondary effect texture must exist when it is the final output");
-            (
-                final_texture,
-                self.composite_bind_group,
-                vec![self.primary_work_texture],
-            )
+            recyclable.push(self.primary_work_texture);
+            (final_texture, self.composite_bind_group)
         }
     }
 

@@ -711,8 +711,9 @@ impl<'a> Renderer<'a> {
             {
                 metrics.executed_passes += loaded_effect.passes.len() as u64;
             }
-            let (final_texture, texture_bind_group, mut recyclable_work_textures) =
-                effect_output.into_final_and_recyclable();
+            textures_to_recycle.push(mask_texture);
+            let (final_texture, texture_bind_group) =
+                effect_output.into_final_and_recyclable(textures_to_recycle);
             let quad_vertices = create_quad_vertices(raster_rect.local_bounds);
             let quad_vertex_buffer = create_buffer_init(
                 &self.device,
@@ -728,8 +729,6 @@ impl<'a> Renderer<'a> {
                 local_bounds: raster_rect.local_bounds,
             });
 
-            textures_to_recycle.push(mask_texture);
-            textures_to_recycle.append(&mut recyclable_work_textures);
             self.shape_effect_cache
                 .insert(cache_key, Arc::clone(&cached_result));
             resolved_results.insert(node_id, cached_result);
