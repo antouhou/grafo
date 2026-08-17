@@ -3,6 +3,8 @@ use crate::renderer::passes::{apply_effect_passes, render_segments, EffectPassRu
 use crate::renderer::traversal::{
     compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects,
 };
+#[cfg(feature = "render_metrics")]
+use crate::renderer::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
 
 impl<'a> Renderer<'a> {
     pub(super) fn render_to_texture_view(
@@ -19,7 +21,7 @@ impl<'a> Renderer<'a> {
             #[cfg(feature = "render_metrics")]
             {
                 self.last_shape_effect_cache_metrics =
-                    crate::renderer::metrics::ShapeEffectCacheMetrics {
+                    ShapeEffectCacheMetrics {
                         collected_results: _collected_shape_effect_results as u64,
                         ..Default::default()
                     };
@@ -67,10 +69,10 @@ impl<'a> Renderer<'a> {
         }
 
         #[cfg(feature = "render_metrics")]
-        let mut frame_pipeline_counts = crate::renderer::metrics::PipelineSwitchCounts::default();
+        let mut frame_pipeline_counts = PipelineSwitchCounts::default();
         #[cfg(feature = "render_metrics")]
         let mut shape_effect_cache_metrics =
-            crate::renderer::metrics::ShapeEffectCacheMetrics::default();
+            ShapeEffectCacheMetrics::default();
 
         let mut encoder = self
             .device
@@ -88,7 +90,7 @@ impl<'a> Renderer<'a> {
             );
         }
 
-        let pipelines = crate::renderer::types::Pipelines {
+        let pipelines = types::Pipelines {
             and_pipeline: &self.and_pipeline,
             and_gradient_pipeline: &self.and_gradient_pipeline,
             and_bind_group: &self.and_bind_group,
@@ -107,7 +109,7 @@ impl<'a> Renderer<'a> {
             shape_effect_quad_index_buffer: &self.shape_effect_resources.quad_index_buffer,
         };
 
-        let buffers = crate::renderer::types::Buffers {
+        let buffers = types::Buffers {
             aggregated_vertex_buffer: self.aggregated_vertex_buffer.as_ref(),
             aggregated_index_buffer: self.aggregated_index_buffer.as_ref(),
             identity_instance_transform_buffer: self
@@ -254,7 +256,7 @@ impl<'a> Renderer<'a> {
                 };
 
                 let backdrop_ctx_opt = if subtree_needs_backdrop_effects {
-                    Some(crate::renderer::types::BackdropContext {
+                    Some(types::BackdropContext {
                         loaded_effects: &self.loaded_effects,
                         composite_bgl: self.composite_bgl.as_ref().unwrap(),
                         effect_sampler: self.effect_sampler.as_ref().unwrap(),
@@ -300,7 +302,7 @@ impl<'a> Renderer<'a> {
                     } else {
                         &subtree_texture.color_view
                     };
-                    crate::renderer::types::BackdropSource::Layered {
+                    types::BackdropSource::Layered {
                         base_texture,
                         foreground_view,
                     }
@@ -402,7 +404,7 @@ impl<'a> Renderer<'a> {
                 };
 
             let backdrop_ctx_opt = if has_backdrop_effects {
-                Some(crate::renderer::types::BackdropContext {
+                Some(types::BackdropContext {
                     loaded_effects: &self.loaded_effects,
                     composite_bgl: self.composite_bgl.as_ref().unwrap(),
                     effect_sampler: self.effect_sampler.as_ref().unwrap(),
@@ -435,7 +437,7 @@ impl<'a> Renderer<'a> {
             };
 
             let backdrop_source = if has_backdrop_effects {
-                Some(crate::renderer::types::BackdropSource::Flattened {
+                Some(types::BackdropSource::Flattened {
                     texture: output_texture.expect("output_texture required for backdrop effects"),
                 })
             } else {
@@ -551,7 +553,7 @@ impl<'a> Renderer<'a> {
             let present_dur = after_present.saturating_duration_since(after_submit);
             let gpu_wait_dur = after_gpu_wait.saturating_duration_since(after_present);
             let total_dur = after_gpu_wait.saturating_duration_since(frame_render_loop_started_at);
-            self.last_phase_timings = crate::renderer::metrics::PhaseTimings {
+            self.last_phase_timings = PhaseTimings {
                 prepare: prepare_dur,
                 encode_and_submit: encode_submit_dur,
                 present_or_readback: present_dur,

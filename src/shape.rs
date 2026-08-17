@@ -35,7 +35,9 @@
 //! ```
 
 use crate::cache::CachedTessellation;
+use crate::gradient::gpu::GpuMaterialParams;
 use crate::gradient::types::Fill;
+use crate::pipeline::{create_buffer_init, BackdropSamplingUniform};
 use crate::util::{GradientCache, PoolManager};
 use crate::vertex::{CustomVertex, InstanceTransform};
 use crate::{Color, Stroke};
@@ -1271,7 +1273,7 @@ impl CachedShapeDrawData {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        backdrop_sampling_uniform: crate::pipeline::BackdropSamplingUniform,
+        backdrop_sampling_uniform: BackdropSamplingUniform,
     ) -> Option<wgpu::Buffer> {
         let params = {
             let gradient = match self.fill.as_ref() {
@@ -1279,14 +1281,14 @@ impl CachedShapeDrawData {
                 _ => return None,
             };
 
-            crate::gradient::gpu::GpuMaterialParams::from_gradient_data(&gradient.data)
+            GpuMaterialParams::from_gradient_data(&gradient.data)
                 .with_backdrop_sampling(backdrop_sampling_uniform)
         };
 
         if let Some(existing_buffer) = self.backdrop_material_params_buffer.as_ref() {
             queue.write_buffer(existing_buffer, 0, bytemuck::bytes_of(&params));
         } else {
-            self.backdrop_material_params_buffer = Some(crate::pipeline::create_buffer_init(
+            self.backdrop_material_params_buffer = Some(create_buffer_init(
                 device,
                 Some("gradient_backdrop_material_params_buffer"),
                 bytemuck::bytes_of(&params),

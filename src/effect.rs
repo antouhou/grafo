@@ -10,6 +10,8 @@
 //!
 //! Multiple nodes can share the same loaded effect (same compiled pipeline), each with different parameters.
 
+use crate::gradient::gpu::GpuMaterialParams;
+use crate::pipeline::{create_buffer_init, BackdropSamplingUniform};
 use std::sync::{Arc, OnceLock};
 
 // ── Error type ───────────────────────────────────────────────────────────────
@@ -934,15 +936,14 @@ pub(crate) fn prepare_solid_backdrop_material_params_buffer(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     backdrop_material_params_buffer: &mut Option<wgpu::Buffer>,
-    sampling_uniform: crate::pipeline::BackdropSamplingUniform,
+    sampling_uniform: BackdropSamplingUniform,
 ) -> wgpu::Buffer {
-    let material_params =
-        crate::gradient::gpu::GpuMaterialParams::for_backdrop_sampling(sampling_uniform);
+    let material_params = GpuMaterialParams::for_backdrop_sampling(sampling_uniform);
 
     if let Some(existing_buffer) = backdrop_material_params_buffer.as_ref() {
         queue.write_buffer(existing_buffer, 0, bytemuck::bytes_of(&material_params));
     } else {
-        *backdrop_material_params_buffer = Some(crate::pipeline::create_buffer_init(
+        *backdrop_material_params_buffer = Some(create_buffer_init(
             device,
             Some("solid_backdrop_material_params_buffer"),
             bytemuck::bytes_of(&material_params),
@@ -965,7 +966,7 @@ pub(crate) fn prepare_backdrop_layer_params_buffer(
     if let Some(existing_buffer) = backdrop_layer_params_buffer.as_ref() {
         queue.write_buffer(existing_buffer, 0, bytemuck::bytes_of(&layer_params));
     } else {
-        *backdrop_layer_params_buffer = Some(crate::pipeline::create_buffer_init(
+        *backdrop_layer_params_buffer = Some(create_buffer_init(
             device,
             Some("backdrop_layer_params_buffer"),
             bytemuck::bytes_of(&layer_params),

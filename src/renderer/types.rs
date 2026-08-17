@@ -10,6 +10,8 @@ use crate::vertex::InstanceTransform;
 
 use super::shape_effects::CachedShapeEffect;
 use super::traversal::TraversalScratch;
+#[cfg(feature = "render_metrics")]
+use super::metrics::PipelineSwitchCounts;
 
 // TODO: probably some parts of it also can be cached, so we don't need to copy it all the time.
 #[allow(clippy::large_enum_variant)]
@@ -214,7 +216,7 @@ pub(super) enum ClipKind {
 pub(super) struct PipelineTracker {
     pub(super) current: Pipeline,
     #[cfg(feature = "render_metrics")]
-    pub(super) counts: super::metrics::PipelineSwitchCounts,
+    pub(super) counts: PipelineSwitchCounts,
 }
 
 impl PipelineTracker {
@@ -222,7 +224,7 @@ impl PipelineTracker {
         Self {
             current: Pipeline::None,
             #[cfg(feature = "render_metrics")]
-            counts: super::metrics::PipelineSwitchCounts::default(),
+            counts: PipelineSwitchCounts::default(),
         }
     }
 
@@ -501,7 +503,10 @@ pub(super) fn decide_buffer_sizing(
 
 #[cfg(test)]
 mod tests {
-    use super::{decide_buffer_sizing, RendererScratch};
+    use super::{
+        decide_buffer_sizing, RendererScratch, MAX_EFFECT_NODE_IDS_CAPACITY,
+        MAX_READBACK_BYTES_CAPACITY,
+    };
 
     #[test]
     fn decide_buffer_sizing_reallocates_when_missing() {
@@ -537,11 +542,11 @@ mod tests {
         let mut scratch = RendererScratch::new();
         scratch
             .effect_node_ids
-            .resize(super::MAX_EFFECT_NODE_IDS_CAPACITY + 2_048, (0, 0));
+            .resize(MAX_EFFECT_NODE_IDS_CAPACITY + 2_048, (0, 0));
         scratch.effect_node_ids.clear();
 
         scratch.trim_to_policy();
-        assert!(scratch.effect_node_ids.capacity() <= super::MAX_EFFECT_NODE_IDS_CAPACITY);
+        assert!(scratch.effect_node_ids.capacity() <= MAX_EFFECT_NODE_IDS_CAPACITY);
     }
 
     #[test]
@@ -549,10 +554,10 @@ mod tests {
         let mut scratch = RendererScratch::new();
         scratch
             .readback_bytes
-            .resize(super::MAX_READBACK_BYTES_CAPACITY + 1_024, 0);
+            .resize(MAX_READBACK_BYTES_CAPACITY + 1_024, 0);
 
         scratch.trim_to_policy();
 
-        assert!(scratch.readback_bytes.len() <= super::MAX_READBACK_BYTES_CAPACITY);
+        assert!(scratch.readback_bytes.len() <= MAX_READBACK_BYTES_CAPACITY);
     }
 }

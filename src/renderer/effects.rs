@@ -1,4 +1,8 @@
 use super::*;
+use crate::pipeline::{
+    create_backdrop_gradient_stencil_keep_color_pipeline,
+    create_backdrop_stencil_keep_color_pipeline, create_buffer_init, create_stencil_only_pipeline,
+};
 
 fn overwrite_effect_params(storage: &mut Vec<u8>, params: &[u8]) {
     storage.clear();
@@ -120,7 +124,7 @@ fn build_effect_instance(
         return instance;
     }
 
-    let buffer = crate::pipeline::create_buffer_init(
+    let buffer = create_buffer_init(
         device,
         Some(params_buffer_label),
         params,
@@ -159,7 +163,7 @@ fn update_effect_instance_params(
         }
     }
 
-    let new_buffer = crate::pipeline::create_buffer_init(
+    let new_buffer = create_buffer_init(
         device,
         Some(params_buffer_label),
         params,
@@ -198,7 +202,7 @@ fn refresh_effect_instance_after_reload(
         return true;
     }
 
-    let params_buffer = crate::pipeline::create_buffer_init(
+    let params_buffer = create_buffer_init(
         device,
         Some("reloaded_effect_params_buffer"),
         &instance.params,
@@ -537,7 +541,7 @@ impl<'a> Renderer<'a> {
         }
 
         let uniform_bind_group_layout = self.and_pipeline.get_bind_group_layout(0);
-        let pipeline = crate::pipeline::create_stencil_only_pipeline(
+        let pipeline = create_stencil_only_pipeline(
             &self.device,
             self.config.format,
             self.msaa_sample_count,
@@ -554,7 +558,7 @@ impl<'a> Renderer<'a> {
         }
 
         let uniform_bind_group_layout = self.and_pipeline.get_bind_group_layout(0);
-        let pipeline = crate::pipeline::create_backdrop_stencil_keep_color_pipeline(
+        let pipeline = create_backdrop_stencil_keep_color_pipeline(
             &self.device,
             self.config.format,
             self.msaa_sample_count,
@@ -572,7 +576,7 @@ impl<'a> Renderer<'a> {
         }
 
         let uniform_bind_group_layout = self.and_pipeline.get_bind_group_layout(0);
-        let pipeline = crate::pipeline::create_backdrop_gradient_stencil_keep_color_pipeline(
+        let pipeline = create_backdrop_gradient_stencil_keep_color_pipeline(
             &self.device,
             self.config.format,
             self.msaa_sample_count,

@@ -10,8 +10,11 @@ use crate::cache::{CachedTessellation, FrameCache};
 use crate::effect::{
     self, create_effect_input_bind_group_layout, PooledTexture, ShapeEffectConfig,
 };
+use crate::pipeline::create_buffer_init;
 use crate::vertex::{CustomVertex, InstanceTransform};
 
+#[cfg(feature = "render_metrics")]
+use super::metrics::ShapeEffectCacheMetrics;
 use super::passes::{apply_effect_passes, EffectPassRunConfig};
 use super::types::{Buffers, DrawCommand, Pipelines};
 use super::Renderer;
@@ -339,7 +342,7 @@ impl ShapeEffectRendererResources {
             canvas_uniform_bind_group_layout,
             &texture_bind_group_layout,
         );
-        let quad_index_buffer = crate::pipeline::create_buffer_init(
+        let quad_index_buffer = create_buffer_init(
             device,
             Some("shape_effect_quad_indices"),
             bytemuck::cast_slice(&[0u16, 1, 2, 0, 2, 3]),
@@ -539,7 +542,7 @@ impl<'a> Renderer<'a> {
         encoder: &mut wgpu::CommandEncoder,
         resolved_results: &mut ahash::HashMap<usize, Arc<CachedShapeEffect>>,
         textures_to_recycle: &mut Vec<PooledTexture>,
-        #[cfg(feature = "render_metrics")] metrics: &mut super::metrics::ShapeEffectCacheMetrics,
+        #[cfg(feature = "render_metrics")] metrics: &mut ShapeEffectCacheMetrics,
     ) {
         let Some(aggregated_vertex_buffer) = self.aggregated_vertex_buffer.as_ref() else {
             return;
@@ -636,7 +639,7 @@ impl<'a> Renderer<'a> {
                 1,
             );
             let mask_uniform = raster_rect.mask_uniform(self.scale_factor, self.fringe_width);
-            let mask_uniform_buffer = crate::pipeline::create_buffer_init(
+            let mask_uniform_buffer = create_buffer_init(
                 &self.device,
                 Some("shape_effect_mask_uniform"),
                 bytemuck::bytes_of(&mask_uniform),
@@ -674,7 +677,7 @@ impl<'a> Renderer<'a> {
             }
 
             let parameter_buffer = (!shape_effect_instance.params.is_empty()).then(|| {
-                crate::pipeline::create_buffer_init(
+                create_buffer_init(
                     &self.device,
                     Some("shape_effect_params_buffer"),
                     shape_effect_instance.params.as_ref(),
@@ -713,7 +716,7 @@ impl<'a> Renderer<'a> {
             let (final_texture, texture_bind_group, mut recyclable_work_textures) =
                 effect_output.into_final_and_recyclable();
             let quad_vertices = create_quad_vertices(raster_rect.local_bounds);
-            let quad_vertex_buffer = crate::pipeline::create_buffer_init(
+            let quad_vertex_buffer = create_buffer_init(
                 &self.device,
                 Some("shape_effect_quad_vertices"),
                 bytemuck::cast_slice(&quad_vertices),

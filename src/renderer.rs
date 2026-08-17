@@ -24,7 +24,7 @@ use crate::pipeline::{
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
-use crate::vertex::{InstanceColor, InstanceMetadata, InstanceTransform};
+use crate::vertex::{CustomVertex, InstanceColor, InstanceMetadata, InstanceTransform};
 use crate::CachedShapeHandle;
 pub use construction::RendererCreationError;
 
@@ -153,7 +153,7 @@ pub struct Renderer<'a> {
     /// Bind group for the decrementing pipeline.
     decrementing_bind_group: BindGroup,
 
-    temp_vertices: Vec<crate::vertex::CustomVertex>,
+    temp_vertices: Vec<CustomVertex>,
     temp_indices: Vec<u16>,
 
     /// Per-frame map from cache key to (index_start, index_count) in the

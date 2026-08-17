@@ -1,4 +1,14 @@
+use super::shape_effects::ShapeEffectRendererResources;
+use super::types::DrawCommand;
 use super::*;
+use crate::cache::FrameCache;
+use crate::gradient::gpu::GpuMaterialParams;
+use crate::pipeline::{
+    create_backdrop_gradient_bind_group_layout, create_backdrop_texture_bind_group_layout,
+    create_buffer_init, create_gradient_bind_group_layout, create_gradient_increment_pipeline,
+    create_gradient_stencil_keep_color_pipeline, create_stencil_keep_color_pipeline,
+};
+use crate::vertex::CustomVertex;
 use tracing::{info, warn};
 use wgpu::InstanceDescriptor;
 
@@ -265,13 +275,12 @@ impl<'a> Renderer<'a> {
             msaa_sample_count,
         );
 
-        let gradient_bind_group_layout =
-            crate::pipeline::create_gradient_bind_group_layout(&device);
+        let gradient_bind_group_layout = create_gradient_bind_group_layout(&device);
         let backdrop_texture_bind_group_layout =
-            crate::pipeline::create_backdrop_texture_bind_group_layout(&device);
+            create_backdrop_texture_bind_group_layout(&device);
         let backdrop_gradient_bind_group_layout =
-            crate::pipeline::create_backdrop_gradient_bind_group_layout(&device);
-        let and_gradient_pipeline = crate::pipeline::create_gradient_increment_pipeline(
+            create_backdrop_gradient_bind_group_layout(&device);
+        let and_gradient_pipeline = create_gradient_increment_pipeline(
             &device,
             config.format,
             msaa_sample_count,
@@ -281,7 +290,7 @@ impl<'a> Renderer<'a> {
             &gradient_bind_group_layout,
         );
 
-        let leaf_draw_pipeline = crate::pipeline::create_stencil_keep_color_pipeline(
+        let leaf_draw_pipeline = create_stencil_keep_color_pipeline(
             &device,
             config.format,
             msaa_sample_count,
@@ -290,7 +299,7 @@ impl<'a> Renderer<'a> {
             &and_texture_bgl_layer1,
         );
         let leaf_draw_gradient_pipeline =
-            crate::pipeline::create_gradient_stencil_keep_color_pipeline(
+            create_gradient_stencil_keep_color_pipeline(
                 &device,
                 config.format,
                 msaa_sample_count,
@@ -325,7 +334,7 @@ impl<'a> Renderer<'a> {
             &backdrop_texture_bind_group_layout,
         );
         let shape_effect_resources =
-            crate::renderer::shape_effects::ShapeEffectRendererResources::new(
+            ShapeEffectRendererResources::new(
                 &device,
                 config.format,
                 msaa_sample_count,
@@ -409,7 +418,7 @@ impl<'a> Renderer<'a> {
             group_effects: HashMap::new(),
             backdrop_effects: HashMap::new(),
             shape_effects: HashMap::new(),
-            shape_effect_cache: crate::cache::FrameCache::new(),
+            shape_effect_cache: FrameCache::new(),
             shape_effect_resources,
             offscreen_texture_pool: OffscreenTexturePool::new(),
             composite_pipeline: None,
@@ -468,7 +477,7 @@ impl<'a> Renderer<'a> {
             "Temp vertices: {} items, {} capacity, ~{} bytes",
             self.temp_vertices.len(),
             self.temp_vertices.capacity(),
-            self.temp_vertices.capacity() * std::mem::size_of::<crate::vertex::CustomVertex>()
+            self.temp_vertices.capacity() * std::mem::size_of::<CustomVertex>()
         );
         println!(
             "Temp indices: {} items, {} capacity, ~{} bytes",
@@ -701,10 +710,10 @@ impl<'a> Renderer<'a> {
             ..Default::default()
         });
 
-        let material_params_buffer = crate::pipeline::create_buffer_init(
+        let material_params_buffer = create_buffer_init(
             device,
             Some("default_backdrop_material_params_buffer"),
-            bytemuck::bytes_of(&crate::gradient::gpu::GpuMaterialParams::default()),
+            bytemuck::bytes_of(&GpuMaterialParams::default()),
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
 
@@ -860,14 +869,14 @@ impl<'a> Renderer<'a> {
         self.shape_texture_bind_group_layout_background = Arc::new(and_texture_bgl_layer0);
         self.shape_texture_bind_group_layout_foreground = Arc::new(and_texture_bgl_layer1);
         self.backdrop_texture_bind_group_layout = Arc::new(
-            crate::pipeline::create_backdrop_texture_bind_group_layout(&self.device),
+            create_backdrop_texture_bind_group_layout(&self.device),
         );
         self.shape_texture_layout_epoch += 1;
 
         self.gradient_bind_group_layout =
-            crate::pipeline::create_gradient_bind_group_layout(&self.device);
+            create_gradient_bind_group_layout(&self.device);
         self.backdrop_gradient_bind_group_layout =
-            crate::pipeline::create_backdrop_gradient_bind_group_layout(&self.device);
+            create_backdrop_gradient_bind_group_layout(&self.device);
         self.gradient_bind_group_layout_epoch += 1;
         self.gradient_ramp_sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("gradient_ramp_sampler"),
@@ -876,7 +885,7 @@ impl<'a> Renderer<'a> {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
-        self.and_gradient_pipeline = Arc::new(crate::pipeline::create_gradient_increment_pipeline(
+        self.and_gradient_pipeline = Arc::new(create_gradient_increment_pipeline(
             &self.device,
             self.config.format,
             self.msaa_sample_count,
@@ -918,7 +927,7 @@ impl<'a> Renderer<'a> {
             &self.and_pipeline.get_bind_group_layout(0),
         );
 
-        self.leaf_draw_pipeline = Arc::new(crate::pipeline::create_stencil_keep_color_pipeline(
+        self.leaf_draw_pipeline = Arc::new(create_stencil_keep_color_pipeline(
             &self.device,
             self.config.format,
             self.msaa_sample_count,
@@ -927,7 +936,7 @@ impl<'a> Renderer<'a> {
             &self.shape_texture_bind_group_layout_foreground,
         ));
         self.leaf_draw_gradient_pipeline = Arc::new(
-            crate::pipeline::create_gradient_stencil_keep_color_pipeline(
+            create_gradient_stencil_keep_color_pipeline(
                 &self.device,
                 self.config.format,
                 self.msaa_sample_count,
@@ -959,7 +968,7 @@ impl<'a> Renderer<'a> {
                 self.gradient_bind_group_layout_epoch,
             );
 
-            if let crate::renderer::types::DrawCommand::CachedShape(cached_shape) = draw_command {
+            if let DrawCommand::CachedShape(cached_shape) = draw_command {
                 cached_shape.backdrop_gradient_bind_group = None;
                 cached_shape.backdrop_gradient_texture_id = None;
             }

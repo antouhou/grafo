@@ -1,3 +1,6 @@
+use crate::pipeline::create_buffer_init;
+use crate::vertex::CustomVertex;
+
 use super::types::decide_buffer_sizing;
 use super::*;
 
@@ -19,7 +22,7 @@ fn upsert_gpu_buffer(
         decide_buffer_sizing(buffer.as_ref().map(|existing| existing.size()), bytes.len());
 
     if decision.should_reallocate {
-        *buffer = Some(crate::pipeline::create_buffer_init(
+        *buffer = Some(create_buffer_init(
             device,
             Some(label),
             bytes,
@@ -31,9 +34,9 @@ fn upsert_gpu_buffer(
 }
 
 fn append_aggregated_geometry(
-    temp_vertices: &mut Vec<crate::vertex::CustomVertex>,
+    temp_vertices: &mut Vec<CustomVertex>,
     temp_indices: &mut Vec<u16>,
-    vertices: &[crate::vertex::CustomVertex],
+    vertices: &[CustomVertex],
     indices: &[u16],
 ) -> Option<(usize, usize)> {
     if vertices.is_empty() || indices.is_empty() {
@@ -61,7 +64,7 @@ fn append_aggregated_geometry(
 
 pub(crate) fn append_aggregated_geometry_for_shape(
     cached_shape_data: &CachedShapeDrawData,
-    temp_vertices: &mut Vec<crate::vertex::CustomVertex>,
+    temp_vertices: &mut Vec<CustomVertex>,
     temp_indices: &mut Vec<u16>,
     geometry_dedup_map: &mut HashMap<u64, (usize, usize)>,
 ) -> Option<(usize, usize)> {
@@ -114,7 +117,7 @@ impl<'a> Renderer<'a> {
     fn ensure_identity_instance_buffers(&mut self) {
         if self.identity_instance_transform_buffer.is_none() {
             let identity = InstanceTransform::identity();
-            self.identity_instance_transform_buffer = Some(crate::pipeline::create_buffer_init(
+            self.identity_instance_transform_buffer = Some(create_buffer_init(
                 &self.device,
                 Some("Identity Instance Transform Buffer"),
                 bytemuck::cast_slice(&[identity]),
@@ -124,7 +127,7 @@ impl<'a> Renderer<'a> {
 
         if self.identity_instance_color_buffer.is_none() {
             let transparent = InstanceColor::transparent();
-            self.identity_instance_color_buffer = Some(crate::pipeline::create_buffer_init(
+            self.identity_instance_color_buffer = Some(create_buffer_init(
                 &self.device,
                 Some("Identity Instance Color Buffer"),
                 bytemuck::cast_slice(&[transparent]),
@@ -134,7 +137,7 @@ impl<'a> Renderer<'a> {
 
         if self.identity_instance_metadata_buffer.is_none() {
             let metadata = InstanceMetadata::default();
-            self.identity_instance_metadata_buffer = Some(crate::pipeline::create_buffer_init(
+            self.identity_instance_metadata_buffer = Some(create_buffer_init(
                 &self.device,
                 Some("Identity Instance Metadata Buffer"),
                 bytemuck::cast_slice(&[metadata]),
