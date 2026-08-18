@@ -1,6 +1,5 @@
 use super::types::DrawCommand;
 use crate::effect::EffectInstance;
-use crate::effect::ShapeEffectInstance;
 use crate::vertex::InstanceTransform;
 use ahash::HashMap;
 
@@ -38,16 +37,12 @@ pub(super) fn should_skip_visible_rect_draw(
     draw_command: &DrawCommand,
     group_effects: &HashMap<usize, EffectInstance>,
     backdrop_effects: &HashMap<usize, EffectInstance>,
-    shape_effects: &HashMap<usize, ShapeEffectInstance>,
 ) -> bool {
     if !draw_command.is_rect() {
         return false;
     }
 
-    if group_effects.contains_key(&node_id)
-        || backdrop_effects.contains_key(&node_id)
-        || shape_effects.contains_key(&node_id)
-    {
+    if group_effects.contains_key(&node_id) || backdrop_effects.contains_key(&node_id) {
         return false;
     }
 
@@ -146,7 +141,7 @@ pub(super) fn try_scissor_for_rect(
 #[cfg(test)]
 mod tests {
     use super::{compute_scissor_rect, should_skip_visible_rect_draw, try_scissor_for_rect};
-    use crate::effect::{EffectInstance, ShapeEffectConfig, ShapeEffectInstance};
+    use crate::effect::EffectInstance;
     use crate::gradient::types::{
         ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset, LinearGradientDesc,
         LinearGradientLine,
@@ -160,7 +155,6 @@ mod tests {
     use ahash::{HashMap, HashMapExt};
     use lyon::tessellation::FillTessellator;
     use std::num::NonZeroUsize;
-    use std::sync::Arc;
 
     fn create_test_gradient() -> Gradient {
         Gradient::linear(
@@ -247,7 +241,6 @@ mod tests {
             &draw_command,
             &group_effects,
             &HashMap::new(),
-            &HashMap::new(),
         ));
 
         let mut backdrop_effects = HashMap::new();
@@ -271,31 +264,6 @@ mod tests {
             &draw_command,
             &HashMap::new(),
             &backdrop_effects,
-            &HashMap::new(),
-        ));
-    }
-
-    #[test]
-    fn skip_visible_rect_draw_rejects_shape_effect_nodes() {
-        let draw_command = rect_draw_command();
-        let node_id = 11usize;
-
-        let mut shape_effects = HashMap::new();
-        shape_effects.insert(
-            node_id,
-            ShapeEffectInstance {
-                effect_id: 3,
-                params: Arc::from(Vec::new()),
-                config: ShapeEffectConfig::new().outset(4.0),
-            },
-        );
-
-        assert!(!should_skip_visible_rect_draw(
-            node_id,
-            &draw_command,
-            &HashMap::new(),
-            &HashMap::new(),
-            &shape_effects,
         ));
     }
 
@@ -306,7 +274,6 @@ mod tests {
         assert!(should_skip_visible_rect_draw(
             1,
             &draw_command,
-            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
         ));
@@ -322,7 +289,6 @@ mod tests {
             &opaque_draw_command,
             &HashMap::new(),
             &HashMap::new(),
-            &HashMap::new(),
         ));
 
         let textured_draw_command =
@@ -331,7 +297,6 @@ mod tests {
         assert!(!should_skip_visible_rect_draw(
             2,
             &textured_draw_command,
-            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
         ));
@@ -351,7 +316,6 @@ mod tests {
         assert!(!should_skip_visible_rect_draw(
             3,
             &draw_command,
-            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
         ));

@@ -224,7 +224,7 @@ pub struct Renderer<'a> {
     shape_effects: HashMap<usize, ShapeEffectInstance>,
     /// Exact GPU results retained while referenced by consecutive rendered frames.
     shape_effect_cache: shape_effects::ShapeEffectResultCache,
-    /// Pipeline and immutable buffers used to generate and draw shape effects.
+    /// Pipeline and immutable geometry resources used by shape effects.
     shape_effect_resources: shape_effects::ShapeEffectRendererResources,
     /// Pool of offscreen textures for effect compositing.
     offscreen_texture_pool: OffscreenTexturePool,

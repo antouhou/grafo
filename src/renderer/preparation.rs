@@ -5,7 +5,7 @@ use crate::vertex::CustomVertex;
 
 #[derive(Copy, Clone)]
 pub(crate) struct InstanceTextureData {
-    pub(crate) texture_ids: [Option<u64>; 2],
+    pub(crate) texture_presence: [bool; 2],
     pub(crate) texture_uv_scales: [[f32; 2]; 2],
 }
 
@@ -96,8 +96,8 @@ pub(crate) fn append_instance_data(
     temp_instance_colors.push(InstanceColor {
         color: color_override.unwrap_or([0.0, 0.0, 0.0, 0.0]),
     });
-    let texture_flags = (texture_data.texture_ids[0].is_some() as u32)
-        | ((texture_data.texture_ids[1].is_some() as u32) << 1);
+    let texture_flags = (texture_data.texture_presence[0] as u32)
+        | ((texture_data.texture_presence[1] as u32) << 1);
     temp_instance_metadata.push(InstanceMetadata {
         draw_order: instance_index as f32,
         texture_flags: texture_flags as f32,
@@ -209,6 +209,18 @@ impl<'a> Renderer<'a> {
     }
 
     pub(super) fn prepare_render(&mut self) {
+        self.begin_frame_scratch();
+        // Include prepared effect leaves in this upload without making them part
+        // of the durable user draw queue.
+        let base_vertex_count = self.temp_vertices.len();
+        let base_index_count = self.temp_indices.len();
+        let base_instance_count = self.temp_instance_transforms.len();
+        self.prepare_shape_effect_leaves();
         self.upload_buffers_for_frame();
+        self.temp_vertices.truncate(base_vertex_count);
+        self.temp_indices.truncate(base_index_count);
+        self.temp_instance_transforms.truncate(base_instance_count);
+        self.temp_instance_colors.truncate(base_instance_count);
+        self.temp_instance_metadata.truncate(base_instance_count);
     }
 }

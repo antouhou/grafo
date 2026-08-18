@@ -16,7 +16,7 @@ impl<'a> Renderer<'a> {
 
         // Nothing to render when the draw queue is empty.
         if self.draw_tree.is_empty() {
-            self.scratch.shape_effect_results.clear();
+            self.scratch.shape_effect_leaves.clear();
             let _collected_shape_effect_results = self.shape_effect_cache.end_frame();
             #[cfg(feature = "render_metrics")]
             {
@@ -30,11 +30,9 @@ impl<'a> Renderer<'a> {
             return;
         }
 
-        self.begin_frame_scratch();
-
         let mut traversal_scratch = std::mem::take(&mut self.scratch.traversal_scratch);
         let mut effect_results = std::mem::take(&mut self.scratch.effect_results);
-        let mut shape_effect_results = std::mem::take(&mut self.scratch.shape_effect_results);
+        let mut shape_effect_leaves = std::mem::take(&mut self.scratch.shape_effect_leaves);
         let mut effect_node_ids = std::mem::take(&mut self.scratch.effect_node_ids);
         let mut textures_to_recycle = std::mem::take(&mut self.scratch.textures_to_recycle);
         let mut effect_output_textures = std::mem::take(&mut self.scratch.effect_output_textures);
@@ -81,7 +79,7 @@ impl<'a> Renderer<'a> {
         if has_shape_effects {
             self.resolve_shape_effects(
                 &mut encoder,
-                &mut shape_effect_results,
+                &mut shape_effect_leaves,
                 &mut textures_to_recycle,
                 #[cfg(feature = "render_metrics")]
                 &mut shape_effect_cache_metrics,
@@ -103,7 +101,6 @@ impl<'a> Renderer<'a> {
             default_shape_texture_bind_groups: &self.default_shape_texture_bind_groups,
             shape_texture_layout_epoch: self.shape_texture_layout_epoch,
             texture_manager: &self.texture_manager,
-            shape_effect_quad_index_buffer: &self.shape_effect_resources.quad_index_buffer,
         };
 
         let buffers = types::Buffers {
@@ -123,9 +120,6 @@ impl<'a> Renderer<'a> {
                 .as_ref(),
             aggregated_instance_color_buffer: self.aggregated_instance_color_buffer.as_ref(),
             aggregated_instance_metadata_buffer: self.aggregated_instance_metadata_buffer.as_ref(),
-            shape_effect_instance_metadata_buffer: &self
-                .shape_effect_resources
-                .textured_instance_metadata_buffer,
         };
 
         if has_group_effects {
@@ -195,6 +189,7 @@ impl<'a> Renderer<'a> {
                     plan_traversal_in_place(
                         &mut self.draw_tree,
                         &effect_results,
+                        &shape_effect_leaves,
                         None,
                         Some(node_id),
                         &mut traversal_scratch,
@@ -204,10 +199,9 @@ impl<'a> Renderer<'a> {
                         &mut encoder,
                         traversal_scratch.events(),
                         &effect_results,
-                        &shape_effect_results,
+                        &mut shape_effect_leaves,
                         &self.group_effects,
                         &mut self.backdrop_effects,
-                        &self.shape_effects,
                         behind_color_view,
                         behind_resolve_target,
                         &behind_depth_view,
@@ -239,6 +233,7 @@ impl<'a> Renderer<'a> {
                 plan_traversal_in_place(
                     &mut self.draw_tree,
                     &effect_results,
+                    &shape_effect_leaves,
                     Some(node_id),
                     None,
                     &mut traversal_scratch,
@@ -313,10 +308,9 @@ impl<'a> Renderer<'a> {
                     &mut encoder,
                     traversal_scratch.events(),
                     &effect_results,
-                    &shape_effect_results,
+                    &mut shape_effect_leaves,
                     &self.group_effects,
                     &mut self.backdrop_effects,
-                    &self.shape_effects,
                     subtree_color_view,
                     subtree_resolve_target,
                     subtree_texture
@@ -388,6 +382,7 @@ impl<'a> Renderer<'a> {
             plan_traversal_in_place(
                 &mut self.draw_tree,
                 &effect_results,
+                &shape_effect_leaves,
                 None,
                 None,
                 &mut traversal_scratch,
@@ -449,10 +444,9 @@ impl<'a> Renderer<'a> {
                 &mut encoder,
                 traversal_scratch.events(),
                 &effect_results,
-                &shape_effect_results,
+                &mut shape_effect_leaves,
                 &self.group_effects,
                 &mut self.backdrop_effects,
-                &self.shape_effects,
                 phase2_color_view,
                 phase2_resolve_target,
                 depth_texture_view,
@@ -492,11 +486,11 @@ impl<'a> Renderer<'a> {
                 draw_command.clear_frame_state();
             });
 
-        shape_effect_results.clear();
+        shape_effect_leaves.clear();
 
         self.scratch.traversal_scratch = traversal_scratch;
         self.scratch.effect_results = effect_results;
-        self.scratch.shape_effect_results = shape_effect_results;
+        self.scratch.shape_effect_leaves = shape_effect_leaves;
         self.scratch.effect_node_ids = effect_node_ids;
         self.scratch.textures_to_recycle = textures_to_recycle;
         self.scratch.effect_output_textures = effect_output_textures;

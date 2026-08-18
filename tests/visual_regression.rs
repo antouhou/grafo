@@ -364,6 +364,48 @@ fn cached_shape_effect_survives_normal_pipeline_recreation() {
 
 #[cfg(feature = "render_metrics")]
 #[test]
+fn shape_effect_scale_change_rebuilds_leaf_and_invalidates_cached_texture() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 96), 1.0) else {
+        return;
+    };
+    renderer
+        .load_effect(8_171, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
+        .unwrap();
+    let shape_id = renderer
+        .add_shape(
+            grafo::Shape::rect([(8.0, 8.0), (32.0, 32.0)], grafo::Stroke::default()),
+            None,
+            Some(8_172),
+            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(220, 80, 40)),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            shape_id,
+            8_171,
+            &[],
+            grafo::ShapeEffectConfig::new().outset(4.0),
+        )
+        .unwrap();
+
+    let mut pixels = Vec::new();
+    renderer.render_to_buffer(&mut pixels);
+    renderer.render_to_buffer(&mut pixels);
+    assert_eq!(renderer.last_shape_effect_cache_metrics().hits, 1);
+    assert_eq!(renderer.last_shape_effect_cache_metrics().misses, 0);
+
+    renderer.change_scale_factor(2.0);
+    renderer.render_to_buffer(&mut pixels);
+    assert_eq!(renderer.last_shape_effect_cache_metrics().hits, 0);
+    assert_eq!(renderer.last_shape_effect_cache_metrics().misses, 1);
+
+    renderer.render_to_buffer(&mut pixels);
+    assert_eq!(renderer.last_shape_effect_cache_metrics().hits, 1);
+    assert_eq!(renderer.last_shape_effect_cache_metrics().misses, 0);
+}
+
+#[cfg(feature = "render_metrics")]
+#[test]
 fn cached_shape_effect_uses_exact_parameter_bytes_on_transparent_shape() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((48, 48), 1.0) else {
         return;
@@ -376,7 +418,8 @@ fn cached_shape_effect_uses_exact_parameter_bytes_on_transparent_shape() {
             grafo::Shape::rect([(12.0, 12.0), (36.0, 36.0)], grafo::Stroke::default()),
             None,
             Some(8_202),
-            grafo::ShapeDrawCommandOptions::new(),
+            grafo::ShapeDrawCommandOptions::new()
+                .transform(grafo::TransformInstance::translation(6.0, 4.0)),
         )
         .unwrap();
     let blue = [0.0f32, 0.0, 1.0, 1.0];
@@ -391,14 +434,15 @@ fn cached_shape_effect_uses_exact_parameter_bytes_on_transparent_shape() {
 
     let mut pixels = Vec::new();
     renderer.render_to_buffer(&mut pixels);
-    assert_eq!(read_pixel_rgba(&pixels, 48, 24, 24), [0, 0, 255, 255]);
+    assert_eq!(read_pixel_rgba(&pixels, 48, 14, 14), [0, 0, 0, 0]);
+    assert_eq!(read_pixel_rgba(&pixels, 48, 30, 28), [0, 0, 255, 255]);
 
     let red = [1.0f32, 0.0, 0.0, 1.0];
     renderer
         .update_shape_effect_params(shape_id, bytemuck::bytes_of(&red))
         .unwrap();
     renderer.render_to_buffer(&mut pixels);
-    assert_eq!(read_pixel_rgba(&pixels, 48, 24, 24), [255, 0, 0, 255]);
+    assert_eq!(read_pixel_rgba(&pixels, 48, 30, 28), [255, 0, 0, 255]);
     let changed_parameter_frame = renderer.last_shape_effect_cache_metrics();
     assert_eq!(changed_parameter_frame.misses, 1);
     assert_eq!(changed_parameter_frame.hits, 0);

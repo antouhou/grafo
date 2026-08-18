@@ -1,9 +1,8 @@
 #[cfg(feature = "render_metrics")]
 use super::metrics::PipelineSwitchCounts;
-use super::shape_effects::CachedShapeEffect;
 use super::traversal::TraversalScratch;
 use crate::effect::{self, LoadedEffect};
-use crate::shape::{CachedShapeDrawData, DrawShapeCommand};
+use crate::shape::{CachedShapeDrawData, DrawShapeCommand, ShapeTextureBinding};
 use crate::texture_manager::TextureManager;
 use crate::util::GradientCache;
 use crate::vertex::InstanceTransform;
@@ -73,7 +72,10 @@ impl DrawCommand {
 
     pub(super) fn texture_id(&self, layer: usize) -> Option<u64> {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.texture_id(layer),
+            DrawCommand::CachedShape(cached_shape) => cached_shape
+                .texture_bindings()
+                .get(layer)
+                .and_then(ShapeTextureBinding::managed_texture_id),
             DrawCommand::ClipRect(_) => None,
         }
     }
@@ -176,8 +178,9 @@ pub enum DrawCommandError {
     UnsupportedClipRectOperation(usize, &'static str),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum TraversalEvent {
+    PreparedLeaf(usize),
     Pre(usize),
     Post(usize),
 }
@@ -258,14 +261,10 @@ impl PipelineTracker {
     }
 }
 
-/// Tracks the currently-bound texture bind groups to skip redundant `set_bind_group` calls.
-///
-/// Each layer stores the texture ID that is currently bound (`Some(id)` for a real texture,
-/// `None` for the default white texture). The outer `Option` distinguishes "unknown / first
-/// use" (`None`) from a known state (`Some(..)`).
-#[derive(Debug, Clone, Copy, Default)]
+/// Tracks the currently-bound texture sources to skip redundant `set_bind_group` calls.
+#[derive(Debug, Clone, Default)]
 pub(super) struct BoundTextureState {
-    layers: [Option<Option<u64>>; 2],
+    layers: [Option<ShapeTextureBinding>; 2],
 }
 
 impl BoundTextureState {
@@ -275,22 +274,24 @@ impl BoundTextureState {
         self.layers = [None, None];
     }
 
-    /// Returns `true` when the given texture id (or `None` for the default) is not
-    /// already bound on `layer`, and updates the tracked state.
-    pub(super) fn needs_rebind(&mut self, layer: usize, texture_id: Option<u64>) -> bool {
-        let current = self.layers[layer];
-        if current == Some(texture_id) {
+    /// Returns `true` when the given texture source is not already bound on `layer`.
+    pub(super) fn needs_rebind(
+        &mut self,
+        layer: usize,
+        texture_binding: &ShapeTextureBinding,
+    ) -> bool {
+        if self.layers[layer].as_ref() == Some(texture_binding) {
             return false;
         }
-        self.layers[layer] = Some(texture_id);
+        self.layers[layer] = Some(texture_binding.clone());
         true
     }
 
     /// Update the tracked state for `layer` without returning whether a rebind is
     /// needed. Use this when you know the bind group was just set (e.g. after a
     /// pipeline switch that binds default textures).
-    pub(super) fn mark_bound(&mut self, layer: usize, texture_id: Option<u64>) {
-        self.layers[layer] = Some(texture_id);
+    pub(super) fn mark_bound(&mut self, layer: usize, texture_binding: ShapeTextureBinding) {
+        self.layers[layer] = Some(texture_binding);
     }
 }
 
@@ -303,7 +304,6 @@ pub(super) struct Buffers<'a> {
     pub(super) aggregated_instance_transform_buffer: Option<&'a wgpu::Buffer>,
     pub(super) aggregated_instance_color_buffer: Option<&'a wgpu::Buffer>,
     pub(super) aggregated_instance_metadata_buffer: Option<&'a wgpu::Buffer>,
-    pub(super) shape_effect_instance_metadata_buffer: &'a wgpu::Buffer,
 }
 
 pub(super) struct Pipelines<'a> {
@@ -319,7 +319,6 @@ pub(super) struct Pipelines<'a> {
     pub(super) default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
     pub(super) shape_texture_layout_epoch: u64,
     pub(super) texture_manager: &'a TextureManager,
-    pub(super) shape_effect_quad_index_buffer: &'a wgpu::Buffer,
 }
 
 #[derive(Clone, Copy)]
@@ -374,7 +373,7 @@ pub(super) struct BackdropContext<'a> {
 }
 
 const MAX_EFFECT_RESULTS_CAPACITY: usize = 4_096;
-const MAX_SHAPE_EFFECT_RESULTS_CAPACITY: usize = 4_096;
+const MAX_SHAPE_EFFECT_LEAVES_CAPACITY: usize = 4_096;
 const MAX_EFFECT_NODE_IDS_CAPACITY: usize = 4_096;
 const MAX_TEXTURE_RECYCLE_CAPACITY: usize = 1_024;
 const MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY: usize = 2_048;
@@ -385,7 +384,7 @@ const MAX_READBACK_BYTES_CAPACITY: usize = 64 * 1024 * 1024;
 
 pub(super) struct RendererScratch {
     pub(super) effect_results: HashMap<usize, wgpu::BindGroup>,
-    pub(super) shape_effect_results: HashMap<usize, Arc<CachedShapeEffect>>,
+    pub(super) shape_effect_leaves: HashMap<usize, CachedShapeDrawData>,
     pub(super) effect_node_ids: Vec<(usize, usize)>,
     pub(super) textures_to_recycle: Vec<effect::PooledTexture>,
     pub(super) effect_output_textures: Vec<effect::PooledTexture>,
@@ -408,7 +407,7 @@ impl RendererScratch {
     pub(super) fn new() -> Self {
         Self {
             effect_results: HashMap::new(),
-            shape_effect_results: HashMap::new(),
+            shape_effect_leaves: HashMap::new(),
             effect_node_ids: Vec::new(),
             textures_to_recycle: Vec::new(),
             effect_output_textures: Vec::new(),
@@ -424,7 +423,7 @@ impl RendererScratch {
 
     pub(super) fn begin_frame(&mut self) {
         self.effect_results.clear();
-        self.shape_effect_results.clear();
+        self.shape_effect_leaves.clear();
         self.effect_node_ids.clear();
         self.textures_to_recycle.clear();
         self.effect_output_textures.clear();
@@ -441,8 +440,8 @@ impl RendererScratch {
     pub(super) fn trim_to_policy(&mut self) {
         trim_hash_map_if_needed(&mut self.effect_results, MAX_EFFECT_RESULTS_CAPACITY);
         trim_hash_map_if_needed(
-            &mut self.shape_effect_results,
-            MAX_SHAPE_EFFECT_RESULTS_CAPACITY,
+            &mut self.shape_effect_leaves,
+            MAX_SHAPE_EFFECT_LEAVES_CAPACITY,
         );
         trim_vector_if_needed(&mut self.effect_node_ids, MAX_EFFECT_NODE_IDS_CAPACITY);
         trim_vector_if_needed(&mut self.textures_to_recycle, MAX_TEXTURE_RECYCLE_CAPACITY);

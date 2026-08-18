@@ -1,5 +1,6 @@
 use super::types::{ClipRectDrawData, DrawCommandError};
 use super::*;
+use crate::shape::ShapeTextureBinding;
 use crate::ShapeDrawCommandOptions;
 use crate::ShapeTextureFitMode;
 
@@ -169,7 +170,10 @@ impl<'a> Renderer<'a> {
                     Some(fill) => fill.to_normalized_solid(),
                 },
                 preparation::InstanceTextureData {
-                    texture_ids: cached_shape_data.texture_ids,
+                    texture_presence: cached_shape_data
+                        .texture_bindings
+                        .each_ref()
+                        .map(ShapeTextureBinding::is_present),
                     texture_uv_scales,
                 },
             );

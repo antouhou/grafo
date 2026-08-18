@@ -1,13 +1,19 @@
 // The bytemuck derive emits private compile-time helpers that trigger false unused warnings.
 #![allow(unused)]
 
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+
+use bytemuck::{Pod, Zeroable};
+use lyon::tessellation::VertexBuffers;
+
 use crate::cache::{CachedTessellation, FrameCache};
 use crate::effect::{self, PooledTexture, ShapeEffectConfig};
 use crate::pipeline::create_buffer_init;
-use crate::vertex::{CustomVertex, InstanceMetadata};
-use bytemuck::{Pod, Zeroable};
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use crate::renderer::preparation::{self, InstanceTextureData};
+use crate::shape::{CachedShapeDrawData, CachedShapeHandle, ShapeTextureBinding};
+use crate::vertex::{CustomVertex, InstanceTransform};
+use crate::ShapeDrawCommandOptions;
 
 #[cfg(feature = "render_metrics")]
 use super::metrics::ShapeEffectCacheMetrics;
@@ -223,9 +229,7 @@ impl Hash for ShapeEffectCacheKey {
 
 pub(super) struct CachedShapeEffect {
     pub texture: PooledTexture,
-    pub texture_bind_group: wgpu::BindGroup,
-    pub quad_vertex_buffer: wgpu::Buffer,
-    pub local_bounds: [(f32, f32); 2],
+    pub texture_bind_group: Arc<wgpu::BindGroup>,
 }
 
 pub(super) type ShapeEffectResultCache = FrameCache<ShapeEffectCacheKey, Arc<CachedShapeEffect>>;
@@ -233,35 +237,18 @@ pub(super) type ShapeEffectResultCache = FrameCache<ShapeEffectCacheKey, Arc<Cac
 pub(super) struct ShapeEffectRendererResources {
     pub mask_bind_group_layout: wgpu::BindGroupLayout,
     pub mask_pipeline: wgpu::RenderPipeline,
-    pub quad_index_buffer: wgpu::Buffer,
-    pub textured_instance_metadata_buffer: wgpu::Buffer,
+    pub quad_tessellation: Arc<CachedTessellation>,
 }
 
 impl ShapeEffectRendererResources {
     pub(super) fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
         let mask_bind_group_layout = create_mask_bind_group_layout(device);
         let mask_pipeline = create_mask_pipeline(device, format, &mask_bind_group_layout);
-        let quad_index_buffer = create_buffer_init(
-            device,
-            Some("shape_effect_quad_indices"),
-            bytemuck::cast_slice(&[0u16, 1, 2, 0, 2, 3]),
-            wgpu::BufferUsages::INDEX,
-        );
-        let textured_instance_metadata_buffer = create_buffer_init(
-            device,
-            Some("shape_effect_textured_instance_metadata"),
-            bytemuck::bytes_of(&InstanceMetadata {
-                texture_flags: 1.0,
-                ..InstanceMetadata::default()
-            }),
-            wgpu::BufferUsages::VERTEX,
-        );
-
+        let quad_tessellation = create_shape_effect_quad_tessellation();
         Self {
             mask_bind_group_layout,
             mask_pipeline,
-            quad_index_buffer,
-            textured_instance_metadata_buffer,
+            quad_tessellation,
         }
     }
 
@@ -358,6 +345,37 @@ pub(super) fn create_quad_vertices(local_bounds: [(f32, f32); 2]) -> [CustomVert
     ]
 }
 
+fn create_shape_effect_quad_tessellation() -> Arc<CachedTessellation> {
+    let local_bounds = [(0.0, 0.0), (1.0, 1.0)];
+    let quad_vertices = create_quad_vertices(local_bounds);
+    Arc::new(CachedTessellation {
+        vertex_buffers: Arc::new(VertexBuffers {
+            vertices: quad_vertices.to_vec(),
+            indices: vec![0, 1, 2, 0, 2, 3],
+        }),
+        local_bounds,
+        texture_mapping_size: [1.0, 1.0],
+    })
+}
+
+fn shape_effect_quad_transform(
+    local_bounds: [(f32, f32); 2],
+    source_transform: Option<InstanceTransform>,
+) -> InstanceTransform {
+    let [(minimum_x, minimum_y), (maximum_x, maximum_y)] = local_bounds;
+    let bounds_transform = InstanceTransform::affine_2d(
+        maximum_x - minimum_x,
+        0.0,
+        0.0,
+        maximum_y - minimum_y,
+        minimum_x,
+        minimum_y,
+    );
+    source_transform.map_or(bounds_transform, |transform| {
+        bounds_transform.then(&transform)
+    })
+}
+
 pub(super) fn create_mask_bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
@@ -374,10 +392,96 @@ pub(super) fn create_mask_bind_group(
 }
 
 impl<'a> Renderer<'a> {
+    pub(super) fn prepare_shape_effect_leaves(&mut self) {
+        let maximum_texture_dimension = self.device.limits().max_texture_dimension_2d;
+        let maximum_texel_count = u64::from(self.physical_size.0)
+            .saturating_mul(u64::from(self.physical_size.1))
+            .saturating_mul(4);
+        let mut quad_index_buffer_range = None;
+        for (&node_id, shape_effect) in &self.shape_effects {
+            let Some(DrawCommand::CachedShape(source_shape)) = self.draw_tree.get(node_id) else {
+                continue;
+            };
+            let local_bounds = source_shape.cached_shape.tessellation.local_bounds;
+            let source_transform = source_shape.transform;
+            let Some(raster_rect) = compute_shape_effect_raster_rect(
+                local_bounds,
+                shape_effect.config,
+                self.scale_factor,
+                self.fringe_width,
+            ) else {
+                tracing::warn!(
+                    node_id,
+                    effect_id = shape_effect.effect_id,
+                    "skipping shape effect with invalid raster bounds"
+                );
+                continue;
+            };
+            let [width, height] = raster_rect.physical_size;
+            let texel_count = u64::from(width).saturating_mul(u64::from(height));
+            if width > maximum_texture_dimension
+                || height > maximum_texture_dimension
+                || texel_count > maximum_texel_count
+            {
+                tracing::warn!(
+                    node_id,
+                    effect_id = shape_effect.effect_id,
+                    width,
+                    height,
+                    maximum_texture_dimension,
+                    maximum_texel_count,
+                    scale_factor = self.scale_factor,
+                    "skipping oversized shape effect texture"
+                );
+                continue;
+            }
+
+            let quad_handle = CachedShapeHandle {
+                tessellation: Arc::clone(&self.shape_effect_resources.quad_tessellation),
+                is_rect: true,
+                rect_bounds: Some([(0.0, 0.0), (1.0, 1.0)]),
+                geometry_id: None,
+            };
+            let mut leaf = CachedShapeDrawData::new(quad_handle, &ShapeDrawCommandOptions::new());
+            let transform = shape_effect_quad_transform(raster_rect.local_bounds, source_transform);
+            leaf.transform = Some(transform);
+            let index_buffer_range = match quad_index_buffer_range {
+                Some(index_buffer_range) => index_buffer_range,
+                None => {
+                    let Some(index_buffer_range) =
+                        preparation::append_aggregated_geometry_for_shape(
+                            &leaf,
+                            &mut self.temp_vertices,
+                            &mut self.temp_indices,
+                            &mut self.geometry_dedup_map,
+                        )
+                    else {
+                        continue;
+                    };
+                    quad_index_buffer_range = Some(index_buffer_range);
+                    index_buffer_range
+                }
+            };
+            leaf.index_buffer_range = Some(index_buffer_range);
+            leaf.instance_index = Some(preparation::append_instance_data(
+                &mut self.temp_instance_transforms,
+                &mut self.temp_instance_colors,
+                &mut self.temp_instance_metadata,
+                Some(transform),
+                None,
+                InstanceTextureData {
+                    texture_presence: [true, false],
+                    texture_uv_scales: [[1.0, 1.0]; 2],
+                },
+            ));
+            self.scratch.shape_effect_leaves.insert(node_id, leaf);
+        }
+    }
+
     pub(super) fn resolve_shape_effects(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
-        resolved_results: &mut ahash::HashMap<usize, Arc<CachedShapeEffect>>,
+        shape_effect_leaves: &mut ahash::HashMap<usize, CachedShapeDrawData>,
         textures_to_recycle: &mut Vec<PooledTexture>,
         #[cfg(feature = "render_metrics")] metrics: &mut ShapeEffectCacheMetrics,
     ) {
@@ -391,12 +495,10 @@ impl<'a> Renderer<'a> {
             .effect_sampler
             .as_ref()
             .expect("shape effects require the shared effect sampler");
-        let maximum_texture_dimension = self.device.limits().max_texture_dimension_2d;
-        let maximum_texel_count = u64::from(self.physical_size.0)
-            .saturating_mul(u64::from(self.physical_size.1))
-            .saturating_mul(4);
-
         for (&node_id, shape_effect_instance) in &self.shape_effects {
+            if !shape_effect_leaves.contains_key(&node_id) {
+                continue;
+            }
             let Some(DrawCommand::CachedShape(cached_shape)) = self.draw_tree.get(node_id) else {
                 continue;
             };
@@ -413,31 +515,9 @@ impl<'a> Renderer<'a> {
                 self.scale_factor,
                 self.fringe_width,
             ) else {
-                tracing::warn!(
-                    node_id,
-                    effect_id = shape_effect_instance.effect_id,
-                    "skipping shape effect with invalid raster bounds"
-                );
                 continue;
             };
             let [width, height] = raster_rect.physical_size;
-            let texel_count = u64::from(width).saturating_mul(u64::from(height));
-            if width > maximum_texture_dimension
-                || height > maximum_texture_dimension
-                || texel_count > maximum_texel_count
-            {
-                tracing::warn!(
-                    node_id,
-                    effect_id = shape_effect_instance.effect_id,
-                    width,
-                    height,
-                    maximum_texture_dimension,
-                    maximum_texel_count,
-                    scale_factor = self.scale_factor,
-                    "skipping oversized shape effect texture"
-                );
-                continue;
-            }
 
             let cache_key = ShapeEffectCacheKey {
                 effect_id: shape_effect_instance.effect_id,
@@ -454,7 +534,12 @@ impl<'a> Renderer<'a> {
                 {
                     metrics.hits += 1;
                 }
-                resolved_results.insert(node_id, cached_result);
+                if let Some(shape_effect_leaf) = shape_effect_leaves.get_mut(&node_id) {
+                    shape_effect_leaf.texture_bindings[0] = ShapeTextureBinding::Direct {
+                        texture_id: cached_result.texture.texture_id,
+                        bind_group: Arc::clone(&cached_result.texture_bind_group),
+                    };
+                }
                 continue;
             }
 
@@ -551,31 +636,33 @@ impl<'a> Renderer<'a> {
             textures_to_recycle.push(mask_texture);
             let (final_texture, texture_bind_group) =
                 effect_output.into_final_and_recyclable(textures_to_recycle);
-            let quad_vertices = create_quad_vertices(raster_rect.local_bounds);
-            let quad_vertex_buffer = create_buffer_init(
-                &self.device,
-                Some("shape_effect_quad_vertices"),
-                bytemuck::cast_slice(&quad_vertices),
-                wgpu::BufferUsages::VERTEX,
-            );
             let cached_result = Arc::new(CachedShapeEffect {
                 texture: final_texture,
-                texture_bind_group: texture_bind_group
-                    .expect("shape effect generation must create a texture bind group"),
-                quad_vertex_buffer,
-                local_bounds: raster_rect.local_bounds,
+                texture_bind_group: Arc::new(
+                    texture_bind_group
+                        .expect("shape effect generation must create a texture bind group"),
+                ),
             });
 
             self.shape_effect_cache
                 .insert(cache_key, Arc::clone(&cached_result));
-            resolved_results.insert(node_id, cached_result);
+            if let Some(shape_effect_leaf) = shape_effect_leaves.get_mut(&node_id) {
+                shape_effect_leaf.texture_bindings[0] = ShapeTextureBinding::Direct {
+                    texture_id: cached_result.texture.texture_id,
+                    bind_group: Arc::clone(&cached_result.texture_bind_group),
+                };
+            }
         }
+
+        shape_effect_leaves.retain(|_, leaf| leaf.texture_bindings[0].is_present());
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{compute_shape_effect_raster_rect, ShapeEffectCacheKey};
+    use super::{
+        compute_shape_effect_raster_rect, shape_effect_quad_transform, ShapeEffectCacheKey,
+    };
     use crate::cache::CachedTessellation;
     use crate::effect::ShapeEffectConfig;
     use crate::vertex::CustomVertex;
@@ -641,5 +728,17 @@ mod tests {
         assert!(first_key == equal_key);
         assert!(first_key != different_params);
         assert!(first_key != different_tessellation);
+    }
+
+    #[test]
+    fn shape_effect_quad_transform_maps_unit_quad_before_source_transform() {
+        let transform = shape_effect_quad_transform(
+            [(-3.0, -4.0), (11.0, 15.0)],
+            Some(crate::vertex::InstanceTransform::translation(5.0, 7.0)),
+        );
+
+        assert_eq!(transform.col0, [14.0, 0.0, 0.0, 0.0]);
+        assert_eq!(transform.col1, [0.0, 19.0, 0.0, 0.0]);
+        assert_eq!(transform.col3, [2.0, 3.0, 0.0, 1.0]);
     }
 }

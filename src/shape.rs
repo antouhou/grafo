@@ -61,6 +61,50 @@ pub struct CachedShapeHandle {
     pub(crate) geometry_id: Option<u64>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub(crate) enum ShapeTextureBinding {
+    #[default]
+    None,
+    Managed(u64),
+    Direct {
+        texture_id: u64,
+        bind_group: Arc<wgpu::BindGroup>,
+    },
+}
+
+impl ShapeTextureBinding {
+    pub(crate) fn is_present(&self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    pub(crate) fn managed_texture_id(&self) -> Option<u64> {
+        match self {
+            Self::Managed(texture_id) => Some(*texture_id),
+            Self::None | Self::Direct { .. } => None,
+        }
+    }
+}
+
+impl PartialEq for ShapeTextureBinding {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::None, Self::None) => true,
+            (Self::Managed(left), Self::Managed(right)) => left == right,
+            (
+                Self::Direct {
+                    texture_id: left, ..
+                },
+                Self::Direct {
+                    texture_id: right, ..
+                },
+            ) => left == right,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for ShapeTextureBinding {}
+
 impl CachedShapeHandle {
     /// Creates a new `CachedShapeHandle`.
     ///
@@ -1195,8 +1239,8 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) instance_index: Option<usize>,
     /// Optional per-shape transform applied in clip-space (post-normalization)
     pub(crate) transform: Option<InstanceTransform>,
-    /// Optional texture ids associated with this cached shape
-    pub(crate) texture_ids: [Option<u64>; 2],
+    /// Texture sources associated with this cached shape.
+    pub(crate) texture_bindings: [ShapeTextureBinding; 2],
     /// Optional per-instance color override (normalized [0,1]). If None, use cached shape default.
     pub(crate) color_override: Option<[f32; 4]>,
     /// The fill for this shape (solid color or gradient). If None, transparent.
@@ -1225,9 +1269,15 @@ impl CachedShapeDrawData {
             is_empty: false,
             // Data from options
             transform: options.transform,
-            texture_ids: [
-                options.background_texture.texture_id,
-                options.foreground_texture.texture_id,
+            texture_bindings: [
+                options
+                    .background_texture
+                    .texture_id
+                    .map_or(ShapeTextureBinding::None, ShapeTextureBinding::Managed),
+                options
+                    .foreground_texture
+                    .texture_id
+                    .map_or(ShapeTextureBinding::None, ShapeTextureBinding::Managed),
             ],
             clips_children: options.clips_children,
             color_override: match options.fill.as_ref() {
@@ -1663,7 +1713,7 @@ pub(crate) trait DrawShapeCommand {
     fn instance_index_mut(&mut self) -> &mut Option<usize>;
     fn instance_index(&self) -> Option<usize>;
     fn transform(&self) -> Option<InstanceTransform>;
-    fn texture_id(&self, layer: usize) -> Option<u64>;
+    fn texture_bindings(&self) -> &[ShapeTextureBinding; 2];
     fn local_bounds(&self) -> [(f32, f32); 2];
     fn instance_color_override(&self) -> Option<[f32; 4]>;
     fn has_gradient_fill(&self) -> bool;
@@ -1705,8 +1755,8 @@ impl DrawShapeCommand for CachedShapeDrawData {
     }
 
     #[inline]
-    fn texture_id(&self, layer: usize) -> Option<u64> {
-        self.texture_ids.get(layer).copied().unwrap_or(None)
+    fn texture_bindings(&self) -> &[ShapeTextureBinding; 2] {
+        &self.texture_bindings
     }
 
     #[inline]
