@@ -2,11 +2,9 @@
 #![allow(unused)]
 
 use crate::cache::{CachedTessellation, FrameCache};
-use crate::effect::{
-    self, create_effect_input_bind_group_layout, PooledTexture, ShapeEffectConfig,
-};
+use crate::effect::{self, PooledTexture, ShapeEffectConfig};
 use crate::pipeline::create_buffer_init;
-use crate::vertex::{CustomVertex, InstanceTransform};
+use crate::vertex::{CustomVertex, InstanceMetadata};
 use bytemuck::{Pod, Zeroable};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -14,7 +12,7 @@ use std::sync::Arc;
 #[cfg(feature = "render_metrics")]
 use super::metrics::ShapeEffectCacheMetrics;
 use super::passes::{apply_effect_passes, EffectPassRunConfig};
-use super::types::{Buffers, DrawCommand, Pipelines};
+use super::types::DrawCommand;
 use super::Renderer;
 
 const SHAPE_EFFECT_MASK_SHADER: &str = r#"
@@ -63,89 +61,6 @@ fn mask_fragment(input: MaskVertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(input.coverage);
 }
 "#;
-
-const SHAPE_EFFECT_COMPOSITE_SHADER: &str = r#"
-struct CanvasUniforms {
-    canvas_size: vec2<f32>,
-    scale_factor: f32,
-    fringe_width: f32,
-};
-
-struct CompositeVertexInput {
-    @location(0) position: vec2<f32>,
-    @location(1) uv: vec2<f32>,
-    @location(3) transform_column_0: vec4<f32>,
-    @location(4) transform_column_1: vec4<f32>,
-    @location(5) transform_column_2: vec4<f32>,
-    @location(6) transform_column_3: vec4<f32>,
-};
-
-struct CompositeVertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-};
-
-@group(0) @binding(0) var<uniform> canvas: CanvasUniforms;
-@group(1) @binding(0) var effect_texture: texture_2d<f32>;
-@group(1) @binding(1) var effect_sampler: sampler;
-
-@vertex
-fn composite_vertex(input: CompositeVertexInput) -> CompositeVertexOutput {
-    let transform = mat4x4<f32>(
-        input.transform_column_0,
-        input.transform_column_1,
-        input.transform_column_2,
-        input.transform_column_3,
-    );
-    let transformed = transform * vec4<f32>(input.position, 0.0, 1.0);
-    let inverse_w = 1.0 / max(abs(transformed.w), 1e-6);
-    let logical_position = transformed.xy * inverse_w;
-
-    var output: CompositeVertexOutput;
-    output.position = vec4<f32>(
-        2.0 * logical_position.x / canvas.canvas_size.x - 1.0,
-        1.0 - 2.0 * logical_position.y / canvas.canvas_size.y,
-        1.0,
-        1.0,
-    );
-    output.uv = input.uv;
-    return output;
-}
-
-@fragment
-fn composite_fragment(input: CompositeVertexOutput) -> @location(0) vec4<f32> {
-    return textureSample(effect_texture, effect_sampler, input.uv);
-}
-"#;
-
-#[repr(C)]
-#[allow(unused)]
-#[derive(Copy, Clone, Pod, Zeroable)]
-pub(super) struct ShapeEffectVertex {
-    pub position: [f32; 2],
-    pub uv: [f32; 2],
-}
-
-impl ShapeEffectVertex {
-    fn descriptor<'a>() -> wgpu::VertexBufferLayout<'a> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x2,
-                    offset: 0,
-                    shader_location: 0,
-                },
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x2,
-                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                },
-            ],
-        }
-    }
-}
 
 #[repr(C)]
 #[allow(unused)]
@@ -317,60 +232,41 @@ pub(super) type ShapeEffectResultCache = FrameCache<ShapeEffectCacheKey, Arc<Cac
 
 pub(super) struct ShapeEffectRendererResources {
     pub mask_bind_group_layout: wgpu::BindGroupLayout,
-    pub texture_bind_group_layout: wgpu::BindGroupLayout,
     pub mask_pipeline: wgpu::RenderPipeline,
-    pub composite_pipeline: wgpu::RenderPipeline,
     pub quad_index_buffer: wgpu::Buffer,
+    pub textured_instance_metadata_buffer: wgpu::Buffer,
 }
 
 impl ShapeEffectRendererResources {
-    pub(super) fn new(
-        device: &wgpu::Device,
-        format: wgpu::TextureFormat,
-        sample_count: u32,
-        canvas_uniform_bind_group_layout: &wgpu::BindGroupLayout,
-    ) -> Self {
+    pub(super) fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
         let mask_bind_group_layout = create_mask_bind_group_layout(device);
-        let texture_bind_group_layout = create_effect_input_bind_group_layout(device);
         let mask_pipeline = create_mask_pipeline(device, format, &mask_bind_group_layout);
-        let composite_pipeline = create_composite_pipeline(
-            device,
-            format,
-            sample_count,
-            canvas_uniform_bind_group_layout,
-            &texture_bind_group_layout,
-        );
         let quad_index_buffer = create_buffer_init(
             device,
             Some("shape_effect_quad_indices"),
             bytemuck::cast_slice(&[0u16, 1, 2, 0, 2, 3]),
             wgpu::BufferUsages::INDEX,
         );
+        let textured_instance_metadata_buffer = create_buffer_init(
+            device,
+            Some("shape_effect_textured_instance_metadata"),
+            bytemuck::bytes_of(&InstanceMetadata {
+                texture_flags: 1.0,
+                ..InstanceMetadata::default()
+            }),
+            wgpu::BufferUsages::VERTEX,
+        );
 
         Self {
             mask_bind_group_layout,
-            texture_bind_group_layout,
             mask_pipeline,
-            composite_pipeline,
             quad_index_buffer,
+            textured_instance_metadata_buffer,
         }
     }
 
-    pub(super) fn recreate_pipelines(
-        &mut self,
-        device: &wgpu::Device,
-        format: wgpu::TextureFormat,
-        sample_count: u32,
-        canvas_uniform_bind_group_layout: &wgpu::BindGroupLayout,
-    ) {
+    pub(super) fn recreate_pipeline(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) {
         self.mask_pipeline = create_mask_pipeline(device, format, &self.mask_bind_group_layout);
-        self.composite_pipeline = create_composite_pipeline(
-            device,
-            format,
-            sample_count,
-            canvas_uniform_bind_group_layout,
-            &self.texture_bind_group_layout,
-        );
     }
 }
 
@@ -432,89 +328,32 @@ fn create_mask_pipeline(
     })
 }
 
-fn create_composite_pipeline(
-    device: &wgpu::Device,
-    format: wgpu::TextureFormat,
-    sample_count: u32,
-    canvas_uniform_bind_group_layout: &wgpu::BindGroupLayout,
-    texture_bind_group_layout: &wgpu::BindGroupLayout,
-) -> wgpu::RenderPipeline {
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("shape_effect_composite_shader"),
-        source: wgpu::ShaderSource::Wgsl(SHAPE_EFFECT_COMPOSITE_SHADER.into()),
-    });
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("shape_effect_composite_pipeline_layout"),
-        bind_group_layouts: &[canvas_uniform_bind_group_layout, texture_bind_group_layout],
-        push_constant_ranges: &[],
-    });
-    let stencil_face = wgpu::StencilFaceState {
-        compare: wgpu::CompareFunction::Equal,
-        fail_op: wgpu::StencilOperation::Keep,
-        depth_fail_op: wgpu::StencilOperation::Keep,
-        pass_op: wgpu::StencilOperation::Keep,
-    };
-
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("shape_effect_composite_pipeline"),
-        layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: Some("composite_vertex"),
-            compilation_options: Default::default(),
-            buffers: &[ShapeEffectVertex::descriptor(), InstanceTransform::desc()],
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some("composite_fragment"),
-            compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-        }),
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth24PlusStencil8,
-            depth_write_enabled: false,
-            depth_compare: wgpu::CompareFunction::Always,
-            stencil: wgpu::StencilState {
-                front: stencil_face,
-                back: stencil_face,
-                read_mask: 0xff,
-                write_mask: 0,
-            },
-            bias: wgpu::DepthBiasState::default(),
-        }),
-        multisample: wgpu::MultisampleState {
-            count: sample_count,
-            mask: !0,
-            alpha_to_coverage_enabled: false,
-        },
-        multiview: None,
-        cache: None,
-    })
-}
-
-pub(super) fn create_quad_vertices(local_bounds: [(f32, f32); 2]) -> [ShapeEffectVertex; 4] {
+pub(super) fn create_quad_vertices(local_bounds: [(f32, f32); 2]) -> [CustomVertex; 4] {
     let [(minimum_x, minimum_y), (maximum_x, maximum_y)] = local_bounds;
     [
-        ShapeEffectVertex {
+        CustomVertex {
             position: [minimum_x, minimum_y],
-            uv: [0.0, 0.0],
+            tex_coords: [0.0, 0.0],
+            normal: [0.0; 2],
+            coverage: 1.0,
         },
-        ShapeEffectVertex {
+        CustomVertex {
             position: [maximum_x, minimum_y],
-            uv: [1.0, 0.0],
+            tex_coords: [1.0, 0.0],
+            normal: [0.0; 2],
+            coverage: 1.0,
         },
-        ShapeEffectVertex {
+        CustomVertex {
             position: [maximum_x, maximum_y],
-            uv: [1.0, 1.0],
+            tex_coords: [1.0, 1.0],
+            normal: [0.0; 2],
+            coverage: 1.0,
         },
-        ShapeEffectVertex {
+        CustomVertex {
             position: [minimum_x, maximum_y],
-            uv: [0.0, 1.0],
+            tex_coords: [0.0, 1.0],
+            normal: [0.0; 2],
+            coverage: 1.0,
         },
     ]
 }
@@ -697,9 +536,7 @@ impl<'a> Renderer<'a> {
                     params_bind_group: parameter_bind_group.as_ref(),
                     source_view: &mask_texture.color_view,
                     effect_sampler,
-                    composite_bind_group_layout: &self
-                        .shape_effect_resources
-                        .texture_bind_group_layout,
+                    composite_bind_group_layout: &self.shape_texture_bind_group_layout_background,
                     create_composite_bind_group: true,
                     width,
                     height,
@@ -734,35 +571,6 @@ impl<'a> Renderer<'a> {
             resolved_results.insert(node_id, cached_result);
         }
     }
-}
-
-pub(super) fn composite_cached_shape_effect(
-    render_pass: &mut wgpu::RenderPass<'_>,
-    cached_effect: &CachedShapeEffect,
-    instance_index: Option<usize>,
-    parent_stencil: u32,
-    pipelines: &Pipelines<'_>,
-    buffers: &Buffers<'_>,
-) {
-    render_pass.set_pipeline(pipelines.shape_effect_composite_pipeline);
-    render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
-    render_pass.set_bind_group(1, &cached_effect.texture_bind_group, &[]);
-    render_pass.set_vertex_buffer(0, cached_effect.quad_vertex_buffer.slice(..));
-    if let (Some(instance_index), Some(instance_transform_buffer)) =
-        (instance_index, buffers.aggregated_instance_transform_buffer)
-    {
-        let stride = std::mem::size_of::<InstanceTransform>() as u64;
-        let offset = instance_index as u64 * stride;
-        render_pass.set_vertex_buffer(1, instance_transform_buffer.slice(offset..offset + stride));
-    } else {
-        render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
-    }
-    render_pass.set_index_buffer(
-        pipelines.shape_effect_quad_index_buffer.slice(..),
-        wgpu::IndexFormat::Uint16,
-    );
-    render_pass.set_stencil_reference(parent_stencil);
-    render_pass.draw_indexed(0..6, 0, 0..1);
 }
 
 #[cfg(test)]

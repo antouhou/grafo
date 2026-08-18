@@ -303,6 +303,7 @@ pub(super) struct Buffers<'a> {
     pub(super) aggregated_instance_transform_buffer: Option<&'a wgpu::Buffer>,
     pub(super) aggregated_instance_color_buffer: Option<&'a wgpu::Buffer>,
     pub(super) aggregated_instance_metadata_buffer: Option<&'a wgpu::Buffer>,
+    pub(super) shape_effect_instance_metadata_buffer: &'a wgpu::Buffer,
 }
 
 pub(super) struct Pipelines<'a> {
@@ -318,7 +319,6 @@ pub(super) struct Pipelines<'a> {
     pub(super) default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
     pub(super) shape_texture_layout_epoch: u64,
     pub(super) texture_manager: &'a TextureManager,
-    pub(super) shape_effect_composite_pipeline: &'a wgpu::RenderPipeline,
     pub(super) shape_effect_quad_index_buffer: &'a wgpu::Buffer,
 }
 

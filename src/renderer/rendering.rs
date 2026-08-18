@@ -103,7 +103,6 @@ impl<'a> Renderer<'a> {
             default_shape_texture_bind_groups: &self.default_shape_texture_bind_groups,
             shape_texture_layout_epoch: self.shape_texture_layout_epoch,
             texture_manager: &self.texture_manager,
-            shape_effect_composite_pipeline: &self.shape_effect_resources.composite_pipeline,
             shape_effect_quad_index_buffer: &self.shape_effect_resources.quad_index_buffer,
         };
 
@@ -124,6 +123,9 @@ impl<'a> Renderer<'a> {
                 .as_ref(),
             aggregated_instance_color_buffer: self.aggregated_instance_color_buffer.as_ref(),
             aggregated_instance_metadata_buffer: self.aggregated_instance_metadata_buffer.as_ref(),
+            shape_effect_instance_metadata_buffer: &self
+                .shape_effect_resources
+                .textured_instance_metadata_buffer,
         };
 
         if has_group_effects {

@@ -331,12 +331,7 @@ impl<'a> Renderer<'a> {
             &queue,
             &backdrop_texture_bind_group_layout,
         );
-        let shape_effect_resources = ShapeEffectRendererResources::new(
-            &device,
-            config.format,
-            msaa_sample_count,
-            &and_pipeline.get_bind_group_layout(0),
-        );
+        let shape_effect_resources = ShapeEffectRendererResources::new(&device, config.format);
 
         let mut renderer = Self {
             context,
@@ -915,12 +910,8 @@ impl<'a> Renderer<'a> {
 
         self.composite_pipeline = None;
         self.composite_bgl = None;
-        self.shape_effect_resources.recreate_pipelines(
-            &self.device,
-            self.config.format,
-            self.msaa_sample_count,
-            &self.and_pipeline.get_bind_group_layout(0),
-        );
+        self.shape_effect_resources
+            .recreate_pipeline(&self.device, self.config.format);
 
         self.leaf_draw_pipeline = Arc::new(create_stencil_keep_color_pipeline(
             &self.device,

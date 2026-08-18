@@ -11,7 +11,7 @@ use crate::renderer::metrics::{PipelineSwitchCounts, ShapeEffectCacheMetrics};
 use crate::renderer::rect_utils::{
     intersect_scissor, should_skip_visible_rect_draw, try_scissor_for_rect,
 };
-use crate::renderer::shape_effects::{composite_cached_shape_effect, CachedShapeEffect};
+use crate::renderer::shape_effects::CachedShapeEffect;
 use crate::util::GradientCache;
 
 /// Dispatch on `DrawCommand::Shape` / `DrawCommand::CachedShape`, binding the
@@ -483,21 +483,30 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
     }
 }
 
-/// Accumulates consecutive leaf nodes that share the same geometry (index range),
-/// texture, and parent stencil reference so they can be emitted as a single
-/// multi-instance `draw_indexed` call.
+/// A pending leaf draw. Ordinary leaves can accumulate into a multi-instance
+/// batch, while cached effects use the same queue and flush path with their
+/// own quad geometry and texture bind group.
 #[derive(Default)]
-pub(super) struct PendingLeafBatch {
-    index_range: (usize, usize),
-    texture_ids: [Option<u64>; 2],
-    parent_stencil: u32,
-    first_instance_index: u32,
-    instance_count: u32,
+pub(super) enum PendingLeafBatch {
+    #[default]
+    Empty,
+    Aggregated {
+        index_range: (usize, usize),
+        texture_ids: [Option<u64>; 2],
+        parent_stencil: u32,
+        first_instance_index: u32,
+        instance_count: u32,
+    },
+    CachedEffect {
+        cached_effect: Arc<CachedShapeEffect>,
+        instance_index: Option<usize>,
+        parent_stencil: u32,
+    },
 }
 
 impl PendingLeafBatch {
     fn is_empty(&self) -> bool {
-        self.instance_count == 0
+        matches!(self, Self::Empty)
     }
 
     fn matches(
@@ -507,10 +516,143 @@ impl PendingLeafBatch {
         parent_stencil: u32,
         instance_index: u32,
     ) -> bool {
-        self.index_range == index_range
-            && self.texture_ids == texture_ids
-            && self.parent_stencil == parent_stencil
-            && instance_index == self.first_instance_index + self.instance_count
+        matches!(
+            self,
+            Self::Aggregated {
+                index_range: batch_index_range,
+                texture_ids: batch_texture_ids,
+                parent_stencil: batch_parent_stencil,
+                first_instance_index,
+                instance_count,
+            } if *batch_index_range == index_range
+                && *batch_texture_ids == texture_ids
+                && *batch_parent_stencil == parent_stencil
+                && instance_index == *first_instance_index + *instance_count
+        )
+    }
+
+    fn bind_geometry(&self, render_pass: &mut wgpu::RenderPass<'_>, buffers: &Buffers) -> bool {
+        match self {
+            Self::Empty => false,
+            Self::Aggregated { .. } => bind_aggregated_geometry_buffers(render_pass, buffers),
+            Self::CachedEffect { cached_effect, .. } => {
+                render_pass.set_vertex_buffer(0, cached_effect.quad_vertex_buffer.slice(..));
+                true
+            }
+        }
+    }
+
+    fn bind_textures(
+        &self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        pipelines: &Pipelines,
+        bound_texture_state: &mut BoundTextureState,
+    ) {
+        match self {
+            Self::Empty => {}
+            Self::Aggregated { texture_ids, .. } => bind_shape_texture_layers(
+                render_pass,
+                *texture_ids,
+                pipelines.texture_manager,
+                pipelines.shape_texture_bind_group_layout_background,
+                pipelines.shape_texture_bind_group_layout_foreground,
+                pipelines.default_shape_texture_bind_groups,
+                pipelines.shape_texture_layout_epoch,
+                bound_texture_state,
+            ),
+            Self::CachedEffect { cached_effect, .. } => {
+                render_pass.set_bind_group(1, &cached_effect.texture_bind_group, &[]);
+                render_pass.set_bind_group(
+                    2,
+                    &*pipelines.default_shape_texture_bind_groups[1],
+                    &[],
+                );
+                bound_texture_state.invalidate();
+            }
+        }
+    }
+
+    fn bind_instances(&self, render_pass: &mut wgpu::RenderPass<'_>, buffers: &Buffers) {
+        match self {
+            Self::Empty => {}
+            Self::Aggregated { .. } => {
+                if let Some(instance_transform_buffer) =
+                    buffers.aggregated_instance_transform_buffer
+                {
+                    render_pass.set_vertex_buffer(1, instance_transform_buffer.slice(..));
+                } else {
+                    render_pass
+                        .set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+                }
+                if let Some(instance_color_buffer) = buffers.aggregated_instance_color_buffer {
+                    render_pass.set_vertex_buffer(2, instance_color_buffer.slice(..));
+                } else {
+                    render_pass
+                        .set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+                }
+                if let Some(instance_metadata_buffer) = buffers.aggregated_instance_metadata_buffer
+                {
+                    render_pass.set_vertex_buffer(3, instance_metadata_buffer.slice(..));
+                } else {
+                    render_pass
+                        .set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
+                }
+            }
+            Self::CachedEffect { instance_index, .. } => {
+                if let (Some(instance_index), Some(instance_transform_buffer)) = (
+                    *instance_index,
+                    buffers.aggregated_instance_transform_buffer,
+                ) {
+                    let stride = std::mem::size_of::<InstanceTransform>() as u64;
+                    let offset = instance_index as u64 * stride;
+                    render_pass.set_vertex_buffer(
+                        1,
+                        instance_transform_buffer.slice(offset..offset + stride),
+                    );
+                } else {
+                    render_pass
+                        .set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+                }
+                render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+                render_pass
+                    .set_vertex_buffer(3, buffers.shape_effect_instance_metadata_buffer.slice(..));
+            }
+        }
+    }
+
+    fn index_range(&self) -> std::ops::Range<u32> {
+        match self {
+            Self::Empty => 0..0,
+            Self::Aggregated { index_range, .. } => {
+                index_range.0 as u32..(index_range.0 + index_range.1) as u32
+            }
+            Self::CachedEffect { .. } => 0..6,
+        }
+    }
+
+    fn instance_range(&self) -> std::ops::Range<u32> {
+        match self {
+            Self::Empty => 0..0,
+            Self::Aggregated {
+                first_instance_index,
+                instance_count,
+                ..
+            } => *first_instance_index..*first_instance_index + *instance_count,
+            Self::CachedEffect { .. } => 0..1,
+        }
+    }
+
+    fn parent_stencil(&self) -> u32 {
+        match self {
+            Self::Empty => 0,
+            Self::Aggregated { parent_stencil, .. } | Self::CachedEffect { parent_stencil, .. } => {
+                *parent_stencil
+            }
+        }
+    }
+
+    fn uses_owned_geometry(&self) -> bool {
+        matches!(self, Self::CachedEffect { .. })
     }
 }
 
@@ -528,6 +670,8 @@ pub(super) fn flush_pending_leaf_batch(
         return;
     }
 
+    let pending_draw = std::mem::take(batch);
+
     // Ensure leaf pipeline is active.
     if currently_set_pipeline.current != Pipeline::LeafDraw {
         render_pass.set_pipeline(pipelines.leaf_draw_pipeline);
@@ -536,57 +680,28 @@ pub(super) fn flush_pending_leaf_batch(
         render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
         bound_texture_state.mark_bound(0, None);
         bound_texture_state.mark_bound(1, None);
-
-        if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current)
-            && !bind_aggregated_geometry_buffers(render_pass, buffers)
-        {
-            return;
-        }
-
         currently_set_pipeline.switch_to(Pipeline::LeafDraw);
     }
 
-    // Bind textures for the batch.
-    bind_shape_texture_layers(
-        render_pass,
-        batch.texture_ids,
-        pipelines.texture_manager,
-        pipelines.shape_texture_bind_group_layout_background,
-        pipelines.shape_texture_bind_group_layout_foreground,
-        pipelines.default_shape_texture_bind_groups,
-        pipelines.shape_texture_layout_epoch,
-        bound_texture_state,
-    );
-
-    // Bind the full aggregated instance buffers so the instances range selects
-    // the correct transform/color/metadata for each batched shape.
-    if let Some(instance_transform_buffer) = buffers.aggregated_instance_transform_buffer {
-        render_pass.set_vertex_buffer(1, instance_transform_buffer.slice(..));
-    } else {
-        render_pass.set_vertex_buffer(1, buffers.identity_instance_transform_buffer.slice(..));
+    if !pending_draw.bind_geometry(render_pass, buffers) {
+        return;
     }
-    if let Some(instance_color_buffer) = buffers.aggregated_instance_color_buffer {
-        render_pass.set_vertex_buffer(2, instance_color_buffer.slice(..));
-    } else {
-        render_pass.set_vertex_buffer(2, buffers.identity_instance_color_buffer.slice(..));
+    if pending_draw.uses_owned_geometry() {
+        render_pass.set_index_buffer(
+            pipelines.shape_effect_quad_index_buffer.slice(..),
+            wgpu::IndexFormat::Uint16,
+        );
     }
-    if let Some(instance_metadata_buffer) = buffers.aggregated_instance_metadata_buffer {
-        render_pass.set_vertex_buffer(3, instance_metadata_buffer.slice(..));
-    } else {
-        render_pass.set_vertex_buffer(3, buffers.identity_instance_metadata_buffer.slice(..));
+    pending_draw.bind_textures(render_pass, pipelines, bound_texture_state);
+    pending_draw.bind_instances(render_pass, buffers);
+    render_pass.set_stencil_reference(pending_draw.parent_stencil());
+    render_pass.draw_indexed(pending_draw.index_range(), 0, pending_draw.instance_range());
+
+    if pending_draw.uses_owned_geometry() {
+        // Other shared-pipeline draw helpers assume aggregated geometry is
+        // bound whenever a pipeline is active. Restore it after the owned quad.
+        bind_aggregated_geometry_buffers(render_pass, buffers);
     }
-
-    render_pass.set_stencil_reference(batch.parent_stencil);
-    let index_start = batch.index_range.0 as u32;
-    let index_end = (batch.index_range.0 + batch.index_range.1) as u32;
-    let first = batch.first_instance_index;
-    render_pass.draw_indexed(
-        index_start..index_end,
-        0,
-        first..first + batch.instance_count,
-    );
-
-    batch.instance_count = 0;
 }
 
 /// Try to add a leaf shape to the pending batch. Returns `true` if the shape
@@ -615,22 +730,40 @@ pub(super) fn try_batch_leaf(
     let texture_ids = [shape.texture_id(0), shape.texture_id(1)];
 
     if batch.is_empty() {
-        // Start a new batch.
-        batch.index_range = index_range;
-        batch.texture_ids = texture_ids;
-        batch.parent_stencil = parent_stencil;
-        batch.first_instance_index = instance_index;
-        batch.instance_count = 1;
+        *batch = PendingLeafBatch::Aggregated {
+            index_range,
+            texture_ids,
+            parent_stencil,
+            first_instance_index: instance_index,
+            instance_count: 1,
+        };
         return true;
     }
 
     if batch.matches(index_range, texture_ids, parent_stencil, instance_index) {
-        batch.instance_count += 1;
+        let PendingLeafBatch::Aggregated { instance_count, .. } = batch else {
+            unreachable!("only aggregated leaf batches can match another ordinary leaf")
+        };
+        *instance_count += 1;
         return true;
     }
 
     // Incompatible — caller must flush then handle this shape.
     false
+}
+
+fn queue_cached_shape_effect(
+    batch: &mut PendingLeafBatch,
+    cached_effect: &Arc<CachedShapeEffect>,
+    instance_index: Option<usize>,
+    parent_stencil: u32,
+) {
+    debug_assert!(batch.is_empty());
+    *batch = PendingLeafBatch::CachedEffect {
+        cached_effect: Arc::clone(cached_effect),
+        instance_index,
+        parent_stencil,
+    };
 }
 
 fn transform_point_to_logical_screen(
@@ -974,14 +1107,12 @@ fn composite_backdrop_foreground_layer(
     render_pass.draw(0..3, 0..1);
 }
 
-fn composite_shape_effect_for_node(
-    render_pass: &mut wgpu::RenderPass<'_>,
+fn queue_shape_effect_for_node(
     node_id: usize,
     draw_tree: &easy_tree::Tree<DrawCommand>,
     shape_effect_results: &HashMap<usize, Arc<CachedShapeEffect>>,
     parent_stencil: u32,
-    pipelines: &Pipelines,
-    buffers: &Buffers,
+    pending_leaf_batch: &mut PendingLeafBatch,
 ) -> bool {
     let Some(cached_shape_effect) = shape_effect_results.get(&node_id) else {
         return false;
@@ -990,13 +1121,11 @@ fn composite_shape_effect_for_node(
         return false;
     };
 
-    composite_cached_shape_effect(
-        render_pass,
+    queue_cached_shape_effect(
+        pending_leaf_batch,
         cached_shape_effect,
         cached_shape.instance_index,
         parent_stencil,
-        pipelines,
-        buffers,
     );
     true
 }
@@ -1159,20 +1288,16 @@ pub(super) fn render_segments(
                                 draw_tree.get(node_id)
                             {
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
-                                composite_cached_shape_effect(
-                                    &mut render_pass,
+                                queue_cached_shape_effect(
+                                    &mut pending_leaf_batch,
                                     cached_shape_effect,
                                     cached_shape.instance_index,
                                     parent_stencil,
-                                    pipelines,
-                                    buffers,
                                 );
                                 #[cfg(feature = "render_metrics")]
                                 {
                                     shape_effect_cache_metrics.composited_results += 1;
                                 }
-                                currently_set_pipeline.switch_to(Pipeline::None);
-                                bound_texture_state.invalidate();
                             }
                         }
 
@@ -1411,22 +1536,26 @@ pub(super) fn render_segments(
 
             if let Some(backdrop_node_id) = backdrop_node_id {
                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
-                if composite_shape_effect_for_node(
-                    &mut render_pass,
+                if queue_shape_effect_for_node(
                     backdrop_node_id,
                     draw_tree,
                     shape_effect_results,
                     parent_stencil,
-                    pipelines,
-                    buffers,
+                    &mut pending_leaf_batch,
                 ) {
                     #[cfg(feature = "render_metrics")]
                     {
                         shape_effect_cache_metrics.composited_results += 1;
                     }
-                    currently_set_pipeline.switch_to(Pipeline::None);
-                    bound_texture_state.invalidate();
                 }
+                flush_pending_leaf_batch(
+                    &mut pending_leaf_batch,
+                    &mut render_pass,
+                    &mut currently_set_pipeline,
+                    &mut bound_texture_state,
+                    pipelines,
+                    buffers,
+                );
             }
 
             is_first_segment = false;
@@ -1474,20 +1603,26 @@ pub(super) fn render_segments(
             }
             if let Some(backdrop_node_id) = backdrop_node_id {
                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
-                if composite_shape_effect_for_node(
-                    &mut render_pass,
+                if queue_shape_effect_for_node(
                     backdrop_node_id,
                     draw_tree,
                     shape_effect_results,
                     parent_stencil,
-                    pipelines,
-                    buffers,
+                    &mut pending_leaf_batch,
                 ) {
                     #[cfg(feature = "render_metrics")]
                     {
                         shape_effect_cache_metrics.composited_results += 1;
                     }
                 }
+                flush_pending_leaf_batch(
+                    &mut pending_leaf_batch,
+                    &mut render_pass,
+                    &mut currently_set_pipeline,
+                    &mut bound_texture_state,
+                    pipelines,
+                    buffers,
+                );
             }
             is_first_segment = false;
             currently_set_pipeline.switch_to(Pipeline::None);
