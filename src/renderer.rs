@@ -224,6 +224,10 @@ pub struct Renderer<'a> {
     shape_effects: HashMap<usize, ShapeEffectInstance>,
     /// Exact GPU results retained while referenced by consecutive rendered frames.
     shape_effect_cache: shape_effects::ShapeEffectResultCache,
+    /// Rasterized shape masks retained while referenced by consecutive rendered frames.
+    /// Keyed by geometry and rasterization parameters only, so masks are reused
+    /// across effect result cache misses (e.g. animated effect parameters).
+    shape_effect_mask_cache: shape_effects::ShapeEffectMaskCache,
     /// Pipeline and immutable geometry resources used by shape effects.
     shape_effect_resources: shape_effects::ShapeEffectRendererResources,
     /// Pool of offscreen textures for effect compositing.

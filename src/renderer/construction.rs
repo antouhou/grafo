@@ -411,6 +411,7 @@ impl<'a> Renderer<'a> {
             backdrop_effects: HashMap::new(),
             shape_effects: HashMap::new(),
             shape_effect_cache: FrameCache::new(),
+            shape_effect_mask_cache: FrameCache::new(),
             shape_effect_resources,
             offscreen_texture_pool: OffscreenTexturePool::new(),
             composite_pipeline: None,
@@ -861,6 +862,7 @@ impl<'a> Renderer<'a> {
         self.shape_texture_bind_group_layout_background = Arc::new(and_texture_bgl_layer0);
         self.shape_texture_bind_group_layout_foreground = Arc::new(and_texture_bgl_layer1);
         self.shape_effect_cache.clear();
+        self.shape_effect_mask_cache.clear();
         self.backdrop_texture_bind_group_layout =
             Arc::new(create_backdrop_texture_bind_group_layout(&self.device));
         self.shape_texture_layout_epoch += 1;

@@ -18,6 +18,7 @@ impl<'a> Renderer<'a> {
         if self.draw_tree.is_empty() {
             self.scratch.shape_effect_leaves.clear();
             let _collected_shape_effect_results = self.shape_effect_cache.end_frame();
+            let _collected_shape_effect_masks = self.shape_effect_mask_cache.end_frame();
             #[cfg(feature = "render_metrics")]
             {
                 self.last_shape_effect_cache_metrics = ShapeEffectCacheMetrics {

@@ -1,12 +1,18 @@
 //! Custom shader effects for groups, backdrops, and cacheable shape-local masks.
 //!
-//! Group effects process a rendered subtree, backdrop effects process previously rendered scene
-//! pixels, and shape effects process a padded white coverage mask without capturing scene content.
+//! A compiled effect can be attached in three fundamentally different ways, which differ in
+//! *what pixels the shader receives as input* — they are not alternative ways to run the
+//! same effect:
+//! - **Group effects** process a rendered subtree captured into an offscreen texture.
+//! - **Backdrop effects** process previously rendered scene pixels captured behind the node.
+//! - **Shape effects** process a padded white coverage mask of a single shape, without
+//!   capturing any scene content; the result texture is cached while shape and effect inputs
+//!   are unchanged.
 //!
 //! The system separates **loading** (compile once) from **attaching** (use per node, cheap):
 //! - `load_effect()` compiles a WGSL effect shader into a GPU pipeline, cached by `effect_id`.
-//! - `set_group_effect()` attaches a loaded effect to a specific draw tree node with per-instance parameters.
-//! - `set_shape_effect()` caches the generated texture while shape and effect inputs are unchanged.
+//! - `set_group_effect()`, `set_shape_backdrop_effect()`, and `set_shape_effect()` each attach
+//!   a loaded effect to a specific draw tree node with per-instance parameters.
 //!
 //! Multiple nodes can share the same loaded effect (same compiled pipeline), each with different parameters.
 

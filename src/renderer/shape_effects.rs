@@ -33,7 +33,10 @@ pub(super) struct ShapeEffectMaskUniform {
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(super) struct ShapeEffectRasterRect {
-    pub physical_origin: [i32; 2],
+    /// Origin in shape-local coordinates scaled to physical pixels. This is not a
+    /// screen position: node transforms are applied later, so moving a shape on
+    /// screen does not change this value.
+    pub local_physical_origin: [i32; 2],
     pub physical_size: [u32; 2],
     pub local_bounds: [(f32, f32); 2],
 }
@@ -111,7 +114,7 @@ pub(super) fn compute_shape_effect_raster_rect(
         return None;
     }
 
-    let physical_origin = [physical_minimum_x as i32, physical_minimum_y as i32];
+    let local_physical_origin = [physical_minimum_x as i32, physical_minimum_y as i32];
     let physical_width = physical_maximum_x - physical_minimum_x;
     let physical_height = physical_maximum_y - physical_minimum_y;
     if physical_width <= 0.0
@@ -124,7 +127,7 @@ pub(super) fn compute_shape_effect_raster_rect(
 
     let physical_size = [physical_width as u32, physical_height as u32];
     Some(ShapeEffectRasterRect {
-        physical_origin,
+        local_physical_origin,
         physical_size,
         local_bounds: [
             (
@@ -144,7 +147,9 @@ pub(super) struct ShapeEffectCacheKey {
     pub effect_id: u64,
     pub tessellation: Arc<CachedTessellation>,
     pub params: Arc<[u8]>,
-    pub raster_origin: [i32; 2],
+    /// Local-space raster origin (see [`ShapeEffectRasterRect::local_physical_origin`]).
+    /// Not a screen position, so node transforms do not invalidate the entry.
+    pub local_raster_origin: [i32; 2],
     pub raster_size: [u32; 2],
     pub scale_factor_bits: u64,
     pub fringe_width_bits: u32,
@@ -156,7 +161,7 @@ impl PartialEq for ShapeEffectCacheKey {
         self.effect_id == other.effect_id
             && Arc::ptr_eq(&self.tessellation, &other.tessellation)
             && self.params.as_ref() == other.params.as_ref()
-            && self.raster_origin == other.raster_origin
+            && self.local_raster_origin == other.local_raster_origin
             && self.raster_size == other.raster_size
             && self.scale_factor_bits == other.scale_factor_bits
             && self.fringe_width_bits == other.fringe_width_bits
@@ -171,13 +176,61 @@ impl Hash for ShapeEffectCacheKey {
         self.effect_id.hash(state);
         (Arc::as_ptr(&self.tessellation) as usize).hash(state);
         self.params.as_ref().hash(state);
-        self.raster_origin.hash(state);
+        self.local_raster_origin.hash(state);
         self.raster_size.hash(state);
         self.scale_factor_bits.hash(state);
         self.fringe_width_bits.hash(state);
         self.texture_format.hash(state);
     }
 }
+
+/// Key for the geometry-level mask cache. Unlike [`ShapeEffectCacheKey`], this
+/// intentionally excludes `effect_id` and `params`: the mask depends only on the
+/// shape geometry and how it is rasterized, so it can be reused across effect
+/// parameter changes (e.g. animated shadow color) and across different effects
+/// applied to the same geometry.
+#[derive(Clone)]
+pub(super) struct ShapeEffectMaskCacheKey {
+    pub tessellation: Arc<CachedTessellation>,
+    /// Local-space raster origin (see [`ShapeEffectRasterRect::local_physical_origin`]).
+    /// Not a screen position, so node transforms do not invalidate the entry.
+    pub local_raster_origin: [i32; 2],
+    pub raster_size: [u32; 2],
+    pub scale_factor_bits: u64,
+    pub fringe_width_bits: u32,
+    pub texture_format: wgpu::TextureFormat,
+}
+
+impl PartialEq for ShapeEffectMaskCacheKey {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.tessellation, &other.tessellation)
+            && self.local_raster_origin == other.local_raster_origin
+            && self.raster_size == other.raster_size
+            && self.scale_factor_bits == other.scale_factor_bits
+            && self.fringe_width_bits == other.fringe_width_bits
+            && self.texture_format == other.texture_format
+    }
+}
+
+impl Eq for ShapeEffectMaskCacheKey {}
+
+impl Hash for ShapeEffectMaskCacheKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (Arc::as_ptr(&self.tessellation) as usize).hash(state);
+        self.local_raster_origin.hash(state);
+        self.raster_size.hash(state);
+        self.scale_factor_bits.hash(state);
+        self.fringe_width_bits.hash(state);
+        self.texture_format.hash(state);
+    }
+}
+
+pub(super) struct CachedShapeEffectMask {
+    pub texture: PooledTexture,
+}
+
+pub(super) type ShapeEffectMaskCache =
+    FrameCache<ShapeEffectMaskCacheKey, Arc<CachedShapeEffectMask>>;
 
 pub(super) struct CachedShapeEffect {
     pub texture: PooledTexture,
@@ -481,7 +534,7 @@ impl<'a> Renderer<'a> {
                 effect_id: shape_effect_instance.effect_id,
                 tessellation: Arc::clone(&cached_shape.cached_shape.tessellation),
                 params: Arc::clone(&shape_effect_instance.params),
-                raster_origin: raster_rect.physical_origin,
+                local_raster_origin: raster_rect.local_physical_origin,
                 raster_size: raster_rect.physical_size,
                 scale_factor_bits: self.scale_factor.to_bits(),
                 fringe_width_bits: self.fringe_width.to_bits(),
@@ -509,52 +562,86 @@ impl<'a> Renderer<'a> {
             #[cfg(feature = "render_metrics")]
             {
                 metrics.misses += 1;
-                metrics.generated_masks += 1;
             }
-            let mask_texture = self.offscreen_texture_pool.acquire_color_only(
-                &self.device,
-                width,
-                height,
-                self.config.format,
-                1,
-            );
-            let mask_uniform = raster_rect.mask_uniform(self.scale_factor, self.fringe_width);
-            let mask_uniform_buffer = create_buffer_init(
-                &self.device,
-                Some("shape_effect_mask_uniform"),
-                bytemuck::bytes_of(&mask_uniform),
-                wgpu::BufferUsages::UNIFORM,
-            );
-            let mask_bind_group = create_mask_bind_group(
-                &self.device,
-                &self.shape_effect_resources.mask_bind_group_layout,
-                &mask_uniform_buffer,
-            );
 
+            // The mask depends only on geometry and rasterization parameters, so it
+            // is cached separately from the effect result and reused across effect
+            // cache misses (e.g. animated effect parameters).
+            let mask_cache_key = ShapeEffectMaskCacheKey {
+                tessellation: Arc::clone(&cached_shape.cached_shape.tessellation),
+                local_raster_origin: raster_rect.local_physical_origin,
+                raster_size: raster_rect.physical_size,
+                scale_factor_bits: self.scale_factor.to_bits(),
+                fringe_width_bits: self.fringe_width.to_bits(),
+                texture_format: self.config.format,
+            };
+            let cached_mask = if let Some(cached_mask) =
+                self.shape_effect_mask_cache.get(&mask_cache_key)
             {
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("shape_effect_mask_pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &mask_texture.color_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
+                #[cfg(feature = "render_metrics")]
+                {
+                    metrics.mask_hits += 1;
+                }
+                cached_mask
+            } else {
+                #[cfg(feature = "render_metrics")]
+                {
+                    metrics.generated_masks += 1;
+                }
+                let mask_texture = self.offscreen_texture_pool.acquire_color_only(
+                    &self.device,
+                    width,
+                    height,
+                    self.config.format,
+                    1,
+                );
+                let mask_uniform = raster_rect.mask_uniform(self.scale_factor, self.fringe_width);
+                let mask_uniform_buffer = create_buffer_init(
+                    &self.device,
+                    Some("shape_effect_mask_uniform"),
+                    bytemuck::bytes_of(&mask_uniform),
+                    wgpu::BufferUsages::UNIFORM,
+                );
+                let mask_bind_group = create_mask_bind_group(
+                    &self.device,
+                    &self.shape_effect_resources.mask_bind_group_layout,
+                    &mask_uniform_buffer,
+                );
+
+                {
+                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("shape_effect_mask_pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &mask_texture.color_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+                    render_pass.set_pipeline(&self.shape_effect_resources.mask_pipeline);
+                    render_pass.set_bind_group(0, &mask_bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, aggregated_vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(
+                        aggregated_index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint16,
+                    );
+                    let index_start = index_buffer_range.0 as u32;
+                    let index_end = (index_buffer_range.0 + index_buffer_range.1) as u32;
+                    render_pass.draw_indexed(index_start..index_end, 0, 0..1);
+                }
+
+                let cached_mask = Arc::new(CachedShapeEffectMask {
+                    texture: mask_texture,
                 });
-                render_pass.set_pipeline(&self.shape_effect_resources.mask_pipeline);
-                render_pass.set_bind_group(0, &mask_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, aggregated_vertex_buffer.slice(..));
-                render_pass
-                    .set_index_buffer(aggregated_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                let index_start = index_buffer_range.0 as u32;
-                let index_end = (index_buffer_range.0 + index_buffer_range.1) as u32;
-                render_pass.draw_indexed(index_start..index_end, 0, 0..1);
-            }
+                self.shape_effect_mask_cache
+                    .insert(mask_cache_key, Arc::clone(&cached_mask));
+                cached_mask
+            };
 
             let parameter_buffer = (!shape_effect_instance.params.is_empty()).then(|| {
                 create_buffer_init(
@@ -577,7 +664,7 @@ impl<'a> Renderer<'a> {
                 EffectPassRunConfig {
                     loaded_effect,
                     params_bind_group: parameter_bind_group.as_ref(),
-                    source_view: &mask_texture.color_view,
+                    source_view: &cached_mask.texture.color_view,
                     effect_sampler,
                     composite_bind_group_layout: &self.shape_texture_bind_group_layout_background,
                     create_composite_bind_group: true,
@@ -591,7 +678,6 @@ impl<'a> Renderer<'a> {
             {
                 metrics.executed_passes += loaded_effect.passes.len() as u64;
             }
-            textures_to_recycle.push(mask_texture);
             let (final_texture, texture_bind_group) =
                 effect_output.into_final_and_recyclable(textures_to_recycle);
             let cached_result = Arc::new(CachedShapeEffect {
@@ -640,7 +726,7 @@ mod tests {
             effect_id: 7,
             tessellation,
             params,
-            raster_origin: [-1, -1],
+            local_raster_origin: [-1, -1],
             raster_size: [12, 12],
             scale_factor_bits: 1.0f64.to_bits(),
             fringe_width_bits: 0.75f32.to_bits(),
@@ -658,7 +744,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(raster_rect.physical_origin, [-1, 0]);
+        assert_eq!(raster_rect.local_physical_origin, [-1, 0]);
         assert_eq!(raster_rect.physical_size, [29, 50]);
         assert_eq!(raster_rect.local_bounds, [(-0.5, 0.0), (14.0, 25.0)]);
     }
