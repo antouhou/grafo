@@ -56,6 +56,11 @@ where
             .retain(|cache_key, value| predicate(cache_key, value));
     }
 
+    pub(crate) fn clear(&mut self) {
+        self.previous_frame.clear();
+        self.current_frame.clear();
+    }
+
     pub(crate) fn end_frame(&mut self) -> usize {
         let collected_entry_count = self
             .previous_frame

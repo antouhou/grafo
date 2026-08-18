@@ -214,11 +214,19 @@ fn cached_shape_effect_is_shared_by_instances_and_survives_queue_rebuild() {
         8_102,
         Some(8_103),
     );
+    let root_id = renderer
+        .add_shape(
+            grafo::Shape::rect([(0.0, 0.0), (96.0, 48.0)], grafo::Stroke::default()),
+            None,
+            None,
+            grafo::ShapeDrawCommandOptions::new().clips_children(false),
+        )
+        .unwrap();
 
     let first_node = renderer
         .add_cached_shape_to_the_render_queue(
             8_102,
-            None,
+            Some(root_id),
             grafo::ShapeDrawCommandOptions::new()
                 .clips_children(false)
                 .transform(grafo::TransformInstance::translation(4.0, 12.0)),
@@ -227,7 +235,7 @@ fn cached_shape_effect_is_shared_by_instances_and_survives_queue_rebuild() {
     let second_node = renderer
         .add_cached_shape_to_the_render_queue(
             8_102,
-            None,
+            Some(root_id),
             grafo::ShapeDrawCommandOptions::new()
                 .transform(grafo::TransformInstance::translation(36.0, 12.0)),
         )
@@ -287,6 +295,14 @@ fn cached_shape_effects_share_the_normal_texture_pipeline() {
         8_152,
         Some(8_153),
     );
+    let root_id = renderer
+        .add_shape(
+            grafo::Shape::rect([(0.0, 0.0), (96.0, 48.0)], grafo::Stroke::default()),
+            None,
+            None,
+            grafo::ShapeDrawCommandOptions::new().clips_children(false),
+        )
+        .unwrap();
 
     for (translation_x, color) in [
         (8.0, grafo::Color::rgb(220, 50, 50)),
@@ -295,7 +311,7 @@ fn cached_shape_effects_share_the_normal_texture_pipeline() {
         let node_id = renderer
             .add_cached_shape_to_the_render_queue(
                 8_152,
-                None,
+                Some(root_id),
                 grafo::ShapeDrawCommandOptions::new()
                     .color(color)
                     .transform(grafo::TransformInstance::translation(translation_x, 12.0)),
@@ -327,7 +343,7 @@ fn cached_shape_effects_share_the_normal_texture_pipeline() {
 
 #[cfg(feature = "render_metrics")]
 #[test]
-fn cached_shape_effect_survives_normal_pipeline_recreation() {
+fn cached_shape_effect_is_invalidated_by_normal_pipeline_recreation() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
         return;
     };
@@ -357,8 +373,8 @@ fn cached_shape_effect_survives_normal_pipeline_recreation() {
     renderer.render_to_buffer(&mut pixels);
 
     let cache_metrics = renderer.last_shape_effect_cache_metrics();
-    assert_eq!(cache_metrics.hits, 1);
-    assert_eq!(cache_metrics.misses, 0);
+    assert_eq!(cache_metrics.hits, 0);
+    assert_eq!(cache_metrics.misses, 1);
     assert_eq!(read_pixel_rgba(&pixels, 64, 52, 32), [0, 0, 255, 255]);
 }
 

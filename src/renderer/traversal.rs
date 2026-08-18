@@ -75,7 +75,7 @@ pub(super) fn plan_traversal_in_place(
 
     let exclude_id = exclude_subtree_id;
 
-    let pre_fn = |node_id: usize, _draw_command: &mut DrawCommand, state: &mut TraversalScratch| {
+    let pre_fn = |node_id: usize, draw_command: &mut DrawCommand, state: &mut TraversalScratch| {
         // Handle excluded subtree: skip the node and all descendants entirely.
         if state.excluded_depth > 0 {
             state.excluded_depth += 1;
@@ -94,7 +94,8 @@ pub(super) fn plan_traversal_in_place(
             return;
         }
 
-        if !effect_results.contains_key(&node_id)
+        if draw_command.is_leaf()
+            && !effect_results.contains_key(&node_id)
             && prepared_shape_effect_leaves.contains_key(&node_id)
         {
             state.events.push(TraversalEvent::PreparedLeaf(node_id));
@@ -228,6 +229,37 @@ mod tests {
             &[
                 TraversalEvent::PreparedLeaf(root),
                 TraversalEvent::Pre(root),
+                TraversalEvent::Post(root),
+            ]
+        );
+    }
+
+    #[test]
+    fn plan_traversal_ignores_prepared_leaf_for_node_with_children() {
+        let mut tree = easy_tree::Tree::new();
+        let root = tree.add_node(DrawCommand::CachedShape(cached_draw_data()));
+        tree.get_mut(root).unwrap().set_not_leaf();
+        let child = tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
+        let mut prepared_leaves = HashMap::new();
+        prepared_leaves.insert(root, cached_draw_data());
+        let effect_results: HashMap<usize, wgpu::BindGroup> = HashMap::new();
+        let mut traversal_scratch = TraversalScratch::new();
+
+        plan_traversal_in_place(
+            &mut tree,
+            &effect_results,
+            &prepared_leaves,
+            None,
+            None,
+            &mut traversal_scratch,
+        );
+
+        assert_eq!(
+            traversal_scratch.events(),
+            &[
+                TraversalEvent::Pre(root),
+                TraversalEvent::Pre(child),
+                TraversalEvent::Post(child),
                 TraversalEvent::Post(root),
             ]
         );

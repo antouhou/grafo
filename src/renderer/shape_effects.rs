@@ -354,7 +354,13 @@ impl<'a> Renderer<'a> {
             .saturating_mul(4);
         let mut quad_index_buffer_range = None;
         for (&node_id, shape_effect) in &self.shape_effects {
-            let Some(DrawCommand::CachedShape(source_shape)) = self.draw_tree.get(node_id) else {
+            let Some(draw_command) = self.draw_tree.get(node_id) else {
+                continue;
+            };
+            if !draw_command.is_leaf() {
+                continue;
+            }
+            let DrawCommand::CachedShape(source_shape) = draw_command else {
                 continue;
             };
             let local_bounds = source_shape.cached_shape.tessellation.local_bounds;
