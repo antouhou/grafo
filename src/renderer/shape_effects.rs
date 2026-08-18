@@ -1,12 +1,11 @@
 // The bytemuck derive emits private compile-time helpers that trigger false unused warnings.
 #![allow(unused)]
 
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
-
-use bytemuck::{Pod, Zeroable};
-use lyon::tessellation::VertexBuffers;
-
+#[cfg(feature = "render_metrics")]
+use super::metrics::ShapeEffectCacheMetrics;
+use super::passes::{apply_effect_passes, EffectPassRunConfig};
+use super::types::DrawCommand;
+use super::Renderer;
 use crate::cache::{CachedTessellation, FrameCache};
 use crate::effect::{self, PooledTexture, ShapeEffectConfig};
 use crate::pipeline::create_buffer_init;
@@ -14,12 +13,10 @@ use crate::renderer::preparation::{self, InstanceTextureData};
 use crate::shape::{CachedShapeDrawData, CachedShapeHandle, ShapeTextureBinding};
 use crate::vertex::{CustomVertex, InstanceTransform};
 use crate::ShapeDrawCommandOptions;
-
-#[cfg(feature = "render_metrics")]
-use super::metrics::ShapeEffectCacheMetrics;
-use super::passes::{apply_effect_passes, EffectPassRunConfig};
-use super::types::DrawCommand;
-use super::Renderer;
+use bytemuck::{Pod, Zeroable};
+use lyon::tessellation::VertexBuffers;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 const SHAPE_EFFECT_MASK_SHADER: &str = include_str!("../shaders/shape_effect_mask.wgsl");
 
