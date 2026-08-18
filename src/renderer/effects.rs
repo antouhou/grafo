@@ -1,4 +1,8 @@
 use super::*;
+use crate::pipeline::{
+    create_backdrop_gradient_stencil_keep_color_pipeline,
+    create_backdrop_stencil_keep_color_pipeline, create_buffer_init, create_stencil_only_pipeline,
+};
 
 fn overwrite_effect_params(storage: &mut Vec<u8>, params: &[u8]) {
     storage.clear();
@@ -77,6 +81,25 @@ fn validate_backdrop_config(config: &effect::BackdropEffectConfig) -> Result<(),
     Ok(())
 }
 
+fn validate_shape_effect_config(config: &effect::ShapeEffectConfig) -> Result<(), EffectError> {
+    let outsets = [
+        config.left_outset,
+        config.top_outset,
+        config.right_outset,
+        config.bottom_outset,
+    ];
+    if outsets
+        .iter()
+        .any(|outset| !outset.is_finite() || *outset < 0.0)
+    {
+        return Err(EffectError::InvalidParams(
+            "shape effect outsets must be finite and non-negative".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 fn build_effect_instance(
     device: &wgpu::Device,
     loaded_effects: &HashMap<u64, LoadedEffect>,
@@ -92,6 +115,7 @@ fn build_effect_instance(
         params_bind_group: None,
         backdrop_config,
         backdrop_material_params_buffer: None,
+        backdrop_layer_params_buffer: None,
         backdrop_texture_bind_group: None,
         backdrop_texture_id: None,
     };
@@ -100,7 +124,7 @@ fn build_effect_instance(
         return instance;
     }
 
-    let buffer = crate::pipeline::create_buffer_init(
+    let buffer = create_buffer_init(
         device,
         Some(params_buffer_label),
         params,
@@ -139,7 +163,7 @@ fn update_effect_instance_params(
         }
     }
 
-    let new_buffer = crate::pipeline::create_buffer_init(
+    let new_buffer = create_buffer_init(
         device,
         Some(params_buffer_label),
         params,
@@ -157,15 +181,84 @@ fn update_effect_instance_params(
     instance.params_buffer = Some(new_buffer);
 }
 
+fn refresh_effect_instance_after_reload(
+    device: &wgpu::Device,
+    loaded_effect: &LoadedEffect,
+    instance: &mut EffectInstance,
+) -> bool {
+    if validate_params_expectation(
+        instance.effect_id,
+        loaded_effect.params_bind_group_layout.is_some(),
+        &instance.params,
+    )
+    .is_err()
+    {
+        return false;
+    }
+
+    if instance.params.is_empty() {
+        instance.params_buffer = None;
+        instance.params_bind_group = None;
+        return true;
+    }
+
+    let params_buffer = create_buffer_init(
+        device,
+        Some("reloaded_effect_params_buffer"),
+        &instance.params,
+        BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+    );
+    instance.params_bind_group = loaded_effect
+        .params_bind_group_layout
+        .as_ref()
+        .map(|layout| create_params_bind_group(device, layout, &params_buffer));
+    instance.params_buffer = Some(params_buffer);
+    true
+}
+
 impl<'a> Renderer<'a> {
     pub fn load_effect(
         &mut self,
         effect_id: u64,
         pass_sources: &[&str],
     ) -> Result<(), EffectError> {
+        if self.loaded_effects.get(&effect_id).is_some_and(|effect| {
+            effect.pass_sources.len() == pass_sources.len()
+                && effect
+                    .pass_sources
+                    .iter()
+                    .zip(pass_sources)
+                    .all(|(stored, requested)| stored.as_ref() == *requested)
+        }) {
+            return Ok(());
+        }
+
         let loaded_effect =
             compile_effect_pipeline(&self.device, pass_sources, self.config.format)?;
         self.loaded_effects.insert(effect_id, loaded_effect);
+        let loaded_effect = self
+            .loaded_effects
+            .get(&effect_id)
+            .expect("the newly compiled effect must be stored");
+        self.group_effects.retain(|_, instance| {
+            instance.effect_id != effect_id
+                || refresh_effect_instance_after_reload(&self.device, loaded_effect, instance)
+        });
+        self.backdrop_effects.retain(|_, instance| {
+            instance.effect_id != effect_id
+                || refresh_effect_instance_after_reload(&self.device, loaded_effect, instance)
+        });
+        self.shape_effects.retain(|_, instance| {
+            instance.effect_id != effect_id
+                || validate_params_expectation(
+                    effect_id,
+                    loaded_effect.params_bind_group_layout.is_some(),
+                    &instance.params,
+                )
+                .is_ok()
+        });
+        self.shape_effect_cache
+            .retain(|cache_key, _| cache_key.effect_id != effect_id);
         Ok(())
     }
 
@@ -312,12 +405,84 @@ impl<'a> Renderer<'a> {
         self.backdrop_effects.remove(&node_id);
     }
 
+    /// Attaches a cached shader effect generated from the node's local coverage mask.
+    pub fn set_shape_effect(
+        &mut self,
+        node_id: usize,
+        effect_id: u64,
+        params: &[u8],
+        config: effect::ShapeEffectConfig,
+    ) -> Result<(), EffectError> {
+        let draw_command = self
+            .draw_tree
+            .get(node_id)
+            .ok_or(EffectError::NodeNotFound(node_id))?;
+        if draw_command.is_clip_rect() {
+            return Err(EffectError::InvalidParams(
+                "clip rectangles do not support shape effects".to_string(),
+            ));
+        }
+
+        validate_effect_params(&self.loaded_effects, effect_id, params)?;
+        validate_shape_effect_config(&config)?;
+        self.shape_effects.insert(
+            node_id,
+            effect::ShapeEffectInstance {
+                effect_id,
+                params: Arc::from(params),
+                config,
+            },
+        );
+        Ok(())
+    }
+
+    /// Replaces the exact parameter bytes used by an attached cached shape effect.
+    pub fn update_shape_effect_params(
+        &mut self,
+        node_id: usize,
+        params: &[u8],
+    ) -> Result<(), EffectError> {
+        let effect_id = self
+            .shape_effects
+            .get(&node_id)
+            .ok_or(EffectError::NodeNotFound(node_id))?
+            .effect_id;
+        validate_effect_params(&self.loaded_effects, effect_id, params)?;
+        if let Some(instance) = self.shape_effects.get_mut(&node_id) {
+            instance.params = Arc::from(params);
+        }
+        Ok(())
+    }
+
+    /// Replaces the local-space padding used by an attached cached shape effect.
+    pub fn update_shape_effect_config(
+        &mut self,
+        node_id: usize,
+        config: effect::ShapeEffectConfig,
+    ) -> Result<(), EffectError> {
+        validate_shape_effect_config(&config)?;
+        let instance = self
+            .shape_effects
+            .get_mut(&node_id)
+            .ok_or(EffectError::NodeNotFound(node_id))?;
+        instance.config = config;
+        Ok(())
+    }
+
+    pub fn remove_shape_effect(&mut self, node_id: usize) {
+        self.shape_effects.remove(&node_id);
+    }
+
     pub fn unload_effect(&mut self, effect_id: u64) {
         self.loaded_effects.remove(&effect_id);
         self.group_effects
             .retain(|_, instance| instance.effect_id != effect_id);
         self.backdrop_effects
             .retain(|_, instance| instance.effect_id != effect_id);
+        self.shape_effects
+            .retain(|_, instance| instance.effect_id != effect_id);
+        self.shape_effect_cache
+            .retain(|cache_key, _| cache_key.effect_id != effect_id);
     }
 
     pub(super) fn ensure_composite_pipeline(&mut self) {
@@ -345,6 +510,17 @@ impl<'a> Renderer<'a> {
         ));
     }
 
+    pub(super) fn ensure_backdrop_layer_composite_pipeline(&mut self) {
+        if self.backdrop_layer_composite_pipeline.is_some() {
+            return;
+        }
+
+        let (pipeline, bind_group_layout) =
+            effect::compile_backdrop_layer_composite_pipeline(&self.device, self.config.format);
+        self.backdrop_layer_composite_pipeline = Some(pipeline);
+        self.backdrop_layer_composite_bind_group_layout = Some(bind_group_layout);
+    }
+
     pub(super) fn ensure_effect_sampler(&mut self) {
         if self.effect_sampler.is_none() {
             self.effect_sampler = Some(self.device.create_sampler(&wgpu::SamplerDescriptor {
@@ -365,7 +541,7 @@ impl<'a> Renderer<'a> {
         }
 
         let uniform_bind_group_layout = self.and_pipeline.get_bind_group_layout(0);
-        let pipeline = crate::pipeline::create_stencil_only_pipeline(
+        let pipeline = create_stencil_only_pipeline(
             &self.device,
             self.config.format,
             self.msaa_sample_count,
@@ -382,7 +558,7 @@ impl<'a> Renderer<'a> {
         }
 
         let uniform_bind_group_layout = self.and_pipeline.get_bind_group_layout(0);
-        let pipeline = crate::pipeline::create_backdrop_stencil_keep_color_pipeline(
+        let pipeline = create_backdrop_stencil_keep_color_pipeline(
             &self.device,
             self.config.format,
             self.msaa_sample_count,
@@ -400,7 +576,7 @@ impl<'a> Renderer<'a> {
         }
 
         let uniform_bind_group_layout = self.and_pipeline.get_bind_group_layout(0);
-        let pipeline = crate::pipeline::create_backdrop_gradient_stencil_keep_color_pipeline(
+        let pipeline = create_backdrop_gradient_stencil_keep_color_pipeline(
             &self.device,
             self.config.format,
             self.msaa_sample_count,
@@ -415,8 +591,10 @@ impl<'a> Renderer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_backdrop_config, validate_params_expectation};
-    use crate::effect::{BackdropCaptureArea, BackdropEffectConfig};
+    use super::{
+        validate_backdrop_config, validate_params_expectation, validate_shape_effect_config,
+    };
+    use crate::effect::{BackdropCaptureArea, BackdropEffectConfig, ShapeEffectConfig};
 
     #[test]
     fn validate_effect_params_rejects_missing_required_params() {
@@ -469,5 +647,19 @@ mod tests {
             BackdropCaptureArea::ScreenRect([(0.0, 0.0), (f32::INFINITY, 15.0)]),
         ));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_shape_effect_config_rejects_negative_or_non_finite_outsets() {
+        assert!(validate_shape_effect_config(&ShapeEffectConfig::new().outset(-1.0)).is_err());
+        assert!(
+            validate_shape_effect_config(&ShapeEffectConfig::new().outsets(
+                0.0,
+                f32::INFINITY,
+                0.0,
+                0.0
+            ))
+            .is_err()
+        );
     }
 }

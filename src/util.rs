@@ -4,6 +4,7 @@ use crate::gradient::gpu::{
 };
 use crate::gradient::sampling::bake_gradient_ramp;
 use crate::gradient::types::{GradientData, GradientRamp, GradientRampCacheKey};
+use crate::pipeline::create_buffer_init;
 use crate::shape::AaFringeScratch;
 use crate::vertex::CustomVertex;
 use lru::LruCache;
@@ -213,7 +214,7 @@ impl GradientCache {
             self.get_or_create_ramp_texture(gradient_data, device, queue)
         };
 
-        let params_buffer = crate::pipeline::create_buffer_init(
+        let params_buffer = create_buffer_init(
             device,
             Some("Material Params Buffer"),
             bytemuck::cast_slice(&[material_params]),

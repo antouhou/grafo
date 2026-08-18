@@ -1,14 +1,13 @@
-use std::sync::Arc;
-
-use ahash::{HashMap, HashMapExt};
-
+#[cfg(feature = "render_metrics")]
+use super::metrics::PipelineSwitchCounts;
+use super::traversal::TraversalScratch;
 use crate::effect::{self, LoadedEffect};
-use crate::shape::{CachedShapeDrawData, DrawShapeCommand};
+use crate::shape::{CachedShapeDrawData, DrawShapeCommand, ShapeTextureBinding};
 use crate::texture_manager::TextureManager;
 use crate::util::GradientCache;
 use crate::vertex::InstanceTransform;
-
-use super::traversal::TraversalScratch;
+use ahash::{HashMap, HashMapExt};
+use std::sync::Arc;
 
 // TODO: probably some parts of it also can be cached, so we don't need to copy it all the time.
 #[allow(clippy::large_enum_variant)]
@@ -73,7 +72,10 @@ impl DrawCommand {
 
     pub(super) fn texture_id(&self, layer: usize) -> Option<u64> {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.texture_id(layer),
+            DrawCommand::CachedShape(cached_shape) => cached_shape
+                .texture_bindings()
+                .get(layer)
+                .and_then(ShapeTextureBinding::managed_texture_id),
             DrawCommand::ClipRect(_) => None,
         }
     }
@@ -176,8 +178,9 @@ pub enum DrawCommandError {
     UnsupportedClipRectOperation(usize, &'static str),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum TraversalEvent {
+    PreparedLeaf(usize),
     Pre(usize),
     Post(usize),
 }
@@ -213,7 +216,7 @@ pub(super) enum ClipKind {
 pub(super) struct PipelineTracker {
     pub(super) current: Pipeline,
     #[cfg(feature = "render_metrics")]
-    pub(super) counts: super::metrics::PipelineSwitchCounts,
+    pub(super) counts: PipelineSwitchCounts,
 }
 
 impl PipelineTracker {
@@ -221,7 +224,7 @@ impl PipelineTracker {
         Self {
             current: Pipeline::None,
             #[cfg(feature = "render_metrics")]
-            counts: super::metrics::PipelineSwitchCounts::default(),
+            counts: PipelineSwitchCounts::default(),
         }
     }
 
@@ -258,14 +261,10 @@ impl PipelineTracker {
     }
 }
 
-/// Tracks the currently-bound texture bind groups to skip redundant `set_bind_group` calls.
-///
-/// Each layer stores the texture ID that is currently bound (`Some(id)` for a real texture,
-/// `None` for the default white texture). The outer `Option` distinguishes "unknown / first
-/// use" (`None`) from a known state (`Some(..)`).
-#[derive(Debug, Clone, Copy, Default)]
+/// Tracks the currently-bound texture sources to skip redundant `set_bind_group` calls.
+#[derive(Debug, Clone, Default)]
 pub(super) struct BoundTextureState {
-    layers: [Option<Option<u64>>; 2],
+    layers: [Option<ShapeTextureBinding>; 2],
 }
 
 impl BoundTextureState {
@@ -275,22 +274,24 @@ impl BoundTextureState {
         self.layers = [None, None];
     }
 
-    /// Returns `true` when the given texture id (or `None` for the default) is not
-    /// already bound on `layer`, and updates the tracked state.
-    pub(super) fn needs_rebind(&mut self, layer: usize, texture_id: Option<u64>) -> bool {
-        let current = self.layers[layer];
-        if current == Some(texture_id) {
+    /// Returns `true` when the given texture source is not already bound on `layer`.
+    pub(super) fn needs_rebind(
+        &mut self,
+        layer: usize,
+        texture_binding: &ShapeTextureBinding,
+    ) -> bool {
+        if self.layers[layer].as_ref() == Some(texture_binding) {
             return false;
         }
-        self.layers[layer] = Some(texture_id);
+        self.layers[layer] = Some(texture_binding.clone());
         true
     }
 
     /// Update the tracked state for `layer` without returning whether a rebind is
     /// needed. Use this when you know the bind group was just set (e.g. after a
     /// pipeline switch that binds default textures).
-    pub(super) fn mark_bound(&mut self, layer: usize, texture_id: Option<u64>) {
-        self.layers[layer] = Some(texture_id);
+    pub(super) fn mark_bound(&mut self, layer: usize, texture_binding: ShapeTextureBinding) {
+        self.layers[layer] = Some(texture_binding);
     }
 }
 
@@ -320,6 +321,35 @@ pub(super) struct Pipelines<'a> {
     pub(super) texture_manager: &'a TextureManager,
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum BackdropSource<'a> {
+    /// The source already contains every layer painted before the backdrop node.
+    Flattened { texture: &'a wgpu::Texture },
+    /// Group rendering keeps the outside scene separate from its transparent subtree output.
+    Layered {
+        base_texture: &'a wgpu::Texture,
+        foreground_view: &'a wgpu::TextureView,
+    },
+}
+
+impl<'a> BackdropSource<'a> {
+    pub(super) fn base_texture(self) -> &'a wgpu::Texture {
+        match self {
+            Self::Flattened { texture } => texture,
+            Self::Layered { base_texture, .. } => base_texture,
+        }
+    }
+
+    pub(super) fn foreground_view(self) -> Option<&'a wgpu::TextureView> {
+        match self {
+            Self::Flattened { .. } => None,
+            Self::Layered {
+                foreground_view, ..
+            } => Some(foreground_view),
+        }
+    }
+}
+
 /// Backdrop-specific rendering resources. Only needed when backdrop effects exist.
 /// General resources (pipelines, buffers, textures) are passed separately.
 pub(super) struct BackdropContext<'a> {
@@ -328,6 +358,8 @@ pub(super) struct BackdropContext<'a> {
     pub(super) effect_sampler: &'a wgpu::Sampler,
     pub(super) gradient_ramp_sampler: &'a wgpu::Sampler,
     pub(super) texture_blit_pipeline: &'a wgpu::RenderPipeline,
+    pub(super) backdrop_layer_composite_pipeline: &'a wgpu::RenderPipeline,
+    pub(super) backdrop_layer_composite_bind_group_layout: &'a wgpu::BindGroupLayout,
     pub(super) stencil_only_pipeline: &'a wgpu::RenderPipeline,
     pub(super) backdrop_color_pipeline: &'a wgpu::RenderPipeline,
     pub(super) backdrop_color_gradient_pipeline: &'a wgpu::RenderPipeline,
@@ -341,6 +373,7 @@ pub(super) struct BackdropContext<'a> {
 }
 
 const MAX_EFFECT_RESULTS_CAPACITY: usize = 4_096;
+const MAX_SHAPE_EFFECT_LEAVES_CAPACITY: usize = 4_096;
 const MAX_EFFECT_NODE_IDS_CAPACITY: usize = 4_096;
 const MAX_TEXTURE_RECYCLE_CAPACITY: usize = 1_024;
 const MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY: usize = 2_048;
@@ -351,6 +384,7 @@ const MAX_READBACK_BYTES_CAPACITY: usize = 64 * 1024 * 1024;
 
 pub(super) struct RendererScratch {
     pub(super) effect_results: HashMap<usize, wgpu::BindGroup>,
+    pub(super) shape_effect_leaves: HashMap<usize, CachedShapeDrawData>,
     pub(super) effect_node_ids: Vec<(usize, usize)>,
     pub(super) textures_to_recycle: Vec<effect::PooledTexture>,
     pub(super) effect_output_textures: Vec<effect::PooledTexture>,
@@ -373,6 +407,7 @@ impl RendererScratch {
     pub(super) fn new() -> Self {
         Self {
             effect_results: HashMap::new(),
+            shape_effect_leaves: HashMap::new(),
             effect_node_ids: Vec::new(),
             textures_to_recycle: Vec::new(),
             effect_output_textures: Vec::new(),
@@ -388,6 +423,7 @@ impl RendererScratch {
 
     pub(super) fn begin_frame(&mut self) {
         self.effect_results.clear();
+        self.shape_effect_leaves.clear();
         self.effect_node_ids.clear();
         self.textures_to_recycle.clear();
         self.effect_output_textures.clear();
@@ -403,6 +439,10 @@ impl RendererScratch {
 
     pub(super) fn trim_to_policy(&mut self) {
         trim_hash_map_if_needed(&mut self.effect_results, MAX_EFFECT_RESULTS_CAPACITY);
+        trim_hash_map_if_needed(
+            &mut self.shape_effect_leaves,
+            MAX_SHAPE_EFFECT_LEAVES_CAPACITY,
+        );
         trim_vector_if_needed(&mut self.effect_node_ids, MAX_EFFECT_NODE_IDS_CAPACITY);
         trim_vector_if_needed(&mut self.textures_to_recycle, MAX_TEXTURE_RECYCLE_CAPACITY);
         trim_vector_if_needed(
@@ -459,7 +499,10 @@ pub(super) fn decide_buffer_sizing(
 
 #[cfg(test)]
 mod tests {
-    use super::{decide_buffer_sizing, RendererScratch};
+    use super::{
+        decide_buffer_sizing, RendererScratch, MAX_EFFECT_NODE_IDS_CAPACITY,
+        MAX_READBACK_BYTES_CAPACITY,
+    };
 
     #[test]
     fn decide_buffer_sizing_reallocates_when_missing() {
@@ -495,11 +538,11 @@ mod tests {
         let mut scratch = RendererScratch::new();
         scratch
             .effect_node_ids
-            .resize(super::MAX_EFFECT_NODE_IDS_CAPACITY + 2_048, (0, 0));
+            .resize(MAX_EFFECT_NODE_IDS_CAPACITY + 2_048, (0, 0));
         scratch.effect_node_ids.clear();
 
         scratch.trim_to_policy();
-        assert!(scratch.effect_node_ids.capacity() <= super::MAX_EFFECT_NODE_IDS_CAPACITY);
+        assert!(scratch.effect_node_ids.capacity() <= MAX_EFFECT_NODE_IDS_CAPACITY);
     }
 
     #[test]
@@ -507,10 +550,10 @@ mod tests {
         let mut scratch = RendererScratch::new();
         scratch
             .readback_bytes
-            .resize(super::MAX_READBACK_BYTES_CAPACITY + 1_024, 0);
+            .resize(MAX_READBACK_BYTES_CAPACITY + 1_024, 0);
 
         scratch.trim_to_policy();
 
-        assert!(scratch.readback_bytes.len() <= super::MAX_READBACK_BYTES_CAPACITY);
+        assert!(scratch.readback_bytes.len() <= MAX_READBACK_BYTES_CAPACITY);
     }
 }

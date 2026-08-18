@@ -1,18 +1,24 @@
-//! Effect system for group compositing with custom shaders.
+//! Custom shader effects for groups, backdrops, and cacheable shape-local masks.
 //!
-//! This module provides the infrastructure for rendering subtrees to offscreen textures,
-//! applying user-defined WGSL post-processing effects, and compositing the results back
-//! into the parent render target.
+//! A compiled effect can be attached in three fundamentally different ways, which differ in
+//! *what pixels the shader receives as input* — they are not alternative ways to run the
+//! same effect:
+//! - **Group effects** process a rendered subtree captured into an offscreen texture.
+//! - **Backdrop effects** process previously rendered scene pixels captured behind the node.
+//! - **Shape effects** process a padded white coverage mask of a single shape, without
+//!   capturing any scene content; the result texture is cached while shape and effect inputs
+//!   are unchanged.
 //!
 //! The system separates **loading** (compile once) from **attaching** (use per node, cheap):
 //! - `load_effect()` compiles a WGSL effect shader into a GPU pipeline, cached by `effect_id`.
-//! - `set_group_effect()` attaches a loaded effect to a specific draw tree node with per-instance parameters.
+//! - `set_group_effect()`, `set_shape_backdrop_effect()`, and `set_shape_effect()` each attach
+//!   a loaded effect to a specific draw tree node with per-instance parameters.
 //!
 //! Multiple nodes can share the same loaded effect (same compiled pipeline), each with different parameters.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::Hash;
-use std::sync::OnceLock;
+use crate::gradient::gpu::GpuMaterialParams;
+use crate::pipeline::{create_buffer_init, BackdropSamplingUniform};
+use std::sync::{Arc, OnceLock};
 
 // ── Error type ───────────────────────────────────────────────────────────────
 
@@ -91,45 +97,57 @@ impl BackdropEffectConfig {
     }
 }
 
+/// Padding around a shape's local bounds for a cached shape effect.
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub struct ShapeEffectConfig {
+    /// Logical-space distance added to the left of the shape's local bounds.
+    pub left_outset: f32,
+    /// Logical-space distance added above the shape's local bounds.
+    pub top_outset: f32,
+    /// Logical-space distance added to the right of the shape's local bounds.
+    pub right_outset: f32,
+    /// Logical-space distance added below the shape's local bounds.
+    pub bottom_outset: f32,
+}
+
+impl ShapeEffectConfig {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets all four outsets to the same logical-space distance.
+    pub fn outset(mut self, outset: f32) -> Self {
+        self.left_outset = outset;
+        self.top_outset = outset;
+        self.right_outset = outset;
+        self.bottom_outset = outset;
+        self
+    }
+
+    /// Sets the left, top, right, and bottom logical-space outsets.
+    pub fn outsets(mut self, left: f32, top: f32, right: f32, bottom: f32) -> Self {
+        self.left_outset = left;
+        self.top_outset = top;
+        self.right_outset = right;
+        self.bottom_outset = bottom;
+        self
+    }
+}
+
 // ── Built-in shaders ─────────────────────────────────────────────────────────
 
 /// Built-in vertex shader for drawing a fullscreen triangle (3 vertices, no vertex buffer).
 /// Used both by effect apply passes and the composite pass.
-pub(crate) const FULLSCREEN_QUAD_VS: &str = r#"
-struct QuadOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-};
-
-@vertex
-fn vs_quad(@builtin(vertex_index) vi: u32) -> QuadOutput {
-    // Fullscreen triangle trick: 3 vertices cover the entire screen
-    let uv = vec2<f32>(f32((vi << 1u) & 2u), f32(vi & 2u));
-    var out: QuadOutput;
-    out.position = vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
-    out.uv = vec2<f32>(uv.x, 1.0 - uv.y);
-    return out;
-}
-"#;
+pub(crate) const FULLSCREEN_QUAD_VS: &str = include_str!("shaders/fullscreen_quad_vs.wgsl");
 
 /// Built-in fragment shader preamble providing the input texture bindings.
 /// This is prepended to the user's effect fragment shader.
-pub(crate) const EFFECT_FS_PREAMBLE: &str = r#"
-// -- Provided by the engine (group 0) --
-@group(0) @binding(0) var t_input: texture_2d<f32>;
-@group(0) @binding(1) var s_input: sampler;
-"#;
+pub(crate) const EFFECT_FS_PREAMBLE: &str = include_str!("shaders/effect_fs_preamble.wgsl");
 
 /// Simple passthrough fragment shader for compositing effect results back into the parent target.
-pub(crate) const COMPOSITE_FS: &str = r#"
-@group(0) @binding(0) var t_input: texture_2d<f32>;
-@group(0) @binding(1) var s_input: sampler;
+pub(crate) const COMPOSITE_FS: &str = include_str!("shaders/composite_fs.wgsl");
 
-@fragment
-fn fs_composite(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    return textureSample(t_input, s_input, uv);
-}
-"#;
+const BACKDROP_LAYER_COMPOSITE_FS: &str = include_str!("shaders/backdrop_layer_composite_fs.wgsl");
 
 // ── Loaded effect (compiled pipeline) ────────────────────────────────────────
 
@@ -145,6 +163,8 @@ pub(crate) struct LoadedEffectPass {
 /// Multiple nodes can reference the same LoadedEffect.
 /// Supports single-pass and multi-pass effects (e.g., separable Gaussian blur).
 pub(crate) struct LoadedEffect {
+    /// Exact pass sources used to compile this effect.
+    pub pass_sources: Box<[Box<str>]>,
     /// Compiled passes, executed sequentially with ping-pong textures.
     pub passes: Vec<LoadedEffectPass>,
     /// A bind group layout for the input texture (group 0): texture and sampler.
@@ -152,6 +172,14 @@ pub(crate) struct LoadedEffect {
     /// Bind group layout for the user's parameter uniform (group 1).
     /// None if no pass uses user params. Shared across all passes that reference it.
     pub params_bind_group_layout: Option<wgpu::BindGroupLayout>,
+}
+
+/// A cached shape effect attachment. GPU parameter resources are created only on cache misses.
+#[derive(Clone)]
+pub(crate) struct ShapeEffectInstance {
+    pub effect_id: u64,
+    pub params: Arc<[u8]>,
+    pub config: ShapeEffectConfig,
 }
 
 // ── Per-node effect instance ─────────────────────────────────────────────────
@@ -172,10 +200,24 @@ pub(crate) struct EffectInstance {
     pub backdrop_config: Option<BackdropEffectConfig>,
     /// Persistent uniform buffer for backdrop material params bound at group 3 binding 0.
     pub backdrop_material_params_buffer: Option<wgpu::Buffer>,
+    /// Persistent uniform buffer for compositing a group subtree into its backdrop capture.
+    pub backdrop_layer_params_buffer: Option<wgpu::Buffer>,
     /// Cached backdrop bind group reused while the captured output texture identity is stable.
     pub backdrop_texture_bind_group: Option<wgpu::BindGroup>,
     /// Stable id of the pooled texture currently referenced by `backdrop_texture_bind_group`.
     pub backdrop_texture_id: Option<u64>,
+}
+
+pub(crate) fn backdrop_layer_params(
+    capture_origin: (i32, i32),
+    source_size: (u32, u32),
+) -> [i32; 4] {
+    [
+        capture_origin.0,
+        capture_origin.1,
+        i32::try_from(source_size.0).unwrap_or(i32::MAX),
+        i32::try_from(source_size.1).unwrap_or(i32::MAX),
+    ]
 }
 
 // ── Offscreen texture pool ───────────────────────────────────────────────────
@@ -482,11 +524,9 @@ pub(crate) fn compile_effect_pipeline(
         None
     };
 
-    let mut hasher = DefaultHasher::new();
     let mut passes = Vec::with_capacity(pass_sources.len());
 
     for (i, &source) in pass_sources.iter().enumerate() {
-        source.hash(&mut hasher);
         let full_wgsl = build_effect_wgsl(source);
         let pass_has_params = has_user_params(source);
 
@@ -563,6 +603,10 @@ pub(crate) fn compile_effect_pipeline(
     }
 
     Ok(LoadedEffect {
+        pass_sources: pass_sources
+            .iter()
+            .map(|source| Box::<str>::from(*source))
+            .collect(),
         passes,
         input_bind_group_layout: input_bgl,
         params_bind_group_layout: params_bgl,
@@ -701,6 +745,98 @@ pub(crate) fn compile_texture_blit_pipeline(
     })
 }
 
+/// Compile a fullscreen pipeline that overlays an already-rendered transparent group prefix
+/// onto a backdrop capture using premultiplied-alpha blending.
+pub(crate) fn compile_backdrop_layer_composite_pipeline(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
+    let shader_source = format!("{FULLSCREEN_QUAD_VS}\n{BACKDROP_LAYER_COMPOSITE_FS}");
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("backdrop_layer_composite_shader"),
+        source: wgpu::ShaderSource::Wgsl(shader_source.into()),
+    });
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("backdrop_layer_composite_bind_group_layout"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("backdrop_layer_composite_pipeline_layout"),
+        bind_group_layouts: &[&bind_group_layout],
+        push_constant_ranges: &[],
+    });
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("backdrop_layer_composite_pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_quad"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_backdrop_layer"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    });
+
+    (pipeline, bind_group_layout)
+}
+
+pub(crate) fn create_backdrop_layer_composite_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    foreground_view: &wgpu::TextureView,
+    params_buffer: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("backdrop_layer_composite_bind_group"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(foreground_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: params_buffer.as_entire_binding(),
+            },
+        ],
+    })
+}
+
 /// Create a bind group to sample a texture (for effect input or composite input).
 pub(crate) fn create_texture_sample_bind_group(
     device: &wgpu::Device,
@@ -757,15 +893,14 @@ pub(crate) fn prepare_solid_backdrop_material_params_buffer(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     backdrop_material_params_buffer: &mut Option<wgpu::Buffer>,
-    sampling_uniform: crate::pipeline::BackdropSamplingUniform,
+    sampling_uniform: BackdropSamplingUniform,
 ) -> wgpu::Buffer {
-    let material_params =
-        crate::gradient::gpu::GpuMaterialParams::for_backdrop_sampling(sampling_uniform);
+    let material_params = GpuMaterialParams::for_backdrop_sampling(sampling_uniform);
 
     if let Some(existing_buffer) = backdrop_material_params_buffer.as_ref() {
         queue.write_buffer(existing_buffer, 0, bytemuck::bytes_of(&material_params));
     } else {
-        *backdrop_material_params_buffer = Some(crate::pipeline::create_buffer_init(
+        *backdrop_material_params_buffer = Some(create_buffer_init(
             device,
             Some("solid_backdrop_material_params_buffer"),
             bytemuck::bytes_of(&material_params),
@@ -776,6 +911,29 @@ pub(crate) fn prepare_solid_backdrop_material_params_buffer(
     backdrop_material_params_buffer
         .as_ref()
         .expect("backdrop material params buffer should be initialized")
+        .clone()
+}
+
+pub(crate) fn prepare_backdrop_layer_params_buffer(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    backdrop_layer_params_buffer: &mut Option<wgpu::Buffer>,
+    layer_params: [i32; 4],
+) -> wgpu::Buffer {
+    if let Some(existing_buffer) = backdrop_layer_params_buffer.as_ref() {
+        queue.write_buffer(existing_buffer, 0, bytemuck::bytes_of(&layer_params));
+    } else {
+        *backdrop_layer_params_buffer = Some(create_buffer_init(
+            device,
+            Some("backdrop_layer_params_buffer"),
+            bytemuck::bytes_of(&layer_params),
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        ));
+    }
+
+    backdrop_layer_params_buffer
+        .as_ref()
+        .expect("backdrop layer params buffer should be initialized")
         .clone()
 }
 

@@ -42,6 +42,54 @@ fn assert_pixels_match(pixel_buffer: &[u8], expectations: &[grafo_test_scenes::P
     }
 }
 
+#[test]
+fn shape_effect_is_resolved_before_backdrop_capture_with_msaa() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
+        return;
+    };
+    renderer.set_msaa_samples(4);
+    renderer
+        .load_effect(9_101, &[CACHED_SHAPE_EFFECT_BLUE_DROP])
+        .expect("to load the MSAA shape effect");
+    renderer
+        .load_effect(9_102, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
+        .expect("to load the MSAA backdrop effect");
+
+    renderer
+        .add_shape(
+            grafo::Shape::rect([(0.0, 0.0), (64.0, 64.0)], grafo::Stroke::default()),
+            None,
+            None,
+            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(220, 200, 50)),
+        )
+        .unwrap();
+    let panel_id = renderer
+        .add_shape(
+            grafo::Shape::rect([(16.0, 16.0), (48.0, 48.0)], grafo::Stroke::default()),
+            None,
+            Some(9_103),
+            grafo::ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            panel_id,
+            9_101,
+            &[],
+            grafo::ShapeEffectConfig::new().outset(12.0),
+        )
+        .expect("to attach the MSAA shape effect");
+    renderer
+        .set_shape_backdrop_effect(panel_id, 9_102, &[], grafo::BackdropEffectConfig::default())
+        .expect("to attach the MSAA backdrop effect");
+
+    let mut pixel_buffer = Vec::new();
+    renderer.render_to_buffer(&mut pixel_buffer);
+
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 64, 32, 32), [0, 0, 255, 255]);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 64, 52, 32), [0, 0, 255, 255]);
+}
+
 fn read_pixel_rgba(pixel_buffer: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
     let stride = (width as usize) * 4;
     let offset = (y as usize) * stride + (x as usize) * 4;
@@ -52,6 +100,368 @@ fn read_pixel_rgba(pixel_buffer: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
         pixel_buffer[offset],
         pixel_buffer[offset + 3],
     ]
+}
+
+const CACHED_SHAPE_EFFECT_PASSTHROUGH: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    return textureSample(t_input, s_input, uv);
+}
+"#;
+
+const CACHED_SHAPE_EFFECT_BLUE_DROP: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let dimensions = vec2<f32>(textureDimensions(t_input));
+    let coverage = textureSample(t_input, s_input, uv - vec2<f32>(8.0) / dimensions).a;
+    return vec4<f32>(0.0, 0.0, coverage, coverage);
+}
+"#;
+
+#[cfg(feature = "render_metrics")]
+const CACHED_SHAPE_EFFECT_RED_MASK: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let coverage = textureSample(t_input, s_input, uv).a;
+    return vec4<f32>(coverage, 0.0, 0.0, coverage);
+}
+"#;
+
+#[cfg(feature = "render_metrics")]
+const PARAMETERIZED_CACHED_SHAPE_EFFECT: &str = r#"
+struct Params {
+    color: vec4<f32>,
+}
+@group(1) @binding(0) var<uniform> params: Params;
+
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    return params.color * textureSample(t_input, s_input, uv).a;
+}
+"#;
+
+#[cfg(feature = "render_metrics")]
+#[test]
+fn unchanged_shape_effect_reuses_exact_gpu_result_and_collects_when_unused() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
+        return;
+    };
+    renderer
+        .load_effect(8_001, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
+        .unwrap();
+    let shape_id = renderer
+        .add_shape(
+            grafo::Shape::rect([(16.0, 16.0), (48.0, 48.0)], grafo::Stroke::default()),
+            None,
+            Some(8_002),
+            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(220, 50, 50)),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            shape_id,
+            8_001,
+            &[],
+            grafo::ShapeEffectConfig::new().outset(4.0),
+        )
+        .unwrap();
+
+    let mut pixels = Vec::new();
+    renderer.render_to_buffer(&mut pixels);
+    let first_frame = renderer.last_shape_effect_cache_metrics();
+    assert_eq!(first_frame.misses, 1);
+    assert_eq!(first_frame.hits, 0);
+    assert_eq!(first_frame.generated_masks, 1);
+    assert_eq!(first_frame.executed_passes, 1);
+
+    renderer
+        .load_effect(8_001, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
+        .unwrap();
+    renderer.render_to_buffer(&mut pixels);
+    let second_frame = renderer.last_shape_effect_cache_metrics();
+    assert_eq!(second_frame.hits, 1);
+    assert_eq!(second_frame.misses, 0);
+    assert_eq!(second_frame.generated_masks, 0);
+    assert_eq!(second_frame.executed_passes, 0);
+
+    renderer
+        .load_effect(8_001, &[CACHED_SHAPE_EFFECT_RED_MASK])
+        .unwrap();
+    renderer.render_to_buffer(&mut pixels);
+    let replaced_effect_frame = renderer.last_shape_effect_cache_metrics();
+    assert_eq!(replaced_effect_frame.misses, 1);
+    assert_eq!(replaced_effect_frame.hits, 0);
+
+    renderer.remove_shape_effect(shape_id);
+    renderer.render_to_buffer(&mut pixels);
+    assert_eq!(
+        renderer.last_shape_effect_cache_metrics().collected_results,
+        1
+    );
+}
+
+#[cfg(feature = "render_metrics")]
+#[test]
+fn cached_shape_effect_is_shared_by_instances_and_survives_queue_rebuild() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 48), 1.0) else {
+        return;
+    };
+    renderer
+        .load_effect(8_101, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
+        .unwrap();
+    renderer.load_shape(
+        grafo::Shape::rect([(0.0, 0.0), (24.0, 24.0)], grafo::Stroke::default()),
+        8_102,
+        Some(8_103),
+    );
+    let root_id = renderer
+        .add_shape(
+            grafo::Shape::rect([(0.0, 0.0), (96.0, 48.0)], grafo::Stroke::default()),
+            None,
+            None,
+            grafo::ShapeDrawCommandOptions::new().clips_children(false),
+        )
+        .unwrap();
+
+    let first_node = renderer
+        .add_cached_shape_to_the_render_queue(
+            8_102,
+            Some(root_id),
+            grafo::ShapeDrawCommandOptions::new()
+                .clips_children(false)
+                .transform(grafo::TransformInstance::translation(4.0, 12.0)),
+        )
+        .unwrap();
+    let second_node = renderer
+        .add_cached_shape_to_the_render_queue(
+            8_102,
+            Some(root_id),
+            grafo::ShapeDrawCommandOptions::new()
+                .transform(grafo::TransformInstance::translation(36.0, 12.0)),
+        )
+        .unwrap();
+    for node_id in [first_node, second_node] {
+        renderer
+            .set_shape_effect(
+                node_id,
+                8_101,
+                &[],
+                grafo::ShapeEffectConfig::new().outset(3.0),
+            )
+            .unwrap();
+    }
+
+    let mut pixels = Vec::new();
+    renderer.render_to_buffer(&mut pixels);
+    let shared_frame = renderer.last_shape_effect_cache_metrics();
+    assert_eq!(shared_frame.misses, 1);
+    assert_eq!(shared_frame.hits, 1);
+
+    renderer.clear_draw_queue();
+    let rebuilt_node = renderer
+        .add_cached_shape_to_the_render_queue(
+            8_102,
+            None,
+            grafo::ShapeDrawCommandOptions::new()
+                .transform(grafo::TransformInstance::translation(68.0, 12.0)),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            rebuilt_node,
+            8_101,
+            &[],
+            grafo::ShapeEffectConfig::new().outset(3.0),
+        )
+        .unwrap();
+    renderer.render_to_buffer(&mut pixels);
+
+    let rebuilt_frame = renderer.last_shape_effect_cache_metrics();
+    assert_eq!(rebuilt_frame.hits, 1);
+    assert_eq!(rebuilt_frame.misses, 0);
+}
+
+#[cfg(feature = "render_metrics")]
+#[test]
+fn cached_shape_effects_share_the_normal_texture_pipeline() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 48), 1.0) else {
+        return;
+    };
+    renderer
+        .load_effect(8_151, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
+        .unwrap();
+    renderer.load_shape(
+        grafo::Shape::rect([(0.0, 0.0), (24.0, 24.0)], grafo::Stroke::default()),
+        8_152,
+        Some(8_153),
+    );
+    let root_id = renderer
+        .add_shape(
+            grafo::Shape::rect([(0.0, 0.0), (96.0, 48.0)], grafo::Stroke::default()),
+            None,
+            None,
+            grafo::ShapeDrawCommandOptions::new().clips_children(false),
+        )
+        .unwrap();
+
+    for (translation_x, color) in [
+        (8.0, grafo::Color::rgb(220, 50, 50)),
+        (48.0, grafo::Color::rgb(50, 90, 220)),
+    ] {
+        let node_id = renderer
+            .add_cached_shape_to_the_render_queue(
+                8_152,
+                Some(root_id),
+                grafo::ShapeDrawCommandOptions::new()
+                    .color(color)
+                    .transform(grafo::TransformInstance::translation(translation_x, 12.0)),
+            )
+            .unwrap();
+        renderer
+            .set_shape_effect(
+                node_id,
+                8_151,
+                &[],
+                grafo::ShapeEffectConfig::new().outset(3.0),
+            )
+            .unwrap();
+    }
+
+    let mut pixels = Vec::new();
+    renderer.render_to_buffer(&mut pixels);
+    renderer.render_to_buffer(&mut pixels);
+
+    let cache_metrics = renderer.last_shape_effect_cache_metrics();
+    assert_eq!(cache_metrics.hits, 2);
+    assert_eq!(cache_metrics.misses, 0);
+
+    let pipeline_switches = renderer.last_pipeline_switch_counts();
+    assert_eq!(pipeline_switches.to_leaf_draw, 1);
+    assert_eq!(pipeline_switches.to_composite, 0);
+    assert_eq!(pipeline_switches.total_switches, 1);
+}
+
+#[cfg(feature = "render_metrics")]
+#[test]
+fn cached_shape_effect_is_invalidated_by_normal_pipeline_recreation() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
+        return;
+    };
+    renderer
+        .load_effect(8_161, &[CACHED_SHAPE_EFFECT_BLUE_DROP])
+        .unwrap();
+    let shape_id = renderer
+        .add_shape(
+            grafo::Shape::rect([(16.0, 16.0), (48.0, 48.0)], grafo::Stroke::default()),
+            None,
+            Some(8_162),
+            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(220, 200, 50)),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            shape_id,
+            8_161,
+            &[],
+            grafo::ShapeEffectConfig::new().outset(12.0),
+        )
+        .unwrap();
+
+    let mut pixels = Vec::new();
+    renderer.render_to_buffer(&mut pixels);
+    renderer.set_msaa_samples(4);
+    renderer.render_to_buffer(&mut pixels);
+
+    let cache_metrics = renderer.last_shape_effect_cache_metrics();
+    assert_eq!(cache_metrics.hits, 0);
+    assert_eq!(cache_metrics.misses, 1);
+    assert_eq!(read_pixel_rgba(&pixels, 64, 52, 32), [0, 0, 255, 255]);
+}
+
+#[cfg(feature = "render_metrics")]
+#[test]
+fn shape_effect_scale_change_rebuilds_leaf_and_invalidates_cached_texture() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 96), 1.0) else {
+        return;
+    };
+    renderer
+        .load_effect(8_171, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
+        .unwrap();
+    let shape_id = renderer
+        .add_shape(
+            grafo::Shape::rect([(8.0, 8.0), (32.0, 32.0)], grafo::Stroke::default()),
+            None,
+            Some(8_172),
+            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(220, 80, 40)),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            shape_id,
+            8_171,
+            &[],
+            grafo::ShapeEffectConfig::new().outset(4.0),
+        )
+        .unwrap();
+
+    let mut pixels = Vec::new();
+    renderer.render_to_buffer(&mut pixels);
+    renderer.render_to_buffer(&mut pixels);
+    assert_eq!(renderer.last_shape_effect_cache_metrics().hits, 1);
+    assert_eq!(renderer.last_shape_effect_cache_metrics().misses, 0);
+
+    renderer.change_scale_factor(2.0);
+    renderer.render_to_buffer(&mut pixels);
+    assert_eq!(renderer.last_shape_effect_cache_metrics().hits, 0);
+    assert_eq!(renderer.last_shape_effect_cache_metrics().misses, 1);
+
+    renderer.render_to_buffer(&mut pixels);
+    assert_eq!(renderer.last_shape_effect_cache_metrics().hits, 1);
+    assert_eq!(renderer.last_shape_effect_cache_metrics().misses, 0);
+}
+
+#[cfg(feature = "render_metrics")]
+#[test]
+fn cached_shape_effect_uses_exact_parameter_bytes_on_transparent_shape() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((48, 48), 1.0) else {
+        return;
+    };
+    renderer
+        .load_effect(8_201, &[PARAMETERIZED_CACHED_SHAPE_EFFECT])
+        .unwrap();
+    let shape_id = renderer
+        .add_shape(
+            grafo::Shape::rect([(12.0, 12.0), (36.0, 36.0)], grafo::Stroke::default()),
+            None,
+            Some(8_202),
+            grafo::ShapeDrawCommandOptions::new()
+                .transform(grafo::TransformInstance::translation(6.0, 4.0)),
+        )
+        .unwrap();
+    let blue = [0.0f32, 0.0, 1.0, 1.0];
+    renderer
+        .set_shape_effect(
+            shape_id,
+            8_201,
+            bytemuck::bytes_of(&blue),
+            grafo::ShapeEffectConfig::default(),
+        )
+        .unwrap();
+
+    let mut pixels = Vec::new();
+    renderer.render_to_buffer(&mut pixels);
+    assert_eq!(read_pixel_rgba(&pixels, 48, 14, 14), [0, 0, 0, 0]);
+    assert_eq!(read_pixel_rgba(&pixels, 48, 30, 28), [0, 0, 255, 255]);
+
+    let red = [1.0f32, 0.0, 0.0, 1.0];
+    renderer
+        .update_shape_effect_params(shape_id, bytemuck::bytes_of(&red))
+        .unwrap();
+    renderer.render_to_buffer(&mut pixels);
+    assert_eq!(read_pixel_rgba(&pixels, 48, 30, 28), [255, 0, 0, 255]);
+    let changed_parameter_frame = renderer.last_shape_effect_cache_metrics();
+    assert_eq!(changed_parameter_frame.misses, 1);
+    assert_eq!(changed_parameter_frame.hits, 0);
 }
 
 /// Main regression test — renders all shared visual-regression tiles.

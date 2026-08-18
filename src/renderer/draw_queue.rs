@@ -1,5 +1,6 @@
 use super::types::{ClipRectDrawData, DrawCommandError};
 use super::*;
+use crate::shape::ShapeTextureBinding;
 use crate::ShapeDrawCommandOptions;
 use crate::ShapeTextureFitMode;
 
@@ -169,7 +170,10 @@ impl<'a> Renderer<'a> {
                     Some(fill) => fill.to_normalized_solid(),
                 },
                 preparation::InstanceTextureData {
-                    texture_ids: cached_shape_data.texture_ids,
+                    texture_presence: cached_shape_data
+                        .texture_bindings
+                        .each_ref()
+                        .map(ShapeTextureBinding::is_present),
                     texture_uv_scales,
                 },
             );
@@ -223,6 +227,7 @@ impl<'a> Renderer<'a> {
         self.metadata_to_clips.clear();
         self.group_effects.clear();
         self.backdrop_effects.clear();
+        self.shape_effects.clear();
         // Keep scratch storage bounded even if queue contents fluctuate frame-to-frame.
         self.trim_scratch_on_resize_or_policy();
         // Clear memory buffers that are used for GPU upload

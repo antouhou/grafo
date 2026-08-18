@@ -12,7 +12,7 @@ use self::metrics::RenderLoopMetricsTracker;
 use self::types::{DrawCommand, RendererScratch};
 use crate::effect::{
     self, compile_composite_pipeline, compile_effect_pipeline, create_params_bind_group,
-    EffectError, EffectInstance, LoadedEffect, OffscreenTexturePool,
+    EffectError, EffectInstance, LoadedEffect, OffscreenTexturePool, ShapeEffectInstance,
 };
 use crate::pipeline::{
     compute_padded_bytes_per_row, create_and_depth_texture, create_argb_swizzle_bind_group,
@@ -24,7 +24,7 @@ use crate::pipeline::{
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
-use crate::vertex::{InstanceColor, InstanceMetadata, InstanceTransform};
+use crate::vertex::{CustomVertex, InstanceColor, InstanceMetadata, InstanceTransform};
 use crate::CachedShapeHandle;
 pub use construction::RendererCreationError;
 
@@ -38,6 +38,7 @@ mod preparation;
 mod readback;
 mod rect_utils;
 mod rendering;
+mod shape_effects;
 mod surface;
 mod traversal;
 pub(crate) mod types;
@@ -152,7 +153,7 @@ pub struct Renderer<'a> {
     /// Bind group for the decrementing pipeline.
     decrementing_bind_group: BindGroup,
 
-    temp_vertices: Vec<crate::vertex::CustomVertex>,
+    temp_vertices: Vec<CustomVertex>,
     temp_indices: Vec<u16>,
 
     /// Per-frame map from cache key to (index_start, index_count) in the
@@ -219,6 +220,16 @@ pub struct Renderer<'a> {
     /// Per-node backdrop effect instances, keyed by node_id.
     /// A backdrop effect processes the pixels already rendered behind a shape.
     backdrop_effects: HashMap<usize, EffectInstance>,
+    /// Per-node cached shape effect attachments, keyed by node_id.
+    shape_effects: HashMap<usize, ShapeEffectInstance>,
+    /// Exact GPU results retained while referenced by consecutive rendered frames.
+    shape_effect_cache: shape_effects::ShapeEffectResultCache,
+    /// Rasterized shape masks retained while referenced by consecutive rendered frames.
+    /// Keyed by geometry and rasterization parameters only, so masks are reused
+    /// across effect result cache misses (e.g. animated effect parameters).
+    shape_effect_mask_cache: shape_effects::ShapeEffectMaskCache,
+    /// Pipeline and immutable geometry resources used by shape effects.
+    shape_effect_resources: shape_effects::ShapeEffectRendererResources,
     /// Pool of offscreen textures for effect compositing.
     offscreen_texture_pool: OffscreenTexturePool,
     /// Shared composite pipeline for drawing effect results into the parent target.
@@ -232,6 +243,10 @@ pub struct Renderer<'a> {
     // ── Backdrop effect infrastructure ─────────────────────────────────
     /// Fullscreen sampling pipeline used to downsample a captured backdrop region.
     texture_blit_pipeline: Option<wgpu::RenderPipeline>,
+    /// Premultiplied-alpha pipeline for layering a transparent group prefix into a backdrop.
+    backdrop_layer_composite_pipeline: Option<wgpu::RenderPipeline>,
+    /// Bind group layout used by the group-prefix backdrop compositor.
+    backdrop_layer_composite_bind_group_layout: Option<wgpu::BindGroupLayout>,
     /// Stencil-only pipeline: writes stencil but no color output.
     /// Used for Step 1 of the three-step backdrop draw.
     stencil_only_pipeline: Option<wgpu::RenderPipeline>,
@@ -270,6 +285,10 @@ pub struct Renderer<'a> {
     #[cfg(feature = "render_metrics")]
     /// Per-frame pipeline switch counts for the most recently rendered frame.
     last_pipeline_switch_counts: self::metrics::PipelineSwitchCounts,
+
+    #[cfg(feature = "render_metrics")]
+    /// Cache activity for shape effects during the most recently rendered frame.
+    last_shape_effect_cache_metrics: self::metrics::ShapeEffectCacheMetrics,
 
     /// Wall-clock CPU time spent inside the most recent `render_to_texture_view()` call.
     ///

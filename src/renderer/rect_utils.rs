@@ -1,8 +1,7 @@
-use ahash::HashMap;
-
 use super::types::DrawCommand;
 use crate::effect::EffectInstance;
 use crate::vertex::InstanceTransform;
+use ahash::HashMap;
 
 #[derive(Clone, Copy)]
 pub(super) struct AxisAlignedRectTransform {
@@ -231,6 +230,7 @@ mod tests {
                 params_bind_group: None,
                 backdrop_config: None,
                 backdrop_material_params_buffer: None,
+                backdrop_layer_params_buffer: None,
                 backdrop_texture_bind_group: None,
                 backdrop_texture_id: None,
             },
@@ -253,6 +253,7 @@ mod tests {
                 params_bind_group: None,
                 backdrop_config: None,
                 backdrop_material_params_buffer: None,
+                backdrop_layer_params_buffer: None,
                 backdrop_texture_bind_group: None,
                 backdrop_texture_id: None,
             },

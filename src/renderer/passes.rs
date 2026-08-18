@@ -1,8 +1,18 @@
-use super::types::{ClipKind, TraversalEvent};
+use super::types::{
+    BackdropContext, BackdropSource, BoundTextureState, Buffers, ClipKind, Pipeline,
+    PipelineTracker, Pipelines, TraversalEvent,
+};
 use super::*;
+use crate::pipeline::{
+    begin_render_pass_with_load_ops, BackdropSamplingUniform, RenderPassLoadOperations,
+};
+#[cfg(feature = "render_metrics")]
+use crate::renderer::metrics::{PipelineSwitchCounts, ShapeEffectCacheMetrics};
 use crate::renderer::rect_utils::{
     intersect_scissor, should_skip_visible_rect_draw, try_scissor_for_rect,
 };
+use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
+use crate::util::GradientCache;
 
 /// Dispatch on `DrawCommand::Shape` / `DrawCommand::CachedShape`, binding the
 /// inner data to `$shape` so the same block can run for both variants.  
@@ -24,6 +34,24 @@ pub(super) struct AppliedEffectOutput {
 }
 
 impl AppliedEffectOutput {
+    pub(super) fn into_final_and_recyclable(
+        self,
+        recyclable: &mut Vec<effect::PooledTexture>,
+    ) -> (effect::PooledTexture, Option<wgpu::BindGroup>) {
+        if self.final_texture_is_primary {
+            if let Some(secondary_work_texture) = self.secondary_work_texture {
+                recyclable.push(secondary_work_texture);
+            }
+            (self.primary_work_texture, self.composite_bind_group)
+        } else {
+            let final_texture = self
+                .secondary_work_texture
+                .expect("secondary effect texture must exist when it is the final output");
+            recyclable.push(self.primary_work_texture);
+            (final_texture, self.composite_bind_group)
+        }
+    }
+
     pub(super) fn push_work_textures_into(
         self,
         output_textures: &mut Vec<effect::PooledTexture>,
@@ -169,20 +197,28 @@ pub(super) fn apply_effect_passes(
 #[allow(clippy::too_many_arguments)]
 fn bind_shape_texture_layers(
     render_pass: &mut wgpu::RenderPass<'_>,
-    texture_ids: [Option<u64>; 2],
+    texture_bindings: &[ShapeTextureBinding; 2],
     texture_manager: &TextureManager,
     shape_texture_bind_group_layout_background: &wgpu::BindGroupLayout,
     shape_texture_bind_group_layout_foreground: &wgpu::BindGroupLayout,
     default_shape_texture_bind_groups: &[Arc<wgpu::BindGroup>; 2],
     shape_texture_layout_epoch: u64,
-    bound_texture_state: &mut crate::renderer::types::BoundTextureState,
+    bound_texture_state: &mut BoundTextureState,
 ) {
-    for (layer, &texture_id) in texture_ids.iter().enumerate() {
-        if !bound_texture_state.needs_rebind(layer, texture_id) {
+    for (layer, texture_binding) in texture_bindings.iter().enumerate() {
+        let effective_binding = match texture_binding {
+            ShapeTextureBinding::Managed(texture_id)
+                if !texture_manager.is_texture_loaded(*texture_id) =>
+            {
+                ShapeTextureBinding::None
+            }
+            texture_binding => texture_binding.clone(),
+        };
+        if !bound_texture_state.needs_rebind(layer, &effective_binding) {
             continue;
         }
-        if let Some(texture_id) = texture_id {
-            if texture_manager.is_texture_loaded(texture_id) {
+        match &effective_binding {
+            ShapeTextureBinding::Managed(texture_id) => {
                 if let Ok(bind_group) = texture_manager.get_or_create_shape_bind_group(
                     if layer == 0 {
                         shape_texture_bind_group_layout_background
@@ -190,17 +226,21 @@ fn bind_shape_texture_layers(
                         shape_texture_bind_group_layout_foreground
                     },
                     shape_texture_layout_epoch,
-                    texture_id,
+                    *texture_id,
                 ) {
                     render_pass.set_bind_group(1 + layer as u32, &*bind_group, &[]);
                 }
             }
-        } else {
-            render_pass.set_bind_group(
-                1 + layer as u32,
-                &*default_shape_texture_bind_groups[layer],
-                &[],
-            );
+            ShapeTextureBinding::Direct { bind_group, .. } => {
+                render_pass.set_bind_group(1 + layer as u32, bind_group.as_ref(), &[]);
+            }
+            ShapeTextureBinding::None => {
+                render_pass.set_bind_group(
+                    1 + layer as u32,
+                    &*default_shape_texture_bind_groups[layer],
+                    &[],
+                );
+            }
         }
     }
 }
@@ -208,7 +248,7 @@ fn bind_shape_texture_layers(
 pub(super) fn bind_instance_buffers(
     render_pass: &mut wgpu::RenderPass<'_>,
     shape: &(impl DrawShapeCommand + ?Sized),
-    buffers: &crate::renderer::types::Buffers,
+    buffers: &Buffers,
 ) {
     if let Some(instance_idx) = shape.instance_index() {
         if let Some(instance_transform_buffer) = buffers.aggregated_instance_transform_buffer {
@@ -243,13 +283,13 @@ pub(super) fn bind_instance_buffers(
     }
 }
 
-fn pipeline_has_shared_geometry_bindings(pipeline: crate::renderer::types::Pipeline) -> bool {
-    !matches!(pipeline, crate::renderer::types::Pipeline::None)
+fn pipeline_has_shared_geometry_bindings(pipeline: Pipeline) -> bool {
+    !matches!(pipeline, Pipeline::None)
 }
 
 fn bind_aggregated_geometry_buffers(
     render_pass: &mut wgpu::RenderPass<'_>,
-    buffers: &crate::renderer::types::Buffers,
+    buffers: &Buffers,
 ) -> bool {
     let (Some(aggregated_vertex_buffer), Some(aggregated_index_buffer)) = (
         buffers.aggregated_vertex_buffer,
@@ -265,12 +305,12 @@ fn bind_aggregated_geometry_buffers(
 
 pub(super) fn handle_increment_pass<'rp>(
     render_pass: &mut wgpu::RenderPass<'rp>,
-    currently_set_pipeline: &mut crate::renderer::types::PipelineTracker,
-    bound_texture_state: &mut crate::renderer::types::BoundTextureState,
+    currently_set_pipeline: &mut PipelineTracker,
+    bound_texture_state: &mut BoundTextureState,
     stencil_stack: &mut Vec<u32>,
     shape: &mut (impl DrawShapeCommand + ?Sized),
-    pipelines: &crate::renderer::types::Pipelines,
-    buffers: &crate::renderer::types::Buffers,
+    pipelines: &Pipelines,
+    buffers: &Buffers,
 ) {
     if let Some(index_range) = shape.index_buffer_range() {
         if shape.is_empty() {
@@ -279,9 +319,9 @@ pub(super) fn handle_increment_pass<'rp>(
 
         let uses_gradient = shape.has_gradient_fill();
         let target_pipeline = if uses_gradient {
-            crate::renderer::types::Pipeline::StencilIncrementGradient
+            Pipeline::StencilIncrementGradient
         } else {
-            crate::renderer::types::Pipeline::StencilIncrement
+            Pipeline::StencilIncrement
         };
 
         if currently_set_pipeline.current != target_pipeline {
@@ -294,8 +334,8 @@ pub(super) fn handle_increment_pass<'rp>(
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
             // Inform the tracker that default textures are now bound on both layers.
-            bound_texture_state.mark_bound(0, None);
-            bound_texture_state.mark_bound(1, None);
+            bound_texture_state.mark_bound(0, ShapeTextureBinding::None);
+            bound_texture_state.mark_bound(1, ShapeTextureBinding::None);
 
             if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current)
                 && !bind_aggregated_geometry_buffers(render_pass, buffers)
@@ -308,7 +348,7 @@ pub(super) fn handle_increment_pass<'rp>(
 
         bind_shape_texture_layers(
             render_pass,
-            [shape.texture_id(0), shape.texture_id(1)],
+            shape.texture_bindings(),
             pipelines.texture_manager,
             pipelines.shape_texture_bind_group_layout_background,
             pipelines.shape_texture_bind_group_layout_foreground,
@@ -339,28 +379,25 @@ pub(super) fn handle_increment_pass<'rp>(
 
 pub(super) fn handle_decrement_pass<'rp>(
     render_pass: &mut wgpu::RenderPass<'rp>,
-    currently_set_pipeline: &mut crate::renderer::types::PipelineTracker,
-    bound_texture_state: &mut crate::renderer::types::BoundTextureState,
+    currently_set_pipeline: &mut PipelineTracker,
+    bound_texture_state: &mut BoundTextureState,
     stencil_stack: &mut Vec<u32>,
     shape: &mut (impl DrawShapeCommand + ?Sized),
-    pipelines: &crate::renderer::types::Pipelines,
-    buffers: &crate::renderer::types::Buffers,
+    pipelines: &Pipelines,
+    buffers: &Buffers,
 ) {
     if let Some(index_range) = shape.index_buffer_range() {
         if shape.is_empty() {
             return;
         }
 
-        if !matches!(
-            currently_set_pipeline.current,
-            crate::renderer::types::Pipeline::StencilDecrement
-        ) {
+        if !matches!(currently_set_pipeline.current, Pipeline::StencilDecrement) {
             render_pass.set_pipeline(pipelines.decrementing_pipeline);
             render_pass.set_bind_group(0, pipelines.decrementing_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
-            bound_texture_state.mark_bound(0, None);
-            bound_texture_state.mark_bound(1, None);
+            bound_texture_state.mark_bound(0, ShapeTextureBinding::None);
+            bound_texture_state.mark_bound(1, ShapeTextureBinding::None);
 
             if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current)
                 && !bind_aggregated_geometry_buffers(render_pass, buffers)
@@ -368,7 +405,7 @@ pub(super) fn handle_decrement_pass<'rp>(
                 return;
             }
 
-            currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::StencilDecrement);
+            currently_set_pipeline.switch_to(Pipeline::StencilDecrement);
         }
 
         bind_instance_buffers(render_pass, shape, buffers);
@@ -389,12 +426,12 @@ pub(super) fn handle_decrement_pass<'rp>(
 /// so we can skip both and just draw at the parent's stencil reference.
 pub(super) fn handle_leaf_draw_pass<'rp>(
     render_pass: &mut wgpu::RenderPass<'rp>,
-    currently_set_pipeline: &mut crate::renderer::types::PipelineTracker,
-    bound_texture_state: &mut crate::renderer::types::BoundTextureState,
+    currently_set_pipeline: &mut PipelineTracker,
+    bound_texture_state: &mut BoundTextureState,
     stencil_stack: &[u32],
     shape: &mut (impl DrawShapeCommand + ?Sized),
-    pipelines: &crate::renderer::types::Pipelines,
-    buffers: &crate::renderer::types::Buffers,
+    pipelines: &Pipelines,
+    buffers: &Buffers,
 ) {
     if let Some(index_range) = shape.index_buffer_range() {
         if shape.is_empty() {
@@ -403,9 +440,9 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
 
         let uses_gradient = shape.has_gradient_fill();
         let target_pipeline = if uses_gradient {
-            crate::renderer::types::Pipeline::LeafDrawGradient
+            Pipeline::LeafDrawGradient
         } else {
-            crate::renderer::types::Pipeline::LeafDraw
+            Pipeline::LeafDraw
         };
 
         if currently_set_pipeline.current != target_pipeline {
@@ -417,8 +454,8 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
             render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
-            bound_texture_state.mark_bound(0, None);
-            bound_texture_state.mark_bound(1, None);
+            bound_texture_state.mark_bound(0, ShapeTextureBinding::None);
+            bound_texture_state.mark_bound(1, ShapeTextureBinding::None);
 
             if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current)
                 && !bind_aggregated_geometry_buffers(render_pass, buffers)
@@ -431,7 +468,7 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
 
         bind_shape_texture_layers(
             render_pass,
-            [shape.texture_id(0), shape.texture_id(1)],
+            shape.texture_bindings(),
             pipelines.texture_manager,
             pipelines.shape_texture_bind_group_layout_background,
             pipelines.shape_texture_bind_group_layout_foreground,
@@ -458,13 +495,10 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
     }
 }
 
-/// Accumulates consecutive leaf nodes that share the same geometry (index range),
-/// texture, and parent stencil reference so they can be emitted as a single
-/// multi-instance `draw_indexed` call.
 #[derive(Default)]
 pub(super) struct PendingLeafBatch {
     index_range: (usize, usize),
-    texture_ids: [Option<u64>; 2],
+    texture_bindings: [ShapeTextureBinding; 2],
     parent_stencil: u32,
     first_instance_index: u32,
     instance_count: u32,
@@ -478,12 +512,12 @@ impl PendingLeafBatch {
     fn matches(
         &self,
         index_range: (usize, usize),
-        texture_ids: [Option<u64>; 2],
+        texture_bindings: &[ShapeTextureBinding; 2],
         parent_stencil: u32,
         instance_index: u32,
     ) -> bool {
         self.index_range == index_range
-            && self.texture_ids == texture_ids
+            && self.texture_bindings == *texture_bindings
             && self.parent_stencil == parent_stencil
             && instance_index == self.first_instance_index + self.instance_count
     }
@@ -494,37 +528,32 @@ impl PendingLeafBatch {
 pub(super) fn flush_pending_leaf_batch(
     batch: &mut PendingLeafBatch,
     render_pass: &mut wgpu::RenderPass<'_>,
-    currently_set_pipeline: &mut crate::renderer::types::PipelineTracker,
-    bound_texture_state: &mut crate::renderer::types::BoundTextureState,
-    pipelines: &crate::renderer::types::Pipelines,
-    buffers: &crate::renderer::types::Buffers,
+    currently_set_pipeline: &mut PipelineTracker,
+    bound_texture_state: &mut BoundTextureState,
+    pipelines: &Pipelines,
+    buffers: &Buffers,
 ) {
     if batch.is_empty() {
         return;
     }
 
     // Ensure leaf pipeline is active.
-    if currently_set_pipeline.current != crate::renderer::types::Pipeline::LeafDraw {
+    if currently_set_pipeline.current != Pipeline::LeafDraw {
         render_pass.set_pipeline(pipelines.leaf_draw_pipeline);
         render_pass.set_bind_group(0, pipelines.and_bind_group, &[]);
         render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
         render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
-        bound_texture_state.mark_bound(0, None);
-        bound_texture_state.mark_bound(1, None);
-
-        if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current)
-            && !bind_aggregated_geometry_buffers(render_pass, buffers)
-        {
-            return;
-        }
-
-        currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::LeafDraw);
+        bound_texture_state.mark_bound(0, ShapeTextureBinding::None);
+        bound_texture_state.mark_bound(1, ShapeTextureBinding::None);
+        currently_set_pipeline.switch_to(Pipeline::LeafDraw);
     }
 
-    // Bind textures for the batch.
+    if !bind_aggregated_geometry_buffers(render_pass, buffers) {
+        return;
+    }
     bind_shape_texture_layers(
         render_pass,
-        batch.texture_ids,
+        &batch.texture_bindings,
         pipelines.texture_manager,
         pipelines.shape_texture_bind_group_layout_background,
         pipelines.shape_texture_bind_group_layout_foreground,
@@ -532,9 +561,6 @@ pub(super) fn flush_pending_leaf_batch(
         pipelines.shape_texture_layout_epoch,
         bound_texture_state,
     );
-
-    // Bind the full aggregated instance buffers so the instances range selects
-    // the correct transform/color/metadata for each batched shape.
     if let Some(instance_transform_buffer) = buffers.aggregated_instance_transform_buffer {
         render_pass.set_vertex_buffer(1, instance_transform_buffer.slice(..));
     } else {
@@ -554,13 +580,12 @@ pub(super) fn flush_pending_leaf_batch(
     render_pass.set_stencil_reference(batch.parent_stencil);
     let index_start = batch.index_range.0 as u32;
     let index_end = (batch.index_range.0 + batch.index_range.1) as u32;
-    let first = batch.first_instance_index;
+    let first_instance_index = batch.first_instance_index;
     render_pass.draw_indexed(
         index_start..index_end,
         0,
-        first..first + batch.instance_count,
+        first_instance_index..first_instance_index + batch.instance_count,
     );
-
     batch.instance_count = 0;
 }
 
@@ -587,25 +612,70 @@ pub(super) fn try_batch_leaf(
         Some(idx) => idx as u32,
         None => return false,
     };
-    let texture_ids = [shape.texture_id(0), shape.texture_id(1)];
+    let texture_bindings = shape.texture_bindings();
 
     if batch.is_empty() {
-        // Start a new batch.
         batch.index_range = index_range;
-        batch.texture_ids = texture_ids;
+        batch.texture_bindings = texture_bindings.clone();
         batch.parent_stencil = parent_stencil;
         batch.first_instance_index = instance_index;
         batch.instance_count = 1;
         return true;
     }
 
-    if batch.matches(index_range, texture_ids, parent_stencil, instance_index) {
+    if batch.matches(
+        index_range,
+        texture_bindings,
+        parent_stencil,
+        instance_index,
+    ) {
         batch.instance_count += 1;
         return true;
     }
 
     // Incompatible — caller must flush then handle this shape.
     false
+}
+
+#[allow(clippy::too_many_arguments)]
+fn queue_or_draw_leaf(
+    shape: &mut (impl DrawShapeCommand + ?Sized),
+    parent_stencil: u32,
+    pending_leaf_batch: &mut PendingLeafBatch,
+    render_pass: &mut wgpu::RenderPass<'_>,
+    currently_set_pipeline: &mut PipelineTracker,
+    bound_texture_state: &mut BoundTextureState,
+    stencil_stack: &[u32],
+    pipelines: &Pipelines,
+    buffers: &Buffers,
+) {
+    if try_batch_leaf(pending_leaf_batch, shape, parent_stencil) {
+        *shape.stencil_ref_mut() = Some(parent_stencil);
+        return;
+    }
+
+    flush_pending_leaf_batch(
+        pending_leaf_batch,
+        render_pass,
+        currently_set_pipeline,
+        bound_texture_state,
+        pipelines,
+        buffers,
+    );
+    if try_batch_leaf(pending_leaf_batch, shape, parent_stencil) {
+        *shape.stencil_ref_mut() = Some(parent_stencil);
+        return;
+    }
+
+    handle_leaf_draw_pass(
+        render_pass,
+        currently_set_pipeline,
+        bound_texture_state,
+        stencil_stack,
+        shape,
+        pipelines,
+        buffers,
+    );
 }
 
 fn transform_point_to_logical_screen(
@@ -747,14 +817,14 @@ struct BackdropCaptureRegion {
 }
 
 impl BackdropCaptureRegion {
-    fn sample_uniform(self) -> crate::pipeline::BackdropSamplingUniform {
-        crate::pipeline::BackdropSamplingUniform::new(self.capture_origin, self.capture_size)
+    fn sample_uniform(self) -> BackdropSamplingUniform {
+        BackdropSamplingUniform::new(self.capture_origin, self.capture_size)
     }
 }
 
 #[cfg(test)]
 fn screen_point_to_capture_uv(
-    sample_transform: crate::pipeline::BackdropSamplingUniform,
+    sample_transform: BackdropSamplingUniform,
     screen_point: (f32, f32),
 ) -> (f32, f32) {
     (
@@ -915,6 +985,40 @@ fn blit_texture_to_texture(
     render_pass.draw(0..3, 0..1);
 }
 
+fn composite_backdrop_foreground_layer(
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    pipeline: &wgpu::RenderPipeline,
+    bind_group_layout: &wgpu::BindGroupLayout,
+    foreground_view: &wgpu::TextureView,
+    output_view: &wgpu::TextureView,
+    params_buffer: &wgpu::Buffer,
+) {
+    let bind_group = effect::create_backdrop_layer_composite_bind_group(
+        device,
+        bind_group_layout,
+        foreground_view,
+        params_buffer,
+    );
+    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("backdrop_layer_composite_pass"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: output_view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Load,
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+    });
+    render_pass.set_pipeline(pipeline);
+    render_pass.set_bind_group(0, &bind_group, &[]);
+    render_pass.draw(0..3, 0..1);
+}
+
 /// Unified rendering function for all paths: main scene, effect subtrees,
 /// and behind-group rendering. Processes a flat event list from
 /// `plan_traversal_in_place`, breaking render passes at backdrop effect
@@ -935,32 +1039,33 @@ pub(super) fn render_segments(
     encoder: &mut wgpu::CommandEncoder,
     events: &[TraversalEvent],
     effect_results: &HashMap<usize, wgpu::BindGroup>,
+    shape_effect_leaves: &mut HashMap<usize, CachedShapeDrawData>,
     group_effects: &HashMap<usize, EffectInstance>,
     backdrop_effects: &mut HashMap<usize, EffectInstance>,
     color_view: &wgpu::TextureView,
     color_resolve_target: Option<&wgpu::TextureView>,
     depth_stencil_view: &wgpu::TextureView,
-    copy_source_texture: Option<&wgpu::Texture>,
+    backdrop_source: Option<BackdropSource<'_>>,
     clear_first: bool,
-    pipelines: &crate::renderer::types::Pipelines,
-    buffers: &crate::renderer::types::Buffers,
-    gradient_cache: &mut crate::util::GradientCache,
+    pipelines: &Pipelines,
+    buffers: &Buffers,
+    gradient_cache: &mut GradientCache,
     texture_pool: &mut OffscreenTexturePool,
     composite_pipeline: Option<&wgpu::RenderPipeline>,
-    backdrop_ctx: Option<&crate::renderer::types::BackdropContext>,
+    backdrop_ctx: Option<&BackdropContext>,
     backdrop_work_textures: &mut Vec<effect::PooledTexture>,
     stencil_stack: &mut Vec<u32>,
     scissor_stack: &mut Vec<(u32, u32, u32, u32)>,
     clip_kind_stack: &mut Vec<ClipKind>,
     scale_factor: f64,
     physical_size: (u32, u32),
-    #[cfg(feature = "render_metrics")]
-    pipeline_counts_out: &mut crate::renderer::metrics::PipelineSwitchCounts,
+    #[cfg(feature = "render_metrics")] pipeline_counts_out: &mut PipelineSwitchCounts,
+    #[cfg(feature = "render_metrics")] shape_effect_cache_metrics: &mut ShapeEffectCacheMetrics,
 ) {
     let mut event_idx = 0;
     let mut is_first_segment = clear_first;
-    let mut currently_set_pipeline = crate::renderer::types::PipelineTracker::new();
-    let mut bound_texture_state = crate::renderer::types::BoundTextureState::default();
+    let mut currently_set_pipeline = PipelineTracker::new();
+    let mut bound_texture_state = BoundTextureState::default();
     let (width, height) = physical_size;
     let viewport_scissor = (0u32, 0u32, width, height);
     let mut pending_leaf_batch = PendingLeafBatch::default();
@@ -977,7 +1082,9 @@ pub(super) fn render_segments(
         if backdrop_ctx.is_some() {
             for (idx, event) in events.iter().enumerate().skip(event_idx) {
                 if let TraversalEvent::Pre(node_id) = event {
-                    if backdrop_effects.contains_key(node_id) {
+                    if backdrop_effects.contains_key(node_id)
+                        && !effect_results.contains_key(node_id)
+                    {
                         segment_end = idx;
                         backdrop_node_id = Some(*node_id);
                         break;
@@ -987,8 +1094,9 @@ pub(super) fn render_segments(
         }
 
         // --- Process segment events [event_idx .. segment_end) ---
-        if event_idx < segment_end {
-            let mut render_pass = crate::pipeline::begin_render_pass_with_load_ops(
+        let segment_has_events = event_idx < segment_end;
+        if segment_has_events {
+            let mut render_pass = begin_render_pass_with_load_ops(
                 encoder,
                 Some(if is_first_segment {
                     "segment_clear_pass"
@@ -998,7 +1106,7 @@ pub(super) fn render_segments(
                 color_view,
                 color_resolve_target,
                 depth_stencil_view,
-                crate::pipeline::RenderPassLoadOperations {
+                RenderPassLoadOperations {
                     color_load_op: if is_first_segment {
                         wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
                     } else {
@@ -1030,6 +1138,27 @@ pub(super) fn render_segments(
 
             for event in events.iter().take(segment_end).skip(event_idx) {
                 match event {
+                    TraversalEvent::PreparedLeaf(node_id) => {
+                        let Some(prepared_leaf) = shape_effect_leaves.get_mut(node_id) else {
+                            continue;
+                        };
+                        let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
+                        queue_or_draw_leaf(
+                            prepared_leaf,
+                            parent_stencil,
+                            &mut pending_leaf_batch,
+                            &mut render_pass,
+                            &mut currently_set_pipeline,
+                            &mut bound_texture_state,
+                            stencil_stack,
+                            pipelines,
+                            buffers,
+                        );
+                        #[cfg(feature = "render_metrics")]
+                        {
+                            shape_effect_cache_metrics.composited_results += 1;
+                        }
+                    }
                     TraversalEvent::Pre(node_id) => {
                         let node_id = *node_id;
 
@@ -1078,47 +1207,19 @@ pub(super) fn render_segments(
                                 }
 
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
-                                let batched = with_shape_mut!(draw_command, shape => {
-                                    let result = try_batch_leaf(
-                                        &mut pending_leaf_batch,
+                                with_shape_mut!(draw_command, shape => {
+                                    queue_or_draw_leaf(
                                         shape,
                                         parent_stencil,
-                                    );
-                                    if result {
-                                        *shape.stencil_ref_mut() = Some(parent_stencil);
-                                    }
-                                    result
-                                });
-                                if !batched {
-                                    flush_pending_leaf_batch(
                                         &mut pending_leaf_batch,
                                         &mut render_pass,
                                         &mut currently_set_pipeline,
                                         &mut bound_texture_state,
+                                        stencil_stack,
                                         pipelines,
                                         buffers,
                                     );
-                                    with_shape_mut!(draw_command, shape => {
-                                        if !try_batch_leaf(
-                                            &mut pending_leaf_batch,
-                                            shape,
-                                            parent_stencil,
-                                        ) {
-                                            handle_leaf_draw_pass(
-                                                &mut render_pass,
-                                                &mut currently_set_pipeline,
-                                                &mut bound_texture_state,
-                                                stencil_stack,
-                                                shape,
-                                                pipelines,
-                                                buffers,
-                                            );
-                                        } else {
-                                            *shape.stencil_ref_mut() =
-                                                Some(parent_stencil);
-                                        }
-                                    });
-                                }
+                                });
                                 continue;
                             }
 
@@ -1292,6 +1393,45 @@ pub(super) fn render_segments(
 
         event_idx = segment_end;
 
+        if !segment_has_events && is_first_segment {
+            let mut render_pass = begin_render_pass_with_load_ops(
+                encoder,
+                Some("backdrop_precapture_pass"),
+                color_view,
+                color_resolve_target,
+                depth_stencil_view,
+                RenderPassLoadOperations {
+                    color_load_op: if is_first_segment {
+                        wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+                    } else {
+                        wgpu::LoadOp::Load
+                    },
+                    depth_load_op: if is_first_segment {
+                        wgpu::LoadOp::Clear(1.0)
+                    } else {
+                        wgpu::LoadOp::Load
+                    },
+                    stencil_load_op: if is_first_segment {
+                        wgpu::LoadOp::Clear(0)
+                    } else {
+                        wgpu::LoadOp::Load
+                    },
+                },
+            );
+            let current_scissor = scissor_stack.last().copied().unwrap_or(viewport_scissor);
+            if current_scissor != viewport_scissor {
+                render_pass.set_scissor_rect(
+                    current_scissor.0,
+                    current_scissor.1,
+                    current_scissor.2,
+                    current_scissor.3,
+                );
+            }
+            is_first_segment = false;
+            currently_set_pipeline.switch_to(Pipeline::None);
+            bound_texture_state.invalidate();
+        }
+
         // --- Handle the backdrop effect node ---
         if let Some(backdrop_node_id) = backdrop_node_id {
             let bctx = backdrop_ctx.unwrap();
@@ -1299,21 +1439,6 @@ pub(super) fn render_segments(
             // optimized ancestors that never wrote to the stencil buffer.
             let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
             let this_stencil = parent_stencil + 1;
-
-            if is_first_segment {
-                crate::pipeline::begin_render_pass_with_load_ops(
-                    encoder,
-                    Some("segment_initial_clear"),
-                    color_view,
-                    color_resolve_target,
-                    depth_stencil_view,
-                    crate::pipeline::RenderPassLoadOperations {
-                        color_load_op: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        depth_load_op: wgpu::LoadOp::Clear(1.0),
-                        stencil_load_op: wgpu::LoadOp::Clear(0),
-                    },
-                );
-            }
 
             let mut solid_backdrop_bind_group: Option<wgpu::BindGroup> = None;
             let mut gradient_backdrop_bind_group: Option<wgpu::BindGroup> = None;
@@ -1333,8 +1458,8 @@ pub(super) fn render_segments(
                 ) {
                     let backdrop_sampling_uniform = capture_region.sample_uniform();
                     let (capture_width, capture_height) = capture_region.capture_size;
-                    let copy_source_texture = copy_source_texture
-                        .expect("copy_source_texture required for backdrop effects");
+                    let backdrop_source =
+                        backdrop_source.expect("backdrop source required for backdrop effects");
                     let backdrop_capture_texture = texture_pool.acquire_color_only(
                         bctx.device,
                         capture_width,
@@ -1353,7 +1478,7 @@ pub(super) fn render_segments(
                     {
                         encoder.copy_texture_to_texture(
                             wgpu::TexelCopyTextureInfo {
-                                texture: copy_source_texture,
+                                texture: backdrop_source.base_texture(),
                                 mip_level: 0,
                                 origin: wgpu::Origin3d {
                                     x: copy_source_x,
@@ -1377,6 +1502,28 @@ pub(super) fn render_segments(
                                 height: capture_region.copy_size.1,
                                 depth_or_array_layers: 1,
                             },
+                        );
+                    }
+
+                    if let Some(foreground_view) = backdrop_source.foreground_view() {
+                        let layer_params = effect::backdrop_layer_params(
+                            capture_region.capture_origin,
+                            physical_size,
+                        );
+                        let layer_params_buffer = effect::prepare_backdrop_layer_params_buffer(
+                            bctx.device,
+                            bctx.queue,
+                            &mut effect_instance.backdrop_layer_params_buffer,
+                            layer_params,
+                        );
+                        composite_backdrop_foreground_layer(
+                            bctx.device,
+                            encoder,
+                            bctx.backdrop_layer_composite_pipeline,
+                            bctx.backdrop_layer_composite_bind_group_layout,
+                            foreground_view,
+                            &backdrop_capture_texture.color_view,
+                            &layer_params_buffer,
                         );
                     }
 
@@ -1497,13 +1644,13 @@ pub(super) fn render_segments(
             }
 
             // Begin the self-contained backdrop shape pass.
-            let mut render_pass = crate::pipeline::begin_render_pass_with_load_ops(
+            let mut render_pass = begin_render_pass_with_load_ops(
                 encoder,
                 Some("backdrop_shape_pass"),
                 color_view,
                 color_resolve_target,
                 depth_stencil_view,
-                crate::pipeline::RenderPassLoadOperations {
+                RenderPassLoadOperations {
                     color_load_op: wgpu::LoadOp::Load,
                     depth_load_op: wgpu::LoadOp::Load,
                     stencil_load_op: wgpu::LoadOp::Load,
@@ -1590,18 +1737,15 @@ pub(super) fn render_segments(
                     &*pipelines.default_shape_texture_bind_groups[1],
                     &[],
                 );
-                bound_texture_state.mark_bound(0, None);
-                bound_texture_state.mark_bound(1, None);
+                bound_texture_state.mark_bound(0, ShapeTextureBinding::None);
+                bound_texture_state.mark_bound(1, ShapeTextureBinding::None);
                 if !bind_aggregated_geometry_buffers(&mut render_pass, buffers) {
                     continue;
                 }
 
-                let (texture_ids, shape_index_range) = with_shape_mut!(draw_command, shape => {
+                let (texture_bindings, shape_index_range) = with_shape_mut!(draw_command, shape => {
                     bind_instance_buffers(&mut render_pass, shape, buffers);
-                    (
-                        [shape.texture_id(0), shape.texture_id(1)],
-                        shape.index_buffer_range(),
-                    )
+                    (shape.texture_bindings().clone(), shape.index_buffer_range())
                 });
 
                 if uses_gradient {
@@ -1627,7 +1771,7 @@ pub(super) fn render_segments(
 
                 bind_shape_texture_layers(
                     &mut render_pass,
-                    texture_ids,
+                    &texture_bindings,
                     pipelines.texture_manager,
                     pipelines.shape_texture_bind_group_layout_background,
                     pipelines.shape_texture_bind_group_layout_foreground,
@@ -1665,7 +1809,7 @@ pub(super) fn render_segments(
                 }
             }
 
-            currently_set_pipeline.switch_to(crate::renderer::types::Pipeline::None);
+            currently_set_pipeline.switch_to(Pipeline::None);
             bound_texture_state.invalidate();
             is_first_segment = false;
 

@@ -1,9 +1,11 @@
 use super::types::decide_buffer_sizing;
 use super::*;
+use crate::pipeline::create_buffer_init;
+use crate::vertex::CustomVertex;
 
 #[derive(Copy, Clone)]
 pub(crate) struct InstanceTextureData {
-    pub(crate) texture_ids: [Option<u64>; 2],
+    pub(crate) texture_presence: [bool; 2],
     pub(crate) texture_uv_scales: [[f32; 2]; 2],
 }
 
@@ -19,21 +21,16 @@ fn upsert_gpu_buffer(
         decide_buffer_sizing(buffer.as_ref().map(|existing| existing.size()), bytes.len());
 
     if decision.should_reallocate {
-        *buffer = Some(crate::pipeline::create_buffer_init(
-            device,
-            Some(label),
-            bytes,
-            usage,
-        ));
+        *buffer = Some(create_buffer_init(device, Some(label), bytes, usage));
     } else if let Some(existing_buffer) = buffer.as_ref() {
         queue.write_buffer(existing_buffer, 0, bytes);
     }
 }
 
 fn append_aggregated_geometry(
-    temp_vertices: &mut Vec<crate::vertex::CustomVertex>,
+    temp_vertices: &mut Vec<CustomVertex>,
     temp_indices: &mut Vec<u16>,
-    vertices: &[crate::vertex::CustomVertex],
+    vertices: &[CustomVertex],
     indices: &[u16],
 ) -> Option<(usize, usize)> {
     if vertices.is_empty() || indices.is_empty() {
@@ -61,7 +58,7 @@ fn append_aggregated_geometry(
 
 pub(crate) fn append_aggregated_geometry_for_shape(
     cached_shape_data: &CachedShapeDrawData,
-    temp_vertices: &mut Vec<crate::vertex::CustomVertex>,
+    temp_vertices: &mut Vec<CustomVertex>,
     temp_indices: &mut Vec<u16>,
     geometry_dedup_map: &mut HashMap<u64, (usize, usize)>,
 ) -> Option<(usize, usize)> {
@@ -99,8 +96,8 @@ pub(crate) fn append_instance_data(
     temp_instance_colors.push(InstanceColor {
         color: color_override.unwrap_or([0.0, 0.0, 0.0, 0.0]),
     });
-    let texture_flags = (texture_data.texture_ids[0].is_some() as u32)
-        | ((texture_data.texture_ids[1].is_some() as u32) << 1);
+    let texture_flags = (texture_data.texture_presence[0] as u32)
+        | ((texture_data.texture_presence[1] as u32) << 1);
     temp_instance_metadata.push(InstanceMetadata {
         draw_order: instance_index as f32,
         texture_flags: texture_flags as f32,
@@ -114,7 +111,7 @@ impl<'a> Renderer<'a> {
     fn ensure_identity_instance_buffers(&mut self) {
         if self.identity_instance_transform_buffer.is_none() {
             let identity = InstanceTransform::identity();
-            self.identity_instance_transform_buffer = Some(crate::pipeline::create_buffer_init(
+            self.identity_instance_transform_buffer = Some(create_buffer_init(
                 &self.device,
                 Some("Identity Instance Transform Buffer"),
                 bytemuck::cast_slice(&[identity]),
@@ -124,7 +121,7 @@ impl<'a> Renderer<'a> {
 
         if self.identity_instance_color_buffer.is_none() {
             let transparent = InstanceColor::transparent();
-            self.identity_instance_color_buffer = Some(crate::pipeline::create_buffer_init(
+            self.identity_instance_color_buffer = Some(create_buffer_init(
                 &self.device,
                 Some("Identity Instance Color Buffer"),
                 bytemuck::cast_slice(&[transparent]),
@@ -134,7 +131,7 @@ impl<'a> Renderer<'a> {
 
         if self.identity_instance_metadata_buffer.is_none() {
             let metadata = InstanceMetadata::default();
-            self.identity_instance_metadata_buffer = Some(crate::pipeline::create_buffer_init(
+            self.identity_instance_metadata_buffer = Some(create_buffer_init(
                 &self.device,
                 Some("Identity Instance Metadata Buffer"),
                 bytemuck::cast_slice(&[metadata]),
@@ -212,6 +209,18 @@ impl<'a> Renderer<'a> {
     }
 
     pub(super) fn prepare_render(&mut self) {
+        self.begin_frame_scratch();
+        // Include prepared effect leaves in this upload without making them part
+        // of the durable user draw queue.
+        let base_vertex_count = self.temp_vertices.len();
+        let base_index_count = self.temp_indices.len();
+        let base_instance_count = self.temp_instance_transforms.len();
+        self.prepare_shape_effect_leaves();
         self.upload_buffers_for_frame();
+        self.temp_vertices.truncate(base_vertex_count);
+        self.temp_indices.truncate(base_index_count);
+        self.temp_instance_transforms.truncate(base_instance_count);
+        self.temp_instance_colors.truncate(base_instance_count);
+        self.temp_instance_metadata.truncate(base_instance_count);
     }
 }

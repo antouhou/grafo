@@ -1,4 +1,7 @@
 use super::*;
+use crate::pipeline::create_argb_params_buffer;
+#[cfg(feature = "render_metrics")]
+use crate::renderer::metrics::PhaseTimings;
 
 fn copy_padded_readback_rows(
     data: &[u8],
@@ -160,7 +163,7 @@ impl<'a> Renderer<'a> {
             let readback_dur = frame_presented_at.saturating_duration_since(after_submit);
             let total_dur =
                 frame_presented_at.saturating_duration_since(frame_render_loop_started_at);
-            self.last_phase_timings = crate::renderer::metrics::PhaseTimings {
+            self.last_phase_timings = PhaseTimings {
                 prepare: prepare_dur,
                 encode_and_submit: encode_submit_dur,
                 present_or_readback: readback_dur,
@@ -278,10 +281,7 @@ impl<'a> Renderer<'a> {
         };
         let needs_new_params = self.argb_params_buffer.is_none();
         if needs_new_params {
-            self.argb_params_buffer = Some(crate::pipeline::create_argb_params_buffer(
-                &self.device,
-                &params,
-            ));
+            self.argb_params_buffer = Some(create_argb_params_buffer(&self.device, &params));
         } else {
             self.queue.write_buffer(
                 self.argb_params_buffer.as_ref().unwrap(),
@@ -361,7 +361,7 @@ impl<'a> Renderer<'a> {
             let readback_dur = frame_presented_at.saturating_duration_since(after_submit);
             let total_dur =
                 frame_presented_at.saturating_duration_since(frame_render_loop_started_at);
-            self.last_phase_timings = crate::renderer::metrics::PhaseTimings {
+            self.last_phase_timings = PhaseTimings {
                 prepare: prepare_dur,
                 encode_and_submit: encode_submit_dur,
                 present_or_readback: readback_dur,

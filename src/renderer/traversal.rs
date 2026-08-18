@@ -40,6 +40,9 @@ pub(super) fn subtree_has_backdrop_effects(
     if backdrop_effects.is_empty() {
         return false;
     }
+    if backdrop_effects.contains_key(&root_id) {
+        return true;
+    }
 
     fn scan(
         tree: &easy_tree::Tree<DrawCommand>,
@@ -63,6 +66,7 @@ pub(super) fn subtree_has_backdrop_effects(
 pub(super) fn plan_traversal_in_place(
     draw_tree: &mut easy_tree::Tree<DrawCommand>,
     effect_results: &HashMap<usize, wgpu::BindGroup>,
+    prepared_shape_effect_leaves: &HashMap<usize, CachedShapeDrawData>,
     subtree_root: Option<usize>,
     exclude_subtree_id: Option<usize>,
     traversal_scratch: &mut TraversalScratch,
@@ -71,7 +75,7 @@ pub(super) fn plan_traversal_in_place(
 
     let exclude_id = exclude_subtree_id;
 
-    let pre_fn = |node_id: usize, _draw_command: &mut DrawCommand, state: &mut TraversalScratch| {
+    let pre_fn = |node_id: usize, draw_command: &mut DrawCommand, state: &mut TraversalScratch| {
         // Handle excluded subtree: skip the node and all descendants entirely.
         if state.excluded_depth > 0 {
             state.excluded_depth += 1;
@@ -90,6 +94,12 @@ pub(super) fn plan_traversal_in_place(
             return;
         }
 
+        if draw_command.is_leaf()
+            && !effect_results.contains_key(&node_id)
+            && prepared_shape_effect_leaves.contains_key(&node_id)
+        {
+            state.events.push(TraversalEvent::PreparedLeaf(node_id));
+        }
         state.events.push(TraversalEvent::Pre(node_id));
     };
 
@@ -143,7 +153,7 @@ mod tests {
     };
     use crate::cache::CachedTessellation;
     use crate::effect::EffectInstance;
-    use crate::renderer::types::DrawCommand;
+    use crate::renderer::types::{DrawCommand, TraversalEvent};
     use crate::shape::{CachedShapeDrawData, CachedShapeHandle};
     use crate::vertex::CustomVertex;
     use crate::ShapeDrawCommandOptions;
@@ -187,12 +197,72 @@ mod tests {
         plan_traversal_in_place(
             &mut tree,
             &effect_results,
+            &HashMap::new(),
             None,
             None,
             &mut traversal_scratch,
         );
 
         assert_eq!(traversal_scratch.events().len(), 6);
+    }
+
+    #[test]
+    fn plan_traversal_inserts_prepared_leaf_before_source_node() {
+        let mut tree = easy_tree::Tree::new();
+        let root = tree.add_node(DrawCommand::CachedShape(cached_draw_data()));
+        let mut prepared_leaves = HashMap::new();
+        prepared_leaves.insert(root, cached_draw_data());
+        let effect_results: HashMap<usize, wgpu::BindGroup> = HashMap::new();
+        let mut traversal_scratch = TraversalScratch::new();
+
+        plan_traversal_in_place(
+            &mut tree,
+            &effect_results,
+            &prepared_leaves,
+            None,
+            None,
+            &mut traversal_scratch,
+        );
+
+        assert_eq!(
+            traversal_scratch.events(),
+            &[
+                TraversalEvent::PreparedLeaf(root),
+                TraversalEvent::Pre(root),
+                TraversalEvent::Post(root),
+            ]
+        );
+    }
+
+    #[test]
+    fn plan_traversal_ignores_prepared_leaf_for_node_with_children() {
+        let mut tree = easy_tree::Tree::new();
+        let root = tree.add_node(DrawCommand::CachedShape(cached_draw_data()));
+        tree.get_mut(root).unwrap().set_not_leaf();
+        let child = tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
+        let mut prepared_leaves = HashMap::new();
+        prepared_leaves.insert(root, cached_draw_data());
+        let effect_results: HashMap<usize, wgpu::BindGroup> = HashMap::new();
+        let mut traversal_scratch = TraversalScratch::new();
+
+        plan_traversal_in_place(
+            &mut tree,
+            &effect_results,
+            &prepared_leaves,
+            None,
+            None,
+            &mut traversal_scratch,
+        );
+
+        assert_eq!(
+            traversal_scratch.events(),
+            &[
+                TraversalEvent::Pre(root),
+                TraversalEvent::Pre(child),
+                TraversalEvent::Post(child),
+                TraversalEvent::Post(root),
+            ]
+        );
     }
 
     #[test]
@@ -208,6 +278,7 @@ mod tests {
         plan_traversal_in_place(
             &mut tree,
             &effect_results,
+            &HashMap::new(),
             None,
             None,
             &mut traversal_scratch,
@@ -217,6 +288,7 @@ mod tests {
         plan_traversal_in_place(
             &mut tree,
             &effect_results,
+            &HashMap::new(),
             None,
             None,
             &mut traversal_scratch,
@@ -241,6 +313,7 @@ mod tests {
                 params_bind_group: None,
                 backdrop_config: None,
                 backdrop_material_params_buffer: None,
+                backdrop_layer_params_buffer: None,
                 backdrop_texture_bind_group: None,
                 backdrop_texture_id: None,
             },
@@ -252,7 +325,7 @@ mod tests {
             &backdrop_effects,
             child
         ));
-        assert!(!subtree_has_backdrop_effects(
+        assert!(subtree_has_backdrop_effects(
             &tree,
             &backdrop_effects,
             grandchild

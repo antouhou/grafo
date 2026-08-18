@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(feature = "render_metrics")]
+use crate::renderer::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
 use crate::renderer::passes::{apply_effect_passes, render_segments, EffectPassRunConfig};
 use crate::renderer::traversal::{
     compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects,
@@ -14,15 +16,24 @@ impl<'a> Renderer<'a> {
 
         // Nothing to render when the draw queue is empty.
         if self.draw_tree.is_empty() {
+            self.scratch.shape_effect_leaves.clear();
+            let _collected_shape_effect_results = self.shape_effect_cache.end_frame();
+            let _collected_shape_effect_masks = self.shape_effect_mask_cache.end_frame();
+            #[cfg(feature = "render_metrics")]
+            {
+                self.last_shape_effect_cache_metrics = ShapeEffectCacheMetrics {
+                    collected_results: _collected_shape_effect_results as u64,
+                    ..Default::default()
+                };
+            }
             self.buffers_pool_manager.tessellation_cache.end_frame();
             self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
             return;
         }
 
-        self.begin_frame_scratch();
-
         let mut traversal_scratch = std::mem::take(&mut self.scratch.traversal_scratch);
         let mut effect_results = std::mem::take(&mut self.scratch.effect_results);
+        let mut shape_effect_leaves = std::mem::take(&mut self.scratch.shape_effect_leaves);
         let mut effect_node_ids = std::mem::take(&mut self.scratch.effect_node_ids);
         let mut textures_to_recycle = std::mem::take(&mut self.scratch.textures_to_recycle);
         let mut effect_output_textures = std::mem::take(&mut self.scratch.effect_output_textures);
@@ -34,13 +45,17 @@ impl<'a> Renderer<'a> {
 
         let has_group_effects = !self.group_effects.is_empty();
         let has_backdrop_effects = !self.backdrop_effects.is_empty();
+        let has_shape_effects = !self.shape_effects.is_empty();
 
         if has_group_effects || has_backdrop_effects {
             self.ensure_composite_pipeline();
+        }
+        if has_group_effects || has_backdrop_effects || has_shape_effects {
             self.ensure_effect_sampler();
         }
         if has_backdrop_effects {
             self.ensure_texture_blit_pipeline();
+            self.ensure_backdrop_layer_composite_pipeline();
             self.ensure_stencil_only_pipeline();
             self.ensure_backdrop_color_pipeline();
             self.ensure_backdrop_color_gradient_pipeline();
@@ -52,7 +67,9 @@ impl<'a> Renderer<'a> {
         }
 
         #[cfg(feature = "render_metrics")]
-        let mut frame_pipeline_counts = crate::renderer::metrics::PipelineSwitchCounts::default();
+        let mut frame_pipeline_counts = PipelineSwitchCounts::default();
+        #[cfg(feature = "render_metrics")]
+        let mut shape_effect_cache_metrics = ShapeEffectCacheMetrics::default();
 
         let mut encoder = self
             .device
@@ -60,7 +77,17 @@ impl<'a> Renderer<'a> {
                 label: Some("Render Command Encoder"),
             });
 
-        let pipelines = crate::renderer::types::Pipelines {
+        if has_shape_effects {
+            self.resolve_shape_effects(
+                &mut encoder,
+                &mut shape_effect_leaves,
+                &mut textures_to_recycle,
+                #[cfg(feature = "render_metrics")]
+                &mut shape_effect_cache_metrics,
+            );
+        }
+
+        let pipelines = types::Pipelines {
             and_pipeline: &self.and_pipeline,
             and_gradient_pipeline: &self.and_gradient_pipeline,
             and_bind_group: &self.and_bind_group,
@@ -77,7 +104,7 @@ impl<'a> Renderer<'a> {
             texture_manager: &self.texture_manager,
         };
 
-        let buffers = crate::renderer::types::Buffers {
+        let buffers = types::Buffers {
             aggregated_vertex_buffer: self.aggregated_vertex_buffer.as_ref(),
             aggregated_index_buffer: self.aggregated_index_buffer.as_ref(),
             identity_instance_transform_buffer: self
@@ -163,6 +190,7 @@ impl<'a> Renderer<'a> {
                     plan_traversal_in_place(
                         &mut self.draw_tree,
                         &effect_results,
+                        &shape_effect_leaves,
                         None,
                         Some(node_id),
                         &mut traversal_scratch,
@@ -172,6 +200,7 @@ impl<'a> Renderer<'a> {
                         &mut encoder,
                         traversal_scratch.events(),
                         &effect_results,
+                        &mut shape_effect_leaves,
                         &self.group_effects,
                         &mut self.backdrop_effects,
                         behind_color_view,
@@ -193,6 +222,8 @@ impl<'a> Renderer<'a> {
                         self.physical_size,
                         #[cfg(feature = "render_metrics")]
                         &mut frame_pipeline_counts,
+                        #[cfg(feature = "render_metrics")]
+                        &mut shape_effect_cache_metrics,
                     );
                     Some(behind_tex)
                 } else {
@@ -203,6 +234,7 @@ impl<'a> Renderer<'a> {
                 plan_traversal_in_place(
                     &mut self.draw_tree,
                     &effect_results,
+                    &shape_effect_leaves,
                     Some(node_id),
                     None,
                     &mut traversal_scratch,
@@ -220,12 +252,20 @@ impl<'a> Renderer<'a> {
                 };
 
                 let backdrop_ctx_opt = if subtree_needs_backdrop_effects {
-                    Some(crate::renderer::types::BackdropContext {
+                    Some(types::BackdropContext {
                         loaded_effects: &self.loaded_effects,
                         composite_bgl: self.composite_bgl.as_ref().unwrap(),
                         effect_sampler: self.effect_sampler.as_ref().unwrap(),
                         gradient_ramp_sampler: &self.gradient_ramp_sampler,
                         texture_blit_pipeline: self.texture_blit_pipeline.as_ref().unwrap(),
+                        backdrop_layer_composite_pipeline: self
+                            .backdrop_layer_composite_pipeline
+                            .as_ref()
+                            .unwrap(),
+                        backdrop_layer_composite_bind_group_layout: self
+                            .backdrop_layer_composite_bind_group_layout
+                            .as_ref()
+                            .unwrap(),
                         stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
                         backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
                         backdrop_color_gradient_pipeline: self
@@ -247,11 +287,20 @@ impl<'a> Renderer<'a> {
                     None
                 };
 
-                let copy_source = behind_texture.as_ref().map(|tex| {
-                    if tex.sample_count > 1 {
-                        tex.resolve_texture.as_ref().unwrap() as &wgpu::Texture
+                let backdrop_source = behind_texture.as_ref().map(|texture| {
+                    let base_texture = if texture.sample_count > 1 {
+                        texture.resolve_texture.as_ref().unwrap()
                     } else {
-                        &tex.color_texture as &wgpu::Texture
+                        &texture.color_texture
+                    };
+                    let foreground_view = if subtree_texture.sample_count > 1 {
+                        subtree_texture.resolve_view.as_ref().unwrap()
+                    } else {
+                        &subtree_texture.color_view
+                    };
+                    types::BackdropSource::Layered {
+                        base_texture,
+                        foreground_view,
                     }
                 });
 
@@ -260,6 +309,7 @@ impl<'a> Renderer<'a> {
                     &mut encoder,
                     traversal_scratch.events(),
                     &effect_results,
+                    &mut shape_effect_leaves,
                     &self.group_effects,
                     &mut self.backdrop_effects,
                     subtree_color_view,
@@ -268,7 +318,7 @@ impl<'a> Renderer<'a> {
                         .depth_stencil_view
                         .as_ref()
                         .expect("subtree render targets must include a depth/stencil attachment"),
-                    copy_source,
+                    backdrop_source,
                     true,
                     &pipelines,
                     &buffers,
@@ -284,6 +334,8 @@ impl<'a> Renderer<'a> {
                     physical_size,
                     #[cfg(feature = "render_metrics")]
                     &mut frame_pipeline_counts,
+                    #[cfg(feature = "render_metrics")]
+                    &mut shape_effect_cache_metrics,
                 );
 
                 effect_output_textures.append(&mut backdrop_work_textures);
@@ -331,6 +383,7 @@ impl<'a> Renderer<'a> {
             plan_traversal_in_place(
                 &mut self.draw_tree,
                 &effect_results,
+                &shape_effect_leaves,
                 None,
                 None,
                 &mut traversal_scratch,
@@ -347,12 +400,20 @@ impl<'a> Renderer<'a> {
                 };
 
             let backdrop_ctx_opt = if has_backdrop_effects {
-                Some(crate::renderer::types::BackdropContext {
+                Some(types::BackdropContext {
                     loaded_effects: &self.loaded_effects,
                     composite_bgl: self.composite_bgl.as_ref().unwrap(),
                     effect_sampler: self.effect_sampler.as_ref().unwrap(),
                     gradient_ramp_sampler: &self.gradient_ramp_sampler,
                     texture_blit_pipeline: self.texture_blit_pipeline.as_ref().unwrap(),
+                    backdrop_layer_composite_pipeline: self
+                        .backdrop_layer_composite_pipeline
+                        .as_ref()
+                        .unwrap(),
+                    backdrop_layer_composite_bind_group_layout: self
+                        .backdrop_layer_composite_bind_group_layout
+                        .as_ref()
+                        .unwrap(),
                     stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
                     backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
                     backdrop_color_gradient_pipeline: self
@@ -371,8 +432,10 @@ impl<'a> Renderer<'a> {
                 None
             };
 
-            let copy_src = if has_backdrop_effects {
-                Some(output_texture.expect("output_texture required for backdrop effects"))
+            let backdrop_source = if has_backdrop_effects {
+                Some(types::BackdropSource::Flattened {
+                    texture: output_texture.expect("output_texture required for backdrop effects"),
+                })
             } else {
                 None
             };
@@ -382,12 +445,13 @@ impl<'a> Renderer<'a> {
                 &mut encoder,
                 traversal_scratch.events(),
                 &effect_results,
+                &mut shape_effect_leaves,
                 &self.group_effects,
                 &mut self.backdrop_effects,
                 phase2_color_view,
                 phase2_resolve_target,
                 depth_texture_view,
-                copy_src,
+                backdrop_source,
                 true,
                 &pipelines,
                 &buffers,
@@ -403,6 +467,8 @@ impl<'a> Renderer<'a> {
                 self.physical_size,
                 #[cfg(feature = "render_metrics")]
                 &mut frame_pipeline_counts,
+                #[cfg(feature = "render_metrics")]
+                &mut shape_effect_cache_metrics,
             );
         }
 
@@ -421,8 +487,11 @@ impl<'a> Renderer<'a> {
                 draw_command.clear_frame_state();
             });
 
+        shape_effect_leaves.clear();
+
         self.scratch.traversal_scratch = traversal_scratch;
         self.scratch.effect_results = effect_results;
+        self.scratch.shape_effect_leaves = shape_effect_leaves;
         self.scratch.effect_node_ids = effect_node_ids;
         self.scratch.textures_to_recycle = textures_to_recycle;
         self.scratch.effect_output_textures = effect_output_textures;
@@ -431,13 +500,16 @@ impl<'a> Renderer<'a> {
         self.scratch.scissor_stack = scissor_stack;
         self.scratch.clip_kind_stack = clip_kind_stack;
         self.scratch.backdrop_work_textures = backdrop_work_textures;
+        let _collected_shape_effect_results = self.shape_effect_cache.end_frame();
         self.buffers_pool_manager.tessellation_cache.end_frame();
 
         // println!("Tesselation cache size: {}", self.buffers_pool_manager.tessellation_cache.len());
 
         #[cfg(feature = "render_metrics")]
         {
+            shape_effect_cache_metrics.collected_results = _collected_shape_effect_results as u64;
             self.last_pipeline_switch_counts = frame_pipeline_counts;
+            self.last_shape_effect_cache_metrics = shape_effect_cache_metrics;
         }
     }
 
@@ -476,7 +548,7 @@ impl<'a> Renderer<'a> {
             let present_dur = after_present.saturating_duration_since(after_submit);
             let gpu_wait_dur = after_gpu_wait.saturating_duration_since(after_present);
             let total_dur = after_gpu_wait.saturating_duration_since(frame_render_loop_started_at);
-            self.last_phase_timings = crate::renderer::metrics::PhaseTimings {
+            self.last_phase_timings = PhaseTimings {
                 prepare: prepare_dur,
                 encode_and_submit: encode_submit_dur,
                 present_or_readback: present_dur,

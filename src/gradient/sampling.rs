@@ -1,4 +1,4 @@
-use super::normalize::{NormalizedGradient, NormalizedSegment};
+use super::normalize::{NormalizedGradient, NormalizedSegment, NormalizedStop};
 use super::types::{
     ColorInterpolation, GradientColor, GradientRamp, GradientRampSource, HueComponent,
     HueInterpolationMethod, RAMP_RESOLUTION, RESOLVED_DEGENERATE_EPSILON,
@@ -67,7 +67,7 @@ fn bake_degenerate_hard_stop_ramp(normalized: &NormalizedGradient) -> [[f32; 4];
 fn evaluate_at_scalar(
     u: f32,
     segments: &[NormalizedSegment],
-    stops: &[super::normalize::NormalizedStop],
+    stops: &[NormalizedStop],
     interpolation: &ColorInterpolation,
 ) -> [f32; 4] {
     if segments.is_empty() {

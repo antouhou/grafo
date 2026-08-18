@@ -1,9 +1,7 @@
-use std::f32::consts::TAU;
-
-use smallvec::{smallvec, SmallVec};
-
 use super::sampling::color_to_final_linear_premultiplied;
 use super::types::{GradientColor, GradientCommonDesc, GradientKind, GradientStopPositions};
+use smallvec::{smallvec, SmallVec};
+use std::f32::consts::TAU;
 
 const NORMALIZED_INLINE_STOP_CAPACITY: usize = 8;
 const NORMALIZED_INLINE_SEGMENT_CAPACITY: usize = 8;
