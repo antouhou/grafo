@@ -132,65 +132,16 @@ impl ShapeEffectConfig {
 
 /// Built-in vertex shader for drawing a fullscreen triangle (3 vertices, no vertex buffer).
 /// Used both by effect apply passes and the composite pass.
-pub(crate) const FULLSCREEN_QUAD_VS: &str = r#"
-struct QuadOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-};
-
-@vertex
-fn vs_quad(@builtin(vertex_index) vi: u32) -> QuadOutput {
-    // Fullscreen triangle trick: 3 vertices cover the entire screen
-    let uv = vec2<f32>(f32((vi << 1u) & 2u), f32(vi & 2u));
-    var out: QuadOutput;
-    out.position = vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
-    out.uv = vec2<f32>(uv.x, 1.0 - uv.y);
-    return out;
-}
-"#;
+pub(crate) const FULLSCREEN_QUAD_VS: &str = include_str!("shaders/fullscreen_quad_vs.wgsl");
 
 /// Built-in fragment shader preamble providing the input texture bindings.
 /// This is prepended to the user's effect fragment shader.
-pub(crate) const EFFECT_FS_PREAMBLE: &str = r#"
-// -- Provided by the engine (group 0) --
-@group(0) @binding(0) var t_input: texture_2d<f32>;
-@group(0) @binding(1) var s_input: sampler;
-"#;
+pub(crate) const EFFECT_FS_PREAMBLE: &str = include_str!("shaders/effect_fs_preamble.wgsl");
 
 /// Simple passthrough fragment shader for compositing effect results back into the parent target.
-pub(crate) const COMPOSITE_FS: &str = r#"
-@group(0) @binding(0) var t_input: texture_2d<f32>;
-@group(0) @binding(1) var s_input: sampler;
+pub(crate) const COMPOSITE_FS: &str = include_str!("shaders/composite_fs.wgsl");
 
-@fragment
-fn fs_composite(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    return textureSample(t_input, s_input, uv);
-}
-"#;
-
-const BACKDROP_LAYER_COMPOSITE_FS: &str = r#"
-struct BackdropLayerParams {
-    capture_origin: vec2<i32>,
-    source_size: vec2<i32>,
-};
-
-@group(0) @binding(0) var foreground_texture: texture_2d<f32>;
-@group(0) @binding(1) var<uniform> layer_params: BackdropLayerParams;
-
-@fragment
-fn fs_backdrop_layer(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-    let destination_pixel = vec2<i32>(position.xy);
-    let source_pixel = layer_params.capture_origin + destination_pixel;
-    if source_pixel.x < 0
-        || source_pixel.y < 0
-        || source_pixel.x >= layer_params.source_size.x
-        || source_pixel.y >= layer_params.source_size.y
-    {
-        return vec4<f32>(0.0);
-    }
-    return textureLoad(foreground_texture, source_pixel, 0);
-}
-"#;
+const BACKDROP_LAYER_COMPOSITE_FS: &str = include_str!("shaders/backdrop_layer_composite_fs.wgsl");
 
 // ── Loaded effect (compiled pipeline) ────────────────────────────────────────
 
