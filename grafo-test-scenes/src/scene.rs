@@ -4115,6 +4115,21 @@ fn tile_60_cached_shape_effect_rect(renderer: &mut Renderer) -> Vec<PixelExpecta
             ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
         )
         .unwrap();
+    let transparent_child = Shape::rect(
+        [
+            (origin_x + 30.0, origin_y + 30.0),
+            (origin_x + 40.0, origin_y + 40.0),
+        ],
+        Stroke::default(),
+    );
+    renderer
+        .add_shape(
+            transparent_child,
+            Some(shape_id),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::TRANSPARENT),
+        )
+        .unwrap();
     renderer
         .set_shape_effect(
             shape_id,

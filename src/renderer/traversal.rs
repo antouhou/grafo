@@ -75,7 +75,7 @@ pub(super) fn plan_traversal_in_place(
 
     let exclude_id = exclude_subtree_id;
 
-    let pre_fn = |node_id: usize, draw_command: &mut DrawCommand, state: &mut TraversalScratch| {
+    let pre_fn = |node_id: usize, _draw_command: &mut DrawCommand, state: &mut TraversalScratch| {
         // Handle excluded subtree: skip the node and all descendants entirely.
         if state.excluded_depth > 0 {
             state.excluded_depth += 1;
@@ -94,8 +94,7 @@ pub(super) fn plan_traversal_in_place(
             return;
         }
 
-        if draw_command.is_leaf()
-            && !effect_results.contains_key(&node_id)
+        if !effect_results.contains_key(&node_id)
             && prepared_shape_effect_leaves.contains_key(&node_id)
         {
             state.events.push(TraversalEvent::PreparedLeaf(node_id));
@@ -235,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn plan_traversal_ignores_prepared_leaf_for_node_with_children() {
+    fn plan_traversal_inserts_prepared_leaf_before_node_with_children() {
         let mut tree = easy_tree::Tree::new();
         let root = tree.add_node(DrawCommand::CachedShape(cached_draw_data()));
         tree.get_mut(root).unwrap().set_not_leaf();
@@ -257,6 +256,7 @@ mod tests {
         assert_eq!(
             traversal_scratch.events(),
             &[
+                TraversalEvent::PreparedLeaf(root),
                 TraversalEvent::Pre(root),
                 TraversalEvent::Pre(child),
                 TraversalEvent::Post(child),
