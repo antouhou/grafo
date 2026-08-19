@@ -513,7 +513,12 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    /// Renders the draw queue to the surface and presents it.
+    ///
+    /// If the returned outcome is a non-success [`wgpu::CurrentSurfaceTexture`]
+    /// variant (`Lost`, `Outdated`, `Timeout`), the caller should decide what to do with it -
+    /// reconfigure the surface, try again, etc.
+    pub fn render(&mut self) -> Result<(), wgpu::CurrentSurfaceTexture> {
         #[cfg(feature = "render_metrics")]
         let frame_render_loop_started_at = std::time::Instant::now();
         self.prepare_render();
@@ -525,7 +530,12 @@ impl<'a> Renderer<'a> {
             .surface
             .as_ref()
             .expect("Cannot call render() on a headless renderer; use render_to_buffer()");
-        let output = surface.get_current_texture()?;
+        let output = match surface.get_current_texture() {
+            // TODO: decide what to do with suboptimal frames
+            wgpu::CurrentSurfaceTexture::Success(frame)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+            non_success => return Err(non_success),
+        };
         let output_texture_view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -535,12 +545,12 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         let after_submit = std::time::Instant::now();
 
-        output.present();
+        self.queue.present(output);
         #[cfg(feature = "render_metrics")]
         {
             let after_present = std::time::Instant::now();
             // Force GPU completion to measure actual GPU execution time.
-            let _ = self.device.poll(wgpu::MaintainBase::Wait);
+            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
             let after_gpu_wait = std::time::Instant::now();
 
             let prepare_dur = after_prepare.saturating_duration_since(frame_render_loop_started_at);

@@ -84,13 +84,16 @@ impl RendererContext {
     /// The context deliberately has no surface. A renderer created from it validates and
     /// configures its own surface, so windows can be added later without rebuilding the device.
     pub async fn try_new() -> Result<Self, RendererCreationError> {
-        let instance = Arc::new(wgpu::Instance::new(&InstanceDescriptor::default()));
+        let instance = Arc::new(wgpu::Instance::new(
+            InstanceDescriptor::new_without_display_handle(),
+        ));
         let adapter = Arc::new(
             instance
                 .request_adapter(&wgpu::RequestAdapterOptions {
                     power_preference: wgpu::PowerPreference::HighPerformance,
                     compatible_surface: None,
                     force_fallback_adapter: false,
+                    apply_limit_buckets: false,
                 })
                 .await?,
         );
@@ -104,6 +107,7 @@ impl RendererContext {
                 #[cfg(not(feature = "performance_measurement"))]
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
                 memory_hints: Default::default(),
                 trace: Default::default(),
             })
@@ -205,6 +209,7 @@ impl<'a> Renderer<'a> {
             } else {
                 wgpu::PresentMode::AutoNoVsync
             },
+            color_space: wgpu::SurfaceColorSpace::Auto,
             desired_maximum_frame_latency: 2,
             alpha_mode,
             view_formats: vec![],
@@ -314,7 +319,7 @@ impl<'a> Renderer<'a> {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
 
@@ -630,7 +635,7 @@ impl<'a> Renderer<'a> {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -699,7 +704,7 @@ impl<'a> Renderer<'a> {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -780,6 +785,7 @@ impl<'a> Renderer<'a> {
             width: physical_size.0,
             height: physical_size.1,
             present_mode: wgpu::PresentMode::AutoVsync,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             desired_maximum_frame_latency: 2,
             alpha_mode: CompositeAlphaMode::Opaque,
             view_formats: vec![],
