@@ -515,9 +515,9 @@ impl<'a> Renderer<'a> {
 
     /// Renders the draw queue to the surface and presents it.
     ///
-    /// Returns `Err(outcome)` when the surface could not provide a frame; the outcome is the
-    /// non-success [`wgpu::CurrentSurfaceTexture`] variant (e.g. `Lost`, `Outdated`, `Timeout`),
-    /// so callers can decide whether to reconfigure the surface or skip the frame.
+    /// If the returned outcome is a non-success [`wgpu::CurrentSurfaceTexture`]
+    /// variant (`Lost`, `Outdated`, `Timeout`), the caller should decide what to do with it -
+    /// reconfigure the surface, try again, etc.
     pub fn render(&mut self) -> Result<(), wgpu::CurrentSurfaceTexture> {
         #[cfg(feature = "render_metrics")]
         let frame_render_loop_started_at = std::time::Instant::now();
@@ -531,9 +531,8 @@ impl<'a> Renderer<'a> {
             .as_ref()
             .expect("Cannot call render() on a headless renderer; use render_to_buffer()");
         let output = match surface.get_current_texture() {
+            // TODO: decide what to do with suboptimal frames
             wgpu::CurrentSurfaceTexture::Success(frame)
-            // Render suboptimal frames anyway (they can still be presented); wgpu recommends
-            // reconfiguring the surface, which is the caller's responsibility on `Err` paths.
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
             non_success => return Err(non_success),
         };
