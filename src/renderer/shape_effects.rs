@@ -407,9 +407,6 @@ impl<'a> Renderer<'a> {
             let Some(draw_command) = self.draw_tree.get(node_id) else {
                 continue;
             };
-            if !draw_command.is_leaf() {
-                continue;
-            }
             let DrawCommand::CachedShape(source_shape) = draw_command else {
                 continue;
             };
