@@ -605,7 +605,9 @@ impl<'a> ApplicationHandler for App<'a> {
                         renderer.clear_draw_queue();
                         window.request_redraw();
                     }
-                    Err(wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated) => renderer.resize(renderer.size()),
+                    Err(
+                        wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated,
+                    ) => renderer.resize(renderer.size()),
                     Err(e) => eprintln!("{e:?}"),
                 }
             }

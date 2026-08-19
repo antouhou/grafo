@@ -102,7 +102,9 @@ impl<'a> ApplicationHandler for App<'a> {
                         renderer.clear_draw_queue();
                         println!("Render time: {:?}", timer.elapsed());
                     }
-                    Err(wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated) => {
+                    Err(
+                        wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated,
+                    ) => {
                         println!("Surface lost or outdated, resizing...");
                         renderer.resize(renderer.size())
                     }

@@ -73,7 +73,9 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 match renderer.render() {
                     Ok(_) => {}
-                    Err(wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated) => renderer.resize(renderer.size()),
+                    Err(
+                        wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated,
+                    ) => renderer.resize(renderer.size()),
                     Err(e) => eprintln!("{e:?}"),
                 }
             }
