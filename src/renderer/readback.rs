@@ -43,7 +43,7 @@ impl<'a> Renderer<'a> {
             }
         });
 
-        let _ = device.poll(wgpu::MaintainBase::Wait);
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
 
         let map_result = match receiver.recv() {
             Ok(result) => result,
@@ -58,7 +58,14 @@ impl<'a> Renderer<'a> {
             return;
         }
 
-        let mapped_range = buffer_slice.get_mapped_range();
+        let mapped_range = match buffer_slice.get_mapped_range() {
+            Ok(range) => range,
+            Err(error) => {
+                warn!("Failed to get mapped range of readback buffer: {:?}", error);
+                buffer.unmap();
+                return;
+            }
+        };
         mapped_bytes.extend_from_slice(&mapped_range);
         drop(mapped_range);
         buffer.unmap();

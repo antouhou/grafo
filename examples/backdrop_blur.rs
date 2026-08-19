@@ -291,8 +291,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     Ok(_) => {
                         renderer.clear_draw_queue();
                     }
-                    Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size()),
-                    Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
+                    Err(wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated) => renderer.resize(renderer.size()),
                     Err(e) => eprintln!("{e:?}"),
                 }
             }

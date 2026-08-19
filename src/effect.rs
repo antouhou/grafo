@@ -540,18 +540,18 @@ pub(crate) fn compile_effect_pipeline(
         // if this particular pass references it.
         let layout_label = format!("effect_pass{i}_layout");
         let pipeline_layout = if pass_has_params {
-            let bind_group_layouts = [&input_bgl, params_bgl.as_ref().unwrap()];
+            let bind_group_layouts = [Some(&input_bgl), Some(params_bgl.as_ref().unwrap())];
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some(&layout_label),
                 bind_group_layouts: &bind_group_layouts,
-                push_constant_ranges: &[],
+                immediate_size: 0,
             })
         } else {
-            let bind_group_layouts = [&input_bgl];
+            let bind_group_layouts = [Some(&input_bgl)];
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some(&layout_label),
                 bind_group_layouts: &bind_group_layouts,
-                push_constant_ranges: &[],
+                immediate_size: 0,
             })
         };
 
@@ -592,7 +592,7 @@ pub(crate) fn compile_effect_pipeline(
             },
             depth_stencil: None, // Effect apply pass has no stencil
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -629,8 +629,8 @@ pub(crate) fn compile_composite_pipeline(
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("composite_pipeline_layout"),
-        bind_group_layouts: &[&input_bgl],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(&input_bgl)],
+        immediate_size: 0,
     });
 
     // Stencil: compare Equal, pass_op Keep (respects parent clipping, no stencil modification)
@@ -677,8 +677,8 @@ pub(crate) fn compile_composite_pipeline(
         },
         depth_stencil: Some(wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Depth24PlusStencil8,
-            depth_write_enabled: false,
-            depth_compare: wgpu::CompareFunction::Always,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::Always),
             stencil: wgpu::StencilState {
                 front: stencil_face,
                 back: stencil_face,
@@ -688,7 +688,7 @@ pub(crate) fn compile_composite_pipeline(
             bias: wgpu::DepthBiasState::default(),
         }),
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
 
@@ -711,8 +711,8 @@ pub(crate) fn compile_texture_blit_pipeline(
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("texture_blit_pipeline_layout"),
-        bind_group_layouts: &[input_bind_group_layout],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(input_bind_group_layout)],
+        immediate_size: 0,
     });
 
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -740,7 +740,7 @@ pub(crate) fn compile_texture_blit_pipeline(
         },
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     })
 }
@@ -783,8 +783,8 @@ pub(crate) fn compile_backdrop_layer_composite_pipeline(
     });
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("backdrop_layer_composite_pipeline_layout"),
-        bind_group_layouts: &[&bind_group_layout],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(&bind_group_layout)],
+        immediate_size: 0,
     });
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("backdrop_layer_composite_pipeline"),
@@ -808,7 +808,7 @@ pub(crate) fn compile_backdrop_layer_composite_pipeline(
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
 

@@ -102,13 +102,9 @@ impl<'a> ApplicationHandler for App<'a> {
                         renderer.clear_draw_queue();
                         println!("Render time: {:?}", timer.elapsed());
                     }
-                    Err(wgpu::SurfaceError::Lost) => {
-                        println!("Surface lost, resizing...");
+                    Err(wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated) => {
+                        println!("Surface lost or outdated, resizing...");
                         renderer.resize(renderer.size())
-                    }
-                    Err(wgpu::SurfaceError::OutOfMemory) => {
-                        println!("Out of memory, exiting...");
-                        event_loop.exit()
                     }
                     Err(e) => eprintln!("Render error: {e:?}"),
                 }
