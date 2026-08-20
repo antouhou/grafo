@@ -8,6 +8,7 @@ use lyon::geom::point;
 use lyon::path::FillRule;
 use lyon::path::Path;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 // Local converter from euclid to grafo's GPU instance layout so we keep euclid out of the main crate.
 fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstance {
@@ -78,7 +79,7 @@ fn world_to_local_2d(tx: &Transform3D<f32>, world: (f32, f32)) -> Option<(f32, f
 }
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
@@ -123,10 +124,16 @@ fn build_perspective_demo_path() -> Path {
     pb.build()
 }
 
+/// How long to wait before retrying a frame that was skipped because the surface
+/// reported it was not visible (`Occluded`/`Timeout`).
+const OCCLUDED_RETRY_DELAY: Duration = Duration::from_millis(50);
+
 #[derive(Default)]
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
+    /// Pending retry of a frame skipped because the window was not visible.
+    redraw_retry_at: Option<Instant>,
     angle: f32,
     // Last mouse position in physical pixels (window space)
     last_mouse_pos: Option<(f32, f32)>,
@@ -602,16 +609,49 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 match renderer.render() {
                     Ok(_) => {
+                        self.redraw_retry_at = None;
                         renderer.clear_draw_queue();
                         window.request_redraw();
                     }
                     Err(
                         wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated,
                     ) => renderer.resize(renderer.size()),
+
+                    Err(
+                        wgpu::CurrentSurfaceTexture::Timeout
+                        | wgpu::CurrentSurfaceTexture::Occluded,
+                    ) => {
+                        // The window is not visible yet (still appearing, minimized, or fully
+                        // covered). Retry shortly instead of busy-looping redraws — winit does
+                        // not request one when the window becomes visible again. `WaitUntil`
+                        // wakes the event loop without spinning while the window stays hidden.
+                        renderer.clear_draw_queue();
+                        let retry_at = Instant::now() + OCCLUDED_RETRY_DELAY;
+                        self.redraw_retry_at = Some(retry_at);
+                        event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
+                    }
                     Err(e) => eprintln!("{e:?}"),
                 }
             }
             _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(retry_at) = self.redraw_retry_at else {
+            // Clear a stale WaitUntil deadline left behind when a successful
+            // render cancelled the pending retry before it fired.
+            event_loop.set_control_flow(ControlFlow::Wait);
+            return;
+        };
+        if Instant::now() >= retry_at {
+            self.redraw_retry_at = None;
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+            event_loop.set_control_flow(ControlFlow::Wait);
+        } else {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
         }
     }
 }
@@ -624,6 +664,7 @@ pub fn main() {
     let mut app = App {
         window: None,
         renderer: None,
+        redraw_retry_at: None,
         angle: 0.0,
         last_mouse_pos: None,
         orbit_yaw_deg: 0.0,

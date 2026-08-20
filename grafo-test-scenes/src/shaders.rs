@@ -127,3 +127,51 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 0.0, alpha);
 }
 "#;
+
+/// Horizontal blur tuned for half-resolution shape-effect masks: half the sigma of
+/// `DROP_SHADOW_HORIZONTAL_BLUR_WGSL`, so the bilinearly upscaled result matches it.
+pub const DOWNSAMPLED_DROP_SHADOW_HORIZONTAL_BLUR_WGSL: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let dimensions = vec2<f32>(textureDimensions(t_input));
+    let pixel = vec2<f32>(1.0 / dimensions.x, 0.0);
+    let sigma = 1.0;
+    var color = vec4<f32>(0.0);
+    var total_weight = 0.0;
+
+    for (var sample_offset = -5; sample_offset <= 5; sample_offset++) {
+        let distance = f32(sample_offset);
+        let weight = exp(-(distance * distance) / (2.0 * sigma * sigma));
+        color += textureSample(t_input, s_input, uv + pixel * distance) * weight;
+        total_weight += weight;
+    }
+
+    return color / total_weight;
+}
+"#;
+
+/// Vertical blur, offset, and tint tuned for half-resolution shape-effect masks:
+/// half the sigma and offset of `DROP_SHADOW_VERTICAL_TINT_WGSL`, so the bilinearly
+/// upscaled result lands at the same screen position.
+pub const DOWNSAMPLED_DROP_SHADOW_VERTICAL_TINT_WGSL: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let dimensions = vec2<f32>(textureDimensions(t_input));
+    let pixel = vec2<f32>(0.0, 1.0 / dimensions.y);
+    let shadow_offset = vec2<f32>(3.5, 4.0) / dimensions;
+    let sigma = 1.0;
+    var coverage = 0.0;
+    var total_weight = 0.0;
+
+    for (var sample_offset = -5; sample_offset <= 5; sample_offset++) {
+        let distance = f32(sample_offset);
+        let weight = exp(-(distance * distance) / (2.0 * sigma * sigma));
+        coverage += textureSample(t_input, s_input, uv - shadow_offset + pixel * distance).a
+            * weight;
+        total_weight += weight;
+    }
+
+    let alpha = 0.65 * coverage / total_weight;
+    return vec4<f32>(0.0, 0.0, 0.0, alpha);
+}
+"#;

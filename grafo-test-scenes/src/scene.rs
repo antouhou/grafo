@@ -9,15 +9,17 @@ use grafo::{
 
 use crate::expectations::PixelExpectation;
 use crate::shaders::{
-    BlurParams, DROP_SHADOW_HORIZONTAL_BLUR_WGSL, DROP_SHADOW_VERTICAL_TINT_WGSL,
-    HORIZONTAL_BLUR_WGSL, PASSTHROUGH_WGSL, SHAPE_DROP_WGSL, VERTICAL_BLUR_WGSL,
+    BlurParams, DOWNSAMPLED_DROP_SHADOW_HORIZONTAL_BLUR_WGSL,
+    DOWNSAMPLED_DROP_SHADOW_VERTICAL_TINT_WGSL, DROP_SHADOW_HORIZONTAL_BLUR_WGSL,
+    DROP_SHADOW_VERTICAL_TINT_WGSL, HORIZONTAL_BLUR_WGSL, PASSTHROUGH_WGSL, SHAPE_DROP_WGSL,
+    VERTICAL_BLUR_WGSL,
 };
 
 // ── Grid layout constants ────────────────────────────────────────────────────
 
 const TILE_SIZE: u32 = 80;
 const COLUMNS: u32 = 6;
-const ROWS: u32 = 11;
+const ROWS: u32 = 12;
 
 pub const CANVAS_WIDTH: u32 = TILE_SIZE * COLUMNS;
 pub const CANVAS_HEIGHT: u32 = TILE_SIZE * ROWS;
@@ -26,6 +28,7 @@ const BLUR_EFFECT_ID: u64 = 1;
 const PASSTHROUGH_EFFECT_ID: u64 = 2;
 const SHAPE_DROP_EFFECT_ID: u64 = 3;
 const DROP_SHADOW_EFFECT_ID: u64 = 4;
+const DOWNSAMPLED_DROP_SHADOW_EFFECT_ID: u64 = 5;
 const CHECKERBOARD_TEXTURE_ID: u64 = 100;
 const SOLID_GREEN_TEXTURE_ID: u64 = 101;
 const SOLID_GREEN_20X20_TEXTURE_ID: u64 = 102;
@@ -138,6 +141,7 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_64_drop_shadow_with_backdrop_blur(renderer));
     expectations.extend(tile_65_grouped_shape_effect_in_backdrop(renderer));
     expectations.extend(tile_66_same_node_shape_backdrop_and_group_effects(renderer));
+    expectations.extend(tile_67_downsampled_drop_shadow_with_backdrop_blur(renderer));
 
     expectations
 }
@@ -163,6 +167,15 @@ fn load_shared_resources(renderer: &mut Renderer) {
             ],
         )
         .expect("Failed to compile visual drop shadow effect");
+    renderer
+        .load_effect(
+            DOWNSAMPLED_DROP_SHADOW_EFFECT_ID,
+            &[
+                DOWNSAMPLED_DROP_SHADOW_HORIZONTAL_BLUR_WGSL,
+                DOWNSAMPLED_DROP_SHADOW_VERTICAL_TINT_WGSL,
+            ],
+        )
+        .expect("Failed to compile downsampled drop shadow effect");
 
     // 4×4 checkerboard: alternating white and black pixels, RGBA
     let mut checkerboard = [0u8; 4 * 4 * 4];
@@ -4657,6 +4670,151 @@ fn tile_66_same_node_shape_backdrop_and_group_effects(
             180,
             80,
             "t66_scene_behind_group_remains_unprocessed",
+        ),
+    ]
+}
+
+/// Tile 67 — Tile 64 rendered at half mask resolution: the drop shadow is
+/// rasterized into a half-size texture and bilinearly upscaled when drawn.
+/// Shader sigma and offset are halved so the result should match tile 64
+/// on screen, with slightly softer edges from the upscale.
+fn tile_67_downsampled_drop_shadow_with_backdrop_blur(
+    renderer: &mut Renderer,
+) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(67);
+    let backing_shape = Shape::rect(
+        [
+            (origin_x + 6.0, origin_y + 6.0),
+            (origin_x + 72.0, origin_y + 42.0),
+        ],
+        Stroke::default(),
+    );
+    renderer
+        .add_shape(
+            backing_shape,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(245, 190, 70)),
+        )
+        .unwrap();
+
+    let card = Shape::rounded_rect(
+        [
+            (origin_x + 18.0, origin_y + 14.0),
+            (origin_x + 56.0, origin_y + 52.0),
+        ],
+        BorderRadii::new(8.0),
+        Stroke::default(),
+    );
+    let card_id = renderer
+        .add_shape(
+            card,
+            None,
+            Some(67_067),
+            ShapeDrawCommandOptions::new().color(Color::rgba(75, 125, 235, 150)),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            card_id,
+            DOWNSAMPLED_DROP_SHADOW_EFFECT_ID,
+            &[],
+            ShapeEffectConfig::new()
+                .outsets(8.0, 8.0, 20.0, 22.0)
+                .downsample(0.5),
+        )
+        .expect("Failed to attach downsampled drop shadow effect");
+    let backdrop_blur_params = BlurParams {
+        radius: 5.0,
+        _pad: 0.0,
+        tex_size: [38.0, 38.0],
+    };
+    renderer
+        .set_shape_backdrop_effect(
+            card_id,
+            BLUR_EFFECT_ID,
+            bytemuck::bytes_of(&backdrop_blur_params),
+            BackdropEffectConfig::default(),
+        )
+        .expect("Failed to attach backdrop blur to downsampled shadow card");
+
+    vec![
+        PixelExpectation::opaque(
+            origin_x as u32 + 10,
+            origin_y as u32 + 20,
+            245,
+            190,
+            70,
+            "t67_backing_shape_is_visible",
+        ),
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + 62,
+            origin_y as u32 + 35,
+            191,
+            148,
+            53,
+            12,
+            "t67_backing_shape_visible_through_shadow",
+        ),
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + 35,
+            origin_y as u32 + 30,
+            115,
+            122,
+            187,
+            12,
+            "t67_translucent_card_tints_blurred_backdrop",
+        ),
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + 35,
+            origin_y as u32 + 41,
+            117,
+            129,
+            195,
+            12,
+            "t67_backdrop_edge_blurs_inside_card",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 10,
+            origin_y as u32 + 41,
+            245,
+            190,
+            70,
+            "t67_backdrop_edge_stays_sharp_outside_card",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 10,
+            origin_y as u32 + 44,
+            255,
+            255,
+            255,
+            "t67_below_backdrop_edge_stays_white_outside_card",
+        ),
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + 62,
+            origin_y as u32 + 57,
+            234,
+            234,
+            234,
+            12,
+            "t67_shadow_has_soft_diagonal_falloff",
+        ),
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + 42,
+            origin_y as u32 + 57,
+            170,
+            170,
+            170,
+            12,
+            "t67_shadow_body_visible_below_card",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 75,
+            origin_y as u32 + 10,
+            255,
+            255,
+            255,
+            "t67_shadow_outsets_remain_transparent",
         ),
     ]
 }

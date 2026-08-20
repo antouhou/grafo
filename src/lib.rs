@@ -124,6 +124,18 @@
 //!                         Err(
 //!                             wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated,
 //!                         ) => renderer.resize(renderer.size()),
+//!                         Err(
+//!                             wgpu::CurrentSurfaceTexture::Timeout
+//!                                 | wgpu::CurrentSurfaceTexture::Occluded,
+//!                         ) => {
+//!                             // The window is not visible yet (still appearing, minimized, or
+//!                             // fully covered). Ask for another redraw instead of dropping the
+//!                             // frame — winit does not request one when the window becomes
+//!                             // visible again.
+//!                             if let Some(window) = &self.window {
+//!                                 window.request_redraw();
+//!                             }
+//!                         }
 //!                         Err(e) => eprintln!("{:?}", e),
 //!                     }
 //!                 }

@@ -485,7 +485,27 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                 match self.phase {
                     Phase::WarmupStatic => {
                         let renderer = self.renderer.as_mut().unwrap();
-                        renderer.render().expect("render failed");
+                        match renderer.render() {
+                            Ok(_) => {}
+                            Err(
+                                wgpu::CurrentSurfaceTexture::Timeout
+                                | wgpu::CurrentSurfaceTexture::Occluded,
+                            ) => {
+                                // Window not visible — skip without counting the frame.
+                                window.request_redraw();
+                                return;
+                            }
+                            Err(
+                                wgpu::CurrentSurfaceTexture::Lost
+                                | wgpu::CurrentSurfaceTexture::Outdated,
+                            ) => {
+                                let size = renderer.size();
+                                renderer.resize(size);
+                                window.request_redraw();
+                                return;
+                            }
+                            Err(e) => panic!("render failed: {e:?}"),
+                        }
                         self.frame_counter += 1;
                         if self.frame_counter >= WARMUP_FRAMES {
                             #[cfg(feature = "render_metrics")]
@@ -501,7 +521,27 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                         {
                             let renderer = self.renderer.as_mut().unwrap();
                             let frame_start = Instant::now();
-                            renderer.render().expect("render failed");
+                            match renderer.render() {
+                                Ok(_) => {}
+                                Err(
+                                    wgpu::CurrentSurfaceTexture::Timeout
+                                    | wgpu::CurrentSurfaceTexture::Occluded,
+                                ) => {
+                                    // Window not visible — skip without measuring the frame.
+                                    window.request_redraw();
+                                    return;
+                                }
+                                Err(
+                                    wgpu::CurrentSurfaceTexture::Lost
+                                    | wgpu::CurrentSurfaceTexture::Outdated,
+                                ) => {
+                                    let size = renderer.size();
+                                    renderer.resize(size);
+                                    window.request_redraw();
+                                    return;
+                                }
+                                Err(e) => panic!("render failed: {e:?}"),
+                            }
                             self.static_frame_times.push(frame_start.elapsed());
 
                             #[cfg(feature = "render_metrics")]
@@ -528,7 +568,29 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                     Phase::WarmupDynamic => {
                         let renderer = self.renderer.as_mut().unwrap();
                         build_scene(renderer);
-                        renderer.render().expect("render failed");
+                        match renderer.render() {
+                            Ok(_) => {}
+                            Err(
+                                wgpu::CurrentSurfaceTexture::Timeout
+                                | wgpu::CurrentSurfaceTexture::Occluded,
+                            ) => {
+                                // Window not visible — skip without counting the frame.
+                                renderer.clear_draw_queue();
+                                window.request_redraw();
+                                return;
+                            }
+                            Err(
+                                wgpu::CurrentSurfaceTexture::Lost
+                                | wgpu::CurrentSurfaceTexture::Outdated,
+                            ) => {
+                                renderer.clear_draw_queue();
+                                let size = renderer.size();
+                                renderer.resize(size);
+                                window.request_redraw();
+                                return;
+                            }
+                            Err(e) => panic!("render failed: {e:?}"),
+                        }
                         renderer.clear_draw_queue();
                         self.frame_counter += 1;
                         if self.frame_counter >= WARMUP_FRAMES {
@@ -546,10 +608,33 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                             let renderer = self.renderer.as_mut().unwrap();
                             let rebuild_start = Instant::now();
                             build_scene(renderer);
-                            self.dynamic_rebuild_times.push(rebuild_start.elapsed());
+                            let rebuild_duration = rebuild_start.elapsed();
 
                             let frame_start = Instant::now();
-                            renderer.render().expect("render failed");
+                            match renderer.render() {
+                                Ok(_) => {}
+                                Err(
+                                    wgpu::CurrentSurfaceTexture::Timeout
+                                    | wgpu::CurrentSurfaceTexture::Occluded,
+                                ) => {
+                                    // Window not visible — skip without measuring the frame.
+                                    renderer.clear_draw_queue();
+                                    window.request_redraw();
+                                    return;
+                                }
+                                Err(
+                                    wgpu::CurrentSurfaceTexture::Lost
+                                    | wgpu::CurrentSurfaceTexture::Outdated,
+                                ) => {
+                                    renderer.clear_draw_queue();
+                                    let size = renderer.size();
+                                    renderer.resize(size);
+                                    window.request_redraw();
+                                    return;
+                                }
+                                Err(e) => panic!("render failed: {e:?}"),
+                            }
+                            self.dynamic_rebuild_times.push(rebuild_duration);
                             self.dynamic_frame_times.push(frame_start.elapsed());
 
                             #[cfg(feature = "render_metrics")]

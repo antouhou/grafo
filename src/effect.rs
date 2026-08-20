@@ -98,7 +98,7 @@ impl BackdropEffectConfig {
 }
 
 /// Padding around a shape's local bounds for a cached shape effect.
-#[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct ShapeEffectConfig {
     /// Logical-space distance added to the left of the shape's local bounds.
     pub left_outset: f32,
@@ -108,6 +108,24 @@ pub struct ShapeEffectConfig {
     pub right_outset: f32,
     /// Logical-space distance added below the shape's local bounds.
     pub bottom_outset: f32,
+    /// Scale factor applied to the mask and effect textures before running the
+    /// effect. `1.0` keeps full resolution, `0.5` halves each axis, and so on.
+    /// The smaller result texture is bilinearly upscaled to the shape's full
+    /// bounds when drawn. Effect shaders operate in texels of the downsampled
+    /// texture, so texel-based radii and offsets scale up visually.
+    pub downsample: f32,
+}
+
+impl Default for ShapeEffectConfig {
+    fn default() -> Self {
+        Self {
+            left_outset: 0.0,
+            top_outset: 0.0,
+            right_outset: 0.0,
+            bottom_outset: 0.0,
+            downsample: 1.0,
+        }
+    }
 }
 
 impl ShapeEffectConfig {
@@ -130,6 +148,14 @@ impl ShapeEffectConfig {
         self.top_outset = top;
         self.right_outset = right;
         self.bottom_outset = bottom;
+        self
+    }
+
+    /// Sets the rasterization scale for the mask and effect textures.
+    /// Must be in the range `(0.0, 1.0]`; values below `1.0` render the effect
+    /// at reduced resolution and bilinearly upscale it when drawing.
+    pub fn downsample(mut self, downsample: f32) -> Self {
+        self.downsample = downsample;
         self
     }
 }

@@ -3,22 +3,32 @@
 
 use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::Window;
 
+/// How long to wait before retrying a frame that was skipped because the surface
+/// reported it was not visible (`Occluded`/`Timeout`).
+const OCCLUDED_RETRY_DELAY: Duration = Duration::from_millis(50);
+
 struct App {
+    window: Option<Arc<Window>>,
     renderer: Option<Renderer<'static>>,
     bg_tex_id: u64,
     fg_tex_id: u64,
+    /// Pending retry of a frame skipped because the window was not visible.
+    redraw_retry_at: Option<Instant>,
 }
 
 impl Default for App {
     fn default() -> Self {
         Self {
+            window: None,
             renderer: None,
             bg_tex_id: 100,
             fg_tex_id: 101,
+            redraw_retry_at: None,
         }
     }
 }
@@ -33,7 +43,7 @@ impl ApplicationHandler for App {
         let physical_size = (800, 600);
         let scale_factor = 1.0;
         let mut renderer = futures::executor::block_on(Renderer::new(
-            window,
+            window.clone(),
             physical_size,
             scale_factor,
             true,
@@ -98,21 +108,75 @@ impl ApplicationHandler for App {
                     .foreground_texture_id(self.fg_tex_id),
             )
             .unwrap();
+        self.window = Some(window);
         self.renderer = Some(renderer);
-
-        if let Some(r) = self.renderer.as_mut() {
-            let _ = r.render();
-            r.clear_draw_queue();
-        }
     }
 
     fn window_event(
         &mut self,
-        _event_loop: &ActiveEventLoop,
+        event_loop: &ActiveEventLoop,
         _id: winit::window::WindowId,
-        _event: winit::event::WindowEvent,
+        event: winit::event::WindowEvent,
     ) {
-        // No interactivity in this minimal example; a real app would handle events here.
+        use winit::event::WindowEvent;
+
+        let (Some(window), Some(renderer)) = (&self.window, &mut self.renderer) else {
+            return;
+        };
+
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(physical_size) => {
+                renderer.resize((physical_size.width, physical_size.height));
+                window.request_redraw();
+            }
+            WindowEvent::RedrawRequested => {
+                // The draw queue is populated once in `resumed` and persists across frames.
+                match renderer.render() {
+                    Ok(_) => {
+                        self.redraw_retry_at = None;
+                    }
+                    Err(
+                        wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated,
+                    ) => {
+                        let size = renderer.size();
+                        renderer.resize(size);
+                    }
+                    Err(
+                        wgpu::CurrentSurfaceTexture::Timeout
+                        | wgpu::CurrentSurfaceTexture::Occluded,
+                    ) => {
+                        // The window is not visible yet (still appearing, minimized, or fully
+                        // covered). Retry shortly instead of busy-looping redraws — winit does
+                        // not request one when the window becomes visible again. `WaitUntil`
+                        // wakes the event loop without spinning while the window stays hidden.
+                        let retry_at = Instant::now() + OCCLUDED_RETRY_DELAY;
+                        self.redraw_retry_at = Some(retry_at);
+                        event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
+                    }
+                    Err(e) => eprintln!("{e:?}"),
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(retry_at) = self.redraw_retry_at else {
+            // Clear a stale WaitUntil deadline left behind when a successful
+            // render cancelled the pending retry before it fired.
+            event_loop.set_control_flow(ControlFlow::Wait);
+            return;
+        };
+        if Instant::now() >= retry_at {
+            self.redraw_retry_at = None;
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+            event_loop.set_control_flow(ControlFlow::Wait);
+        } else {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
+        }
     }
 }
 
