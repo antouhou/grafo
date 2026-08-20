@@ -850,8 +850,8 @@ fn resolve_capture_region_to_viewport(
     let overlap_right = capture_right.min(physical_size.0 as i32);
     let overlap_bottom = capture_bottom.min(physical_size.1 as i32);
 
-    let overlap_width = overlap_right.saturating_sub(overlap_left) as u32;
-    let overlap_height = overlap_bottom.saturating_sub(overlap_top) as u32;
+    let overlap_width = overlap_right.saturating_sub(overlap_left).max(0) as u32;
+    let overlap_height = overlap_bottom.saturating_sub(overlap_top).max(0) as u32;
     let has_overlap = overlap_width > 0 && overlap_height > 0;
 
     BackdropCaptureRegion {
@@ -1916,6 +1916,17 @@ mod tests {
         assert_eq!(region.copy_source_origin, Some((0, 5)));
         assert_eq!(region.copy_destination_origin, (10, 0));
         assert_eq!(region.copy_size, (30, 20));
+    }
+
+    #[test]
+    fn capture_region_skips_copy_when_fully_offscreen() {
+        let offscreen_right = resolve_capture_region_to_viewport((110, 5, 20, 20), (100, 100));
+        let offscreen_bottom = resolve_capture_region_to_viewport((5, 110, 20, 20), (100, 100));
+
+        assert_eq!(offscreen_right.copy_source_origin, None);
+        assert_eq!(offscreen_right.copy_size, (0, 20));
+        assert_eq!(offscreen_bottom.copy_source_origin, None);
+        assert_eq!(offscreen_bottom.copy_size, (20, 0));
     }
 
     #[test]
