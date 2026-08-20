@@ -106,6 +106,9 @@ impl<'a> ApplicationHandler for App<'a> {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let Some(retry_at) = self.redraw_retry_at else {
+            // Clear a stale WaitUntil deadline left behind when a successful
+            // render cancelled the pending retry before it fired.
+            event_loop.set_control_flow(ControlFlow::Wait);
             return;
         };
         if Instant::now() >= retry_at {
