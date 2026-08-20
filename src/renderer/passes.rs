@@ -153,7 +153,6 @@ pub(super) fn apply_effect_passes(
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: output_view,
                 resolve_target: None,
-                depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                     store: wgpu::StoreOp::Store,
@@ -162,7 +161,6 @@ pub(super) fn apply_effect_passes(
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
-            multiview_mask: None,
         });
 
         pass.set_pipeline(&effect_pass.pipeline);
@@ -941,7 +939,6 @@ fn clear_texture_to_transparent(
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
             view: output_view,
             resolve_target: None,
-            depth_slice: None,
             ops: wgpu::Operations {
                 load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                 store: wgpu::StoreOp::Store,
@@ -950,7 +947,6 @@ fn clear_texture_to_transparent(
         depth_stencil_attachment: None,
         timestamp_writes: None,
         occlusion_query_set: None,
-        multiview_mask: None,
     });
 }
 
@@ -978,7 +974,6 @@ fn blit_texture_to_texture(
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
             view: output_view,
             resolve_target: None,
-            depth_slice: None,
             ops: wgpu::Operations {
                 load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                 store: wgpu::StoreOp::Store,
@@ -987,7 +982,6 @@ fn blit_texture_to_texture(
         depth_stencil_attachment: None,
         timestamp_writes: None,
         occlusion_query_set: None,
-        multiview_mask: None,
     });
     render_pass.set_pipeline(pipeline);
     render_pass.set_bind_group(0, &bind_group, &[]);
@@ -1014,7 +1008,6 @@ fn composite_backdrop_foreground_layer(
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
             view: output_view,
             resolve_target: None,
-            depth_slice: None,
             ops: wgpu::Operations {
                 load: wgpu::LoadOp::Load,
                 store: wgpu::StoreOp::Store,
@@ -1023,7 +1016,6 @@ fn composite_backdrop_foreground_layer(
         depth_stencil_attachment: None,
         timestamp_writes: None,
         occlusion_query_set: None,
-        multiview_mask: None,
     });
     render_pass.set_pipeline(pipeline);
     render_pass.set_bind_group(0, &bind_group, &[]);

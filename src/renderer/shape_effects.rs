@@ -301,8 +301,8 @@ fn create_mask_pipeline(
     });
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("shape_effect_mask_pipeline_layout"),
-        bind_group_layouts: &[Some(bind_group_layout)],
-        immediate_size: 0,
+        bind_group_layouts: &[bind_group_layout],
+        push_constant_ranges: &[],
     });
 
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -312,7 +312,7 @@ fn create_mask_pipeline(
             module: &shader,
             entry_point: Some("mask_vertex"),
             compilation_options: Default::default(),
-            buffers: &[Some(CustomVertex::desc())],
+            buffers: &[CustomVertex::desc()],
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
@@ -327,7 +327,7 @@ fn create_mask_pipeline(
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview_mask: None,
+        multiview: None,
         cache: None,
     })
 }
@@ -626,7 +626,6 @@ impl<'a> Renderer<'a> {
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: &mask_texture.color_view,
                             resolve_target: None,
-                            depth_slice: None,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                                 store: wgpu::StoreOp::Store,
@@ -635,7 +634,6 @@ impl<'a> Renderer<'a> {
                         depth_stencil_attachment: None,
                         timestamp_writes: None,
                         occlusion_query_set: None,
-                        multiview_mask: None,
                     });
                     render_pass.set_pipeline(&self.shape_effect_resources.mask_pipeline);
                     render_pass.set_bind_group(0, &mask_bind_group, &[]);
