@@ -191,13 +191,14 @@ fn unchanged_shape_effect_reuses_exact_gpu_result_and_collects_when_unused() {
     let replaced_effect_frame = renderer.last_shape_effect_cache_metrics();
     assert_eq!(replaced_effect_frame.misses, 1);
     assert_eq!(replaced_effect_frame.hits, 0);
+    assert_eq!(replaced_effect_frame.mask_hits, 1);
+    assert_eq!(replaced_effect_frame.generated_masks, 0);
 
     renderer.remove_shape_effect(shape_id);
     renderer.render_to_buffer(&mut pixels);
-    assert_eq!(
-        renderer.last_shape_effect_cache_metrics().collected_results,
-        1
-    );
+    let unused_effect_frame = renderer.last_shape_effect_cache_metrics();
+    assert_eq!(unused_effect_frame.collected_results, 1);
+    assert_eq!(unused_effect_frame.collected_masks, 1);
 }
 
 #[cfg(feature = "render_metrics")]
