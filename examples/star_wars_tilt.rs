@@ -230,17 +230,11 @@ impl<'a> ApplicationHandler for App<'a> {
 
                     match renderer.render() {
                         Ok(_) => {}
-                        Err(
-                            wgpu::CurrentSurfaceTexture::Lost
-                            | wgpu::CurrentSurfaceTexture::Outdated,
-                        ) => {
+                        Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                             let size = renderer.size();
                             renderer.resize(size);
                         }
-                        Err(
-                            wgpu::CurrentSurfaceTexture::Timeout
-                            | wgpu::CurrentSurfaceTexture::Occluded,
-                        ) => {
+                        Err(wgpu::SurfaceError::Timeout) => {
                             // The window is not visible yet (still appearing, minimized, or
                             // fully covered). Ask for another redraw instead of dropping the
                             // frame for good — winit does not request one when the window

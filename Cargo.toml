@@ -16,7 +16,7 @@ readme = "README.md"
 
 [dependencies]
 bytemuck = "1.23"
-wgpu = "30.0"
+wgpu = "25.0"
 ahash = "0.8"
 lyon = { version = "1.0"}
 easy-tree = { version = "0.3" }

@@ -487,18 +487,12 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                         let renderer = self.renderer.as_mut().unwrap();
                         match renderer.render() {
                             Ok(_) => {}
-                            Err(
-                                wgpu::CurrentSurfaceTexture::Timeout
-                                | wgpu::CurrentSurfaceTexture::Occluded,
-                            ) => {
+                            Err(wgpu::SurfaceError::Timeout) => {
                                 // Window not visible — skip without counting the frame.
                                 window.request_redraw();
                                 return;
                             }
-                            Err(
-                                wgpu::CurrentSurfaceTexture::Lost
-                                | wgpu::CurrentSurfaceTexture::Outdated,
-                            ) => {
+                            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                                 let size = renderer.size();
                                 renderer.resize(size);
                                 window.request_redraw();
@@ -523,18 +517,12 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                             let frame_start = Instant::now();
                             match renderer.render() {
                                 Ok(_) => {}
-                                Err(
-                                    wgpu::CurrentSurfaceTexture::Timeout
-                                    | wgpu::CurrentSurfaceTexture::Occluded,
-                                ) => {
+                                Err(wgpu::SurfaceError::Timeout) => {
                                     // Window not visible — skip without measuring the frame.
                                     window.request_redraw();
                                     return;
                                 }
-                                Err(
-                                    wgpu::CurrentSurfaceTexture::Lost
-                                    | wgpu::CurrentSurfaceTexture::Outdated,
-                                ) => {
+                                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                                     let size = renderer.size();
                                     renderer.resize(size);
                                     window.request_redraw();
@@ -570,19 +558,13 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                         build_scene(renderer);
                         match renderer.render() {
                             Ok(_) => {}
-                            Err(
-                                wgpu::CurrentSurfaceTexture::Timeout
-                                | wgpu::CurrentSurfaceTexture::Occluded,
-                            ) => {
+                            Err(wgpu::SurfaceError::Timeout) => {
                                 // Window not visible — skip without counting the frame.
                                 renderer.clear_draw_queue();
                                 window.request_redraw();
                                 return;
                             }
-                            Err(
-                                wgpu::CurrentSurfaceTexture::Lost
-                                | wgpu::CurrentSurfaceTexture::Outdated,
-                            ) => {
+                            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                                 renderer.clear_draw_queue();
                                 let size = renderer.size();
                                 renderer.resize(size);
@@ -613,19 +595,13 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                             let frame_start = Instant::now();
                             match renderer.render() {
                                 Ok(_) => {}
-                                Err(
-                                    wgpu::CurrentSurfaceTexture::Timeout
-                                    | wgpu::CurrentSurfaceTexture::Occluded,
-                                ) => {
+                                Err(wgpu::SurfaceError::Timeout) => {
                                     // Window not visible — skip without measuring the frame.
                                     renderer.clear_draw_queue();
                                     window.request_redraw();
                                     return;
                                 }
-                                Err(
-                                    wgpu::CurrentSurfaceTexture::Lost
-                                    | wgpu::CurrentSurfaceTexture::Outdated,
-                                ) => {
+                                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                                     renderer.clear_draw_queue();
                                     let size = renderer.size();
                                     renderer.resize(size);

@@ -82,13 +82,10 @@ impl<'a> ApplicationHandler for App<'a> {
                     Ok(_) => {
                         self.redraw_retry_at = None;
                     }
-                    Err(
-                        wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated,
-                    ) => renderer.resize(renderer.size()),
-                    Err(
-                        wgpu::CurrentSurfaceTexture::Timeout
-                        | wgpu::CurrentSurfaceTexture::Occluded,
-                    ) => {
+                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                        renderer.resize(renderer.size())
+                    }
+                    Err(wgpu::SurfaceError::Timeout) => {
                         // The window is not visible yet (still appearing, minimized, or fully
                         // covered). Retry shortly instead of busy-looping redraws — winit does
                         // not request one when the window becomes visible again. `WaitUntil`
