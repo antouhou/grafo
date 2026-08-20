@@ -108,6 +108,16 @@ impl<'a> ApplicationHandler for App<'a> {
                         println!("Surface lost or outdated, resizing...");
                         renderer.resize(renderer.size())
                     }
+                    Err(
+                        wgpu::CurrentSurfaceTexture::Timeout
+                        | wgpu::CurrentSurfaceTexture::Occluded,
+                    ) => {
+                        // The window is not visible yet (still appearing, minimized, or fully
+                        // covered). Ask for another redraw instead of dropping the frame for
+                        // good — winit does not request one when the window becomes visible.
+                        renderer.clear_draw_queue();
+                        window.request_redraw();
+                    }
                     Err(e) => eprintln!("Render error: {e:?}"),
                 }
             }

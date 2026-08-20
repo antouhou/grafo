@@ -921,7 +921,10 @@ fn compute_backdrop_capture_region(
     })
 }
 
-fn compute_downsampled_dimensions(capture_size: (u32, u32), downsample: f32) -> (u32, u32) {
+pub(super) fn compute_downsampled_dimensions(
+    capture_size: (u32, u32),
+    downsample: f32,
+) -> (u32, u32) {
     (
         ((capture_size.0 as f32) * downsample).ceil().max(1.0) as u32,
         ((capture_size.1 as f32) * downsample).ceil().max(1.0) as u32,

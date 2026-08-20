@@ -82,6 +82,13 @@ fn validate_backdrop_config(config: &effect::BackdropEffectConfig) -> Result<(),
 }
 
 fn validate_shape_effect_config(config: &effect::ShapeEffectConfig) -> Result<(), EffectError> {
+    if !(config.downsample > 0.0 && config.downsample <= 1.0) {
+        return Err(EffectError::InvalidParams(format!(
+            "shape effect downsample must be in the range (0.0, 1.0], got {}",
+            config.downsample
+        )));
+    }
+
     let outsets = [
         config.left_outset,
         config.top_outset,
@@ -661,5 +668,21 @@ mod tests {
             ))
             .is_err()
         );
+    }
+
+    #[test]
+    fn validate_shape_effect_config_rejects_out_of_range_downsample() {
+        for downsample in [0.0, -0.5, f32::NAN, 1.5] {
+            assert!(
+                validate_shape_effect_config(&ShapeEffectConfig::new().downsample(downsample))
+                    .is_err()
+            );
+        }
+        for downsample in [1.0, 0.5, f32::EPSILON] {
+            assert!(
+                validate_shape_effect_config(&ShapeEffectConfig::new().downsample(downsample))
+                    .is_ok()
+            );
+        }
     }
 }

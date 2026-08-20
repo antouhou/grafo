@@ -3,7 +3,7 @@
 
 #[cfg(feature = "render_metrics")]
 use super::metrics::ShapeEffectCacheMetrics;
-use super::passes::{apply_effect_passes, EffectPassRunConfig};
+use super::passes::{apply_effect_passes, compute_downsampled_dimensions, EffectPassRunConfig};
 use super::types::DrawCommand;
 use super::Renderer;
 use crate::cache::{CachedTessellation, FrameCache};
@@ -37,7 +37,9 @@ pub(super) struct ShapeEffectRasterRect {
     /// screen position: node transforms are applied later, so moving a shape on
     /// screen does not change this value.
     pub local_physical_origin: [i32; 2],
-    pub physical_size: [u32; 2],
+    /// Mask/effect texture size in texels. Smaller than the full-resolution
+    /// physical extent when the effect config downsamples the rasterization.
+    pub texture_size: [u32; 2],
     pub local_bounds: [(f32, f32); 2],
 }
 
@@ -80,6 +82,9 @@ pub(super) fn compute_shape_effect_raster_rect(
         || scale_factor <= 0.0
         || !fringe_width.is_finite()
         || fringe_width < 0.0
+        || !config.downsample.is_finite()
+        || config.downsample <= 0.0
+        || config.downsample > 1.0
         || !bounds_and_outsets.iter().all(|value| value.is_finite())
     {
         return None;
@@ -125,10 +130,11 @@ pub(super) fn compute_shape_effect_raster_rect(
         return None;
     }
 
-    let physical_size = [physical_width as u32, physical_height as u32];
+    let full_resolution_size = (physical_width as u32, physical_height as u32);
+    let texture_size = compute_downsampled_dimensions(full_resolution_size, config.downsample);
     Some(ShapeEffectRasterRect {
         local_physical_origin,
-        physical_size,
+        texture_size: [texture_size.0, texture_size.1],
         local_bounds: [
             (
                 physical_minimum_x as f32 / scale_factor as f32,
@@ -153,6 +159,7 @@ pub(super) struct ShapeEffectCacheKey {
     pub raster_size: [u32; 2],
     pub scale_factor_bits: u64,
     pub fringe_width_bits: u32,
+    pub downsample_bits: u32,
     pub texture_format: wgpu::TextureFormat,
 }
 
@@ -165,6 +172,7 @@ impl PartialEq for ShapeEffectCacheKey {
             && self.raster_size == other.raster_size
             && self.scale_factor_bits == other.scale_factor_bits
             && self.fringe_width_bits == other.fringe_width_bits
+            && self.downsample_bits == other.downsample_bits
             && self.texture_format == other.texture_format
     }
 }
@@ -180,6 +188,7 @@ impl Hash for ShapeEffectCacheKey {
         self.raster_size.hash(state);
         self.scale_factor_bits.hash(state);
         self.fringe_width_bits.hash(state);
+        self.downsample_bits.hash(state);
         self.texture_format.hash(state);
     }
 }
@@ -198,6 +207,7 @@ pub(super) struct ShapeEffectMaskCacheKey {
     pub raster_size: [u32; 2],
     pub scale_factor_bits: u64,
     pub fringe_width_bits: u32,
+    pub downsample_bits: u32,
     pub texture_format: wgpu::TextureFormat,
 }
 
@@ -208,6 +218,7 @@ impl PartialEq for ShapeEffectMaskCacheKey {
             && self.raster_size == other.raster_size
             && self.scale_factor_bits == other.scale_factor_bits
             && self.fringe_width_bits == other.fringe_width_bits
+            && self.downsample_bits == other.downsample_bits
             && self.texture_format == other.texture_format
     }
 }
@@ -221,6 +232,7 @@ impl Hash for ShapeEffectMaskCacheKey {
         self.raster_size.hash(state);
         self.scale_factor_bits.hash(state);
         self.fringe_width_bits.hash(state);
+        self.downsample_bits.hash(state);
         self.texture_format.hash(state);
     }
 }
@@ -425,7 +437,7 @@ impl<'a> Renderer<'a> {
                 );
                 continue;
             };
-            let [width, height] = raster_rect.physical_size;
+            let [width, height] = raster_rect.texture_size;
             let texel_count = u64::from(width).saturating_mul(u64::from(height));
             if width > maximum_texture_dimension
                 || height > maximum_texture_dimension
@@ -525,16 +537,17 @@ impl<'a> Renderer<'a> {
             ) else {
                 continue;
             };
-            let [width, height] = raster_rect.physical_size;
+            let [width, height] = raster_rect.texture_size;
 
             let cache_key = ShapeEffectCacheKey {
                 effect_id: shape_effect_instance.effect_id,
                 tessellation: Arc::clone(&cached_shape.cached_shape.tessellation),
                 params: Arc::clone(&shape_effect_instance.params),
                 local_raster_origin: raster_rect.local_physical_origin,
-                raster_size: raster_rect.physical_size,
+                raster_size: raster_rect.texture_size,
                 scale_factor_bits: self.scale_factor.to_bits(),
                 fringe_width_bits: self.fringe_width.to_bits(),
+                downsample_bits: shape_effect_instance.config.downsample.to_bits(),
                 texture_format: self.config.format,
             };
             if let Some(cached_result) = self.shape_effect_cache.get(&cache_key) {
@@ -567,9 +580,10 @@ impl<'a> Renderer<'a> {
             let mask_cache_key = ShapeEffectMaskCacheKey {
                 tessellation: Arc::clone(&cached_shape.cached_shape.tessellation),
                 local_raster_origin: raster_rect.local_physical_origin,
-                raster_size: raster_rect.physical_size,
+                raster_size: raster_rect.texture_size,
                 scale_factor_bits: self.scale_factor.to_bits(),
                 fringe_width_bits: self.fringe_width.to_bits(),
+                downsample_bits: shape_effect_instance.config.downsample.to_bits(),
                 texture_format: self.config.format,
             };
             let cached_mask = if let Some(cached_mask) =
@@ -729,6 +743,7 @@ mod tests {
             raster_size: [12, 12],
             scale_factor_bits: 1.0f64.to_bits(),
             fringe_width_bits: 0.75f32.to_bits(),
+            downsample_bits: 1.0f32.to_bits(),
             texture_format: wgpu::TextureFormat::Bgra8UnormSrgb,
         }
     }
@@ -744,8 +759,62 @@ mod tests {
         .unwrap();
 
         assert_eq!(raster_rect.local_physical_origin, [-1, 0]);
-        assert_eq!(raster_rect.physical_size, [29, 50]);
+        assert_eq!(raster_rect.texture_size, [29, 50]);
         assert_eq!(raster_rect.local_bounds, [(-0.5, 0.0), (14.0, 25.0)]);
+    }
+
+    #[test]
+    fn raster_rect_downsample_shrinks_texture_but_not_coverage() {
+        let full_resolution = compute_shape_effect_raster_rect(
+            [(1.25, 2.75), (10.1, 20.2)],
+            ShapeEffectConfig::new().outsets(1.0, 2.0, 3.0, 4.0),
+            2.0,
+            0.75,
+        )
+        .unwrap();
+        let downsampled = compute_shape_effect_raster_rect(
+            [(1.25, 2.75), (10.1, 20.2)],
+            ShapeEffectConfig::new()
+                .outsets(1.0, 2.0, 3.0, 4.0)
+                .downsample(0.5),
+            2.0,
+            0.75,
+        )
+        .unwrap();
+
+        assert_eq!(downsampled.texture_size, [15, 25]);
+        assert_eq!(
+            downsampled.local_physical_origin,
+            full_resolution.local_physical_origin
+        );
+        assert_eq!(downsampled.local_bounds, full_resolution.local_bounds);
+    }
+
+    #[test]
+    fn raster_rect_downsample_keeps_at_least_one_texel() {
+        let raster_rect = compute_shape_effect_raster_rect(
+            [(0.0, 0.0), (1.0, 1.0)],
+            ShapeEffectConfig::new().downsample(0.1),
+            1.0,
+            0.75,
+        )
+        .unwrap();
+
+        assert!(raster_rect.texture_size[0] >= 1);
+        assert!(raster_rect.texture_size[1] >= 1);
+    }
+
+    #[test]
+    fn raster_rect_rejects_out_of_range_downsample() {
+        for downsample in [0.0, -0.5, f32::NAN, 1.5] {
+            assert!(compute_shape_effect_raster_rect(
+                [(0.0, 0.0), (10.0, 10.0)],
+                ShapeEffectConfig::new().downsample(downsample),
+                1.0,
+                0.75,
+            )
+            .is_none());
+        }
     }
 
     #[test]
@@ -771,6 +840,18 @@ mod tests {
         assert!(first_key == equal_key);
         assert!(first_key != different_params);
         assert!(first_key != different_tessellation);
+    }
+
+    #[test]
+    fn cache_key_differs_when_only_downsample_changes() {
+        let shared_tessellation = tessellation();
+        let full_resolution_key =
+            cache_key(Arc::clone(&shared_tessellation), Arc::from([1u8, 2, 3, 4]));
+        let mut downsampled_key =
+            cache_key(Arc::clone(&shared_tessellation), Arc::from([1u8, 2, 3, 4]));
+        downsampled_key.downsample_bits = 0.5f32.to_bits();
+
+        assert!(full_resolution_key != downsampled_key);
     }
 
     #[test]
