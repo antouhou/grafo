@@ -608,7 +608,7 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                             let renderer = self.renderer.as_mut().unwrap();
                             let rebuild_start = Instant::now();
                             build_scene(renderer);
-                            self.dynamic_rebuild_times.push(rebuild_start.elapsed());
+                            let rebuild_duration = rebuild_start.elapsed();
 
                             let frame_start = Instant::now();
                             match renderer.render() {
@@ -634,6 +634,7 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                                 }
                                 Err(e) => panic!("render failed: {e:?}"),
                             }
+                            self.dynamic_rebuild_times.push(rebuild_duration);
                             self.dynamic_frame_times.push(frame_start.elapsed());
 
                             #[cfg(feature = "render_metrics")]

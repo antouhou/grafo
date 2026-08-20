@@ -15,13 +15,18 @@ use futures::executor::block_on;
 use grafo::{BackdropEffectConfig, BorderRadii, Shape};
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
 const BOX_SHADOW_EFFECT: u64 = 1;
 const BLUR_EFFECT: u64 = 2;
+
+/// How long to wait before retrying a frame that was skipped because the surface
+/// reported it was not visible (`Occluded`/`Timeout`).
+const OCCLUDED_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 // ── Box shadow params & shader ───────────────────────────────────────────────
 
@@ -160,6 +165,8 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
+    /// Pending retry of a frame skipped because the window was not visible.
+    redraw_retry_at: Option<Instant>,
 }
 
 impl<'a> ApplicationHandler for App<'a> {
@@ -363,29 +370,45 @@ impl<'a> ApplicationHandler for App<'a> {
                 // ── Render ───────────────────────────────────────────────
                 match renderer.render() {
                     Ok(_) => {
+                        self.redraw_retry_at = None;
                         renderer.clear_draw_queue();
                     }
                     Err(
                         wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated,
-
                     ) => renderer.resize(renderer.size()),
 
                     Err(
                         wgpu::CurrentSurfaceTexture::Timeout
                         | wgpu::CurrentSurfaceTexture::Occluded,
-
                     ) => {
                         // The window is not visible yet (still appearing, minimized, or fully
-                        // covered). Ask for another redraw instead of dropping the frame for
-                        // good — winit does not request one when the window becomes visible.
+                        // covered). Retry shortly instead of busy-looping redraws — winit does
+                        // not request one when the window becomes visible again. `WaitUntil`
+                        // wakes the event loop without spinning while the window stays hidden.
                         renderer.clear_draw_queue();
-                        window.request_redraw();
-
+                        let retry_at = Instant::now() + OCCLUDED_RETRY_DELAY;
+                        self.redraw_retry_at = Some(retry_at);
+                        event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
                     }
                     Err(e) => eprintln!("{e:?}"),
                 }
             }
             _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(retry_at) = self.redraw_retry_at else {
+            return;
+        };
+        if Instant::now() >= retry_at {
+            self.redraw_retry_at = None;
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+            event_loop.set_control_flow(ControlFlow::Wait);
+        } else {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
         }
     }
 }
