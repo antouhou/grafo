@@ -23,6 +23,7 @@ impl<'a> Renderer<'a> {
             {
                 self.last_shape_effect_cache_metrics = ShapeEffectCacheMetrics {
                     collected_results: _collected_shape_effect_results as u64,
+                    collected_masks: _collected_shape_effect_masks as u64,
                     ..Default::default()
                 };
             }
@@ -501,6 +502,7 @@ impl<'a> Renderer<'a> {
         self.scratch.clip_kind_stack = clip_kind_stack;
         self.scratch.backdrop_work_textures = backdrop_work_textures;
         let _collected_shape_effect_results = self.shape_effect_cache.end_frame();
+        let _collected_shape_effect_masks = self.shape_effect_mask_cache.end_frame();
         self.buffers_pool_manager.tessellation_cache.end_frame();
 
         // println!("Tesselation cache size: {}", self.buffers_pool_manager.tessellation_cache.len());
@@ -508,6 +510,7 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         {
             shape_effect_cache_metrics.collected_results = _collected_shape_effect_results as u64;
+            shape_effect_cache_metrics.collected_masks = _collected_shape_effect_masks as u64;
             self.last_pipeline_switch_counts = frame_pipeline_counts;
             self.last_shape_effect_cache_metrics = shape_effect_cache_metrics;
         }

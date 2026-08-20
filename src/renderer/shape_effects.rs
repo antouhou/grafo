@@ -550,7 +550,17 @@ impl<'a> Renderer<'a> {
                 downsample_bits: shape_effect_instance.config.downsample.to_bits(),
                 texture_format: self.config.format,
             };
+            let mask_cache_key = ShapeEffectMaskCacheKey {
+                tessellation: Arc::clone(&cached_shape.cached_shape.tessellation),
+                local_raster_origin: raster_rect.local_physical_origin,
+                raster_size: raster_rect.texture_size,
+                scale_factor_bits: self.scale_factor.to_bits(),
+                fringe_width_bits: self.fringe_width.to_bits(),
+                downsample_bits: shape_effect_instance.config.downsample.to_bits(),
+                texture_format: self.config.format,
+            };
             if let Some(cached_result) = self.shape_effect_cache.get(&cache_key) {
+                let _cached_mask = self.shape_effect_mask_cache.get(&mask_cache_key);
                 #[cfg(feature = "render_metrics")]
                 {
                     metrics.hits += 1;
@@ -577,15 +587,6 @@ impl<'a> Renderer<'a> {
             // The mask depends only on geometry and rasterization parameters, so it
             // is cached separately from the effect result and reused across effect
             // cache misses (e.g. animated effect parameters).
-            let mask_cache_key = ShapeEffectMaskCacheKey {
-                tessellation: Arc::clone(&cached_shape.cached_shape.tessellation),
-                local_raster_origin: raster_rect.local_physical_origin,
-                raster_size: raster_rect.texture_size,
-                scale_factor_bits: self.scale_factor.to_bits(),
-                fringe_width_bits: self.fringe_width.to_bits(),
-                downsample_bits: shape_effect_instance.config.downsample.to_bits(),
-                texture_format: self.config.format,
-            };
             let cached_mask = if let Some(cached_mask) =
                 self.shape_effect_mask_cache.get(&mask_cache_key)
             {

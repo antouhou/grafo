@@ -12,6 +12,7 @@ pub struct ShapeEffectCacheMetrics {
     pub executed_passes: u64,
     pub composited_results: u64,
     pub collected_results: u64,
+    pub collected_masks: u64,
 }
 
 /// Per-frame pipeline switch counts for diagnosing GPU state-change overhead.
