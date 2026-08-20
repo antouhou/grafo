@@ -653,7 +653,7 @@ fn normalized_float_bits(value: f32) -> u32 {
 fn build_boundary_data(vertices: &[CustomVertex], indices: &[u16], scratch: &mut AaFringeScratch) {
     scratch.clear();
 
-    for (triangle_index, tri) in indices.chunks_exact(3).enumerate() {
+    for (triangle_index, tri) in indices.as_chunks::<3>().0.iter().enumerate() {
         let a = tri[0];
         let b = tri[1];
         let c = tri[2];
