@@ -115,6 +115,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     Err(grafo::RenderError::Surface(
                         wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
                     )) => {
+                        renderer.clear_draw_queue();
                         println!("Surface lost or outdated, resizing...");
                         renderer.resize(renderer.size())
                     }

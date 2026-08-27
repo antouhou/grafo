@@ -109,6 +109,20 @@ struct TextureUpload {
     pending: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EncodedTextureUpload {
+    index: usize,
+    texture_id: u64,
+}
+
+impl EncodedTextureUpload {
+    fn restore_if_matches(self, index: usize, texture_id: u64, retained: bool, pending: &mut bool) {
+        if retained && self.index == index && self.texture_id == texture_id {
+            *pending = true;
+        }
+    }
+}
+
 type BindGroupCache = HashMap<(u64, wgpu::BindGroupLayout), Arc<wgpu::BindGroup>>;
 
 impl TextureManager {
@@ -343,16 +357,34 @@ impl TextureManager {
         Ok(())
     }
 
-    pub(crate) fn restore_pending_uploads(&self) {
-        for upload in self.uploads.write().unwrap().iter_mut() {
-            upload.pending = upload.texture.is_some();
+    pub(crate) fn restore_encoded_uploads(&self, encoded_uploads: &[EncodedTextureUpload]) {
+        let mut uploads = self.uploads.write().unwrap();
+        for encoded in encoded_uploads {
+            let Some(upload) = uploads.get_mut(encoded.index) else {
+                continue;
+            };
+            encoded.restore_if_matches(
+                encoded.index,
+                upload.texture_id,
+                upload.texture.is_some(),
+                &mut upload.pending,
+            );
         }
     }
 
     /// Encodes asset writes only into the selected scene's command buffer.
-    pub(crate) fn encode_uploads(&self, encoder: &mut wgpu::CommandEncoder) {
+    pub(crate) fn encode_uploads(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        encoded_uploads: &mut Vec<EncodedTextureUpload>,
+    ) {
+        encoded_uploads.clear();
         let mut uploads = self.uploads.write().unwrap();
-        for upload in uploads.iter_mut().filter(|upload| upload.pending) {
+        for (index, upload) in uploads
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, upload)| upload.pending)
+        {
             let Some(texture) = &upload.texture else {
                 continue;
             };
@@ -392,6 +424,10 @@ impl TextureManager {
                 texture.size(),
             );
             upload.pending = false;
+            encoded_uploads.push(EncodedTextureUpload {
+                index,
+                texture_id: upload.texture_id,
+            });
         }
     }
 
@@ -522,7 +558,23 @@ pub fn premultiply_rgba8_srgb_inplace(pixels: &mut [u8]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_upload, TextureManagerError};
+    use super::{validate_upload, EncodedTextureUpload, TextureManagerError};
+
+    #[test]
+    fn discarded_submission_restores_only_uploads_encoded_for_that_submission() {
+        let mut committed_pending = false;
+        let mut discarded_pending = false;
+        let discarded = EncodedTextureUpload {
+            index: 1,
+            texture_id: 9,
+        };
+
+        discarded.restore_if_matches(0, 7, true, &mut committed_pending);
+        discarded.restore_if_matches(1, 9, true, &mut discarded_pending);
+
+        assert!(!committed_pending);
+        assert!(discarded_pending);
+    }
 
     #[test]
     fn texture_upload_requires_exact_dimensions_and_byte_length() {

@@ -27,7 +27,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-grafo = "0.10"
+grafo = "0.18"
 winit = "0.30"      # For window creation and event handling
 image = "0.25"      # For image decoding (textures)
 env_logger = "0.11" # For logging

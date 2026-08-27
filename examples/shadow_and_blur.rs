@@ -373,7 +373,10 @@ impl<'a> ApplicationHandler for App<'a> {
                         }
                         Err(grafo::RenderError::Surface(
                             wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
-                        )) => renderer.resize(renderer.size()),
+                        )) => {
+                            renderer.clear_draw_queue();
+                            renderer.resize(renderer.size());
+                        }
 
                         Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
                             renderer.clear_draw_queue();

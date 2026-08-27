@@ -55,6 +55,7 @@ impl<'a> Renderer<'a> {
             mut scissor_stack,
             mut clip_kind_stack,
             mut backdrop_work_textures,
+            mut encoded_texture_uploads,
             readback_bytes,
         } = self
             .scratch
@@ -95,7 +96,8 @@ impl<'a> Renderer<'a> {
                 label: Some("Render Command Encoder"),
             });
 
-        self.texture_manager.encode_uploads(&mut encoder);
+        self.texture_manager
+            .encode_uploads(&mut encoder, &mut encoded_texture_uploads);
 
         if has_shape_effects {
             self.resolve_shape_effects(
@@ -498,8 +500,10 @@ impl<'a> Renderer<'a> {
         } else {
             self.shape_effect_cache.retain(|_, _| false);
             self.shape_effect_mask_cache.retain(|_, _| false);
-            self.texture_manager.restore_pending_uploads();
+            self.texture_manager
+                .restore_encoded_uploads(&encoded_texture_uploads);
         }
+        encoded_texture_uploads.clear();
 
         self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
 
@@ -528,6 +532,7 @@ impl<'a> Renderer<'a> {
             scissor_stack,
             clip_kind_stack,
             backdrop_work_textures,
+            encoded_texture_uploads,
             readback_bytes,
         });
         let _collected_shape_effect_results = self.shape_effect_cache.end_frame();

@@ -7,6 +7,12 @@ enum SampleCountChange {
     Changed(u32),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PresentModeChange {
+    Unchanged,
+    Changed(wgpu::PresentMode),
+}
+
 impl<'a> Renderer<'a> {
     /// Sets wgpu's presentation queue-latency hint. Lower values can serialize work on some backends.
     pub fn set_maximum_frame_latency(&mut self, latency: NonZeroU32) {
@@ -196,12 +202,13 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn set_vsync(&mut self, vsync: bool) {
-        self.discard_preparation();
-        self.config.present_mode = if vsync {
-            wgpu::PresentMode::AutoVsync
-        } else {
-            wgpu::PresentMode::AutoNoVsync
+        let PresentModeChange::Changed(present_mode) =
+            Self::present_mode_change(self.config.present_mode, vsync)
+        else {
+            return;
         };
+        self.discard_preparation();
+        self.config.present_mode = present_mode;
         if let Some(surface) = &self.surface {
             surface.configure(&self.device, &self.config);
         }
@@ -212,11 +219,24 @@ impl<'a> Renderer<'a> {
             "Surface presentation mode configured"
         );
     }
+
+    fn present_mode_change(current: wgpu::PresentMode, vsync: bool) -> PresentModeChange {
+        let requested = if vsync {
+            wgpu::PresentMode::AutoVsync
+        } else {
+            wgpu::PresentMode::AutoNoVsync
+        };
+        if requested == current {
+            PresentModeChange::Unchanged
+        } else {
+            PresentModeChange::Changed(requested)
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Renderer, SampleCountChange};
+    use super::{PresentModeChange, Renderer, SampleCountChange};
 
     #[test]
     fn equivalent_msaa_requests_do_not_require_renderer_mutation() {
@@ -231,6 +251,22 @@ mod tests {
         assert_eq!(
             Renderer::sample_count_change(1, 4),
             SampleCountChange::Changed(4)
+        );
+    }
+
+    #[test]
+    fn equivalent_vsync_requests_do_not_require_renderer_mutation() {
+        assert_eq!(
+            Renderer::present_mode_change(wgpu::PresentMode::AutoVsync, true),
+            PresentModeChange::Unchanged
+        );
+        assert_eq!(
+            Renderer::present_mode_change(wgpu::PresentMode::AutoNoVsync, false),
+            PresentModeChange::Unchanged
+        );
+        assert_eq!(
+            Renderer::present_mode_change(wgpu::PresentMode::AutoVsync, false),
+            PresentModeChange::Changed(wgpu::PresentMode::AutoNoVsync)
         );
     }
 }
