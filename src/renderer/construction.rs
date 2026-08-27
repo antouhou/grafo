@@ -778,7 +778,7 @@ impl<'a> Renderer<'a> {
     /// Creates a headless renderer without a window surface.
     ///
     /// Use `render_to_buffer()` or `render_to_argb32()` to read back rendered
-    /// pixels. Calling `render()` on a headless renderer will panic.
+    /// pixels. Calling [`Self::commit`] returns [`RenderError::Headless`].
     ///
     /// Returns an error if no suitable GPU adapter is available, the device
     /// cannot be created, or the `scale_factor` is invalid.
@@ -829,7 +829,7 @@ impl<'a> Renderer<'a> {
     /// invalid scale factor, device/queue creation failure).
     ///
     /// Use `render_to_buffer()` or `render_to_argb32()` to read back rendered
-    /// pixels. Calling `render()` on a headless renderer will panic.
+    /// pixels. Calling [`Self::commit`] returns [`RenderError::Headless`].
     ///
     /// For a non-panicking alternative (e.g. in tests), use
     /// [`Self::try_new_headless`] instead.

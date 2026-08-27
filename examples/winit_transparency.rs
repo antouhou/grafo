@@ -1,5 +1,5 @@
 use futures::executor::block_on;
-use grafo::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, Stroke};
+use grafo::{BorderRadii, Color, PreparationOutcome, Shape, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use std::time::Instant;
 use winit::application::ApplicationHandler;
@@ -102,7 +102,10 @@ impl<'a> ApplicationHandler for App<'a> {
                     .unwrap();
 
                 // Render the frame
-                renderer.prepare();
+                let PreparationOutcome::Ready = renderer.prepare() else {
+                    renderer.clear_draw_queue();
+                    return;
+                };
                 let commit_result = renderer.commit(None);
                 match commit_result {
                     Ok(_) => {

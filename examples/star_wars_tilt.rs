@@ -1,6 +1,6 @@
 use euclid::{Point2D, UnknownUnit};
 use futures::executor::block_on;
-use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke};
+use grafo::{Color, PreparationOutcome, Shape, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -233,7 +233,10 @@ impl<'a> ApplicationHandler for App<'a> {
                         )
                         .unwrap();
 
-                    renderer.prepare();
+                    let PreparationOutcome::Ready = renderer.prepare() else {
+                        renderer.clear_draw_queue();
+                        return;
+                    };
                     let commit_result = renderer.commit(None);
                     match commit_result {
                         Ok(_) => {}
