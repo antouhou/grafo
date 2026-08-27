@@ -233,10 +233,9 @@ impl<'a> ApplicationHandler for App<'a> {
                         )
                         .unwrap();
 
-                    match {
-                        renderer.prepare();
-                        renderer.commit(None)
-                    } {
+                    renderer.prepare();
+                    let commit_result = renderer.commit(None);
+                    match commit_result {
                         Ok(_) => {}
                         Err(grafo::RenderError::Surface(
                             wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
@@ -246,7 +245,6 @@ impl<'a> ApplicationHandler for App<'a> {
                         }
                         Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
                             renderer.clear_draw_queue();
-                            return;
                         }
                         Err(e) => eprintln!("{e:?}"),
                     }

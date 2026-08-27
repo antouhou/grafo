@@ -8,7 +8,6 @@ use lyon::geom::point;
 use lyon::path::FillRule;
 use lyon::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 // Local converter from euclid to grafo's GPU instance layout so we keep euclid out of the main crate.
 fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstance {
@@ -79,7 +78,7 @@ fn world_to_local_2d(tx: &Transform3D<f32>, world: (f32, f32)) -> Option<(f32, f
 }
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
@@ -124,16 +123,10 @@ fn build_perspective_demo_path() -> Path {
     pb.build()
 }
 
-/// How long to wait before retrying a frame that was skipped because the surface
-/// reported it was not visible (`Occluded`/`Timeout`).
-const OCCLUDED_RETRY_DELAY: Duration = Duration::from_millis(50);
-
 #[derive(Default)]
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
-    /// Pending retry of a frame skipped because the window was not visible.
-    redraw_retry_at: Option<Instant>,
     angle: f32,
     // Last mouse position in physical pixels (window space)
     last_mouse_pos: Option<(f32, f32)>,
@@ -612,45 +605,25 @@ impl<'a> ApplicationHandler for App<'a> {
                 // Advance animation angle
                 self.angle = (self.angle + 0.02) % (std::f32::consts::TAU);
 
-                match {
-                    renderer.prepare();
-                    renderer.commit(None)
-                } {
-                    Ok(_) => {
-                        self.redraw_retry_at = None;
-                        renderer.clear_draw_queue();
-                        window.request_redraw();
+                if renderer.prepare() == grafo::PreparationOutcome::Ready {
+                    match renderer.commit(None) {
+                        Ok(_) => {
+                            renderer.clear_draw_queue();
+                            window.request_redraw();
+                        }
+                        Err(grafo::RenderError::Surface(
+                            wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
+                        )) => renderer.resize(renderer.size()),
+                        Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
+                            renderer.clear_draw_queue();
+                        }
+                        Err(error) => eprintln!("{error:?}"),
                     }
-                    Err(grafo::RenderError::Surface(
-                        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
-                    )) => renderer.resize(renderer.size()),
-
-                    Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
-                        renderer.clear_draw_queue();
-                        return;
-                    }
-                    Err(e) => eprintln!("{e:?}"),
+                } else {
+                    renderer.clear_draw_queue();
                 }
             }
             _ => {}
-        }
-    }
-
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(retry_at) = self.redraw_retry_at else {
-            // Clear a stale WaitUntil deadline left behind when a successful
-            // render cancelled the pending retry before it fired.
-            event_loop.set_control_flow(ControlFlow::Wait);
-            return;
-        };
-        if Instant::now() >= retry_at {
-            self.redraw_retry_at = None;
-            if let Some(window) = &self.window {
-                window.request_redraw();
-            }
-            event_loop.set_control_flow(ControlFlow::Wait);
-        } else {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
         }
     }
 }
@@ -663,7 +636,6 @@ pub fn main() {
     let mut app = App {
         window: None,
         renderer: None,
-        redraw_retry_at: None,
         angle: 0.0,
         last_mouse_pos: None,
         orbit_yaw_deg: 0.0,

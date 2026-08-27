@@ -490,10 +490,9 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                 match self.phase {
                     Phase::WarmupStatic => {
                         let renderer = self.renderer.as_mut().unwrap();
-                        match {
-                            renderer.prepare();
-                            renderer.commit(None)
-                        } {
+                        renderer.prepare();
+                        let commit_result = renderer.commit(None);
+                        match commit_result {
                             Ok(_) => {}
                             Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
                                 renderer.clear_draw_queue();
@@ -524,10 +523,9 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                         {
                             let renderer = self.renderer.as_mut().unwrap();
                             let frame_start = Instant::now();
-                            match {
-                                renderer.prepare();
-                                renderer.commit(None)
-                            } {
+                            renderer.prepare();
+                            let commit_result = renderer.commit(None);
+                            match commit_result {
                                 Ok(_) => {}
                                 Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
                                     renderer.clear_draw_queue();
@@ -569,10 +567,9 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                     Phase::WarmupDynamic => {
                         let renderer = self.renderer.as_mut().unwrap();
                         build_scene(renderer);
-                        match {
-                            renderer.prepare();
-                            renderer.commit(None)
-                        } {
+                        renderer.prepare();
+                        let commit_result = renderer.commit(None);
+                        match commit_result {
                             Ok(_) => {}
                             Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
                                 renderer.clear_draw_queue();
@@ -609,10 +606,9 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                             let rebuild_duration = rebuild_start.elapsed();
 
                             let frame_start = Instant::now();
-                            match {
-                                renderer.prepare();
-                                renderer.commit(None)
-                            } {
+                            renderer.prepare();
+                            let commit_result = renderer.commit(None);
+                            match commit_result {
                                 Ok(_) => {}
                                 Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
                                     renderer.clear_draw_queue();

@@ -3,23 +3,17 @@ use grafo::{BorderRadii, Shape};
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use image::ImageReader;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
-
-/// How long to wait before retrying a frame that was skipped because the surface
-/// reported it was not visible (`Occluded`/`Timeout`).
-const OCCLUDED_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
     rust_logo_png_bytes: Vec<u8>,
     rust_logo_png_dimensions: (u32, u32),
-    /// Pending retry of a frame skipped because the window was not visible.
-    redraw_retry_at: Option<Instant>,
 }
 
 impl<'a> Default for App<'a> {
@@ -39,7 +33,6 @@ impl<'a> Default for App<'a> {
             renderer: None,
             rust_logo_png_bytes,
             rust_logo_png_dimensions,
-            redraw_retry_at: None,
         }
     }
 }
@@ -149,23 +142,19 @@ impl<'a> ApplicationHandler for App<'a> {
                     .unwrap();
 
                 let timer = Instant::now();
-                match {
-                    renderer.prepare();
-                    renderer.commit(None)
-                } {
-                    Ok(_) => {
-                        self.redraw_retry_at = None;
-                        renderer.clear_draw_queue();
+                if renderer.prepare() == grafo::PreparationOutcome::Ready {
+                    match renderer.commit(None) {
+                        Ok(_) => renderer.clear_draw_queue(),
+                        Err(grafo::RenderError::Surface(
+                            wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
+                        )) => renderer.resize(renderer.size()),
+                        Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
+                            renderer.clear_draw_queue();
+                        }
+                        Err(error) => eprintln!("{error:?}"),
                     }
-                    Err(grafo::RenderError::Surface(
-                        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
-                    )) => renderer.resize(renderer.size()),
-
-                    Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
-                        renderer.clear_draw_queue();
-                        return;
-                    }
-                    Err(e) => eprintln!("{e:?}"),
+                } else {
+                    renderer.clear_draw_queue();
                 }
                 println!("Render time: {:?}", timer.elapsed());
             }
@@ -173,24 +162,6 @@ impl<'a> ApplicationHandler for App<'a> {
                 renderer.change_scale_factor(scale_factor);
             }
             _ => {}
-        }
-    }
-
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(retry_at) = self.redraw_retry_at else {
-            // Clear a stale WaitUntil deadline left behind when a successful
-            // render cancelled the pending retry before it fired.
-            event_loop.set_control_flow(ControlFlow::Wait);
-            return;
-        };
-        if Instant::now() >= retry_at {
-            self.redraw_retry_at = None;
-            if let Some(window) = &self.window {
-                window.request_redraw();
-            }
-            event_loop.set_control_flow(ControlFlow::Wait);
-        } else {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
         }
     }
 }

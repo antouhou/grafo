@@ -1,6 +1,12 @@
 use super::*;
 use std::num::NonZeroU32;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SampleCountChange {
+    Unchanged,
+    Changed(u32),
+}
+
 impl<'a> Renderer<'a> {
     /// Sets wgpu's presentation queue-latency hint. Lower values can serialize work on some backends.
     pub fn set_maximum_frame_latency(&mut self, latency: NonZeroU32) {
@@ -100,12 +106,13 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn set_msaa_samples(&mut self, samples: u32) {
-        self.discard_preparation();
-        let validated = Self::validate_sample_count_static(samples);
-        if validated == self.msaa_sample_count {
+        let SampleCountChange::Changed(validated) =
+            Self::sample_count_change(self.msaa_sample_count, samples)
+        else {
             return;
-        }
+        };
 
+        self.discard_preparation();
         self.msaa_sample_count = validated;
         self.recreate_pipelines();
         self.recreate_msaa_texture();
@@ -123,6 +130,15 @@ impl<'a> Renderer<'a> {
                 );
                 4
             }
+        }
+    }
+
+    fn sample_count_change(current: u32, requested: u32) -> SampleCountChange {
+        let validated = Self::validate_sample_count_static(requested);
+        if validated == current {
+            SampleCountChange::Unchanged
+        } else {
+            SampleCountChange::Changed(validated)
         }
     }
 
@@ -194,6 +210,27 @@ impl<'a> Renderer<'a> {
             present_mode = ?self.config.present_mode,
             maximum_frame_latency = self.config.desired_maximum_frame_latency,
             "Surface presentation mode configured"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Renderer, SampleCountChange};
+
+    #[test]
+    fn equivalent_msaa_requests_do_not_require_renderer_mutation() {
+        assert_eq!(
+            Renderer::sample_count_change(1, 0),
+            SampleCountChange::Unchanged
+        );
+        assert_eq!(
+            Renderer::sample_count_change(4, 2),
+            SampleCountChange::Unchanged
+        );
+        assert_eq!(
+            Renderer::sample_count_change(1, 4),
+            SampleCountChange::Changed(4)
         );
     }
 }

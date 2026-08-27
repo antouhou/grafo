@@ -9,6 +9,31 @@ pub enum TextureManagerError {
     InvalidUpload(u64),
 }
 
+fn validate_upload(
+    texture_id: u64,
+    texture_dimensions: (u32, u32),
+    upload_dimensions: (u32, u32),
+    byte_length: usize,
+    reset: bool,
+) -> Result<(), TextureManagerError> {
+    let expected_byte_length = upload_dimensions
+        .0
+        .try_into()
+        .ok()
+        .and_then(|width: usize| {
+            usize::try_from(upload_dimensions.1)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        })
+        .and_then(|pixels| pixels.checked_mul(4));
+    if upload_dimensions != texture_dimensions
+        || (!reset && expected_byte_length != Some(byte_length))
+    {
+        return Err(TextureManagerError::InvalidUpload(texture_id));
+    }
+    Ok(())
+}
+
 /// A manager for textures providing granular control over texture handling.
 ///
 /// This manager allows for:
@@ -224,6 +249,8 @@ impl TextureManager {
     /// # Returns
     /// - `Ok(())` if the operation succeeds.
     /// - `Err(TextureManagerError::TextureNotFound(texture_id))` if the texture does not exist.
+    /// - `Err(TextureManagerError::InvalidUpload(texture_id))` if dimensions or byte length do not
+    ///   exactly match the allocated RGBA8 texture.
     pub fn load_data_into_texture(
         &self,
         texture_id: u64,
@@ -268,13 +295,14 @@ impl TextureManager {
         bytes: &[u8],
         reset: bool,
     ) -> Result<(), TextureManagerError> {
+        validate_upload(
+            texture_id,
+            (texture.width(), texture.height()),
+            dimensions,
+            bytes.len(),
+            reset,
+        )?;
         let source_row_length = dimensions.0 as usize * 4;
-        if dimensions.0 > texture.width()
-            || dimensions.1 > texture.height()
-            || (!reset && bytes.len() < source_row_length * dimensions.1 as usize)
-        {
-            return Err(TextureManagerError::InvalidUpload(texture_id));
-        }
         let mut uploads = self.uploads.write().unwrap();
         let index = uploads
             .iter()
@@ -489,5 +517,32 @@ pub fn premultiply_rgba8_srgb_inplace(pixels: &mut [u8]) {
         px[1] = linear_to_srgb_u8(g_pma);
         px[2] = linear_to_srgb_u8(b_pma);
         // keep alpha as-is
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_upload, TextureManagerError};
+
+    #[test]
+    fn texture_upload_requires_exact_dimensions_and_byte_length() {
+        assert!(validate_upload(7, (4, 3), (4, 3), 48, false).is_ok());
+        assert!(matches!(
+            validate_upload(7, (4, 3), (3, 3), 36, false),
+            Err(TextureManagerError::InvalidUpload(7))
+        ));
+        assert!(matches!(
+            validate_upload(7, (4, 3), (4, 3), 47, false),
+            Err(TextureManagerError::InvalidUpload(7))
+        ));
+        assert!(matches!(
+            validate_upload(7, (4, 3), (4, 3), 49, false),
+            Err(TextureManagerError::InvalidUpload(7))
+        ));
+        assert!(validate_upload(7, (4, 3), (4, 3), 0, true).is_ok());
+        assert!(matches!(
+            validate_upload(7, (4, 3), (3, 3), 0, true),
+            Err(TextureManagerError::InvalidUpload(7))
+        ));
     }
 }

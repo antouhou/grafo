@@ -116,19 +116,24 @@
 //!                         window.request_redraw();
 //!                     }
 //!                 }
+//!                 WindowEvent::Occluded(false) => {
+//!                     if let Some(window) = &self.window {
+//!                         window.request_redraw();
+//!                     }
+//!                 }
 //!                 WindowEvent::RedrawRequested => {
-//!                     match { renderer.prepare(); renderer.commit(None) } {
-//!                         Ok(_) => {
-//!                             renderer.clear_draw_queue();
+//!                     match renderer.prepare() {
+//!                         grafo::PreparationOutcome::Ready => match renderer.commit(None) {
+//!                             Ok(_) => {}
+//!                             Err(
+//!                                 grafo::RenderError::Surface(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated),
+//!                             ) => renderer.resize(renderer.size()),
+//!                             Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {}
+//!                             Err(e) => eprintln!("{:?}", e),
+//!                         },
+//!                         grafo::PreparationOutcome::Suspended => {
+//!                             // Preserve the scene until resize or unocclusion requests a redraw.
 //!                         }
-//!                         Err(
-//!                             grafo::RenderError::Surface(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated),
-//!                         ) => renderer.resize(renderer.size()),
-//!                         Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
-//!                             renderer.clear_draw_queue();
-//!                             return;
-//!                         }
-//!                         Err(e) => eprintln!("{:?}", e),
 //!                     }
 //!                 }
 //!                 _ => {}

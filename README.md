@@ -57,10 +57,15 @@ renderer
     )
     .unwrap();
 
-// Render one frame (typical winit loop would call this on RedrawRequested)
-renderer.prepare();
-renderer.commit(None).unwrap();
-renderer.clear_draw_queue();
+// Render one frame (a typical winit loop would call this on RedrawRequested).
+match renderer.prepare() {
+    grafo::PreparationOutcome::Ready => {
+        renderer.commit(None).unwrap();
+        renderer.clear_draw_queue();
+    }
+    // Keep the draw queue for a redraw requested by resize or unocclusion.
+    grafo::PreparationOutcome::Suspended => {}
+}
 ```
 
 ### Multiple independent windows
