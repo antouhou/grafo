@@ -1,6 +1,6 @@
 use euclid::{Point2D, UnknownUnit};
 use futures::executor::block_on;
-use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke};
+use grafo::{Color, PreparationOutcome, Shape, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -70,6 +70,11 @@ impl<'a> ApplicationHandler for App<'a> {
         match event {
             WindowEvent::CloseRequested => {
                 event_loop.exit();
+            }
+            WindowEvent::Occluded(false) => {
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
             }
             WindowEvent::RedrawRequested => {
                 if let Some(renderer) = &mut self.renderer {
@@ -228,20 +233,21 @@ impl<'a> ApplicationHandler for App<'a> {
                         )
                         .unwrap();
 
-                    match renderer.render() {
+                    let PreparationOutcome::Ready = renderer.prepare() else {
+                        renderer.clear_draw_queue();
+                        return;
+                    };
+                    let commit_result = renderer.commit(None);
+                    match commit_result {
                         Ok(_) => {}
-                        Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                        Err(grafo::RenderError::Surface(
+                            wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
+                        )) => {
                             let size = renderer.size();
                             renderer.resize(size);
                         }
-                        Err(wgpu::SurfaceError::Timeout) => {
-                            // The window is not visible yet (still appearing, minimized, or
-                            // fully covered). Ask for another redraw instead of dropping the
-                            // frame for good — winit does not request one when the window
-                            // becomes visible again.
-                            if let Some(window) = &self.window {
-                                window.request_redraw();
-                            }
+                        Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
+                            renderer.clear_draw_queue();
                         }
                         Err(e) => eprintln!("{e:?}"),
                     }

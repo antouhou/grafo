@@ -44,7 +44,6 @@ pub struct LyonVertexBuffersPool {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct GradientBindGroupCacheKey {
-    layout_epoch: u64,
     params: GpuGradientColorParamsKey,
     ramp_key: GradientRampCacheKey,
 }
@@ -195,11 +194,9 @@ impl GradientCache {
         queue: &wgpu::Queue,
         layout: &wgpu::BindGroupLayout,
         sampler: &wgpu::Sampler,
-        layout_epoch: u64,
     ) -> Arc<wgpu::BindGroup> {
         let material_params = GpuMaterialParams::from_gradient_data(gradient_data);
         let cache_key = GradientBindGroupCacheKey {
-            layout_epoch,
             params: GpuGradientColorParamsKey::from_params(material_params.gradient),
             ramp_key: gradient_data.ramp_cache_key.clone(),
         };
@@ -290,8 +287,6 @@ impl GradientCache {
         })
     }
 
-    fn trim(&mut self) {}
-
     fn print_sizes(&self) {
         println!("Gradient ramps: {}", self.ramps.len());
         println!("Gradient ramp textures: {}", self.ramp_textures.len());
@@ -344,11 +339,6 @@ impl PoolManager {
             aa_fringe_scratch: AaFringeScratch::new(),
             gradient_cache: GradientCache::new(),
         }
-    }
-
-    pub(crate) fn trim(&mut self) {
-        self.aa_fringe_scratch.trim();
-        self.gradient_cache.trim();
     }
 
     pub fn print_sizes(&self) {

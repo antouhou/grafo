@@ -1,6 +1,41 @@
 use super::*;
+use std::num::NonZeroU32;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SampleCountChange {
+    Unchanged,
+    Changed(u32),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PresentModeChange {
+    Unchanged,
+    Changed(wgpu::PresentMode),
+}
 
 impl<'a> Renderer<'a> {
+    /// Sets wgpu's presentation queue-latency hint. Lower values can serialize work on some backends.
+    pub fn set_maximum_frame_latency(&mut self, latency: NonZeroU32) {
+        if self.config.desired_maximum_frame_latency == latency.get() {
+            return;
+        }
+        self.discard_preparation();
+        self.config.desired_maximum_frame_latency = latency.get();
+        if let Some(surface) = &self.surface {
+            surface.configure(&self.device, &self.config);
+        }
+    }
+
+    pub fn maximum_frame_latency(&self) -> u32 {
+        self.config.desired_maximum_frame_latency
+    }
+
+    /// Installs the platform notification once when creating or replacing a surface.
+    pub fn set_pre_present_callback(&mut self, callback: impl Fn() + Send + Sync + 'a) {
+        self.discard_preparation();
+        self.pre_present_callback = Some(Box::new(callback));
+    }
+
     /// Returns the shared GPU context used by this renderer.
     pub fn context(&self) -> &RendererContext {
         &self.context
@@ -11,6 +46,7 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn change_scale_factor(&mut self, new_scale_factor: f64) {
+        self.discard_preparation();
         self.scale_factor = new_scale_factor;
         self.resize(self.physical_size)
     }
@@ -20,6 +56,7 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn set_fringe_width(&mut self, fringe_width: f32) {
+        self.discard_preparation();
         self.fringe_width = fringe_width;
         self.resize(self.physical_size);
     }
@@ -29,7 +66,11 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn resize(&mut self, new_physical_size: (u32, u32)) {
+        self.discard_preparation();
         self.physical_size = new_physical_size;
+        if new_physical_size.0 == 0 || new_physical_size.1 == 0 {
+            return;
+        }
         self.config.width = new_physical_size.0;
         self.config.height = new_physical_size.1;
 
@@ -64,7 +105,6 @@ impl<'a> Renderer<'a> {
             new_physical_size.1,
             self.msaa_sample_count,
         );
-        self.trim_scratch_on_resize_or_policy();
     }
 
     pub fn msaa_samples(&self) -> u32 {
@@ -72,11 +112,13 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn set_msaa_samples(&mut self, samples: u32) {
-        let validated = Self::validate_sample_count_static(samples);
-        if validated == self.msaa_sample_count {
+        let SampleCountChange::Changed(validated) =
+            Self::sample_count_change(self.msaa_sample_count, samples)
+        else {
             return;
-        }
+        };
 
+        self.discard_preparation();
         self.msaa_sample_count = validated;
         self.recreate_pipelines();
         self.recreate_msaa_texture();
@@ -97,7 +139,19 @@ impl<'a> Renderer<'a> {
         }
     }
 
+    fn sample_count_change(current: u32, requested: u32) -> SampleCountChange {
+        let validated = Self::validate_sample_count_static(requested);
+        if validated == current {
+            SampleCountChange::Unchanged
+        } else {
+            SampleCountChange::Changed(validated)
+        }
+    }
+
     pub(super) fn recreate_msaa_texture(&mut self) {
+        if self.physical_size.0 == 0 || self.physical_size.1 == 0 {
+            return;
+        }
         if self.msaa_sample_count > 1 {
             let texture = create_msaa_color_texture(
                 &self.device,
@@ -123,11 +177,13 @@ impl<'a> Renderer<'a> {
             self.physical_size.1,
             self.msaa_sample_count,
         );
-        self.trim_scratch_on_resize_or_policy();
     }
 
     /// Recreate the cached depth/stencil texture to match current physical size and MSAA settings.
     pub(super) fn recreate_depth_stencil_texture(&mut self) {
+        if self.physical_size.0 == 0 || self.physical_size.1 == 0 {
+            return;
+        }
         let texture =
             create_and_depth_texture(&self.device, self.physical_size, self.msaa_sample_count);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -136,6 +192,7 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn set_surface(&mut self, window: impl Into<SurfaceTarget<'static>>) {
+        self.discard_preparation();
         let surface = self
             .instance
             .create_surface(window)
@@ -145,13 +202,71 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn set_vsync(&mut self, vsync: bool) {
-        self.config.present_mode = if vsync {
+        let PresentModeChange::Changed(present_mode) =
+            Self::present_mode_change(self.config.present_mode, vsync)
+        else {
+            return;
+        };
+        self.discard_preparation();
+        self.config.present_mode = present_mode;
+        if let Some(surface) = &self.surface {
+            surface.configure(&self.device, &self.config);
+        }
+        tracing::debug!(
+            vsync,
+            present_mode = ?self.config.present_mode,
+            maximum_frame_latency = self.config.desired_maximum_frame_latency,
+            "Surface presentation mode configured"
+        );
+    }
+
+    fn present_mode_change(current: wgpu::PresentMode, vsync: bool) -> PresentModeChange {
+        let requested = if vsync {
             wgpu::PresentMode::AutoVsync
         } else {
             wgpu::PresentMode::AutoNoVsync
         };
-        if let Some(surface) = &self.surface {
-            surface.configure(&self.device, &self.config);
+        if requested == current {
+            PresentModeChange::Unchanged
+        } else {
+            PresentModeChange::Changed(requested)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PresentModeChange, Renderer, SampleCountChange};
+
+    #[test]
+    fn equivalent_msaa_requests_do_not_require_renderer_mutation() {
+        assert_eq!(
+            Renderer::sample_count_change(1, 0),
+            SampleCountChange::Unchanged
+        );
+        assert_eq!(
+            Renderer::sample_count_change(4, 2),
+            SampleCountChange::Unchanged
+        );
+        assert_eq!(
+            Renderer::sample_count_change(1, 4),
+            SampleCountChange::Changed(4)
+        );
+    }
+
+    #[test]
+    fn equivalent_vsync_requests_do_not_require_renderer_mutation() {
+        assert_eq!(
+            Renderer::present_mode_change(wgpu::PresentMode::AutoVsync, true),
+            PresentModeChange::Unchanged
+        );
+        assert_eq!(
+            Renderer::present_mode_change(wgpu::PresentMode::AutoNoVsync, false),
+            PresentModeChange::Unchanged
+        );
+        assert_eq!(
+            Renderer::present_mode_change(wgpu::PresentMode::AutoVsync, false),
+            PresentModeChange::Changed(wgpu::PresentMode::AutoNoVsync)
+        );
     }
 }

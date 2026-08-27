@@ -116,24 +116,24 @@
 //!                         window.request_redraw();
 //!                     }
 //!                 }
+//!                 WindowEvent::Occluded(false) => {
+//!                     if let Some(window) = &self.window {
+//!                         window.request_redraw();
+//!                     }
+//!                 }
 //!                 WindowEvent::RedrawRequested => {
-//!                     match renderer.render() {
-//!                         Ok(_) => {
-//!                             renderer.clear_draw_queue();
+//!                     match renderer.prepare() {
+//!                         grafo::PreparationOutcome::Ready => match renderer.commit(None) {
+//!                             Ok(_) => {}
+//!                             Err(
+//!                                 grafo::RenderError::Surface(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated),
+//!                             ) => renderer.resize(renderer.size()),
+//!                             Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {}
+//!                             Err(e) => eprintln!("{:?}", e),
+//!                         },
+//!                         grafo::PreparationOutcome::Suspended => {
+//!                             // Preserve the scene until resize or unocclusion requests a redraw.
 //!                         }
-//!                         Err(
-//!                             wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
-//!                         ) => renderer.resize(renderer.size()),
-//!                         Err(wgpu::SurfaceError::Timeout) => {
-//!                             // The window is not visible yet (still appearing, minimized, or
-//!                             // fully covered). Ask for another redraw instead of dropping the
-//!                             // frame — winit does not request one when the window becomes
-//!                             // visible again.
-//!                             if let Some(window) = &self.window {
-//!                                 window.request_redraw();
-//!                             }
-//!                         }
-//!                         Err(e) => eprintln!("{:?}", e),
 //!                     }
 //!                 }
 //!                 _ => {}
@@ -181,8 +181,8 @@ pub use gradient::types::{
     RadialGradientDesc, RadialGradientShape, RadialGradientSize, SpreadMode,
 };
 pub use renderer::{
-    types::DrawCommandError, MathRect, Renderer, RendererContext, RendererCreationError,
-    ShapeOverflow, TextureLayer,
+    types::DrawCommandError, MathRect, PreparationOutcome, RenderError, Renderer, RendererContext,
+    RendererCreationError, ShapeOverflow, TextureLayer,
 };
 pub use shape::*;
 pub use stroke::Stroke;

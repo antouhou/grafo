@@ -1,11 +1,11 @@
-/// Renderer performance benchmark — two scenarios, both using the real `render()` path
+/// Renderer performance benchmark — two scenarios, both using the real `prepare()`/`commit()` path
 /// (present to screen, vsync OFF).
 ///
 /// **Benchmark 1 — Static scene:**
-///   Build the scene once, then render() repeatedly. Measures pure GPU + present cost.
+///   Build the scene once, then prepare and commit repeatedly. Measures pure GPU + present cost.
 ///
 /// **Benchmark 2 — Dynamic scene (re-add every frame):**
-///   Each frame: clear_draw_queue() → rebuild all cached shapes → render().
+///   Each frame: clear_draw_queue() → rebuild all cached shapes → prepare and commit.
 ///   Simulates a real UI where the render queue is reconstructed each frame.
 ///
 /// Build and run with:
@@ -13,7 +13,7 @@
 /// cargo run --example bench_render_loop --features render_metrics --release
 /// ```
 use futures::executor::block_on;
-use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke, TransformInstance};
+use grafo::{Color, PreparationOutcome, Shape, ShapeDrawCommandOptions, Stroke, TransformInstance};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
@@ -479,20 +479,30 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
     ) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Occluded(false) => {
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
             WindowEvent::RedrawRequested => {
                 let window = self.window.clone().unwrap();
 
                 match self.phase {
                     Phase::WarmupStatic => {
                         let renderer = self.renderer.as_mut().unwrap();
-                        match renderer.render() {
+                        let PreparationOutcome::Ready = renderer.prepare() else {
+                            return;
+                        };
+                        let commit_result = renderer.commit(None);
+                        match commit_result {
                             Ok(_) => {}
-                            Err(wgpu::SurfaceError::Timeout) => {
-                                // Window not visible — skip without counting the frame.
-                                window.request_redraw();
+                            Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
+                                renderer.clear_draw_queue();
                                 return;
                             }
-                            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                            Err(grafo::RenderError::Surface(
+                                wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
+                            )) => {
                                 let size = renderer.size();
                                 renderer.resize(size);
                                 window.request_redraw();
@@ -515,14 +525,19 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                         {
                             let renderer = self.renderer.as_mut().unwrap();
                             let frame_start = Instant::now();
-                            match renderer.render() {
+                            let PreparationOutcome::Ready = renderer.prepare() else {
+                                return;
+                            };
+                            let commit_result = renderer.commit(None);
+                            match commit_result {
                                 Ok(_) => {}
-                                Err(wgpu::SurfaceError::Timeout) => {
-                                    // Window not visible — skip without measuring the frame.
-                                    window.request_redraw();
+                                Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
+                                    renderer.clear_draw_queue();
                                     return;
                                 }
-                                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                                Err(grafo::RenderError::Surface(
+                                    wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
+                                )) => {
                                     let size = renderer.size();
                                     renderer.resize(size);
                                     window.request_redraw();
@@ -556,15 +571,20 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                     Phase::WarmupDynamic => {
                         let renderer = self.renderer.as_mut().unwrap();
                         build_scene(renderer);
-                        match renderer.render() {
+                        let PreparationOutcome::Ready = renderer.prepare() else {
+                            renderer.clear_draw_queue();
+                            return;
+                        };
+                        let commit_result = renderer.commit(None);
+                        match commit_result {
                             Ok(_) => {}
-                            Err(wgpu::SurfaceError::Timeout) => {
-                                // Window not visible — skip without counting the frame.
+                            Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
                                 renderer.clear_draw_queue();
-                                window.request_redraw();
                                 return;
                             }
-                            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                            Err(grafo::RenderError::Surface(
+                                wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
+                            )) => {
                                 renderer.clear_draw_queue();
                                 let size = renderer.size();
                                 renderer.resize(size);
@@ -593,15 +613,20 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                             let rebuild_duration = rebuild_start.elapsed();
 
                             let frame_start = Instant::now();
-                            match renderer.render() {
+                            let PreparationOutcome::Ready = renderer.prepare() else {
+                                renderer.clear_draw_queue();
+                                return;
+                            };
+                            let commit_result = renderer.commit(None);
+                            match commit_result {
                                 Ok(_) => {}
-                                Err(wgpu::SurfaceError::Timeout) => {
-                                    // Window not visible — skip without measuring the frame.
+                                Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
                                     renderer.clear_draw_queue();
-                                    window.request_redraw();
                                     return;
                                 }
-                                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                                Err(grafo::RenderError::Surface(
+                                    wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
+                                )) => {
                                     renderer.clear_draw_queue();
                                     let size = renderer.size();
                                     renderer.resize(size);

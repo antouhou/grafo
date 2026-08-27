@@ -27,6 +27,8 @@ use crate::util::{to_logical, PoolManager};
 use crate::vertex::{CustomVertex, InstanceColor, InstanceMetadata, InstanceTransform};
 use crate::CachedShapeHandle;
 pub use construction::RendererCreationError;
+use preparation::PreparedBuffers;
+pub use preparation::{PreparationOutcome, RenderError};
 
 mod construction;
 mod draw_queue;
@@ -121,6 +123,11 @@ pub struct Renderer<'a> {
 
     /// Tree structure holding shapes to be rendered.
     draw_tree: easy_tree::Tree<DrawCommand>,
+    prepared_buffers: Option<PreparedBuffers>,
+    #[cfg(feature = "render_metrics")]
+    preparation_cpu_time: Duration,
+    pre_present_callback: Option<Box<dyn Fn() + Send + Sync + 'a>>,
+    submitted_work: Option<wgpu::SubmissionIndex>,
     /// Maps node metadata indices to their clip-parent node ids.
     metadata_to_clips: HashMap<usize, usize>,
 
@@ -137,8 +144,6 @@ pub struct Renderer<'a> {
     shape_texture_bind_group_layout_foreground: Arc<wgpu::BindGroupLayout>,
     /// Bind group layout for backdrop textures (group 3, bindings 3 and 4).
     backdrop_texture_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-    /// Monotonic counter to invalidate cached shape texture bind groups when the layout changes.
-    shape_texture_layout_epoch: u64,
     /// Default transparent texture bind groups for both layers.
     default_shape_texture_bind_groups: [Arc<wgpu::BindGroup>; 2], // [background, foreground]
     /// Default transparent bind group for backdrop sampling.
@@ -217,6 +222,7 @@ pub struct Renderer<'a> {
     loaded_effects: HashMap<u64, LoadedEffect>,
     /// Per-node group effect instances, keyed by node_id.
     group_effects: HashMap<usize, EffectInstance>,
+    effect_instance_pool: Vec<EffectInstance>,
     /// Per-node backdrop effect instances, keyed by node_id.
     /// A backdrop effect processes the pixels already rendered behind a shape.
     backdrop_effects: HashMap<usize, EffectInstance>,
@@ -270,7 +276,6 @@ pub struct Renderer<'a> {
     /// Bind group layout for gradient resources plus backdrop sampling.
     backdrop_gradient_bind_group_layout: wgpu::BindGroupLayout,
     /// Monotonic counter to invalidate cached gradient bind groups when the layout changes.
-    gradient_bind_group_layout_epoch: u64,
     /// Sampler for gradient ramp textures (nearest, clamp-to-edge).
     gradient_ramp_sampler: wgpu::Sampler,
 
@@ -296,31 +301,46 @@ pub struct Renderer<'a> {
     /// and `queue.submit`, but excludes presentation, readback mapping, and any
     /// forced GPU waits after submission.
     last_render_to_texture_view_cpu_time: Duration,
+    /// Acquisition, uploads, encoding and submission, including failed attempts.
+    last_submission_duration: Duration,
 
     // ── Reusable scratch state ───────────────────────────────────────────
-    scratch: RendererScratch,
+    scratch: Option<RendererScratch>,
 }
 
 /// Default AA fringe width in physical pixels.
 const DEFAULT_FRINGE_WIDTH: f32 = 0.75;
 
+impl Drop for Renderer<'_> {
+    fn drop(&mut self) {
+        self.texture_manager
+            .retire_shape_bind_group_layout(&self.shape_texture_bind_group_layout_background);
+        self.texture_manager
+            .retire_shape_bind_group_layout(&self.shape_texture_bind_group_layout_foreground);
+    }
+}
+
 impl<'a> Renderer<'a> {
     const DEFAULT_FRINGE_WIDTH: f32 = DEFAULT_FRINGE_WIDTH;
 
-    pub(super) fn begin_frame_scratch(&mut self) {
-        self.scratch.begin_frame();
+    fn scratch_mut(&mut self) -> &mut RendererScratch {
+        self.scratch
+            .as_mut()
+            .expect("scratch is owned by active rendering")
     }
 
-    pub(super) fn trim_scratch_on_resize_or_policy(&mut self) {
-        // This is safe to call frequently: `shrink_to` is effectively a no-op
-        // when capacities are below thresholds, so this acts as amortized
-        // memory hygiene for long-running sessions.
-        self.buffers_pool_manager.trim();
-        self.scratch.trim_to_policy();
+    pub(super) fn begin_frame_scratch(&mut self) {
+        self.scratch_mut().begin_frame();
     }
 
     /// Returns the wall-clock CPU time spent in the most recent `render_to_texture_view()` call.
     pub fn last_render_to_texture_view_cpu_time(&self) -> Duration {
         self.last_render_to_texture_view_cpu_time
+    }
+
+    /// Time from the latest commit attempt through submission or failure.
+    /// Includes drawable acquisition and uploads, but excludes presentation and later GPU waits.
+    pub fn last_submission_duration(&self) -> Duration {
+        self.last_submission_duration
     }
 }

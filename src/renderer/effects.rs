@@ -151,7 +151,6 @@ fn build_effect_instance(
 
 fn update_effect_instance_params(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
     loaded_effects: &HashMap<u64, LoadedEffect>,
     instance: &mut EffectInstance,
     params: &[u8],
@@ -165,7 +164,6 @@ fn update_effect_instance_params(
 
     if let Some(existing_buffer) = instance.params_buffer.as_ref() {
         if params.len() as u64 <= existing_buffer.size() {
-            queue.write_buffer(existing_buffer, 0, params);
             return;
         }
     }
@@ -224,11 +222,60 @@ fn refresh_effect_instance_after_reload(
 }
 
 impl<'a> Renderer<'a> {
+    fn reusable_effect_instance(
+        &mut self,
+        effect_id: u64,
+        params: &[u8],
+        backdrop_config: Option<effect::BackdropEffectConfig>,
+        label: &'static str,
+    ) -> EffectInstance {
+        if let Some(index) = self
+            .effect_instance_pool
+            .iter()
+            .position(|instance| instance.effect_id == effect_id)
+        {
+            let mut instance = self.effect_instance_pool.swap_remove(index);
+            update_effect_instance_params(
+                &self.device,
+                &self.loaded_effects,
+                &mut instance,
+                params,
+                label,
+            );
+            instance.backdrop_config = backdrop_config;
+            return instance;
+        }
+        build_effect_instance(
+            &self.device,
+            &self.loaded_effects,
+            effect_id,
+            params,
+            backdrop_config,
+            label,
+        )
+    }
+
+    pub(super) fn upload_effect_params(&self) {
+        for instance in self
+            .group_effects
+            .values()
+            .chain(self.backdrop_effects.values())
+        {
+            if instance.params.is_empty() {
+                continue;
+            }
+            if let Some(buffer) = &instance.params_buffer {
+                self.queue.write_buffer(buffer, 0, &instance.params);
+            }
+        }
+    }
+
     pub fn load_effect(
         &mut self,
         effect_id: u64,
         pass_sources: &[&str],
     ) -> Result<(), EffectError> {
+        self.discard_preparation();
         if self.loaded_effects.get(&effect_id).is_some_and(|effect| {
             effect.pass_sources.len() == pass_sources.len()
                 && effect
@@ -255,6 +302,10 @@ impl<'a> Renderer<'a> {
             instance.effect_id != effect_id
                 || refresh_effect_instance_after_reload(&self.device, loaded_effect, instance)
         });
+        self.effect_instance_pool.retain_mut(|instance| {
+            instance.effect_id != effect_id
+                || refresh_effect_instance_after_reload(&self.device, loaded_effect, instance)
+        });
         self.shape_effects.retain(|_, instance| {
             instance.effect_id != effect_id
                 || validate_params_expectation(
@@ -275,6 +326,7 @@ impl<'a> Renderer<'a> {
         effect_id: u64,
         params: &[u8],
     ) -> Result<(), EffectError> {
+        self.discard_preparation();
         if self.draw_tree.get(node_id).is_none() {
             return Err(EffectError::NodeNotFound(node_id));
         }
@@ -290,16 +342,12 @@ impl<'a> Renderer<'a> {
 
         validate_effect_params(&self.loaded_effects, effect_id, params)?;
 
-        let instance = build_effect_instance(
-            &self.device,
-            &self.loaded_effects,
-            effect_id,
-            params,
-            None,
-            "effect_params_buffer",
-        );
+        let instance =
+            self.reusable_effect_instance(effect_id, params, None, "effect_params_buffer");
 
-        self.group_effects.insert(node_id, instance);
+        if let Some(previous) = self.group_effects.insert(node_id, instance) {
+            self.effect_instance_pool.push(previous);
+        }
         Ok(())
     }
 
@@ -308,6 +356,7 @@ impl<'a> Renderer<'a> {
         node_id: usize,
         params: &[u8],
     ) -> Result<(), EffectError> {
+        self.discard_preparation();
         let instance = self
             .group_effects
             .get_mut(&node_id)
@@ -317,7 +366,6 @@ impl<'a> Renderer<'a> {
 
         update_effect_instance_params(
             &self.device,
-            &self.queue,
             &self.loaded_effects,
             instance,
             params,
@@ -328,7 +376,10 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn remove_group_effect(&mut self, node_id: usize) {
-        self.group_effects.remove(&node_id);
+        self.discard_preparation();
+        if let Some(instance) = self.group_effects.remove(&node_id) {
+            self.effect_instance_pool.push(instance);
+        }
     }
 
     pub fn set_shape_backdrop_effect(
@@ -338,6 +389,7 @@ impl<'a> Renderer<'a> {
         params: &[u8],
         backdrop_config: effect::BackdropEffectConfig,
     ) -> Result<(), EffectError> {
+        self.discard_preparation();
         if self.draw_tree.get(node_id).is_none() {
             return Err(EffectError::NodeNotFound(node_id));
         }
@@ -354,16 +406,16 @@ impl<'a> Renderer<'a> {
         validate_effect_params(&self.loaded_effects, effect_id, params)?;
         validate_backdrop_config(&backdrop_config)?;
 
-        let instance = build_effect_instance(
-            &self.device,
-            &self.loaded_effects,
+        let instance = self.reusable_effect_instance(
             effect_id,
             params,
             Some(backdrop_config),
             "backdrop_effect_params_buffer",
         );
 
-        self.backdrop_effects.insert(node_id, instance);
+        if let Some(previous) = self.backdrop_effects.insert(node_id, instance) {
+            self.effect_instance_pool.push(previous);
+        }
         Ok(())
     }
 
@@ -372,6 +424,7 @@ impl<'a> Renderer<'a> {
         node_id: usize,
         backdrop_config: effect::BackdropEffectConfig,
     ) -> Result<(), EffectError> {
+        self.discard_preparation();
         validate_backdrop_config(&backdrop_config)?;
 
         let instance = self
@@ -389,6 +442,7 @@ impl<'a> Renderer<'a> {
         node_id: usize,
         params: &[u8],
     ) -> Result<(), EffectError> {
+        self.discard_preparation();
         let instance = self
             .backdrop_effects
             .get_mut(&node_id)
@@ -398,7 +452,6 @@ impl<'a> Renderer<'a> {
 
         update_effect_instance_params(
             &self.device,
-            &self.queue,
             &self.loaded_effects,
             instance,
             params,
@@ -409,7 +462,10 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn remove_backdrop_effect(&mut self, node_id: usize) {
-        self.backdrop_effects.remove(&node_id);
+        self.discard_preparation();
+        if let Some(instance) = self.backdrop_effects.remove(&node_id) {
+            self.effect_instance_pool.push(instance);
+        }
     }
 
     /// Attaches a cached shader effect generated from the node's local coverage mask.
@@ -420,6 +476,7 @@ impl<'a> Renderer<'a> {
         params: &[u8],
         config: effect::ShapeEffectConfig,
     ) -> Result<(), EffectError> {
+        self.discard_preparation();
         let draw_command = self
             .draw_tree
             .get(node_id)
@@ -449,6 +506,7 @@ impl<'a> Renderer<'a> {
         node_id: usize,
         params: &[u8],
     ) -> Result<(), EffectError> {
+        self.discard_preparation();
         let effect_id = self
             .shape_effects
             .get(&node_id)
@@ -467,6 +525,7 @@ impl<'a> Renderer<'a> {
         node_id: usize,
         config: effect::ShapeEffectConfig,
     ) -> Result<(), EffectError> {
+        self.discard_preparation();
         validate_shape_effect_config(&config)?;
         let instance = self
             .shape_effects
@@ -477,11 +536,15 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn remove_shape_effect(&mut self, node_id: usize) {
+        self.discard_preparation();
         self.shape_effects.remove(&node_id);
     }
 
     pub fn unload_effect(&mut self, effect_id: u64) {
+        self.discard_preparation();
         self.loaded_effects.remove(&effect_id);
+        self.effect_instance_pool
+            .retain(|instance| instance.effect_id != effect_id);
         self.group_effects
             .retain(|_, instance| instance.effect_id != effect_id);
         self.backdrop_effects
@@ -602,6 +665,52 @@ mod tests {
         validate_backdrop_config, validate_params_expectation, validate_shape_effect_config,
     };
     use crate::effect::{BackdropCaptureArea, BackdropEffectConfig, ShapeEffectConfig};
+    use crate::{Renderer, RendererCreationError, Shape, ShapeDrawCommandOptions, Stroke};
+    use futures::executor::block_on;
+
+    const PARAMETER_EFFECT: &str = r#"
+@group(1) @binding(0) var<uniform> parameters: vec4<f32>;
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    return textureSample(t_input, s_input, uv) * parameters;
+}
+"#;
+
+    #[test]
+    fn replacing_draw_queues_reuses_effect_parameter_storage() {
+        let mut renderer = match block_on(Renderer::try_new_headless((16, 16), 1.0)) {
+            Ok(renderer) => renderer,
+            Err(RendererCreationError::AdapterNotAvailable(_)) => {
+                println!("Skipping test: no suitable GPU adapter available.");
+                return;
+            }
+            Err(error) => panic!("renderer creation failed: {error}"),
+        };
+        renderer.load_effect(7, &[PARAMETER_EFFECT]).unwrap();
+        renderer.load_shape(
+            Shape::rect([(0.0, 0.0), (16.0, 16.0)], Stroke::default()),
+            8,
+            Some(8),
+        );
+        let node = renderer
+            .add_cached_shape_to_the_render_queue(8, None, ShapeDrawCommandOptions::new())
+            .unwrap();
+        renderer.set_group_effect(node, 7, &[0; 16]).unwrap();
+        let bytes = renderer.group_effects[&node].params.as_ptr();
+        let buffer = renderer.group_effects[&node].params_buffer.clone().unwrap();
+        for _ in 0..100 {
+            renderer.clear_draw_queue();
+            let node = renderer
+                .add_cached_shape_to_the_render_queue(8, None, ShapeDrawCommandOptions::new())
+                .unwrap();
+            renderer.set_group_effect(node, 7, &[1; 16]).unwrap();
+            assert_eq!(renderer.group_effects[&node].params.as_ptr(), bytes);
+            assert_eq!(
+                renderer.group_effects[&node].params_buffer.as_ref(),
+                Some(&buffer)
+            );
+        }
+    }
 
     #[test]
     fn validate_effect_params_rejects_missing_required_params() {

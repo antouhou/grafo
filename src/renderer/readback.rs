@@ -28,7 +28,7 @@ fn copy_padded_readback_rows(
 }
 
 impl<'a> Renderer<'a> {
-    fn map_readback_buffer_into(
+    pub(super) fn map_readback_buffer_into(
         device: &wgpu::Device,
         buffer: &wgpu::Buffer,
         mapped_bytes: &mut Vec<u8>,
@@ -68,7 +68,13 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         let frame_render_loop_started_at = std::time::Instant::now();
 
-        self.prepare_render();
+        if self.prepare() == PreparationOutcome::Suspended {
+            return;
+        }
+        if let Err(error) = self.upload_prepared_buffers() {
+            warn!("Cannot render headless image: {error}");
+            return;
+        }
 
         #[cfg(feature = "render_metrics")]
         let after_prepare = std::time::Instant::now();
@@ -96,7 +102,7 @@ impl<'a> Renderer<'a> {
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         let output_texture = self.rtb_offscreen_texture.take();
-        self.render_to_texture_view(&texture_view, output_texture.as_ref());
+        self.render_to_texture_view(&texture_view, output_texture.as_ref(), None);
         self.rtb_offscreen_texture = output_texture;
 
         let (unpadded_bytes_per_row, padded_bytes_per_row) = compute_padded_bytes_per_row(width, 4);
@@ -138,11 +144,20 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         let after_submit = std::time::Instant::now();
 
-        let mut readback_bytes = std::mem::take(&mut self.scratch.readback_bytes);
+        let mut readback_bytes = self
+            .scratch
+            .as_mut()
+            .expect("scratch is not owned by rendering")
+            .readback_bytes
+            .take()
+            .expect("readback buffer is not in use");
         Self::map_readback_buffer_into(&self.device, output_buffer, &mut readback_bytes);
         let required_readback_len = (height as usize).saturating_mul(padded_bytes_per_row as usize);
         if readback_bytes.is_empty() || readback_bytes.len() < required_readback_len {
-            self.scratch.readback_bytes = readback_bytes;
+            self.scratch
+                .as_mut()
+                .expect("scratch is not owned by rendering")
+                .readback_bytes = Some(readback_bytes);
             return;
         }
         copy_padded_readback_rows(
@@ -153,7 +168,10 @@ impl<'a> Renderer<'a> {
             buffer,
         );
 
-        self.scratch.readback_bytes = readback_bytes;
+        self.scratch
+            .as_mut()
+            .expect("scratch is not owned by rendering")
+            .readback_bytes = Some(readback_bytes);
 
         #[cfg(feature = "render_metrics")]
         {
@@ -179,7 +197,13 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         let frame_render_loop_started_at = std::time::Instant::now();
 
-        self.prepare_render();
+        if self.prepare() == PreparationOutcome::Suspended {
+            return;
+        }
+        if let Err(error) = self.upload_prepared_buffers() {
+            warn!("Cannot render headless image: {error}");
+            return;
+        }
 
         #[cfg(feature = "render_metrics")]
         let after_prepare = std::time::Instant::now();
@@ -216,7 +240,7 @@ impl<'a> Renderer<'a> {
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         let output_texture = self.argb_offscreen_texture.take();
-        self.render_to_texture_view(&texture_view, output_texture.as_ref());
+        self.render_to_texture_view(&texture_view, output_texture.as_ref(), None);
         self.argb_offscreen_texture = output_texture;
 
         let (_, padded_bytes_per_row) = compute_padded_bytes_per_row(width, 4);
@@ -338,20 +362,32 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         let after_submit = std::time::Instant::now();
 
-        let mut readback_bytes = std::mem::take(&mut self.scratch.readback_bytes);
+        let mut readback_bytes = self
+            .scratch
+            .as_mut()
+            .expect("scratch is not owned by rendering")
+            .readback_bytes
+            .take()
+            .expect("readback buffer is not in use");
         Self::map_readback_buffer_into(
             &self.device,
             self.argb_readback_buffer.as_ref().unwrap(),
             &mut readback_bytes,
         );
         if readback_bytes.is_empty() {
-            self.scratch.readback_bytes = readback_bytes;
+            self.scratch
+                .as_mut()
+                .expect("scratch is not owned by rendering")
+                .readback_bytes = Some(readback_bytes);
             return;
         }
 
         let src_words: &[u32] = bytemuck::cast_slice(&readback_bytes);
         out_pixels[..needed_len].copy_from_slice(&src_words[..needed_len]);
-        self.scratch.readback_bytes = readback_bytes;
+        self.scratch
+            .as_mut()
+            .expect("scratch is not owned by rendering")
+            .readback_bytes = Some(readback_bytes);
 
         #[cfg(feature = "render_metrics")]
         {

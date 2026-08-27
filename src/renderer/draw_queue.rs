@@ -23,6 +23,7 @@ impl<'a> Renderer<'a> {
         //  the geometry is loaded to the GPU.
         geometry_id: Option<u64>,
     ) {
+        self.discard_preparation();
         let cached_shape = CachedShapeHandle::new(
             shape.as_ref(),
             &mut self.tessellator,
@@ -39,6 +40,7 @@ impl<'a> Renderer<'a> {
 
     /// Removes a loaded shape from the cache.
     pub fn remove_shape(&mut self, cache_key: u64) {
+        self.discard_preparation();
         self.context
             .inner
             .shape_cache
@@ -58,6 +60,7 @@ impl<'a> Renderer<'a> {
         parent_shape_id: Option<usize>,
         options: ShapeDrawCommandOptions,
     ) -> Result<usize, DrawCommandError> {
+        self.discard_preparation();
         let mut draw_data = if let Some(cached_shape_handle) = self
             .context
             .inner
@@ -87,6 +90,7 @@ impl<'a> Renderer<'a> {
         geometry_id: Option<u64>,
         options: ShapeDrawCommandOptions,
     ) -> Result<usize, DrawCommandError> {
+        self.discard_preparation();
         let cached_shape = CachedShapeHandle::new(
             shape.as_ref(),
             &mut self.tessellator,
@@ -117,6 +121,7 @@ impl<'a> Renderer<'a> {
         transform: Option<impl Into<InstanceTransform>>,
         clips_children: bool,
     ) -> Result<usize, DrawCommandError> {
+        self.discard_preparation();
         let transform = transform.map(Into::into);
         if let Some(transform) = transform {
             if !clip_rect_supports_transform(transform) {
@@ -145,7 +150,6 @@ impl<'a> Renderer<'a> {
             &self.queue,
             &self.gradient_bind_group_layout,
             &self.gradient_ramp_sampler,
-            self.gradient_bind_group_layout_epoch,
         );
         let index_range = preparation::append_aggregated_geometry_for_shape(
             cached_shape_data,
@@ -223,13 +227,14 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn clear_draw_queue(&mut self) {
+        self.discard_preparation();
         self.draw_tree.clear();
         self.metadata_to_clips.clear();
-        self.group_effects.clear();
-        self.backdrop_effects.clear();
+        self.effect_instance_pool
+            .extend(self.group_effects.drain().map(|(_, instance)| instance));
+        self.effect_instance_pool
+            .extend(self.backdrop_effects.drain().map(|(_, instance)| instance));
         self.shape_effects.clear();
-        // Keep scratch storage bounded even if queue contents fluctuate frame-to-frame.
-        self.trim_scratch_on_resize_or_policy();
         // Clear memory buffers that are used for GPU upload
         self.clear_buffers();
     }

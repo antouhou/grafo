@@ -14,7 +14,7 @@
 /// *group* effect.
 use futures::executor::block_on;
 use grafo::{BackdropEffectConfig, BorderRadii, Shape};
-use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use grafo::{Color, PreparationOutcome, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -144,6 +144,11 @@ impl<'a> ApplicationHandler for App<'a> {
                 let new_size = (physical_size.width, physical_size.height);
                 renderer.resize(new_size);
                 window.request_redraw();
+            }
+            WindowEvent::Occluded(false) => {
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
             }
             WindowEvent::RedrawRequested => {
                 let (pw, ph) = renderer.size();
@@ -287,20 +292,21 @@ impl<'a> ApplicationHandler for App<'a> {
                     .expect("Failed to set backdrop effect");
 
                 // ── Render ───────────────────────────────────────────────
-                match renderer.render() {
+                let PreparationOutcome::Ready = renderer.prepare() else {
+                    renderer.clear_draw_queue();
+                    return;
+                };
+                let commit_result = renderer.commit(None);
+                match commit_result {
                     Ok(_) => {
                         renderer.clear_draw_queue();
                     }
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        renderer.resize(renderer.size())
-                    }
+                    Err(grafo::RenderError::Surface(
+                        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
+                    )) => renderer.resize(renderer.size()),
 
-                    Err(wgpu::SurfaceError::Timeout) => {
-                        // The window is not visible yet (still appearing, minimized, or fully
-                        // covered). Ask for another redraw instead of dropping the frame for
-                        // good — winit does not request one when the window becomes visible.
+                    Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
                         renderer.clear_draw_queue();
-                        window.request_redraw();
                     }
                     Err(e) => eprintln!("{e:?}"),
                 }

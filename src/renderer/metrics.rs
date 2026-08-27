@@ -58,7 +58,7 @@ impl PipelineSwitchCounts {
 /// Available when the `render_metrics` feature is enabled.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PhaseTimings {
-    /// Time spent in `prepare_render()` — CPU-side buffer aggregation and GPU upload.
+    /// CPU preparation time. The headless path also includes buffer uploads here.
     pub prepare: Duration,
     /// Time spent encoding GPU commands and submitting them (`render_to_texture_view` + `queue.submit`).
     pub encode_and_submit: Duration,

@@ -269,9 +269,6 @@ pub(crate) struct OffscreenTexturePool {
     next_texture_id: u64,
 }
 
-/// Maximum number of textures to keep in the pool.
-const MAX_POOL_SIZE: usize = 8;
-
 impl OffscreenTexturePool {
     pub fn new() -> Self {
         Self {
@@ -281,23 +278,16 @@ impl OffscreenTexturePool {
     }
 
     /// Return textures for reuse in future frames.
-    /// Textures that don't match the given active configuration are dropped
-    /// immediately, and the pool is capped at `MAX_POOL_SIZE`.
     pub fn recycle(&mut self, textures: &mut Vec<PooledTexture>) {
         self.available.append(textures);
-        self.available.truncate(MAX_POOL_SIZE);
     }
 
     /// Drop all pooled textures whose dimensions, or sample count don't match
-    /// the current active configuration, and enforce the maximum pool size.
+    /// the current active configuration.
     /// Call this when size, format, or MSAA settings change (e.g. on resize).
     pub fn trim(&mut self, width: u32, height: u32, sample_count: u32) {
         self.available
             .retain(|t| t.width == width && t.height == height && t.sample_count == sample_count);
-        // Enforce max pool size — drop oldest excess textures
-        if self.available.len() > MAX_POOL_SIZE {
-            self.available.truncate(MAX_POOL_SIZE);
-        }
     }
 
     /// Acquire a texture matching the given dimensions and sample count, plus a depth/stencil
@@ -337,6 +327,7 @@ impl OffscreenTexturePool {
         let found = self.available.iter().position(|texture| {
             texture.width == width
                 && texture.height == height
+                && texture.color_texture.format() == format
                 && texture.sample_count == sample_count
                 && texture.depth_stencil_view.is_some() == with_depth
         });
@@ -977,4 +968,52 @@ pub(crate) fn create_params_bind_group(
             resource: buffer.as_entire_binding(),
         }],
     })
+}
+
+#[cfg(test)]
+mod pool_tests {
+    use super::OffscreenTexturePool;
+    use crate::{RendererContext, RendererCreationError};
+    use futures::executor::block_on;
+
+    #[test]
+    fn larger_effect_scenes_retain_all_reusable_textures() {
+        let context = match block_on(RendererContext::try_new()) {
+            Ok(context) => context,
+            Err(RendererCreationError::AdapterNotAvailable(_)) => {
+                println!("Skipping test: no suitable GPU adapter available.");
+                return;
+            }
+            Err(error) => panic!("context creation failed: {error}"),
+        };
+        let mut pool = OffscreenTexturePool::new();
+        let mut textures: Vec<_> = (0..12)
+            .map(|_| {
+                pool.acquire_color_only(
+                    &context.inner.device,
+                    16,
+                    16,
+                    wgpu::TextureFormat::Rgba8Unorm,
+                    1,
+                )
+            })
+            .collect();
+        let original: Vec<_> = textures.iter().map(|texture| texture.texture_id).collect();
+        pool.recycle(&mut textures);
+        for _ in 0..12 {
+            let texture = pool.acquire_color_only(
+                &context.inner.device,
+                16,
+                16,
+                wgpu::TextureFormat::Rgba8Unorm,
+                1,
+            );
+            assert!(
+                original.contains(&texture.texture_id),
+                "a reusable texture was dropped and reallocated"
+            );
+            textures.push(texture);
+        }
+        pool.recycle(&mut textures);
+    }
 }

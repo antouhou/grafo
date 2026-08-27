@@ -3,22 +3,36 @@
 
 use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::Window;
 
-/// How long to wait before retrying a frame that was skipped because the surface
-/// reported it was not visible (`Occluded`/`Timeout`).
-const OCCLUDED_RETRY_DELAY: Duration = Duration::from_millis(50);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PersistentSceneCommitErrorAction {
+    ReconfigureSurface,
+    PreserveSceneUntilRedraw,
+    Report,
+}
+
+fn persistent_scene_commit_error_action(
+    error: &grafo::RenderError,
+) -> PersistentSceneCommitErrorAction {
+    match error {
+        grafo::RenderError::Surface(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+            PersistentSceneCommitErrorAction::ReconfigureSurface
+        }
+        grafo::RenderError::Surface(wgpu::SurfaceError::Timeout) => {
+            PersistentSceneCommitErrorAction::PreserveSceneUntilRedraw
+        }
+        _ => PersistentSceneCommitErrorAction::Report,
+    }
+}
 
 struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer<'static>>,
     bg_tex_id: u64,
     fg_tex_id: u64,
-    /// Pending retry of a frame skipped because the window was not visible.
-    redraw_retry_at: Option<Instant>,
 }
 
 impl Default for App {
@@ -28,7 +42,6 @@ impl Default for App {
             renderer: None,
             bg_tex_id: 100,
             fg_tex_id: 101,
-            redraw_retry_at: None,
         }
     }
 }
@@ -98,7 +111,7 @@ impl ApplicationHandler for App {
             .add_shape(
                 Shape::rect(
                     [(100.0, 100.0), (500.0, 400.0)],
-                    Stroke::new(1.0, Color::BLACK),
+                    Stroke::new(1.0_f32, Color::BLACK),
                 ),
                 None,
                 None,
@@ -130,47 +143,29 @@ impl ApplicationHandler for App {
                 renderer.resize((physical_size.width, physical_size.height));
                 window.request_redraw();
             }
-            WindowEvent::RedrawRequested => {
-                // The draw queue is populated once in `resumed` and persists across frames.
-                match renderer.render() {
-                    Ok(_) => {
-                        self.redraw_retry_at = None;
-                    }
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        let size = renderer.size();
-                        renderer.resize(size);
-                    }
-                    Err(wgpu::SurfaceError::Timeout) => {
-                        // The window is not visible yet (still appearing, minimized, or fully
-                        // covered). Retry shortly instead of busy-looping redraws — winit does
-                        // not request one when the window becomes visible again. `WaitUntil`
-                        // wakes the event loop without spinning while the window stays hidden.
-                        let retry_at = Instant::now() + OCCLUDED_RETRY_DELAY;
-                        self.redraw_retry_at = Some(retry_at);
-                        event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
-                    }
-                    Err(e) => eprintln!("{e:?}"),
+            WindowEvent::Occluded(false) => {
+                if let Some(window) = &self.window {
+                    window.request_redraw();
                 }
             }
-            _ => {}
-        }
-    }
-
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(retry_at) = self.redraw_retry_at else {
-            // Clear a stale WaitUntil deadline left behind when a successful
-            // render cancelled the pending retry before it fired.
-            event_loop.set_control_flow(ControlFlow::Wait);
-            return;
-        };
-        if Instant::now() >= retry_at {
-            self.redraw_retry_at = None;
-            if let Some(window) = &self.window {
-                window.request_redraw();
+            WindowEvent::RedrawRequested
+                if renderer.prepare() == grafo::PreparationOutcome::Ready =>
+            {
+                // The draw queue is populated once in `resumed` and persists across frames.
+                match renderer.commit(None) {
+                    Ok(_) => {}
+                    Err(error) => match persistent_scene_commit_error_action(&error) {
+                        PersistentSceneCommitErrorAction::ReconfigureSurface => {
+                            let size = renderer.size();
+                            renderer.resize(size);
+                        }
+                        PersistentSceneCommitErrorAction::PreserveSceneUntilRedraw => {}
+                        PersistentSceneCommitErrorAction::Report => eprintln!("{error:?}"),
+                    },
+                }
             }
-            event_loop.set_control_flow(ControlFlow::Wait);
-        } else {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
+            WindowEvent::RedrawRequested => {}
+            _ => {}
         }
     }
 }
@@ -179,4 +174,19 @@ fn main() {
     let event_loop = EventLoop::new().unwrap();
     let mut app = App::default();
     event_loop.run_app(&mut app).unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{persistent_scene_commit_error_action, PersistentSceneCommitErrorAction};
+
+    #[test]
+    fn timeout_preserves_the_persistent_scene_until_an_event_requests_redraw() {
+        let error = grafo::RenderError::Surface(wgpu::SurfaceError::Timeout);
+
+        assert_eq!(
+            persistent_scene_commit_error_action(&error),
+            PersistentSceneCommitErrorAction::PreserveSceneUntilRedraw
+        );
+    }
 }

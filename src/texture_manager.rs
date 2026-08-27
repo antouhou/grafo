@@ -5,6 +5,33 @@ use std::sync::{Arc, RwLock};
 pub enum TextureManagerError {
     #[error("Texture {0} not found")]
     TextureNotFound(u64),
+    #[error("Texture {0} upload dimensions or byte length are invalid")]
+    InvalidUpload(u64),
+}
+
+fn validate_upload(
+    texture_id: u64,
+    texture_dimensions: (u32, u32),
+    upload_dimensions: (u32, u32),
+    byte_length: usize,
+    reset: bool,
+) -> Result<(), TextureManagerError> {
+    let expected_byte_length = upload_dimensions
+        .0
+        .try_into()
+        .ok()
+        .and_then(|width: usize| {
+            usize::try_from(upload_dimensions.1)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        })
+        .and_then(|pixels| pixels.checked_mul(4));
+    if upload_dimensions != texture_dimensions
+        || (!reset && expected_byte_length != Some(byte_length))
+    {
+        return Err(TextureManagerError::InvalidUpload(texture_id));
+    }
+    Ok(())
 }
 
 /// A manager for textures providing granular control over texture handling.
@@ -68,11 +95,35 @@ pub struct TextureManager {
     sampler: Arc<wgpu::Sampler>,
     /// Textures is raw image data, without any screen position information
     texture_storage: Arc<RwLock<HashMap<u64, wgpu::Texture>>>,
-    /// Cache for shape texture bind groups keyed by (texture_id, layout_epoch)
+    /// Each entry retains its layout until that layout is explicitly retired.
     shape_bind_group_cache: Arc<RwLock<BindGroupCache>>,
+    uploads: Arc<RwLock<Vec<TextureUpload>>>,
 }
 
-type BindGroupCache = HashMap<(u64, u64), Arc<wgpu::BindGroup>>;
+struct TextureUpload {
+    texture_id: u64,
+    texture: Option<wgpu::Texture>,
+    bytes: Vec<u8>,
+    bytes_per_row: u32,
+    buffer: Option<wgpu::Buffer>,
+    pending: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EncodedTextureUpload {
+    index: usize,
+    texture_id: u64,
+}
+
+impl EncodedTextureUpload {
+    fn restore_if_matches(self, index: usize, texture_id: u64, retained: bool, pending: &mut bool) {
+        if retained && self.index == index && self.texture_id == texture_id {
+            *pending = true;
+        }
+    }
+}
+
+type BindGroupCache = HashMap<(u64, wgpu::BindGroupLayout), Arc<wgpu::BindGroup>>;
 
 impl TextureManager {
     pub(crate) fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
@@ -83,12 +134,18 @@ impl TextureManager {
             sampler: Arc::new(sampler),
             texture_storage: Arc::new(RwLock::new(HashMap::new())),
             shape_bind_group_cache: Arc::new(RwLock::new(HashMap::new())),
+            uploads: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
     pub fn clear(&self) {
         self.texture_storage.write().unwrap().clear();
         self.shape_bind_group_cache.write().unwrap().clear();
+        for upload in self.uploads.write().unwrap().iter_mut() {
+            upload.texture = None;
+            upload.bytes.clear();
+            upload.pending = false;
+        }
     }
 
     pub fn size(&self) -> (usize, usize) {
@@ -120,6 +177,19 @@ impl TextureManager {
     /// - `texture_id`: Unique identifier for the texture.
     /// - `texture_dimensions`: A tuple `(width, height)` representing the dimensions of the texture.
     pub fn allocate_texture(&self, texture_id: u64, texture_dimensions: (u32, u32)) {
+        let existing = self
+            .texture_storage
+            .read()
+            .unwrap()
+            .get(&texture_id)
+            .cloned();
+        if let Some(texture) = existing.filter(|texture| {
+            texture.width() == texture_dimensions.0 && texture.height() == texture_dimensions.1
+        }) {
+            self.stage_upload(texture_id, &texture, texture_dimensions, &[], true)
+                .expect("valid allocated texture");
+            return;
+        }
         let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
         // If the binding cache contains entries for this texture_id, remove them
         // as the texture is being re-allocated, and the old bind groups are no longer valid.
@@ -148,10 +218,12 @@ impl TextureManager {
         self.texture_storage
             .write()
             .unwrap()
-            .insert(texture_id, texture);
+            .insert(texture_id, texture.clone());
+        self.stage_upload(texture_id, &texture, texture_dimensions, &[], true)
+            .expect("valid allocated texture");
     }
 
-    /// Allocates a texture and immediately loads image data into it.
+    /// Allocates a texture and stages image data for the next committed scene.
     ///
     /// This function will first allocate the texture, then attempt to load the provided data.
     ///
@@ -176,7 +248,7 @@ impl TextureManager {
             .unwrap();
     }
 
-    /// Loads image data into an already allocated texture. If you are seeing fringes when
+    /// Stages image data for an already allocated texture. If you are seeing fringes when
     /// sampling/minifying near transparent edges, ensure that your texture data is in a
     /// premultiplied alpha format. You can use the `premultiply_rgba8_srgb_inplace` helper
     /// function provided in this crate to convert your RGBA8 sRGB data to premultiplied alpha.
@@ -191,6 +263,8 @@ impl TextureManager {
     /// # Returns
     /// - `Ok(())` if the operation succeeds.
     /// - `Err(TextureManagerError::TextureNotFound(texture_id))` if the texture does not exist.
+    /// - `Err(TextureManagerError::InvalidUpload(texture_id))` if dimensions or byte length do not
+    ///   exactly match the allocated RGBA8 texture.
     pub fn load_data_into_texture(
         &self,
         texture_id: u64,
@@ -202,20 +276,7 @@ impl TextureManager {
             .get(&texture_id)
             .ok_or(TextureManagerError::TextureNotFound(texture_id))?;
 
-        let texture_extent = wgpu::Extent3d {
-            width: texture_dimensions.0,
-            height: texture_dimensions.1,
-            depth_or_array_layers: 1,
-        };
-
-        self.write_image_bytes_to_texture(
-            texture,
-            texture_dimensions,
-            texture_extent,
-            texture_data,
-        );
-
-        Ok(())
+        self.stage_upload(texture_id, texture, texture_dimensions, texture_data, false)
     }
 
     /// Removes the texture identified by `texture_id` from the manager.
@@ -227,45 +288,158 @@ impl TextureManager {
             .retain(|(cached_texture_id, _shape_id), _bind_group| *cached_texture_id != texture_id);
 
         self.texture_storage.write().unwrap().remove(&texture_id);
+        if let Some(upload) = self
+            .uploads
+            .write()
+            .unwrap()
+            .iter_mut()
+            .find(|upload| upload.texture_id == texture_id)
+        {
+            upload.texture = None;
+            upload.bytes.clear();
+            upload.pending = false;
+        }
     }
 
-    fn write_image_bytes_to_texture(
+    fn stage_upload(
         &self,
+        texture_id: u64,
         texture: &wgpu::Texture,
-        texture_dimensions: (u32, u32),
-        texture_extent: wgpu::Extent3d,
-        texture_data_bytes: &[u8],
+        dimensions: (u32, u32),
+        bytes: &[u8],
+        reset: bool,
+    ) -> Result<(), TextureManagerError> {
+        validate_upload(
+            texture_id,
+            (texture.width(), texture.height()),
+            dimensions,
+            bytes.len(),
+            reset,
+        )?;
+        let source_row_length = dimensions.0 as usize * 4;
+        let mut uploads = self.uploads.write().unwrap();
+        let index = uploads
+            .iter()
+            .position(|upload| upload.texture_id == texture_id)
+            .or_else(|| uploads.iter().position(|upload| upload.texture.is_none()))
+            .unwrap_or_else(|| {
+                uploads.push(TextureUpload {
+                    texture_id,
+                    texture: None,
+                    bytes: Vec::new(),
+                    bytes_per_row: 0,
+                    buffer: None,
+                    pending: false,
+                });
+                uploads.len() - 1
+            });
+        let upload = &mut uploads[index];
+        upload.texture_id = texture_id;
+        let bytes_per_row = (texture.width() * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+            * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        upload
+            .bytes
+            .resize(bytes_per_row as usize * texture.height() as usize, 0);
+        if reset {
+            upload.bytes.fill(0);
+        } else {
+            for row in 0..dimensions.1 as usize {
+                let destination_start = row * bytes_per_row as usize;
+                upload.bytes[destination_start..destination_start + source_row_length]
+                    .copy_from_slice(
+                        &bytes[row * source_row_length..(row + 1) * source_row_length],
+                    );
+            }
+        }
+        upload.texture = Some(texture.clone());
+        upload.bytes_per_row = bytes_per_row;
+        upload.pending = true;
+        Ok(())
+    }
+
+    pub(crate) fn restore_encoded_uploads(&self, encoded_uploads: &[EncodedTextureUpload]) {
+        let mut uploads = self.uploads.write().unwrap();
+        for encoded in encoded_uploads {
+            let Some(upload) = uploads.get_mut(encoded.index) else {
+                continue;
+            };
+            encoded.restore_if_matches(
+                encoded.index,
+                upload.texture_id,
+                upload.texture.is_some(),
+                &mut upload.pending,
+            );
+        }
+    }
+
+    /// Encodes asset writes only into the selected scene's command buffer.
+    pub(crate) fn encode_uploads(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        encoded_uploads: &mut Vec<EncodedTextureUpload>,
     ) {
-        self.queue.write_texture(
-            // Tells wgpu where to copy the pixel data
-            wgpu::TexelCopyTextureInfo {
-                texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            // The actual pixel data
-            texture_data_bytes,
-            // The layout of the texture
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * texture_dimensions.0),
-                rows_per_image: Some(texture_dimensions.1),
-            },
-            texture_extent,
-        );
+        encoded_uploads.clear();
+        let mut uploads = self.uploads.write().unwrap();
+        for (index, upload) in uploads
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, upload)| upload.pending)
+        {
+            let Some(texture) = &upload.texture else {
+                continue;
+            };
+            let size = upload.bytes.len() as u64;
+            if upload
+                .buffer
+                .as_ref()
+                .is_none_or(|buffer| buffer.size() < size)
+            {
+                upload.buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("texture upload storage"),
+                    size,
+                    usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                }));
+            }
+            let buffer = upload
+                .buffer
+                .as_ref()
+                .expect("texture upload storage allocated");
+            self.queue.write_buffer(buffer, 0, &upload.bytes);
+            encoder.copy_buffer_to_texture(
+                wgpu::TexelCopyBufferInfo {
+                    buffer,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(upload.bytes_per_row),
+                        rows_per_image: Some(texture.height()),
+                    },
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                texture.size(),
+            );
+            upload.pending = false;
+            encoded_uploads.push(EncodedTextureUpload {
+                index,
+                texture_id: upload.texture_id,
+            });
+        }
     }
 
     /// Creates a bind group for the provided `layout` using the stored sampler and
     /// the texture identified by `texture_id`.
     ///
-    /// Returns a cached bind group for the given `layout_epoch` and `texture_id`,
+    /// Returns a cached bind group for this layout and texture,
     /// creating and caching it if necessary. This avoids per-frame bind group creation
     /// when binding textures for shapes.
     pub(crate) fn get_or_create_shape_bind_group(
         &self,
         layout: &wgpu::BindGroupLayout,
-        layout_epoch: u64,
         texture_id: u64,
     ) -> Result<Arc<wgpu::BindGroup>, TextureManagerError> {
         // Fast path: check cache
@@ -273,7 +447,7 @@ impl TextureManager {
             .shape_bind_group_cache
             .read()
             .unwrap()
-            .get(&(texture_id, layout_epoch))
+            .get(&(texture_id, layout.clone()))
             .cloned()
         {
             return Ok(bg);
@@ -304,9 +478,16 @@ impl TextureManager {
         self.shape_bind_group_cache
             .write()
             .unwrap()
-            .insert((texture_id, layout_epoch), bind_group.clone());
+            .insert((texture_id, layout.clone()), bind_group.clone());
 
         Ok(bind_group)
+    }
+
+    pub(crate) fn retire_shape_bind_group_layout(&self, layout: &wgpu::BindGroupLayout) {
+        self.shape_bind_group_cache
+            .write()
+            .unwrap()
+            .retain(|(_, cached_layout), _| cached_layout != layout);
     }
 
     pub fn is_texture_loaded(&self, texture_id: u64) -> bool {
@@ -372,5 +553,48 @@ pub fn premultiply_rgba8_srgb_inplace(pixels: &mut [u8]) {
         px[1] = linear_to_srgb_u8(g_pma);
         px[2] = linear_to_srgb_u8(b_pma);
         // keep alpha as-is
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_upload, EncodedTextureUpload, TextureManagerError};
+
+    #[test]
+    fn discarded_submission_restores_only_uploads_encoded_for_that_submission() {
+        let mut committed_pending = false;
+        let mut discarded_pending = false;
+        let discarded = EncodedTextureUpload {
+            index: 1,
+            texture_id: 9,
+        };
+
+        discarded.restore_if_matches(0, 7, true, &mut committed_pending);
+        discarded.restore_if_matches(1, 9, true, &mut discarded_pending);
+
+        assert!(!committed_pending);
+        assert!(discarded_pending);
+    }
+
+    #[test]
+    fn texture_upload_requires_exact_dimensions_and_byte_length() {
+        assert!(validate_upload(7, (4, 3), (4, 3), 48, false).is_ok());
+        assert!(matches!(
+            validate_upload(7, (4, 3), (3, 3), 36, false),
+            Err(TextureManagerError::InvalidUpload(7))
+        ));
+        assert!(matches!(
+            validate_upload(7, (4, 3), (4, 3), 47, false),
+            Err(TextureManagerError::InvalidUpload(7))
+        ));
+        assert!(matches!(
+            validate_upload(7, (4, 3), (4, 3), 49, false),
+            Err(TextureManagerError::InvalidUpload(7))
+        ));
+        assert!(validate_upload(7, (4, 3), (4, 3), 0, true).is_ok());
+        assert!(matches!(
+            validate_upload(7, (4, 3), (3, 3), 0, true),
+            Err(TextureManagerError::InvalidUpload(7))
+        ));
     }
 }

@@ -1,5 +1,5 @@
 use futures::executor::block_on;
-use grafo::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, Stroke};
+use grafo::{BorderRadii, Color, PreparationOutcome, Shape, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use std::time::Instant;
 use winit::application::ApplicationHandler;
@@ -64,6 +64,11 @@ impl<'a> ApplicationHandler for App<'a> {
                 renderer.resize(new_size);
                 window.request_redraw();
             }
+            WindowEvent::Occluded(false) => {
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
             WindowEvent::RedrawRequested => {
                 let timer = Instant::now();
 
@@ -97,21 +102,25 @@ impl<'a> ApplicationHandler for App<'a> {
                     .unwrap();
 
                 // Render the frame
-                match renderer.render() {
+                let PreparationOutcome::Ready = renderer.prepare() else {
+                    renderer.clear_draw_queue();
+                    return;
+                };
+                let commit_result = renderer.commit(None);
+                match commit_result {
                     Ok(_) => {
                         renderer.clear_draw_queue();
                         println!("Render time: {:?}", timer.elapsed());
                     }
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                    Err(grafo::RenderError::Surface(
+                        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
+                    )) => {
+                        renderer.clear_draw_queue();
                         println!("Surface lost or outdated, resizing...");
                         renderer.resize(renderer.size())
                     }
-                    Err(wgpu::SurfaceError::Timeout) => {
-                        // The window is not visible yet (still appearing, minimized, or fully
-                        // covered). Ask for another redraw instead of dropping the frame for
-                        // good — winit does not request one when the window becomes visible.
+                    Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
                         renderer.clear_draw_queue();
-                        window.request_redraw();
                     }
                     Err(e) => eprintln!("Render error: {e:?}"),
                 }

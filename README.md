@@ -27,7 +27,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-grafo = "0.10"
+grafo = "0.18"
 winit = "0.30"      # For window creation and event handling
 image = "0.25"      # For image decoding (textures)
 env_logger = "0.11" # For logging
@@ -57,9 +57,15 @@ renderer
     )
     .unwrap();
 
-// Render one frame (typical winit loop would call this on RedrawRequested)
-renderer.render().unwrap();
-renderer.clear_draw_queue();
+// Render one frame (a typical winit loop would call this on RedrawRequested).
+match renderer.prepare() {
+    grafo::PreparationOutcome::Ready => {
+        renderer.commit(None).unwrap();
+        renderer.clear_draw_queue();
+    }
+    // Keep the draw queue for a redraw requested by resize or unocclusion.
+    grafo::PreparationOutcome::Suspended => {}
+}
 ```
 
 ### Multiple independent windows
