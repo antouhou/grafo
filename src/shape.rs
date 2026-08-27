@@ -618,19 +618,6 @@ impl AaFringeScratch {
         self.boundary_edges.clear();
         self.triangle_stack.clear();
     }
-
-    pub(crate) fn trim(&mut self) {
-        self.edge_use_counts.shrink_to_fit();
-        self.edge_owners.shrink_to_fit();
-        self.incident_triangles_by_vertex.shrink_to_fit();
-        self.triangle_adjacency.shrink_to_fit();
-        self.visited_triangles.shrink_to_fit();
-        self.triangle_component_map.shrink_to_fit();
-        self.boundary_corner_normals.shrink_to_fit();
-        self.outer_vertex_indices.shrink_to_fit();
-        self.boundary_edges.shrink_to_fit();
-        self.triangle_stack.shrink_to_fit();
-    }
 }
 
 fn normalized_float_bits(value: f32) -> u32 {
@@ -1304,7 +1291,6 @@ impl CachedShapeDrawData {
         queue: &wgpu::Queue,
         layout: &wgpu::BindGroupLayout,
         sampler: &wgpu::Sampler,
-        layout_epoch: u64,
     ) {
         self.gradient_bind_group = match self.fill.as_mut() {
             Some(Fill::Gradient(gradient)) => Some(gradient_cache.get_or_create_bind_group(
@@ -1313,7 +1299,6 @@ impl CachedShapeDrawData {
                 queue,
                 layout,
                 sampler,
-                layout_epoch,
             )),
             _ => None,
         };

@@ -75,6 +75,11 @@ impl<'a> ApplicationHandler for App<'a> {
                 renderer.resize(new_size);
                 window.request_redraw();
             }
+            WindowEvent::Occluded(false) => {
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
             WindowEvent::RedrawRequested => {
                 // Define a simple rectangle shape
                 let rect = Shape::rect(
@@ -103,20 +108,19 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                match renderer.render() {
+                match {
+                    renderer.prepare();
+                    renderer.commit(None)
+                } {
                     Ok(_) => {
                         renderer.clear_draw_queue();
                     }
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        renderer.resize(renderer.size())
-                    }
-                    Err(wgpu::SurfaceError::Timeout) => {
-                        // The window is not visible yet (still appearing, minimized, or
-                        // fully covered). Ask for another redraw instead of dropping the
-                        // frame for good — winit does not request one when the window
-                        // becomes visible again.
+                    Err(grafo::RenderError::Surface(
+                        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
+                    )) => renderer.resize(renderer.size()),
+                    Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
                         renderer.clear_draw_queue();
-                        window.request_redraw();
+                        return;
                     }
                     Err(e) => eprintln!("{e:?}"),
                 }

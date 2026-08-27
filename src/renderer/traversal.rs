@@ -1,8 +1,5 @@
-use super::types::{trim_vector_if_needed, TraversalEvent};
+use super::types::TraversalEvent;
 use super::*;
-
-const MAX_TRAVERSAL_EVENTS_CAPACITY: usize = 32_768;
-const MAX_TRAVERSAL_STACK_CAPACITY: usize = 16_384;
 
 #[derive(Default)]
 pub(super) struct TraversalScratch {
@@ -20,11 +17,6 @@ impl TraversalScratch {
         self.events.clear();
         self.skipped_stack.clear();
         self.excluded_depth = 0;
-    }
-
-    pub(super) fn trim_to_policy(&mut self) {
-        trim_vector_if_needed(&mut self.events, MAX_TRAVERSAL_EVENTS_CAPACITY);
-        trim_vector_if_needed(&mut self.skipped_stack, MAX_TRAVERSAL_STACK_CAPACITY);
     }
 
     pub(super) fn events(&self) -> &[TraversalEvent] {

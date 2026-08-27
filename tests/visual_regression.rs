@@ -43,6 +43,56 @@ fn assert_pixels_match(pixel_buffer: &[u8], expectations: &[grafo_test_scenes::P
 }
 
 #[test]
+fn discarded_preparation_preserves_the_scene_and_can_be_rebuilt() {
+    let Some(mut renderer) = create_headless_renderer() else {
+        return;
+    };
+    let expectations = build_main_scene(&mut renderer);
+    let mut original_pixels = Vec::new();
+    renderer.render_to_buffer(&mut original_pixels);
+    assert_pixels_match(&original_pixels, &expectations);
+
+    for _replacement in 0..3 {
+        assert_eq!(renderer.prepare(), grafo::PreparationOutcome::Ready);
+        renderer.discard_preparation();
+        assert!(matches!(
+            renderer.commit(None),
+            Err(grafo::RenderError::NotPrepared)
+        ));
+    }
+
+    let mut rebuilt_pixels = Vec::new();
+    renderer.render_to_buffer(&mut rebuilt_pixels);
+    assert_eq!(original_pixels, rebuilt_pixels);
+
+    renderer.clear_draw_queue();
+    renderer.resize((32, 32));
+    renderer.render_to_buffer(&mut rebuilt_pixels);
+    renderer.resize((CANVAS_WIDTH, CANVAS_HEIGHT));
+    build_main_scene(&mut renderer);
+    renderer.render_to_buffer(&mut rebuilt_pixels);
+    assert_pixels_match(&rebuilt_pixels, &expectations);
+    assert_eq!(original_pixels, rebuilt_pixels);
+}
+
+#[test]
+fn surface_commit_failure_consumes_preparation_without_running_the_hook() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((8, 8), 1.0) else {
+        return;
+    };
+    renderer.set_pre_present_callback(|| panic!("failed commits must not notify presentation"));
+    renderer.prepare();
+    assert!(matches!(
+        renderer.commit(None),
+        Err(grafo::RenderError::Headless)
+    ));
+    assert!(matches!(
+        renderer.commit(None),
+        Err(grafo::RenderError::NotPrepared)
+    ));
+}
+
+#[test]
 fn shape_effect_is_resolved_before_backdrop_capture_with_msaa() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
         return;

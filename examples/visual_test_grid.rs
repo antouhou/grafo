@@ -74,25 +74,28 @@ impl<'a> ApplicationHandler for App<'a> {
                 renderer.resize(new_size);
                 window.request_redraw();
             }
+            WindowEvent::Occluded(false) => {
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
             WindowEvent::RedrawRequested => {
                 renderer.clear_draw_queue();
                 build_main_scene(renderer);
 
-                match renderer.render() {
+                match {
+                    renderer.prepare();
+                    renderer.commit(None)
+                } {
                     Ok(_) => {
                         self.redraw_retry_at = None;
                     }
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        renderer.resize(renderer.size())
-                    }
-                    Err(wgpu::SurfaceError::Timeout) => {
-                        // The window is not visible yet (still appearing, minimized, or fully
-                        // covered). Retry shortly instead of busy-looping redraws — winit does
-                        // not request one when the window becomes visible again. `WaitUntil`
-                        // wakes the event loop without spinning while the window stays hidden.
-                        let retry_at = Instant::now() + OCCLUDED_RETRY_DELAY;
-                        self.redraw_retry_at = Some(retry_at);
-                        event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
+                    Err(grafo::RenderError::Surface(
+                        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
+                    )) => renderer.resize(renderer.size()),
+                    Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
+                        renderer.clear_draw_queue();
+                        return;
                     }
                     Err(e) => eprintln!("{e:?}"),
                 }

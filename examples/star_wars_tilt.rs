@@ -71,6 +71,11 @@ impl<'a> ApplicationHandler for App<'a> {
             WindowEvent::CloseRequested => {
                 event_loop.exit();
             }
+            WindowEvent::Occluded(false) => {
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
             WindowEvent::RedrawRequested => {
                 if let Some(renderer) = &mut self.renderer {
                     renderer.clear_draw_queue();
@@ -228,20 +233,20 @@ impl<'a> ApplicationHandler for App<'a> {
                         )
                         .unwrap();
 
-                    match renderer.render() {
+                    match {
+                        renderer.prepare();
+                        renderer.commit(None)
+                    } {
                         Ok(_) => {}
-                        Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                        Err(grafo::RenderError::Surface(
+                            wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
+                        )) => {
                             let size = renderer.size();
                             renderer.resize(size);
                         }
-                        Err(wgpu::SurfaceError::Timeout) => {
-                            // The window is not visible yet (still appearing, minimized, or
-                            // fully covered). Ask for another redraw instead of dropping the
-                            // frame for good — winit does not request one when the window
-                            // becomes visible again.
-                            if let Some(window) = &self.window {
-                                window.request_redraw();
-                            }
+                        Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
+                            renderer.clear_draw_queue();
+                            return;
                         }
                         Err(e) => eprintln!("{e:?}"),
                     }

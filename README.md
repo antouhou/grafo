@@ -58,7 +58,8 @@ renderer
     .unwrap();
 
 // Render one frame (typical winit loop would call this on RedrawRequested)
-renderer.render().unwrap();
+renderer.prepare();
+renderer.commit(None).unwrap();
 renderer.clear_draw_queue();
 ```
 

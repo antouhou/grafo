@@ -106,12 +106,12 @@ pub fn main() {
     //                     None,
     //                 );
     //
-    //                 match renderer.render() {
+    //                 match { renderer.prepare(); renderer.commit(None) } {
     //                     Ok(_) => {
     //                         renderer.clear_draw_queue();
     //                     }
-    //                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => renderer.resize(renderer.size()),
-    //                     Err(wgpu::SurfaceError::Timeout) => {
+    //                     Err(grafo::RenderError::Surface(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated)) => renderer.resize(renderer.size()),
+    //                     Err(grafo::RenderError::Surface(wgpu::SurfaceError::Timeout)) => {
     //                         // The window is not visible yet (still appearing, minimized, or fully
     //                         // covered). Ask for another redraw instead of dropping the frame for
     //                         // good — winit does not request one when the window becomes visible.

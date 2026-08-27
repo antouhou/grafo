@@ -79,6 +79,28 @@ pub enum RendererCreationError {
 }
 
 impl RendererContext {
+    /// Shares the GPU device and queue, with independent mutable assets for a surface.
+    pub fn isolated_resources(&self) -> Self {
+        Self {
+            inner: Arc::new(RendererContextInner {
+                instance: Arc::clone(&self.inner.instance),
+                adapter: Arc::clone(&self.inner.adapter),
+                device: Arc::clone(&self.inner.device),
+                queue: Arc::clone(&self.inner.queue),
+                texture_manager: TextureManager::new(
+                    Arc::clone(&self.inner.device),
+                    Arc::clone(&self.inner.queue),
+                ),
+                shape_cache: RwLock::new(HashMap::new()),
+            }),
+        }
+    }
+
+    /// Returns the shared texture store without acquiring a surface renderer.
+    pub fn texture_manager(&self) -> TextureManager {
+        self.inner.texture_manager.clone()
+    }
+
     /// Creates GPU resources that can be shared by any number of independent renderers.
     ///
     /// The context deliberately has no surface. A renderer created from it validates and
@@ -359,7 +381,6 @@ impl<'a> Renderer<'a> {
                 shape_texture_bind_group_layout_layer1,
             ),
             backdrop_texture_bind_group_layout: Arc::new(backdrop_texture_bind_group_layout),
-            shape_texture_layout_epoch: 0,
             default_shape_texture_bind_groups: [
                 Arc::new(default_shape_texture_bind_group_layer0),
                 Arc::new(default_shape_texture_bind_group_layer1),
@@ -408,6 +429,7 @@ impl<'a> Renderer<'a> {
             depth_stencil_view: None,
             loaded_effects: HashMap::new(),
             group_effects: HashMap::new(),
+            effect_instance_pool: Vec::new(),
             backdrop_effects: HashMap::new(),
             shape_effects: HashMap::new(),
             shape_effect_cache: FrameCache::new(),
@@ -428,7 +450,6 @@ impl<'a> Renderer<'a> {
             and_gradient_pipeline: Arc::new(and_gradient_pipeline),
             gradient_bind_group_layout,
             backdrop_gradient_bind_group_layout,
-            gradient_bind_group_layout_epoch: 0,
             gradient_ramp_sampler,
             #[cfg(feature = "render_metrics")]
             render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),
@@ -439,7 +460,13 @@ impl<'a> Renderer<'a> {
             #[cfg(feature = "render_metrics")]
             last_shape_effect_cache_metrics: Default::default(),
             last_render_to_texture_view_cpu_time: Default::default(),
-            scratch: RendererScratch::new(),
+            last_submission_duration: Duration::ZERO,
+            scratch: Some(RendererScratch::new()),
+            prepared_buffers: None,
+            #[cfg(feature = "render_metrics")]
+            preparation_cpu_time: Duration::ZERO,
+            pre_present_callback: None,
+            submitted_work: None,
         };
 
         renderer.recreate_msaa_texture();
@@ -859,18 +886,20 @@ impl<'a> Renderer<'a> {
         self.decrementing_uniform_buffer = decrementing_uniform_buffer;
         self.decrementing_bind_group = decrementing_bind_group;
 
+        self.texture_manager
+            .retire_shape_bind_group_layout(&self.shape_texture_bind_group_layout_background);
+        self.texture_manager
+            .retire_shape_bind_group_layout(&self.shape_texture_bind_group_layout_foreground);
         self.shape_texture_bind_group_layout_background = Arc::new(and_texture_bgl_layer0);
         self.shape_texture_bind_group_layout_foreground = Arc::new(and_texture_bgl_layer1);
         self.shape_effect_cache.clear();
         self.shape_effect_mask_cache.clear();
         self.backdrop_texture_bind_group_layout =
             Arc::new(create_backdrop_texture_bind_group_layout(&self.device));
-        self.shape_texture_layout_epoch += 1;
 
         self.gradient_bind_group_layout = create_gradient_bind_group_layout(&self.device);
         self.backdrop_gradient_bind_group_layout =
             create_backdrop_gradient_bind_group_layout(&self.device);
-        self.gradient_bind_group_layout_epoch += 1;
         self.gradient_ramp_sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("gradient_ramp_sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -952,7 +981,6 @@ impl<'a> Renderer<'a> {
                 &self.queue,
                 &self.gradient_bind_group_layout,
                 &self.gradient_ramp_sampler,
-                self.gradient_bind_group_layout_epoch,
             );
 
             if let DrawCommand::CachedShape(cached_shape) = draw_command {

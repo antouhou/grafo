@@ -494,7 +494,11 @@ impl<'a> Renderer<'a> {
                     texture_uv_scales: [[1.0, 1.0]; 2],
                 },
             ));
-            self.scratch.shape_effect_leaves.insert(node_id, leaf);
+            self.scratch
+                .as_mut()
+                .expect("scratch is not owned by rendering")
+                .shape_effect_leaves
+                .insert(node_id, leaf);
         }
     }
 

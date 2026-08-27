@@ -7,16 +7,27 @@ use crate::renderer::traversal::{
 };
 
 impl<'a> Renderer<'a> {
+    /// Waits for this renderer's known submission when a caller needs CPU-side completion.
+    /// Queue-ordered GPU resource reuse does not require this wait.
+    pub fn wait_for_submitted_work(&mut self) -> Result<(), wgpu::PollError> {
+        if let Some(submission) = self.submitted_work.take() {
+            self.device
+                .poll(wgpu::PollType::WaitForSubmissionIndex(submission))?;
+        }
+        Ok(())
+    }
+
     pub(super) fn render_to_texture_view(
         &mut self,
         texture_view: &wgpu::TextureView,
         output_texture: Option<&wgpu::Texture>,
-    ) {
+        deadline: Option<std::time::Instant>,
+    ) -> bool {
         let render_to_texture_view_started_at = std::time::Instant::now();
 
         // Nothing to render when the draw queue is empty.
         if self.draw_tree.is_empty() {
-            self.scratch.shape_effect_leaves.clear();
+            self.scratch_mut().shape_effect_leaves.clear();
             let _collected_shape_effect_results = self.shape_effect_cache.end_frame();
             let _collected_shape_effect_masks = self.shape_effect_mask_cache.end_frame();
             #[cfg(feature = "render_metrics")]
@@ -29,20 +40,26 @@ impl<'a> Renderer<'a> {
             }
             self.buffers_pool_manager.tessellation_cache.end_frame();
             self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
-            return;
+            return true;
         }
 
-        let mut traversal_scratch = std::mem::take(&mut self.scratch.traversal_scratch);
-        let mut effect_results = std::mem::take(&mut self.scratch.effect_results);
-        let mut shape_effect_leaves = std::mem::take(&mut self.scratch.shape_effect_leaves);
-        let mut effect_node_ids = std::mem::take(&mut self.scratch.effect_node_ids);
-        let mut textures_to_recycle = std::mem::take(&mut self.scratch.textures_to_recycle);
-        let mut effect_output_textures = std::mem::take(&mut self.scratch.effect_output_textures);
-        let mut stencil_stack = std::mem::take(&mut self.scratch.stencil_stack);
-        let skipped_stack = std::mem::take(&mut self.scratch.skipped_stack);
-        let mut scissor_stack = std::mem::take(&mut self.scratch.scissor_stack);
-        let mut clip_kind_stack = std::mem::take(&mut self.scratch.clip_kind_stack);
-        let mut backdrop_work_textures = std::mem::take(&mut self.scratch.backdrop_work_textures);
+        let RendererScratch {
+            mut traversal_scratch,
+            mut effect_results,
+            mut shape_effect_leaves,
+            mut effect_node_ids,
+            mut textures_to_recycle,
+            mut effect_output_textures,
+            mut stencil_stack,
+            skipped_stack,
+            mut scissor_stack,
+            mut clip_kind_stack,
+            mut backdrop_work_textures,
+            readback_bytes,
+        } = self
+            .scratch
+            .take()
+            .expect("rendering owns the reusable scratch storage");
 
         let has_group_effects = !self.group_effects.is_empty();
         let has_backdrop_effects = !self.backdrop_effects.is_empty();
@@ -78,6 +95,8 @@ impl<'a> Renderer<'a> {
                 label: Some("Render Command Encoder"),
             });
 
+        self.texture_manager.encode_uploads(&mut encoder);
+
         if has_shape_effects {
             self.resolve_shape_effects(
                 &mut encoder,
@@ -101,7 +120,6 @@ impl<'a> Renderer<'a> {
             shape_texture_bind_group_layout_foreground: &self
                 .shape_texture_bind_group_layout_foreground,
             default_shape_texture_bind_groups: &self.default_shape_texture_bind_groups,
-            shape_texture_layout_epoch: self.shape_texture_layout_epoch,
             texture_manager: &self.texture_manager,
         };
 
@@ -473,7 +491,15 @@ impl<'a> Renderer<'a> {
             );
         }
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        let command_buffer = encoder.finish();
+        let submitted = !deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline);
+        if submitted {
+            self.submitted_work = Some(self.queue.submit(std::iter::once(command_buffer)));
+        } else {
+            self.shape_effect_cache.retain(|_, _| false);
+            self.shape_effect_mask_cache.retain(|_, _| false);
+            self.texture_manager.restore_pending_uploads();
+        }
 
         self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
 
@@ -490,17 +516,20 @@ impl<'a> Renderer<'a> {
 
         shape_effect_leaves.clear();
 
-        self.scratch.traversal_scratch = traversal_scratch;
-        self.scratch.effect_results = effect_results;
-        self.scratch.shape_effect_leaves = shape_effect_leaves;
-        self.scratch.effect_node_ids = effect_node_ids;
-        self.scratch.textures_to_recycle = textures_to_recycle;
-        self.scratch.effect_output_textures = effect_output_textures;
-        self.scratch.stencil_stack = stencil_stack;
-        self.scratch.skipped_stack = skipped_stack;
-        self.scratch.scissor_stack = scissor_stack;
-        self.scratch.clip_kind_stack = clip_kind_stack;
-        self.scratch.backdrop_work_textures = backdrop_work_textures;
+        self.scratch = Some(RendererScratch {
+            traversal_scratch,
+            effect_results,
+            shape_effect_leaves,
+            effect_node_ids,
+            textures_to_recycle,
+            effect_output_textures,
+            stencil_stack,
+            skipped_stack,
+            scissor_stack,
+            clip_kind_stack,
+            backdrop_work_textures,
+            readback_bytes,
+        });
         let _collected_shape_effect_results = self.shape_effect_cache.end_frame();
         let _collected_shape_effect_masks = self.shape_effect_mask_cache.end_frame();
         self.buffers_pool_manager.tessellation_cache.end_frame();
@@ -514,30 +543,25 @@ impl<'a> Renderer<'a> {
             self.last_pipeline_switch_counts = frame_pipeline_counts;
             self.last_shape_effect_cache_metrics = shape_effect_cache_metrics;
         }
+        submitted
     }
 
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        #[cfg(feature = "render_metrics")]
-        let frame_render_loop_started_at = std::time::Instant::now();
-        self.prepare_render();
-
-        #[cfg(feature = "render_metrics")]
-        let after_prepare = std::time::Instant::now();
-
-        let surface = self
-            .surface
-            .as_ref()
-            .expect("Cannot call render() on a headless renderer; use render_to_buffer()");
-        let output = surface.get_current_texture()?;
-        let output_texture_view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
-        self.render_to_texture_view(&output_texture_view, Some(&output.texture));
+    /// Consumes preparation, then acquires, submits, and presents the selected image.
+    /// An expired deadline cancels only before acquisition. Acquired images must be presented,
+    /// even if acquisition or encoding overruns, because Vulkan cannot safely discard them.
+    /// The hook runs immediately before presentation, for platform pre-present notification.
+    pub fn commit(&mut self, deadline: Option<std::time::Instant>) -> Result<(), RenderError> {
+        let submission_started_at = std::time::Instant::now();
+        let output = self.acquire_and_submit(deadline);
+        self.last_submission_duration = submission_started_at.elapsed();
+        let output = output?;
 
         #[cfg(feature = "render_metrics")]
         let after_submit = std::time::Instant::now();
 
+        if let Some(callback) = &self.pre_present_callback {
+            callback();
+        }
         output.present();
         #[cfg(feature = "render_metrics")]
         {
@@ -546,11 +570,12 @@ impl<'a> Renderer<'a> {
             let _ = self.device.poll(wgpu::MaintainBase::Wait);
             let after_gpu_wait = std::time::Instant::now();
 
-            let prepare_dur = after_prepare.saturating_duration_since(frame_render_loop_started_at);
-            let encode_submit_dur = after_submit.saturating_duration_since(after_prepare);
+            let prepare_dur = self.preparation_cpu_time;
+            let encode_submit_dur = self.last_submission_duration;
             let present_dur = after_present.saturating_duration_since(after_submit);
             let gpu_wait_dur = after_gpu_wait.saturating_duration_since(after_present);
-            let total_dur = after_gpu_wait.saturating_duration_since(frame_render_loop_started_at);
+            let total_dur =
+                prepare_dur + after_gpu_wait.saturating_duration_since(submission_started_at);
             self.last_phase_timings = PhaseTimings {
                 prepare: prepare_dur,
                 encode_and_submit: encode_submit_dur,
@@ -559,8 +584,255 @@ impl<'a> Renderer<'a> {
                 total: total_dur,
             };
             self.render_loop_metrics_tracker
-                .record_presented_frame(frame_render_loop_started_at, after_gpu_wait);
+                .record_presented_frame(submission_started_at, after_gpu_wait);
         }
         Ok(())
+    }
+
+    fn acquire_and_submit(
+        &mut self,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<wgpu::SurfaceTexture, RenderError> {
+        if self.prepared_buffers.is_none() {
+            return Err(RenderError::NotPrepared);
+        }
+        if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
+            self.discard_preparation();
+            return Err(RenderError::DeadlineMissed);
+        }
+
+        let acquisition_started_at = std::time::Instant::now();
+        let output = match self.surface.as_ref() {
+            None => {
+                self.discard_preparation();
+                return Err(RenderError::Headless);
+            }
+            Some(surface) => match surface.get_current_texture() {
+                Ok(output) => output,
+                Err(error) => {
+                    self.discard_preparation();
+                    return Err(error.into());
+                }
+            },
+        };
+        tracing::debug!(
+            acquisition_duration = ?acquisition_started_at.elapsed(),
+            "Surface drawable acquired"
+        );
+        self.submit_acquired_texture(&output.texture, deadline)?;
+        Ok(output)
+    }
+
+    fn submit_acquired_texture(
+        &mut self,
+        output: &wgpu::Texture,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<(), RenderError> {
+        self.upload_prepared_buffers()?;
+        let output_texture_view = output.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // wgpu 25's Vulkan discard does not release an acquired swapchain image.
+        self.render_to_texture_view(&output_texture_view, Some(output), None);
+        if let Some(deadline) = deadline {
+            tracing::debug!(
+                deadline_overrun = ?std::time::Instant::now().saturating_duration_since(deadline),
+                "Acquired surface drawable submitted"
+            );
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::pipeline::{create_readback_buffer, encode_copy_texture_to_buffer};
+    use crate::{
+        Renderer, RendererCreationError, Shape, ShapeDrawCommandOptions, ShapeTextureOptions,
+        Stroke,
+    };
+    use futures::executor::block_on;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn queued_resource_reuse_preserves_earlier_images_without_cpu_completion_waits() {
+        let mut first = match block_on(Renderer::try_new_headless((16, 16), 1.0)) {
+            Ok(renderer) => renderer,
+            Err(RendererCreationError::AdapterNotAvailable(_)) => {
+                println!("Skipping test: no suitable GPU adapter available.");
+                return;
+            }
+            Err(error) => panic!("renderer creation failed: {error}"),
+        };
+        let mut second = Renderer::try_new_headless_with_context(
+            first.context().isolated_resources(),
+            (16, 16),
+            1.0,
+        )
+        .unwrap();
+        let output = first.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 16,
+                height: 16,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: first.config.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let mut captures = Vec::new();
+        for _ in 0..16 {
+            captures.push((
+                submit_textured_capture(&mut first, &output, [255, 0, 0, 255]),
+                [0, 0, 255, 255],
+            ));
+            captures.push((
+                submit_textured_capture(&mut second, &output, [0, 255, 0, 255]),
+                [0, 255, 0, 255],
+            ));
+            captures.push((
+                submit_textured_capture(&mut first, &output, [0, 0, 255, 255]),
+                [255, 0, 0, 255],
+            ));
+        }
+        // All writes, draws and captures are submitted before the first CPU wait.
+        let mut bytes = Vec::new();
+        for (buffer, expected) in captures {
+            Renderer::map_readback_buffer_into(&first.device, &buffer, &mut bytes);
+            let center = 8 * 256 + 8 * 4;
+            assert_eq!(&bytes[center..center + 4], &expected);
+        }
+    }
+
+    fn submit_textured_capture(
+        renderer: &mut Renderer<'_>,
+        output: &wgpu::Texture,
+        pixels: [u8; 4],
+    ) -> wgpu::Buffer {
+        prepare_textured_scene(renderer, pixels);
+        renderer.upload_prepared_buffers().unwrap();
+        let view = output.create_view(&wgpu::TextureViewDescriptor::default());
+        assert!(renderer.render_to_texture_view(&view, Some(output), None));
+        capture_texture(renderer, output)
+    }
+
+    fn prepare_textured_scene(renderer: &mut Renderer<'_>, pixels: [u8; 4]) {
+        renderer.clear_draw_queue();
+        renderer
+            .texture_manager()
+            .allocate_texture_with_data(7, (1, 1), &pixels);
+        renderer
+            .add_shape(
+                Shape::rect([(0.0, 0.0), (16.0, 16.0)], Stroke::default()),
+                None,
+                None,
+                ShapeDrawCommandOptions::new().background_texture(ShapeTextureOptions::new(7)),
+            )
+            .unwrap();
+        renderer.prepare();
+    }
+
+    fn capture_texture(renderer: &Renderer<'_>, output: &wgpu::Texture) -> wgpu::Buffer {
+        let buffer = create_readback_buffer(&renderer.device, None, 256 * 16);
+        let mut encoder = renderer
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        encode_copy_texture_to_buffer(&mut encoder, output, &buffer, 16, 16, 256);
+        renderer.queue.submit([encoder.finish()]);
+        buffer
+    }
+
+    #[test]
+    fn acquired_texture_is_submitted_even_after_the_deadline() {
+        let mut renderer = match block_on(Renderer::try_new_headless((16, 16), 1.0)) {
+            Ok(renderer) => renderer,
+            Err(RendererCreationError::AdapterNotAvailable(_)) => {
+                println!("Skipping test: no suitable GPU adapter available.");
+                return;
+            }
+            Err(error) => panic!("renderer creation failed: {error}"),
+        };
+        let output = renderer.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 16,
+                height: 16,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: renderer.config.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        prepare_textured_scene(&mut renderer, [255, 0, 0, 255]);
+        renderer
+            .submit_acquired_texture(&output, Some(Instant::now()))
+            .unwrap();
+        assert!(renderer.submitted_work.is_some());
+        let buffer = capture_texture(&renderer, &output);
+        let mut bytes = Vec::new();
+        Renderer::map_readback_buffer_into(&renderer.device, &buffer, &mut bytes);
+        let center = 8 * 256 + 8 * 4;
+        assert_eq!(&bytes[center..center + 4], &[0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn missed_submission_restores_staged_texture_uploads_for_the_next_scene() {
+        let mut renderer = match block_on(Renderer::try_new_headless((16, 16), 1.0)) {
+            Ok(renderer) => renderer,
+            Err(RendererCreationError::AdapterNotAvailable(_)) => {
+                println!("Skipping test: no suitable GPU adapter available.");
+                return;
+            }
+            Err(error) => panic!("renderer creation failed: {error}"),
+        };
+        renderer
+            .texture_manager()
+            .allocate_texture_with_data(7, (1, 1), &[255, 0, 0, 255]);
+        renderer
+            .add_shape(
+                Shape::rect([(0.0, 0.0), (16.0, 16.0)], Stroke::default()),
+                None,
+                None,
+                ShapeDrawCommandOptions::new().background_texture(ShapeTextureOptions::new(7)),
+            )
+            .unwrap();
+        renderer.prepare();
+        renderer.upload_prepared_buffers().unwrap();
+        let output = renderer.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 16,
+                height: 16,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: renderer.config.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = output.create_view(&wgpu::TextureViewDescriptor::default());
+        assert!(!renderer.render_to_texture_view(&view, Some(&output), Some(Instant::now())));
+        assert!(renderer.submitted_work.is_none());
+        renderer.prepare();
+        renderer.last_submission_duration = Duration::MAX;
+        assert!(matches!(
+            renderer.commit(Some(Instant::now())),
+            Err(crate::RenderError::DeadlineMissed)
+        ));
+        assert_ne!(renderer.last_submission_duration(), Duration::MAX);
+        assert!(renderer.prepared_buffers.is_none());
+        let mut pixels = Vec::new();
+        renderer.render_to_buffer(&mut pixels);
+        let center = (8 * 16 + 8) * 4;
+        assert_eq!(&pixels[center..center + 4], &[0, 0, 255, 255]);
     }
 }

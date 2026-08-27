@@ -3,6 +3,30 @@ use super::*;
 use crate::pipeline::create_buffer_init;
 use crate::vertex::CustomVertex;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PreparationOutcome {
+    Ready,
+    Suspended,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RenderError {
+    #[error("no prepared rendering is available to commit")]
+    NotPrepared,
+    #[error("the presentation deadline passed before surface acquisition")]
+    DeadlineMissed,
+    #[error("a headless renderer cannot present to a surface")]
+    Headless,
+    #[error(transparent)]
+    Surface(#[from] wgpu::SurfaceError),
+}
+
+pub(super) struct PreparedBuffers {
+    vertex_count: usize,
+    index_count: usize,
+    instance_count: usize,
+}
+
 #[derive(Copy, Clone)]
 pub(crate) struct InstanceTextureData {
     pub(crate) texture_presence: [bool; 2],
@@ -208,19 +232,55 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    pub(super) fn prepare_render(&mut self) {
+    /// Prepares the current draw queue without acquiring a drawable or uploading its buffers.
+    /// Calling this again discards the previous preparation and reuses the same storage.
+    pub fn prepare(&mut self) -> PreparationOutcome {
+        #[cfg(feature = "render_metrics")]
+        let started_at = std::time::Instant::now();
+        self.discard_preparation();
+        if self.physical_size.0 == 0 || self.physical_size.1 == 0 {
+            return PreparationOutcome::Suspended;
+        }
         self.begin_frame_scratch();
-        // Include prepared effect leaves in this upload without making them part
-        // of the durable user draw queue.
-        let base_vertex_count = self.temp_vertices.len();
-        let base_index_count = self.temp_indices.len();
-        let base_instance_count = self.temp_instance_transforms.len();
+        self.prepared_buffers = Some(PreparedBuffers {
+            vertex_count: self.temp_vertices.len(),
+            index_count: self.temp_indices.len(),
+            instance_count: self.temp_instance_transforms.len(),
+        });
         self.prepare_shape_effect_leaves();
+        #[cfg(feature = "render_metrics")]
+        {
+            self.preparation_cpu_time = started_at.elapsed();
+        }
+        PreparationOutcome::Ready
+    }
+
+    /// Cancels preparation without acquiring, submitting, or presenting a surface image.
+    pub fn discard_preparation(&mut self) {
+        if let Some(prepared) = self.prepared_buffers.take() {
+            self.restore_draw_buffers(prepared);
+            self.scratch_mut().shape_effect_leaves.clear();
+        }
+    }
+
+    pub(super) fn upload_prepared_buffers(&mut self) -> Result<(), RenderError> {
+        let prepared = self
+            .prepared_buffers
+            .take()
+            .ok_or(RenderError::NotPrepared)?;
+        self.upload_effect_params();
         self.upload_buffers_for_frame();
-        self.temp_vertices.truncate(base_vertex_count);
-        self.temp_indices.truncate(base_index_count);
-        self.temp_instance_transforms.truncate(base_instance_count);
-        self.temp_instance_colors.truncate(base_instance_count);
-        self.temp_instance_metadata.truncate(base_instance_count);
+        self.restore_draw_buffers(prepared);
+        Ok(())
+    }
+
+    fn restore_draw_buffers(&mut self, prepared: PreparedBuffers) {
+        self.temp_vertices.truncate(prepared.vertex_count);
+        self.temp_indices.truncate(prepared.index_count);
+        self.temp_instance_transforms
+            .truncate(prepared.instance_count);
+        self.temp_instance_colors.truncate(prepared.instance_count);
+        self.temp_instance_metadata
+            .truncate(prepared.instance_count);
     }
 }
