@@ -3,7 +3,7 @@ use super::metrics::PipelineSwitchCounts;
 use super::traversal::TraversalScratch;
 use crate::effect::{self, LoadedEffect};
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, ShapeTextureBinding};
-use crate::texture_manager::{EncodedTextureUpload, TextureManager};
+use crate::texture_manager::TextureManager;
 use crate::util::GradientCache;
 use crate::vertex::InstanceTransform;
 use ahash::{HashMap, HashMapExt};
@@ -384,7 +384,6 @@ pub(super) struct RendererScratch {
     /// non-leaf parent used so the `Post` path avoids re-evaluating eligibility.
     pub(super) clip_kind_stack: Vec<ClipKind>,
     pub(super) backdrop_work_textures: Vec<effect::PooledTexture>,
-    pub(super) encoded_texture_uploads: Vec<EncodedTextureUpload>,
     /// Reused across readback calls; intentionally not cleared on `begin_frame`
     /// because readback may run after render submission and reuse prior capacity.
     pub(super) readback_bytes: Option<Vec<u8>>,
@@ -404,7 +403,6 @@ impl RendererScratch {
             scissor_stack: Vec::new(),
             clip_kind_stack: Vec::new(),
             backdrop_work_textures: Vec::new(),
-            encoded_texture_uploads: Vec::new(),
             readback_bytes: Some(Vec::new()),
             traversal_scratch: TraversalScratch::new(),
         }
@@ -421,7 +419,6 @@ impl RendererScratch {
         self.scissor_stack.clear();
         self.clip_kind_stack.clear();
         self.backdrop_work_textures.clear();
-        self.encoded_texture_uploads.clear();
         self.traversal_scratch.begin();
         // Keep readback bytes length/capacity untouched to preserve reuse across
         // `render_to_buffer`/`render_to_argb32` calls that are not tied to frame start.

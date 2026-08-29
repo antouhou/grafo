@@ -55,7 +55,6 @@ impl<'a> Renderer<'a> {
             mut scissor_stack,
             mut clip_kind_stack,
             mut backdrop_work_textures,
-            mut encoded_texture_uploads,
             readback_bytes,
         } = self
             .scratch
@@ -95,9 +94,6 @@ impl<'a> Renderer<'a> {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Command Encoder"),
             });
-
-        self.texture_manager
-            .encode_uploads(&mut encoder, &mut encoded_texture_uploads);
 
         if has_shape_effects {
             self.resolve_shape_effects(
@@ -500,10 +496,7 @@ impl<'a> Renderer<'a> {
         } else {
             self.shape_effect_cache.retain(|_, _| false);
             self.shape_effect_mask_cache.retain(|_, _| false);
-            self.texture_manager
-                .restore_encoded_uploads(&encoded_texture_uploads);
         }
-        encoded_texture_uploads.clear();
 
         self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
 
@@ -532,7 +525,6 @@ impl<'a> Renderer<'a> {
             scissor_stack,
             clip_kind_stack,
             backdrop_work_textures,
-            encoded_texture_uploads,
             readback_bytes,
         });
         let _collected_shape_effect_results = self.shape_effect_cache.end_frame();
@@ -788,7 +780,7 @@ mod tests {
     }
 
     #[test]
-    fn missed_submission_restores_staged_texture_uploads_for_the_next_scene() {
+    fn texture_data_write_is_independent_of_missed_scene_submissions() {
         let mut renderer = match block_on(Renderer::try_new_headless((16, 16), 1.0)) {
             Ok(renderer) => renderer,
             Err(RendererCreationError::AdapterNotAvailable(_)) => {
