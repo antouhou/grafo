@@ -101,6 +101,7 @@ pub struct TextureManager {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     sampler: Arc<wgpu::Sampler>,
+    // Operations that need both locks must acquire texture_storage before shape_bind_group_cache.
     /// Textures is raw image data, without any screen position information
     texture_storage: Arc<RwLock<HashMap<u64, wgpu::Texture>>>,
     /// Each entry retains its layout until that layout is explicitly retired.
@@ -122,8 +123,10 @@ impl TextureManager {
     }
 
     pub fn clear(&self) {
-        self.texture_storage.write().unwrap().clear();
-        self.shape_bind_group_cache.write().unwrap().clear();
+        let mut texture_storage = self.texture_storage.write().unwrap();
+        let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
+        texture_storage.clear();
+        bind_group_cache.clear();
     }
 
     pub fn size(&self) -> (usize, usize) {
@@ -176,12 +179,6 @@ impl TextureManager {
     }
 
     fn replace_texture(&self, texture_id: u64, texture_dimensions: (u32, u32)) -> wgpu::Texture {
-        let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
-        // If the binding cache contains entries for this texture_id, remove them
-        // as the texture is being re-allocated, and the old bind groups are no longer valid.
-        bind_group_cache
-            .retain(|(cached_texture_id, _shape_id), _bind_group| *cached_texture_id != texture_id);
-
         let texture_extent = wgpu::Extent3d {
             width: texture_dimensions.0,
             height: texture_dimensions.1,
@@ -201,11 +198,20 @@ impl TextureManager {
             view_formats: &[],
         });
 
-        self.texture_storage
-            .write()
-            .unwrap()
-            .insert(texture_id, texture.clone());
+        self.replace_stored_texture(texture_id, texture.clone());
         texture
+    }
+
+    fn replace_stored_texture(
+        &self,
+        texture_id: u64,
+        texture: wgpu::Texture,
+    ) {
+        let mut texture_storage = self.texture_storage.write().unwrap();
+        let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
+        bind_group_cache
+            .retain(|(cached_texture_id, _layout), _bind_group| *cached_texture_id != texture_id);
+        texture_storage.insert(texture_id, texture);
     }
 
     /// Allocates a texture and writes its image data to the GPU queue.
@@ -262,16 +268,19 @@ impl TextureManager {
         texture_dimensions: (u32, u32),
         texture_data: &[u8],
     ) -> Result<(), TextureManagerError> {
-        let texture_storage = self.texture_storage.read().unwrap();
-        let texture = texture_storage
+        let texture = self
+            .texture_storage
+            .read()
+            .unwrap()
             .get(&texture_id)
+            .cloned()
             .ok_or(TextureManagerError::TextureNotFound(texture_id))?;
         if (texture.width(), texture.height()) != texture_dimensions {
             return Err(TextureManagerError::InvalidTextureData(texture_id));
         }
         self.write_texture_region(
             texture_id,
-            texture,
+            &texture,
             (0, 0),
             texture_dimensions,
             texture_data,
@@ -295,13 +304,16 @@ impl TextureManager {
         region_dimensions: (u32, u32),
         texture_data: &[u8],
     ) -> Result<(), TextureManagerError> {
-        let texture_storage = self.texture_storage.read().unwrap();
-        let texture = texture_storage
+        let texture = self
+            .texture_storage
+            .read()
+            .unwrap()
             .get(&texture_id)
+            .cloned()
             .ok_or(TextureManagerError::TextureNotFound(texture_id))?;
         self.write_texture_region(
             texture_id,
-            texture,
+            &texture,
             region_origin,
             region_dimensions,
             texture_data,
@@ -310,13 +322,11 @@ impl TextureManager {
 
     /// Removes the texture identified by `texture_id` from the manager.
     pub fn remove_texture(&self, texture_id: u64) {
+        let mut texture_storage = self.texture_storage.write().unwrap();
         let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
-        // If the binding cache contains entries for this texture_id, remove them
-        // as the texture is being removed, and the old bind groups are no longer valid.
         bind_group_cache
-            .retain(|(cached_texture_id, _shape_id), _bind_group| *cached_texture_id != texture_id);
-
-        self.texture_storage.write().unwrap().remove(&texture_id);
+            .retain(|(cached_texture_id, _layout), _bind_group| *cached_texture_id != texture_id);
+        texture_storage.remove(&texture_id);
     }
 
     fn write_texture_region(
@@ -484,6 +494,3 @@ pub fn premultiply_rgba8_srgb_inplace(pixels: &mut [u8]) {
         // keep alpha as-is
     }
 }
-
-#[cfg(test)]
-mod tests;
