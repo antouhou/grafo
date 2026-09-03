@@ -19,9 +19,9 @@ struct VertexInput {
     // Per-instance bitmask: bit 0 = layer 0 active, bit 1 = layer 1 active.
     // 0 = solid fill only (skip all texture samples).
     @location(10) texture_flags: f32,
-    // Per-layer UV scale computed on the CPU from fit mode and texture dimensions.
-    @location(11) texture_uv_scale_layer0: vec2<f32>,
-    @location(12) texture_uv_scale_layer1: vec2<f32>,
+    // Per-layer UV transform. XY is scale and ZW is offset.
+    @location(11) texture_uv_transform_layer0: vec4<f32>,
+    @location(12) texture_uv_transform_layer1: vec4<f32>,
 };
 
 struct VertexOutput {
@@ -316,8 +316,10 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
     output.position = compute_vertex_position(input);
     output.color = input.color;
-    output.layer0_tex_coords = input.tex_coords * input.texture_uv_scale_layer0;
-    output.layer1_tex_coords = input.tex_coords * input.texture_uv_scale_layer1;
+    output.layer0_tex_coords = input.tex_coords * input.texture_uv_transform_layer0.xy
+        + input.texture_uv_transform_layer0.zw;
+    output.layer1_tex_coords = input.tex_coords * input.texture_uv_transform_layer1.xy
+        + input.texture_uv_transform_layer1.zw;
     output.coverage = input.coverage;
     output.texture_flags = input.texture_flags;
     return output;
@@ -328,8 +330,10 @@ fn vs_main_gradient(input: VertexInput) -> GradientVertexOutput {
     var output: GradientVertexOutput;
     output.position = compute_vertex_position(input);
     output.color = input.color;
-    output.layer0_tex_coords = input.tex_coords * input.texture_uv_scale_layer0;
-    output.layer1_tex_coords = input.tex_coords * input.texture_uv_scale_layer1;
+    output.layer0_tex_coords = input.tex_coords * input.texture_uv_transform_layer0.xy
+        + input.texture_uv_transform_layer0.zw;
+    output.layer1_tex_coords = input.tex_coords * input.texture_uv_transform_layer1.xy
+        + input.texture_uv_transform_layer1.zw;
     output.coverage = input.coverage;
     output.texture_flags = input.texture_flags;
     output.model_pos = input.position;
@@ -363,6 +367,13 @@ fn vs_main_gradient(input: VertexInput) -> GradientVertexOutput {
     return output;
 }
 
+fn texture_footprint_coverage(texture_coordinates: vec2<f32>) -> f32 {
+    let minimum = vec2<f32>(0.0);
+    let maximum = vec2<f32>(1.0);
+    let is_inside = all(texture_coordinates >= minimum) && all(texture_coordinates <= maximum);
+    return select(0.0, 1.0, is_inside);
+}
+
 // Computes the final premultiplied color for a fragment given fill color, texture
 // coordinates, and AA coverage.
 fn compute_fragment_color(
@@ -392,14 +403,16 @@ fn compute_fragment_color(
     // Compose: base = texture layer 0 over shape fill, then layer 1 over result.
     var base_pma = fill_pma;
     if ((flags & 1u) != 0u) {
-            let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0);
-            base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
+        let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0)
+            * texture_footprint_coverage(layer0_tex_coords);
+        base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
     }
 
     var final_pma = base_pma;
     if ((flags & 2u) != 0u) {
-            let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, layer1_tex_coords, 0.0);
-            final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
+        let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, layer1_tex_coords, 0.0)
+            * texture_footprint_coverage(layer1_tex_coords);
+        final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
     }
 
     // Apply AA coverage: scale premultiplied color by coverage factor.
@@ -429,14 +442,16 @@ fn compute_gradient_fragment_color(
 
     var base_pma = fill_pma;
     if ((flags & 1u) != 0u) {
-            let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0);
-            base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
+        let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0)
+            * texture_footprint_coverage(layer0_tex_coords);
+        base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
     }
 
     var final_pma = base_pma;
     if ((flags & 2u) != 0u) {
-            let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, layer1_tex_coords, 0.0);
-            final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
+        let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, layer1_tex_coords, 0.0)
+            * texture_footprint_coverage(layer1_tex_coords);
+        final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
     }
 
     return final_pma * coverage;
@@ -458,14 +473,16 @@ fn compute_fragment_color_with_backdrop(
     let flags = u32(texture_flags);
     var base_pma = fill_pma + backdrop_pma * (1.0 - fill_pma.a);
     if ((flags & 1u) != 0u) {
-            let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0);
-            base_pma = layer0_pma + base_pma * (1.0 - layer0_pma.a);
+        let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0)
+            * texture_footprint_coverage(layer0_tex_coords);
+        base_pma = layer0_pma + base_pma * (1.0 - layer0_pma.a);
     }
 
     var final_pma = base_pma;
     if ((flags & 2u) != 0u) {
-            let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, layer1_tex_coords, 0.0);
-            final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
+        let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, layer1_tex_coords, 0.0)
+            * texture_footprint_coverage(layer1_tex_coords);
+        final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
     }
 
     return final_pma * coverage;
@@ -491,14 +508,16 @@ fn compute_gradient_fragment_color_with_backdrop(
     let flags = u32(texture_flags);
     var base_pma = fill_pma + backdrop_pma * (1.0 - fill_pma.a);
     if ((flags & 1u) != 0u) {
-            let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0);
-            base_pma = layer0_pma + base_pma * (1.0 - layer0_pma.a);
+        let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0)
+            * texture_footprint_coverage(layer0_tex_coords);
+        base_pma = layer0_pma + base_pma * (1.0 - layer0_pma.a);
     }
 
     var final_pma = base_pma;
     if ((flags & 2u) != 0u) {
-            let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, layer1_tex_coords, 0.0);
-            final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
+        let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, layer1_tex_coords, 0.0)
+            * texture_footprint_coverage(layer1_tex_coords);
+        final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
     }
 
     return final_pma * coverage;

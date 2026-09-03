@@ -1111,6 +1111,10 @@ pub enum ShapeTextureFitMode {
     /// Normalize the shape bounds to `[0, 1]` and stretch the texture to cover them fully.
     #[default]
     Stretch,
+    /// Preserve the texture's aspect ratio, center it, and fill the shape bounds by cropping.
+    Cover,
+    /// Preserve the texture's aspect ratio and center it inside the shape bounds.
+    Contain,
     /// Treat one texture texel as one physical pixel before the shape transform is applied.
     /// Translation does not affect the mapping, while scale, rotation, and perspective affect
     /// the texture together with the shape. Outside the original texture footprint, sampling does

@@ -156,7 +156,7 @@ impl<'a> Renderer<'a> {
         if let Some((index_start, index_count)) = index_range {
             cached_shape_data.index_buffer_range = Some((index_start, index_count));
             cached_shape_data.is_empty = false;
-            let texture_uv_scales = self.compute_texture_uv_scales(
+            let texture_uv_transforms = self.compute_texture_uv_transforms(
                 cached_shape_data.cached_shape.texture_mapping_size(),
                 draw_options,
             );
@@ -174,7 +174,7 @@ impl<'a> Renderer<'a> {
                         .texture_bindings
                         .each_ref()
                         .map(ShapeTextureBinding::is_present),
-                    texture_uv_scales,
+                    texture_uv_transforms,
                 },
             );
             *cached_shape_data.instance_index_mut() = Some(instance_index);
@@ -234,18 +234,18 @@ impl<'a> Renderer<'a> {
         self.clear_buffers();
     }
 
-    fn compute_texture_uv_scales(
+    fn compute_texture_uv_transforms(
         &self,
         texture_mapping_size: [f32; 2],
         draw_options: &ShapeDrawCommandOptions,
-    ) -> [[f32; 2]; 2] {
+    ) -> [TextureUvTransform; 2] {
         [
-            self.compute_texture_uv_scale_for_layer(
+            self.compute_texture_uv_transform_for_layer(
                 draw_options.background_texture.texture_id,
                 draw_options.background_texture.fit_mode,
                 texture_mapping_size,
             ),
-            self.compute_texture_uv_scale_for_layer(
+            self.compute_texture_uv_transform_for_layer(
                 draw_options.foreground_texture.texture_id,
                 draw_options.foreground_texture.fit_mode,
                 texture_mapping_size,
@@ -253,30 +253,60 @@ impl<'a> Renderer<'a> {
         ]
     }
 
-    fn compute_texture_uv_scale_for_layer(
+    fn compute_texture_uv_transform_for_layer(
         &self,
         texture_id: Option<u64>,
         texture_fit_mode: ShapeTextureFitMode,
         texture_mapping_size: [f32; 2],
-    ) -> [f32; 2] {
-        if texture_fit_mode != ShapeTextureFitMode::OriginalSize {
-            return [1.0, 1.0];
+    ) -> TextureUvTransform {
+        if texture_fit_mode == ShapeTextureFitMode::Stretch {
+            return TextureUvTransform::IDENTITY;
         }
 
         let Some(texture_id) = texture_id else {
-            return [1.0, 1.0];
+            return TextureUvTransform::IDENTITY;
         };
 
         let Some((texture_width, texture_height)) =
             self.texture_manager.texture_dimensions(texture_id)
         else {
-            return [1.0, 1.0];
+            return TextureUvTransform::IDENTITY;
         };
 
-        self.compute_texture_uv_scale_from_dimensions(
+        let original_size_uv_scale = self.compute_texture_uv_scale_from_dimensions(
             texture_mapping_size,
             (texture_width, texture_height),
-        )
+        );
+
+        let normalization_factor = match texture_fit_mode {
+            ShapeTextureFitMode::Stretch => return TextureUvTransform::IDENTITY,
+            ShapeTextureFitMode::Cover => {
+                f32::max(original_size_uv_scale[0], original_size_uv_scale[1])
+            }
+            ShapeTextureFitMode::Contain => {
+                f32::min(original_size_uv_scale[0], original_size_uv_scale[1])
+            }
+            ShapeTextureFitMode::OriginalSize => {
+                return TextureUvTransform {
+                    scale: original_size_uv_scale,
+                    offset: [0.0, 0.0],
+                };
+            }
+        };
+
+        if !normalization_factor.is_finite() || normalization_factor <= f32::EPSILON {
+            return TextureUvTransform::IDENTITY;
+        }
+
+        let scale = [
+            original_size_uv_scale[0] / normalization_factor,
+            original_size_uv_scale[1] / normalization_factor,
+        ];
+
+        TextureUvTransform {
+            scale,
+            offset: [(1.0 - scale[0]) / 2.0, (1.0 - scale[1]) / 2.0],
+        }
     }
 
     pub(super) fn compute_texture_uv_scale_from_dimensions(

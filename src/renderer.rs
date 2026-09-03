@@ -24,7 +24,9 @@ use crate::pipeline::{
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, PoolManager};
-use crate::vertex::{CustomVertex, InstanceColor, InstanceMetadata, InstanceTransform};
+use crate::vertex::{
+    CustomVertex, InstanceColor, InstanceMetadata, InstanceTransform, TextureUvTransform,
+};
 use crate::CachedShapeHandle;
 pub use construction::RendererCreationError;
 

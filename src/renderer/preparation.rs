@@ -6,7 +6,7 @@ use crate::vertex::CustomVertex;
 #[derive(Copy, Clone)]
 pub(crate) struct InstanceTextureData {
     pub(crate) texture_presence: [bool; 2],
-    pub(crate) texture_uv_scales: [[f32; 2]; 2],
+    pub(crate) texture_uv_transforms: [TextureUvTransform; 2],
 }
 
 fn upsert_gpu_buffer(
@@ -101,8 +101,8 @@ pub(crate) fn append_instance_data(
     temp_instance_metadata.push(InstanceMetadata {
         draw_order: instance_index as f32,
         texture_flags: texture_flags as f32,
-        texture_uv_scale_layer0: texture_data.texture_uv_scales[0],
-        texture_uv_scale_layer1: texture_data.texture_uv_scales[1],
+        texture_uv_transform_layer0: texture_data.texture_uv_transforms[0],
+        texture_uv_transform_layer1: texture_data.texture_uv_transforms[1],
     });
     instance_index
 }
