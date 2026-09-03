@@ -11,7 +11,7 @@ use crate::effect::{self, PooledTexture, ShapeEffectConfig};
 use crate::pipeline::create_buffer_init;
 use crate::renderer::preparation::{self, InstanceTextureData};
 use crate::shape::{CachedShapeDrawData, CachedShapeHandle, ShapeTextureBinding};
-use crate::vertex::{CustomVertex, InstanceTransform};
+use crate::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
 use crate::ShapeDrawCommandOptions;
 use bytemuck::{Pod, Zeroable};
 use lyon::tessellation::VertexBuffers;
@@ -491,7 +491,7 @@ impl<'a> Renderer<'a> {
                 None,
                 InstanceTextureData {
                     texture_presence: [true, false],
-                    texture_uv_scales: [[1.0, 1.0]; 2],
+                    texture_uv_transforms: [TextureUvTransform::IDENTITY; 2],
                 },
             ));
             self.scratch.shape_effect_leaves.insert(node_id, leaf);

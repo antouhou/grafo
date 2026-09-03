@@ -287,11 +287,31 @@ impl InstanceTransform {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct TextureUvTransform {
+    pub scale: [f32; 2],
+    pub offset: [f32; 2],
+}
+
+impl TextureUvTransform {
+    pub const IDENTITY: Self = Self {
+        scale: [1.0, 1.0],
+        offset: [0.0, 0.0],
+    };
+}
+
+impl Default for TextureUvTransform {
+    fn default() -> Self {
+        Self::IDENTITY
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct InstanceMetadata {
     pub draw_order: f32,
     pub texture_flags: f32,
-    pub texture_uv_scale_layer0: [f32; 2],
-    pub texture_uv_scale_layer1: [f32; 2],
+    pub texture_uv_transform_layer0: TextureUvTransform,
+    pub texture_uv_transform_layer1: TextureUvTransform,
 }
 
 impl Default for InstanceMetadata {
@@ -299,8 +319,8 @@ impl Default for InstanceMetadata {
         Self {
             draw_order: 0.0,
             texture_flags: 0.0,
-            texture_uv_scale_layer0: [1.0, 1.0],
-            texture_uv_scale_layer1: [1.0, 1.0],
+            texture_uv_transform_layer0: TextureUvTransform::IDENTITY,
+            texture_uv_transform_layer1: TextureUvTransform::IDENTITY,
         }
     }
 }
@@ -322,13 +342,15 @@ impl InstanceMetadata {
                     shader_location: 10,
                 },
                 wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x2,
+                    format: wgpu::VertexFormat::Float32x4,
                     offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
                     shader_location: 11,
                 },
                 wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x2,
-                    offset: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+                    format: wgpu::VertexFormat::Float32x4,
+                    offset: (std::mem::size_of::<[f32; 2]>()
+                        + std::mem::size_of::<TextureUvTransform>())
+                        as wgpu::BufferAddress,
                     shader_location: 12,
                 },
             ],

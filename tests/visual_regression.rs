@@ -679,6 +679,95 @@ fn original_size_texture_fit_uses_physical_pixels_on_hidpi() {
     }
 }
 
+#[test]
+fn cover_and_contain_texture_fit_preserve_aspect_ratio() {
+    let physical_size = (160, 64);
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale(physical_size, 1.0)
+    else {
+        return;
+    };
+
+    let texture_id = 9_002u64;
+    let texture_data = (0..10u32)
+        .flat_map(|_| {
+            (0..20u32).flat_map(|x| {
+                if x < 5 {
+                    [255u8, 0u8, 0u8, 255u8]
+                } else if x < 15 {
+                    [0u8, 255u8, 0u8, 255u8]
+                } else {
+                    [0u8, 0u8, 255u8, 255u8]
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    renderer
+        .texture_manager()
+        .allocate_texture_with_data(texture_id, (20, 10), &texture_data);
+
+    renderer
+        .add_shape(
+            grafo::Shape::rect([(8.0, 8.0), (56.0, 56.0)], grafo::Stroke::default()),
+            None,
+            None,
+            grafo::ShapeDrawCommandOptions::new()
+                .clips_children(false)
+                .background_texture(
+                    grafo::ShapeTextureOptions::new(texture_id)
+                        .fit_mode(grafo::ShapeTextureFitMode::Cover),
+                )
+                .color(grafo::Color::WHITE),
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            grafo::Shape::rect([(88.0, 8.0), (136.0, 56.0)], grafo::Stroke::default()),
+            None,
+            None,
+            grafo::ShapeDrawCommandOptions::new()
+                .background_texture(
+                    grafo::ShapeTextureOptions::new(texture_id)
+                        .fit_mode(grafo::ShapeTextureFitMode::Contain),
+                )
+                .color(grafo::Color::WHITE),
+        )
+        .unwrap();
+
+    let mut pixel_buffer = Vec::new();
+    renderer.render_to_buffer(&mut pixel_buffer);
+
+    assert_eq!(
+        read_pixel_rgba(&pixel_buffer, physical_size.0, 12, 32),
+        [0, 255, 0, 255],
+        "cover should crop the left edge of the centered texture",
+    );
+    assert_eq!(
+        read_pixel_rgba(&pixel_buffer, physical_size.0, 52, 32),
+        [0, 255, 0, 255],
+        "cover should crop the right edge of the centered texture",
+    );
+    assert_eq!(
+        read_pixel_rgba(&pixel_buffer, physical_size.0, 92, 32),
+        [255, 0, 0, 255],
+        "contain should preserve the left half of the texture",
+    );
+    assert_eq!(
+        read_pixel_rgba(&pixel_buffer, physical_size.0, 132, 32),
+        [0, 0, 255, 255],
+        "contain should preserve the right half of the texture",
+    );
+    assert_eq!(
+        read_pixel_rgba(&pixel_buffer, physical_size.0, 100, 12),
+        [255, 255, 255, 255],
+        "contain should reveal the fill above the centered texture",
+    );
+    assert_eq!(
+        read_pixel_rgba(&pixel_buffer, physical_size.0, 100, 52),
+        [255, 255, 255, 255],
+        "contain should reveal the fill below the centered texture",
+    );
+}
+
 /// Regression test — scissor-only clipping rect clips children without drawing itself.
 #[test]
 fn clipping_rect_clips_child_without_visible_surface() {
