@@ -90,8 +90,6 @@ pub struct InstanceTransform {
     pub col3: [f32; 4],
 }
 
-// Removed InstanceRenderParams: perspective handled inside world transform matrix now.
-
 impl InstanceTransform {
     pub fn identity() -> Self {
         Self {

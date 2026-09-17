@@ -25,9 +25,6 @@ use std::sync::{Arc, OnceLock};
 /// Errors that can occur when working with the effect system.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum EffectError {
-    /// The WGSL source failed to compile. Contains the error message from wgpu/naga.
-    #[error("Effect WGSL compilation failed: {0}")]
-    CompilationFailed(String),
     /// The referenced effect_id has not been loaded.
     #[error("Effect {0} has not been loaded")]
     EffectNotLoaded(u64),
@@ -263,7 +260,7 @@ pub(crate) struct PooledTexture {
 }
 
 /// Pool of reusable offscreen textures for effect compositing.
-/// At frame start, all textures move back to `available`.
+/// Textures return to the pool after render submission.
 pub(crate) struct OffscreenTexturePool {
     available: Vec<PooledTexture>,
     next_texture_id: u64,
@@ -280,21 +277,16 @@ impl OffscreenTexturePool {
         }
     }
 
-    /// Return textures for reuse in future frames.
-    /// Textures that don't match the given active configuration are dropped
-    /// immediately, and the pool is capped at `MAX_POOL_SIZE`.
+    /// Return textures to the pool and discard entries beyond `MAX_POOL_SIZE`.
     pub fn recycle(&mut self, textures: &mut Vec<PooledTexture>) {
         self.available.append(textures);
         self.available.truncate(MAX_POOL_SIZE);
     }
 
-    /// Drop all pooled textures whose dimensions, or sample count don't match
-    /// the current active configuration, and enforce the maximum pool size.
-    /// Call this when size, format, or MSAA settings change (e.g. on resize).
+    /// Retain textures matching the dimensions and sample count, capped at `MAX_POOL_SIZE`.
     pub fn trim(&mut self, width: u32, height: u32, sample_count: u32) {
         self.available
             .retain(|t| t.width == width && t.height == height && t.sample_count == sample_count);
-        // Enforce max pool size — drop oldest excess textures
         if self.available.len() > MAX_POOL_SIZE {
             self.available.truncate(MAX_POOL_SIZE);
         }

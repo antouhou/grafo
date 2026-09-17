@@ -224,6 +224,10 @@ fn refresh_effect_instance_after_reload(
 }
 
 impl<'a> Renderer<'a> {
+    /// Loads or replaces an effect from WGSL passes.
+    ///
+    /// WGPU shader and pipeline errors are logged through `tracing`, so the function
+    /// doesn't need to become async for now - subject to change at a later point.
     pub fn load_effect(
         &mut self,
         effect_id: u64,

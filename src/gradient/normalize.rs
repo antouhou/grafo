@@ -39,8 +39,6 @@ pub(crate) struct NormalizedGradient {
     pub(crate) segments: SmallVec<[NormalizedSegment; NORMALIZED_INLINE_SEGMENT_CAPACITY]>,
     pub(crate) period_start: f32,
     pub(crate) period_len: f32,
-    pub(crate) is_single_stop: bool,
-    pub(crate) single_stop_color: Option<GradientColor>,
 }
 
 impl NormalizedGradient {
@@ -58,8 +56,6 @@ impl NormalizedGradient {
                 segments: SmallVec::new(),
                 period_start: 0.0,
                 period_len: 0.0,
-                is_single_stop: true,
-                single_stop_color: Some(common.stops[0].color),
             };
         }
 
@@ -168,19 +164,12 @@ impl NormalizedGradient {
             segments,
             period_start,
             period_len,
-            is_single_stop: false,
-            single_stop_color: None,
         }
     }
 
     /// The degenerate constant color: final linear premultiplied color of the last stop.
     pub(crate) fn degenerate_constant_color(&self) -> [f32; 4] {
-        let color = if self.is_single_stop {
-            self.single_stop_color.unwrap()
-        } else {
-            self.stops.last().unwrap().color
-        };
-        color_to_final_linear_premultiplied(&color)
+        color_to_final_linear_premultiplied(&self.stops.last().unwrap().color)
     }
 }
 
@@ -322,19 +311,6 @@ mod tests {
         let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
         // Second stop should be bumped to 0.5 (max with previous)
         assert!((normalized.stops[1].position - 0.5).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_single_stop() {
-        let common = GradientCommonDesc {
-            units: GradientUnits::Local,
-            spread: SpreadMode::Pad,
-            interpolation: ColorInterpolation::SrgbLinear,
-            stops: vec![make_stop(srgb_color(1.0, 0.0, 0.0), Some(0.5))].into(),
-        };
-
-        let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
-        assert!(normalized.is_single_stop);
     }
 
     #[test]

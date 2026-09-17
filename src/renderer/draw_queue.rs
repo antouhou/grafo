@@ -104,9 +104,8 @@ impl<'a> Renderer<'a> {
     /// This node clips its children like a transparent rect parent by default when its
     /// transform preserves axis alignment. Rotated, skewed, or perspective transforms are
     /// rejected by the transform setters because this node intentionally has no geometry
-    /// for stencil fallback. To let children overflow from a shape parent, queue that parent with
-    /// [`ShapeDrawCommandOptions::clips_children(false)`] instead of relying on the older
-    /// overflow API wording.
+    /// for stencil fallback. Set [`ShapeDrawCommandOptions::clips_children`] to `false` on a
+    /// shape parent to let its children draw outside it.
     ///
     /// When `parent_shape_id` is `Some`, the clipping rectangle is attached as a child of
     /// that node and inherits ancestor clips.

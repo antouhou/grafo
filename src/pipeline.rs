@@ -65,8 +65,7 @@ impl Default for BackdropSamplingUniform {
 }
 
 fn create_equal_increment_stencil_state() -> wgpu::StencilState {
-    // In this stencil state we will only draw where the stencil value is equal to the reference value,
-    //  and all outside areas are zeroed.
+    // Increment matching stencil values; leave other values unchanged.
     let face_state = wgpu::StencilFaceState {
         compare: wgpu::CompareFunction::Equal,
         fail_op: wgpu::StencilOperation::Keep,
@@ -83,8 +82,7 @@ fn create_equal_increment_stencil_state() -> wgpu::StencilState {
 }
 
 fn create_equal_decrement_stencil_state() -> wgpu::StencilState {
-    // In this stencil state we will only draw where the stencil value is equal to the reference value,
-    //  and all outside areas are zeroed.
+    // Decrement matching stencil values; leave other values unchanged.
     let face_state = wgpu::StencilFaceState {
         compare: wgpu::CompareFunction::Equal,
         fail_op: wgpu::StencilOperation::Keep,

@@ -9,7 +9,7 @@ use crate::pipeline::{
     create_gradient_stencil_keep_color_pipeline, create_stencil_keep_color_pipeline,
 };
 use crate::vertex::CustomVertex;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use wgpu::InstanceDescriptor;
 
 fn pick_surface_format(surface_formats: &[wgpu::TextureFormat]) -> wgpu::TextureFormat {
@@ -108,6 +108,9 @@ impl RendererContext {
                 trace: Default::default(),
             })
             .await?;
+        device.on_uncaptured_error(Box::new(|error| {
+            error!(%error, "WGPU error");
+        }));
         let device = Arc::new(device);
         let queue = Arc::new(queue);
 

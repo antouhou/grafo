@@ -408,7 +408,7 @@ impl AsRef<Shape> for Shape {
     }
 }
 
-/// Represents a simple rectangular shape with a fill color and stroke.
+/// A rectangle's coordinates and stroke. Set its fill with [`ShapeDrawCommandOptions`].
 ///
 /// You typically do not need to use `RectShape` directly; instead, use the [`Shape::rect`] method.
 ///
@@ -645,11 +645,10 @@ fn normalized_float_bits(value: f32) -> u32 {
 // Anti-Aliasing: Inflated-Geometry Fringe Generation
 // ---------------------------------------------------------------------------
 
-/// Identifies boundary edges (edges belonging to only one triangle) from a triangle index buffer.
+/// Clears and fills scratch storage with edge owners and incident triangles keyed by position.
 ///
-/// Returns a list of `(vertex_a, vertex_b, opposite_vertex)` tuples. The `opposite_vertex` is
-/// the third vertex of the triangle that owns the edge — it is used to determine which side
-/// of the edge faces outward (away from the triangle interior).
+/// Edges used by one triangle become boundary edges. Each records the triangle and its
+/// opposite vertex so fringe generation can determine the outward direction.
 fn build_boundary_data(vertices: &[CustomVertex], indices: &[u16], scratch: &mut AaFringeScratch) {
     scratch.clear();
 
@@ -1376,27 +1375,31 @@ impl CachedShapeDrawData {
     }
 }
 
-/// A builder for creating complex shapes using a fluent interface.
+/// Builds a shape's path and stroke through method chaining.
 ///
-/// The `ShapeBuilder` allows you to define the stroke and path of a shape using
-/// method chaining. Fill is assigned per instance through the renderer, and an
-/// unset fill renders as transparent. You also can get it from the [`Shape::builder`] method.
+/// Assign a fill through [`ShapeDrawCommandOptions`] when queueing the shape.
+/// An unset fill renders as transparent. [`Shape::builder`] also creates this builder.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use grafo::Color;
-/// use grafo::Stroke;
-/// use grafo::ShapeBuilder;
+/// use grafo::{Color, ShapeBuilder, ShapeDrawCommandOptions, Stroke};
 ///
+/// # fn example(renderer: &mut grafo::Renderer<'_>) {
 /// let custom_shape = ShapeBuilder::new()
-///     // Fill is set per-instance via the renderer (renderer.set_shape_color)
-///     .stroke(Stroke::new(3.0, Color::BLACK)) // Black stroke with width 3.0
+///     .stroke(Stroke::new(3.0, Color::BLACK))
 ///     .begin((0.0, 0.0))
 ///     .line_to((50.0, 10.0))
 ///     .line_to((50.0, 50.0))
 ///     .close()
 ///     .build();
+/// renderer.add_shape(
+///     custom_shape,
+///     None,
+///     None,
+///     ShapeDrawCommandOptions::new().color(Color::rgb(0, 128, 255)),
+/// ).unwrap();
+/// # }
 /// ```
 #[derive(Clone)]
 pub struct ShapeBuilder {
@@ -1412,7 +1415,8 @@ impl Default for ShapeBuilder {
     /// # Examples
     ///
     /// ```rust
-    /// use grafo::ShapeBuilder;    ///
+    /// use grafo::ShapeBuilder;
+    ///
     /// let builder = ShapeBuilder::default();
     /// ```
     fn default() -> Self {

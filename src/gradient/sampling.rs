@@ -11,8 +11,8 @@ pub(crate) fn bake_gradient_ramp(ramp_source: &GradientRampSource) -> GradientRa
     let normalized = &ramp_source.normalized;
     let interpolation = &ramp_source.interpolation;
 
-    if normalized.is_single_stop {
-        let color = color_to_final_linear_premultiplied(&normalized.single_stop_color.unwrap());
+    if let [stop] = normalized.stops.as_slice() {
+        let color = color_to_final_linear_premultiplied(&stop.color);
         return GradientRamp::Constant(color);
     }
 

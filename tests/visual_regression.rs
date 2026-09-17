@@ -6,7 +6,7 @@
 /// Run with:   cargo test --test visual_regression
 use futures::executor::block_on;
 use grafo::{
-    Color, ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset,
+    BorderRadii, Color, ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset,
     LinearGradientDesc, LinearGradientLine, Shape, ShapeDrawCommandOptions, Stroke,
 };
 use grafo_test_scenes::{
@@ -145,6 +145,34 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     return params.color * textureSample(t_input, s_input, uv).a;
 }
 "#;
+
+#[test]
+fn invalid_effect_can_be_replaced_with_a_valid_shader() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((32, 32), 1.0) else {
+        return;
+    };
+
+    // Invalid WGSL, followed by a valid module missing the fragment entry point.
+    for source in ["@fragment fn effect_main(", ""] {
+        let _ = renderer.load_effect(9_201, &[source]);
+    }
+    renderer
+        .load_effect(9_201, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
+        .unwrap();
+    let shape_id = renderer
+        .add_shape(
+            Shape::rect([(8.0, 8.0), (24.0, 24.0)], Stroke::default()),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+        )
+        .unwrap();
+    renderer.set_group_effect(shape_id, 9_201, &[]).unwrap();
+
+    let mut pixel_buffer = Vec::new();
+    renderer.render_to_buffer(&mut pixel_buffer);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 16, 16), [255, 0, 0, 255]);
+}
 
 #[cfg(feature = "render_metrics")]
 #[test]
@@ -1118,26 +1146,10 @@ fn gradient_survives_pipeline_recreation() {
     assert_pixels_match(&pixel_buffer, &expectations);
 }
 
-/// Regression test — a solid-colored non-leaf parent drawn immediately after a
-/// gradient non-leaf parent on the same StencilIncrement pipeline must NOT
-/// inherit the previous parent's gradient bind group.
-///
-/// We use rounded-rect parents so the renderer takes the stencil-increment path
-/// instead of the scissor-optimization path (which only applies to axis-aligned
-/// `Shape::Rect`).
-///
-/// Scene layout:
-///
-///   gradient_parent  (rounded rect, gradient fill, non-leaf)
-///     └─ gradient_child
-///   solid_parent     (rounded rect, green solid fill, non-leaf)
-///     └─ solid_child
-///
-/// We check that the center of solid_child is green, not gradient-contaminated.
+/// Rounded parents force stencil clipping. Sample exposed parent pixels so an
+/// opaque child cannot hide an incorrectly inherited gradient.
 #[test]
 fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
-    use grafo::*;
-
     let Some(mut renderer) = create_headless_renderer() else {
         return;
     };
@@ -1178,7 +1190,6 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
     )
     .expect("valid gradient");
 
-    // ── Gradient non-leaf parent (rounded rect → stencil path) ───────────
     let gradient_parent = renderer
         .add_shape(
             Shape::rounded_rect([(10.0, 10.0), (140.0, 90.0)], radii, Stroke::default()),
@@ -1188,7 +1199,6 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
         )
         .unwrap();
 
-    // Child of gradient parent (makes it non-leaf → StencilIncrement).
     renderer
         .add_shape(
             Shape::rect([(20.0, 20.0), (130.0, 80.0)], Stroke::default()),
@@ -1198,7 +1208,6 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
         )
         .unwrap();
 
-    // ── Solid non-leaf parent (rounded rect → stencil path) ──────────────
     let solid_parent = renderer
         .add_shape(
             Shape::rounded_rect([(160.0, 10.0), (290.0, 90.0)], radii, Stroke::default()),
@@ -1208,33 +1217,24 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
         )
         .unwrap();
 
-    // Child of solid parent (makes it non-leaf → StencilIncrement too).
     renderer
         .add_shape(
             Shape::rect([(170.0, 20.0), (280.0, 80.0)], Stroke::default()),
             Some(solid_parent),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(0, 200, 0)),
+            ShapeDrawCommandOptions::new().color(Color::WHITE),
         )
         .unwrap();
 
-    // ── Render and verify ─────────────────────────────────────────────────
-    let mut buf = Vec::new();
-    renderer.render_to_buffer(&mut buf);
-
-    // Sample the center of the solid_child rect.
-    let w = CANVAS_WIDTH;
-    let cx = 225u32; // midpoint of [170, 280]
-    let cy = 50u32; // midpoint of [20, 80]
-    let off = ((cy * w + cx) * 4) as usize;
-    let (b, g, r, a) = (buf[off], buf[off + 1], buf[off + 2], buf[off + 3]);
-
-    // Should be a solid green, not gradient-contaminated.
-    assert_eq!(a, 255, "Solid child should be opaque, got alpha={a}");
-    assert!(
-        g >= 180 && r < 40 && b < 40,
-        "Solid child should be green, got rgba({r},{g},{b},{a}). \
-         If this is reddish/bluish the gradient leaked from the previous StencilIncrement parent."
+    let mut pixel_buffer = Vec::new();
+    renderer.render_to_buffer(&mut pixel_buffer);
+    assert_pixels_match(
+        &pixel_buffer,
+        &[
+            PixelExpectation::opaque(165, 50, 0, 200, 0, "solid_parent_left"),
+            PixelExpectation::opaque(285, 50, 0, 200, 0, "solid_parent_right"),
+            PixelExpectation::opaque(225, 50, 255, 255, 255, "solid_child"),
+        ],
     );
 }
 
