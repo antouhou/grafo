@@ -1137,7 +1137,7 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) transform: Option<InstanceTransform>,
     /// Texture sources associated with this cached shape.
     pub(crate) texture_bindings: [ShapeTextureBinding; 2],
-    /// Optional per-instance color override (normalized [0,1]). If None, use cached shape default.
+    /// Linear RGBA color for a solid fill. Other fills leave this unset.
     pub(crate) color_override: Option<[f32; 4]>,
     /// The fill for this shape (solid color or gradient). If None, transparent.
     pub(crate) fill: Option<Fill>,
@@ -1157,6 +1157,10 @@ pub(crate) struct CachedShapeDrawData {
 }
 
 impl CachedShapeDrawData {
+    pub(crate) fn has_gradient_fill(&self) -> bool {
+        matches!(&self.fill, Some(Fill::Gradient(_)))
+    }
+
     pub fn new(cached_shape: CachedShapeHandle, options: &ShapeDrawCommandOptions) -> Self {
         Self {
             cached_shape,
@@ -1522,95 +1526,6 @@ impl From<BorderRadii> for lyon::path::builder::BorderRadii {
             bottom_left: val.bottom_left,
             bottom_right: val.bottom_right,
         }
-    }
-}
-
-pub(crate) trait DrawShapeCommand {
-    fn index_buffer_range(&self) -> Option<(usize, usize)>; // (start_index, index_count)
-    fn is_empty(&self) -> bool;
-    fn stencil_ref_mut(&mut self) -> &mut Option<u32>;
-    fn instance_index_mut(&mut self) -> &mut Option<usize>;
-    fn instance_index(&self) -> Option<usize>;
-    fn transform(&self) -> Option<InstanceTransform>;
-    fn texture_bindings(&self) -> &[ShapeTextureBinding; 2];
-    fn local_bounds(&self) -> [(f32, f32); 2];
-    fn instance_color_override(&self) -> Option<[f32; 4]>;
-    fn has_gradient_fill(&self) -> bool;
-    fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>>;
-    fn clips_children(&self) -> bool;
-    fn is_rect(&self) -> bool;
-    fn rect_bounds(&self) -> Option<[(f32, f32); 2]>;
-}
-
-impl DrawShapeCommand for CachedShapeDrawData {
-    #[inline]
-    fn index_buffer_range(&self) -> Option<(usize, usize)> {
-        self.index_buffer_range
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        self.is_empty
-    }
-
-    #[inline]
-    fn stencil_ref_mut(&mut self) -> &mut Option<u32> {
-        &mut self.stencil_ref
-    }
-
-    #[inline]
-    fn instance_index_mut(&mut self) -> &mut Option<usize> {
-        &mut self.instance_index
-    }
-
-    #[inline]
-    fn instance_index(&self) -> Option<usize> {
-        self.instance_index
-    }
-
-    #[inline]
-    fn transform(&self) -> Option<InstanceTransform> {
-        self.transform
-    }
-
-    #[inline]
-    fn texture_bindings(&self) -> &[ShapeTextureBinding; 2] {
-        &self.texture_bindings
-    }
-
-    #[inline]
-    fn local_bounds(&self) -> [(f32, f32); 2] {
-        self.cached_shape.local_bounds()
-    }
-
-    #[inline]
-    fn instance_color_override(&self) -> Option<[f32; 4]> {
-        self.color_override
-    }
-
-    #[inline]
-    fn has_gradient_fill(&self) -> bool {
-        matches!(&self.fill, Some(Fill::Gradient(_)))
-    }
-
-    #[inline]
-    fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>> {
-        self.gradient_bind_group.as_ref()
-    }
-
-    #[inline]
-    fn clips_children(&self) -> bool {
-        self.clips_children
-    }
-
-    #[inline]
-    fn is_rect(&self) -> bool {
-        self.cached_shape.is_rect
-    }
-
-    #[inline]
-    fn rect_bounds(&self) -> Option<[(f32, f32); 2]> {
-        self.cached_shape.rect_bounds
     }
 }
 

@@ -1836,27 +1836,40 @@ fn tile_28_group_blur_with_children(renderer: &mut Renderer) -> Vec<PixelExpecta
         .expect("Failed to set group effect");
 
     vec![
-        // Child center inside blurred group: blue-ish
-        PixelExpectation::new(
+        PixelExpectation::opaque(
             ox as u32 + 40,
             oy as u32 + 40,
-            80,
-            80,
+            50,
+            50,
             220,
-            200,
             "t28_group_blur_center",
-        )
-        .with_tolerance(60),
-        // Yellow stripe outside blurred group — stays sharp
+        ),
+        // Each blur pass must mix the blue child with the parent at its edge.
+        PixelExpectation::opaque(
+            ox as u32 + 20,
+            oy as u32 + 40,
+            140,
+            134,
+            205,
+            "t28_group_blur_child_left_edge",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 40,
+            oy as u32 + 20,
+            146,
+            146,
+            217,
+            "t28_group_blur_child_top_edge",
+        ),
+        // The parent's blur reaches the stripe outside the original bounds.
         PixelExpectation::opaque(
             ox as u32 + 8,
             oy as u32 + 40,
-            220,
-            180,
-            50,
-            "t28_bg_stripe_sharp",
-        )
-        .with_tolerance(55),
+            217,
+            184,
+            100,
+            "t28_group_blur_outer_edge",
+        ),
     ]
 }
 

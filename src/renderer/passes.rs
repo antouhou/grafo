@@ -227,10 +227,10 @@ fn bind_shape_texture_layers(
 
 pub(super) fn bind_instance_buffers(
     render_pass: &mut wgpu::RenderPass<'_>,
-    shape: &(impl DrawShapeCommand + ?Sized),
+    shape: &CachedShapeDrawData,
     buffers: &Buffers,
 ) {
-    if let Some(instance_idx) = shape.instance_index() {
+    if let Some(instance_idx) = shape.instance_index {
         if let Some(instance_transform_buffer) = buffers.aggregated_instance_transform_buffer {
             let stride = std::mem::size_of::<InstanceTransform>() as u64;
             let offset = instance_idx as u64 * stride;
@@ -288,12 +288,12 @@ pub(super) fn handle_increment_pass<'rp>(
     currently_set_pipeline: &mut PipelineTracker,
     bound_texture_state: &mut BoundTextureState,
     stencil_stack: &mut Vec<u32>,
-    shape: &mut (impl DrawShapeCommand + ?Sized),
+    shape: &mut CachedShapeDrawData,
     pipelines: &Pipelines,
     buffers: &Buffers,
 ) {
-    if let Some(index_range) = shape.index_buffer_range() {
-        if shape.is_empty() {
+    if let Some(index_range) = shape.index_buffer_range {
+        if shape.is_empty {
             return;
         }
 
@@ -328,7 +328,7 @@ pub(super) fn handle_increment_pass<'rp>(
 
         bind_shape_texture_layers(
             render_pass,
-            shape.texture_bindings(),
+            &shape.texture_bindings,
             pipelines.texture_manager,
             pipelines.shape_texture_bind_group_layout_background,
             pipelines.shape_texture_bind_group_layout_foreground,
@@ -339,7 +339,8 @@ pub(super) fn handle_increment_pass<'rp>(
 
         if uses_gradient {
             let gradient_bg = shape
-                .gradient_bind_group()
+                .gradient_bind_group
+                .as_ref()
                 .expect("gradient shapes must prepare a gradient bind group");
             render_pass.set_bind_group(3, gradient_bg.as_ref(), &[]);
         }
@@ -352,7 +353,7 @@ pub(super) fn handle_increment_pass<'rp>(
         currently_set_pipeline.record_stencil_pass();
 
         let this_stencil = parent_stencil + 1;
-        *shape.stencil_ref_mut() = Some(this_stencil);
+        shape.stencil_ref = Some(this_stencil);
         stencil_stack.push(this_stencil);
     }
 }
@@ -362,12 +363,12 @@ pub(super) fn handle_decrement_pass<'rp>(
     currently_set_pipeline: &mut PipelineTracker,
     bound_texture_state: &mut BoundTextureState,
     stencil_stack: &mut Vec<u32>,
-    shape: &mut (impl DrawShapeCommand + ?Sized),
+    shape: &mut CachedShapeDrawData,
     pipelines: &Pipelines,
     buffers: &Buffers,
 ) {
-    if let Some(index_range) = shape.index_buffer_range() {
-        if shape.is_empty() {
+    if let Some(index_range) = shape.index_buffer_range {
+        if shape.is_empty {
             return;
         }
 
@@ -390,12 +391,12 @@ pub(super) fn handle_decrement_pass<'rp>(
 
         bind_instance_buffers(render_pass, shape, buffers);
 
-        let this_shape_stencil = shape.stencil_ref_mut().unwrap_or(0);
+        let this_shape_stencil = shape.stencil_ref.unwrap_or(0);
         render_buffer_range_to_texture(index_range, render_pass, this_shape_stencil);
         #[cfg(feature = "render_metrics")]
         currently_set_pipeline.record_stencil_pass();
 
-        if shape.stencil_ref_mut().is_some() {
+        if shape.stencil_ref.is_some() {
             stencil_stack.pop();
         }
     }
@@ -407,12 +408,12 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
     currently_set_pipeline: &mut PipelineTracker,
     bound_texture_state: &mut BoundTextureState,
     stencil_stack: &[u32],
-    shape: &mut (impl DrawShapeCommand + ?Sized),
+    shape: &mut CachedShapeDrawData,
     pipelines: &Pipelines,
     buffers: &Buffers,
 ) {
-    if let Some(index_range) = shape.index_buffer_range() {
-        if shape.is_empty() {
+    if let Some(index_range) = shape.index_buffer_range {
+        if shape.is_empty {
             return;
         }
 
@@ -446,7 +447,7 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
 
         bind_shape_texture_layers(
             render_pass,
-            shape.texture_bindings(),
+            &shape.texture_bindings,
             pipelines.texture_manager,
             pipelines.shape_texture_bind_group_layout_background,
             pipelines.shape_texture_bind_group_layout_foreground,
@@ -457,7 +458,8 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
 
         if uses_gradient {
             let gradient_bg = shape
-                .gradient_bind_group()
+                .gradient_bind_group
+                .as_ref()
                 .expect("gradient shapes must prepare a gradient bind group");
             render_pass.set_bind_group(3, gradient_bg.as_ref(), &[]);
         }
@@ -468,7 +470,7 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
         render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
 
         // The leaf inherits its parent's stencil reference because it makes no stencil writes.
-        *shape.stencil_ref_mut() = Some(parent_stencil);
+        shape.stencil_ref = Some(parent_stencil);
     }
 }
 
@@ -570,25 +572,25 @@ pub(super) fn flush_pending_leaf_batch(
 /// the shape could not be batched (caller should use the normal single-draw path).
 pub(super) fn try_batch_leaf(
     batch: &mut PendingLeafBatch,
-    shape: &(impl DrawShapeCommand + ?Sized),
+    shape: &CachedShapeDrawData,
     parent_stencil: u32,
 ) -> bool {
-    let index_range = match shape.index_buffer_range() {
+    let index_range = match shape.index_buffer_range {
         Some(range) => range,
         None => return false,
     };
-    if shape.is_empty() {
+    if shape.is_empty {
         return false;
     }
     // Shapes with per-shape gradient bind groups cannot be batched.
     if shape.has_gradient_fill() {
         return false;
     }
-    let instance_index = match shape.instance_index() {
+    let instance_index = match shape.instance_index {
         Some(idx) => idx as u32,
         None => return false,
     };
-    let texture_bindings = shape.texture_bindings();
+    let texture_bindings = &shape.texture_bindings;
 
     if batch.is_empty() {
         batch.index_range = index_range;
@@ -615,7 +617,7 @@ pub(super) fn try_batch_leaf(
 
 #[allow(clippy::too_many_arguments)]
 fn queue_or_draw_leaf(
-    shape: &mut (impl DrawShapeCommand + ?Sized),
+    shape: &mut CachedShapeDrawData,
     parent_stencil: u32,
     pending_leaf_batch: &mut PendingLeafBatch,
     render_pass: &mut wgpu::RenderPass<'_>,
@@ -626,7 +628,7 @@ fn queue_or_draw_leaf(
     buffers: &Buffers,
 ) {
     if try_batch_leaf(pending_leaf_batch, shape, parent_stencil) {
-        *shape.stencil_ref_mut() = Some(parent_stencil);
+        shape.stencil_ref = Some(parent_stencil);
         return;
     }
 
@@ -639,7 +641,7 @@ fn queue_or_draw_leaf(
         buffers,
     );
     if try_batch_leaf(pending_leaf_batch, shape, parent_stencil) {
-        *shape.stencil_ref_mut() = Some(parent_stencil);
+        shape.stencil_ref = Some(parent_stencil);
         return;
     }
 
@@ -1167,7 +1169,7 @@ pub(super) fn render_segments(
                                 let shape = cached_shape_mut(draw_command);
                                 if should_skip_visible_draw {
                                     let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
-                                    *shape.stencil_ref_mut() = Some(parent_stencil);
+                                    shape.stencil_ref = Some(parent_stencil);
                                     continue;
                                 }
 
@@ -1200,7 +1202,7 @@ pub(super) fn render_segments(
                                 // the same stencil.
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
                                 if let DrawCommand::CachedShape(shape) = draw_command {
-                                    *shape.stencil_ref_mut() = Some(parent_stencil);
+                                    shape.stencil_ref = Some(parent_stencil);
                                     if !should_skip_visible_draw {
                                         handle_leaf_draw_pass(
                                             &mut render_pass,
@@ -1232,7 +1234,7 @@ pub(super) fn render_segments(
                                 // Draw the rect itself as a visible shape.
                                 let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
                                 if let DrawCommand::CachedShape(shape) = draw_command {
-                                    *shape.stencil_ref_mut() = Some(parent_stencil);
+                                    shape.stencil_ref = Some(parent_stencil);
                                     if !should_skip_visible_draw {
                                         handle_leaf_draw_pass(
                                             &mut render_pass,
@@ -1354,21 +1356,9 @@ pub(super) fn render_segments(
                 color_resolve_target,
                 depth_stencil_view,
                 RenderPassLoadOperations {
-                    color_load_op: if is_first_segment {
-                        wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
-                    } else {
-                        wgpu::LoadOp::Load
-                    },
-                    depth_load_op: if is_first_segment {
-                        wgpu::LoadOp::Clear(1.0)
-                    } else {
-                        wgpu::LoadOp::Load
-                    },
-                    stencil_load_op: if is_first_segment {
-                        wgpu::LoadOp::Clear(0)
-                    } else {
-                        wgpu::LoadOp::Load
-                    },
+                    color_load_op: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    depth_load_op: wgpu::LoadOp::Clear(1.0),
+                    stencil_load_op: wgpu::LoadOp::Clear(0),
                 },
             );
             let current_scissor = scissor_stack.last().copied().unwrap_or(viewport_scissor);
@@ -1639,7 +1629,7 @@ pub(super) fn render_segments(
 
                 let shape = cached_shape_mut(draw_command);
                 bind_instance_buffers(&mut render_pass, shape, buffers);
-                let shape_index_range = shape.index_buffer_range();
+                let shape_index_range = shape.index_buffer_range;
 
                 if let Some(idx_range) = shape_index_range {
                     render_pass.set_stencil_reference(parent_stencil);
@@ -1650,7 +1640,7 @@ pub(super) fn render_segments(
                     currently_set_pipeline.record_stencil_pass();
                 }
 
-                *shape.stencil_ref_mut() = Some(this_stencil);
+                shape.stencil_ref = Some(this_stencil);
             }
 
             let backdrop_is_leaf = draw_tree
@@ -1691,8 +1681,8 @@ pub(super) fn render_segments(
 
                 let shape = cached_shape_mut(draw_command);
                 bind_instance_buffers(&mut render_pass, shape, buffers);
-                let texture_bindings = shape.texture_bindings().clone();
-                let shape_index_range = shape.index_buffer_range();
+                let texture_bindings = shape.texture_bindings.clone();
+                let shape_index_range = shape.index_buffer_range;
 
                 if uses_gradient {
                     if let Some(gradient_backdrop_bind_group) =

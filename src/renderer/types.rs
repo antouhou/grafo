@@ -2,7 +2,7 @@
 use super::metrics::PipelineSwitchCounts;
 use super::traversal::TraversalScratch;
 use crate::effect::{self, LoadedEffect};
-use crate::shape::{CachedShapeDrawData, DrawShapeCommand, ShapeTextureBinding};
+use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
 use crate::texture_manager::TextureManager;
 use crate::util::GradientCache;
 use crate::vertex::InstanceTransform;
@@ -65,7 +65,7 @@ impl DrawCommand {
 impl DrawCommand {
     pub(super) fn transform(&self) -> Option<InstanceTransform> {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.transform(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.transform,
             DrawCommand::ClipRect(clip_rect) => clip_rect.transform,
         }
     }
@@ -73,7 +73,7 @@ impl DrawCommand {
     pub(super) fn texture_id(&self, layer: usize) -> Option<u64> {
         match self {
             DrawCommand::CachedShape(cached_shape) => cached_shape
-                .texture_bindings()
+                .texture_bindings
                 .get(layer)
                 .and_then(ShapeTextureBinding::managed_texture_id),
             DrawCommand::ClipRect(_) => None,
@@ -82,14 +82,14 @@ impl DrawCommand {
 
     pub(super) fn local_bounds(&self) -> [(f32, f32); 2] {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.local_bounds(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.cached_shape.local_bounds(),
             DrawCommand::ClipRect(clip_rect) => clip_rect.rect_bounds,
         }
     }
 
     pub(super) fn instance_color_override(&self) -> Option<[f32; 4]> {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.instance_color_override(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.color_override,
             DrawCommand::ClipRect(_) => None,
         }
     }
@@ -101,9 +101,9 @@ impl DrawCommand {
         }
     }
 
-    pub(super) fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>> {
+    pub(super) fn gradient_bind_group(&self) -> Option<&Arc<wgpu::BindGroup>> {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.gradient_bind_group(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.gradient_bind_group.as_ref(),
             DrawCommand::ClipRect(_) => None,
         }
     }
@@ -132,21 +132,21 @@ impl DrawCommand {
 
     pub(super) fn clips_children(&self) -> bool {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.clips_children(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.clips_children,
             DrawCommand::ClipRect(clip_rect) => clip_rect.clips_children,
         }
     }
 
     pub(super) fn is_rect(&self) -> bool {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.is_rect(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.cached_shape.is_rect,
             DrawCommand::ClipRect(_) => true,
         }
     }
 
     pub(super) fn rect_bounds(&self) -> Option<[(f32, f32); 2]> {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.rect_bounds(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.cached_shape.rect_bounds,
             DrawCommand::ClipRect(clip_rect) => Some(clip_rect.rect_bounds),
         }
     }

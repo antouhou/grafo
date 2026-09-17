@@ -176,7 +176,7 @@ impl<'a> Renderer<'a> {
                     texture_uv_transforms,
                 },
             );
-            *cached_shape_data.instance_index_mut() = Some(instance_index);
+            cached_shape_data.instance_index = Some(instance_index);
         } else {
             cached_shape_data.is_empty = true;
         }

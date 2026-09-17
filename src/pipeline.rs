@@ -915,28 +915,26 @@ pub fn create_stencil_only_pipeline(
     })
 }
 
-/// Creates a pipeline that draws shape color over a processed backdrop while
-/// preserving the stencil value established before compositing.
-pub fn create_stencil_keep_color_pipeline(
+fn create_color_pipeline_with_stencil_keep(
     device: &Device,
     format: wgpu::TextureFormat,
     sample_count: u32,
-    uniform_bgl: &wgpu::BindGroupLayout,
-    texture_bgl_layer0: &wgpu::BindGroupLayout,
-    texture_bgl_layer1: &wgpu::BindGroupLayout,
+    bind_group_layouts: &[&wgpu::BindGroupLayout],
+    vertex_entry_point: &str,
+    fragment_entry_point: &str,
+    label: &str,
 ) -> RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("stencil_keep_color_shader"),
+        label: Some(label),
         source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
     });
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("stencil_keep_color_pipeline_layout"),
-        bind_group_layouts: &[uniform_bgl, texture_bgl_layer0, texture_bgl_layer1],
+        label: Some(label),
+        bind_group_layouts,
         push_constant_ranges: &[],
     });
 
-    // Stencil: Equal + Keep (reads stencil for clipping but doesn't modify it)
     let stencil_face = wgpu::StencilFaceState {
         compare: wgpu::CompareFunction::Equal,
         fail_op: wgpu::StencilOperation::Keep,
@@ -945,11 +943,11 @@ pub fn create_stencil_keep_color_pipeline(
     };
 
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("stencil_keep_color_pipeline"),
+        label: Some(label),
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: Some("vs_main"),
+            entry_point: Some(vertex_entry_point),
             compilation_options: Default::default(),
             buffers: &[
                 CustomVertex::desc(),
@@ -960,7 +958,7 @@ pub fn create_stencil_keep_color_pipeline(
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: Some("fs_main"),
+            entry_point: Some(fragment_entry_point),
             compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
@@ -1000,6 +998,26 @@ pub fn create_stencil_keep_color_pipeline(
         multiview: None,
         cache: None,
     })
+}
+
+/// Creates a pipeline that draws shape color without changing the stencil value.
+pub fn create_stencil_keep_color_pipeline(
+    device: &Device,
+    format: wgpu::TextureFormat,
+    sample_count: u32,
+    uniform_bgl: &wgpu::BindGroupLayout,
+    texture_bgl_layer0: &wgpu::BindGroupLayout,
+    texture_bgl_layer1: &wgpu::BindGroupLayout,
+) -> RenderPipeline {
+    create_color_pipeline_with_stencil_keep(
+        device,
+        format,
+        sample_count,
+        &[uniform_bgl, texture_bgl_layer0, texture_bgl_layer1],
+        "vs_main",
+        "fs_main",
+        "stencil_keep_color_pipeline",
+    )
 }
 
 pub fn create_backdrop_stencil_keep_color_pipeline(
@@ -1011,85 +1029,20 @@ pub fn create_backdrop_stencil_keep_color_pipeline(
     texture_bgl_layer1: &wgpu::BindGroupLayout,
     backdrop_texture_bgl: &wgpu::BindGroupLayout,
 ) -> RenderPipeline {
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("backdrop_stencil_keep_color_shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
-    });
-
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("backdrop_stencil_keep_color_pipeline_layout"),
-        bind_group_layouts: &[
+    create_color_pipeline_with_stencil_keep(
+        device,
+        format,
+        sample_count,
+        &[
             uniform_bgl,
             texture_bgl_layer0,
             texture_bgl_layer1,
             backdrop_texture_bgl,
         ],
-        push_constant_ranges: &[],
-    });
-
-    let stencil_face = wgpu::StencilFaceState {
-        compare: wgpu::CompareFunction::Equal,
-        fail_op: wgpu::StencilOperation::Keep,
-        depth_fail_op: wgpu::StencilOperation::Keep,
-        pass_op: wgpu::StencilOperation::Keep,
-    };
-
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("backdrop_stencil_keep_color_pipeline"),
-        layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: Some("vs_main"),
-            compilation_options: Default::default(),
-            buffers: &[
-                CustomVertex::desc(),
-                InstanceTransform::desc(),
-                InstanceColor::desc(),
-                InstanceMetadata::desc(),
-            ],
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some("fs_backdrop_passthrough"),
-            compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend: Some(wgpu::BlendState {
-                    color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::One,
-                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                    alpha: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::One,
-                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                }),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-        }),
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth24PlusStencil8,
-            depth_write_enabled: true,
-            depth_compare: wgpu::CompareFunction::Always,
-            stencil: wgpu::StencilState {
-                front: stencil_face,
-                back: stencil_face,
-                read_mask: 0xff,
-                write_mask: 0x00,
-            },
-            bias: wgpu::DepthBiasState::default(),
-        }),
-        multisample: wgpu::MultisampleState {
-            count: sample_count,
-            mask: !0,
-            alpha_to_coverage_enabled: false,
-        },
-        multiview: None,
-        cache: None,
-    })
+        "vs_main",
+        "fs_backdrop_passthrough",
+        "backdrop_stencil_keep_color_pipeline",
+    )
 }
 
 pub fn create_gradient_stencil_keep_color_pipeline(
@@ -1101,85 +1054,20 @@ pub fn create_gradient_stencil_keep_color_pipeline(
     texture_bgl_layer1: &wgpu::BindGroupLayout,
     gradient_bgl: &wgpu::BindGroupLayout,
 ) -> RenderPipeline {
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("gradient_stencil_keep_color_shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
-    });
-
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("gradient_stencil_keep_color_pipeline_layout"),
-        bind_group_layouts: &[
+    create_color_pipeline_with_stencil_keep(
+        device,
+        format,
+        sample_count,
+        &[
             uniform_bgl,
             texture_bgl_layer0,
             texture_bgl_layer1,
             gradient_bgl,
         ],
-        push_constant_ranges: &[],
-    });
-
-    let stencil_face = wgpu::StencilFaceState {
-        compare: wgpu::CompareFunction::Equal,
-        fail_op: wgpu::StencilOperation::Keep,
-        depth_fail_op: wgpu::StencilOperation::Keep,
-        pass_op: wgpu::StencilOperation::Keep,
-    };
-
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("gradient_stencil_keep_color_pipeline"),
-        layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: Some("vs_main_gradient"),
-            compilation_options: Default::default(),
-            buffers: &[
-                CustomVertex::desc(),
-                InstanceTransform::desc(),
-                InstanceColor::desc(),
-                InstanceMetadata::desc(),
-            ],
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some("fs_main_gradient"),
-            compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend: Some(wgpu::BlendState {
-                    color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::One,
-                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                    alpha: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::One,
-                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                }),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-        }),
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth24PlusStencil8,
-            depth_write_enabled: true,
-            depth_compare: wgpu::CompareFunction::Always,
-            stencil: wgpu::StencilState {
-                front: stencil_face,
-                back: stencil_face,
-                read_mask: 0xff,
-                write_mask: 0x00,
-            },
-            bias: wgpu::DepthBiasState::default(),
-        }),
-        multisample: wgpu::MultisampleState {
-            count: sample_count,
-            mask: !0,
-            alpha_to_coverage_enabled: false,
-        },
-        multiview: None,
-        cache: None,
-    })
+        "vs_main_gradient",
+        "fs_main_gradient",
+        "gradient_stencil_keep_color_pipeline",
+    )
 }
 
 pub fn create_backdrop_gradient_stencil_keep_color_pipeline(
@@ -1191,83 +1079,18 @@ pub fn create_backdrop_gradient_stencil_keep_color_pipeline(
     texture_bgl_layer1: &wgpu::BindGroupLayout,
     backdrop_gradient_bgl: &wgpu::BindGroupLayout,
 ) -> RenderPipeline {
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("backdrop_gradient_stencil_keep_color_shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
-    });
-
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("backdrop_gradient_stencil_keep_color_pipeline_layout"),
-        bind_group_layouts: &[
+    create_color_pipeline_with_stencil_keep(
+        device,
+        format,
+        sample_count,
+        &[
             uniform_bgl,
             texture_bgl_layer0,
             texture_bgl_layer1,
             backdrop_gradient_bgl,
         ],
-        push_constant_ranges: &[],
-    });
-
-    let stencil_face = wgpu::StencilFaceState {
-        compare: wgpu::CompareFunction::Equal,
-        fail_op: wgpu::StencilOperation::Keep,
-        depth_fail_op: wgpu::StencilOperation::Keep,
-        pass_op: wgpu::StencilOperation::Keep,
-    };
-
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("backdrop_gradient_stencil_keep_color_pipeline"),
-        layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: Some("vs_main_gradient"),
-            compilation_options: Default::default(),
-            buffers: &[
-                CustomVertex::desc(),
-                InstanceTransform::desc(),
-                InstanceColor::desc(),
-                InstanceMetadata::desc(),
-            ],
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some("fs_backdrop_passthrough_gradient"),
-            compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend: Some(wgpu::BlendState {
-                    color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::One,
-                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                    alpha: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::One,
-                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                }),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-        }),
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth24PlusStencil8,
-            depth_write_enabled: true,
-            depth_compare: wgpu::CompareFunction::Always,
-            stencil: wgpu::StencilState {
-                front: stencil_face,
-                back: stencil_face,
-                read_mask: 0xff,
-                write_mask: 0x00,
-            },
-            bias: wgpu::DepthBiasState::default(),
-        }),
-        multisample: wgpu::MultisampleState {
-            count: sample_count,
-            mask: !0,
-            alpha_to_coverage_enabled: false,
-        },
-        multiview: None,
-        cache: None,
-    })
+        "vs_main_gradient",
+        "fs_backdrop_passthrough_gradient",
+        "backdrop_gradient_stencil_keep_color_pipeline",
+    )
 }

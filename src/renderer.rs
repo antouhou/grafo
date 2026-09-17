@@ -20,7 +20,7 @@ use crate::pipeline::{
     create_storage_output_buffer, encode_copy_texture_to_buffer, render_buffer_range_to_texture,
     ArgbParams, PipelineType, Uniforms,
 };
-use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape};
+use crate::shape::{CachedShapeDrawData, Shape};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, ShapeResources};
 use crate::vertex::{
@@ -267,7 +267,7 @@ pub struct Renderer<'a> {
     backdrop_gradient_bind_group_layout: wgpu::BindGroupLayout,
     /// Monotonic counter to invalidate cached gradient bind groups when the layout changes.
     gradient_bind_group_layout_epoch: u64,
-    /// Sampler for gradient ramp textures (nearest, clamp-to-edge).
+    /// Samples gradient ramps with linear filtering and clamps at the endpoints.
     gradient_ramp_sampler: wgpu::Sampler,
 
     #[cfg(feature = "render_metrics")]

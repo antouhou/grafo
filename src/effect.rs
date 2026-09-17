@@ -1,26 +1,20 @@
 //! Custom shader effects for groups, backdrops, and cacheable shape-local masks.
 //!
-//! A compiled effect can be attached in three fundamentally different ways, which differ in
-//! *what pixels the shader receives as input* — they are not alternative ways to run the
-//! same effect:
-//! - **Group effects** process a rendered subtree captured into an offscreen texture.
-//! - **Backdrop effects** process previously rendered scene pixels captured behind the node.
-//! - **Shape effects** process a padded white coverage mask of a single shape, without
-//!   capturing any scene content; the result texture is cached while shape and effect inputs
-//!   are unchanged.
+//! Each attachment supplies different input pixels:
 //!
-//! The system separates **loading** (compile once) from **attaching** (use per node, cheap):
-//! - `load_effect()` compiles a WGSL effect shader into a GPU pipeline, cached by `effect_id`.
-//! - `set_group_effect()`, `set_shape_backdrop_effect()`, and `set_shape_effect()` each attach
-//!   a loaded effect to a specific draw tree node with per-instance parameters.
+//! - Group effects process a rendered subtree captured into an offscreen texture.
+//! - Backdrop effects process previously rendered scene pixels behind the node.
+//! - Shape effects process a padded white coverage mask of one shape. The result
+//!   texture is cached while the shape and effect inputs are unchanged.
 //!
-//! Multiple nodes can share the same loaded effect (same compiled pipeline), each with different parameters.
+//! `load_effect()` compiles WGSL shaders into GPU pipelines cached by `effect_id`.
+//! `set_group_effect()`, `set_shape_backdrop_effect()`, and `set_shape_effect()`
+//! attach a loaded effect to a draw tree node. Nodes share the compiled pipelines
+//! and can supply different parameters.
 
 use crate::gradient::gpu::GpuMaterialParams;
 use crate::pipeline::{create_buffer_init, BackdropSamplingUniform};
 use std::sync::{Arc, OnceLock};
-
-// ── Error type ───────────────────────────────────────────────────────────────
 
 /// Errors that can occur when working with the effect system.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -157,34 +151,28 @@ impl ShapeEffectConfig {
     }
 }
 
-// ── Built-in shaders ─────────────────────────────────────────────────────────
-
-/// Built-in vertex shader for drawing a fullscreen triangle (3 vertices, no vertex buffer).
-/// Used both by effect apply passes and the composite pass.
+/// Draws a fullscreen triangle from three vertex indices, without a vertex buffer.
+/// Effect and composite passes share this shader.
 pub(crate) const FULLSCREEN_QUAD_VS: &str = include_str!("shaders/fullscreen_quad_vs.wgsl");
 
 /// Built-in fragment shader preamble providing the input texture bindings.
 /// This is prepended to the user's effect fragment shader.
 pub(crate) const EFFECT_FS_PREAMBLE: &str = include_str!("shaders/effect_fs_preamble.wgsl");
 
-/// Simple passthrough fragment shader for compositing effect results back into the parent target.
+/// Samples effect results for compositing into the parent target.
 pub(crate) const COMPOSITE_FS: &str = include_str!("shaders/composite_fs.wgsl");
 
 const BACKDROP_LAYER_COMPOSITE_FS: &str = include_str!("shaders/backdrop_layer_composite_fs.wgsl");
 
-// ── Loaded effect (compiled pipeline) ────────────────────────────────────────
-
 /// A single compiled pass within a multi-pass effect.
 pub(crate) struct LoadedEffectPass {
-    /// The compiled render pipeline for this pass's fullscreen quad.
+    /// The compiled render pipeline for this pass's fullscreen triangle.
     pub pipeline: wgpu::RenderPipeline,
     /// Whether this pass references @group(1) (user params).
     pub has_params: bool,
 }
 
-/// A loaded (compiled) effect. Stored in a cache on the Renderer, keyed by effect_id.
-/// Multiple nodes can reference the same LoadedEffect.
-/// Supports single-pass and multi-pass effects (e.g., separable Gaussian blur).
+/// Compiled effect passes cached by `effect_id` and shared across nodes.
 pub(crate) struct LoadedEffect {
     /// Exact pass sources used to compile this effect.
     pub pass_sources: Box<[Box<str>]>,
@@ -205,15 +193,12 @@ pub(crate) struct ShapeEffectInstance {
     pub config: ShapeEffectConfig,
 }
 
-// ── Per-node effect instance ─────────────────────────────────────────────────
-
-/// A per-node effect instance. Stored in a HashMap<usize, EffectInstance> on the Renderer,
-/// keyed by node_id.
+/// An effect attachment stored by node ID in the renderer.
 pub(crate) struct EffectInstance {
     /// Reference to the loaded effect (by effect_id key).
     pub effect_id: u64,
     /// Raw bytes for the effect's uniform parameters.
-    /// The user is responsible for ensuring the layout matches the shader.
+    /// The byte layout must match the shader's uniform declaration.
     pub params: Vec<u8>,
     /// GPU buffer for the parameters (created/updated lazily).
     pub params_buffer: Option<wgpu::Buffer>,
@@ -242,8 +227,6 @@ pub(crate) fn backdrop_layer_params(
         i32::try_from(source_size.1).unwrap_or(i32::MAX),
     ]
 }
-
-// ── Offscreen texture pool ───────────────────────────────────────────────────
 
 /// A pooled offscreen texture with color, optional depth/stencil, and optional MSAA resolve
 /// resources.
@@ -389,7 +372,7 @@ impl OffscreenTexturePool {
             depth_stencil_texture.create_view(&wgpu::TextureViewDescriptor::default())
         });
 
-        // When MSAA is enabled, create a resolve target (non-MSAA) for effects to read from
+        // Effect shaders sample the resolved texture when MSAA is enabled.
         let (resolve_texture, resolve_view) = if sample_count > 1 {
             let resolve_tex = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("effect_offscreen_resolve"),
@@ -427,8 +410,6 @@ impl OffscreenTexturePool {
         }
     }
 }
-
-// ── Pipeline creation helpers ────────────────────────────────────────────────
 
 /// Creates the bind group layout for effect input: texture_2d + sampler at group(0).
 pub(crate) fn create_effect_input_bind_group_layout(
@@ -486,11 +467,7 @@ pub(crate) fn build_composite_wgsl() -> String {
     format!("{FULLSCREEN_QUAD_VS}\n{COMPOSITE_FS}")
 }
 
-/// Checks if user WGSL source declares a `@group(1)` binding (params uniform).
-///
-/// Strips WGSL line (`//`) and block (`/* … */`) comments first, then matches
-/// `@group(1)` with optional whitespace so that `@group( 1 )` and similar
-/// variants are detected while occurrences inside comments are ignored.
+/// Finds `@group(1)` in WGSL source, allowing whitespace and ignoring comments.
 pub(crate) fn has_user_params(user_fragment_source: &str) -> bool {
     fn block_comment_regex() -> &'static regex::Regex {
         static BLOCK_COMMENT_REGEX: OnceLock<regex::Regex> = OnceLock::new();
@@ -507,7 +484,6 @@ pub(crate) fn has_user_params(user_fragment_source: &str) -> bool {
         USER_PARAMS_GROUP_REGEX.get_or_init(|| regex::Regex::new(r"@group\s*\(\s*1\s*\)").unwrap())
     }
 
-    // Strip block comments (/* ... */), then line comments (// ... \n).
     let no_block = block_comment_regex().replace_all(user_fragment_source, "");
     let stripped = line_comment_regex().replace_all(&no_block, "");
 
@@ -534,7 +510,7 @@ pub(crate) fn compile_effect_pipeline(
 
     let input_bgl = create_effect_input_bind_group_layout(device);
 
-    // Create the params BGL once if ANY pass uses @group(1)
+    // Passes using group 1 share the parameter layout.
     let any_has_params = pass_sources.iter().any(|s| has_user_params(s));
     let params_bgl = if any_has_params {
         Some(create_effect_params_bind_group_layout(device))
@@ -554,8 +530,7 @@ pub(crate) fn compile_effect_pipeline(
             source: wgpu::ShaderSource::Wgsl(full_wgsl.into()),
         });
 
-        // Each pass gets its own pipeline layout — only include group(1)
-        // if this particular pass references it.
+        // Include group 1 only for passes that reference it.
         let layout_label = format!("effect_pass{i}_layout");
         let pipeline_layout = if pass_has_params {
             let bind_group_layouts = [&input_bgl, params_bgl.as_ref().unwrap()];
@@ -581,7 +556,7 @@ pub(crate) fn compile_effect_pipeline(
                 module: &shader,
                 entry_point: Some("vs_quad"),
                 compilation_options: Default::default(),
-                buffers: &[], // Fullscreen triangle — no vertex buffers
+                buffers: &[],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -608,7 +583,7 @@ pub(crate) fn compile_effect_pipeline(
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 ..Default::default()
             },
-            depth_stencil: None, // Effect apply pass has no stencil
+            depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
             cache: None,
@@ -651,7 +626,7 @@ pub(crate) fn compile_composite_pipeline(
         push_constant_ranges: &[],
     });
 
-    // Stencil: compare Equal, pass_op Keep (respects parent clipping, no stencil modification)
+    // Respect the parent's clip without changing stencil values.
     let stencil_face = wgpu::StencilFaceState {
         compare: wgpu::CompareFunction::Equal,
         fail_op: wgpu::StencilOperation::Keep,
@@ -701,7 +676,7 @@ pub(crate) fn compile_composite_pipeline(
                 front: stencil_face,
                 back: stencil_face,
                 read_mask: 0xff,
-                write_mask: 0x00, // No stencil writes
+                write_mask: 0x00,
             },
             bias: wgpu::DepthBiasState::default(),
         }),
