@@ -107,7 +107,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 // ── Background (no effect) ───────────────────────────────
                 let bg = Shape::rect(
                     [(50.0, 50.0), (750.0, 550.0)],
-                    Stroke::new(2.0, Color::BLACK),
+                    Stroke::new(2.0_f32, Color::BLACK),
                 );
                 let _bg_id = renderer
                     .add_shape(
@@ -121,7 +121,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 // ── Group 1: 50% opacity ─────────────────────────────────
                 let group1_bg = Shape::rect(
                     [(100.0, 100.0), (400.0, 350.0)],
-                    Stroke::new(0.0, Color::TRANSPARENT),
+                    Stroke::new(0.0_f32, Color::TRANSPARENT),
                 );
                 let group1 = renderer
                     .add_shape(
@@ -135,7 +135,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 // Child 1: overlapping blue rectangle
                 let child1 = Shape::rect(
                     [(120.0, 120.0), (300.0, 250.0)],
-                    Stroke::new(2.0, Color::BLACK),
+                    Stroke::new(2.0_f32, Color::BLACK),
                 );
                 renderer
                     .add_shape(
@@ -149,7 +149,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 // Child 2: overlapping green rectangle
                 let child2 = Shape::rect(
                     [(200.0, 180.0), (380.0, 320.0)],
-                    Stroke::new(2.0, Color::BLACK),
+                    Stroke::new(2.0_f32, Color::BLACK),
                 );
                 renderer
                     .add_shape(
@@ -169,7 +169,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 // ── Group 2: 80% opacity ─────────────────────────────────
                 let group2_bg = Shape::rect(
                     [(350.0, 100.0), (700.0, 350.0)],
-                    Stroke::new(0.0, Color::TRANSPARENT),
+                    Stroke::new(0.0_f32, Color::TRANSPARENT),
                 );
                 let group2 = renderer
                     .add_shape(
@@ -182,7 +182,7 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 let child3 = Shape::rect(
                     [(370.0, 130.0), (680.0, 320.0)],
-                    Stroke::new(2.0, Color::BLACK),
+                    Stroke::new(2.0_f32, Color::BLACK),
                 );
                 renderer
                     .add_shape(

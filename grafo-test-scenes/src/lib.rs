@@ -1,6 +1,5 @@
 pub mod expectations;
 pub mod scene;
-#[allow(dead_code)]
 pub mod shaders;
 
 pub use expectations::{check_pixels, PixelExpectation};

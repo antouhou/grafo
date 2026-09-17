@@ -2019,6 +2019,26 @@ fn tile_30_backdrop_blur_nonleaf(renderer: &mut Renderer) -> Vec<PixelExpectatio
         .expect("Failed to set backdrop effect");
 
     vec![
+        // At the stripe edge, 42.5% of the blur kernel samples the other side.
+        // Composite the white panel in linear color, then encode sRGB.
+        PixelExpectation::opaque_approx(
+            ox as u32 + 40,
+            oy as u32 + 29,
+            193,
+            188,
+            157,
+            5,
+            "t30_blur_above_stripe_edge",
+        ),
+        PixelExpectation::opaque_approx(
+            ox as u32 + 40,
+            oy as u32 + 30,
+            204,
+            181,
+            157,
+            5,
+            "t30_blur_inside_stripe_edge",
+        ),
         // Child visible on top of blurred background
         PixelExpectation::opaque(
             ox as u32 + 40,

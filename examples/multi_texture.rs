@@ -98,7 +98,7 @@ impl ApplicationHandler for App {
             .add_shape(
                 Shape::rect(
                     [(100.0, 100.0), (500.0, 400.0)],
-                    Stroke::new(1.0, Color::BLACK),
+                    Stroke::new(1.0_f32, Color::BLACK),
                 ),
                 None,
                 None,

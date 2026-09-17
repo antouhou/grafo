@@ -70,7 +70,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 // Create a simple rectangle to test rendering
                 let rect = Shape::rect(
                     [(100.0, 100.0), (300.0, 200.0)],
-                    Stroke::new(3.0, Color::BLACK),
+                    Stroke::new(3.0_f32, Color::BLACK),
                 );
                 renderer
                     .add_shape(
@@ -85,7 +85,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let rounded_rect = Shape::rounded_rect(
                     [(350.0, 250.0), (450.0, 350.0)],
                     BorderRadii::new(50.0),
-                    Stroke::new(2.0, Color::rgb(0, 100, 200)),
+                    Stroke::new(2.0_f32, Color::rgb(0, 100, 200)),
                 );
                 renderer
                     .add_shape(

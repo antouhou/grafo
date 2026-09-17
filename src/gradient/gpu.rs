@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use super::types::{GradientData, GradientKind, GradientUnits, SpreadMode};
 use crate::pipeline::BackdropSamplingUniform;
 
@@ -7,7 +5,6 @@ use crate::pipeline::BackdropSamplingUniform;
 /// Matches the WGSL `GradientColorParams` struct in shader.wgsl.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-#[allow(dead_code)]
 pub(crate) struct GpuGradientColorParams {
     // gradient_type: 1=linear, 2=radial, 3=conic, 0=none
     pub gradient_type: u32,

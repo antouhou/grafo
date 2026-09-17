@@ -100,7 +100,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         (0.0, 0.0),
                         (window_size.width as f32, window_size.height as f32),
                     ],
-                    Stroke::new(0.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(0.0_f32, Color::rgb(0, 0, 0)),
                 );
                 let background_id = renderer
                     .add_shape(
@@ -115,7 +115,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let textured_rect = Shape::rounded_rect(
                     [(0.0, 0.0), (300.0, 300.0)],
                     BorderRadii::new(20.0),
-                    Stroke::new(2.0, Color::rgb(200, 200, 200)),
+                    Stroke::new(2.0_f32, Color::rgb(200, 200, 200)),
                 );
                 // Upload texture once per frame here for demo purposes. In a real app, do this once.
                 let texture_id = 100u64;

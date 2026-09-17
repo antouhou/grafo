@@ -227,7 +227,7 @@ impl<'a> ApplicationHandler for App<'a> {
         renderer.load_shape(
             Shape::Path(grafo::PathShape::new(
                 self.red_path.clone(),
-                Stroke::new(2.0, Color::BLACK),
+                Stroke::new(2.0_f32, Color::BLACK),
             )),
             RED_SHAPE_CACHE_KEY,
             Some(RED_SHAPE_CACHE_KEY),
@@ -235,7 +235,7 @@ impl<'a> ApplicationHandler for App<'a> {
         renderer.load_shape(
             Shape::Path(grafo::PathShape::new(
                 self.green_path.clone(),
-                Stroke::new(2.0, Color::BLACK),
+                Stroke::new(2.0_f32, Color::BLACK),
             )),
             GREEN_SHAPE_CACHE_KEY,
             Some(GREEN_SHAPE_CACHE_KEY),
@@ -243,7 +243,7 @@ impl<'a> ApplicationHandler for App<'a> {
         renderer.load_shape(
             Shape::Path(grafo::PathShape::new(
                 self.blue_path.clone(),
-                Stroke::new(2.0, Color::BLACK),
+                Stroke::new(2.0_f32, Color::BLACK),
             )),
             BLUE_SHAPE_CACHE_KEY,
             Some(BLUE_SHAPE_CACHE_KEY),
@@ -251,7 +251,7 @@ impl<'a> ApplicationHandler for App<'a> {
         renderer.load_shape(
             Shape::Path(grafo::PathShape::new(
                 self.jelly_path.clone(),
-                Stroke::new(2.0, Color::BLACK),
+                Stroke::new(2.0_f32, Color::BLACK),
             )),
             JELLY_SHAPE_CACHE_KEY,
             Some(JELLY_SHAPE_CACHE_KEY),
@@ -259,7 +259,7 @@ impl<'a> ApplicationHandler for App<'a> {
         renderer.load_shape(
             Shape::Path(grafo::PathShape::new(
                 self.heart_path.clone(),
-                Stroke::new(2.0, Color::BLACK),
+                Stroke::new(2.0_f32, Color::BLACK),
             )),
             HEART_SHAPE_CACHE_KEY,
             Some(HEART_SHAPE_CACHE_KEY),
@@ -267,7 +267,7 @@ impl<'a> ApplicationHandler for App<'a> {
         renderer.load_shape(
             Shape::Path(grafo::PathShape::new(
                 self.perspective_path.clone(),
-                Stroke::new(2.0, Color::BLACK),
+                Stroke::new(2.0_f32, Color::BLACK),
             )),
             PERSPECTIVE_SHAPE_CACHE_KEY,
             Some(PERSPECTIVE_SHAPE_CACHE_KEY),
@@ -405,7 +405,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let logical_h = window.inner_size().height as f32 / self.scale_factor as f32;
                 let background = Shape::rect(
                     [(0.0, 0.0), (logical_w, logical_h)],
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
                 renderer
                     .add_shape(

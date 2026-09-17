@@ -105,7 +105,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         (0.0, 0.0),
                         (window_size.width as f32, window_size.height as f32),
                     ],
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
                 let background_id = renderer
                     .add_shape(
@@ -119,7 +119,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let red = Shape::rounded_rect(
                     [(0.0, 0.0), (200.0, 200.0)],
                     BorderRadii::new(0.0),
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
                 let red_id = renderer
                     .add_shape(
@@ -133,7 +133,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let green = Shape::rounded_rect(
                     [(0.0, 0.0), (200.0, 200.0)],
                     BorderRadii::new(0.0),
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
                 let green_id = renderer
                     .add_shape(
@@ -149,7 +149,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let blue = Shape::rounded_rect(
                     [(0.0, 0.0), (200.0, 200.0)],
                     BorderRadii::new(10.0),
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
                 let blue_id = renderer
                     .add_shape(
@@ -165,7 +165,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let yellow = Shape::rounded_rect(
                     [(0.0, 0.0), (150.0, 150.0)],
                     BorderRadii::new(0.0),
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
                 let yellow_id = renderer
                     .add_shape(
@@ -179,7 +179,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let white = Shape::rounded_rect(
                     [(0.0, 0.0), (20.0, 20.0)],
                     BorderRadii::new(0.0),
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
                 let white_id = renderer
                     .add_shape(
@@ -193,7 +193,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let shape_that_doesnt_fit = Shape::rounded_rect(
                     [(0.0, 0.0), (20.0, 20.0)],
                     BorderRadii::new(0.0),
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
                 let doesnt_fit_id = renderer
                     .add_shape(
@@ -225,7 +225,7 @@ impl<'a> ApplicationHandler for App<'a> {
                             self.rust_logo_png_dimensions_f32.1,
                         ),
                     ],
-                    Stroke::new(0.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(0.0_f32, Color::rgb(0, 0, 0)),
                 );
                 let img_rect2 = img_rect1.clone();
                 let img_rect3 = img_rect1.clone();

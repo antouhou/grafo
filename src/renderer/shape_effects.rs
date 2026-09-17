@@ -1,6 +1,3 @@
-// The bytemuck derive emits private compile-time helpers that trigger false unused warnings.
-#![allow(dead_code)]
-
 #[cfg(feature = "render_metrics")]
 use super::metrics::ShapeEffectCacheMetrics;
 use super::passes::{apply_effect_passes, compute_downsampled_dimensions, EffectPassRunConfig};

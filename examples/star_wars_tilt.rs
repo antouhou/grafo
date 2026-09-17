@@ -152,7 +152,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         .add_shape(
                             Shape::rect(
                                 [(0.0, 0.0), (width, height)],
-                                Stroke::new(2.0, Color::TRANSPARENT),
+                                Stroke::new(2.0_f32, Color::TRANSPARENT),
                             ),
                             None,
                             None,
@@ -164,7 +164,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         .add_shape(
                             Shape::rect(
                                 [(0.0, 0.0), (100.0, 100.0)],
-                                Stroke::new(2.0, Color::TRANSPARENT),
+                                Stroke::new(2.0_f32, Color::TRANSPARENT),
                             ),
                             None,
                             None,
@@ -180,8 +180,10 @@ impl<'a> ApplicationHandler for App<'a> {
                         )
                         .unwrap();
 
-                    let inner_rect_shape =
-                        Shape::rect([(0.0, 0.0), (35.0, 80.0)], Stroke::new(1.0, Color::BLACK));
+                    let inner_rect_shape = Shape::rect(
+                        [(0.0, 0.0), (35.0, 80.0)],
+                        Stroke::new(1.0_f32, Color::BLACK),
+                    );
                     renderer
                         .add_shape(
                             inner_rect_shape.clone(),

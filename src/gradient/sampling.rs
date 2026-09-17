@@ -222,7 +222,7 @@ fn interpolate_cylindrical(
     let delta = compute_hue_delta(rh0, rh1, hue_method);
 
     // Hue follows the selected angular path; only the other channels are premultiplied.
-    let h_interp = rem_euclid_f32(rh0 + delta * p, 360.0);
+    let h_interp = (rh0 + delta * p).rem_euclid(360.0);
     let alpha_interp = a_a + (a_b - a_a) * p;
     let c1_a_p = c1_a * a_a;
     let c1_b_p = c1_b * a_b;
@@ -299,7 +299,7 @@ fn to_cylindrical(color: &GradientColor, space: CylSpace) -> (f32, f32, f32, f32
             let l_clamped = lightness.clamp(0.0, 1.0);
             let (h_deg, is_powerless) = match hue {
                 HueComponent::Degrees(deg) => {
-                    let h = rem_euclid_f32(*deg, 360.0);
+                    let h = deg.rem_euclid(360.0);
                     let powerless = s_clamped == 0.0 || l_clamped == 0.0 || l_clamped == 1.0;
                     (h, powerless)
                 }
@@ -325,7 +325,7 @@ fn to_cylindrical(color: &GradientColor, space: CylSpace) -> (f32, f32, f32, f32
             }
             let (h_deg, is_powerless) = match hue {
                 HueComponent::Degrees(deg) => {
-                    let h = rem_euclid_f32(*deg, 360.0);
+                    let h = deg.rem_euclid(360.0);
                     let powerless = w + b >= 1.0;
                     (h, powerless)
                 }
@@ -372,14 +372,14 @@ fn resolve_hue_pair(h0: f32, h0_powerless: bool, h1: f32, h1_powerless: bool) ->
 fn compute_hue_delta(h0: f32, h1: f32, method: HueInterpolationMethod) -> f32 {
     match method {
         HueInterpolationMethod::Shorter => {
-            let mut delta = rem_euclid_f32(h1 - h0 + 180.0, 360.0) - 180.0;
+            let mut delta = (h1 - h0 + 180.0).rem_euclid(360.0) - 180.0;
             if delta == -180.0 {
                 delta = 180.0;
             }
             delta
         }
         HueInterpolationMethod::Longer => {
-            let mut shorter = rem_euclid_f32(h1 - h0 + 180.0, 360.0) - 180.0;
+            let mut shorter = (h1 - h0 + 180.0).rem_euclid(360.0) - 180.0;
             if shorter == -180.0 {
                 shorter = 180.0;
             }
@@ -391,8 +391,8 @@ fn compute_hue_delta(h0: f32, h1: f32, method: HueInterpolationMethod) -> f32 {
                 shorter + 360.0
             }
         }
-        HueInterpolationMethod::Increasing => rem_euclid_f32(h1 - h0, 360.0),
-        HueInterpolationMethod::Decreasing => rem_euclid_f32(h1 - h0, 360.0) - 360.0,
+        HueInterpolationMethod::Increasing => (h1 - h0).rem_euclid(360.0),
+        HueInterpolationMethod::Decreasing => (h1 - h0).rem_euclid(360.0) - 360.0,
     }
 }
 
@@ -437,7 +437,7 @@ fn gradient_color_to_srgb(color: &GradientColor) -> (f32, f32, f32, f32) {
             let s_clamped = saturation.clamp(0.0, 1.0);
             let l_clamped = lightness.clamp(0.0, 1.0);
             let h_deg = match hue {
-                HueComponent::Degrees(deg) => rem_euclid_f32(*deg, 360.0),
+                HueComponent::Degrees(deg) => deg.rem_euclid(360.0),
                 HueComponent::Missing => 0.0,
             };
             let (r, g, b) = hsl_to_srgb(h_deg, s_clamped, l_clamped);
@@ -457,7 +457,7 @@ fn gradient_color_to_srgb(color: &GradientColor) -> (f32, f32, f32, f32) {
                 bk /= sum;
             }
             let h_deg = match hue {
-                HueComponent::Degrees(deg) => rem_euclid_f32(*deg, 360.0),
+                HueComponent::Degrees(deg) => deg.rem_euclid(360.0),
                 HueComponent::Missing => 0.0,
             };
             let (r, g, b) = hwb_to_srgb(h_deg, w, bk);
@@ -504,9 +504,9 @@ fn linear_rgb_to_oklab(r: f32, g: f32, b: f32) -> [f32; 3] {
     let m_ = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b;
     let s_ = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b;
 
-    let l_c = cbrt(l_);
-    let m_c = cbrt(m_);
-    let s_c = cbrt(s_);
+    let l_c = l_.cbrt();
+    let m_c = m_.cbrt();
+    let s_c = s_.cbrt();
 
     [
         0.2104542553 * l_c + 0.7936177850 * m_c - 0.0040720468 * s_c,
@@ -530,14 +530,6 @@ fn oklab_to_linear_rgb(l: f32, a: f32, b: f32) -> [f32; 3] {
         -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3,
         -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3,
     ]
-}
-
-fn cbrt(x: f32) -> f32 {
-    if x >= 0.0 {
-        x.powf(1.0 / 3.0)
-    } else {
-        -((-x).powf(1.0 / 3.0))
-    }
 }
 
 // ── HSL/HWB conversions ──────────────────────────────────────────────────────
@@ -603,7 +595,7 @@ fn srgb_to_hsl(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
         (r - g) / d + 4.0
     };
 
-    (rem_euclid_f32(h * 60.0, 360.0), s, l)
+    ((h * 60.0).rem_euclid(360.0), s, l)
 }
 
 fn srgb_to_hwb(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
@@ -611,10 +603,6 @@ fn srgb_to_hwb(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
     let w = r.min(g).min(b);
     let bk = 1.0 - r.max(g).max(b);
     (h, w, bk)
-}
-
-pub(crate) fn rem_euclid_f32(a: f32, b: f32) -> f32 {
-    ((a % b) + b) % b
 }
 
 #[cfg(test)]
@@ -662,12 +650,6 @@ mod tests {
         assert!((r - 0.0).abs() < 1e-5);
         assert!((g - 1.0).abs() < 1e-5);
         assert!((b - 0.0).abs() < 1e-5);
-    }
-
-    #[test]
-    fn test_rem_euclid() {
-        assert!((rem_euclid_f32(-30.0, 360.0) - 330.0).abs() < 1e-5);
-        assert!((rem_euclid_f32(370.0, 360.0) - 10.0).abs() < 1e-5);
     }
 
     #[test]

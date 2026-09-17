@@ -1,6 +1,5 @@
 use futures::executor::block_on;
-use grafo::Shape;
-use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use grafo::{wgpu, Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -10,7 +9,7 @@ use winit::window::{Window, WindowId};
 #[derive(Default)]
 struct App<'a> {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer<'a>>,
+    renderer: Option<Renderer<'a>>,
 }
 
 impl<'a> ApplicationHandler for App<'a> {
@@ -25,8 +24,7 @@ impl<'a> ApplicationHandler for App<'a> {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        // Initialize the renderer
-        let mut renderer = block_on(grafo::Renderer::new(
+        let mut renderer = block_on(Renderer::new(
             window.clone(),
             physical_size,
             scale_factor,
@@ -35,10 +33,9 @@ impl<'a> ApplicationHandler for App<'a> {
             1,     // msaa_samples
         ));
 
-        // Define a simple rectangle shape
         let rect = Shape::rect(
             [(100.0, 100.0), (300.0, 200.0)],
-            Stroke::new(2.0, Color::BLACK),
+            Stroke::new(2.0_f32, Color::BLACK),
         );
         renderer
             .add_shape(
@@ -49,6 +46,20 @@ impl<'a> ApplicationHandler for App<'a> {
             )
             .unwrap();
 
+        let rect = Shape::rect(
+            [(500.0, 100.0), (600.0, 200.0)],
+            Stroke::new(2.0_f32, Color::BLACK),
+        );
+        renderer
+            .add_shape(
+                rect,
+                None,
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(0, 128, 0)),
+            )
+            .unwrap();
+
+        window.request_redraw();
         self.window = Some(window);
         self.renderer = Some(renderer);
     }
@@ -76,46 +87,13 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                // Define a simple rectangle shape
-                let rect = Shape::rect(
-                    [(100.0, 100.0), (300.0, 200.0)],
-                    Stroke::new(2.0, Color::BLACK),
-                );
-                renderer
-                    .add_shape(
-                        rect,
-                        None,
-                        None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(0, 128, 255)),
-                    )
-                    .unwrap();
-
-                let rect = Shape::rect(
-                    [(500.0, 100.0), (600.0, 200.0)],
-                    Stroke::new(2.0, Color::BLACK),
-                );
-                renderer
-                    .add_shape(
-                        rect,
-                        None,
-                        None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(0, 128, 0)),
-                    )
-                    .unwrap();
-
+                // Keep the static scene queued so later redraws render the same shapes.
                 match renderer.render() {
-                    Ok(_) => {
-                        renderer.clear_draw_queue();
-                    }
+                    Ok(_) => {}
                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                         renderer.resize(renderer.size())
                     }
                     Err(wgpu::SurfaceError::Timeout) => {
-                        // The window is not visible yet (still appearing, minimized, or
-                        // fully covered). Ask for another redraw instead of dropping the
-                        // frame for good — winit does not request one when the window
-                        // becomes visible again.
-                        renderer.clear_draw_queue();
                         window.request_redraw();
                     }
                     Err(e) => eprintln!("{e:?}"),

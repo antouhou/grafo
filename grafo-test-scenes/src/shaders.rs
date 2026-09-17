@@ -57,10 +57,8 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 /// Parameters for the Gaussian blur effect.
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-#[allow(dead_code)]
 pub struct BlurParams {
     pub radius: f32,
-    #[allow(dead_code)]
     pub _pad: f32,
     pub tex_size: [f32; 2],
 }

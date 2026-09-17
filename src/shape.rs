@@ -1,6 +1,4 @@
-//! The `shape` module provides structures and methods for creating and managing graphical shapes
-//! within the Grafo library. It supports both simple and complex shapes, including rectangles and
-//! custom paths with stroke properties. Fill color is per-instance and set via the renderer.
+//! Rectangles and paths. Set each instance's fill through the renderer.
 //!
 //! # Examples
 //!
@@ -14,19 +12,19 @@
 //! // Create a simple rectangle
 //! let rect = Shape::rect(
 //!     [(0.0, 0.0), (100.0, 50.0)],
-//!     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+//!     Stroke::new(2.0_f32, Color::BLACK),
 //! );
 //!
 //! // Create a rounded rectangle
 //! let rounded_rect = Shape::rounded_rect(
 //!     [(0.0, 0.0), (100.0, 50.0)],
 //!     BorderRadii::new(10.0),
-//!     Stroke::new(1.5, Color::BLACK), // Black stroke with width 1.5
+//!     Stroke::new(1.5_f32, Color::BLACK),
 //! );
 //!
 //! // Build a custom shape using ShapeBuilder
 //! let custom_shape = Shape::builder()
-//!     .stroke(Stroke::new(3.0, Color::BLACK)) // Black stroke with width 3.0
+//!     .stroke(Stroke::new(3.0_f32, Color::BLACK))
 //!     .begin((0.0, 0.0))
 //!     .line_to((50.0, 10.0))
 //!     .line_to((50.0, 50.0))
@@ -191,12 +189,7 @@ fn compute_vertex_bounds(vertices: &[CustomVertex]) -> [(f32, f32); 2] {
     [(min_x, min_y), (max_x, max_y)]
 }
 
-/// Represents a graphical shape, which can be either a custom path or a simple rectangle.
-///
-/// # Variants
-///
-/// - `Path(PathShape)`: A custom path shape defined using Bézier curves and lines.
-/// - `Rect(RectShape)`: An axis-aligned rectangle with square corners.
+/// A rectangle or a path made of lines and Bézier curves.
 ///
 /// # Examples
 ///
@@ -208,12 +201,12 @@ fn compute_vertex_bounds(vertices: &[CustomVertex]) -> [(f32, f32); 2] {
 /// // Create a simple rectangle
 /// let rect = Shape::rect(
 ///     [(0.0, 0.0), (100.0, 50.0)],
-///     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+///     Stroke::new(2.0_f32, Color::BLACK),
 /// );
 ///
 /// // Create a custom path shape
 /// let custom_path = Shape::builder()
-///     .stroke(Stroke::new(1.0, Color::BLACK))
+///     .stroke(Stroke::new(1.0_f32, Color::BLACK))
 ///     .begin((0.0, 0.0))
 ///     .line_to((50.0, 10.0))
 ///     .line_to((50.0, 50.0))
@@ -224,31 +217,17 @@ fn compute_vertex_bounds(vertices: &[CustomVertex]) -> [(f32, f32); 2] {
 pub enum Shape {
     /// A custom path shape defined using Bézier curves and lines.
     Path(PathShape),
-    /// A simple rectangular shape.
+    /// An axis-aligned rectangle with square corners.
     Rect(RectShape),
 }
 
 impl Shape {
-    /// Creates a new [`ShapeBuilder`] for constructing complex shapes.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::Shape;
-    ///
-    /// let builder = Shape::builder();
-    /// ```
+    /// Starts a path with the default black stroke. See [`ShapeBuilder`] for an example.
     pub fn builder() -> ShapeBuilder {
         ShapeBuilder::new()
     }
 
-    /// Creates a simple rectangle shape with the specified coordinates and stroke.
-    ///
-    /// # Parameters
-    ///
-    /// - `rect`: An array containing two tuples representing the top-left and bottom-right
-    ///   coordinates of the rectangle.
-    /// - `stroke`: The stroke properties of the rectangle.
+    /// Creates a rectangle from its top-left and bottom-right coordinates.
     ///
     /// # Examples
     ///
@@ -259,7 +238,7 @@ impl Shape {
     ///
     /// let rect = Shape::rect(
     ///     [(0.0, 0.0), (100.0, 50.0)],
-    ///     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+    ///     Stroke::new(2.0_f32, Color::BLACK),
     /// );
     /// ```
     pub fn rect(rect: [(f32, f32); 2], stroke: Stroke) -> Shape {
@@ -267,14 +246,8 @@ impl Shape {
         Shape::Rect(rect_shape)
     }
 
-    /// Creates a rectangle shape with rounded corners.
-    ///
-    /// # Parameters
-    ///
-    /// - `rect`: An array containing two tuples representing the top-left and bottom-right
-    ///   coordinates of the rectangle.
-    /// - `border_radii`: The radii for each corner of the rectangle.
-    /// - `stroke`: The stroke properties of the rectangle.
+    /// Creates a rounded rectangle from its top-left and bottom-right coordinates.
+    /// Each corner radius is specified by [`BorderRadii`].
     ///
     /// # Examples
     ///
@@ -286,7 +259,7 @@ impl Shape {
     /// let rounded_rect = Shape::rounded_rect(
     ///     [(0.0, 0.0), (100.0, 50.0)],
     ///     BorderRadii::new(10.0),
-    ///     Stroke::new(1.5, Color::BLACK), // Black stroke with width 1.5
+    ///     Stroke::new(1.5_f32, Color::BLACK),
     /// );
     /// ```
     pub fn rounded_rect(rect: [(f32, f32); 2], border_radii: BorderRadii, stroke: Stroke) -> Shape {
@@ -410,13 +383,7 @@ impl AsRef<Shape> for Shape {
 
 /// A rectangle's coordinates and stroke. Set its fill with [`ShapeDrawCommandOptions`].
 ///
-/// You typically do not need to use `RectShape` directly; instead, use the [`Shape::rect`] method.
-///
-/// # Fields
-///
-/// - `rect`: An array containing two tuples representing the top-left and bottom-right
-///   coordinates of the rectangle.
-/// - `stroke`: The stroke properties of the rectangle.
+/// [`Shape::rect`] constructs this and wraps it in [`Shape::Rect`].
 ///
 /// # Examples
 ///
@@ -427,13 +394,12 @@ impl AsRef<Shape> for Shape {
 ///
 /// let rect_shape = RectShape::new(
 ///     [(0.0, 0.0), (100.0, 50.0)],
-///     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+///     Stroke::new(2.0_f32, Color::BLACK),
 /// );
 /// ```
 #[derive(Debug, Clone)]
 pub struct RectShape {
-    /// An array containing two tuples representing the top-left and bottom-right coordinates
-    /// of the rectangle.
+    /// Top-left and bottom-right coordinates.
     pub(crate) rect: [(f32, f32); 2],
     /// The stroke properties of the rectangle.
     #[allow(unused)]
@@ -441,58 +407,15 @@ pub struct RectShape {
 }
 
 impl RectShape {
-    /// Creates a new `RectShape` with the specified coordinates and stroke.
-    ///
-    /// # Parameters
-    ///
-    /// - `rect`: An array containing two tuples representing the top-left and bottom-right
-    ///   coordinates of the rectangle.
-    /// - `stroke`: The stroke properties of the rectangle.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::RectShape;
-    /// use grafo::Stroke;
-    /// use grafo::Color;
-    ///
-    /// let rect_shape = RectShape::new(
-    ///     [(0.0, 0.0), (100.0, 50.0)],
-    ///     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
-    /// );
-    /// ```
+    /// Creates a rectangle from its top-left and bottom-right coordinates.
     pub fn new(rect: [(f32, f32); 2], stroke: Stroke) -> Self {
         Self { rect, stroke }
     }
 }
 
-/// Represents a custom path shape with stroke.
+/// A custom path with stroke settings.
 ///
-/// You typically do not need to use `PathShape` directly; instead, use the [`Shape::builder`]
-/// method to construct complex shapes.
-///
-/// # Fields
-///
-/// - `path`: The geometric path defining the shape.
-/// - `stroke`: The stroke properties of the shape.
-///
-/// # Examples
-///
-/// ```rust
-/// use grafo::{Shape, PathShape};
-/// use grafo::Stroke;
-/// use grafo::Color;
-///
-/// // Replace this with your own path
-/// let path = lyon::path::Path::builder().build();
-///
-/// let path_shape = PathShape::new(
-///     path,
-///     Stroke::new(1.0, Color::BLACK), // Black stroke with width 1.0
-/// );
-///
-/// let shape = Shape::Path(path_shape);
-/// ```
+/// [`Shape::builder`] constructs this and wraps it in [`Shape::Path`].
 #[derive(Clone, Debug)]
 pub struct PathShape {
     /// The geometric path defining the shape.
@@ -982,23 +905,7 @@ fn generate_aa_fringe(
 }
 
 impl PathShape {
-    /// Creates a new `PathShape` with the specified path and stroke.
-    ///
-    /// # Parameters
-    ///
-    /// - `path`: The geometric path defining the shape.
-    /// - `stroke`: The stroke properties of the shape.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::PathShape;
-    /// use grafo::Stroke;
-    /// use lyon::path::Path;
-    ///
-    /// let path = Path::builder().build();
-    /// let path_shape = PathShape::new(path, Stroke::default());
-    /// ```
+    /// Uses an existing Lyon path as the shape's geometry.
     pub fn new(path: lyon::path::Path, stroke: Stroke) -> Self {
         Self { path, stroke }
     }
@@ -1387,7 +1294,7 @@ impl CachedShapeDrawData {
 ///
 /// # fn example(renderer: &mut grafo::Renderer<'_>) {
 /// let custom_shape = ShapeBuilder::new()
-///     .stroke(Stroke::new(3.0, Color::BLACK))
+///     .stroke(Stroke::new(3.0_f32, Color::BLACK))
 ///     .begin((0.0, 0.0))
 ///     .line_to((50.0, 10.0))
 ///     .line_to((50.0, 50.0))
@@ -1411,14 +1318,6 @@ pub struct ShapeBuilder {
 
 impl Default for ShapeBuilder {
     /// Creates a default `ShapeBuilder` with a black stroke.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let builder = ShapeBuilder::default();
-    /// ```
     fn default() -> Self {
         Self::new()
     }
@@ -1426,14 +1325,6 @@ impl Default for ShapeBuilder {
 
 impl ShapeBuilder {
     /// Creates a new `ShapeBuilder` with a default black stroke.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let builder = ShapeBuilder::new();
-    /// ```
     pub fn new() -> Self {
         Self {
             stroke: Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
@@ -1442,30 +1333,12 @@ impl ShapeBuilder {
     }
 
     /// Sets the stroke properties of the shape.
-    ///
-    /// # Parameters
-    ///
-    /// - `stroke`: The desired stroke properties.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::Stroke;
-    /// use grafo::Color;
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let builder = ShapeBuilder::new().stroke(Stroke::new(2.0, Color::BLACK)); // Black stroke with width 2.0
-    /// ```
     pub fn stroke(mut self, stroke: Stroke) -> Self {
         self.stroke = stroke;
         self
     }
 
-    /// Begin path at point
-    ///
-    /// # Parameters
-    ///
-    /// - `point`: The start point of the shape.
+    /// Starts a new subpath at `point`.
     ///
     /// # Examples
     ///
@@ -1480,10 +1353,6 @@ impl ShapeBuilder {
     }
 
     /// Draws a line from the current point to the specified point.
-    ///
-    /// # Parameters
-    ///
-    /// - `point`: The end point of the line.
     ///
     /// # Examples
     ///
@@ -1558,10 +1427,6 @@ impl ShapeBuilder {
 
     /// Builds the [`Shape`] from the accumulated path and stroke.
     ///
-    /// # Returns
-    ///
-    /// A `Shape` instance representing the constructed shape.
-    ///
     /// # Examples
     ///
     /// ```rust
@@ -1589,23 +1454,7 @@ impl From<ShapeBuilder> for Shape {
     }
 }
 
-/// A set of border radii for a rounded rectangle
-#[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Default)]
-pub struct BorderRadii {
-    pub top_left: f32,
-    pub top_right: f32,
-    pub bottom_left: f32,
-    pub bottom_right: f32,
-}
-
-/// Represents the radii of each corner for a rounded rectangle.
-///
-/// # Fields
-///
-/// - `top_left`: Radius of the top-left corner.
-/// - `top_right`: Radius of the top-right corner.
-/// - `bottom_left`: Radius of the bottom-left corner.
-/// - `bottom_right`: Radius of the bottom-right corner.
+/// The radius of each corner of a rounded rectangle.
 ///
 /// # Examples
 ///
@@ -1625,16 +1474,16 @@ pub struct BorderRadii {
 ///     bottom_right: 20.0,
 /// };
 /// ```
+#[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Default)]
+pub struct BorderRadii {
+    pub top_left: f32,
+    pub top_right: f32,
+    pub bottom_left: f32,
+    pub bottom_right: f32,
+}
+
 impl BorderRadii {
     /// Sets every corner to the absolute value of `radius`.
-    ///
-    /// # Parameters
-    ///
-    /// - `radius`: The radius to apply to all corners.
-    ///
-    /// # Returns
-    ///
-    /// A `BorderRadii` instance with uniform corner radii.
     ///
     /// # Examples
     ///

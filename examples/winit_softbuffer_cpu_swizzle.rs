@@ -117,7 +117,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         (0.0, 0.0),
                         (window_size.width as f32, window_size.height as f32),
                     ],
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
                 renderer_guard
                     .add_shape(
@@ -132,7 +132,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     .add_shape(
                         Shape::rect(
                             [(0.0, 0.0), (200.0, 200.0)],
-                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                            Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                         ),
                         None,
                         None,
@@ -146,7 +146,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     .add_shape(
                         Shape::rect(
                             [(0.0, 0.0), (200.0, 200.0)],
-                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                            Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                         ),
                         None,
                         None,
