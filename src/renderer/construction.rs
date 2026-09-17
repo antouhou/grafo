@@ -345,9 +345,7 @@ impl<'a> Renderer<'a> {
             fringe_width: Self::DEFAULT_FRINGE_WIDTH,
             tessellator: FillTessellator::new(),
             texture_manager,
-            buffers_pool_manager: PoolManager::new(
-                NonZeroUsize::new(MAX_CACHED_SHAPES).expect("Cache size to be greater than 0"),
-            ),
+            shape_resources: ShapeResources::new(),
             and_pipeline: Arc::new(and_pipeline),
             and_uniforms,
             and_uniform_buffer,
@@ -577,8 +575,8 @@ impl<'a> Renderer<'a> {
         println!("\n--- Texture Manager ---");
         println!("{:?}", self.texture_manager.size());
 
-        println!("\n--- Buffer Pool Manager ---");
-        self.buffers_pool_manager.print_sizes();
+        println!("\n--- Shape Resources ---");
+        self.shape_resources.print_sizes();
 
         println!("=========================");
     }
@@ -944,10 +942,10 @@ impl<'a> Renderer<'a> {
 
         // Refresh per-shape gradient bind groups against the new layout so the
         // next render does not allocate gradient resources on the render path.
-        self.buffers_pool_manager.gradient_cache.clear_bind_groups();
+        self.shape_resources.gradient_cache.clear_bind_groups();
         for (_node_id, draw_command) in self.draw_tree.iter_mut() {
             draw_command.refresh_gradient_bind_group(
-                &mut self.buffers_pool_manager.gradient_cache,
+                &mut self.shape_resources.gradient_cache,
                 &self.device,
                 &self.queue,
                 &self.gradient_bind_group_layout,

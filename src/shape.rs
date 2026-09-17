@@ -38,7 +38,7 @@ use crate::cache::CachedTessellation;
 use crate::gradient::gpu::GpuMaterialParams;
 use crate::gradient::types::Fill;
 use crate::pipeline::{create_buffer_init, BackdropSamplingUniform};
-use crate::util::{GradientCache, PoolManager};
+use crate::util::{GradientCache, ShapeResources};
 use crate::vertex::{CustomVertex, InstanceTransform};
 use crate::{Color, Stroke};
 use ahash::AHashMap;
@@ -122,14 +122,14 @@ impl CachedShapeHandle {
     pub(crate) fn new(
         shape: &Shape,
         tessellator: &mut FillTessellator,
-        pool: &mut PoolManager,
+        shape_resources: &mut ShapeResources,
         geometry_id: Option<u64>,
     ) -> Self {
         let (is_rect, rect_bounds) = match shape {
             Shape::Rect(r) => (true, Some(r.rect)),
             _ => (false, None),
         };
-        let tessellation = shape.tessellate(tessellator, pool, geometry_id);
+        let tessellation = shape.tessellate(tessellator, shape_resources, geometry_id);
         Self {
             tessellation,
             is_rect,
@@ -303,16 +303,16 @@ impl Shape {
     pub(crate) fn tessellate(
         &self,
         tessellator: &mut FillTessellator,
-        buffers_pool: &mut PoolManager,
+        shape_resources: &mut ShapeResources,
         tesselation_cache_key: Option<u64>,
     ) -> Arc<CachedTessellation> {
         match &self {
             Shape::Path(path_shape) => {
-                path_shape.tessellate(tessellator, buffers_pool, tesselation_cache_key)
+                path_shape.tessellate(tessellator, shape_resources, tesselation_cache_key)
             }
             Shape::Rect(rect_shape) => {
                 if let Some(cache_key) = tesselation_cache_key {
-                    if let Some(cached_tessellation) = buffers_pool
+                    if let Some(cached_tessellation) = shape_resources
                         .tessellation_cache
                         .get_vertex_buffers(&cache_key)
                     {
@@ -360,7 +360,7 @@ impl Shape {
                 let indices = [0u16, 1, 2, 0, 2, 3];
                 let local_bounds = rect_shape.rect;
 
-                let mut vertex_buffers = buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
+                let mut vertex_buffers = VertexBuffers::new();
 
                 vertex_buffers.vertices.extend(quad);
                 vertex_buffers.indices.extend(indices);
@@ -369,7 +369,7 @@ impl Shape {
                 generate_aa_fringe(
                     &mut vertex_buffers.vertices,
                     &mut vertex_buffers.indices,
-                    &mut buffers_pool.aa_fringe_scratch,
+                    &mut shape_resources.aa_fringe_scratch,
                 );
 
                 let tessellation = Arc::new(CachedTessellation {
@@ -379,7 +379,7 @@ impl Shape {
                 });
 
                 if let Some(tesselation_cache_key) = tesselation_cache_key {
-                    buffers_pool
+                    shape_resources
                         .tessellation_cache
                         .insert_vertex_buffers(tesselation_cache_key, Arc::clone(&tessellation));
                 }
@@ -770,13 +770,6 @@ fn build_triangle_component_map(scratch: &mut AaFringeScratch) {
     }
 }
 
-/// Generates a thin fringe of antialiasing triangles around shape boundaries.
-///
-/// For each boundary edge, two triangles are added, forming a quad that fades from
-/// `coverage = 1.0` (at the original boundary) to `coverage = 0.0` (at the outer fringe).
-/// The actual screen-space offset is computed in the vertex shader, so the fringe positions
-/// in the buffer are identical to the source boundary vertices — only the `normal` and
-/// `coverage` fields differ.
 #[cfg(test)]
 fn find_boundary_edges<'a>(
     vertices: &[CustomVertex],
@@ -787,6 +780,9 @@ fn find_boundary_edges<'a>(
     &scratch.boundary_edges
 }
 
+/// Adds two antialiasing triangles per boundary edge, fading coverage from 1 to 0.
+/// Outer vertices keep the boundary positions. The vertex shader uses their normals
+/// to apply the screen-space offset.
 fn generate_aa_fringe(
     vertices: &mut Vec<CustomVertex>,
     indices: &mut Vec<u16>,
@@ -800,7 +796,7 @@ fn generate_aa_fringe(
 
     build_triangle_component_map(scratch);
 
-    // --- Step 1: Compute per-boundary-vertex averaged outward (miter) normals ---
+    // Average outward normals at each boundary corner.
 
     for boundary_edge in &scratch.boundary_edges {
         let pa = vertices[boundary_edge.start_vertex_index as usize].position;
@@ -864,7 +860,7 @@ fn generate_aa_fringe(
         }
     }
 
-    // --- Step 2: Create outer fringe (duplicate) vertices ---
+    // Duplicate boundary vertices with zero coverage for the outer fringe.
 
     vertices.reserve(scratch.boundary_corner_normals.len());
     indices.reserve(scratch.boundary_edges.len() * 6);
@@ -884,7 +880,7 @@ fn generate_aa_fringe(
             .insert(boundary_corner_key, new_idx);
     }
 
-    // --- Step 3: Emit fringe quads (two triangles per boundary edge) ---
+    // Join each boundary edge to its outer vertices with two triangles.
 
     for boundary_edge in &scratch.boundary_edges {
         let start_vertex_key = BoundaryVertexKey::from_position(
@@ -1008,24 +1004,15 @@ impl PathShape {
         Self { path, stroke }
     }
 
-    /// Tessellates the path shape into vertex and index buffers for rendering.
-    ///
-    /// # Parameters
-    ///
-    /// - `depth`: The depth value used for rendering order.
-    ///
-    /// # Returns
-    ///
-    /// A `VertexBuffers` structure containing the tessellated vertices and indices.
-    /// ```
+    /// Returns shared geometry and bounds, reusing the tessellation cache when a key is given.
     pub(crate) fn tessellate(
         &self,
         tessellator: &mut FillTessellator,
-        buffers_pool: &mut PoolManager,
+        shape_resources: &mut ShapeResources,
         tesselation_cache_key: Option<u64>,
     ) -> Arc<CachedTessellation> {
         if let Some(cache_key) = tesselation_cache_key {
-            if let Some(cached_tessellation) = buffers_pool
+            if let Some(cached_tessellation) = shape_resources
                 .tessellation_cache
                 .get_vertex_buffers(&cache_key)
             {
@@ -1033,12 +1020,11 @@ impl PathShape {
             }
         }
 
-        let mut buffers: VertexBuffers<CustomVertex, u16> =
-            buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
+        let mut buffers = VertexBuffers::new();
         let local_bounds = self.tessellate_into_buffers(
             &mut buffers,
             tessellator,
-            &mut buffers_pool.aa_fringe_scratch,
+            &mut shape_resources.aa_fringe_scratch,
         );
 
         #[allow(clippy::manual_is_multiple_of)]
@@ -1054,7 +1040,7 @@ impl PathShape {
         });
 
         if let Some(cache_key) = tesselation_cache_key {
-            buffers_pool
+            shape_resources
                 .tessellation_cache
                 .insert_vertex_buffers(cache_key, Arc::clone(&tessellation));
         }
@@ -1805,9 +1791,8 @@ mod tests {
         find_boundary_edges, generate_aa_fringe, AaFringeScratch, BoundaryVertexKey, CustomVertex,
         RectShape, Shape,
     };
-    use crate::{util::PoolManager, Stroke};
+    use crate::{util::ShapeResources, Stroke};
     use lyon::lyon_tessellation::FillTessellator;
-    use std::num::NonZeroUsize;
 
     fn test_vertex(position: [f32; 2]) -> CustomVertex {
         CustomVertex {
@@ -1857,10 +1842,10 @@ mod tests {
     fn rect_tessellation_uses_shared_quad_corners() {
         let rect_shape = RectShape::new([(10.0, 20.0), (30.0, 50.0)], Stroke::default());
         let mut tessellator = FillTessellator::new();
-        let mut pool_manager = PoolManager::new(NonZeroUsize::new(1).unwrap());
+        let mut shape_resources = ShapeResources::new();
 
         let tessellated_geometry =
-            Shape::Rect(rect_shape).tessellate(&mut tessellator, &mut pool_manager, None);
+            Shape::Rect(rect_shape).tessellate(&mut tessellator, &mut shape_resources, None);
 
         assert_eq!(tessellated_geometry.vertex_buffers.vertices.len(), 8);
         assert_eq!(tessellated_geometry.vertex_buffers.indices.len(), 30);

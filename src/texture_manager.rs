@@ -7,66 +7,33 @@ pub enum TextureManagerError {
     TextureNotFound(u64),
 }
 
-/// A manager for textures providing granular control over texture handling.
+/// GPU textures that can be allocated and updated from multiple threads.
 ///
-/// This manager allows for:
-/// - Loading textures from different threads while keeping usage safe in the rendering thread.
-/// - Allocating textures and subsequently loading image data into them.
-/// - Updating the data in an existing texture.
+/// Cloned managers share texture storage. All dimensions are `(width, height)` in pixels.
 ///
 /// # Examples
 ///
-/// Allocate a texture and then load data into it:
-///
 /// ```rust,no_run
-/// # use std::sync::Arc;
-/// # use futures::executor::block_on;
-/// # use winit::application::ApplicationHandler;
-/// # use winit::event_loop::{ActiveEventLoop, EventLoop};
-/// # use winit::window::Window;
-/// # use grafo::Renderer;
-/// # use grafo::Shape;
-/// # use grafo::Color;
-/// # use grafo::Stroke;
-/// #
-/// # struct App;
-/// # impl ApplicationHandler for App {
-/// #     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-/// #         let window_surface = Arc::new(
-/// #             event_loop.create_window(Window::default_attributes()).unwrap()
-/// #         );
-/// #         let physical_size = (800, 600);
-/// #         let scale_factor = 1.0;
-/// #         let mut renderer = block_on(Renderer::new(window_surface, physical_size, scale_factor, true, false, 1));
-/// #
+/// use grafo::premultiply_rgba8_srgb_inplace;
+/// # fn example(renderer: &grafo::Renderer<'_>) {
 /// let texture_manager = renderer.texture_manager();
 /// let texture_id = 42;
 /// let texture_dimensions = (256, 256);
-/// let data = vec![255u8; 256 * 256 * 4];
+/// let mut data = vec![255u8; 256 * 256 * 4];
 ///
-/// // Allocate texture and load data
 /// texture_manager.allocate_texture_with_data(texture_id, texture_dimensions, &data);
-/// // Update data in the texture
+///
+/// data.fill(128);
+/// premultiply_rgba8_srgb_inplace(&mut data);
 /// texture_manager.load_data_into_texture(texture_id, texture_dimensions, &data).unwrap();
-/// // Check if the texture is loaded
 /// assert!(texture_manager.is_texture_loaded(texture_id));
-/// // Clone the texture manager to pass to another thread
-/// let texture_manager_clone = texture_manager.clone();
-/// #     }
-/// #
-/// #     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: winit::event::WindowEvent) {
-/// #         // Handle window events (stub for doc test)
-/// #     }
 /// # }
 /// ```
-///
-/// The texture manager internally uses an `Arc<RwLock<_>>` to manage its bind group layout and texture storage.
 #[derive(Clone)]
 pub struct TextureManager {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     sampler: Arc<wgpu::Sampler>,
-    /// Textures is raw image data, without any screen position information
     texture_storage: Arc<RwLock<HashMap<u64, wgpu::Texture>>>,
     /// Cache for shape texture bind groups keyed by (texture_id, layout_epoch)
     shape_bind_group_cache: Arc<RwLock<BindGroupCache>>,
@@ -86,11 +53,13 @@ impl TextureManager {
         }
     }
 
+    /// Removes all textures and cached bind groups from the shared storage.
     pub fn clear(&self) {
         self.texture_storage.write().unwrap().clear();
         self.shape_bind_group_cache.write().unwrap().clear();
     }
 
+    /// Returns the number of stored textures and cached bind groups, in that order.
     pub fn size(&self) -> (usize, usize) {
         (
             self.texture_storage.read().unwrap().len(),
@@ -110,19 +79,13 @@ impl TextureManager {
         })
     }
 
-    /// Allocates a new RGBA8 texture with the given dimensions without providing any data.
+    /// Allocates an RGBA8 sRGB texture, replacing any texture with the same ID.
     ///
-    /// If you want to allocate and load data into the texture at the same time, use
-    /// [`TextureManager::allocate_texture_with_data`] instead.
-    /// You can then load data into the texture later using [`TextureManager::load_data_into_texture`].
-    ///
-    /// # Parameters
-    /// - `texture_id`: Unique identifier for the texture.
-    /// - `texture_dimensions`: A tuple `(width, height)` representing the dimensions of the texture.
+    /// Upload pixels with [`Self::load_data_into_texture`], or allocate and upload together
+    /// with [`Self::allocate_texture_with_data`].
     pub fn allocate_texture(&self, texture_id: u64, texture_dimensions: (u32, u32)) {
         let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
-        // If the binding cache contains entries for this texture_id, remove them
-        // as the texture is being re-allocated, and the old bind groups are no longer valid.
+        // Existing bind groups still reference the previous allocation.
         bind_group_cache
             .retain(|(cached_texture_id, _shape_id), _bind_group| *cached_texture_id != texture_id);
 
@@ -138,9 +101,7 @@ impl TextureManager {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            // sRGBA, as we're going to work with RGBA images
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            // TEXTURE_BINDING to use texture in the shader, COPY_DST to copy data to the texture
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -151,20 +112,9 @@ impl TextureManager {
             .insert(texture_id, texture);
     }
 
-    /// Allocates a texture and immediately loads image data into it.
+    /// Allocates and uploads a texture, replacing any texture with the same ID.
     ///
-    /// This function will first allocate the texture, then attempt to load the provided data.
-    ///
-    /// If you are seeing fringes when sampling/minifying near transparent edges, ensure that your
-    /// texture data is in a premultiplied alpha format. You can use the
-    /// `premultiply_rgba8_srgb_inplace` helper function provided in this crate to convert your
-    /// RGBA8 sRGB data to premultiplied alpha.
-    ///
-    /// # Parameters
-    /// - `texture_id`: Unique identifier for the texture.
-    /// - `texture_dimensions`: A tuple `(width, height)` representing the dimensions of the texture.
-    /// - `texture_data`: A byte slice containing the image data. The data length is expected to
-    ///   match the texture dimensions and pixel format (RGBA8 with premultiplied alpha).
+    /// See [`Self::load_data_into_texture`] for the required pixel format.
     pub fn allocate_texture_with_data(
         &self,
         texture_id: u64,
@@ -176,21 +126,14 @@ impl TextureManager {
             .unwrap();
     }
 
-    /// Loads image data into an already allocated texture. If you are seeing fringes when
-    /// sampling/minifying near transparent edges, ensure that your texture data is in a
-    /// premultiplied alpha format. You can use the `premultiply_rgba8_srgb_inplace` helper
-    /// function provided in this crate to convert your RGBA8 sRGB data to premultiplied alpha.
+    /// Uploads RGBA8 sRGB pixels to the top-left corner of an allocated texture.
     ///
-    /// # Parameters
-    /// - `texture_id`: Unique identifier for the texture.
-    /// - `texture_dimensions`: A tuple `(width, height)` representing the dimensions of the texture.
-    /// - `texture_data`: A byte slice containing the image data in an RGBA8 format with premultiplied alpha.
-    ///   If your texture isn't premultiplied, consider using a `premultiply_rgba8_srgb_inplace` helper
-    ///   function provided in this crate. This is needed to avoid fringes when sampling/minifying near transparent edges.
+    /// `texture_dimensions` is the upload size and must fit inside the texture. Supply
+    /// four bytes per pixel with no padding between rows. RGB must be premultiplied
+    /// by alpha in linear space, then encoded as sRGB. Use [`premultiply_rgba8_srgb_inplace`]
+    /// to convert straight-alpha input before uploading.
     ///
-    /// # Returns
-    /// - `Ok(())` if the operation succeeds.
-    /// - `Err(TextureManagerError::TextureNotFound(texture_id))` if the texture does not exist.
+    /// Returns an error if `texture_id` has not been allocated.
     pub fn load_data_into_texture(
         &self,
         texture_id: u64,
@@ -221,8 +164,6 @@ impl TextureManager {
     /// Removes the texture identified by `texture_id` from the manager.
     pub fn remove_texture(&self, texture_id: u64) {
         let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
-        // If the binding cache contains entries for this texture_id, remove them
-        // as the texture is being removed, and the old bind groups are no longer valid.
         bind_group_cache
             .retain(|(cached_texture_id, _shape_id), _bind_group| *cached_texture_id != texture_id);
 
@@ -237,16 +178,13 @@ impl TextureManager {
         texture_data_bytes: &[u8],
     ) {
         self.queue.write_texture(
-            // Tells wgpu where to copy the pixel data
             wgpu::TexelCopyTextureInfo {
                 texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            // The actual pixel data
             texture_data_bytes,
-            // The layout of the texture
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * texture_dimensions.0),
@@ -256,19 +194,13 @@ impl TextureManager {
         );
     }
 
-    /// Creates a bind group for the provided `layout` using the stored sampler and
-    /// the texture identified by `texture_id`.
-    ///
-    /// Returns a cached bind group for the given `layout_epoch` and `texture_id`,
-    /// creating and caching it if necessary. This avoids per-frame bind group creation
-    /// when binding textures for shapes.
+    /// Returns a cached bind group for the texture and layout, creating it if needed.
     pub(crate) fn get_or_create_shape_bind_group(
         &self,
         layout: &wgpu::BindGroupLayout,
         layout_epoch: u64,
         texture_id: u64,
     ) -> Result<Arc<wgpu::BindGroup>, TextureManagerError> {
-        // Fast path: check cache
         if let Some(bg) = self
             .shape_bind_group_cache
             .read()
@@ -279,7 +211,6 @@ impl TextureManager {
             return Ok(bg);
         }
 
-        // Create bind group
         let storage = self.texture_storage.read().unwrap();
         let texture = storage
             .get(&texture_id)
@@ -300,7 +231,6 @@ impl TextureManager {
             label: Some("shape_texture_bind_group_cached"),
         }));
 
-        // Insert into cache
         self.shape_bind_group_cache
             .write()
             .unwrap()
@@ -309,6 +239,7 @@ impl TextureManager {
         Ok(bind_group)
     }
 
+    /// Returns whether the ID has an allocated texture, even if no pixels were uploaded.
     pub fn is_texture_loaded(&self, texture_id: u64) -> bool {
         self.texture_storage
             .read()
@@ -328,12 +259,6 @@ impl TextureManager {
     }
 }
 
-// Converts an RGBA8 sRGB image in-place to premultiplied alpha.
-// This operates in linear space for correct results:
-// 1) convert sRGB to linear
-// 2) multiply RGB by A
-// 3) convert back to sRGB
-// Alpha remains unchanged numerically in 0..1 mapped to 0..255.
 fn srgb_to_linear_u8(c: u8) -> f32 {
     let x = c as f32 / 255.0;
     if x <= 0.04045 {
@@ -353,6 +278,13 @@ fn linear_to_srgb_u8(x: f32) -> u8 {
     (y.clamp(0.0, 1.0) * 255.0 + 0.5).floor() as u8
 }
 
+/// Converts straight-alpha RGBA8 sRGB pixels to premultiplied alpha in place.
+///
+/// Multiplies RGB by alpha in linear space, then encodes it as sRGB. Alpha bytes are unchanged.
+///
+/// # Panics
+///
+/// Panics if the slice length is not a multiple of four.
 pub fn premultiply_rgba8_srgb_inplace(pixels: &mut [u8]) {
     assert!(
         pixels.len().is_multiple_of(4),
@@ -371,6 +303,5 @@ pub fn premultiply_rgba8_srgb_inplace(pixels: &mut [u8]) {
         px[0] = linear_to_srgb_u8(r_pma);
         px[1] = linear_to_srgb_u8(g_pma);
         px[2] = linear_to_srgb_u8(b_pma);
-        // keep alpha as-is
     }
 }

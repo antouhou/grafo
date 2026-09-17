@@ -26,7 +26,7 @@ impl<'a> Renderer<'a> {
         let cached_shape = CachedShapeHandle::new(
             shape.as_ref(),
             &mut self.tessellator,
-            &mut self.buffers_pool_manager,
+            &mut self.shape_resources,
             geometry_id,
         );
         self.context
@@ -90,7 +90,7 @@ impl<'a> Renderer<'a> {
         let cached_shape = CachedShapeHandle::new(
             shape.as_ref(),
             &mut self.tessellator,
-            &mut self.buffers_pool_manager,
+            &mut self.shape_resources,
             geometry_id,
         );
         let mut draw_data = CachedShapeDrawData::new(cached_shape, &options);
@@ -140,7 +140,7 @@ impl<'a> Renderer<'a> {
     ) {
         self.refresh_geometry_cache(cached_shape_data);
         cached_shape_data.refresh_gradient_bind_group(
-            &mut self.buffers_pool_manager.gradient_cache,
+            &mut self.shape_resources.gradient_cache,
             &self.device,
             &self.queue,
             &self.gradient_bind_group_layout,
@@ -212,7 +212,7 @@ impl<'a> Renderer<'a> {
 
     fn refresh_geometry_cache(&mut self, cached_shape_data: &CachedShapeDrawData) {
         if let Some(geometry_id) = cached_shape_data.cached_shape.geometry_id {
-            self.buffers_pool_manager
+            self.shape_resources
                 .tessellation_cache
                 .refresh_vertex_buffers(geometry_id, &cached_shape_data.cached_shape.tessellation);
         }

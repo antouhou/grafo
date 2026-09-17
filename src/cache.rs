@@ -2,7 +2,6 @@ use crate::vertex::CustomVertex;
 use ahash::{HashMap, HashMapExt};
 use lyon::tessellation::VertexBuffers;
 use std::hash::Hash;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -78,7 +77,7 @@ pub(crate) struct Cache {
 }
 
 impl Cache {
-    pub(crate) fn new(_size: NonZeroUsize) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             entries: FrameCache::new(),
         }
@@ -123,7 +122,6 @@ mod tests {
     use super::{Cache, CachedTessellation, FrameCache};
     use crate::vertex::CustomVertex;
     use lyon::tessellation::VertexBuffers;
-    use std::num::NonZeroUsize;
     use std::sync::{Arc, Mutex};
 
     struct DropCounter(Arc<Mutex<usize>>);
@@ -170,7 +168,7 @@ mod tests {
 
     #[test]
     fn cache_returns_shared_arc_without_cloning_vertex_buffers() {
-        let mut cache = Cache::new(NonZeroUsize::new(4).unwrap());
+        let mut cache = Cache::new();
         let mut vertex_buffers = VertexBuffers::<CustomVertex, u16>::new();
         vertex_buffers.vertices.push(CustomVertex {
             position: [0.0, 0.0],
@@ -199,7 +197,7 @@ mod tests {
 
     #[test]
     fn cache_promotes_previous_frame_hits_into_current_frame() {
-        let mut cache = Cache::new(NonZeroUsize::new(4).unwrap());
+        let mut cache = Cache::new();
         let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u16>::new());
         cache.insert_vertex_buffers(
             7,
@@ -229,7 +227,7 @@ mod tests {
 
     #[test]
     fn cache_drops_entries_not_used_for_a_frame() {
-        let mut cache = Cache::new(NonZeroUsize::new(4).unwrap());
+        let mut cache = Cache::new();
         let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u16>::new());
         cache.insert_vertex_buffers(
             7,
@@ -248,7 +246,7 @@ mod tests {
 
     #[test]
     fn cache_refresh_keeps_rendered_geometry_available_next_frame() {
-        let mut cache = Cache::new(NonZeroUsize::new(4).unwrap());
+        let mut cache = Cache::new();
         let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u16>::new());
 
         cache.refresh_vertex_buffers(

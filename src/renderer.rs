@@ -1,7 +1,6 @@
 //! Renderer for the Grafo library.
 use ahash::{HashMap, HashMapExt};
 use lyon::tessellation::FillTessellator;
-use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tracing::warn;
@@ -23,7 +22,7 @@ use crate::pipeline::{
 };
 use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape};
 use crate::texture_manager::TextureManager;
-use crate::util::{to_logical, PoolManager};
+use crate::util::{to_logical, ShapeResources};
 use crate::vertex::{
     CustomVertex, InstanceColor, InstanceMetadata, InstanceTransform, TextureUvTransform,
 };
@@ -46,9 +45,6 @@ mod traversal;
 pub(crate) mod types;
 
 pub type MathRect = lyon::math::Box2D;
-
-// TODO: move to the config/constructor
-const MAX_CACHED_SHAPES: usize = 1024;
 
 /// Semantic texture layers for a shape. Background is layer 0, Foreground is layer 1.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -118,7 +114,7 @@ pub struct Renderer<'a> {
     config: wgpu::SurfaceConfiguration,
 
     tessellator: FillTessellator,
-    buffers_pool_manager: PoolManager,
+    shape_resources: ShapeResources,
     texture_manager: TextureManager,
 
     /// Tree structure holding shapes to be rendered.
@@ -312,10 +308,7 @@ impl<'a> Renderer<'a> {
     }
 
     pub(super) fn trim_scratch_on_resize_or_policy(&mut self) {
-        // This is safe to call frequently: `shrink_to` is effectively a no-op
-        // when capacities are below thresholds, so this acts as amortized
-        // memory hygiene for long-running sessions.
-        self.buffers_pool_manager.trim();
+        self.shape_resources.aa_fringe_scratch.trim();
         self.scratch.trim_to_policy();
     }
 

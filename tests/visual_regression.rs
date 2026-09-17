@@ -5,7 +5,13 @@
 ///
 /// Run with:   cargo test --test visual_regression
 use futures::executor::block_on;
-use grafo_test_scenes::{build_main_scene, check_pixels, CANVAS_HEIGHT, CANVAS_WIDTH};
+use grafo::{
+    Color, ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset,
+    LinearGradientDesc, LinearGradientLine, Shape, ShapeDrawCommandOptions, Stroke,
+};
+use grafo_test_scenes::{
+    build_main_scene, check_pixels, PixelExpectation, CANVAS_HEIGHT, CANVAS_WIDTH,
+};
 
 /// Creates a headless renderer, returning `None` (and printing a skip message)
 /// when no suitable GPU adapter is available.
@@ -1000,16 +1006,12 @@ fn clipping_rect_rejects_non_axis_aligned_transform() {
     assert_pixels_match(&pixel_buffer, &expectations);
 }
 
-/// Smoke test — gradient fill should produce non-transparent pixels.
 #[test]
 fn gradient_fill_basic() {
-    use grafo::*;
-
     let Some(mut renderer) = create_headless_renderer() else {
         return;
     };
 
-    // Root shape
     let root = Shape::rect([(0.0, 0.0), (100.0, 100.0)], Stroke::default());
     let root_id = renderer
         .add_shape(
@@ -1053,31 +1055,17 @@ fn gradient_fill_basic() {
     let mut pixel_buffer: Vec<u8> = Vec::new();
     renderer.render_to_buffer(&mut pixel_buffer);
 
-    // Canvas is CANVAS_WIDTH × CANVAS_HEIGHT
-    let w = CANVAS_WIDTH;
-    let center_x = 50u32;
-    let center_y = 50u32;
-    let offset = ((center_y * w + center_x) * 4) as usize;
-    let b = pixel_buffer[offset];
-    let g = pixel_buffer[offset + 1];
-    let r = pixel_buffer[offset + 2];
-    let a = pixel_buffer[offset + 3];
-    // The center of a red-to-blue gradient should not be pure white
-    assert!(
-        !(r == 255 && g == 255 && b == 255),
-        "Center pixel should not be white (got rgba({r},{g},{b},{a})). Gradient is not rendering."
-    );
-    // Should be opaque
-    assert_eq!(a, 255, "Gradient pixel should be opaque");
+    // At each pixel center, t = (x + 0.5 - 10) / 80 and sRGB = 255 * [1 - t, 0, t].
+    let expectations = [
+        PixelExpectation::opaque_approx(20, 50, 222, 0, 33, 3, "gradient_left"),
+        PixelExpectation::opaque_approx(50, 50, 126, 0, 129, 3, "gradient_center"),
+        PixelExpectation::opaque_approx(80, 50, 30, 0, 225, 3, "gradient_right"),
+    ];
+    assert_pixels_match(&pixel_buffer, &expectations);
 }
 
-/// Regression test — gradient bind groups must survive pipeline recreation
-/// (e.g. MSAA sample count change) without producing validation errors or
-/// rendering as white/transparent.
 #[test]
 fn gradient_survives_pipeline_recreation() {
-    use grafo::*;
-
     let Some(mut renderer) = create_headless_renderer() else {
         return;
     };
@@ -1112,36 +1100,22 @@ fn gradient_survives_pipeline_recreation() {
         )
         .unwrap();
 
-    // First render — populates and caches the gradient bind group.
-    let mut buf = Vec::new();
-    renderer.render_to_buffer(&mut buf);
+    // At each pixel center, t = (x + 0.5 - 10) / 80 and sRGB = 255 * [1 - t, 0, t].
+    let expectations = [
+        PixelExpectation::opaque_approx(20, 50, 222, 0, 33, 3, "gradient_left"),
+        PixelExpectation::opaque_approx(50, 50, 126, 0, 129, 3, "gradient_center"),
+        PixelExpectation::opaque_approx(80, 50, 30, 0, 225, 3, "gradient_right"),
+    ];
+    let mut pixel_buffer = Vec::new();
+    renderer.render_to_buffer(&mut pixel_buffer);
+    assert_pixels_match(&pixel_buffer, &expectations);
 
-    // Trigger pipeline recreation (swaps bind group layouts).
+    // Changing MSAA recreates pipelines and their bind group layouts.
     renderer.set_msaa_samples(4);
 
-    // Second render — stale bind groups must have been invalidated;
-    // the gradient should render correctly against the new layout.
-    buf.clear();
-    renderer.render_to_buffer(&mut buf);
-
-    let w = CANVAS_WIDTH;
-    let cx = 50u32;
-    let cy = 50u32;
-    let off = ((cy * w + cx) * 4) as usize;
-    let (b, g, r, a) = (buf[off], buf[off + 1], buf[off + 2], buf[off + 3]);
-
-    assert_eq!(
-        a, 255,
-        "Gradient pixel should be opaque after pipeline recreation"
-    );
-    assert!(
-        !(r == 255 && g == 255 && b == 255),
-        "Gradient should not be white after pipeline recreation (got rgba({r},{g},{b},{a}))"
-    );
-    assert!(
-        r < 200 && b < 200,
-        "Center of red-to-blue gradient should be a purple-ish mix, got rgba({r},{g},{b},{a})"
-    );
+    pixel_buffer.clear();
+    renderer.render_to_buffer(&mut pixel_buffer);
+    assert_pixels_match(&pixel_buffer, &expectations);
 }
 
 /// Regression test — a solid-colored non-leaf parent drawn immediately after a

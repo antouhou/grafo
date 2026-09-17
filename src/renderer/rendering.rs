@@ -27,7 +27,7 @@ impl<'a> Renderer<'a> {
                     ..Default::default()
                 };
             }
-            self.buffers_pool_manager.tessellation_cache.end_frame();
+            self.shape_resources.tessellation_cache.end_frame();
             self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
             return;
         }
@@ -207,7 +207,7 @@ impl<'a> Renderer<'a> {
                         true,
                         &pipelines,
                         &buffers,
-                        &mut self.buffers_pool_manager.gradient_cache,
+                        &mut self.shape_resources.gradient_cache,
                         &mut self.offscreen_texture_pool,
                         self.composite_pipeline.as_ref(),
                         None,
@@ -318,7 +318,7 @@ impl<'a> Renderer<'a> {
                     true,
                     &pipelines,
                     &buffers,
-                    &mut self.buffers_pool_manager.gradient_cache,
+                    &mut self.shape_resources.gradient_cache,
                     &mut self.offscreen_texture_pool,
                     self.composite_pipeline.as_ref(),
                     backdrop_ctx_opt.as_ref(),
@@ -450,7 +450,7 @@ impl<'a> Renderer<'a> {
                 true,
                 &pipelines,
                 &buffers,
-                &mut self.buffers_pool_manager.gradient_cache,
+                &mut self.shape_resources.gradient_cache,
                 &mut self.offscreen_texture_pool,
                 self.composite_pipeline.as_ref(),
                 backdrop_ctx_opt.as_ref(),
@@ -496,9 +496,7 @@ impl<'a> Renderer<'a> {
         self.scratch.backdrop_work_textures = backdrop_work_textures;
         let _collected_shape_effect_results = self.shape_effect_cache.end_frame();
         let _collected_shape_effect_masks = self.shape_effect_mask_cache.end_frame();
-        self.buffers_pool_manager.tessellation_cache.end_frame();
-
-        // println!("Tesselation cache size: {}", self.buffers_pool_manager.tessellation_cache.len());
+        self.shape_resources.tessellation_cache.end_frame();
 
         #[cfg(feature = "render_metrics")]
         {

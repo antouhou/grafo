@@ -6,13 +6,10 @@ use crate::gradient::sampling::bake_gradient_ramp;
 use crate::gradient::types::{GradientData, GradientRamp, GradientRampCacheKey};
 use crate::pipeline::create_buffer_init;
 use crate::shape::AaFringeScratch;
-use crate::vertex::CustomVertex;
 use lru::LruCache;
-use lyon::tessellation::VertexBuffers;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-// const MAX_LYON_VERTEX_BUFFER_POOL_SIZE: usize = 256;
 const MAX_GRADIENT_RAMP_CACHE_SIZE: usize = 256;
 const MAX_GRADIENT_BIND_GROUP_CACHE_SIZE: usize = 1024;
 
@@ -36,10 +33,6 @@ fn srgb_u8_to_linear(value: u8) -> f32 {
     } else {
         ((normalized + 0.055) / 1.055).powf(2.4)
     }
-}
-
-pub struct LyonVertexBuffersPool {
-    vertex_buffers: Vec<VertexBuffers<CustomVertex, u16>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -290,8 +283,6 @@ impl GradientCache {
         })
     }
 
-    fn trim(&mut self) {}
-
     fn print_sizes(&self) {
         println!("Gradient ramps: {}", self.ramps.len());
         println!("Gradient ramp textures: {}", self.ramp_textures.len());
@@ -299,62 +290,23 @@ impl GradientCache {
     }
 }
 
-impl LyonVertexBuffersPool {
-    pub fn new() -> Self {
-        Self {
-            vertex_buffers: Vec::new(),
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.vertex_buffers.len()
-    }
-
-    pub fn get_vertex_buffers(&mut self) -> VertexBuffers<CustomVertex, u16> {
-        if let Some(mut vertex_buffers) = self.vertex_buffers.pop() {
-            vertex_buffers.vertices.clear();
-            vertex_buffers.indices.clear();
-            vertex_buffers
-        } else {
-            VertexBuffers::new()
-        }
-    }
-
-    // pub fn return_vertex_buffers(&mut self, mut vertex_buffers: VertexBuffers<CustomVertex, u16>) {
-    //     vertex_buffers.vertices.clear();
-    //     vertex_buffers.indices.clear();
-    //     if self.vertex_buffers.len() < MAX_LYON_VERTEX_BUFFER_POOL_SIZE {
-    //         self.vertex_buffers.push(vertex_buffers);
-    //     }
-    // }
-}
-
-pub(crate) struct PoolManager {
-    pub lyon_vertex_buffers_pool: LyonVertexBuffersPool,
+pub(crate) struct ShapeResources {
     pub tessellation_cache: Cache,
     pub aa_fringe_scratch: AaFringeScratch,
     pub gradient_cache: GradientCache,
 }
 
-impl PoolManager {
-    pub(crate) fn new(tesselation_cache_size: NonZeroUsize) -> Self {
+impl ShapeResources {
+    pub(crate) fn new() -> Self {
         Self {
-            lyon_vertex_buffers_pool: LyonVertexBuffersPool::new(),
-            tessellation_cache: Cache::new(tesselation_cache_size),
+            tessellation_cache: Cache::new(),
             aa_fringe_scratch: AaFringeScratch::new(),
             gradient_cache: GradientCache::new(),
         }
     }
 
-    pub(crate) fn trim(&mut self) {
-        self.aa_fringe_scratch.trim();
-        self.gradient_cache.trim();
-    }
-
     pub fn print_sizes(&self) {
-        println!("Pool sizes:");
-        println!("Vertex buffers: {}", self.lyon_vertex_buffers_pool.len());
-        println!("Index buffers: {}", self.tessellation_cache.len());
+        println!("Tessellations: {}", self.tessellation_cache.len());
         self.gradient_cache.print_sizes();
     }
 }
