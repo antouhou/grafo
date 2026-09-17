@@ -568,7 +568,7 @@ fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent()
 
     first
         .texture_manager()
-        .allocate_texture_with_data(42, (1, 1), &[255, 255, 255, 255]);
+        .allocate_texture_with_data(42, (1, 1), &[0, 0, 0, 0]);
     assert!(second.texture_manager().is_texture_loaded(42));
 
     first.load_shape(
@@ -580,7 +580,9 @@ fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent()
         .add_cached_shape_to_the_render_queue(
             99,
             None,
-            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(0, 255, 0)),
+            grafo::ShapeDrawCommandOptions::new()
+                .color(grafo::Color::rgb(0, 255, 0))
+                .foreground_texture_id(42),
         )
         .expect("to add shape loaded by first renderer");
 
@@ -589,7 +591,9 @@ fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent()
             grafo::Shape::rect([(0.0, 0.0), (16.0, 16.0)], grafo::Stroke::default()),
             None,
             None,
-            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(255, 0, 0)),
+            grafo::ShapeDrawCommandOptions::new()
+                .color(grafo::Color::rgb(255, 0, 0))
+                .background_texture_id(42),
         )
         .expect("to add shape to first renderer");
 
@@ -599,6 +603,39 @@ fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent()
     second.render_to_buffer(&mut second_pixels);
 
     assert_eq!(read_pixel_rgba(&first_pixels, 16, 8, 8), [255, 0, 0, 255]);
+    assert_eq!(read_pixel_rgba(&second_pixels, 16, 8, 8), [0, 255, 0, 255]);
+    assert_eq!(first.texture_manager().size(), (1, 1));
+
+    for samples in [4, 1, 4] {
+        first.set_msaa_samples(samples);
+        first.resize((20, 20));
+        first.render_to_buffer(&mut first_pixels);
+        second.render_to_buffer(&mut second_pixels);
+
+        assert_eq!(read_pixel_rgba(&first_pixels, 20, 8, 8), [255, 0, 0, 255]);
+        assert_eq!(read_pixel_rgba(&second_pixels, 16, 8, 8), [0, 255, 0, 255]);
+        assert_eq!(
+            first.texture_manager().size(),
+            (1, 1),
+            "MSAA changes must reuse the texture binding across renderers and layers",
+        );
+    }
+
+    first
+        .texture_manager()
+        .allocate_texture_with_data(42, (1, 1), &[0, 0, 255, 255]);
+    assert_eq!(second.texture_manager().size(), (1, 0));
+    first.render_to_buffer(&mut first_pixels);
+    second.render_to_buffer(&mut second_pixels);
+    assert_eq!(read_pixel_rgba(&first_pixels, 20, 8, 8), [0, 0, 255, 255]);
+    assert_eq!(read_pixel_rgba(&second_pixels, 16, 8, 8), [0, 0, 255, 255]);
+    assert_eq!(first.texture_manager().size(), (1, 1));
+
+    first.texture_manager().remove_texture(42);
+    assert_eq!(second.texture_manager().size(), (0, 0));
+    first.render_to_buffer(&mut first_pixels);
+    second.render_to_buffer(&mut second_pixels);
+    assert_eq!(read_pixel_rgba(&first_pixels, 20, 8, 8), [255, 0, 0, 255]);
     assert_eq!(read_pixel_rgba(&second_pixels, 16, 8, 8), [0, 255, 0, 255]);
 }
 

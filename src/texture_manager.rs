@@ -1,3 +1,4 @@
+use crate::util::srgb_u8_to_linear;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -36,11 +37,11 @@ pub struct TextureManager {
     sampler: Arc<wgpu::Sampler>,
     // Operations needing both locks acquire storage before the bind-group cache.
     texture_storage: Arc<RwLock<HashMap<u64, wgpu::Texture>>>,
-    /// Cache for shape texture bind groups keyed by (texture_id, layout_epoch)
+    /// Both shape texture layers use the same layout across renderers and MSAA settings.
     shape_bind_group_cache: Arc<RwLock<BindGroupCache>>,
 }
 
-type BindGroupCache = HashMap<(u64, u64), Arc<wgpu::BindGroup>>;
+type BindGroupCache = HashMap<u64, Arc<wgpu::BindGroup>>;
 
 impl TextureManager {
     pub(crate) fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
@@ -104,7 +105,7 @@ impl TextureManager {
         let mut texture_storage = self.texture_storage.write().unwrap();
         let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
         // Invalidate old bindings while both locks exclude concurrent cache insertion.
-        bind_group_cache.retain(|(cached_texture_id, _), _| *cached_texture_id != texture_id);
+        bind_group_cache.remove(&texture_id);
         texture_storage.insert(texture_id, texture);
     }
 
@@ -174,7 +175,7 @@ impl TextureManager {
     pub fn remove_texture(&self, texture_id: u64) {
         let mut texture_storage = self.texture_storage.write().unwrap();
         let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
-        bind_group_cache.retain(|(cached_texture_id, _), _| *cached_texture_id != texture_id);
+        bind_group_cache.remove(&texture_id);
         texture_storage.remove(&texture_id);
     }
 
@@ -202,18 +203,17 @@ impl TextureManager {
         );
     }
 
-    /// Returns a cached bind group for the texture and layout, creating it if needed.
+    /// Returns a cached bind group for the texture, creating it with the shape layout if needed.
     pub(crate) fn get_or_create_shape_bind_group(
         &self,
         layout: &wgpu::BindGroupLayout,
-        layout_epoch: u64,
         texture_id: u64,
     ) -> Result<Arc<wgpu::BindGroup>, TextureManagerError> {
         if let Some(bg) = self
             .shape_bind_group_cache
             .read()
             .unwrap()
-            .get(&(texture_id, layout_epoch))
+            .get(&texture_id)
             .cloned()
         {
             return Ok(bg);
@@ -243,7 +243,7 @@ impl TextureManager {
         self.shape_bind_group_cache
             .write()
             .unwrap()
-            .insert((texture_id, layout_epoch), bind_group.clone());
+            .insert(texture_id, bind_group.clone());
 
         Ok(bind_group)
     }
@@ -265,15 +265,6 @@ impl TextureManager {
                 let size = texture.size();
                 (size.width, size.height)
             })
-    }
-}
-
-fn srgb_to_linear_u8(c: u8) -> f32 {
-    let x = c as f32 / 255.0;
-    if x <= 0.04045 {
-        x / 12.92
-    } else {
-        ((x + 0.055) / 1.055).powf(2.4)
     }
 }
 
@@ -300,9 +291,9 @@ pub fn premultiply_rgba8_srgb_inplace(pixels: &mut [u8]) {
         "RGBA8 data length must be multiple of 4"
     );
     for px in pixels.chunks_mut(4) {
-        let r_lin = srgb_to_linear_u8(px[0]);
-        let g_lin = srgb_to_linear_u8(px[1]);
-        let b_lin = srgb_to_linear_u8(px[2]);
+        let r_lin = srgb_u8_to_linear(px[0]);
+        let g_lin = srgb_u8_to_linear(px[1]);
+        let b_lin = srgb_u8_to_linear(px[2]);
         let a = px[3] as f32 / 255.0;
 
         let r_pma = r_lin * a;

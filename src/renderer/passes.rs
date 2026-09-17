@@ -182,7 +182,6 @@ fn bind_shape_texture_layers(
     shape_texture_bind_group_layout_background: &wgpu::BindGroupLayout,
     shape_texture_bind_group_layout_foreground: &wgpu::BindGroupLayout,
     default_shape_texture_bind_groups: &[Arc<wgpu::BindGroup>; 2],
-    shape_texture_layout_epoch: u64,
     bound_texture_state: &mut BoundTextureState,
 ) {
     for (layer, texture_binding) in texture_bindings.iter().enumerate() {
@@ -205,7 +204,6 @@ fn bind_shape_texture_layers(
                     } else {
                         shape_texture_bind_group_layout_foreground
                     },
-                    shape_texture_layout_epoch,
                     *texture_id,
                 ) {
                     Ok(bind_group) => {
@@ -345,7 +343,6 @@ pub(super) fn handle_increment_pass<'rp>(
             pipelines.shape_texture_bind_group_layout_background,
             pipelines.shape_texture_bind_group_layout_foreground,
             pipelines.default_shape_texture_bind_groups,
-            pipelines.shape_texture_layout_epoch,
             bound_texture_state,
         );
 
@@ -464,7 +461,6 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
             pipelines.shape_texture_bind_group_layout_background,
             pipelines.shape_texture_bind_group_layout_foreground,
             pipelines.default_shape_texture_bind_groups,
-            pipelines.shape_texture_layout_epoch,
             bound_texture_state,
         );
 
@@ -548,7 +544,6 @@ pub(super) fn flush_pending_leaf_batch(
         pipelines.shape_texture_bind_group_layout_background,
         pipelines.shape_texture_bind_group_layout_foreground,
         pipelines.default_shape_texture_bind_groups,
-        pipelines.shape_texture_layout_epoch,
         bound_texture_state,
     );
     if let Some(instance_transform_buffer) = buffers.aggregated_instance_transform_buffer {
@@ -1724,7 +1719,6 @@ pub(super) fn render_segments(
                     pipelines.shape_texture_bind_group_layout_background,
                     pipelines.shape_texture_bind_group_layout_foreground,
                     pipelines.default_shape_texture_bind_groups,
-                    pipelines.shape_texture_layout_epoch,
                     &mut bound_texture_state,
                 );
 

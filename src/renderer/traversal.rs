@@ -189,7 +189,8 @@ mod tests {
         let mut tree = easy_tree::Tree::new();
         let root = tree.add_node(DrawCommand::CachedShape(cached_draw_data()));
         let child = tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
-        tree.add_child(child, DrawCommand::CachedShape(cached_draw_data()));
+        let grandchild = tree.add_child(child, DrawCommand::CachedShape(cached_draw_data()));
+        let sibling = tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
 
         let effect_results: HashMap<usize, wgpu::BindGroup> = HashMap::new();
         let mut traversal_scratch = TraversalScratch::new();
@@ -202,7 +203,19 @@ mod tests {
             &mut traversal_scratch,
         );
 
-        assert_eq!(traversal_scratch.events().len(), 6);
+        assert_eq!(
+            traversal_scratch.events(),
+            &[
+                TraversalEvent::Pre(root),
+                TraversalEvent::Pre(child),
+                TraversalEvent::Pre(grandchild),
+                TraversalEvent::Post(grandchild),
+                TraversalEvent::Post(child),
+                TraversalEvent::Pre(sibling),
+                TraversalEvent::Post(sibling),
+                TraversalEvent::Post(root),
+            ]
+        );
     }
 
     #[test]

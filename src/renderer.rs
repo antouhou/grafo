@@ -133,8 +133,6 @@ pub struct Renderer<'a> {
     shape_texture_bind_group_layout_foreground: Arc<wgpu::BindGroupLayout>,
     /// Bind group layout for backdrop textures (group 3, bindings 3 and 4).
     backdrop_texture_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-    /// Monotonic counter to invalidate cached shape texture bind groups when the layout changes.
-    shape_texture_layout_epoch: u64,
     /// Default transparent texture bind groups for both layers.
     default_shape_texture_bind_groups: [Arc<wgpu::BindGroup>; 2], // [background, foreground]
     /// Default transparent bind group for backdrop sampling.

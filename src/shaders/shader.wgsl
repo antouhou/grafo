@@ -263,14 +263,11 @@ fn compute_vertex_position(input: VertexInput) -> VertexPosition {
         }
     }
 
-    // Then convert to NDC (Normalized Device Coordinates)
-    // NDC is a cube with corners (-1, -1, -1) and (1, 1, 1).
+    // Map screen coordinates to [-1, 1], with Y increasing upward.
     let ndc_x = 2.0 * final_px / uniforms.canvas_size.x - 1.0;
     let ndc_y = 1.0 - 2.0 * final_py / uniforms.canvas_size.y;
-    // Map pz to [0, 1] depth range. Scale determines the Z range that maps to full depth.
-    // Clamp to ensure we stay within valid depth bounds.
-    // Larger Z -> smaller depth (closer to camera)
-    let scale = 1000.0;  // Z range of [-scale, +scale] maps to [1, 0]
+    // Map Z from [-scale / 2, scale / 2] to [1, 0], clamping values outside that range.
+    let scale = 1000.0;
     var depth = clamp(0.5 - pz / scale, 0.0, 1.0);
 
     // TODO: a bit of a hacky hack to avoid intersection between shapes that do and shapes that doesn't use perspective.

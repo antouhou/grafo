@@ -11,16 +11,14 @@ use winit::window::{Window, WindowId};
 
 const RUST_LOGO_TEXTURE_ID: u64 = 100;
 
-/// How long to wait before retrying a frame that was skipped because the surface
-/// reported it was not visible (`Occluded`/`Timeout`).
-const OCCLUDED_RETRY_DELAY: Duration = Duration::from_millis(50);
+const SURFACE_TIMEOUT_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
     rust_logo_png_bytes: Vec<u8>,
     rust_logo_png_dimensions: (u32, u32),
-    /// Pending retry of a frame skipped because the window was not visible.
+    /// Pending redraw after a surface timeout.
     redraw_retry_at: Option<Instant>,
 }
 
@@ -147,12 +145,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     }
 
                     Err(wgpu::SurfaceError::Timeout) => {
-                        // The window is not visible yet (still appearing, minimized, or fully
-                        // covered). Retry shortly instead of busy-looping redraws — winit does
-                        // not request one when the window becomes visible again. `WaitUntil`
-                        // wakes the event loop without spinning while the window stays hidden.
                         renderer.clear_draw_queue();
-                        let retry_at = Instant::now() + OCCLUDED_RETRY_DELAY;
+                        let retry_at = Instant::now() + SURFACE_TIMEOUT_RETRY_DELAY;
                         self.redraw_retry_at = Some(retry_at);
                         event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
                     }

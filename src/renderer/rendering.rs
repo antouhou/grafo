@@ -99,7 +99,6 @@ impl<'a> Renderer<'a> {
             shape_texture_bind_group_layout_foreground: &self
                 .shape_texture_bind_group_layout_foreground,
             default_shape_texture_bind_groups: &self.default_shape_texture_bind_groups,
-            shape_texture_layout_epoch: self.shape_texture_layout_epoch,
             texture_manager: &self.texture_manager,
         };
 
@@ -533,7 +532,7 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         {
             let after_present = std::time::Instant::now();
-            // Force GPU completion to measure actual GPU execution time.
+            // Measure the remaining wait for GPU work after presentation.
             let _ = self.device.poll(wgpu::MaintainBase::Wait);
             let after_gpu_wait = std::time::Instant::now();
 

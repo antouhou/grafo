@@ -3092,15 +3092,34 @@ fn tile_44_gradient_clipped(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         .unwrap();
 
     vec![
-        // Center should have a gradient mix
+        // For tile-local pixels, t = (x + y + 1 - 20) / 120 at the pixel center.
+        // Interpolate sRGB bytes and allow a tolerance of 2 for GPU rounding.
+        PixelExpectation::opaque_approx(
+            ox as u32 + 25,
+            oy as u32 + 25,
+            79,
+            171,
+            79,
+            2,
+            "t44_gradient_start",
+        ),
         PixelExpectation::opaque_approx(
             ox as u32 + 40,
             oy as u32 + 40,
-            125,
-            125,
-            125,
-            80,
+            127,
+            123,
+            127,
+            2,
             "t44_center_gradient_mix",
+        ),
+        PixelExpectation::opaque_approx(
+            ox as u32 + 55,
+            oy as u32 + 55,
+            174,
+            76,
+            174,
+            2,
+            "t44_gradient_end",
         ),
         // Corner is outside the rounded clip — should be canvas white
         PixelExpectation::opaque(
@@ -3421,15 +3440,34 @@ fn tile_48_gradient_state_leak(renderer: &mut Renderer) -> Vec<PixelExpectation>
         .unwrap(); // cyan
 
     vec![
-        // Gradient rect center: should be a gradient mix (yellow-ish).
+        // For tile-local pixels, t = (32*(x + 0.5 - 5) + 60*(y + 0.5 - 10)) / 4624.
+        // Interpolate sRGB bytes and allow a tolerance of 2 for GPU rounding.
+        PixelExpectation::opaque_approx(
+            ox as u32 + 13,
+            oy as u32 + 25,
+            171,
+            79,
+            30,
+            2,
+            "t48_gradient_start",
+        ),
         PixelExpectation::opaque_approx(
             ox as u32 + 21,
             oy as u32 + 40,
-            125,
-            125,
+            123,
+            127,
             30,
-            80,
+            2,
             "t48_gradient_center",
+        ),
+        PixelExpectation::opaque_approx(
+            ox as u32 + 29,
+            oy as u32 + 55,
+            76,
+            174,
+            30,
+            2,
+            "t48_gradient_end",
         ),
         // Solid cyan rect center: must be cyan, NOT showing leaked gradient.
         PixelExpectation::opaque(

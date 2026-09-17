@@ -129,8 +129,7 @@ pub fn create_equal_decrement_depth_state() -> wgpu::DepthStencilState {
 }
 
 pub enum PipelineType {
-    /// Keeps values where the stencil is equal to the reference value, zeros outside areas.
-    /// I.e. keeps intersection between stencil buffer and what's being rendered.
+    /// Increments stencil values equal to the reference, leaving other values unchanged.
     EqualIncrementStencil,
     /// Decrements the stencil value where the stencil is equal to the reference value.
     EqualDecrementStencil,

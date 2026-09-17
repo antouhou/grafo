@@ -356,7 +356,6 @@ impl<'a> Renderer<'a> {
             shape_texture_bind_group_layout_background: Arc::new(and_texture_bgl_layer0),
             shape_texture_bind_group_layout_foreground: Arc::new(and_texture_bgl_layer1),
             backdrop_texture_bind_group_layout: Arc::new(backdrop_texture_bind_group_layout),
-            shape_texture_layout_epoch: 0,
             default_shape_texture_bind_groups: [
                 Arc::new(default_shape_texture_bind_group_layer0),
                 Arc::new(default_shape_texture_bind_group_layer1),
@@ -854,7 +853,6 @@ impl<'a> Renderer<'a> {
         self.shape_effect_mask_cache.clear();
         self.backdrop_texture_bind_group_layout =
             Arc::new(create_backdrop_texture_bind_group_layout(&self.device));
-        self.shape_texture_layout_epoch += 1;
 
         self.gradient_bind_group_layout = create_gradient_bind_group_layout(&self.device);
         self.backdrop_gradient_bind_group_layout =

@@ -107,9 +107,6 @@ impl<'a> ApplicationHandler for App<'a> {
                         renderer.resize(renderer.size())
                     }
                     Err(wgpu::SurfaceError::Timeout) => {
-                        // The window is not visible yet (still appearing, minimized, or fully
-                        // covered). Ask for another redraw instead of dropping the frame for
-                        // good — winit does not request one when the window becomes visible.
                         renderer.clear_draw_queue();
                         window.request_redraw();
                     }

@@ -304,7 +304,6 @@ pub(super) struct Pipelines<'a> {
     pub(super) shape_texture_bind_group_layout_background: &'a wgpu::BindGroupLayout,
     pub(super) shape_texture_bind_group_layout_foreground: &'a wgpu::BindGroupLayout,
     pub(super) default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
-    pub(super) shape_texture_layout_epoch: u64,
     pub(super) texture_manager: &'a TextureManager,
 }
 

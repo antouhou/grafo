@@ -13,6 +13,16 @@ use std::sync::Arc;
 const MAX_GRADIENT_RAMP_CACHE_SIZE: usize = 256;
 const MAX_GRADIENT_BIND_GROUP_CACHE_SIZE: usize = 1024;
 
+/// Converts an sRGB byte to a linear channel value between 0.0 and 1.0.
+pub(crate) fn srgb_u8_to_linear(value: u8) -> f32 {
+    let normalized = value as f32 / 255.0;
+    if normalized <= 0.04045 {
+        normalized / 12.92
+    } else {
+        ((normalized + 0.055) / 1.055).powf(2.4)
+    }
+}
+
 pub fn normalize_rgba_color(color: &[u8; 4]) -> [f32; 4] {
     [
         srgb_u8_to_linear(color[0]),
@@ -20,19 +30,6 @@ pub fn normalize_rgba_color(color: &[u8; 4]) -> [f32; 4] {
         srgb_u8_to_linear(color[2]),
         color[3] as f32 / 255.0, // alpha is linear, not gamma-encoded
     ]
-}
-
-/// Converts a single sRGB u8 channel value (0–255) to linear f32 (0.0–1.0).
-///
-/// This mirrors the GPU-side `to_linear` function but is done on the CPU so the
-/// fragment shader can skip the expensive per-fragment `pow()` call.
-fn srgb_u8_to_linear(value: u8) -> f32 {
-    let normalized = value as f32 / 255.0;
-    if normalized <= 0.04045 {
-        normalized / 12.92
-    } else {
-        ((normalized + 0.055) / 1.055).powf(2.4)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
