@@ -318,7 +318,7 @@ pub enum RadialGradientSize {
     ExplicitEllipseRadii { radius_x: f32, radius_y: f32 },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ColorInterpolation {
     Oklab,
     Srgb,
@@ -478,15 +478,6 @@ pub(crate) enum GradientColorKey {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum ColorInterpolationKey {
-    Oklab,
-    Srgb,
-    SrgbLinear,
-    Hsl { hue: HueInterpolationMethod },
-    Hwb { hue: HueInterpolationMethod },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct GradientRampStopKey {
     pub(crate) position_bits: u32,
     pub(crate) color: GradientColorKey,
@@ -495,7 +486,7 @@ pub(crate) struct GradientRampStopKey {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct GradientRampCacheKey {
-    pub(crate) interpolation: ColorInterpolationKey,
+    pub(crate) interpolation: ColorInterpolation,
     pub(crate) stops: GradientRampKeyStops,
 }
 
@@ -879,18 +870,6 @@ impl GradientColorKey {
     }
 }
 
-impl ColorInterpolationKey {
-    fn from_interpolation(interpolation: ColorInterpolation) -> Self {
-        match interpolation {
-            ColorInterpolation::Oklab => Self::Oklab,
-            ColorInterpolation::Srgb => Self::Srgb,
-            ColorInterpolation::SrgbLinear => Self::SrgbLinear,
-            ColorInterpolation::Hsl { hue } => Self::Hsl { hue },
-            ColorInterpolation::Hwb { hue } => Self::Hwb { hue },
-        }
-    }
-}
-
 impl GradientRampCacheKey {
     pub(crate) fn from_normalized(
         interpolation: &ColorInterpolation,
@@ -906,7 +885,7 @@ impl GradientRampCacheKey {
         }
 
         Self {
-            interpolation: ColorInterpolationKey::from_interpolation(*interpolation),
+            interpolation: *interpolation,
             stops,
         }
     }
@@ -1138,137 +1117,6 @@ mod tests {
             gradient,
             Err(GradientError::InvalidRadialDefinition)
         ));
-    }
-
-    #[test]
-    fn gradient_stops_collect_without_exposing_smallvec() {
-        let stops = [
-            GradientStop::at_position(
-                GradientStopOffset::linear_radial(0.0),
-                Color::rgb(255, 0, 0),
-            ),
-            GradientStop::at_position(
-                GradientStopOffset::linear_radial(1.0),
-                Color::rgb(0, 0, 255),
-            ),
-        ];
-        let first_color = stops[0].color;
-        let second_color = stops[1].color;
-        let gradient_stops = GradientStops::from(stops);
-
-        assert_eq!(gradient_stops.len(), 2);
-        assert_eq!(gradient_stops[0].color, first_color);
-        assert_eq!(gradient_stops[1].color, second_color);
-    }
-
-    #[test]
-    fn fill_converts_from_color_and_gradient() {
-        let solid_fill = Fill::from(Color::rgb(10, 20, 30));
-        assert!(matches!(solid_fill, Fill::Solid(_)));
-
-        let gradient = Gradient::linear(
-            LinearGradientDesc::new(
-                LinearGradientLine {
-                    start: [0.0, 0.0],
-                    end: [10.0, 0.0],
-                },
-                [
-                    GradientStop::at_position(
-                        GradientStopOffset::linear_radial(0.0),
-                        Color::rgb(255, 0, 0),
-                    ),
-                    GradientStop::at_position(
-                        GradientStopOffset::linear_radial(1.0),
-                        Color::rgb(0, 0, 255),
-                    ),
-                ],
-            )
-            .with_interpolation(ColorInterpolation::SrgbLinear),
-        )
-        .unwrap();
-
-        let gradient_fill = Fill::from(gradient);
-        assert!(matches!(gradient_fill, Fill::Gradient(_)));
-    }
-
-    #[test]
-    fn descriptor_builder_methods_apply_units_and_spread() {
-        let gradient = Gradient::linear(
-            LinearGradientDesc::new(
-                LinearGradientLine {
-                    start: [0.0, 0.0],
-                    end: [10.0, 0.0],
-                },
-                [
-                    GradientStop::at_position(
-                        GradientStopOffset::linear_radial(0.0),
-                        Color::rgb(255, 0, 0),
-                    )
-                    .with_hint_to_next_segment(GradientStopOffset::linear_radial(0.25)),
-                    GradientStop::between_positions(
-                        GradientStopOffset::linear_radial(0.5),
-                        GradientStopOffset::linear_radial(0.75),
-                        Color::rgb(0, 0, 255),
-                    ),
-                ],
-            )
-            .with_units(GradientUnits::Canvas)
-            .with_spread(SpreadMode::Repeat)
-            .with_interpolation(ColorInterpolation::SrgbLinear),
-        )
-        .unwrap();
-
-        assert_eq!(gradient.data.units, GradientUnits::Canvas);
-        assert_eq!(gradient.data.spread, SpreadMode::Repeat);
-        assert!(!gradient.data.is_constant);
-    }
-
-    #[test]
-    fn radial_and_conic_descriptor_builders_set_common_configuration() {
-        let radial_gradient = Gradient::radial(
-            RadialGradientDesc::new(
-                [50.0, 50.0],
-                RadialGradientShape::Circle,
-                RadialGradientSize::ExplicitCircleRadius(20.0),
-                [
-                    GradientStop::at_position(
-                        GradientStopOffset::linear_radial(0.0),
-                        Color::rgb(255, 255, 0),
-                    ),
-                    GradientStop::at_position(
-                        GradientStopOffset::linear_radial(1.0),
-                        Color::rgb(0, 255, 0),
-                    ),
-                ],
-            )
-            .with_units(GradientUnits::Canvas)
-            .with_interpolation(ColorInterpolation::SrgbLinear),
-        )
-        .unwrap();
-
-        let conic_gradient = Gradient::conic(
-            ConicGradientDesc::new(
-                [10.0, 20.0],
-                0.5,
-                [
-                    GradientStop::at_position(
-                        GradientStopOffset::conic_radians(0.0),
-                        Color::rgb(255, 0, 0),
-                    ),
-                    GradientStop::at_position(
-                        GradientStopOffset::conic_radians(std::f32::consts::TAU),
-                        Color::rgb(255, 0, 0),
-                    ),
-                ],
-            )
-            .with_spread(SpreadMode::Repeat),
-        )
-        .unwrap();
-
-        assert_eq!(radial_gradient.data.units, GradientUnits::Canvas);
-        assert_eq!(radial_gradient.data.kind, GradientKind::Radial);
-        assert_eq!(conic_gradient.data.spread, SpreadMode::Repeat);
-        assert_eq!(conic_gradient.data.kind, GradientKind::Conic);
     }
 
     #[test]

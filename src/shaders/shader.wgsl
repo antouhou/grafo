@@ -46,11 +46,11 @@ struct GradientVertexOutput {
     @location(6) screen_pos: vec2<f32>,
 };
 
-// This is a struct that will be used for position normalization
+// Viewport dimensions and antialiasing settings from the renderer.
 struct Uniforms {
     canvas_size: vec2<f32>,
     scale_factor: f32,
-    /// AA fringe offset in physical pixels (default 0.5). Set to 0 to disable fringe.
+    // Outward AA fringe width in physical pixels. Zero disables the fringe.
     fringe_width: f32,
 };
 
@@ -246,9 +246,8 @@ fn compute_vertex_position(input: VertexInput) -> vec4<f32> {
     let py = p.y * invw;
     let pz = p.z * invw;
 
-    // AA fringe offset: push outer fringe vertices outward by 1 logical pixel in screen space.
-    // Only applied to fringe vertices (coverage < 1.0). This ensures the fringe width is
-    // uniform regardless of perspective transforms.
+    // Offset fringe vertices after projection to keep the configured physical-pixel
+    // width independent of the shape's transform.
     var final_px = px;
     var final_py = py;
 
@@ -266,9 +265,7 @@ fn compute_vertex_position(input: VertexInput) -> vec4<f32> {
 
         if (screen_len > 1e-8) {
             let unit_dir = screen_dir / screen_len;
-            // Offset outward by the configured fringe width (in physical pixels).
-            // This centers the AA band on the shape boundary, avoiding bloating thin features
-            // (a 1px line stays ~2px instead of 3px with a full-pixel fringe).
+            // Convert the physical-pixel width to logical screen coordinates.
             let fringe_width = uniforms.fringe_width / uniforms.scale_factor;
             final_px = px + unit_dir.x * fringe_width;
             final_py = py + unit_dir.y * fringe_width;

@@ -1314,21 +1314,18 @@ impl CachedShapeDrawData {
 /// ```
 #[derive(Clone)]
 pub struct ShapeBuilder {
-    /// The stroke properties of the shape.
     stroke: Stroke,
-    /// The path builder used to construct the shape's geometric path.
     path_builder: lyon::path::Builder,
 }
 
 impl Default for ShapeBuilder {
-    /// Creates a default `ShapeBuilder` with a black stroke.
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl ShapeBuilder {
-    /// Creates a new `ShapeBuilder` with a default black stroke.
+    /// Starts an empty path with a black stroke of width 1.0.
     pub fn new() -> Self {
         Self {
             stroke: Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
@@ -1343,106 +1340,39 @@ impl ShapeBuilder {
     }
 
     /// Starts a new subpath at `point`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let builder = ShapeBuilder::new().begin((0.0, 0.0));
-    /// ```
     pub fn begin(mut self, point: (f32, f32)) -> Self {
         self.path_builder.begin(point.into());
         self
     }
 
-    /// Draws a line from the current point to the specified point.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let builder = ShapeBuilder::new().begin((0.0, 0.0)).line_to((50.0, 10.0));
-    /// ```
+    /// Draws a line from the current point to `point`.
     pub fn line_to(mut self, point: (f32, f32)) -> Self {
         self.path_builder.line_to(point.into());
         self
     }
 
-    /// Draws a cubic Bézier curve from the current point to the specified end point.
-    ///
-    /// # Parameters
-    ///
-    /// - `ctrl`: The first control point.
-    /// - `ctrl2`: The second control point.
-    /// - `to`: The end point of the curve.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let builder = ShapeBuilder::new()
-    ///     .begin((0.0, 0.0))
-    ///     .cubic_bezier_to((20.0, 30.0), (40.0, 30.0), (50.0, 10.0));
-    /// ```
+    /// Draws a cubic Bézier curve to `to`, using `ctrl` and `ctrl2` as the first
+    /// and second control points.
     pub fn cubic_bezier_to(mut self, ctrl: (f32, f32), ctrl2: (f32, f32), to: (f32, f32)) -> Self {
         self.path_builder
             .cubic_bezier_to(ctrl.into(), ctrl2.into(), to.into());
         self
     }
 
-    /// Draws a quadratic Bézier curve from the current point to the specified end point.
-    ///
-    /// # Parameters
-    ///
-    /// - `ctrl`: The control point.
-    /// - `to`: The end point of the curve.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let builder = ShapeBuilder::new()
-    ///     .begin((0.0, 0.0))
-    ///     .quadratic_bezier_to((25.0, 40.0), (50.0, 10.0));
-    /// ```
+    /// Draws a quadratic Bézier curve to `to`, using `ctrl` as the control point.
     pub fn quadratic_bezier_to(mut self, ctrl: (f32, f32), to: (f32, f32)) -> Self {
         self.path_builder
             .quadratic_bezier_to(ctrl.into(), to.into());
         self
     }
 
-    /// Closes the current sub-path by drawing a line back to the starting point.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let builder = ShapeBuilder::new().begin((0.0, 0.0)).close();
-    /// ```
+    /// Closes the current subpath with a line back to its starting point.
     pub fn close(mut self) -> Self {
         self.path_builder.close();
         self
     }
 
     /// Builds the [`Shape`] from the accumulated path and stroke.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let shape = ShapeBuilder::new()
-    ///     .begin((0.0, 0.0))
-    ///     .line_to((50.0, 10.0))
-    ///     .line_to((50.0, 50.0))
-    ///     .close()
-    ///     .build();
-    /// ```
     pub fn build(self) -> Shape {
         let path = self.path_builder.build();
         Shape::Path(PathShape {

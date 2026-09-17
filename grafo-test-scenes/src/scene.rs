@@ -1,7 +1,7 @@
 use grafo::{
-    BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color, ColorInterpolation,
-    ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc, GradientStop,
-    GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
+    premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
+    ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
+    GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
     LinearGradientLine, RadialGradientDesc, RadialGradientShape, RadialGradientSize, Renderer,
     Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
     SpreadMode, Stroke, TransformInstance,
@@ -33,6 +33,7 @@ const CHECKERBOARD_TEXTURE_ID: u64 = 100;
 const SOLID_GREEN_TEXTURE_ID: u64 = 101;
 const SOLID_GREEN_20X20_TEXTURE_ID: u64 = 102;
 const SOLID_RED_TEXTURE_ID: u64 = 103;
+const TRANSLUCENT_CHECKERBOARD_TEXTURE_ID: u64 = 104;
 
 /// Returns the pixel origin (top-left corner) of tile number `n` (1-based).
 fn tile_origin(tile_number: u32) -> (f32, f32) {
@@ -192,6 +193,15 @@ fn load_shared_resources(renderer: &mut Renderer) {
     }
     renderer.texture_manager().allocate_texture_with_data(
         CHECKERBOARD_TEXTURE_ID,
+        (4, 4),
+        &checkerboard,
+    );
+    for pixel in checkerboard.as_chunks_mut::<4>().0 {
+        pixel[3] = 128;
+    }
+    premultiply_rgba8_srgb_inplace(&mut checkerboard);
+    renderer.texture_manager().allocate_texture_with_data(
+        TRANSLUCENT_CHECKERBOARD_TEXTURE_ID,
         (4, 4),
         &checkerboard,
     );
@@ -1625,22 +1635,30 @@ fn tile_25_textured_with_color(renderer: &mut Renderer) -> Vec<PixelExpectation>
             None,
             None,
             ShapeDrawCommandOptions::new()
-                .background_texture_id(CHECKERBOARD_TEXTURE_ID)
+                .background_texture_id(TRANSLUCENT_CHECKERBOARD_TEXTURE_ID)
                 .color(Color::rgb(255, 100, 100)),
         )
         .unwrap();
 
     vec![
-        PixelExpectation::new(
-            ox as u32 + 40,
-            oy as u32 + 40,
-            190,
-            130,
-            130,
+        // Sample texel centers. In linear RGB, texture * alpha + fill * (1 - alpha)
+        // gives these sRGB colors for white and black texels at alpha 128/255.
+        PixelExpectation::opaque(
+            ox as u32 + 17,
+            oy as u32 + 17,
             255,
-            "t25_tinted_texture",
-        )
-        .with_tolerance(80),
+            198,
+            198,
+            "t25_translucent_white_over_fill",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 32,
+            oy as u32 + 17,
+            187,
+            71,
+            71,
+            "t25_translucent_black_over_fill",
+        ),
         // Outside the textured rect
         PixelExpectation::opaque(
             ox as u32 + 5,

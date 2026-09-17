@@ -8,18 +8,14 @@ use wgpu::{
     Texture, TextureView,
 };
 
-/// A structure for coordinate normalization on the GPU. We pass pixel coordinates to the GPU,
-///  but GPU needs coordinates to be normalized between 0 and 1.
+/// Viewport dimensions and antialiasing settings used by the vertex shader.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Uniforms {
     pub canvas_size: [f32; 2],
-    /// Display scale factor (e.g. 2.0 for Retina). Used by the AA fringe shader
-    /// to offset by exactly 1 physical pixel.
+    /// Physical pixels per logical pixel, used to convert the configured fringe width.
     pub scale_factor: f32,
-    /// AA fringe offset in physical pixels. Controls how far the anti-aliasing
-    /// fringe extends outward from shape edges. Default is 0.75. Set to 0.0 to
-    /// disable the AA fringe entirely.
+    /// Outward AA fringe width in physical pixels. Zero disables the fringe.
     pub fringe_width: f32,
 }
 

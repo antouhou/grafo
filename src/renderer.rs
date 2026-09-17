@@ -101,8 +101,7 @@ pub struct Renderer<'a> {
     /// Scale factor of the window (e.g., for high-DPI displays).
     scale_factor: f64,
 
-    /// AA fringe offset in physical pixels. Controls how far the anti-aliasing
-    /// fringe extends outward from shape edges. Default is 0.75.
+    /// Outward AA fringe width in physical pixels.
     fringe_width: f32,
 
     // WGPU components
