@@ -4,20 +4,16 @@
 //! [![Grafo documentation](https://docs.rs/grafo/badge.svg)](https://docs.rs/grafo)
 //! [![Build and test](https://github.com/antouhou/grafo/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/antouhou/grafo/actions)
 //!
-//! Grafo is a GPU-accelerated rendering library for Rust. It is a one-stop solution in case
-//! you need a quick and simple way to render shapes (with optional texture layers) in your application. It
-//! supports features such as masking, clipping, and font loading and rendering.
-//!
-//! The library is designed for flexibility and ease of use, making it suitable for a wide
-//! range of applications, from simple graphical interfaces to complex rendering engines.
+//! Grafo is a GPU-accelerated vector graphics library for Rust.
 //!
 //! ## Features
 //!
-//! * Shape Rendering: Create and render complex vector shapes.
-//! * Shape Texturing: Apply up to two texture layers per shape with hierarchical clipping.
-//! * Stencil Operations: Advanced stencil operations for clipping and masking.
-//! * Shape Hierarchy: Attach shapes to parent nodes and choose whether each parent clips children.
-//! * Shader Effects: Process complete subtrees, captured backdrops, or cacheable local shape masks.
+//! * Path rendering with cached tessellation.
+//! * Hierarchical path clipping.
+//! * Per-instance 3D and perspective transforms.
+//! * Solid fills and linear, radial, and conic gradients.
+//! * Custom WGSL shader effects on shape masks, groups, and backdrops.
+//! * Geometry-based antialiasing and MSAA.
 //!
 //! Grafo [available on crates.io](https://crates.io/crates/grafo), and
 //! [API Documentation is available on docs.rs](https://docs.rs/grafo/).
