@@ -961,9 +961,8 @@ pub fn create_msaa_color_texture(
     })
 }
 
-/// Creates a stencil-only pipeline: writes to the stencil buffer (IncrementClamp)
-/// but produces no color output (ColorWrites::empty()).
-/// Used for Step 1 of the three-step backdrop draw.
+/// Creates a pipeline that increments stencil without writing color, clipping
+/// subsequent backdrop compositing to the shape.
 pub fn create_stencil_only_pipeline(
     device: &Device,
     format: wgpu::TextureFormat,
@@ -1019,9 +1018,8 @@ pub fn create_stencil_only_pipeline(
     })
 }
 
-/// Creates a shape color pipeline with stencil Equal + Keep (no stencil modification).
-/// Same as the StencilIncrement pipeline but with pass_op = Keep.
-/// Used for Step 3 of the three-step backdrop draw to avoid double stencil increment.
+/// Creates a pipeline that draws shape color over a processed backdrop while
+/// preserving the stencil value established before compositing.
 pub fn create_stencil_keep_color_pipeline(
     device: &Device,
     format: wgpu::TextureFormat,

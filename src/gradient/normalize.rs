@@ -63,7 +63,7 @@ impl NormalizedGradient {
             };
         }
 
-        // Step 1-2: Expand double positions into paired stops
+        // Expand double positions into paired stops.
         let mut authored: SmallVec<[AuthoredStop; NORMALIZED_INLINE_STOP_CAPACITY]> =
             SmallVec::with_capacity(common.stops.len() * 2);
         for stop in &common.stops {
@@ -83,13 +83,12 @@ impl NormalizedGradient {
                     });
                 }
                 GradientStopPositions::Double(a, b) => {
-                    // First stop of the pair: gets the hint
                     authored.push(AuthoredStop {
                         color: stop.color,
                         raw_position: Some(a.value()),
                         hint_to_next_segment: None,
                     });
-                    // Second stop of the pair
+                    // The hint applies after the second position of the double stop.
                     authored.push(AuthoredStop {
                         color: stop.color,
                         raw_position: Some(b.value()),
@@ -99,7 +98,7 @@ impl NormalizedGradient {
             }
         }
 
-        // Step 4: Default first and last positions if omitted
+        // Omitted endpoints span one turn for conic gradients and 0..1 otherwise.
         let default_end = if is_conic { TAU } else { 1.0 };
 
         if authored[0].raw_position.is_none() {
@@ -110,10 +109,9 @@ impl NormalizedGradient {
             authored[last_index].raw_position = Some(default_end);
         }
 
-        // Step 5: Fill interior runs of omitted positions.
         fill_implicit_positions(&mut authored);
 
-        // Build normalized stops
+        // Build stops
         let mut previous_position: Option<f32> = None;
         let mut stops: SmallVec<[NormalizedStop; NORMALIZED_INLINE_STOP_CAPACITY]> =
             SmallVec::with_capacity(authored.len());
@@ -135,7 +133,7 @@ impl NormalizedGradient {
             previous_position = Some(position);
         }
 
-        // Step 9: Validate and retain hints
+        // Keep only hints strictly inside the following segment.
         for (stop_index, authored_stop) in authored.iter().enumerate() {
             if let Some(hint_value) = authored_stop.hint_to_next_segment {
                 if stop_index + 1 < stops.len() {
@@ -144,7 +142,6 @@ impl NormalizedGradient {
                     if current_position < hint_value && hint_value < next_position {
                         stops[stop_index].hint = Some(hint_value);
                     }
-                    // Otherwise drop the hint
                 }
             }
         }
@@ -162,7 +159,6 @@ impl NormalizedGradient {
             });
         }
 
-        // Step 10: Derive repeating metadata
         let period_start = stops.first().unwrap().position;
         let period_end = stops.last().unwrap().position;
         let period_len = period_end - period_start;

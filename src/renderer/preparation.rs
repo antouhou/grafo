@@ -1,4 +1,3 @@
-use super::types::decide_buffer_sizing;
 use super::*;
 use crate::pipeline::create_buffer_init;
 use crate::vertex::CustomVertex;
@@ -17,13 +16,11 @@ fn upsert_gpu_buffer(
     bytes: &[u8],
     usage: wgpu::BufferUsages,
 ) {
-    let decision =
-        decide_buffer_sizing(buffer.as_ref().map(|existing| existing.size()), bytes.len());
-
-    if decision.should_reallocate {
-        *buffer = Some(create_buffer_init(device, Some(label), bytes, usage));
-    } else if let Some(existing_buffer) = buffer.as_ref() {
-        queue.write_buffer(existing_buffer, 0, bytes);
+    match buffer.as_ref() {
+        Some(existing_buffer) if existing_buffer.size() >= bytes.len() as u64 => {
+            queue.write_buffer(existing_buffer, 0, bytes);
+        }
+        _ => *buffer = Some(create_buffer_init(device, Some(label), bytes, usage)),
     }
 }
 
