@@ -24,8 +24,8 @@
 //!
 //! ```toml
 //! [dependencies]
-//! grafo = "0.1.0"
-//! winit = "0.27"   # For window creation and event handling
+//! grafo = "0.19"
+//! winit = "0.30"   # For window creation and event handling
 //! image = "0.24"   # For image processing
 //! env_logger = "0.10" # For logging
 //! log = "0.4"      # For logging
@@ -33,8 +33,8 @@
 //!
 //! ### Basic Usage
 //!
-//! Below is a simple example demonstrating how to initialize the `Renderer`, add shapes and text,
-//! and render a frame using `winit`. For a more comprehensive example, refer to the
+//! This example initializes the `Renderer`, adds a rectangle, and renders a frame using `winit`.
+//! For runnable examples, see the
 //! [examples](https://github.com/antouhou/grafo/tree/main/examples) folder in the repository.
 //!
 //! ```rust,no_run

@@ -657,7 +657,7 @@ mod tests {
     }
 
     #[test]
-    fn test_hsl_srgb_roundtrip() {
+    fn test_hsl_to_srgb_green() {
         let (r, g, b) = hsl_to_srgb(120.0, 1.0, 0.5);
         assert!((r - 0.0).abs() < 1e-5);
         assert!((g - 1.0).abs() < 1e-5);

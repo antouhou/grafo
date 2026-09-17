@@ -196,7 +196,7 @@ fn compute_vertex_bounds(vertices: &[CustomVertex]) -> [(f32, f32); 2] {
 /// # Variants
 ///
 /// - `Path(PathShape)`: A custom path shape defined using Bézier curves and lines.
-/// - `Rect(RectShape)`: A simple rectangular shape with optional rounded corners.
+/// - `Rect(RectShape)`: An axis-aligned rectangle with square corners.
 ///
 /// # Examples
 ///
@@ -1447,10 +1447,6 @@ impl ShapeBuilder {
     ///
     /// - `stroke`: The desired stroke properties.
     ///
-    /// # Returns
-    ///
-    /// The updated `ShapeBuilder` instance.
-    ///
     /// # Examples
     ///
     /// ```rust
@@ -1471,10 +1467,6 @@ impl ShapeBuilder {
     ///
     /// - `point`: The start point of the shape.
     ///
-    /// # Returns
-    ///
-    /// The updated `ShapeBuilder` instance.
-    ///
     /// # Examples
     ///
     /// ```rust
@@ -1492,10 +1484,6 @@ impl ShapeBuilder {
     /// # Parameters
     ///
     /// - `point`: The end point of the line.
-    ///
-    /// # Returns
-    ///
-    /// The updated `ShapeBuilder` instance.
     ///
     /// # Examples
     ///
@@ -1516,10 +1504,6 @@ impl ShapeBuilder {
     /// - `ctrl`: The first control point.
     /// - `ctrl2`: The second control point.
     /// - `to`: The end point of the curve.
-    ///
-    /// # Returns
-    ///
-    /// The updated `ShapeBuilder` instance.
     ///
     /// # Examples
     ///
@@ -1543,10 +1527,6 @@ impl ShapeBuilder {
     /// - `ctrl`: The control point.
     /// - `to`: The end point of the curve.
     ///
-    /// # Returns
-    ///
-    /// The updated `ShapeBuilder` instance.
-    ///
     /// # Examples
     ///
     /// ```rust
@@ -1564,10 +1544,6 @@ impl ShapeBuilder {
 
     /// Closes the current sub-path by drawing a line back to the starting point.
     ///
-    /// # Returns
-    ///
-    /// The updated `ShapeBuilder` instance.
-    ///
     /// # Examples
     ///
     /// ```rust
@@ -1580,7 +1556,7 @@ impl ShapeBuilder {
         self
     }
 
-    /// Builds the [`Shape`] from the accumulated path, fill color, and stroke.
+    /// Builds the [`Shape`] from the accumulated path and stroke.
     ///
     /// # Returns
     ///
@@ -1650,7 +1626,7 @@ pub struct BorderRadii {
 /// };
 /// ```
 impl BorderRadii {
-    /// Creates a new `BorderRadii` with the same radius for all corners.
+    /// Sets every corner to the absolute value of `radius`.
     ///
     /// # Parameters
     ///

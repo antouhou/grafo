@@ -1,5 +1,5 @@
 // The bytemuck derive emits private compile-time helpers that trigger false unused warnings.
-#![allow(unused)]
+#![allow(dead_code)]
 
 #[cfg(feature = "render_metrics")]
 use super::metrics::ShapeEffectCacheMetrics;
@@ -21,7 +21,6 @@ use std::sync::Arc;
 const SHAPE_EFFECT_MASK_SHADER: &str = include_str!("../shaders/shape_effect_mask.wgsl");
 
 #[repr(C)]
-#[allow(unused)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 pub(super) struct ShapeEffectMaskUniform {
     local_origin: [f32; 2],

@@ -1192,7 +1192,7 @@ mod tests {
     }
 
     #[test]
-    fn descriptor_builder_methods_apply_defaults_and_overrides() {
+    fn descriptor_builder_methods_apply_units_and_spread() {
         let gradient = Gradient::linear(
             LinearGradientDesc::new(
                 LinearGradientLine {
