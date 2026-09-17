@@ -588,9 +588,7 @@ pub fn render_buffer_range_to_texture(
 ) {
     render_pass.set_stencil_reference(parent_stencil_reference);
 
-    // The indices in the aggregated buffer are already offset, so we need to:
-    // 1. Use the correct index range
-    // 2. Set the vertex base to 0 since we're using the full vertex buffer
+    // Aggregated indices already include vertex offsets, so the base vertex is zero.
     let index_start = index_range.0 as u32;
     let index_end = (index_range.0 + index_range.1) as u32;
 

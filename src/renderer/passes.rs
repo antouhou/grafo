@@ -3,6 +3,7 @@ use super::types::{
     PipelineTracker, Pipelines, TraversalEvent,
 };
 use super::*;
+use crate::effect::PooledTexture;
 use crate::pipeline::{
     begin_render_pass_with_load_ops, BackdropSamplingUniform, RenderPassLoadOperations,
 };
@@ -23,62 +24,38 @@ fn cached_shape_mut(draw_command: &mut DrawCommand) -> &mut CachedShapeDrawData 
 
 pub(super) struct AppliedEffectOutput {
     pub(super) composite_bind_group: Option<wgpu::BindGroup>,
-    pub(super) primary_work_texture: effect::PooledTexture,
-    pub(super) secondary_work_texture: Option<effect::PooledTexture>,
-    pub(super) final_texture_is_primary: bool,
+    pub(super) final_output_texture: PooledTexture,
+    pub(super) recyclable_texture: Option<PooledTexture>,
 }
 
 impl AppliedEffectOutput {
     pub(super) fn into_final_and_recyclable(
         self,
-        recyclable: &mut Vec<effect::PooledTexture>,
-    ) -> (effect::PooledTexture, Option<wgpu::BindGroup>) {
-        if self.final_texture_is_primary {
-            if let Some(secondary_work_texture) = self.secondary_work_texture {
-                recyclable.push(secondary_work_texture);
-            }
-            (self.primary_work_texture, self.composite_bind_group)
-        } else {
-            let final_texture = self
-                .secondary_work_texture
-                .expect("secondary effect texture must exist when it is the final output");
-            recyclable.push(self.primary_work_texture);
-            (final_texture, self.composite_bind_group)
+        recyclable: &mut Vec<PooledTexture>,
+    ) -> (PooledTexture, Option<wgpu::BindGroup>) {
+        if let Some(recyclable_texture) = self.recyclable_texture {
+            recyclable.push(recyclable_texture);
         }
+        (self.final_output_texture, self.composite_bind_group)
     }
 
     pub(super) fn push_work_textures_into(
         self,
-        output_textures: &mut Vec<effect::PooledTexture>,
+        output_textures: &mut Vec<PooledTexture>,
     ) -> Option<wgpu::BindGroup> {
-        output_textures.push(self.primary_work_texture);
-        if let Some(secondary_work_texture) = self.secondary_work_texture {
-            output_textures.push(secondary_work_texture);
+        output_textures.push(self.final_output_texture);
+        if let Some(recyclable_texture) = self.recyclable_texture {
+            output_textures.push(recyclable_texture);
         }
         self.composite_bind_group
     }
 
     pub(super) fn final_output_view(&self) -> &wgpu::TextureView {
-        if self.final_texture_is_primary {
-            &self.primary_work_texture.color_view
-        } else {
-            &self
-                .secondary_work_texture
-                .as_ref()
-                .expect("secondary effect texture must exist when it is the final output")
-                .color_view
-        }
+        &self.final_output_texture.color_view
     }
 
     pub(super) fn final_output_texture_id(&self) -> u64 {
-        if self.final_texture_is_primary {
-            self.primary_work_texture.texture_id
-        } else {
-            self.secondary_work_texture
-                .as_ref()
-                .expect("secondary effect texture must exist when it is the final output")
-                .texture_id
-        }
+        self.final_output_texture.texture_id
     }
 }
 
@@ -181,11 +158,19 @@ pub(super) fn apply_effect_passes(
         )
     });
 
+    let (final_output_texture, recyclable_texture) = if number_of_passes % 2 == 1 {
+        (effect_texture_a, effect_texture_b)
+    } else {
+        (
+            effect_texture_b.expect("an even number of effect passes needs a second texture"),
+            Some(effect_texture_a),
+        )
+    };
+
     AppliedEffectOutput {
         composite_bind_group,
-        primary_work_texture: effect_texture_a,
-        secondary_work_texture: effect_texture_b,
-        final_texture_is_primary: number_of_passes % 2 == 1,
+        final_output_texture,
+        recyclable_texture,
     }
 }
 
@@ -1037,7 +1022,7 @@ pub(super) fn render_segments(
     texture_pool: &mut OffscreenTexturePool,
     composite_pipeline: Option<&wgpu::RenderPipeline>,
     backdrop_ctx: Option<&BackdropContext>,
-    backdrop_work_textures: &mut Vec<effect::PooledTexture>,
+    backdrop_work_textures: &mut Vec<PooledTexture>,
     stencil_stack: &mut Vec<u32>,
     scissor_stack: &mut Vec<(u32, u32, u32, u32)>,
     clip_kind_stack: &mut Vec<ClipKind>,
@@ -1497,7 +1482,7 @@ pub(super) fn render_segments(
                         (capture_width, capture_height),
                         backdrop_config.downsample,
                     );
-                    let mut downsampled_capture_texture: Option<effect::PooledTexture> = None;
+                    let mut downsampled_capture_texture: Option<PooledTexture> = None;
 
                     if effect_input_size != (capture_width, capture_height) {
                         let downsampled_capture_target = texture_pool.acquire_color_only(

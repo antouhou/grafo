@@ -189,8 +189,6 @@ pub(crate) fn create_ramp_texture(
     queue: &wgpu::Queue,
     ramp: &[[f32; 4]],
 ) -> (wgpu::Texture, wgpu::TextureView) {
-    let fallback = [[0.0_f32; 4]];
-    let ramp = if ramp.is_empty() { &fallback[..] } else { ramp };
     let width = ramp.len() as u32;
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("gradient_ramp_texture"),

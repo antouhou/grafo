@@ -122,9 +122,8 @@ pub(super) fn intersect_scissor(
     (left, top, width, height)
 }
 
-/// Check whether a non-leaf draw command is eligible for scissor clipping,
-/// and if so, compute the scissor rect. This centralizes the eligibility logic
-/// so pre-visit and post-visit make the same deterministic decision.
+/// Returns a scissor rect when the draw command is a rectangle whose transform
+/// preserves axis alignment.
 pub(super) fn try_scissor_for_rect(
     draw_command: &DrawCommand,
     scale_factor: f64,

@@ -159,14 +159,13 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // ── Label text (just a thin rectangle as a visual marker) ─
-                let label = Shape::rect(
+                let marker = Shape::rect(
                     [(310.0, 200.0), (750.0, 230.0)],
                     Stroke::new(1.0_f32, Color::BLACK),
                 );
                 renderer
                     .add_shape(
-                        label,
+                        marker,
                         Some(bg_id),
                         None,
                         ShapeDrawCommandOptions::new().color(Color::rgb(200, 200, 255)),

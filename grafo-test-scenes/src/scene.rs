@@ -3017,27 +3017,40 @@ fn tile_45_gradient_group_blur(renderer: &mut Renderer) -> Vec<PixelExpectation>
         .expect("Failed to set group effect");
 
     vec![
-        // Blurred gradient center: purple-ish mix (high tolerance due to blur)
-        PixelExpectation::new(
+        // Pixels outside the left and top edges require both blur passes to spread coverage.
+        PixelExpectation::opaque(
+            ox as u32 + 14,
+            oy as u32 + 40,
+            118,
+            143,
+            78,
+            "t45_horizontal_blur_spread",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 40,
+            oy as u32 + 9,
+            227,
+            202,
+            206,
+            "t45_vertical_blur_spread",
+        ),
+        PixelExpectation::opaque(
             ox as u32 + 40,
             oy as u32 + 40,
-            120,
-            40,
-            140,
-            255,
+            134,
+            50,
+            137,
             "t45_blurred_gradient_center",
-        )
-        .with_tolerance(70),
-        // Green stripe outside blurred shape — stays sharp and fully green
+        ),
+        // This stripe pixel is beyond the eight-pixel blur radius.
         PixelExpectation::opaque(
-            ox as u32 + 10,
+            ox as u32 + 5,
             oy as u32 + 40,
             50,
             180,
             50,
             "t45_bg_stripe_sharp",
-        )
-        .with_tolerance(20),
+        ),
     ]
 }
 
