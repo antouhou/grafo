@@ -222,7 +222,6 @@ impl<'a> Renderer<'a> {
 
     pub fn clear_draw_queue(&mut self) {
         self.draw_tree.clear();
-        self.metadata_to_clips.clear();
         self.group_effects.clear();
         self.backdrop_effects.clear();
         self.shape_effects.clear();

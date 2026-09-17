@@ -119,8 +119,6 @@ pub struct Renderer<'a> {
 
     /// Tree structure holding shapes to be rendered.
     draw_tree: easy_tree::Tree<DrawCommand>,
-    /// Maps node metadata indices to their clip-parent node ids.
-    metadata_to_clips: HashMap<usize, usize>,
 
     /// Uniforms for the stencil-increment ("and") rendering pipeline.
     and_uniforms: Uniforms,

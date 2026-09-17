@@ -325,9 +325,9 @@ impl<'a> Renderer<'a> {
         let queue = context.inner.queue.clone();
         let texture_manager = context.inner.texture_manager.clone();
 
-        let (default_shape_texture_bind_group_layer0, shape_texture_bind_group_layout_layer0) =
+        let default_shape_texture_bind_group_layer0 =
             Self::create_default_shape_texture_bind_group(&device, &queue, &and_texture_bgl_layer0);
-        let (default_shape_texture_bind_group_layer1, shape_texture_bind_group_layout_layer1) =
+        let default_shape_texture_bind_group_layer1 =
             Self::create_default_shape_texture_bind_group(&device, &queue, &and_texture_bgl_layer1);
         let default_backdrop_texture_bind_group = Self::create_default_backdrop_texture_bind_group(
             &device,
@@ -353,12 +353,8 @@ impl<'a> Renderer<'a> {
             and_uniforms,
             and_uniform_buffer,
             and_bind_group,
-            shape_texture_bind_group_layout_background: Arc::new(
-                shape_texture_bind_group_layout_layer0,
-            ),
-            shape_texture_bind_group_layout_foreground: Arc::new(
-                shape_texture_bind_group_layout_layer1,
-            ),
+            shape_texture_bind_group_layout_background: Arc::new(and_texture_bgl_layer0),
+            shape_texture_bind_group_layout_foreground: Arc::new(and_texture_bgl_layer1),
             backdrop_texture_bind_group_layout: Arc::new(backdrop_texture_bind_group_layout),
             shape_texture_layout_epoch: 0,
             default_shape_texture_bind_groups: [
@@ -371,7 +367,6 @@ impl<'a> Renderer<'a> {
             decrementing_uniform_buffer,
             decrementing_bind_group,
             draw_tree: easy_tree::Tree::new(),
-            metadata_to_clips: HashMap::new(),
             temp_vertices: Vec::new(),
             temp_indices: Vec::new(),
             geometry_dedup_map: HashMap::new(),
@@ -460,10 +455,6 @@ impl<'a> Renderer<'a> {
                 .len()
         );
         println!("Draw tree size: {}", self.draw_tree.len());
-        println!(
-            "Metadata to clips mappings: {}",
-            self.metadata_to_clips.len()
-        );
 
         println!("\n--- Temporary Vectors ---");
         println!(
@@ -587,7 +578,7 @@ impl<'a> Renderer<'a> {
         device: &Arc<wgpu::Device>,
         queue: &Arc<wgpu::Queue>,
         shape_texture_bind_group_layout: &wgpu::BindGroupLayout,
-    ) -> (wgpu::BindGroup, wgpu::BindGroupLayout) {
+    ) -> wgpu::BindGroup {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("default_transparent_texture"),
             size: wgpu::Extent3d {
@@ -634,7 +625,7 @@ impl<'a> Renderer<'a> {
             ..Default::default()
         });
 
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: shape_texture_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -647,9 +638,7 @@ impl<'a> Renderer<'a> {
                 },
             ],
             label: Some("default_shape_texture_bind_group_transparent"),
-        });
-
-        (bind_group, shape_texture_bind_group_layout.clone())
+        })
     }
 
     fn create_default_backdrop_texture_bind_group(
@@ -887,13 +876,13 @@ impl<'a> Renderer<'a> {
             &self.gradient_bind_group_layout,
         ));
 
-        let (default_shape_texture_bind_group_background, _) =
+        let default_shape_texture_bind_group_background =
             Self::create_default_shape_texture_bind_group(
                 &self.device,
                 &self.queue,
                 &self.shape_texture_bind_group_layout_background,
             );
-        let (default_shape_texture_bind_group_foreground, _) =
+        let default_shape_texture_bind_group_foreground =
             Self::create_default_shape_texture_bind_group(
                 &self.device,
                 &self.queue,

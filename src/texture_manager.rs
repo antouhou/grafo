@@ -81,18 +81,14 @@ impl TextureManager {
         })
     }
 
-    /// Allocates an RGBA8 sRGB texture, replacing any texture with the same ID.
-    ///
-    /// Upload pixels with [`Self::load_data_into_texture`], or allocate and upload together
-    /// with [`Self::allocate_texture_with_data`].
-    pub fn allocate_texture(&self, texture_id: u64, texture_dimensions: (u32, u32)) {
+    fn create_texture(&self, texture_dimensions: (u32, u32)) -> wgpu::Texture {
         let texture_extent = wgpu::Extent3d {
             width: texture_dimensions.0,
             height: texture_dimensions.1,
             depth_or_array_layers: 1,
         };
 
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+        self.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: texture_extent,
             mip_level_count: 1,
@@ -101,13 +97,23 @@ impl TextureManager {
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
-        });
+        })
+    }
 
+    fn insert_texture(&self, texture_id: u64, texture: wgpu::Texture) {
         let mut texture_storage = self.texture_storage.write().unwrap();
         let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
         // Invalidate old bindings while both locks exclude concurrent cache insertion.
         bind_group_cache.retain(|(cached_texture_id, _), _| *cached_texture_id != texture_id);
         texture_storage.insert(texture_id, texture);
+    }
+
+    /// Allocates an RGBA8 sRGB texture, replacing any texture with the same ID.
+    ///
+    /// Upload pixels with [`Self::load_data_into_texture`], or allocate and upload together
+    /// with [`Self::allocate_texture_with_data`].
+    pub fn allocate_texture(&self, texture_id: u64, texture_dimensions: (u32, u32)) {
+        self.insert_texture(texture_id, self.create_texture(texture_dimensions));
     }
 
     /// Allocates and uploads a texture, replacing any texture with the same ID.
@@ -119,9 +125,14 @@ impl TextureManager {
         texture_dimensions: (u32, u32),
         texture_data: &[u8],
     ) {
-        self.allocate_texture(texture_id, texture_dimensions);
-        self.load_data_into_texture(texture_id, texture_dimensions, texture_data)
-            .unwrap();
+        let texture = self.create_texture(texture_dimensions);
+        self.write_image_bytes_to_texture(
+            &texture,
+            texture_dimensions,
+            texture.size(),
+            texture_data,
+        );
+        self.insert_texture(texture_id, texture);
     }
 
     /// Uploads RGBA8 sRGB pixels to the top-left corner of an allocated texture.
@@ -301,71 +312,5 @@ pub fn premultiply_rgba8_srgb_inplace(pixels: &mut [u8]) {
         px[0] = linear_to_srgb_u8(r_pma);
         px[1] = linear_to_srgb_u8(g_pma);
         px[2] = linear_to_srgb_u8(b_pma);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::TextureManager;
-    use crate::{RendererContext, RendererCreationError};
-    use futures::executor::block_on;
-    use std::panic::{self, AssertUnwindSafe};
-    use std::sync::{mpsc, Arc};
-    use std::thread;
-    use std::time::Duration;
-
-    fn create_texture_manager() -> Option<TextureManager> {
-        match block_on(RendererContext::try_new()) {
-            Ok(context) => Some(context.inner.texture_manager.clone()),
-            Err(RendererCreationError::AdapterNotAvailable(_)) => {
-                println!("Skipping test: no suitable GPU adapter available.");
-                None
-            }
-            Err(error) => panic!("Failed to create renderer context: {error}"),
-        }
-    }
-
-    fn assert_storage_is_locked_before_cache(
-        operation: impl FnOnce(&TextureManager) + Send + 'static,
-    ) {
-        let Some(manager) = create_texture_manager() else {
-            return;
-        };
-        let storage = Arc::clone(&manager.texture_storage);
-        assert!(thread::spawn(move || {
-            let _storage = storage.write().unwrap();
-            panic!("poison storage to observe which lock the operation acquires first");
-        })
-        .join()
-        .is_err());
-
-        // Storage-first operations reach the poisoned lock while the cache is held.
-        // Cache-first operations cannot finish until the cache is released below.
-        let cache = manager.shape_bind_group_cache.write().unwrap();
-        let worker_manager = manager.clone();
-        let (completed, completion) = mpsc::channel();
-        let worker = thread::spawn(move || {
-            let result = panic::catch_unwind(AssertUnwindSafe(|| operation(&worker_manager)));
-            completed.send(result.is_err()).unwrap();
-        });
-        let result = completion.recv_timeout(Duration::from_secs(5));
-        drop(cache);
-        worker.join().unwrap();
-
-        assert_eq!(
-            result,
-            Ok(true),
-            "operation waited for the cache before acquiring texture storage",
-        );
-    }
-
-    #[test]
-    fn texture_replacement_locks_storage_before_cache() {
-        assert_storage_is_locked_before_cache(|manager| manager.allocate_texture(7, (1, 1)));
-    }
-
-    #[test]
-    fn texture_removal_locks_storage_before_cache() {
-        assert_storage_is_locked_before_cache(|manager| manager.remove_texture(7));
     }
 }

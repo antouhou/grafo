@@ -99,20 +99,6 @@ struct MaterialParams {
 @group(3) @binding(3) var t_backdrop_layer: texture_2d<f32>;
 @group(3) @binding(4) var s_backdrop_layer: sampler;
 
-fn to_linear(color: vec3<f32>) -> vec3<f32> {
-    let cutoff = vec3<f32>(0.04045);
-    let higher = pow((color + vec3<f32>(0.055)) / vec3<f32>(1.055), vec3<f32>(2.4));
-    let lower = color / vec3<f32>(12.92);
-    return select(higher, lower, color <= cutoff);
-}
-
-fn to_srgb(color: vec3<f32>) -> vec3<f32> {
-    let cutoff = vec3<f32>(0.0031308);
-    let higher = vec3<f32>(1.055) * pow(color, vec3<f32>(1.0 / 2.4)) - vec3<f32>(0.055);
-    let lower = color * vec3<f32>(12.92);
-    return select(higher, lower, color <= cutoff);
-}
-
 const BAYER_4X4_THRESHOLDS: array<f32, 16> = array<f32, 16>(
     0.0, 8.0, 2.0, 10.0,
     12.0, 4.0, 14.0, 6.0,

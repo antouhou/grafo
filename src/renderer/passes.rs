@@ -199,7 +199,7 @@ fn bind_shape_texture_layers(
         }
         match &effective_binding {
             ShapeTextureBinding::Managed(texture_id) => {
-                if let Ok(bind_group) = texture_manager.get_or_create_shape_bind_group(
+                match texture_manager.get_or_create_shape_bind_group(
                     if layer == 0 {
                         shape_texture_bind_group_layout_background
                     } else {
@@ -208,7 +208,18 @@ fn bind_shape_texture_layers(
                     shape_texture_layout_epoch,
                     *texture_id,
                 ) {
-                    render_pass.set_bind_group(1 + layer as u32, &*bind_group, &[]);
+                    Ok(bind_group) => {
+                        render_pass.set_bind_group(1 + layer as u32, &*bind_group, &[]);
+                    }
+                    Err(_) => {
+                        render_pass.set_bind_group(
+                            1 + layer as u32,
+                            &*default_shape_texture_bind_groups[layer],
+                            &[],
+                        );
+                        bound_texture_state.mark_bound(layer, ShapeTextureBinding::None);
+                        continue;
+                    }
                 }
             }
             ShapeTextureBinding::Direct { bind_group, .. } => {
@@ -222,6 +233,7 @@ fn bind_shape_texture_layers(
                 );
             }
         }
+        bound_texture_state.mark_bound(layer, effective_binding);
     }
 }
 

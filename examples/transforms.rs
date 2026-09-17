@@ -17,25 +17,23 @@ use winit::window::{Window, WindowId};
 
 // Local converter from euclid to grafo's GPU instance layout so we keep euclid out of the main crate.
 fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstance {
-    // Euclid's to_arrays() returns row-major [[f32; 4]; 4] which matches column-major GPU layout
+    // Euclid's packed vectors become columns in the GPU's matrix convention.
     grafo::TransformInstance::from_cols(m.to_arrays())
 }
 
 // Map a world point back to the shape's z=0 plane through the inverse homography.
 // Return None for a nearly singular transform or a point with near-zero homogeneous w.
 fn world_to_local_2d(tx: &Transform3D<f32>, world: (f32, f32)) -> Option<(f32, f32)> {
-    // In our vertex shader we transform local (x,y,0,1) by the 4x4 model, then divide by w
-    // and treat (x/w, y/w) as pixel-space before canvas normalization. This induces a 2D
-    // homography on the z=0 plane: [px, py, pw]^T = H * [x, y, 1]^T with
-    //   H = [[m11, m12, m41],
-    //        [m21, m22, m42],
+    // On the z=0 plane, GPU multiplication gives [px, py, pw]^T = H * [x, y, 1]^T:
+    //   H = [[m11, m21, m41],
+    //        [m12, m22, m42],
     //        [m14, m24, m44]].
     // To hit-test, invert H and map [mx, my, 1] back to local, then divide by w.
     let m = tx;
     let h11 = m.m11;
-    let h12 = m.m12;
+    let h12 = m.m21;
     let h13 = m.m41;
-    let h21 = m.m21;
+    let h21 = m.m12;
     let h22 = m.m22;
     let h23 = m.m42;
     let h31 = m.m14;

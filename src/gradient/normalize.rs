@@ -105,28 +105,31 @@ impl NormalizedGradient {
             authored[last_index].raw_position = Some(default_end);
         }
 
+        // Resolve decreasing explicit positions before spacing the omitted stops.
+        let mut previous_position = f32::NEG_INFINITY;
+        for position in authored
+            .iter_mut()
+            .filter_map(|stop| stop.raw_position.as_mut())
+        {
+            *position = position.max(previous_position);
+            previous_position = *position;
+        }
+
         fill_implicit_positions(&mut authored);
 
         // Build stops
-        let mut previous_position: Option<f32> = None;
         let mut stops: SmallVec<[NormalizedStop; NORMALIZED_INLINE_STOP_CAPACITY]> =
             SmallVec::with_capacity(authored.len());
         for authored_stop in &authored {
-            let mut position = authored_stop
+            let position = authored_stop
                 .raw_position
                 .expect("gradient stop positions should be resolved before normalization");
-            if let Some(previous_position) = previous_position {
-                if position < previous_position {
-                    position = previous_position;
-                }
-            }
 
             stops.push(NormalizedStop {
                 position,
                 color: authored_stop.color,
                 hint: None,
             });
-            previous_position = Some(position);
         }
 
         // Keep only hints strictly inside the following segment.

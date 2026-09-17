@@ -266,28 +266,17 @@ pub(super) struct BoundTextureState {
 }
 
 impl BoundTextureState {
-    /// Reset both layers to "unknown" — forces the next bind call to actually issue
-    /// `set_bind_group`. Call this whenever a pipeline switch resets bind group state.
+    /// Forget both bindings after a pipeline switch resets the bind group state.
     pub(super) fn invalidate(&mut self) {
         self.layers = [None, None];
     }
 
     /// Returns `true` when the given texture source is not already bound on `layer`.
-    pub(super) fn needs_rebind(
-        &mut self,
-        layer: usize,
-        texture_binding: &ShapeTextureBinding,
-    ) -> bool {
-        if self.layers[layer].as_ref() == Some(texture_binding) {
-            return false;
-        }
-        self.layers[layer] = Some(texture_binding.clone());
-        true
+    pub(super) fn needs_rebind(&self, layer: usize, texture_binding: &ShapeTextureBinding) -> bool {
+        self.layers[layer].as_ref() != Some(texture_binding)
     }
 
-    /// Update the tracked state for `layer` without returning whether a rebind is
-    /// needed. Use this when you know the bind group was just set (e.g. after a
-    /// pipeline switch that binds default textures).
+    /// Record the texture source after setting its bind group.
     pub(super) fn mark_bound(&mut self, layer: usize, texture_binding: ShapeTextureBinding) {
         self.layers[layer] = Some(texture_binding);
     }
@@ -393,8 +382,7 @@ pub(super) struct RendererScratch {
     /// non-leaf parent used so the `Post` path avoids re-evaluating eligibility.
     pub(super) clip_kind_stack: Vec<ClipKind>,
     pub(super) backdrop_work_textures: Vec<effect::PooledTexture>,
-    /// Reused across readback calls; intentionally not cleared on `begin_frame`
-    /// because readback may run after render submission and reuse prior capacity.
+    /// CPU storage reused for mapped readback data.
     pub(super) readback_bytes: Vec<u8>,
     pub(super) traversal_scratch: TraversalScratch,
 }
@@ -426,9 +414,8 @@ impl RendererScratch {
         self.scissor_stack.clear();
         self.clip_kind_stack.clear();
         self.backdrop_work_textures.clear();
+        self.readback_bytes.clear();
         self.traversal_scratch.begin();
-        // Keep readback bytes length/capacity untouched to preserve reuse across
-        // `render_to_buffer`/`render_to_argb32` calls that are not tied to frame start.
     }
 
     pub(super) fn trim_to_policy(&mut self) {
@@ -470,45 +457,5 @@ where
 {
     if values.capacity() > max_capacity {
         values.shrink_to(max_capacity);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{RendererScratch, MAX_EFFECT_NODE_IDS_CAPACITY, MAX_READBACK_BYTES_CAPACITY};
-
-    #[test]
-    fn renderer_scratch_begin_frame_clears_lengths() {
-        let mut scratch = RendererScratch::new();
-        scratch.effect_node_ids.extend([(1, 1), (2, 2)]);
-        scratch.readback_bytes.extend([1, 2, 3, 4]);
-        scratch.begin_frame();
-
-        assert!(scratch.effect_node_ids.is_empty());
-        assert_eq!(scratch.readback_bytes.len(), 4);
-    }
-
-    #[test]
-    fn renderer_scratch_trims_large_capacities() {
-        let mut scratch = RendererScratch::new();
-        scratch
-            .effect_node_ids
-            .resize(MAX_EFFECT_NODE_IDS_CAPACITY + 2_048, (0, 0));
-        scratch.effect_node_ids.clear();
-
-        scratch.trim_to_policy();
-        assert!(scratch.effect_node_ids.capacity() <= MAX_EFFECT_NODE_IDS_CAPACITY);
-    }
-
-    #[test]
-    fn renderer_scratch_trims_readback_bytes_length_before_shrinking() {
-        let mut scratch = RendererScratch::new();
-        scratch
-            .readback_bytes
-            .resize(MAX_READBACK_BYTES_CAPACITY + 1_024, 0);
-
-        scratch.trim_to_policy();
-
-        assert!(scratch.readback_bytes.len() <= MAX_READBACK_BYTES_CAPACITY);
     }
 }

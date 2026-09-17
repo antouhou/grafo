@@ -143,8 +143,126 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_65_grouped_shape_effect_in_backdrop(renderer));
     expectations.extend(tile_66_same_node_shape_backdrop_and_group_effects(renderer));
     expectations.extend(tile_67_downsampled_drop_shadow_with_backdrop_blur(renderer));
+    expectations.extend(tile_68_gradient_transition_hints(renderer));
+    expectations.extend(tile_69_gradient_automatic_stop_after_decreasing_stop(
+        renderer,
+    ));
 
     expectations
+}
+
+fn tile_68_gradient_transition_hints(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(68);
+    for (top, bottom, hint) in [(8.0, 36.0, 0.25), (44.0, 72.0, 0.75)] {
+        let gradient = Gradient::linear(LinearGradientDesc::new(
+            LinearGradientLine {
+                start: [origin_x + 8.5, origin_y],
+                end: [origin_x + 72.5, origin_y],
+            },
+            [
+                GradientStop::at_position(GradientStopOffset::linear_radial(0.0), Color::BLACK)
+                    .with_hint_to_next_segment(GradientStopOffset::linear_radial(hint)),
+                GradientStop::at_position(GradientStopOffset::linear_radial(1.0), Color::WHITE),
+            ],
+        ))
+        .unwrap();
+        renderer
+            .add_shape(
+                Shape::rect(
+                    [
+                        (origin_x + 8.0, origin_y + top),
+                        (origin_x + 72.0, origin_y + bottom),
+                    ],
+                    Stroke::default(),
+                ),
+                None,
+                None,
+                ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+            )
+            .unwrap();
+    }
+
+    // 255 * P^log_H(0.5), with P measured at the pixel center.
+    [
+        (12, 20, 64, "t68_quarter_hint_before"),
+        (48, 20, 202, "t68_quarter_hint_after"),
+        (40, 56, 48, "t68_three_quarter_hint_before"),
+        (64, 56, 185, "t68_three_quarter_hint_after"),
+    ]
+    .into_iter()
+    .map(|(x, y, channel, label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            channel,
+            channel,
+            channel,
+            label,
+        )
+        .with_tolerance(2)
+    })
+    .collect()
+}
+
+fn tile_69_gradient_automatic_stop_after_decreasing_stop(
+    renderer: &mut Renderer,
+) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(69);
+    let gradient = Gradient::linear(LinearGradientDesc::new(
+        LinearGradientLine {
+            start: [origin_x + 8.5, origin_y],
+            end: [origin_x + 72.5, origin_y],
+        },
+        [
+            GradientStop::at_position(GradientStopOffset::linear_radial(0.5), Color::BLACK),
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(0.25),
+                Color::rgb(255, 0, 0),
+            ),
+            GradientStop::auto(Color::rgb(0, 255, 0)),
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(1.0),
+                Color::rgb(0, 0, 255),
+            ),
+        ],
+    ))
+    .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x + 8.0, origin_y + 8.0),
+                    (origin_x + 72.0, origin_y + 72.0),
+                ],
+                Stroke::default(),
+            ),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+        )
+        .unwrap();
+
+    // Corrected stop positions are 0.5, 0.5, 0.75, 1.0.
+    vec![
+        PixelExpectation::opaque(
+            origin_x as u32 + 48,
+            origin_y as u32 + 40,
+            128,
+            128,
+            0,
+            "t69_red_to_automatic_green",
+        )
+        .with_tolerance(2),
+        PixelExpectation::opaque(
+            origin_x as u32 + 60,
+            origin_y as u32 + 40,
+            0,
+            191,
+            64,
+            "t69_automatic_green_to_blue",
+        )
+        .with_tolerance(2),
+    ]
 }
 
 // ── Shared resource setup ────────────────────────────────────────────────────
