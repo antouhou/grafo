@@ -86,6 +86,39 @@ impl<'a> Renderer<'a> {
             );
         }
 
+        let backdrop_context = if has_backdrop_effects {
+            Some(types::BackdropContext {
+                loaded_effects: &self.loaded_effects,
+                composite_bgl: self.composite_bgl.as_ref().unwrap(),
+                effect_sampler: self.effect_sampler.as_ref().unwrap(),
+                gradient_ramp_sampler: &self.gradient_ramp_sampler,
+                texture_blit_pipeline: self.texture_blit_pipeline.as_ref().unwrap(),
+                backdrop_layer_composite_pipeline: self
+                    .backdrop_layer_composite_pipeline
+                    .as_ref()
+                    .unwrap(),
+                backdrop_layer_composite_bind_group_layout: self
+                    .backdrop_layer_composite_bind_group_layout
+                    .as_ref()
+                    .unwrap(),
+                stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
+                backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
+                backdrop_color_gradient_pipeline: self
+                    .backdrop_color_gradient_pipeline
+                    .as_ref()
+                    .unwrap(),
+                device: &self.device,
+                queue: &self.queue,
+                config_format: self.config.format,
+                max_texture_dimension_2d: self.device.limits().max_texture_dimension_2d,
+                backdrop_texture_bind_group_layout: &self.backdrop_texture_bind_group_layout,
+                default_backdrop_texture_bind_group: &self.default_backdrop_texture_bind_group,
+                backdrop_gradient_bind_group_layout: &self.backdrop_gradient_bind_group_layout,
+            })
+        } else {
+            None
+        };
+
         let pipelines = types::Pipelines {
             and_pipeline: &self.and_pipeline,
             and_gradient_pipeline: &self.and_gradient_pipeline,
@@ -246,42 +279,6 @@ impl<'a> Renderer<'a> {
                     (&subtree_texture.color_view, None)
                 };
 
-                let backdrop_ctx_opt = if subtree_needs_backdrop_effects {
-                    Some(types::BackdropContext {
-                        loaded_effects: &self.loaded_effects,
-                        composite_bgl: self.composite_bgl.as_ref().unwrap(),
-                        effect_sampler: self.effect_sampler.as_ref().unwrap(),
-                        gradient_ramp_sampler: &self.gradient_ramp_sampler,
-                        texture_blit_pipeline: self.texture_blit_pipeline.as_ref().unwrap(),
-                        backdrop_layer_composite_pipeline: self
-                            .backdrop_layer_composite_pipeline
-                            .as_ref()
-                            .unwrap(),
-                        backdrop_layer_composite_bind_group_layout: self
-                            .backdrop_layer_composite_bind_group_layout
-                            .as_ref()
-                            .unwrap(),
-                        stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
-                        backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
-                        backdrop_color_gradient_pipeline: self
-                            .backdrop_color_gradient_pipeline
-                            .as_ref()
-                            .unwrap(),
-                        device: &self.device,
-                        queue: &self.queue,
-                        config_format: self.config.format,
-                        max_texture_dimension_2d: self.device.limits().max_texture_dimension_2d,
-                        backdrop_texture_bind_group_layout: &self
-                            .backdrop_texture_bind_group_layout,
-                        default_backdrop_texture_bind_group: &self
-                            .default_backdrop_texture_bind_group,
-                        backdrop_gradient_bind_group_layout: &self
-                            .backdrop_gradient_bind_group_layout,
-                    })
-                } else {
-                    None
-                };
-
                 let backdrop_source = behind_texture.as_ref().map(|texture| {
                     let base_texture = if texture.sample_count > 1 {
                         texture.resolve_texture.as_ref().unwrap()
@@ -320,7 +317,9 @@ impl<'a> Renderer<'a> {
                     &mut self.shape_resources.gradient_cache,
                     &mut self.offscreen_texture_pool,
                     self.composite_pipeline.as_ref(),
-                    backdrop_ctx_opt.as_ref(),
+                    backdrop_context
+                        .as_ref()
+                        .filter(|_| subtree_needs_backdrop_effects),
                     &mut backdrop_work_textures,
                     &mut stencil_stack,
                     &mut scissor_stack,
@@ -393,39 +392,6 @@ impl<'a> Renderer<'a> {
                     (texture_view as &wgpu::TextureView, None)
                 };
 
-            let backdrop_ctx_opt = if has_backdrop_effects {
-                Some(types::BackdropContext {
-                    loaded_effects: &self.loaded_effects,
-                    composite_bgl: self.composite_bgl.as_ref().unwrap(),
-                    effect_sampler: self.effect_sampler.as_ref().unwrap(),
-                    gradient_ramp_sampler: &self.gradient_ramp_sampler,
-                    texture_blit_pipeline: self.texture_blit_pipeline.as_ref().unwrap(),
-                    backdrop_layer_composite_pipeline: self
-                        .backdrop_layer_composite_pipeline
-                        .as_ref()
-                        .unwrap(),
-                    backdrop_layer_composite_bind_group_layout: self
-                        .backdrop_layer_composite_bind_group_layout
-                        .as_ref()
-                        .unwrap(),
-                    stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
-                    backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
-                    backdrop_color_gradient_pipeline: self
-                        .backdrop_color_gradient_pipeline
-                        .as_ref()
-                        .unwrap(),
-                    device: &self.device,
-                    queue: &self.queue,
-                    config_format: self.config.format,
-                    max_texture_dimension_2d: self.device.limits().max_texture_dimension_2d,
-                    backdrop_texture_bind_group_layout: &self.backdrop_texture_bind_group_layout,
-                    default_backdrop_texture_bind_group: &self.default_backdrop_texture_bind_group,
-                    backdrop_gradient_bind_group_layout: &self.backdrop_gradient_bind_group_layout,
-                })
-            } else {
-                None
-            };
-
             let backdrop_source = if has_backdrop_effects {
                 Some(types::BackdropSource::Flattened {
                     texture: output_texture.expect("output_texture required for backdrop effects"),
@@ -452,7 +418,7 @@ impl<'a> Renderer<'a> {
                 &mut self.shape_resources.gradient_cache,
                 &mut self.offscreen_texture_pool,
                 self.composite_pipeline.as_ref(),
-                backdrop_ctx_opt.as_ref(),
+                backdrop_context.as_ref(),
                 &mut backdrop_work_textures,
                 &mut stencil_stack,
                 &mut scissor_stack,

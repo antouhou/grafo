@@ -287,45 +287,44 @@ impl Shape {
                 if let Some(cache_key) = tesselation_cache_key {
                     if let Some(cached_tessellation) = shape_resources
                         .tessellation_cache
-                        .get_vertex_buffers(&cache_key)
+                        .get_tessellation(&cache_key)
                     {
                         return cached_tessellation;
                     }
                 }
 
-                let min_width = rect_shape.rect[0].0;
-                let min_height = rect_shape.rect[0].1;
-                let max_width = rect_shape.rect[1].0;
-                let max_height = rect_shape.rect[1].1;
+                let min_x = rect_shape.rect[0].0;
+                let min_y = rect_shape.rect[0].1;
+                let max_x = rect_shape.rect[1].0;
+                let max_y = rect_shape.rect[1].1;
 
                 // Compute UVs mapping the rectangle to [0,1] in local space
-                let w = (max_width - min_width).max(1e-6);
-                let h = (max_height - min_height).max(1e-6);
-                let uv =
-                    |x: f32, y: f32| -> [f32; 2] { [(x - min_width) / w, (y - min_height) / h] };
+                let w = (max_x - min_x).max(1e-6);
+                let h = (max_y - min_y).max(1e-6);
+                let uv = |x: f32, y: f32| -> [f32; 2] { [(x - min_x) / w, (y - min_y) / h] };
 
                 let quad = [
                     CustomVertex {
-                        position: [min_width, min_height],
-                        tex_coords: uv(min_width, min_height),
+                        position: [min_x, min_y],
+                        tex_coords: uv(min_x, min_y),
                         normal: [0.0, 0.0],
                         coverage: 1.0,
                     },
                     CustomVertex {
-                        position: [max_width, min_height],
-                        tex_coords: uv(max_width, min_height),
+                        position: [max_x, min_y],
+                        tex_coords: uv(max_x, min_y),
                         normal: [0.0, 0.0],
                         coverage: 1.0,
                     },
                     CustomVertex {
-                        position: [max_width, max_height],
-                        tex_coords: uv(max_width, max_height),
+                        position: [max_x, max_y],
+                        tex_coords: uv(max_x, max_y),
                         normal: [0.0, 0.0],
                         coverage: 1.0,
                     },
                     CustomVertex {
-                        position: [min_width, max_height],
-                        tex_coords: uv(min_width, max_height),
+                        position: [min_x, max_y],
+                        tex_coords: uv(min_x, max_y),
                         normal: [0.0, 0.0],
                         coverage: 1.0,
                     },
@@ -354,7 +353,7 @@ impl Shape {
                 if let Some(tesselation_cache_key) = tesselation_cache_key {
                     shape_resources
                         .tessellation_cache
-                        .insert_vertex_buffers(tesselation_cache_key, Arc::clone(&tessellation));
+                        .insert_tessellation(tesselation_cache_key, Arc::clone(&tessellation));
                 }
 
                 tessellation
@@ -920,7 +919,7 @@ impl PathShape {
         if let Some(cache_key) = tesselation_cache_key {
             if let Some(cached_tessellation) = shape_resources
                 .tessellation_cache
-                .get_vertex_buffers(&cache_key)
+                .get_tessellation(&cache_key)
             {
                 return cached_tessellation;
             }
@@ -948,7 +947,7 @@ impl PathShape {
         if let Some(cache_key) = tesselation_cache_key {
             shape_resources
                 .tessellation_cache
-                .insert_vertex_buffers(cache_key, Arc::clone(&tessellation));
+                .insert_tessellation(cache_key, Arc::clone(&tessellation));
         }
 
         tessellation
@@ -1133,7 +1132,7 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) stencil_ref: Option<u32>,
     /// Index into the per-frame instance transform buffer
     pub(crate) instance_index: Option<usize>,
-    /// Optional per-shape transform applied in clip-space (post-normalization)
+    /// Optional per-shape transform applied in pixel space before clip-space normalization.
     pub(crate) transform: Option<InstanceTransform>,
     /// Texture sources associated with this cached shape.
     pub(crate) texture_bindings: [ShapeTextureBinding; 2],
@@ -1437,7 +1436,6 @@ impl BorderRadii {
 
 impl core::fmt::Display for BorderRadii {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        // In the order of a well known convention (CSS) clockwise from top left
         write!(
             f,
             "BorderRadii({}, {}, {}, {})",

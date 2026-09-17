@@ -102,7 +102,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                // ── Background (no effect) ───────────────────────────────
+                // Background without an effect
                 let bg = Shape::rect(
                     [(50.0, 50.0), (750.0, 550.0)],
                     Stroke::new(2.0_f32, Color::BLACK),
@@ -116,7 +116,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // ── Group 1: 50% opacity ─────────────────────────────────
+                // Group 1: 50% opacity
                 let group1_bg = Shape::rect(
                     [(100.0, 100.0), (400.0, 350.0)],
                     Stroke::new(0.0_f32, Color::TRANSPARENT),
@@ -164,7 +164,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     .set_group_effect(group1, OPACITY_EFFECT, bytemuck::bytes_of(&opacity))
                     .expect("Failed to set effect");
 
-                // ── Group 2: 80% opacity ─────────────────────────────────
+                // Group 2: 80% opacity
                 let group2_bg = Shape::rect(
                     [(350.0, 100.0), (700.0, 350.0)],
                     Stroke::new(0.0_f32, Color::TRANSPARENT),
@@ -196,7 +196,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     .set_group_effect(group2, OPACITY_EFFECT, bytemuck::bytes_of(&opacity2))
                     .expect("Failed to set effect");
 
-                // ── Render ───────────────────────────────────────────────
                 match renderer.render() {
                     Ok(_) => {
                         self.redraw_retry_at = None;

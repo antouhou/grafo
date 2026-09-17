@@ -143,7 +143,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                // ── Background content (shapes drawn behind the panel) ───
+                // Shapes behind the panel
                 let bg = Shape::rect(
                     [(20.0, 20.0), (780.0, 580.0)],
                     Stroke::new(2.0_f32, Color::BLACK),
@@ -210,7 +210,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // ── Frosted-glass panel with backdrop blur ───────────────
+                // Frosted-glass panel with backdrop blur
                 // This shape is rendered on top; the backdrop effect blurs
                 // everything already drawn behind it.
                 let panel = Shape::rect(
@@ -254,7 +254,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .expect("Failed to set backdrop effect");
 
-                // ── A second, smaller frosted panel for comparison ───────
+                // A second, smaller frosted panel for comparison
                 let panel2 = Shape::rect(
                     [(560.0, 200.0), (740.0, 400.0)],
                     Stroke::new(2.0_f32, Color::rgb(80, 80, 80)),
@@ -281,7 +281,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .expect("Failed to set backdrop effect");
 
-                // ── Render ───────────────────────────────────────────────
                 match renderer.render() {
                     Ok(_) => {
                         renderer.clear_draw_queue();

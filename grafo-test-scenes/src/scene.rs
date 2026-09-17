@@ -1598,31 +1598,26 @@ fn tile_21_alpha_overlap(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     vec![
         // Blue region only
         PixelExpectation::opaque(ox as u32 + 15, oy as u32 + 15, 50, 50, 220, "t21_blue_only"),
-        // Overlap region: semi-transparent red over opaque blue
-        // Blend: dst_rgb*(1-src_a) + src_rgb = (50,50,220)*(1-0.5) + (220,50,50)*0.5
-        //      ≈ (25+110, 25+25, 110+25) = (135, 50, 135)
+        // Blend in linear RGB with alpha 128/255, then encode the result as sRGB.
         PixelExpectation::new(
             ox as u32 + 35,
             oy as u32 + 35,
-            135,
+            165,
             50,
-            135,
+            164,
             255,
             "t21_red_over_blue",
-        )
-        .with_tolerance(30),
-        // Red-only region — semi-transparent red over white canvas bg
-        // Alpha blending produces a pinkish tint
+        ),
+        // The same red over the white canvas.
         PixelExpectation::new(
             ox as u32 + 55,
             oy as u32 + 40,
             238,
-            152,
-            152,
+            190,
+            190,
             255,
             "t21_red_over_white",
-        )
-        .with_tolerance(40),
+        ),
     ]
 }
 

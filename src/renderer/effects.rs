@@ -32,11 +32,11 @@ fn validate_params_expectation(
     Ok(())
 }
 
-fn validate_effect_params(
-    loaded_effects: &HashMap<u64, LoadedEffect>,
+fn find_effect_and_validate_params<'a>(
+    loaded_effects: &'a HashMap<u64, LoadedEffect>,
     effect_id: u64,
     params: &[u8],
-) -> Result<(), EffectError> {
+) -> Result<&'a LoadedEffect, EffectError> {
     let loaded_effect = loaded_effects
         .get(&effect_id)
         .ok_or(EffectError::EffectNotLoaded(effect_id))?;
@@ -45,7 +45,8 @@ fn validate_effect_params(
         effect_id,
         loaded_effect.params_bind_group_layout.is_some(),
         params,
-    )
+    )?;
+    Ok(loaded_effect)
 }
 
 fn validate_backdrop_config(config: &effect::BackdropEffectConfig) -> Result<(), EffectError> {
@@ -109,7 +110,7 @@ fn validate_shape_effect_config(config: &effect::ShapeEffectConfig) -> Result<()
 
 fn build_effect_instance(
     device: &wgpu::Device,
-    loaded_effects: &HashMap<u64, LoadedEffect>,
+    loaded_effect: &LoadedEffect,
     effect_id: u64,
     params: &[u8],
     backdrop_config: Option<effect::BackdropEffectConfig>,
@@ -127,9 +128,9 @@ fn build_effect_instance(
         backdrop_texture_id: None,
     };
 
-    if params.is_empty() {
+    let Some(params_bind_group_layout) = loaded_effect.params_bind_group_layout.as_ref() else {
         return instance;
-    }
+    };
 
     let buffer = create_buffer_init(
         device,
@@ -138,13 +139,11 @@ fn build_effect_instance(
         BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     );
 
-    if let Some(loaded_effect) = loaded_effects.get(&effect_id) {
-        if let Some(params_bind_group_layout) = loaded_effect.params_bind_group_layout.as_ref() {
-            let bind_group = create_params_bind_group(device, params_bind_group_layout, &buffer);
-            instance.params_bind_group = Some(bind_group);
-        }
-    }
-
+    instance.params_bind_group = Some(create_params_bind_group(
+        device,
+        params_bind_group_layout,
+        &buffer,
+    ));
     instance.params_buffer = Some(buffer);
     instance
 }
@@ -152,16 +151,16 @@ fn build_effect_instance(
 fn update_effect_instance_params(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    loaded_effects: &HashMap<u64, LoadedEffect>,
+    loaded_effect: &LoadedEffect,
     instance: &mut EffectInstance,
     params: &[u8],
     params_buffer_label: &'static str,
 ) {
     overwrite_effect_params(&mut instance.params, params);
 
-    if params.is_empty() {
+    let Some(params_bind_group_layout) = loaded_effect.params_bind_group_layout.as_ref() else {
         return;
-    }
+    };
 
     if let Some(existing_buffer) = instance.params_buffer.as_ref() {
         if params.len() as u64 <= existing_buffer.size() {
@@ -177,14 +176,11 @@ fn update_effect_instance_params(
         BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     );
 
-    if let Some(loaded_effect) = loaded_effects.get(&instance.effect_id) {
-        if let Some(params_bind_group_layout) = loaded_effect.params_bind_group_layout.as_ref() {
-            let bind_group =
-                create_params_bind_group(device, params_bind_group_layout, &new_buffer);
-            instance.params_bind_group = Some(bind_group);
-        }
-    }
-
+    instance.params_bind_group = Some(create_params_bind_group(
+        device,
+        params_bind_group_layout,
+        &new_buffer,
+    ));
     instance.params_buffer = Some(new_buffer);
 }
 
@@ -292,11 +288,12 @@ impl<'a> Renderer<'a> {
             ));
         }
 
-        validate_effect_params(&self.loaded_effects, effect_id, params)?;
+        let loaded_effect =
+            find_effect_and_validate_params(&self.loaded_effects, effect_id, params)?;
 
         let instance = build_effect_instance(
             &self.device,
-            &self.loaded_effects,
+            loaded_effect,
             effect_id,
             params,
             None,
@@ -317,12 +314,13 @@ impl<'a> Renderer<'a> {
             .get_mut(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
 
-        validate_effect_params(&self.loaded_effects, instance.effect_id, params)?;
+        let loaded_effect =
+            find_effect_and_validate_params(&self.loaded_effects, instance.effect_id, params)?;
 
         update_effect_instance_params(
             &self.device,
             &self.queue,
-            &self.loaded_effects,
+            loaded_effect,
             instance,
             params,
             "effect_params_buffer",
@@ -355,12 +353,13 @@ impl<'a> Renderer<'a> {
             ));
         }
 
-        validate_effect_params(&self.loaded_effects, effect_id, params)?;
+        let loaded_effect =
+            find_effect_and_validate_params(&self.loaded_effects, effect_id, params)?;
         validate_backdrop_config(&backdrop_config)?;
 
         let instance = build_effect_instance(
             &self.device,
-            &self.loaded_effects,
+            loaded_effect,
             effect_id,
             params,
             Some(backdrop_config),
@@ -398,12 +397,13 @@ impl<'a> Renderer<'a> {
             .get_mut(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
 
-        validate_effect_params(&self.loaded_effects, instance.effect_id, params)?;
+        let loaded_effect =
+            find_effect_and_validate_params(&self.loaded_effects, instance.effect_id, params)?;
 
         update_effect_instance_params(
             &self.device,
             &self.queue,
-            &self.loaded_effects,
+            loaded_effect,
             instance,
             params,
             "backdrop_effect_params_buffer",
@@ -434,7 +434,7 @@ impl<'a> Renderer<'a> {
             ));
         }
 
-        validate_effect_params(&self.loaded_effects, effect_id, params)?;
+        find_effect_and_validate_params(&self.loaded_effects, effect_id, params)?;
         validate_shape_effect_config(&config)?;
         self.shape_effects.insert(
             node_id,
@@ -458,7 +458,7 @@ impl<'a> Renderer<'a> {
             .get(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?
             .effect_id;
-        validate_effect_params(&self.loaded_effects, effect_id, params)?;
+        find_effect_and_validate_params(&self.loaded_effects, effect_id, params)?;
         if let Some(instance) = self.shape_effects.get_mut(&node_id) {
             instance.params = Arc::from(params);
         }

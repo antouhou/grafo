@@ -540,7 +540,7 @@ pub fn create_and_depth_texture(device: &Device, size: (u32, u32), sample_count:
     })
 }
 
-// Renders buffer range to texture and increments stencil value where the buffer is drawn.
+// Draws the index range using the given stencil reference.
 pub fn render_buffer_range_to_texture(
     index_range: (usize, usize), // (start_index, index_count)
     render_pass: &mut RenderPass<'_>,

@@ -338,38 +338,25 @@ fn texture_footprint_coverage(texture_coordinates: vec2<f32>) -> f32 {
     return select(0.0, 1.0, is_inside);
 }
 
-// Computes the final premultiplied color for a fragment given fill color, texture
-// coordinates, and AA coverage.
-fn compute_fragment_color(
-    color: vec4<f32>,
+fn composite_texture_layers(
+    color_pma: vec4<f32>,
     layer0_tex_coords: vec2<f32>,
     layer1_tex_coords: vec2<f32>,
     coverage: f32,
     texture_flags: f32,
 ) -> vec4<f32> {
-    // Shape fill color arrives already in linear space (sRGB->linear conversion
-    // is performed on the CPU in normalize_rgba_color).
-    // Convert fill to premultiplied
-    let fill_pma = vec4<f32>(color.rgb * color.a, color.a);
-
-    // Fast path: no textures bound — solid fill only. Skip both texture samples.
     let flags = u32(texture_flags);
     if (flags == 0u) {
-        return fill_pma * coverage;
+        return color_pma * coverage;
     }
 
-    // At least one texture layer is active.
-    // Use textureSampleLevel (explicit LOD 0) instead of textureSample so that
-    // sampling is valid inside non-uniform control flow. Our textures are created
-    // without mipmaps (mip_level_count = 1), so LOD 0 is always correct.
-    // Data is premultiplied (Rgba8UnormSrgb -> linear automatically).
-
-    // Compose: base = texture layer 0 over shape fill, then layer 1 over result.
-    var base_pma = fill_pma;
+    // Explicit LOD permits sampling in non-uniform control flow. Shape textures
+    // have one mip level and contain premultiplied colors.
+    var base_pma = color_pma;
     if ((flags & 1u) != 0u) {
         let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0)
             * texture_footprint_coverage(layer0_tex_coords);
-        base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
+        base_pma = layer0_pma + color_pma * (1.0 - layer0_pma.a);
     }
 
     var final_pma = base_pma;
@@ -379,10 +366,22 @@ fn compute_fragment_color(
         final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
     }
 
-    // Apply AA coverage: scale premultiplied color by coverage factor.
-    // With premultiplied alpha blending (src: One, dst: OneMinusSrcAlpha),
-    // multiplying all four channels by coverage correctly fades the fringe to transparent.
+    // Scale alpha and RGB together to preserve premultiplication at AA edges.
     return final_pma * coverage;
+}
+
+fn compute_fragment_color(
+    color: vec4<f32>,
+    layer0_tex_coords: vec2<f32>,
+    layer1_tex_coords: vec2<f32>,
+    coverage: f32,
+    texture_flags: f32,
+) -> vec4<f32> {
+    // The CPU converts the fill to linear RGB; premultiply it before compositing.
+    let fill_pma = vec4<f32>(color.rgb * color.a, color.a);
+    return composite_texture_layers(
+        fill_pma, layer0_tex_coords, layer1_tex_coords, coverage, texture_flags,
+    );
 }
 
 fn compute_gradient_fragment_color(
@@ -399,26 +398,9 @@ fn compute_gradient_fragment_color(
         dither_coords,
     );
 
-    let flags = u32(texture_flags);
-    if (flags == 0u) {
-        return fill_pma * coverage;
-    }
-
-    var base_pma = fill_pma;
-    if ((flags & 1u) != 0u) {
-        let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0)
-            * texture_footprint_coverage(layer0_tex_coords);
-        base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
-    }
-
-    var final_pma = base_pma;
-    if ((flags & 2u) != 0u) {
-        let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, layer1_tex_coords, 0.0)
-            * texture_footprint_coverage(layer1_tex_coords);
-        final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
-    }
-
-    return final_pma * coverage;
+    return composite_texture_layers(
+        fill_pma, layer0_tex_coords, layer1_tex_coords, coverage, texture_flags,
+    );
 }
 
 fn compute_fragment_color_with_backdrop(
@@ -434,22 +416,10 @@ fn compute_fragment_color_with_backdrop(
         * material_params.backdrop_sampling.inverse_capture_size;
     let backdrop_pma = textureSampleLevel(t_backdrop_layer, s_backdrop_layer, backdrop_uv, 0.0);
 
-    let flags = u32(texture_flags);
-    var base_pma = fill_pma + backdrop_pma * (1.0 - fill_pma.a);
-    if ((flags & 1u) != 0u) {
-        let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0)
-            * texture_footprint_coverage(layer0_tex_coords);
-        base_pma = layer0_pma + base_pma * (1.0 - layer0_pma.a);
-    }
-
-    var final_pma = base_pma;
-    if ((flags & 2u) != 0u) {
-        let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, layer1_tex_coords, 0.0)
-            * texture_footprint_coverage(layer1_tex_coords);
-        final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
-    }
-
-    return final_pma * coverage;
+    let base_pma = fill_pma + backdrop_pma * (1.0 - fill_pma.a);
+    return composite_texture_layers(
+        base_pma, layer0_tex_coords, layer1_tex_coords, coverage, texture_flags,
+    );
 }
 
 fn compute_gradient_fragment_color_with_backdrop(
@@ -469,22 +439,10 @@ fn compute_gradient_fragment_color_with_backdrop(
         * material_params.backdrop_sampling.inverse_capture_size;
     let backdrop_pma = textureSampleLevel(t_backdrop_layer, s_backdrop_layer, backdrop_uv, 0.0);
 
-    let flags = u32(texture_flags);
-    var base_pma = fill_pma + backdrop_pma * (1.0 - fill_pma.a);
-    if ((flags & 1u) != 0u) {
-        let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0)
-            * texture_footprint_coverage(layer0_tex_coords);
-        base_pma = layer0_pma + base_pma * (1.0 - layer0_pma.a);
-    }
-
-    var final_pma = base_pma;
-    if ((flags & 2u) != 0u) {
-        let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, layer1_tex_coords, 0.0)
-            * texture_footprint_coverage(layer1_tex_coords);
-        final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
-    }
-
-    return final_pma * coverage;
+    let base_pma = fill_pma + backdrop_pma * (1.0 - fill_pma.a);
+    return composite_texture_layers(
+        base_pma, layer0_tex_coords, layer1_tex_coords, coverage, texture_flags,
+    );
 }
 
 @fragment

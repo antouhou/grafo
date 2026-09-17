@@ -212,7 +212,7 @@ impl<'a> Renderer<'a> {
         if let Some(geometry_id) = cached_shape_data.cached_shape.geometry_id {
             self.shape_resources
                 .tessellation_cache
-                .refresh_vertex_buffers(geometry_id, &cached_shape_data.cached_shape.tessellation);
+                .refresh_tessellation(geometry_id, &cached_shape_data.cached_shape.tessellation);
         }
     }
 

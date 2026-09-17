@@ -24,8 +24,7 @@ const BLUR_EFFECT: u64 = 2;
 
 const SURFACE_TIMEOUT_RETRY_DELAY: Duration = Duration::from_millis(50);
 
-// ── Box shadow params & shader ───────────────────────────────────────────────
-
+// Box shadow params & shader
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct BoxShadowParams {
@@ -94,8 +93,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 "#;
 
-// ── Backdrop blur params & shaders ───────────────────────────────────────────
-
+// Backdrop blur params & shaders
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct BlurParams {
@@ -154,8 +152,6 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     return color / total_weight;
 }
 "#;
-
-// ── App ──────────────────────────────────────────────────────────────────────
 
 #[derive(Default)]
 struct App<'a> {
@@ -227,7 +223,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let pw = pw as f32;
                 let ph = ph as f32;
 
-                // ── Scene background ─────────────────────────────────────
+                // Scene background
                 let scene_bg = Shape::rect(
                     [(0.0, 0.0), (pw, ph)],
                     Stroke::new(0.0_f32, Color::TRANSPARENT),
@@ -241,7 +237,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // ── Colorful background content (for the blur to act on) ─
+                // Background colors for the blur
                 let r1 = Shape::rect(
                     [(40.0, 60.0), (300.0, 280.0)],
                     Stroke::new(2.0_f32, Color::BLACK),
@@ -294,7 +290,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // ── Panel: parent with box shadow (group effect) ─────────
+                // Parent panel with a box shadow group effect
                 // The parent is transparent — it exists to carry the box
                 // shadow group effect. The shadow is rendered analytically.
                 let panel_x = 150.0;
@@ -332,7 +328,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     .set_group_effect(panel, BOX_SHADOW_EFFECT, bytemuck::bytes_of(&shadow_params))
                     .expect("Failed to set box shadow effect");
 
-                // ── Child: same shape, carries the backdrop blur ─────────
+                // Child panel with backdrop blur
                 // This child is the same size as the parent. It has a
                 // semi-transparent fill so the blurred background shows
                 // through, and a backdrop effect that blurs everything
@@ -365,7 +361,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .expect("Failed to set backdrop blur effect");
 
-                // ── Render ───────────────────────────────────────────────
                 match renderer.render() {
                     Ok(_) => {
                         self.redraw_retry_at = None;

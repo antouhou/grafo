@@ -9,7 +9,7 @@ use crate::Color;
 /// ```
 /// use grafo::{Color, Stroke};
 ///
-/// let stroke = Stroke::new(2.0, Color::rgb(255, 0, 0));
+/// let stroke = Stroke::new(2.0_f32, Color::rgb(255, 0, 0));
 /// assert!(!stroke.is_empty());
 /// assert!(Stroke::default().is_empty());
 /// ```

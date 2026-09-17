@@ -223,7 +223,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let pw = pw as f32;
                 let ph = ph as f32;
 
-                // ── Scene background ─────────────────────────────────────
+                // Scene background
                 let scene_bg = Shape::rect(
                     [(0.0, 0.0), (pw, ph)],
                     Stroke::new(0.0_f32, Color::TRANSPARENT),
@@ -237,7 +237,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // ── Card 1: Soft, large shadow ───────────────────────────
+                // Card 1: Soft, large shadow
                 draw_card(
                     renderer,
                     CardSpec {
@@ -252,7 +252,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     },
                 );
 
-                // ── Card 2: Tight, dark shadow ───────────────────────────
+                // Card 2: Tight, dark shadow
                 draw_card(
                     renderer,
                     CardSpec {
@@ -267,7 +267,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     },
                 );
 
-                // ── Card 3: Colored shadow with offset ───────────────────
+                // Card 3: Colored shadow with offset
                 draw_card(
                     renderer,
                     CardSpec {
@@ -282,7 +282,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     },
                 );
 
-                // ── Card 4: Subtle elevation shadow ──────────────────────
+                // Card 4: Subtle elevation shadow
                 draw_card(
                     renderer,
                     CardSpec {
@@ -297,7 +297,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     },
                 );
 
-                // ── Render ───────────────────────────────────────────────
                 match renderer.render() {
                     Ok(_) => {
                         renderer.clear_draw_queue();

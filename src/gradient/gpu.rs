@@ -111,33 +111,6 @@ impl GpuGradientColorParams {
     }
 }
 
-/// GPU-side backdrop sampling metadata reused by both solid and gradient backdrop draws.
-/// Matches the WGSL `BackdropSamplingParams` struct in shader.wgsl.
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub(crate) struct GpuBackdropSamplingParams {
-    pub capture_origin: [f32; 2],
-    pub inverse_capture_size: [f32; 2],
-}
-
-impl Default for GpuBackdropSamplingParams {
-    fn default() -> Self {
-        Self {
-            capture_origin: [0.0, 0.0],
-            inverse_capture_size: [1.0, 1.0],
-        }
-    }
-}
-
-impl GpuBackdropSamplingParams {
-    pub fn from_sampling_uniform(sampling_uniform: BackdropSamplingUniform) -> Self {
-        Self {
-            capture_origin: sampling_uniform.capture_origin,
-            inverse_capture_size: sampling_uniform.inverse_capture_size,
-        }
-    }
-}
-
 /// GPU-side material parameters bound at group 3 binding 0.
 ///
 /// This uniform layout is shared across regular gradient fills and backdrop-capable pipelines.
@@ -147,14 +120,14 @@ impl GpuBackdropSamplingParams {
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct GpuMaterialParams {
     pub gradient: GpuGradientColorParams,
-    pub backdrop_sampling: GpuBackdropSamplingParams,
+    pub backdrop_sampling: BackdropSamplingUniform,
 }
 
 impl Default for GpuMaterialParams {
     fn default() -> Self {
         Self {
             gradient: GpuGradientColorParams::none(),
-            backdrop_sampling: GpuBackdropSamplingParams::default(),
+            backdrop_sampling: BackdropSamplingUniform::default(),
         }
     }
 }
@@ -163,12 +136,12 @@ impl GpuMaterialParams {
     pub fn from_gradient_data(data: &GradientData) -> Self {
         Self {
             gradient: GpuGradientColorParams::from_gradient_data(data),
-            backdrop_sampling: GpuBackdropSamplingParams::default(),
+            backdrop_sampling: BackdropSamplingUniform::default(),
         }
     }
 
     pub fn with_backdrop_sampling(mut self, sampling_uniform: BackdropSamplingUniform) -> Self {
-        self.backdrop_sampling = GpuBackdropSamplingParams::from_sampling_uniform(sampling_uniform);
+        self.backdrop_sampling = sampling_uniform;
         self
     }
 

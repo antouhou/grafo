@@ -175,13 +175,13 @@ impl InstanceTransform {
     ///
     /// The resulting matrix is `rhs × self`.
     pub fn multiply(&self, rhs: &Self) -> Self {
-        // Helper: dot product of a column with elements from rhs at col_idx
-        fn dot(col: [f32; 4], mat: &InstanceTransform, col_idx: usize) -> f32 {
+        // Dot product of a column from self with a row from rhs.
+        fn dot(col: [f32; 4], mat: &InstanceTransform, row_index: usize) -> f32 {
             let other = [
-                mat.col0[col_idx],
-                mat.col1[col_idx],
-                mat.col2[col_idx],
-                mat.col3[col_idx],
+                mat.col0[row_index],
+                mat.col1[row_index],
+                mat.col2[row_index],
+                mat.col3[row_index],
             ];
             col[0] * other[0] + col[1] * other[1] + col[2] * other[2] + col[3] * other[3]
         }

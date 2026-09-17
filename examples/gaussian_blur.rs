@@ -145,7 +145,7 @@ impl<'a> ApplicationHandler for App<'a> {
             WindowEvent::RedrawRequested => {
                 let (pw, ph) = renderer.size();
 
-                // ── Background (no effect) ───────────────────────────────
+                // Background without an effect
                 let bg = Shape::rect(
                     [(30.0, 30.0), (770.0, 570.0)],
                     Stroke::new(2.0_f32, Color::BLACK),
@@ -172,7 +172,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // ── Blurred group ────────────────────────────────────────
+                // Blurred group
                 // Parent shape defines the group boundary
                 let group_bg = Shape::rect(
                     [(80.0, 80.0), (500.0, 400.0)],
@@ -224,7 +224,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     .set_group_effect(group, BLUR_EFFECT, bytemuck::bytes_of(&blur_params))
                     .expect("Failed to set blur effect");
 
-                // ── Sharp group for comparison ───────────────────────────
+                // Sharp group for comparison
                 let sharp_bg = Shape::rect(
                     [(80.0, 420.0), (500.0, 560.0)],
                     Stroke::new(0.0_f32, Color::TRANSPARENT),
@@ -264,7 +264,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // ── Render ───────────────────────────────────────────────
                 match renderer.render() {
                     Ok(_) => {
                         renderer.clear_draw_queue();
