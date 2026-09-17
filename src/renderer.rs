@@ -249,11 +249,9 @@ pub struct Renderer<'a> {
     backdrop_layer_composite_pipeline: Option<wgpu::RenderPipeline>,
     /// Bind group layout used by the group-prefix backdrop compositor.
     backdrop_layer_composite_bind_group_layout: Option<wgpu::BindGroupLayout>,
-    /// Stencil-only pipeline: writes stencil but no color output.
-    /// Used for Step 1 of the three-step backdrop draw.
+    /// Clips backdrop compositing to the shape by incrementing stencil without drawing color.
     stencil_only_pipeline: Option<wgpu::RenderPipeline>,
-    /// Shape color pipeline with stencil Keep: draws color but doesn't modify stencil.
-    /// Used for Step 3 of the three-step backdrop draw.
+    /// Draws the shape over its processed backdrop without incrementing stencil again.
     backdrop_color_pipeline: Option<wgpu::RenderPipeline>,
     /// Gradient color pipeline with stencil Keep for backdrop shapes.
     backdrop_color_gradient_pipeline: Option<wgpu::RenderPipeline>,

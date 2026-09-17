@@ -378,7 +378,6 @@ const MAX_EFFECT_NODE_IDS_CAPACITY: usize = 4_096;
 const MAX_TEXTURE_RECYCLE_CAPACITY: usize = 1_024;
 const MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY: usize = 2_048;
 const MAX_STENCIL_STACK_CAPACITY: usize = 16_384;
-const MAX_SKIPPED_STACK_CAPACITY: usize = 16_384;
 const MAX_SCISSOR_STACK_CAPACITY: usize = 16_384;
 const MAX_READBACK_BYTES_CAPACITY: usize = 64 * 1024 * 1024;
 
@@ -389,7 +388,6 @@ pub(super) struct RendererScratch {
     pub(super) textures_to_recycle: Vec<effect::PooledTexture>,
     pub(super) effect_output_textures: Vec<effect::PooledTexture>,
     pub(super) stencil_stack: Vec<u32>,
-    pub(super) skipped_stack: Vec<usize>,
     /// Stack of intersected scissor rects (x, y, width, height) in physical pixels.
     /// Used to replace stencil clipping for axis-aligned rect parents.
     pub(super) scissor_stack: Vec<(u32, u32, u32, u32)>,
@@ -412,7 +410,6 @@ impl RendererScratch {
             textures_to_recycle: Vec::new(),
             effect_output_textures: Vec::new(),
             stencil_stack: Vec::new(),
-            skipped_stack: Vec::new(),
             scissor_stack: Vec::new(),
             clip_kind_stack: Vec::new(),
             backdrop_work_textures: Vec::new(),
@@ -428,7 +425,6 @@ impl RendererScratch {
         self.textures_to_recycle.clear();
         self.effect_output_textures.clear();
         self.stencil_stack.clear();
-        self.skipped_stack.clear();
         self.scissor_stack.clear();
         self.clip_kind_stack.clear();
         self.backdrop_work_textures.clear();
@@ -450,7 +446,6 @@ impl RendererScratch {
             MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY,
         );
         trim_vector_if_needed(&mut self.stencil_stack, MAX_STENCIL_STACK_CAPACITY);
-        trim_vector_if_needed(&mut self.skipped_stack, MAX_SKIPPED_STACK_CAPACITY);
         trim_vector_if_needed(&mut self.scissor_stack, MAX_SCISSOR_STACK_CAPACITY);
         trim_vector_if_needed(&mut self.clip_kind_stack, MAX_SCISSOR_STACK_CAPACITY);
         trim_vector_if_needed(
@@ -480,47 +475,9 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(super) struct BufferSizingDecision {
-    pub(super) should_reallocate: bool,
-}
-
-pub(super) fn decide_buffer_sizing(
-    existing_size: Option<u64>,
-    required_size: usize,
-) -> BufferSizingDecision {
-    let required_size = required_size as u64;
-    let should_reallocate = existing_size
-        .map(|size| size < required_size)
-        .unwrap_or(true);
-
-    BufferSizingDecision { should_reallocate }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        decide_buffer_sizing, RendererScratch, MAX_EFFECT_NODE_IDS_CAPACITY,
-        MAX_READBACK_BYTES_CAPACITY,
-    };
-
-    #[test]
-    fn decide_buffer_sizing_reallocates_when_missing() {
-        let decision = decide_buffer_sizing(None, 128);
-        assert!(decision.should_reallocate);
-    }
-
-    #[test]
-    fn decide_buffer_sizing_reallocates_when_too_small() {
-        let decision = decide_buffer_sizing(Some(64), 128);
-        assert!(decision.should_reallocate);
-    }
-
-    #[test]
-    fn decide_buffer_sizing_keeps_buffer_when_large_enough() {
-        let decision = decide_buffer_sizing(Some(512), 128);
-        assert!(!decision.should_reallocate);
-    }
+    use super::{RendererScratch, MAX_EFFECT_NODE_IDS_CAPACITY, MAX_READBACK_BYTES_CAPACITY};
 
     #[test]
     fn renderer_scratch_begin_frame_clears_lengths() {

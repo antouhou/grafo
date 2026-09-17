@@ -217,7 +217,6 @@ impl<'a> ApplicationHandler for App<'a> {
                         &self.rust_logo_png_bytes,
                     )
                     .unwrap();
-                // Replace legacy image draws with textured shapes (rectangles) for demonstration
                 let img_rect1 = Shape::rect(
                     [
                         (0.0, 0.0),

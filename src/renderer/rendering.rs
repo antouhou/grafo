@@ -39,7 +39,6 @@ impl<'a> Renderer<'a> {
         let mut textures_to_recycle = std::mem::take(&mut self.scratch.textures_to_recycle);
         let mut effect_output_textures = std::mem::take(&mut self.scratch.effect_output_textures);
         let mut stencil_stack = std::mem::take(&mut self.scratch.stencil_stack);
-        let skipped_stack = std::mem::take(&mut self.scratch.skipped_stack);
         let mut scissor_stack = std::mem::take(&mut self.scratch.scissor_stack);
         let mut clip_kind_stack = std::mem::take(&mut self.scratch.clip_kind_stack);
         let mut backdrop_work_textures = std::mem::take(&mut self.scratch.backdrop_work_textures);
@@ -62,7 +61,6 @@ impl<'a> Renderer<'a> {
             self.ensure_backdrop_color_gradient_pipeline();
         }
 
-        // O1: Ensure depth/stencil texture exists (lazy init on first frame)
         if self.depth_stencil_view.is_none() {
             self.recreate_depth_stencil_texture();
         }
@@ -159,7 +157,7 @@ impl<'a> Renderer<'a> {
                 let subtree_needs_backdrop_effects =
                     subtree_has_backdrop_effects(&self.draw_tree, &self.backdrop_effects, node_id);
 
-                // --- Behind-group rendering (when subtree has backdrop effects) ---
+                // Backdrops inside the group need the scene painted before the group.
                 let behind_texture = if subtree_needs_backdrop_effects {
                     let behind_tex = self.offscreen_texture_pool.acquire_color_only(
                         &self.device,
@@ -186,8 +184,6 @@ impl<'a> Renderer<'a> {
                         (&behind_tex.color_view as &wgpu::TextureView, None)
                     };
 
-                    // Use plan_traversal (full tree, excluding this subtree)
-                    // + render_segments to render the scene behind the group.
                     plan_traversal_in_place(
                         &mut self.draw_tree,
                         &effect_results,
@@ -231,7 +227,6 @@ impl<'a> Renderer<'a> {
                     None
                 };
 
-                // --- Subtree rendering (unified: always use plan_traversal + render_segments) ---
                 plan_traversal_in_place(
                     &mut self.draw_tree,
                     &effect_results,
@@ -380,7 +375,6 @@ impl<'a> Renderer<'a> {
         {
             let depth_texture_view = self.depth_stencil_view.as_ref().unwrap();
 
-            // Unified main-scene rendering: always plan_traversal + render_segments.
             plan_traversal_in_place(
                 &mut self.draw_tree,
                 &effect_results,
@@ -497,7 +491,6 @@ impl<'a> Renderer<'a> {
         self.scratch.textures_to_recycle = textures_to_recycle;
         self.scratch.effect_output_textures = effect_output_textures;
         self.scratch.stencil_stack = stencil_stack;
-        self.scratch.skipped_stack = skipped_stack;
         self.scratch.scissor_stack = scissor_stack;
         self.scratch.clip_kind_stack = clip_kind_stack;
         self.scratch.backdrop_work_textures = backdrop_work_textures;

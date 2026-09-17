@@ -5,9 +5,8 @@ use super::types::{
 };
 use std::sync::Arc;
 
-/// Bakes a gradient ramp: RAMP_RESOLUTION texels of final linear premultiplied RGBA.
-/// The texels span from `period_start` to `period_start + period_len` (non-repeating)
-/// or from the first stop to the last stop (pad mode).
+/// Bakes linear premultiplied RGBA texels from the first normalized stop to the last.
+/// Constant gradients use one texel; sampled ramps use RAMP_RESOLUTION texels.
 pub(crate) fn bake_gradient_ramp(ramp_source: &GradientRampSource) -> GradientRamp {
     let normalized = &ramp_source.normalized;
     let interpolation = &ramp_source.interpolation;
@@ -178,38 +177,33 @@ enum CylSpace {
     Hwb,
 }
 
-/// Rectangular (non-hue) interpolation pipeline as specified in the plan.
+/// Interpolates premultiplied channels in the selected color space.
 fn interpolate_rectangular(
     color_a: &GradientColor,
     color_b: &GradientColor,
     p: f32,
     space: RectSpace,
 ) -> [f32; 4] {
-    // Step 1-2: Convert both colors into the interpolation space
     let [ra, ga, ba, aa] = to_rect_space(color_a, space);
     let [rb, gb, bb, ab] = to_rect_space(color_b, space);
 
-    // Step 3: Premultiply
     let (pra, pga, pba) = (ra * aa, ga * aa, ba * aa);
     let (prb, pgb, pbb) = (rb * ab, gb * ab, bb * ab);
 
-    // Step 4: Interpolate premultiplied channels and alpha
     let pr = pra + (prb - pra) * p;
     let pg = pga + (pgb - pga) * p;
     let pb = pba + (pbb - pba) * p;
     let alpha_p = aa + (ab - aa) * p;
 
-    // Step 5-6: Unpremultiply if alpha > 0
+    // Color-space conversion needs unpremultiplied channels.
     let (ur, ug, ub) = if alpha_p > 0.0 {
         (pr / alpha_p, pg / alpha_p, pb / alpha_p)
     } else {
         (0.0, 0.0, 0.0)
     };
 
-    // Step 7: Convert to final linear output space
     let [lr, lg, lb] = rect_to_linear(ur, ug, ub, space);
 
-    // Step 8: Premultiply with alpha_p for final output
     [lr * alpha_p, lg * alpha_p, lb * alpha_p, alpha_p]
 }
 
@@ -220,17 +214,14 @@ fn interpolate_cylindrical(
     space: CylSpace,
     hue_method: HueInterpolationMethod,
 ) -> [f32; 4] {
-    // Step 1: Convert to HSL/HWB
     let (h0, c1_a, c2_a, a_a, h0_powerless) = to_cylindrical(color_a, space);
     let (h1, c1_b, c2_b, a_b, h1_powerless) = to_cylindrical(color_b, space);
 
-    // Step 2: Resolve missing/powerless hue
     let (rh0, rh1) = resolve_hue_pair(h0, h0_powerless, h1, h1_powerless);
 
-    // Step 3: Choose hue path
     let delta = compute_hue_delta(rh0, rh1, hue_method);
 
-    // Step 4: Interpolate
+    // Hue follows the selected angular path; only the other channels are premultiplied.
     let h_interp = rem_euclid_f32(rh0 + delta * p, 360.0);
     let alpha_interp = a_a + (a_b - a_a) * p;
     let c1_a_p = c1_a * a_a;
@@ -245,7 +236,6 @@ fn interpolate_cylindrical(
         (0.0, 0.0)
     };
 
-    // Step 5: Convert to final linear output space and premultiply
     let [lr, lg, lb] = cylindrical_to_linear(h_interp, c1_interp, c2_interp, space);
     let alpha_clamped = alpha_interp.clamp(0.0, 1.0);
     [

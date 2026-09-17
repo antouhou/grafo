@@ -1591,18 +1591,16 @@ fn tile_24_textured_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         .unwrap();
 
     vec![
-        // Textured interior — should not be fully white or fully transparent
-        // The checkerboard alternates white/black, so center pixel is one or the other
-        PixelExpectation::new(
-            ox as u32 + 40,
-            oy as u32 + 40,
-            128,
-            128,
-            128,
+        // Adjacent texel centers avoid interpolation between black and white.
+        PixelExpectation::opaque(
+            ox as u32 + 17,
+            oy as u32 + 17,
             255,
-            "t24_textured_interior",
-        )
-        .with_tolerance(128), // white or black—just verify opaque & non-canvas
+            255,
+            255,
+            "t24_white_texel",
+        ),
+        PixelExpectation::opaque(ox as u32 + 32, oy as u32 + 17, 0, 0, 0, "t24_black_texel"),
         // Outside the textured rect — canvas bg
         PixelExpectation::opaque(
             ox as u32 + 5,
@@ -1695,17 +1693,23 @@ fn tile_26_textured_parent_child(renderer: &mut Renderer) -> Vec<PixelExpectatio
             50,
             "t26_child_over_texture",
         ),
-        // Textured parent visible in its border area (not pure white canvas bg)
-        PixelExpectation::new(
+        // The corner texels stay unmixed under linear sampling and outside the child.
+        PixelExpectation::opaque(
             ox as u32 + 10,
             oy as u32 + 10,
-            128,
-            128,
-            128,
             255,
-            "t26_parent_texture_visible",
-        )
-        .with_tolerance(128),
+            255,
+            255,
+            "t26_parent_white_texel",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 70,
+            oy as u32 + 10,
+            0,
+            0,
+            0,
+            "t26_parent_black_texel",
+        ),
     ]
 }
 
@@ -2175,11 +2179,14 @@ fn tile_32_tiny_1px_shape(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 }
 
 fn tile_33_shape_at_canvas_edge(renderer: &mut Renderer) -> Vec<PixelExpectation> {
-    let (ox, oy) = tile_origin(33);
-    // Shape that extends beyond the right and bottom edges of this tile
-    // (and possibly beyond the canvas itself for the last-row tiles)
+    // Reserve the bottom-right grid slot for a shape crossing both canvas edges.
+    let origin_x = (CANVAS_WIDTH - TILE_SIZE) as f32;
+    let origin_y = (CANVAS_HEIGHT - TILE_SIZE) as f32;
     let shape = Shape::rect(
-        [(ox + 50.0, oy + 50.0), (ox + 120.0, oy + 120.0)],
+        [
+            (origin_x + 50.0, origin_y + 50.0),
+            (origin_x + 120.0, origin_y + 120.0),
+        ],
         Stroke::default(),
     );
     renderer
@@ -2192,14 +2199,45 @@ fn tile_33_shape_at_canvas_edge(renderer: &mut Renderer) -> Vec<PixelExpectation
         .unwrap();
 
     vec![
-        // Interior of the visible portion
         PixelExpectation::opaque(
-            ox as u32 + 60,
-            oy as u32 + 60,
+            CANVAS_WIDTH - 1,
+            CANVAS_HEIGHT - 15,
             180,
             50,
             180,
-            "t33_visible_portion",
+            "t33_right_edge",
+        ),
+        PixelExpectation::opaque(
+            CANVAS_WIDTH - 15,
+            CANVAS_HEIGHT - 1,
+            180,
+            50,
+            180,
+            "t33_bottom_edge",
+        ),
+        PixelExpectation::opaque(
+            CANVAS_WIDTH - 1,
+            CANVAS_HEIGHT - 1,
+            180,
+            50,
+            180,
+            "t33_bottom_right_corner",
+        ),
+        PixelExpectation::opaque(
+            CANVAS_WIDTH - 40,
+            CANVAS_HEIGHT - 15,
+            255,
+            255,
+            255,
+            "t33_left_of_shape",
+        ),
+        PixelExpectation::opaque(
+            CANVAS_WIDTH - 15,
+            CANVAS_HEIGHT - 40,
+            255,
+            255,
+            255,
+            "t33_above_shape",
         ),
     ]
 }

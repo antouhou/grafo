@@ -42,10 +42,9 @@ struct CardSpec {
 
 /// Creates a card with a box shadow effect attached directly to it.
 ///
-/// The shadow is computed analytically in the shader and composited behind the
-/// card content. No wrapper shape needed — the offscreen texture is full-screen
-/// and the effect output is a fullscreen quad, so shadow pixels outside the
-/// card's bounds render correctly.
+/// The renderer rasterizes the card's coverage into a local texture. Two shader
+/// passes blur that mask and color the shadow, which is composited behind the card.
+/// The configured outsets leave room for the blur and offset beyond the card bounds.
 ///
 /// Returns the node id of the card, so children can be added to it.
 fn draw_card(renderer: &mut grafo::Renderer, card_spec: CardSpec) -> usize {
