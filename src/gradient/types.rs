@@ -5,16 +5,12 @@ use smallvec::SmallVec;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
-// ── Gradient kind discriminant ───────────────────────────────────────────────
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GradientKind {
     Linear,
     Radial,
     Conic,
 }
-
-// ── Public descriptor types ──────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub enum GradientDesc {
@@ -304,8 +300,6 @@ impl GradientStop {
     }
 }
 
-// ── Supporting enums ─────────────────────────────────────────────────────────
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GradientUnits {
     Local,
@@ -502,8 +496,6 @@ pub enum GradientSupport {
     Supported,
 }
 
-// ── Fill enum ────────────────────────────────────────────────────────────────
-
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Fill {
@@ -532,8 +524,6 @@ impl From<Gradient> for Fill {
         Self::Gradient(gradient)
     }
 }
-
-// ── Validated opaque Gradient ────────────────────────────────────────────────
 
 /// The number of texels in a baked gradient ramp texture.
 pub(crate) const RAMP_RESOLUTION: usize = 1024;
@@ -824,11 +814,7 @@ impl GradientRampCacheKey {
     }
 }
 
-// ── Degenerate threshold ─────────────────────────────────────────────────────
-
 pub(crate) const RESOLVED_DEGENERATE_EPSILON: f32 = 1e-6;
-
-// ── Validation helpers ───────────────────────────────────────────────────────
 
 fn validate_finite_f32(value: f32, field: &'static str) -> Result<(), GradientError> {
     if !value.is_finite() {

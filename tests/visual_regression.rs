@@ -6,8 +6,9 @@
 /// Run with:   cargo test --test visual_regression
 use futures::executor::block_on;
 use grafo::{
-    BorderRadii, Color, ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset,
-    LinearGradientDesc, LinearGradientLine, Shape, ShapeDrawCommandOptions, Stroke,
+    BackdropEffectConfig, BorderRadii, Color, ColorInterpolation, Fill, Gradient, GradientStop,
+    GradientStopOffset, LinearGradientDesc, LinearGradientLine, Shape, ShapeDrawCommandOptions,
+    Stroke,
 };
 use grafo_test_scenes::{
     build_main_scene, check_pixels, PixelExpectation, CANVAS_HEIGHT, CANVAS_WIDTH,
@@ -133,8 +134,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 "#;
 
-#[cfg(feature = "render_metrics")]
-const PARAMETERIZED_CACHED_SHAPE_EFFECT: &str = r#"
+const PARAMETERIZED_COLOR_EFFECT: &str = r#"
 struct Params {
     color: vec4<f32>,
 }
@@ -145,6 +145,95 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     return params.color * textureSample(t_input, s_input, uv).a;
 }
 "#;
+
+#[test]
+fn group_and_backdrop_effect_params_survive_updates_and_reload() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((32, 32), 1.0) else {
+        return;
+    };
+    let effect_id = 9_204;
+    renderer
+        .load_effect(effect_id, &[PARAMETERIZED_COLOR_EFFECT])
+        .unwrap();
+    let background = renderer
+        .add_shape(
+            Shape::rect([(0.0, 0.0), (32.0, 32.0)], Stroke::default()),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::WHITE),
+        )
+        .unwrap();
+    let group = renderer
+        .add_shape(
+            Shape::rect([(0.0, 0.0), (16.0, 32.0)], Stroke::default()),
+            Some(background),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::WHITE),
+        )
+        .unwrap();
+    let backdrop = renderer
+        .add_shape(
+            Shape::rect([(16.0, 0.0), (32.0, 32.0)], Stroke::default()),
+            Some(background),
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    renderer
+        .set_group_effect(
+            group,
+            effect_id,
+            bytemuck::cast_slice(&[1.0_f32, 0.0, 0.0, 1.0]),
+        )
+        .unwrap();
+    renderer
+        .set_shape_backdrop_effect(
+            backdrop,
+            effect_id,
+            bytemuck::cast_slice(&[0.0_f32, 0.0, 1.0, 1.0]),
+            BackdropEffectConfig::default(),
+        )
+        .unwrap();
+
+    let mut pixel_buffer = Vec::new();
+    renderer.render_to_buffer(&mut pixel_buffer);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [255, 0, 0, 255]);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 24, 16), [0, 0, 255, 255]);
+
+    renderer
+        .update_group_effect_params(group, bytemuck::cast_slice(&[0.0_f32, 1.0, 0.0, 1.0]))
+        .unwrap();
+    renderer
+        .update_backdrop_effect_params(backdrop, bytemuck::cast_slice(&[1.0_f32, 1.0, 0.0, 1.0]))
+        .unwrap();
+    renderer.render_to_buffer(&mut pixel_buffer);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [0, 255, 0, 255]);
+    assert_eq!(
+        read_pixel_rgba(&pixel_buffer, 32, 24, 16),
+        [255, 255, 0, 255]
+    );
+
+    let reloaded_source = format!("{PARAMETERIZED_COLOR_EFFECT}\n");
+    renderer
+        .load_effect(effect_id, &[&reloaded_source])
+        .unwrap();
+    for samples in [1, 4, 1] {
+        renderer.set_msaa_samples(samples);
+        renderer.render_to_buffer(&mut pixel_buffer);
+        assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [0, 255, 0, 255]);
+        assert_eq!(
+            read_pixel_rgba(&pixel_buffer, 32, 24, 16),
+            [255, 255, 0, 255]
+        );
+    }
+
+    renderer
+        .load_effect(effect_id, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
+        .unwrap();
+    renderer.render_to_buffer(&mut pixel_buffer);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [255; 4]);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 24, 16), [255; 4]);
+}
 
 #[test]
 fn invalid_effect_can_be_replaced_with_a_valid_shader() {
@@ -462,7 +551,7 @@ fn cached_shape_effect_uses_exact_parameter_bytes_on_transparent_shape() {
         return;
     };
     renderer
-        .load_effect(8_201, &[PARAMETERIZED_CACHED_SHAPE_EFFECT])
+        .load_effect(8_201, &[PARAMETERIZED_COLOR_EFFECT])
         .unwrap();
     let shape_id = renderer
         .add_shape(

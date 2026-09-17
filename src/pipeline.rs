@@ -1,6 +1,4 @@
-//! Pipeline creation and management for the Grafo library.
-//!
-//! This module provides functions to create and manage rendering pipelines.
+//! WGPU pipelines, stencil states, and buffer helpers.
 use crate::vertex::{CustomVertex, InstanceColor, InstanceMetadata, InstanceTransform};
 use wgpu::util::DeviceExt;
 use wgpu::{
@@ -91,7 +89,7 @@ fn create_equal_decrement_stencil_state() -> wgpu::StencilState {
     }
 }
 
-/// Creates a bind group so uniforms can be processed. Look at Uniforms struct for more info.
+/// Binds viewport uniforms at vertex shader group 0, binding 0.
 pub fn create_uniform_bind_group_layout(device: &Device) -> BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
@@ -300,7 +298,6 @@ pub fn create_pipeline(
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     });
 
-    // Bind group for uniforms
     let bind_group_layout = create_uniform_bind_group_layout(device);
     // Bind group layouts for shape texturing layers (group(1) and group(2) in shader)
     let texture_bind_group_layout_layer0 =
@@ -356,7 +353,6 @@ pub fn create_pipeline(
         label: None,
     });
 
-    // Create the render pipeline
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
         source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),

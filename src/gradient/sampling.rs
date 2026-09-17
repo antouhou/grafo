@@ -138,8 +138,6 @@ fn apply_hint_reparameterization(
     x.clamp(0.0, 1.0).powf(0.5_f32.ln() / hint_fraction.ln())
 }
 
-// ── Color interpolation ──────────────────────────────────────────────────────
-
 fn prepare_rectangular_interpolation(
     color_a: &GradientColor,
     color_b: &GradientColor,
@@ -207,8 +205,6 @@ fn prepare_cylindrical_interpolation(
         ]
     }
 }
-
-// ── Color conversion helpers ─────────────────────────────────────────────────
 
 /// Converts a GradientColor to the specified rectangular interpolation space.
 /// Returns [channel0, channel1, channel2, alpha] with alpha clamped to [0,1].
@@ -376,8 +372,6 @@ fn compute_hue_delta(h0: f32, h1: f32, method: HueInterpolationMethod) -> f32 {
     }
 }
 
-// ── Color space conversion functions ─────────────────────────────────────────
-
 /// Converts any GradientColor to sRGB (r, g, b, alpha).
 /// Missing hue for HSL/HWB is treated as 0 for the purpose of conversion.
 fn gradient_color_to_srgb(color: &GradientColor) -> (f32, f32, f32, f32) {
@@ -456,8 +450,6 @@ pub(crate) fn color_to_final_linear_premultiplied(color: &GradientColor) -> [f32
     [lr * alpha, lg * alpha, lb * alpha, alpha]
 }
 
-// ── sRGB transfer functions (extended) ───────────────────────────────────────
-
 fn srgb_to_linear(c: f32) -> f32 {
     if c.abs() <= 0.04045 {
         c / 12.92
@@ -475,8 +467,6 @@ fn linear_to_srgb(c: f32) -> f32 {
         sign * (1.055 * c.abs().powf(1.0 / 2.4) - 0.055)
     }
 }
-
-// ── Oklab conversion ─────────────────────────────────────────────────────────
 
 #[allow(clippy::excessive_precision)]
 fn linear_rgb_to_oklab(r: f32, g: f32, b: f32) -> [f32; 3] {
@@ -511,8 +501,6 @@ fn oklab_to_linear_rgb(l: f32, a: f32, b: f32) -> [f32; 3] {
         -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3,
     ]
 }
-
-// ── HSL/HWB conversions ──────────────────────────────────────────────────────
 
 fn hsl_to_srgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
     let c = (1.0 - (2.0 * l - 1.0).abs()) * s;

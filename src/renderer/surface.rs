@@ -111,7 +111,7 @@ impl<'a> Renderer<'a> {
             self.physical_size.1,
             self.msaa_sample_count,
         );
-        self.trim_scratch_on_resize_or_policy();
+        self.trim_scratch_storage();
     }
 
     /// Recreate the cached depth/stencil texture to match current physical size and MSAA settings.

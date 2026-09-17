@@ -11,7 +11,8 @@ use self::metrics::RenderLoopMetricsTracker;
 use self::types::{DrawCommand, RendererScratch};
 use crate::effect::{
     self, compile_composite_pipeline, compile_effect_pipeline, create_params_bind_group,
-    EffectError, EffectInstance, LoadedEffect, OffscreenTexturePool, ShapeEffectInstance,
+    CompositePipelineResources, EffectError, EffectInstance, LoadedEffect, OffscreenTexturePool,
+    ShapeEffectInstance,
 };
 use crate::pipeline::{
     compute_padded_bytes_per_row, create_and_depth_texture, create_argb_swizzle_bind_group,
@@ -206,7 +207,6 @@ pub struct Renderer<'a> {
     /// View of the cached depth/stencil texture.
     depth_stencil_view: Option<wgpu::TextureView>,
 
-    // ── Effect system ──────────────────────────────────────────────────
     /// Loaded (compiled) effects, keyed by user-provided effect_id.
     loaded_effects: HashMap<u64, LoadedEffect>,
     /// Per-node group effect instances, keyed by node_id.
@@ -228,19 +228,14 @@ pub struct Renderer<'a> {
     offscreen_texture_pool: OffscreenTexturePool,
     /// Shared composite pipeline for drawing effect results into the parent target.
     /// Created lazily on first use.
-    composite_pipeline: Option<wgpu::RenderPipeline>,
-    /// Bind group layout for the composite pipeline's input texture.
-    composite_bgl: Option<wgpu::BindGroupLayout>,
+    composite_resources: Option<CompositePipelineResources>,
     /// Reusable sampler for effect texture sampling.
     effect_sampler: Option<wgpu::Sampler>,
 
-    // ── Backdrop effect infrastructure ─────────────────────────────────
     /// Fullscreen sampling pipeline used to downsample a captured backdrop region.
     texture_blit_pipeline: Option<wgpu::RenderPipeline>,
     /// Premultiplied-alpha pipeline for layering a transparent group prefix into a backdrop.
-    backdrop_layer_composite_pipeline: Option<wgpu::RenderPipeline>,
-    /// Bind group layout used by the group-prefix backdrop compositor.
-    backdrop_layer_composite_bind_group_layout: Option<wgpu::BindGroupLayout>,
+    backdrop_layer_composite_resources: Option<CompositePipelineResources>,
     /// Clips backdrop compositing to the shape by incrementing stencil without drawing color.
     stencil_only_pipeline: Option<wgpu::RenderPipeline>,
     /// Draws the shape over its processed backdrop without incrementing stencil again.
@@ -256,7 +251,6 @@ pub struct Renderer<'a> {
     /// Gradient pipeline for visible non-leaf parents that increment stencil.
     and_gradient_pipeline: Arc<wgpu::RenderPipeline>,
 
-    // ── Gradient fill infrastructure ───────────────────────────────────
     /// Bind group layout for gradient resources (group 3 in shader).
     gradient_bind_group_layout: wgpu::BindGroupLayout,
     /// Bind group layout for gradient resources plus backdrop sampling.
@@ -287,7 +281,6 @@ pub struct Renderer<'a> {
     /// forced GPU waits after submission.
     last_render_to_texture_view_cpu_time: Duration,
 
-    // ── Reusable scratch state ───────────────────────────────────────────
     scratch: RendererScratch,
 }
 
@@ -301,7 +294,7 @@ impl<'a> Renderer<'a> {
         self.scratch.begin_frame();
     }
 
-    pub(super) fn trim_scratch_on_resize_or_policy(&mut self) {
+    pub(super) fn trim_scratch_storage(&mut self) {
         self.shape_resources.aa_fringe_scratch.trim();
         self.scratch.trim_to_policy();
     }

@@ -2,9 +2,9 @@
 use super::metrics::PipelineSwitchCounts;
 use super::traversal::TraversalScratch;
 use crate::effect::{self, LoadedEffect};
+use crate::gradient::gpu::GradientCache;
 use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
 use crate::texture_manager::TextureManager;
-use crate::util::GradientCache;
 use crate::vertex::InstanceTransform;
 use ahash::{HashMap, HashMapExt};
 use std::sync::Arc;

@@ -12,6 +12,59 @@ use crate::vertex::CustomVertex;
 use tracing::{error, info, warn};
 use wgpu::InstanceDescriptor;
 
+fn create_transparent_texture_view_and_sampler(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    label: &'static str,
+) -> (wgpu::TextureView, wgpu::Sampler) {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let transparent: [u8; 4] = [0, 0, 0, 0];
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &transparent,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4),
+            rows_per_image: Some(1),
+        },
+        wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+    );
+
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    });
+    (view, sampler)
+}
+
 fn pick_surface_format(surface_formats: &[wgpu::TextureFormat]) -> wgpu::TextureFormat {
     const PREFERRED_SURFACE_FORMATS: [wgpu::TextureFormat; 4] = [
         wgpu::TextureFormat::Bgra8UnormSrgb,
@@ -409,12 +462,10 @@ impl<'a> Renderer<'a> {
             shape_effect_mask_cache: FrameCache::new(),
             shape_effect_resources,
             offscreen_texture_pool: OffscreenTexturePool::new(),
-            composite_pipeline: None,
-            composite_bgl: None,
+            composite_resources: None,
             effect_sampler: None,
             texture_blit_pipeline: None,
-            backdrop_layer_composite_pipeline: None,
-            backdrop_layer_composite_bind_group_layout: None,
+            backdrop_layer_composite_resources: None,
             stencil_only_pipeline: None,
             backdrop_color_pipeline: None,
             backdrop_color_gradient_pipeline: None,
@@ -574,55 +625,15 @@ impl<'a> Renderer<'a> {
     }
 
     fn create_default_shape_texture_bind_group(
-        device: &Arc<wgpu::Device>,
-        queue: &Arc<wgpu::Queue>,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
         shape_texture_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> wgpu::BindGroup {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("default_transparent_texture"),
-            size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let transparent: [u8; 4] = [0, 0, 0, 0];
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &transparent,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4),
-                rows_per_image: Some(1),
-            },
-            wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
+        let (view, sampler) = create_transparent_texture_view_and_sampler(
+            device,
+            queue,
+            "default_transparent_texture",
         );
-
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
 
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: shape_texture_bind_group_layout,
@@ -641,55 +652,15 @@ impl<'a> Renderer<'a> {
     }
 
     fn create_default_backdrop_texture_bind_group(
-        device: &Arc<wgpu::Device>,
-        queue: &Arc<wgpu::Queue>,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
         backdrop_texture_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> wgpu::BindGroup {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("default_transparent_backdrop_texture"),
-            size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let transparent: [u8; 4] = [0, 0, 0, 0];
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &transparent,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4),
-                rows_per_image: Some(1),
-            },
-            wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
+        let (view, sampler) = create_transparent_texture_view_and_sampler(
+            device,
+            queue,
+            "default_transparent_backdrop_texture",
         );
-
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
 
         let material_params_buffer = create_buffer_init(
             device,
@@ -897,8 +868,7 @@ impl<'a> Renderer<'a> {
         ];
         self.default_backdrop_texture_bind_group = Arc::new(default_backdrop_texture_bind_group);
 
-        self.composite_pipeline = None;
-        self.composite_bgl = None;
+        self.composite_resources = None;
         self.shape_effect_resources
             .recreate_pipeline(&self.device, self.config.format);
 
@@ -922,8 +892,7 @@ impl<'a> Renderer<'a> {
 
         // Reset lazily-created pipelines so they pick up the new layout
         self.texture_blit_pipeline = None;
-        self.backdrop_layer_composite_pipeline = None;
-        self.backdrop_layer_composite_bind_group_layout = None;
+        self.backdrop_layer_composite_resources = None;
         self.stencil_only_pipeline = None;
         self.backdrop_color_pipeline = None;
         self.backdrop_color_gradient_pipeline = None;

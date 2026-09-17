@@ -193,6 +193,17 @@ pub(crate) struct ShapeEffectInstance {
     pub config: ShapeEffectConfig,
 }
 
+/// Uniform buffer and its group 1 binding.
+pub(crate) struct EffectParameterResources {
+    pub buffer: wgpu::Buffer,
+    pub bind_group: wgpu::BindGroup,
+}
+
+pub(crate) struct CompositePipelineResources {
+    pub pipeline: wgpu::RenderPipeline,
+    pub bind_group_layout: wgpu::BindGroupLayout,
+}
+
 /// An effect attachment stored by node ID in the renderer.
 pub(crate) struct EffectInstance {
     /// Reference to the loaded effect (by effect_id key).
@@ -200,10 +211,8 @@ pub(crate) struct EffectInstance {
     /// Raw bytes for the effect's uniform parameters.
     /// The byte layout must match the shader's uniform declaration.
     pub params: Vec<u8>,
-    /// GPU buffer for the parameters (created/updated lazily).
-    pub params_buffer: Option<wgpu::Buffer>,
-    /// Bind group for the parameters (group 1).
-    pub params_bind_group: Option<wgpu::BindGroup>,
+    /// Created when attaching a parameterized effect; updated when its parameters change.
+    pub parameter_resources: Option<EffectParameterResources>,
     /// Optional backdrop capture configuration. Only used for backdrop effects.
     pub backdrop_config: Option<BackdropEffectConfig>,
     /// Persistent uniform buffer for backdrop material params bound at group 3 binding 0.
@@ -602,7 +611,7 @@ pub(crate) fn compile_effect_pipeline(
 pub(crate) fn compile_composite_pipeline(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
-) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
+) -> CompositePipelineResources {
     let wgsl = build_composite_wgsl();
 
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -666,7 +675,10 @@ pub(crate) fn compile_composite_pipeline(
         cache: None,
     });
 
-    (pipeline, input_bgl)
+    CompositePipelineResources {
+        pipeline,
+        bind_group_layout: input_bgl,
+    }
 }
 
 /// Compile a fullscreen texture-sampling pipeline without stencil/depth usage.
@@ -724,7 +736,7 @@ pub(crate) fn compile_texture_blit_pipeline(
 pub(crate) fn compile_backdrop_layer_composite_pipeline(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
-) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
+) -> CompositePipelineResources {
     let shader_source = format!("{FULLSCREEN_QUAD_VS}\n{BACKDROP_LAYER_COMPOSITE_FS}");
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("backdrop_layer_composite_shader"),
@@ -786,7 +798,10 @@ pub(crate) fn compile_backdrop_layer_composite_pipeline(
         cache: None,
     });
 
-    (pipeline, bind_group_layout)
+    CompositePipelineResources {
+        pipeline,
+        bind_group_layout,
+    }
 }
 
 pub(crate) fn create_backdrop_layer_composite_bind_group(

@@ -1,13 +1,50 @@
-use super::gpu::GpuGradientColorParams;
+use super::gpu::{GpuGradientColorParams, GradientCache};
 use super::normalize::NormalizedGradient;
 use super::sampling::bake_gradient_ramp;
 use super::types::{
-    ConicGradientDesc, Gradient, GradientColor, GradientCommonDesc, GradientKind, GradientRamp,
-    GradientRampSource, GradientStop, GradientStopOffset, GradientUnits, LinearGradientDesc,
-    LinearGradientLine, SpreadMode,
+    ColorInterpolation, ConicGradientDesc, Gradient, GradientColor, GradientCommonDesc,
+    GradientKind, GradientRamp, GradientRampSource, GradientStop, GradientStopOffset,
+    GradientUnits, LinearGradientDesc, LinearGradientLine, SpreadMode,
 };
 use crate::Color;
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
+use std::sync::Arc;
+
+#[test]
+fn gradient_ramps_are_reused_within_each_cache() {
+    let descriptor = LinearGradientDesc::new(
+        LinearGradientLine {
+            start: [0.0, 0.0],
+            end: [10.0, 0.0],
+        },
+        [
+            GradientStop::auto(Color::rgb(255, 0, 0)),
+            GradientStop::auto(Color::rgb(0, 0, 255)),
+        ],
+    )
+    .with_interpolation(ColorInterpolation::SrgbLinear);
+    let mut first = Gradient::linear(descriptor.clone()).unwrap();
+    let mut second = Gradient::linear(descriptor.clone()).unwrap();
+    let mut independent = Gradient::linear(descriptor).unwrap();
+    let mut cache = GradientCache::new();
+    let mut independent_cache = GradientCache::new();
+
+    let GradientRamp::Sampled(first_ramp) = cache.get_or_create_ramp(&mut first.data) else {
+        panic!("expected sampled ramp");
+    };
+    let GradientRamp::Sampled(second_ramp) = cache.get_or_create_ramp(&mut second.data) else {
+        panic!("expected sampled ramp");
+    };
+    let GradientRamp::Sampled(independent_ramp) =
+        independent_cache.get_or_create_ramp(&mut independent.data)
+    else {
+        panic!("expected sampled ramp");
+    };
+
+    assert!(Arc::ptr_eq(&first_ramp, &second_ramp));
+    assert!(!Arc::ptr_eq(&first_ramp, &independent_ramp));
+    assert_eq!(first_ramp, independent_ramp);
+}
 
 #[test]
 fn single_stop_bakes_a_constant_premultiplied_color_for_any_position() {

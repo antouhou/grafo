@@ -279,34 +279,31 @@ mod tests {
     }
 
     #[test]
-    fn plan_traversal_reuses_allocated_capacity() {
+    fn plan_traversal_preserves_reserved_event_storage() {
         let mut tree = easy_tree::Tree::new();
         let root = tree.add_node(DrawCommand::CachedShape(cached_draw_data()));
-        tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
+        let child = tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
         tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
 
         let effect_results: HashMap<usize, wgpu::BindGroup> = HashMap::new();
         let mut traversal_scratch = TraversalScratch::new();
-
-        plan_traversal_in_place(
-            &mut tree,
-            &effect_results,
-            &HashMap::new(),
-            None,
-            None,
-            &mut traversal_scratch,
-        );
+        traversal_scratch.events.reserve(128);
+        let events_pointer = traversal_scratch.events.as_ptr();
         let events_capacity = traversal_scratch.events.capacity();
 
-        plan_traversal_in_place(
-            &mut tree,
-            &effect_results,
-            &HashMap::new(),
-            None,
-            None,
-            &mut traversal_scratch,
-        );
-        assert!(traversal_scratch.events.capacity() >= events_capacity);
+        for subtree_root in [None, Some(child), None] {
+            plan_traversal_in_place(
+                &mut tree,
+                &effect_results,
+                &HashMap::new(),
+                subtree_root,
+                None,
+                &mut traversal_scratch,
+            );
+            assert!(!traversal_scratch.events.is_empty());
+            assert_eq!(traversal_scratch.events.as_ptr(), events_pointer);
+            assert_eq!(traversal_scratch.events.capacity(), events_capacity);
+        }
     }
 
     #[test]
@@ -322,8 +319,7 @@ mod tests {
             EffectInstance {
                 effect_id: 1,
                 params: Vec::new(),
-                params_buffer: None,
-                params_bind_group: None,
+                parameter_resources: None,
                 backdrop_config: None,
                 backdrop_material_params_buffer: None,
                 backdrop_layer_params_buffer: None,

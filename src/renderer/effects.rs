@@ -1,4 +1,5 @@
 use super::*;
+use crate::effect::EffectParameterResources;
 use crate::pipeline::{
     create_backdrop_gradient_stencil_keep_color_pipeline,
     create_backdrop_stencil_keep_color_pipeline, create_buffer_init, create_stencil_only_pipeline,
@@ -108,6 +109,22 @@ fn validate_shape_effect_config(config: &effect::ShapeEffectConfig) -> Result<()
     Ok(())
 }
 
+fn create_effect_parameter_resources(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    params: &[u8],
+    buffer_label: &'static str,
+) -> EffectParameterResources {
+    let buffer = create_buffer_init(
+        device,
+        Some(buffer_label),
+        params,
+        BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+    );
+    let bind_group = create_params_bind_group(device, layout, &buffer);
+    EffectParameterResources { buffer, bind_group }
+}
+
 fn build_effect_instance(
     device: &wgpu::Device,
     loaded_effect: &LoadedEffect,
@@ -116,36 +133,22 @@ fn build_effect_instance(
     backdrop_config: Option<effect::BackdropEffectConfig>,
     params_buffer_label: &'static str,
 ) -> EffectInstance {
-    let mut instance = EffectInstance {
+    let parameter_resources = loaded_effect
+        .params_bind_group_layout
+        .as_ref()
+        .map(|layout| {
+            create_effect_parameter_resources(device, layout, params, params_buffer_label)
+        });
+    EffectInstance {
         effect_id,
         params: params.to_vec(),
-        params_buffer: None,
-        params_bind_group: None,
+        parameter_resources,
         backdrop_config,
         backdrop_material_params_buffer: None,
         backdrop_layer_params_buffer: None,
         backdrop_texture_bind_group: None,
         backdrop_texture_id: None,
-    };
-
-    let Some(params_bind_group_layout) = loaded_effect.params_bind_group_layout.as_ref() else {
-        return instance;
-    };
-
-    let buffer = create_buffer_init(
-        device,
-        Some(params_buffer_label),
-        params,
-        BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-    );
-
-    instance.params_bind_group = Some(create_params_bind_group(
-        device,
-        params_bind_group_layout,
-        &buffer,
-    ));
-    instance.params_buffer = Some(buffer);
-    instance
+    }
 }
 
 fn update_effect_instance_params(
@@ -162,26 +165,19 @@ fn update_effect_instance_params(
         return;
     };
 
-    if let Some(existing_buffer) = instance.params_buffer.as_ref() {
-        if params.len() as u64 <= existing_buffer.size() {
-            queue.write_buffer(existing_buffer, 0, params);
+    if let Some(resources) = instance.parameter_resources.as_ref() {
+        if params.len() as u64 <= resources.buffer.size() {
+            queue.write_buffer(&resources.buffer, 0, params);
             return;
         }
     }
 
-    let new_buffer = create_buffer_init(
-        device,
-        Some(params_buffer_label),
-        params,
-        BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-    );
-
-    instance.params_bind_group = Some(create_params_bind_group(
+    instance.parameter_resources = Some(create_effect_parameter_resources(
         device,
         params_bind_group_layout,
-        &new_buffer,
+        params,
+        params_buffer_label,
     ));
-    instance.params_buffer = Some(new_buffer);
 }
 
 fn refresh_effect_instance_after_reload(
@@ -199,23 +195,17 @@ fn refresh_effect_instance_after_reload(
         return false;
     }
 
-    if instance.params.is_empty() {
-        instance.params_buffer = None;
-        instance.params_bind_group = None;
-        return true;
-    }
-
-    let params_buffer = create_buffer_init(
-        device,
-        Some("reloaded_effect_params_buffer"),
-        &instance.params,
-        BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-    );
-    instance.params_bind_group = loaded_effect
+    instance.parameter_resources = loaded_effect
         .params_bind_group_layout
         .as_ref()
-        .map(|layout| create_params_bind_group(device, layout, &params_buffer));
-    instance.params_buffer = Some(params_buffer);
+        .map(|layout| {
+            create_effect_parameter_resources(
+                device,
+                layout,
+                &instance.params,
+                "reloaded_effect_params_buffer",
+            )
+        });
     true
 }
 
@@ -496,13 +486,9 @@ impl<'a> Renderer<'a> {
             .retain(|cache_key, _| cache_key.effect_id != effect_id);
     }
 
-    pub(super) fn ensure_composite_pipeline(&mut self) {
-        if self.composite_pipeline.is_none() {
-            let (pipeline, bind_group_layout) =
-                compile_composite_pipeline(&self.device, self.config.format);
-            self.composite_pipeline = Some(pipeline);
-            self.composite_bgl = Some(bind_group_layout);
-        }
+    pub(super) fn ensure_composite_pipeline(&mut self) -> &CompositePipelineResources {
+        self.composite_resources
+            .get_or_insert_with(|| compile_composite_pipeline(&self.device, self.config.format))
     }
 
     pub(super) fn ensure_texture_blit_pipeline(&mut self) {
@@ -510,26 +496,21 @@ impl<'a> Renderer<'a> {
             return;
         }
 
-        let composite_bind_group_layout = self
-            .composite_bgl
-            .as_ref()
-            .expect("composite bind group layout must exist before the texture blit pipeline");
+        let device = Arc::clone(&self.device);
+        let format = self.config.format;
+        let composite_resources = self.ensure_composite_pipeline();
         self.texture_blit_pipeline = Some(effect::compile_texture_blit_pipeline(
-            &self.device,
-            self.config.format,
-            composite_bind_group_layout,
+            &device,
+            format,
+            &composite_resources.bind_group_layout,
         ));
     }
 
     pub(super) fn ensure_backdrop_layer_composite_pipeline(&mut self) {
-        if self.backdrop_layer_composite_pipeline.is_some() {
-            return;
-        }
-
-        let (pipeline, bind_group_layout) =
-            effect::compile_backdrop_layer_composite_pipeline(&self.device, self.config.format);
-        self.backdrop_layer_composite_pipeline = Some(pipeline);
-        self.backdrop_layer_composite_bind_group_layout = Some(bind_group_layout);
+        self.backdrop_layer_composite_resources
+            .get_or_insert_with(|| {
+                effect::compile_backdrop_layer_composite_pipeline(&self.device, self.config.format)
+            });
     }
 
     pub(super) fn ensure_effect_sampler(&mut self) {

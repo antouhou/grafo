@@ -224,8 +224,7 @@ mod tests {
             EffectInstance {
                 effect_id: 1,
                 params: Vec::new(),
-                params_buffer: None,
-                params_bind_group: None,
+                parameter_resources: None,
                 backdrop_config: None,
                 backdrop_material_params_buffer: None,
                 backdrop_layer_params_buffer: None,
@@ -247,8 +246,7 @@ mod tests {
             EffectInstance {
                 effect_id: 2,
                 params: Vec::new(),
-                params_buffer: None,
-                params_bind_group: None,
+                parameter_resources: None,
                 backdrop_config: None,
                 backdrop_material_params_buffer: None,
                 backdrop_layer_params_buffer: None,

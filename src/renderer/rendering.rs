@@ -87,20 +87,15 @@ impl<'a> Renderer<'a> {
         }
 
         let backdrop_context = if has_backdrop_effects {
+            let backdrop_composite = self.backdrop_layer_composite_resources.as_ref().unwrap();
             Some(types::BackdropContext {
                 loaded_effects: &self.loaded_effects,
-                composite_bgl: self.composite_bgl.as_ref().unwrap(),
+                composite_bgl: &self.composite_resources.as_ref().unwrap().bind_group_layout,
                 effect_sampler: self.effect_sampler.as_ref().unwrap(),
                 gradient_ramp_sampler: &self.gradient_ramp_sampler,
                 texture_blit_pipeline: self.texture_blit_pipeline.as_ref().unwrap(),
-                backdrop_layer_composite_pipeline: self
-                    .backdrop_layer_composite_pipeline
-                    .as_ref()
-                    .unwrap(),
-                backdrop_layer_composite_bind_group_layout: self
-                    .backdrop_layer_composite_bind_group_layout
-                    .as_ref()
-                    .unwrap(),
+                backdrop_layer_composite_pipeline: &backdrop_composite.pipeline,
+                backdrop_layer_composite_bind_group_layout: &backdrop_composite.bind_group_layout,
                 stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
                 backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
                 backdrop_color_gradient_pipeline: self
@@ -241,7 +236,9 @@ impl<'a> Renderer<'a> {
                         &buffers,
                         &mut self.shape_resources.gradient_cache,
                         &mut self.offscreen_texture_pool,
-                        self.composite_pipeline.as_ref(),
+                        self.composite_resources
+                            .as_ref()
+                            .map(|resources| &resources.pipeline),
                         None,
                         &mut backdrop_work_textures,
                         &mut stencil_stack,
@@ -316,7 +313,9 @@ impl<'a> Renderer<'a> {
                     &buffers,
                     &mut self.shape_resources.gradient_cache,
                     &mut self.offscreen_texture_pool,
-                    self.composite_pipeline.as_ref(),
+                    self.composite_resources
+                        .as_ref()
+                        .map(|resources| &resources.pipeline),
                     backdrop_context
                         .as_ref()
                         .filter(|_| subtree_needs_backdrop_effects),
@@ -350,10 +349,17 @@ impl<'a> Renderer<'a> {
                     &mut self.offscreen_texture_pool,
                     EffectPassRunConfig {
                         loaded_effect,
-                        params_bind_group: effect_instance.params_bind_group.as_ref(),
+                        params_bind_group: effect_instance
+                            .parameter_resources
+                            .as_ref()
+                            .map(|resources| &resources.bind_group),
                         source_view,
                         effect_sampler: self.effect_sampler.as_ref().unwrap(),
-                        composite_bind_group_layout: self.composite_bgl.as_ref().unwrap(),
+                        composite_bind_group_layout: &self
+                            .composite_resources
+                            .as_ref()
+                            .unwrap()
+                            .bind_group_layout,
                         create_composite_bind_group: true,
                         width,
                         height,
@@ -417,7 +423,9 @@ impl<'a> Renderer<'a> {
                 &buffers,
                 &mut self.shape_resources.gradient_cache,
                 &mut self.offscreen_texture_pool,
-                self.composite_pipeline.as_ref(),
+                self.composite_resources
+                    .as_ref()
+                    .map(|resources| &resources.pipeline),
                 backdrop_context.as_ref(),
                 &mut backdrop_work_textures,
                 &mut stencil_stack,

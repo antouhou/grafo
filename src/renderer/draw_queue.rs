@@ -190,7 +190,6 @@ impl<'a> Renderer<'a> {
             let node_id = self.draw_tree.add_node(draw_command);
             Ok(node_id)
         } else if let Some(parent_shape_id) = parent_shape_id {
-            // Mark the parent as non-leaf since it now has a child.
             if let Some(parent) = self.draw_tree.get_mut(parent_shape_id) {
                 parent.set_not_leaf();
                 let node_id = self.draw_tree.add_child(parent_shape_id, draw_command);
@@ -199,7 +198,6 @@ impl<'a> Renderer<'a> {
                 Err(DrawCommandError::InvalidShapeId(parent_shape_id))
             }
         } else {
-            // Adding to root — mark root as non-leaf.
             if let Some(root) = self.draw_tree.get_mut(0) {
                 root.set_not_leaf();
             }
@@ -225,9 +223,6 @@ impl<'a> Renderer<'a> {
         self.group_effects.clear();
         self.backdrop_effects.clear();
         self.shape_effects.clear();
-        // Keep scratch storage bounded even if queue contents fluctuate frame-to-frame.
-        self.trim_scratch_on_resize_or_policy();
-        // Clear memory buffers that are used for GPU upload
         self.clear_buffers();
     }
 

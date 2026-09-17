@@ -33,10 +33,10 @@
 //! ```
 
 use crate::cache::CachedTessellation;
-use crate::gradient::gpu::GpuMaterialParams;
+use crate::gradient::gpu::{GpuMaterialParams, GradientCache};
 use crate::gradient::types::Fill;
 use crate::pipeline::{create_buffer_init, BackdropSamplingUniform};
-use crate::util::{GradientCache, ShapeResources};
+use crate::util::ShapeResources;
 use crate::vertex::{CustomVertex, InstanceTransform};
 use crate::{Color, Stroke};
 use ahash::AHashMap;
@@ -104,19 +104,9 @@ impl PartialEq for ShapeTextureBinding {
 impl Eq for ShapeTextureBinding {}
 
 impl CachedShapeHandle {
-    /// Creates a new `CachedShapeHandle`.
-    ///
-    /// `geometry_id` is the tessellator cache key. Callers such as
-    /// [`Renderer::load_shape`](crate::Renderer::load_shape) and
-    /// [`Renderer::add_shape`](crate::Renderer::add_shape) must derive it from shape content, not
-    /// draw-tree identity: two different shapes must not share the same `geometry_id` unless
-    /// their tessellated geometry is identical.
-    ///
-    /// This value flows into the tessellation cache and later into
-    /// `preparation::append_aggregated_geometry_for_shape`, so collisions are a correctness
-    /// hazard rather than just a performance miss. A stable hash of the path or other
-    /// content-derived shape data is a good way to satisfy this contract. Pass `None` when no
-    /// reliable content-derived id is available.
+    /// Caches tessellation under `geometry_id` and reuses it during buffer aggregation.
+    /// Equal IDs must identify identical geometry. Use a content-derived key, or `None`
+    /// to disable reuse when no reliable key is available.
     pub(crate) fn new(
         shape: &Shape,
         tessellator: &mut FillTessellator,

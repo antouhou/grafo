@@ -4,6 +4,7 @@ use super::types::{
 };
 use super::*;
 use crate::effect::PooledTexture;
+use crate::gradient::gpu::GradientCache;
 use crate::pipeline::{
     begin_render_pass_with_load_ops, BackdropSamplingUniform, RenderPassLoadOperations,
 };
@@ -13,7 +14,6 @@ use crate::renderer::rect_utils::{
     intersect_scissor, should_skip_visible_rect_draw, try_scissor_for_rect,
 };
 use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
-use crate::util::GradientCache;
 
 fn cached_shape_mut(draw_command: &mut DrawCommand) -> &mut CachedShapeDrawData {
     match draw_command {
@@ -1512,7 +1512,10 @@ pub(super) fn render_segments(
                         texture_pool,
                         EffectPassRunConfig {
                             loaded_effect,
-                            params_bind_group: effect_instance.params_bind_group.as_ref(),
+                            params_bind_group: effect_instance
+                                .parameter_resources
+                                .as_ref()
+                                .map(|resources| &resources.bind_group),
                             source_view: downsampled_capture_texture
                                 .as_ref()
                                 .map(|texture| &texture.color_view)
