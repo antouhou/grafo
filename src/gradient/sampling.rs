@@ -1,16 +1,27 @@
-use super::normalize::{NormalizedGradient, NormalizedSegment, NormalizedStop};
+use super::normalize::NormalizedGradient;
 use super::types::{
     ColorInterpolation, GradientColor, GradientRamp, GradientRampSource, HueComponent,
     HueInterpolationMethod, RAMP_RESOLUTION, RESOLVED_DEGENERATE_EPSILON,
 };
 use std::sync::Arc;
 
-/// Bakes linear premultiplied RGBA texels from the first normalized stop to the last.
-/// Constant gradients use one texel; sampled ramps use RAMP_RESOLUTION texels.
-pub(crate) fn bake_gradient_ramp(ramp_source: &GradientRampSource) -> GradientRamp {
-    let normalized = &ramp_source.normalized;
-    let interpolation = &ramp_source.interpolation;
+#[derive(Debug, Clone, Copy)]
+enum RectSpace {
+    Srgb,
+    SrgbLinear,
+    Oklab,
+}
 
+#[derive(Debug, Clone, Copy)]
+enum CylSpace {
+    Hsl,
+    Hwb,
+}
+
+fn bake_segments<Interpolator: Fn(f32) -> [f32; 4]>(
+    normalized: &NormalizedGradient,
+    prepare_colors: impl Fn(&GradientColor, &GradientColor) -> Interpolator,
+) -> GradientRamp {
     if let [stop] = normalized.stops.as_slice() {
         let color = color_to_final_linear_premultiplied(&stop.color);
         return GradientRamp::Constant(color);
@@ -29,15 +40,67 @@ pub(crate) fn bake_gradient_ramp(ramp_source: &GradientRampSource) -> GradientRa
         return GradientRamp::Constant(color);
     }
 
+    let last_color = color_to_final_linear_premultiplied(&normalized.stops.last().unwrap().color);
+    let mut segment_index = 0;
+    let mut segment = &normalized.segments[segment_index];
+    let mut interpolate = prepare_colors(&segment.start_color, &segment.end_color);
+    let mut end_color = color_to_final_linear_premultiplied(&segment.end_color);
     let mut ramp = [[0.0; 4]; RAMP_RESOLUTION];
     for (index, texel) in ramp.iter_mut().enumerate() {
         let t_normalized = index as f32 / (RAMP_RESOLUTION - 1) as f32;
         let u = first_pos + t_normalized * span;
 
-        let color = evaluate_at_scalar(u, &normalized.segments, &normalized.stops, interpolation);
-        *texel = color;
+        if u >= last_pos {
+            *texel = last_color;
+            continue;
+        }
+
+        // Samples advance through half-open segments, including coincident hard stops.
+        while normalized
+            .segments
+            .get(segment_index + 1)
+            .is_some_and(|segment| u >= segment.start_position)
+        {
+            segment_index += 1;
+            segment = &normalized.segments[segment_index];
+            interpolate = prepare_colors(&segment.start_color, &segment.end_color);
+            end_color = color_to_final_linear_premultiplied(&segment.end_color);
+        }
+
+        let segment_len = segment.end_position - segment.start_position;
+        *texel = if segment_len <= RESOLVED_DEGENERATE_EPSILON {
+            end_color
+        } else {
+            let x = (u - segment.start_position) / segment_len;
+            let p =
+                apply_hint_reparameterization(x, segment.hint, segment_len, segment.start_position);
+            interpolate(p)
+        };
     }
     GradientRamp::Sampled(Arc::new(ramp))
+}
+
+/// Bakes linear premultiplied RGBA texels from the first normalized stop to the last.
+/// Constant gradients use one texel; sampled ramps use RAMP_RESOLUTION texels.
+pub(crate) fn bake_gradient_ramp(ramp_source: &GradientRampSource) -> GradientRamp {
+    let normalized = &ramp_source.normalized;
+    match ramp_source.interpolation {
+        ColorInterpolation::Srgb => bake_segments(normalized, |start, end| {
+            prepare_rectangular_interpolation(start, end, RectSpace::Srgb)
+        }),
+        ColorInterpolation::SrgbLinear => bake_segments(normalized, |start, end| {
+            prepare_rectangular_interpolation(start, end, RectSpace::SrgbLinear)
+        }),
+        ColorInterpolation::Oklab => bake_segments(normalized, |start, end| {
+            prepare_rectangular_interpolation(start, end, RectSpace::Oklab)
+        }),
+        ColorInterpolation::Hsl { hue } => bake_segments(normalized, |start, end| {
+            prepare_cylindrical_interpolation(start, end, CylSpace::Hsl, hue)
+        }),
+        ColorInterpolation::Hwb { hue } => bake_segments(normalized, |start, end| {
+            prepare_cylindrical_interpolation(start, end, CylSpace::Hwb, hue)
+        }),
+    }
 }
 
 fn has_actual_zero_length_run(normalized: &NormalizedGradient) -> bool {
@@ -59,50 +122,6 @@ fn bake_degenerate_hard_stop_ramp(normalized: &NormalizedGradient) -> [[f32; 4];
     let mut ramp = [[last_color[0], last_color[1], last_color[2], last_color[3]]; RAMP_RESOLUTION];
     ramp[..transition_index].fill(first_color);
     ramp
-}
-
-/// Evaluates the gradient at scalar `u` (after spread-mode folding).
-/// Returns final linear premultiplied RGBA.
-fn evaluate_at_scalar(
-    u: f32,
-    segments: &[NormalizedSegment],
-    stops: &[NormalizedStop],
-    interpolation: &ColorInterpolation,
-) -> [f32; 4] {
-    if segments.is_empty() {
-        return color_to_final_linear_premultiplied(&stops.last().unwrap().color);
-    }
-
-    // Find the segment containing u
-    // CSS rule: half-open [p_i, p_{i+1}), last stop takes final stop color
-    let last_stop_pos = stops.last().unwrap().position;
-    if u >= last_stop_pos {
-        return color_to_final_linear_premultiplied(&stops.last().unwrap().color);
-    }
-
-    // Find segment: last segment where start_position <= u
-    let mut segment_index = 0;
-    for (i, seg) in segments.iter().enumerate() {
-        if u >= seg.start_position {
-            segment_index = i;
-        } else {
-            break;
-        }
-    }
-
-    let segment = &segments[segment_index];
-
-    // If the segment has zero length (hard stop), use last stop in coincident run
-    let seg_len = segment.end_position - segment.start_position;
-    if seg_len <= RESOLVED_DEGENERATE_EPSILON {
-        return color_to_final_linear_premultiplied(&segment.end_color);
-    }
-
-    // Compute interpolation parameter with hint reparameterization
-    let x = (u - segment.start_position) / seg_len;
-    let p = apply_hint_reparameterization(x, segment.hint, seg_len, segment.start_position);
-
-    interpolate_colors(&segment.start_color, &segment.end_color, p, interpolation)
 }
 
 /// Applies the CSS gradient hint reparameterization.
@@ -141,109 +160,72 @@ fn apply_hint_reparameterization(
 
 // ── Color interpolation ──────────────────────────────────────────────────────
 
-/// Interpolates between two gradient colors at parameter p (0..1).
-/// Returns final linear premultiplied RGBA.
-fn interpolate_colors(
+fn prepare_rectangular_interpolation(
     color_a: &GradientColor,
     color_b: &GradientColor,
-    p: f32,
-    interpolation: &ColorInterpolation,
-) -> [f32; 4] {
-    match interpolation {
-        ColorInterpolation::Srgb => interpolate_rectangular(color_a, color_b, p, RectSpace::Srgb),
-        ColorInterpolation::SrgbLinear => {
-            interpolate_rectangular(color_a, color_b, p, RectSpace::SrgbLinear)
-        }
-        ColorInterpolation::Oklab => interpolate_rectangular(color_a, color_b, p, RectSpace::Oklab),
-        ColorInterpolation::Hsl { hue } => {
-            interpolate_cylindrical(color_a, color_b, p, CylSpace::Hsl, *hue)
-        }
-        ColorInterpolation::Hwb { hue } => {
-            interpolate_cylindrical(color_a, color_b, p, CylSpace::Hwb, *hue)
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum RectSpace {
-    Srgb,
-    SrgbLinear,
-    Oklab,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum CylSpace {
-    Hsl,
-    Hwb,
-}
-
-/// Interpolates premultiplied channels in the selected color space.
-fn interpolate_rectangular(
-    color_a: &GradientColor,
-    color_b: &GradientColor,
-    p: f32,
     space: RectSpace,
-) -> [f32; 4] {
+) -> impl Fn(f32) -> [f32; 4] {
     let [ra, ga, ba, aa] = to_rect_space(color_a, space);
     let [rb, gb, bb, ab] = to_rect_space(color_b, space);
 
     let (pra, pga, pba) = (ra * aa, ga * aa, ba * aa);
     let (prb, pgb, pbb) = (rb * ab, gb * ab, bb * ab);
 
-    let pr = pra + (prb - pra) * p;
-    let pg = pga + (pgb - pga) * p;
-    let pb = pba + (pbb - pba) * p;
-    let alpha_p = aa + (ab - aa) * p;
+    move |p| {
+        let pr = pra + (prb - pra) * p;
+        let pg = pga + (pgb - pga) * p;
+        let pb = pba + (pbb - pba) * p;
+        let alpha_p = aa + (ab - aa) * p;
 
-    // Color-space conversion needs unpremultiplied channels.
-    let (ur, ug, ub) = if alpha_p > 0.0 {
-        (pr / alpha_p, pg / alpha_p, pb / alpha_p)
-    } else {
-        (0.0, 0.0, 0.0)
-    };
+        // Color-space conversion needs unpremultiplied channels.
+        let (ur, ug, ub) = if alpha_p > 0.0 {
+            (pr / alpha_p, pg / alpha_p, pb / alpha_p)
+        } else {
+            (0.0, 0.0, 0.0)
+        };
 
-    let [lr, lg, lb] = rect_to_linear(ur, ug, ub, space);
+        let [lr, lg, lb] = rect_to_linear(ur, ug, ub, space);
 
-    [lr * alpha_p, lg * alpha_p, lb * alpha_p, alpha_p]
+        [lr * alpha_p, lg * alpha_p, lb * alpha_p, alpha_p]
+    }
 }
 
-fn interpolate_cylindrical(
+fn prepare_cylindrical_interpolation(
     color_a: &GradientColor,
     color_b: &GradientColor,
-    p: f32,
     space: CylSpace,
     hue_method: HueInterpolationMethod,
-) -> [f32; 4] {
+) -> impl Fn(f32) -> [f32; 4] {
     let (h0, c1_a, c2_a, a_a, h0_powerless) = to_cylindrical(color_a, space);
     let (h1, c1_b, c2_b, a_b, h1_powerless) = to_cylindrical(color_b, space);
-
-    let (rh0, rh1) = resolve_hue_pair(h0, h0_powerless, h1, h1_powerless);
-
-    let delta = compute_hue_delta(rh0, rh1, hue_method);
-
-    // Hue follows the selected angular path; only the other channels are premultiplied.
-    let h_interp = (rh0 + delta * p).rem_euclid(360.0);
-    let alpha_interp = a_a + (a_b - a_a) * p;
+    let (hue_start, hue_end) = resolve_hue_pair(h0, h0_powerless, h1, h1_powerless);
+    let hue_delta = compute_hue_delta(hue_start, hue_end, hue_method);
     let c1_a_p = c1_a * a_a;
     let c1_b_p = c1_b * a_b;
     let c2_a_p = c2_a * a_a;
     let c2_b_p = c2_b * a_b;
-    let c1_p = c1_a_p + (c1_b_p - c1_a_p) * p;
-    let c2_p = c2_a_p + (c2_b_p - c2_a_p) * p;
-    let (c1_interp, c2_interp) = if alpha_interp > 0.0 {
-        (c1_p / alpha_interp, c2_p / alpha_interp)
-    } else {
-        (0.0, 0.0)
-    };
 
-    let [lr, lg, lb] = cylindrical_to_linear(h_interp, c1_interp, c2_interp, space);
-    let alpha_clamped = alpha_interp.clamp(0.0, 1.0);
-    [
-        lr * alpha_clamped,
-        lg * alpha_clamped,
-        lb * alpha_clamped,
-        alpha_clamped,
-    ]
+    move |p| {
+        // Hue follows the selected angular path; only the other channels are premultiplied.
+        let h_interp = (hue_start + hue_delta * p).rem_euclid(360.0);
+        let alpha_interp = a_a + (a_b - a_a) * p;
+        let c1_p = c1_a_p + (c1_b_p - c1_a_p) * p;
+        let c2_p = c2_a_p + (c2_b_p - c2_a_p) * p;
+        let (c1_interp, c2_interp) = if alpha_interp > 0.0 {
+            (c1_p / alpha_interp, c2_p / alpha_interp)
+        } else {
+            (0.0, 0.0)
+        };
+
+        let [lr, lg, lb] = cylindrical_to_linear(h_interp, c1_interp, c2_interp, space);
+        let alpha_clamped = alpha_interp.clamp(0.0, 1.0);
+        [
+            lr * alpha_clamped,
+            lg * alpha_clamped,
+            lb * alpha_clamped,
+            alpha_clamped,
+        ]
+    }
 }
 
 // ── Color conversion helpers ─────────────────────────────────────────────────
@@ -251,6 +233,24 @@ fn interpolate_cylindrical(
 /// Converts a GradientColor to the specified rectangular interpolation space.
 /// Returns [channel0, channel1, channel2, alpha] with alpha clamped to [0,1].
 fn to_rect_space(color: &GradientColor, space: RectSpace) -> [f32; 4] {
+    match (color, space) {
+        (
+            GradientColor::SrgbLinear {
+                red,
+                green,
+                blue,
+                alpha,
+            },
+            RectSpace::SrgbLinear,
+        ) => {
+            return [*red, *green, *blue, alpha.clamp(0.0, 1.0)];
+        }
+        (GradientColor::Oklab { l, a, b, alpha }, RectSpace::Oklab) => {
+            return [*l, *a, *b, alpha.clamp(0.0, 1.0)];
+        }
+        _ => {}
+    }
+
     // First get the color as [r, g, b, alpha] in sRGB space, handling
     // missing/powerless hue for HSL/HWB.
     let (srgb_r, srgb_g, srgb_b, alpha) = gradient_color_to_srgb(color);
@@ -710,11 +710,118 @@ mod tests {
                 hue: HueInterpolationMethod::Decreasing,
             },
         ];
-        for interpolation in interpolations {
+        let expected_samples = [
+            [
+                [0.17520891, 0.43018308, 0.25875667, 0.78165525],
+                [0.33379114, 0.0050344444, 0.0050344444, 0.6997719],
+                [0.11075602, 0.0016704901, 0.0016704901, 0.23219293],
+                [0.0030019488, 0.021935893, 0.23583883, 0.29951122],
+            ],
+            [
+                [0.17803304, 0.46346933, 0.26187888, 0.78165525],
+                [0.33379108, 0.0050344444, 0.0050344444, 0.6997719],
+                [0.110755995, 0.0016704907, 0.0016704907, 0.23219293],
+                [0.0030019488, 0.021935893, 0.23583886, 0.29951122],
+            ],
+            [
+                [0.19419457, 0.43785003, 0.27092168, 0.78165525],
+                [0.333791, 0.0050344802, 0.005034423, 0.6997719],
+                [0.11075597, 0.0016704889, 0.0016704871, 0.23219293],
+                [0.0030019623, 0.02193589, 0.23583879, 0.29951122],
+            ],
+            [
+                [0.18620181, 0.5741357, 0.671788, 1.0],
+                [0.005030864, 0.005030864, 0.3337446, 0.69970673],
+                [-0.00025836608, -0.00025836608, 0.0011545114, 0.09853381],
+                [-0.003118001, -0.0006021938, 0.13839178, 0.17438902],
+            ],
+            [
+                [0.671788, 0.65162796, 0.18620181, 1.0],
+                [0.0051435283, 0.005030864, 0.3337446, 0.69970673],
+                [-0.00025836608, 0.0011545114, -0.00024760913, 0.09853381],
+                [0.13839178, 0.00023479709, -0.003118001, 0.17438902],
+            ],
+            [
+                [0.671788, 0.65162796, 0.18620181, 1.0],
+                [0.005030864, 0.005030864, 0.3337446, 0.69970673],
+                [-0.00025836608, -0.00025836608, 0.0011545114, 0.09853381],
+                [0.13839178, 0.00023479709, -0.003118001, 0.17438902],
+            ],
+            [
+                [0.18620181, 0.5741357, 0.671788, 1.0],
+                [0.005030864, 0.0051435423, 0.3337446, 0.69970673],
+                [0.0011545114, -0.00025836608, -0.00024760913, 0.09853381],
+                [-0.003118001, -0.0006021938, 0.13839178, 0.17438902],
+            ],
+            [
+                [0.18822701, 0.57143706, 0.6675285, 1.0],
+                [0.3337652, 0.0050290865, 0.005066458, 0.69970673],
+                [0.006493173, -0.04639187, 0.05822707, 0.09853381],
+                [-0.013347357, -0.0046479045, 0.20233947, 0.17438902],
+            ],
+            [
+                [0.6675285, 0.64769804, 0.18822701, 1.0],
+                [0.3337652, 0.0051040268, 0.0050290865, 0.69970673],
+                [-0.04639187, 0.05822707, 0.0071900864, 0.09853381],
+                [0.20233947, -0.0016603572, -0.013347357, 0.17438902],
+            ],
+            [
+                [0.6675285, 0.64769804, 0.18822701, 1.0],
+                [0.3337652, 0.0051040268, 0.0050290865, 0.69970673],
+                [-0.04639187, 0.05822707, 0.0071900864, 0.09853381],
+                [0.20233947, -0.0016603572, -0.013347357, 0.17438902],
+            ],
+            [
+                [0.18822701, 0.57143706, 0.6675285, 1.0],
+                [0.3337652, 0.0050290865, 0.005066458, 0.69970673],
+                [0.006493173, -0.04639187, 0.05822707, 0.09853381],
+                [-0.013347357, -0.0046479045, 0.20233947, 0.17438902],
+            ],
+        ];
+        for (interpolation, expected_samples) in interpolations.into_iter().zip(expected_samples) {
             let ramp = bake_gradient_ramp(&mixed_color_ramp_source(interpolation));
-            let samples = [137, 307, 512, 767].map(|index| ramp.as_slice()[index]);
-            println!("{interpolation:?}: {samples:?}");
+            for (index, expected) in [137, 307, 512, 767].into_iter().zip(expected_samples) {
+                let actual = ramp.as_slice()[index];
+                for (actual_channel, expected_channel) in actual.into_iter().zip(expected) {
+                    assert!(
+                        (actual_channel - expected_channel).abs() < 2e-6,
+                        "{interpolation:?} texel {index}: expected {expected:?}, got {actual:?}",
+                    );
+                }
+            }
         }
+    }
+
+    #[test]
+    fn sampled_hard_stop_uses_the_last_coincident_color() {
+        let boundary_index = RAMP_RESOLUTION / 3;
+        let boundary_position = boundary_index as f32 / (RAMP_RESOLUTION - 1) as f32;
+        let common = GradientCommonDesc::new([
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(0.0),
+                srgb_color(1.0, 0.0, 0.0),
+            ),
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(boundary_position),
+                srgb_color(1.0, 0.0, 0.0),
+            ),
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(boundary_position),
+                srgb_color(0.0, 0.0, 1.0),
+            ),
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(1.0),
+                srgb_color(0.0, 0.0, 1.0),
+            ),
+        ]);
+        let ramp = bake_gradient_ramp(&GradientRampSource {
+            interpolation: common.interpolation,
+            normalized: NormalizedGradient::from_common(&common, GradientKind::Linear),
+        });
+
+        assert_eq!(ramp.as_slice()[boundary_index - 1], [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(ramp.as_slice()[boundary_index], [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(ramp.as_slice()[RAMP_RESOLUTION - 1], [0.0, 0.0, 1.0, 1.0]);
     }
 
     #[test]
@@ -834,13 +941,13 @@ mod tests {
             alpha: 0.0,
         };
 
-        let interpolated = interpolate_cylindrical(
+        let interpolate = prepare_cylindrical_interpolation(
             &color_a,
             &color_b,
-            0.5,
             CylSpace::Hsl,
             HueInterpolationMethod::Shorter,
         );
+        let interpolated = interpolate(0.5);
 
         let expected = color_to_final_linear_premultiplied(&GradientColor::Hsl {
             hue: HueComponent::Degrees(0.0),
