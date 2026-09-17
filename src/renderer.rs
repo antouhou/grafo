@@ -72,14 +72,12 @@ pub enum ShapeOverflow {
     Visible,
 }
 
-/// The renderer for the Grafo library. This is the main struct used to render shapes and images.
+/// GPU resources shared by renderers.
 ///
-/// A [`Renderer`] owns one render surface and one independent draw queue. Create a
-/// [`RendererContext`] once and pass clones of it to additional renderers when multiple
-/// windows should share the same GPU device, texture storage, and loaded-shape cache. Shape
-/// cache keys are scoped to the context: use the same content-derived key to reuse a shape across
-/// renderers, and avoid reusing a key for different shapes because loading or removing it affects
-/// every renderer using the context.
+/// Create a context once and pass clones to renderers to share the GPU device, queue,
+/// texture storage, and loaded shapes. Shape cache keys belong to the context. Use the
+/// same content-derived key to reuse a shape across renderers. Loading a different shape
+/// under that key, or removing it, affects every renderer using the context.
 #[derive(Clone)]
 pub struct RendererContext {
     pub(crate) inner: Arc<RendererContextInner>,
@@ -94,6 +92,9 @@ pub(crate) struct RendererContextInner {
     pub(crate) shape_cache: RwLock<HashMap<u64, CachedShapeHandle>>,
 }
 
+/// Renders shapes and images with its own draw queue and an optional window surface.
+///
+/// Multiple renderers can share GPU resources through a [`RendererContext`].
 pub struct Renderer<'a> {
     // Window information
     /// Size of the window in pixels.

@@ -171,13 +171,9 @@ impl InstanceTransform {
         }
     }
 
-    /// Compose two transforms so that `self` is applied first, then `rhs`.
+    /// Composes transforms by applying `self` first, then `rhs`.
     ///
-    /// This uses left-to-right application order (like CSS/SVG/euclid's `.then()`):
-    /// `a.multiply(&b)` means "apply `a` first, then `b`".
-    ///
-    /// Note: mathematically this computes `rhs × self` (not `self × rhs`),
-    /// which is what gives us the intuitive left-to-right ordering.
+    /// The resulting matrix is `rhs × self`.
     pub fn multiply(&self, rhs: &Self) -> Self {
         // Helper: dot product of a column with elements from rhs at col_idx
         fn dot(col: [f32; 4], mat: &InstanceTransform, col_idx: usize) -> f32 {

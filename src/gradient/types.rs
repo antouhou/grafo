@@ -845,10 +845,8 @@ fn validate_common(common: &GradientCommonDesc, kind: GradientKind) -> Result<()
     let is_conic = kind == GradientKind::Conic;
 
     for (stop_index, stop) in common.stops.iter().enumerate() {
-        // Validate stop color components are finite
         validate_gradient_color_finite(stop_index, &stop.color)?;
 
-        // Validate stop positions
         match &stop.positions {
             GradientStopPositions::Auto => {}
             GradientStopPositions::Single(offset) => {

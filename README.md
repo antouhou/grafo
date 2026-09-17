@@ -228,7 +228,6 @@ renderer
 ## Documentation
 
 [Documentation is available on docs.rs](https://docs.rs/grafo/).
-- [Renderer architecture notes](./docs/renderer-architecture.md)
 
 ## Contributing
 

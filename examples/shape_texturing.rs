@@ -9,6 +9,8 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
+const RUST_LOGO_TEXTURE_ID: u64 = 100;
+
 /// How long to wait before retrying a frame that was skipped because the surface
 /// reported it was not visible (`Occluded`/`Timeout`).
 const OCCLUDED_RETRY_DELAY: Duration = Duration::from_millis(50);
@@ -64,6 +66,11 @@ impl<'a> ApplicationHandler for App<'a> {
             true,
             1, // msaa_samples
         ));
+        renderer.texture_manager().allocate_texture_with_data(
+            RUST_LOGO_TEXTURE_ID,
+            self.rust_logo_png_dimensions,
+            &self.rust_logo_png_bytes,
+        );
 
         self.window = Some(window);
         self.renderer = Some(renderer);
@@ -117,20 +124,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     BorderRadii::new(20.0),
                     Stroke::new(2.0_f32, Color::rgb(200, 200, 200)),
                 );
-                // Upload texture once per frame here for demo purposes. In a real app, do this once.
-                let texture_id = 100u64;
-                renderer
-                    .texture_manager()
-                    .allocate_texture(texture_id, self.rust_logo_png_dimensions);
-                renderer
-                    .texture_manager()
-                    .load_data_into_texture(
-                        texture_id,
-                        self.rust_logo_png_dimensions,
-                        &self.rust_logo_png_bytes,
-                    )
-                    .unwrap();
-
                 renderer
                     .add_shape(
                         textured_rect,
@@ -138,7 +131,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         None,
                         ShapeDrawCommandOptions::new()
                             .color(Color::rgb(255, 255, 255))
-                            .background_texture_id(texture_id)
+                            .background_texture_id(RUST_LOGO_TEXTURE_ID)
                             .transform(grafo::TransformInstance::translation(100.0, 100.0)),
                     )
                     .unwrap();

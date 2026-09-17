@@ -144,56 +144,8 @@ pub(super) fn compute_shape_effect_raster_rect(
     })
 }
 
-#[derive(Clone)]
-pub(super) struct ShapeEffectCacheKey {
-    pub effect_id: u64,
-    pub tessellation: Arc<CachedTessellation>,
-    pub params: Arc<[u8]>,
-    /// Local-space raster origin (see [`ShapeEffectRasterRect::local_physical_origin`]).
-    /// Not a screen position, so node transforms do not invalidate the entry.
-    pub local_raster_origin: [i32; 2],
-    pub raster_size: [u32; 2],
-    pub scale_factor_bits: u64,
-    pub fringe_width_bits: u32,
-    pub downsample_bits: u32,
-    pub texture_format: wgpu::TextureFormat,
-}
-
-impl PartialEq for ShapeEffectCacheKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.effect_id == other.effect_id
-            && Arc::ptr_eq(&self.tessellation, &other.tessellation)
-            && self.params.as_ref() == other.params.as_ref()
-            && self.local_raster_origin == other.local_raster_origin
-            && self.raster_size == other.raster_size
-            && self.scale_factor_bits == other.scale_factor_bits
-            && self.fringe_width_bits == other.fringe_width_bits
-            && self.downsample_bits == other.downsample_bits
-            && self.texture_format == other.texture_format
-    }
-}
-
-impl Eq for ShapeEffectCacheKey {}
-
-impl Hash for ShapeEffectCacheKey {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.effect_id.hash(state);
-        (Arc::as_ptr(&self.tessellation) as usize).hash(state);
-        self.params.as_ref().hash(state);
-        self.local_raster_origin.hash(state);
-        self.raster_size.hash(state);
-        self.scale_factor_bits.hash(state);
-        self.fringe_width_bits.hash(state);
-        self.downsample_bits.hash(state);
-        self.texture_format.hash(state);
-    }
-}
-
-/// Key for the geometry-level mask cache. Unlike [`ShapeEffectCacheKey`], this
-/// intentionally excludes `effect_id` and `params`: the mask depends only on the
-/// shape geometry and how it is rasterized, so it can be reused across effect
-/// parameter changes (e.g. animated shadow color) and across different effects
-/// applied to the same geometry.
+/// Identifies a mask by geometry and rasterization settings, allowing reuse across
+/// effects and parameter changes.
 #[derive(Clone)]
 pub(super) struct ShapeEffectMaskCacheKey {
     pub tessellation: Arc<CachedTessellation>,
@@ -231,6 +183,13 @@ impl Hash for ShapeEffectMaskCacheKey {
         self.downsample_bits.hash(state);
         self.texture_format.hash(state);
     }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub(super) struct ShapeEffectCacheKey {
+    pub mask_key: ShapeEffectMaskCacheKey,
+    pub effect_id: u64,
+    pub params: Arc<[u8]>,
 }
 
 pub(super) struct CachedShapeEffectMask {
@@ -535,17 +494,6 @@ impl<'a> Renderer<'a> {
             };
             let [width, height] = raster_rect.texture_size;
 
-            let cache_key = ShapeEffectCacheKey {
-                effect_id: shape_effect_instance.effect_id,
-                tessellation: Arc::clone(&cached_shape.cached_shape.tessellation),
-                params: Arc::clone(&shape_effect_instance.params),
-                local_raster_origin: raster_rect.local_physical_origin,
-                raster_size: raster_rect.texture_size,
-                scale_factor_bits: self.scale_factor.to_bits(),
-                fringe_width_bits: self.fringe_width.to_bits(),
-                downsample_bits: shape_effect_instance.config.downsample.to_bits(),
-                texture_format: self.config.format,
-            };
             let mask_cache_key = ShapeEffectMaskCacheKey {
                 tessellation: Arc::clone(&cached_shape.cached_shape.tessellation),
                 local_raster_origin: raster_rect.local_physical_origin,
@@ -554,6 +502,11 @@ impl<'a> Renderer<'a> {
                 fringe_width_bits: self.fringe_width.to_bits(),
                 downsample_bits: shape_effect_instance.config.downsample.to_bits(),
                 texture_format: self.config.format,
+            };
+            let cache_key = ShapeEffectCacheKey {
+                mask_key: mask_cache_key.clone(),
+                effect_id: shape_effect_instance.effect_id,
+                params: Arc::clone(&shape_effect_instance.params),
             };
             if let Some(cached_result) = self.shape_effect_cache.get(&cache_key) {
                 let _cached_mask = self.shape_effect_mask_cache.get(&mask_cache_key);
@@ -714,6 +667,7 @@ impl<'a> Renderer<'a> {
 mod tests {
     use super::{
         compute_shape_effect_raster_rect, shape_effect_quad_transform, ShapeEffectCacheKey,
+        ShapeEffectMaskCacheKey,
     };
     use crate::cache::CachedTessellation;
     use crate::effect::ShapeEffectConfig;
@@ -731,15 +685,17 @@ mod tests {
 
     fn cache_key(tessellation: Arc<CachedTessellation>, params: Arc<[u8]>) -> ShapeEffectCacheKey {
         ShapeEffectCacheKey {
+            mask_key: ShapeEffectMaskCacheKey {
+                tessellation,
+                local_raster_origin: [-1, -1],
+                raster_size: [12, 12],
+                scale_factor_bits: 1.0f64.to_bits(),
+                fringe_width_bits: 0.75f32.to_bits(),
+                downsample_bits: 1.0f32.to_bits(),
+                texture_format: wgpu::TextureFormat::Bgra8UnormSrgb,
+            },
             effect_id: 7,
-            tessellation,
             params,
-            local_raster_origin: [-1, -1],
-            raster_size: [12, 12],
-            scale_factor_bits: 1.0f64.to_bits(),
-            fringe_width_bits: 0.75f32.to_bits(),
-            downsample_bits: 1.0f32.to_bits(),
-            texture_format: wgpu::TextureFormat::Bgra8UnormSrgb,
         }
     }
 
@@ -844,7 +800,7 @@ mod tests {
             cache_key(Arc::clone(&shared_tessellation), Arc::from([1u8, 2, 3, 4]));
         let mut downsampled_key =
             cache_key(Arc::clone(&shared_tessellation), Arc::from([1u8, 2, 3, 4]));
-        downsampled_key.downsample_bits = 0.5f32.to_bits();
+        downsampled_key.mask_key.downsample_bits = 0.5f32.to_bits();
 
         assert!(full_resolution_key != downsampled_key);
     }

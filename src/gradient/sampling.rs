@@ -623,6 +623,100 @@ mod tests {
         }
     }
 
+    fn mixed_color_ramp_source(interpolation: ColorInterpolation) -> GradientRampSource {
+        let common = GradientCommonDesc::new([
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(0.0),
+                GradientColor::Oklab {
+                    l: 0.6,
+                    a: 0.1,
+                    b: -0.1,
+                    alpha: 0.4,
+                },
+            )
+            .with_hint_to_next_segment(GradientStopOffset::linear_radial(0.1)),
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(0.3),
+                GradientColor::SrgbLinear {
+                    red: 0.2,
+                    green: 0.7,
+                    blue: 0.3,
+                    alpha: 1.4,
+                },
+            ),
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(0.3),
+                GradientColor::Hsl {
+                    hue: HueComponent::Missing,
+                    saturation: 0.8,
+                    lightness: 0.4,
+                    alpha: 0.7,
+                },
+            ),
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(0.6),
+                GradientColor::Hwb {
+                    hue: HueComponent::Degrees(240.0),
+                    whiteness: 0.8,
+                    blackness: 0.4,
+                    alpha: -0.2,
+                },
+            ),
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(1.0),
+                GradientColor::Srgb {
+                    red: 0.1,
+                    green: 0.3,
+                    blue: 0.9,
+                    alpha: 0.8,
+                },
+            ),
+        ])
+        .with_interpolation(interpolation);
+        GradientRampSource {
+            interpolation,
+            normalized: NormalizedGradient::from_common(&common, GradientKind::Linear),
+        }
+    }
+
+    #[test]
+    fn mixed_color_ramps_preserve_interpolation_output() {
+        let interpolations = [
+            ColorInterpolation::Srgb,
+            ColorInterpolation::SrgbLinear,
+            ColorInterpolation::Oklab,
+            ColorInterpolation::Hsl {
+                hue: HueInterpolationMethod::Shorter,
+            },
+            ColorInterpolation::Hsl {
+                hue: HueInterpolationMethod::Longer,
+            },
+            ColorInterpolation::Hsl {
+                hue: HueInterpolationMethod::Increasing,
+            },
+            ColorInterpolation::Hsl {
+                hue: HueInterpolationMethod::Decreasing,
+            },
+            ColorInterpolation::Hwb {
+                hue: HueInterpolationMethod::Shorter,
+            },
+            ColorInterpolation::Hwb {
+                hue: HueInterpolationMethod::Longer,
+            },
+            ColorInterpolation::Hwb {
+                hue: HueInterpolationMethod::Increasing,
+            },
+            ColorInterpolation::Hwb {
+                hue: HueInterpolationMethod::Decreasing,
+            },
+        ];
+        for interpolation in interpolations {
+            let ramp = bake_gradient_ramp(&mixed_color_ramp_source(interpolation));
+            let samples = [137, 307, 512, 767].map(|index| ramp.as_slice()[index]);
+            println!("{interpolation:?}: {samples:?}");
+        }
+    }
+
     #[test]
     fn test_srgb_linear_roundtrip() {
         for v in [0.0, 0.04045, 0.5, 1.0, -0.5] {
