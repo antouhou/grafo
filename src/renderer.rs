@@ -264,8 +264,6 @@ pub struct Renderer<'a> {
     gradient_bind_group_layout: wgpu::BindGroupLayout,
     /// Bind group layout for gradient resources plus backdrop sampling.
     backdrop_gradient_bind_group_layout: wgpu::BindGroupLayout,
-    /// Monotonic counter to invalidate cached gradient bind groups when the layout changes.
-    gradient_bind_group_layout_epoch: u64,
     /// Samples gradient ramps with linear filtering and clamps at the endpoints.
     gradient_ramp_sampler: wgpu::Sampler,
 

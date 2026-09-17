@@ -115,7 +115,6 @@ impl DrawCommand {
         queue: &wgpu::Queue,
         layout: &wgpu::BindGroupLayout,
         sampler: &wgpu::Sampler,
-        layout_epoch: u64,
     ) {
         match self {
             DrawCommand::ClipRect(_) => {}
@@ -125,7 +124,6 @@ impl DrawCommand {
                 queue,
                 layout,
                 sampler,
-                layout_epoch,
             ),
         }
     }

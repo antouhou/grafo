@@ -37,7 +37,6 @@ fn srgb_u8_to_linear(value: u8) -> f32 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct GradientBindGroupCacheKey {
-    layout_epoch: u64,
     params: GpuGradientColorParamsKey,
     ramp_key: GradientRampCacheKey,
 }
@@ -188,11 +187,9 @@ impl GradientCache {
         queue: &wgpu::Queue,
         layout: &wgpu::BindGroupLayout,
         sampler: &wgpu::Sampler,
-        layout_epoch: u64,
     ) -> Arc<wgpu::BindGroup> {
         let material_params = GpuMaterialParams::from_gradient_data(gradient_data);
         let cache_key = GradientBindGroupCacheKey {
-            layout_epoch,
             params: GpuGradientColorParamsKey::from_params(material_params.gradient),
             ramp_key: gradient_data.ramp_cache_key.clone(),
         };

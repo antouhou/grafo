@@ -467,7 +467,10 @@ pub(crate) fn build_composite_wgsl() -> String {
     format!("{FULLSCREEN_QUAD_VS}\n{COMPOSITE_FS}")
 }
 
-/// Finds `@group(1)` in WGSL source, allowing whitespace and ignoring comments.
+/// Looks for `@group(1)` after regex-based comment stripping.
+/// Nested block comments and block delimiters inside line comments can produce
+/// false positives or hide declarations.
+// TODO: Use a WGSL parser to identify parameter bindings.
 pub(crate) fn has_user_params(user_fragment_source: &str) -> bool {
     fn block_comment_regex() -> &'static regex::Regex {
         static BLOCK_COMMENT_REGEX: OnceLock<regex::Regex> = OnceLock::new();

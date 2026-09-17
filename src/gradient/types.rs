@@ -546,10 +546,7 @@ pub struct Gradient {
 #[derive(Debug, Clone)]
 pub(crate) enum GradientRamp {
     Constant([f32; 4]),
-    /// Ramps are not initialized right away, since we use cache as a performance optimization.
-    /// We still need to create an instance of a ramp right away to make the gradient struct
-    /// complete, hence there's a variant that signifies that we need to create/get actual ramp
-    /// before actually using the gradient.
+    /// Resolved from the ramp cache or baked before upload.
     Pending(Box<GradientRampSource>),
     Sampled(Arc<[[f32; 4]; RAMP_RESOLUTION]>),
 }
@@ -572,26 +569,66 @@ pub(crate) struct GradientRampSource {
     pub(crate) normalized: NormalizedGradient,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum GradientGeometry {
+    Linear(LinearGradientLine),
+    Radial { center: [f32; 2], radius: [f32; 2] },
+    Conic { center: [f32; 2], start_angle: f32 },
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct GradientData {
-    pub(crate) kind: GradientKind,
+    pub(crate) geometry: GradientGeometry,
     pub(crate) units: GradientUnits,
     pub(crate) spread: SpreadMode,
     pub(crate) ramp_cache_key: GradientRampCacheKey,
-    /// Baked linear premultiplied RGBA ramp, RAMP_RESOLUTION entries.
+    /// Pending source, a constant color, or a sampled linear premultiplied RGBA ramp.
     pub(crate) ramp: GradientRamp,
-    // Geometry params:
-    pub(crate) linear_line: Option<LinearGradientLine>,
-    pub(crate) radial_center: Option<[f32; 2]>,
-    pub(crate) radial_radius: Option<[f32; 2]>, // (rx, ry)
-    pub(crate) conic_center: Option<[f32; 2]>,
-    pub(crate) conic_start_angle: Option<f32>,
     /// For repeating: period_start and period_len in the t/theta domain
     pub(crate) period_start: f32,
     pub(crate) period_len: f32,
     /// True when the gradient is a constant fill (degenerate cases, single stop)
     pub(crate) is_constant: bool,
     pub(crate) constant_color: [f32; 4],
+}
+
+impl GradientData {
+    fn new(
+        common: &GradientCommonDesc,
+        geometry: GradientGeometry,
+        normalized: NormalizedGradient,
+        is_constant: bool,
+    ) -> Self {
+        let ramp_cache_key =
+            GradientRampCacheKey::from_normalized(&common.interpolation, &normalized);
+        let period_start = normalized.period_start;
+        let period_len = normalized.period_len;
+        let constant_color = if is_constant {
+            normalized.degenerate_constant_color()
+        } else {
+            [0.0; 4]
+        };
+        let ramp = if is_constant {
+            GradientRamp::Constant(constant_color)
+        } else {
+            GradientRamp::Pending(Box::new(GradientRampSource {
+                interpolation: common.interpolation,
+                normalized,
+            }))
+        };
+
+        Self {
+            geometry,
+            units: common.units,
+            spread: common.spread,
+            ramp_cache_key,
+            ramp,
+            period_start,
+            period_len,
+            is_constant,
+            constant_color,
+        }
+    }
 }
 
 impl Gradient {
@@ -611,59 +648,19 @@ impl Gradient {
         validate_finite_f32(desc.line.end[1], "line.end[1]")?;
 
         let normalized = NormalizedGradient::from_common(&desc.common, GradientKind::Linear);
-        let ramp_cache_key =
-            GradientRampCacheKey::from_normalized(&desc.common.interpolation, &normalized);
-
         let dx = desc.line.end[0] - desc.line.start[0];
         let dy = desc.line.end[1] - desc.line.start[1];
         let axis_len_sq = dx * dx + dy * dy;
-
-        if axis_len_sq <= RESOLVED_DEGENERATE_EPSILON * RESOLVED_DEGENERATE_EPSILON {
-            let constant_color = normalized.degenerate_constant_color();
-            return Ok(Gradient {
-                data: GradientData {
-                    kind: GradientKind::Linear,
-                    units: desc.common.units,
-                    spread: desc.common.spread,
-                    ramp_cache_key,
-                    ramp: GradientRamp::Constant(constant_color),
-                    linear_line: Some(desc.line),
-                    radial_center: None,
-                    radial_radius: None,
-                    conic_center: None,
-                    conic_start_angle: None,
-                    period_start: normalized.period_start,
-                    period_len: normalized.period_len,
-                    is_constant: true,
-                    constant_color,
-                },
-            });
-        }
-
-        let period_start = normalized.period_start;
-        let period_len = normalized.period_len;
-        let ramp = GradientRamp::Pending(Box::new(GradientRampSource {
-            interpolation: desc.common.interpolation,
-            normalized,
-        }));
+        let is_degenerate =
+            axis_len_sq <= RESOLVED_DEGENERATE_EPSILON * RESOLVED_DEGENERATE_EPSILON;
 
         Ok(Gradient {
-            data: GradientData {
-                kind: GradientKind::Linear,
-                units: desc.common.units,
-                spread: desc.common.spread,
-                ramp_cache_key,
-                ramp,
-                linear_line: Some(desc.line),
-                radial_center: None,
-                radial_radius: None,
-                conic_center: None,
-                conic_start_angle: None,
-                period_start,
-                period_len,
-                is_constant: false,
-                constant_color: [0.0; 4],
-            },
+            data: GradientData::new(
+                &desc.common,
+                GradientGeometry::Linear(desc.line),
+                normalized,
+                is_degenerate,
+            ),
         })
     }
 
@@ -695,58 +692,19 @@ impl Gradient {
         };
 
         let normalized = NormalizedGradient::from_common(&desc.common, GradientKind::Radial);
-        let ramp_cache_key =
-            GradientRampCacheKey::from_normalized(&desc.common.interpolation, &normalized);
-
         let is_degenerate = radius_x.abs() <= RESOLVED_DEGENERATE_EPSILON
             || radius_y.abs() <= RESOLVED_DEGENERATE_EPSILON;
 
-        if is_degenerate {
-            let constant_color = normalized.degenerate_constant_color();
-            return Ok(Gradient {
-                data: GradientData {
-                    kind: GradientKind::Radial,
-                    units: desc.common.units,
-                    spread: desc.common.spread,
-                    ramp_cache_key,
-                    ramp: GradientRamp::Constant(constant_color),
-                    linear_line: None,
-                    radial_center: Some(desc.center),
-                    radial_radius: Some([radius_x, radius_y]),
-                    conic_center: None,
-                    conic_start_angle: None,
-                    period_start: normalized.period_start,
-                    period_len: normalized.period_len,
-                    is_constant: true,
-                    constant_color,
-                },
-            });
-        }
-
-        let period_start = normalized.period_start;
-        let period_len = normalized.period_len;
-        let ramp = GradientRamp::Pending(Box::new(GradientRampSource {
-            interpolation: desc.common.interpolation,
-            normalized,
-        }));
-
         Ok(Gradient {
-            data: GradientData {
-                kind: GradientKind::Radial,
-                units: desc.common.units,
-                spread: desc.common.spread,
-                ramp_cache_key,
-                ramp,
-                linear_line: None,
-                radial_center: Some(desc.center),
-                radial_radius: Some([radius_x, radius_y]),
-                conic_center: None,
-                conic_start_angle: None,
-                period_start,
-                period_len,
-                is_constant: false,
-                constant_color: [0.0; 4],
-            },
+            data: GradientData::new(
+                &desc.common,
+                GradientGeometry::Radial {
+                    center: desc.center,
+                    radius: [radius_x, radius_y],
+                },
+                normalized,
+                is_degenerate,
+            ),
         })
     }
 
@@ -762,44 +720,19 @@ impl Gradient {
         }
 
         let normalized = NormalizedGradient::from_common(&desc.common, GradientKind::Conic);
-        let ramp_cache_key =
-            GradientRampCacheKey::from_normalized(&desc.common.interpolation, &normalized);
-        // For repeating conic with zero period, degenerate
         let is_degenerate = desc.common.spread == SpreadMode::Repeat
             && normalized.period_len <= RESOLVED_DEGENERATE_EPSILON;
-        let constant_color = if is_degenerate {
-            normalized.degenerate_constant_color()
-        } else {
-            [0.0; 4]
-        };
-        let period_start = normalized.period_start;
-        let period_len = normalized.period_len;
-        let ramp = if is_degenerate {
-            GradientRamp::Constant(constant_color)
-        } else {
-            GradientRamp::Pending(Box::new(GradientRampSource {
-                interpolation: desc.common.interpolation,
-                normalized,
-            }))
-        };
 
         Ok(Gradient {
-            data: GradientData {
-                kind: GradientKind::Conic,
-                units: desc.common.units,
-                spread: desc.common.spread,
-                ramp_cache_key,
-                ramp,
-                linear_line: None,
-                radial_center: None,
-                radial_radius: None,
-                conic_center: Some(desc.center),
-                conic_start_angle: Some(desc.start_angle_radians),
-                period_start,
-                period_len,
-                is_constant: is_degenerate,
-                constant_color,
-            },
+            data: GradientData::new(
+                &desc.common,
+                GradientGeometry::Conic {
+                    center: desc.center,
+                    start_angle: desc.start_angle_radians,
+                },
+                normalized,
+                is_degenerate,
+            ),
         })
     }
 }

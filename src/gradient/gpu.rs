@@ -1,5 +1,6 @@
-use super::types::{GradientData, GradientKind, GradientUnits, SpreadMode};
+use super::types::{GradientData, GradientGeometry, GradientUnits, SpreadMode};
 use crate::pipeline::BackdropSamplingUniform;
+use std::f32::consts::TAU;
 
 /// GPU-side gradient-only parameters packed into a uniform-friendly struct.
 /// Matches the WGSL `GradientColorParams` struct in shader.wgsl.
@@ -42,11 +43,6 @@ pub(crate) struct GpuGradientColorParams {
 
 impl GpuGradientColorParams {
     pub fn from_gradient_data(data: &GradientData) -> Self {
-        let gradient_type = match data.kind {
-            GradientKind::Linear => 1u32,
-            GradientKind::Radial => 2u32,
-            GradientKind::Conic => 3u32,
-        };
         let spread_mode = match data.spread {
             SpreadMode::Pad => 0u32,
             SpreadMode::Repeat => 1u32,
@@ -56,42 +52,41 @@ impl GpuGradientColorParams {
             GradientUnits::Canvas => 1u32,
         };
 
-        let linear_start = data.linear_line.map(|l| l.start).unwrap_or([0.0, 0.0]);
-        let linear_end = data.linear_line.map(|l| l.end).unwrap_or([0.0, 0.0]);
-        let radial_center = data.radial_center.unwrap_or([0.0, 0.0]);
-        let radial_radius = data.radial_radius.unwrap_or([0.0, 0.0]);
-        let conic_center = data.conic_center.unwrap_or([0.0, 0.0]);
-        let conic_start_angle = data.conic_start_angle.unwrap_or(0.0);
-
-        // The shader normalises conic angles to turns [0, 1] (angle / TAU),
-        // but the CPU normalises conic stop positions in radians [0, TAU].
-        // Convert period to turns so both sides use the same domain.
-        let is_conic = data.kind == GradientKind::Conic;
-        let (period_start, period_len) = if is_conic {
-            let tau = std::f32::consts::TAU;
-            (data.period_start / tau, data.period_len / tau)
-        } else {
-            (data.period_start, data.period_len)
-        };
-
-        GpuGradientColorParams {
-            gradient_type,
+        let mut params = Self {
             spread_mode,
             units,
             is_constant: data.is_constant as u32,
             constant_color: data.constant_color,
-            linear_start,
-            linear_end,
-            radial_center,
-            radial_radius,
-            conic_center,
-            conic_start_angle,
-            period_start,
-            period_len,
-            ramp_start: period_start,
-            ramp_end: period_start + period_len,
-            _padding: 0.0,
+            period_start: data.period_start,
+            period_len: data.period_len,
+            ..Self::none()
+        };
+        match data.geometry {
+            GradientGeometry::Linear(line) => {
+                params.gradient_type = 1;
+                params.linear_start = line.start;
+                params.linear_end = line.end;
+            }
+            GradientGeometry::Radial { center, radius } => {
+                params.gradient_type = 2;
+                params.radial_center = center;
+                params.radial_radius = radius;
+            }
+            GradientGeometry::Conic {
+                center,
+                start_angle,
+            } => {
+                params.gradient_type = 3;
+                params.conic_center = center;
+                params.conic_start_angle = start_angle;
+                // The shader evaluates conic stops in turns; normalization uses radians.
+                params.period_start /= TAU;
+                params.period_len /= TAU;
+            }
         }
+        params.ramp_start = params.period_start;
+        params.ramp_end = params.period_start + params.period_len;
+        params
     }
 
     pub fn none() -> Self {

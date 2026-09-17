@@ -9,6 +9,11 @@ use lyon::path::FillRule;
 use lyon::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::keyboard::{Key, NamedKey};
+use winit::window::{Window, WindowId};
 
 // Local converter from euclid to grafo's GPU instance layout so we keep euclid out of the main crate.
 fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstance {
@@ -75,12 +80,6 @@ fn world_to_local_2d(tx: &Transform3D<f32>, world: (f32, f32)) -> Option<(f32, f
     }
     Some((lx / lw, ly / lw))
 }
-use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{Key, NamedKey};
-use winit::window::{Window, WindowId};
-
 const RED_SHAPE_CACHE_KEY: u64 = 1;
 const GREEN_SHAPE_CACHE_KEY: u64 = 2;
 const BLUE_SHAPE_CACHE_KEY: u64 = 3;

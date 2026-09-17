@@ -46,7 +46,6 @@ pub use lyon;
 pub use wgpu;
 
 mod color;
-mod debug_tools;
 mod effect;
 pub mod gradient;
 mod pipeline;

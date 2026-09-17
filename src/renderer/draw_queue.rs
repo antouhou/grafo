@@ -144,7 +144,6 @@ impl<'a> Renderer<'a> {
             &self.queue,
             &self.gradient_bind_group_layout,
             &self.gradient_ramp_sampler,
-            self.gradient_bind_group_layout_epoch,
         );
         let index_range = preparation::append_aggregated_geometry_for_shape(
             cached_shape_data,

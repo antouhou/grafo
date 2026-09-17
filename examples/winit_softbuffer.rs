@@ -2,7 +2,7 @@ use futures::executor::block_on;
 use grafo::Shape;
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use std::num::NonZeroU32;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -11,7 +11,7 @@ use winit::window::{Window, WindowId};
 #[derive(Default)]
 struct App<'a> {
     window: Option<Arc<Window>>,
-    renderer: Option<Arc<RwLock<grafo::Renderer<'a>>>>,
+    renderer: Option<grafo::Renderer<'a>>,
     softbuffer_context: Option<softbuffer::Context<Arc<Window>>>,
     softbuffer_surface: Option<softbuffer::Surface<Arc<Window>, Arc<Window>>>,
     pending_resize: Option<(u32, u32)>,
@@ -58,8 +58,6 @@ impl<'a> ApplicationHandler for App<'a> {
                 NonZeroU32::new(physical_size.1).unwrap(),
             )
             .unwrap();
-
-        let renderer = Arc::new(RwLock::new(renderer));
 
         self.window = Some(window);
         self.renderer = Some(renderer);
@@ -110,13 +108,12 @@ impl<'a> ApplicationHandler for App<'a> {
                 // Apply any pending resize to GPU renderer
                 if let Some(pending) = self.pending_resize.take() {
                     println!("Applying resize to GPU renderer: {:?}", pending);
-                    renderer.write().unwrap().resize(pending);
+                    renderer.resize(pending);
                 }
 
                 self.frame_count += 1;
 
-                let mut renderer_guard = renderer.write().unwrap();
-                renderer_guard.clear_draw_queue();
+                renderer.clear_draw_queue();
 
                 let window_size = window.inner_size();
 
@@ -128,7 +125,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     ],
                     Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
-                renderer_guard
+                renderer
                     .add_shape(
                         background,
                         None,
@@ -137,7 +134,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                renderer_guard
+                renderer
                     .add_shape(
                         Shape::rect(
                             [(0.0, 0.0), (200.0, 200.0)],
@@ -151,7 +148,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                renderer_guard
+                renderer
                     .add_shape(
                         Shape::rect(
                             [(0.0, 0.0), (200.0, 200.0)],
@@ -172,7 +169,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 if self.argb_buffer.len() < needed_len {
                     self.argb_buffer.resize(needed_len, 0);
                 }
-                renderer_guard.render_to_argb32(&mut self.argb_buffer);
+                renderer.render_to_argb32(&mut self.argb_buffer);
                 let render_time = render_start.elapsed();
 
                 // Present ARGB u32s via softbuffer

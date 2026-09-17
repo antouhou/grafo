@@ -429,7 +429,6 @@ impl<'a> Renderer<'a> {
             and_gradient_pipeline: Arc::new(and_gradient_pipeline),
             gradient_bind_group_layout,
             backdrop_gradient_bind_group_layout,
-            gradient_bind_group_layout_epoch: 0,
             gradient_ramp_sampler,
             #[cfg(feature = "render_metrics")]
             render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),
@@ -871,7 +870,6 @@ impl<'a> Renderer<'a> {
         self.gradient_bind_group_layout = create_gradient_bind_group_layout(&self.device);
         self.backdrop_gradient_bind_group_layout =
             create_backdrop_gradient_bind_group_layout(&self.device);
-        self.gradient_bind_group_layout_epoch += 1;
         self.gradient_ramp_sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("gradient_ramp_sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -953,7 +951,6 @@ impl<'a> Renderer<'a> {
                 &self.queue,
                 &self.gradient_bind_group_layout,
                 &self.gradient_ramp_sampler,
-                self.gradient_bind_group_layout_epoch,
             );
 
             if let DrawCommand::CachedShape(cached_shape) = draw_command {
