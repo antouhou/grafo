@@ -9,13 +9,15 @@ use lyon::algorithms::math::point as algo_point;
 use lyon::geom::point;
 use lyon::path::FillRule;
 use lyon::path::Path;
+use redraw_retry::RedrawRetry;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event::{StartCause, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
+
+mod redraw_retry;
 
 // Local converter from euclid to grafo's GPU instance layout so we keep euclid out of the main crate.
 fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstance {
@@ -120,14 +122,11 @@ fn build_perspective_demo_path() -> Path {
     pb.build()
 }
 
-const SURFACE_TIMEOUT_RETRY_DELAY: Duration = Duration::from_millis(50);
-
 #[derive(Default)]
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
-    /// Pending redraw after a surface timeout.
-    redraw_retry_at: Option<Instant>,
+    redraw_retry: RedrawRetry,
     angle: f32,
     // Last mouse position in physical pixels (window space)
     last_mouse_pos: Option<(f32, f32)>,
@@ -173,6 +172,11 @@ struct App<'a> {
 // - R: reset orbit (yaw=0, pitch=0)
 
 impl<'a> ApplicationHandler for App<'a> {
+    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+        self.redraw_retry
+            .new_events(event_loop, cause, self.window.as_deref());
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
@@ -594,7 +598,7 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 match renderer.render() {
                     Ok(_) => {
-                        self.redraw_retry_at = None;
+                        self.redraw_retry.cancel(event_loop);
                         renderer.clear_draw_queue();
                         window.request_redraw();
                     }
@@ -604,32 +608,12 @@ impl<'a> ApplicationHandler for App<'a> {
 
                     Err(RenderError::Surface(SurfaceError::Timeout)) => {
                         renderer.clear_draw_queue();
-                        let retry_at = Instant::now() + SURFACE_TIMEOUT_RETRY_DELAY;
-                        self.redraw_retry_at = Some(retry_at);
-                        event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
+                        self.redraw_retry.schedule(event_loop);
                     }
                     Err(e) => eprintln!("{e:?}"),
                 }
             }
             _ => {}
-        }
-    }
-
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(retry_at) = self.redraw_retry_at else {
-            // Clear a stale WaitUntil deadline left behind when a successful
-            // render cancelled the pending retry before it fired.
-            event_loop.set_control_flow(ControlFlow::Wait);
-            return;
-        };
-        if Instant::now() >= retry_at {
-            self.redraw_retry_at = None;
-            if let Some(window) = &self.window {
-                window.request_redraw();
-            }
-            event_loop.set_control_flow(ControlFlow::Wait);
-        } else {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
         }
     }
 }
@@ -641,7 +625,7 @@ pub fn main() {
     let mut app = App {
         window: None,
         renderer: None,
-        redraw_retry_at: None,
+        redraw_retry: RedrawRetry::default(),
         angle: 0.0,
         last_mouse_pos: None,
         orbit_yaw_deg: 0.0,

@@ -1122,8 +1122,8 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
             &[],
             grafo::BackdropEffectConfig::new()
                 .capture_area(grafo::BackdropCaptureArea::ScreenRect([
-                        (80.0, 30.0),
-                        (100.0, 50.0),
+                    (80.0, 30.0),
+                    (100.0, 50.0),
                 ]))
                 .padding(10.0),
         )

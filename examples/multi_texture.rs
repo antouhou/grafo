@@ -4,21 +4,21 @@
 use grafo::wgpu::SurfaceError;
 use grafo::RenderError;
 use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke};
+use redraw_retry::RedrawRetry;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event::{StartCause, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::Window;
 
-const SURFACE_TIMEOUT_RETRY_DELAY: Duration = Duration::from_millis(50);
+mod redraw_retry;
 
 struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer<'static>>,
     bg_tex_id: u64,
     fg_tex_id: u64,
-    /// Pending redraw after a surface timeout.
-    redraw_retry_at: Option<Instant>,
+    redraw_retry: RedrawRetry,
 }
 
 impl Default for App {
@@ -28,12 +28,17 @@ impl Default for App {
             renderer: None,
             bg_tex_id: 100,
             fg_tex_id: 101,
-            redraw_retry_at: None,
+            redraw_retry: RedrawRetry::default(),
         }
     }
 }
 
 impl ApplicationHandler for App {
+    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+        self.redraw_retry
+            .new_events(event_loop, cause, self.window.as_deref());
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
@@ -116,10 +121,8 @@ impl ApplicationHandler for App {
         &mut self,
         event_loop: &ActiveEventLoop,
         _id: winit::window::WindowId,
-        event: winit::event::WindowEvent,
+        event: WindowEvent,
     ) {
-        use winit::event::WindowEvent;
-
         let (Some(window), Some(renderer)) = (&self.window, &mut self.renderer) else {
             return;
         };
@@ -134,39 +137,19 @@ impl ApplicationHandler for App {
                 // The draw queue is populated once in `resumed` and persists across frames.
                 match renderer.render() {
                     Ok(_) => {
-                        self.redraw_retry_at = None;
+                        self.redraw_retry.cancel(event_loop);
                     }
                     Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
                         let size = renderer.size();
                         renderer.resize(size);
                     }
                     Err(RenderError::Surface(SurfaceError::Timeout)) => {
-                        let retry_at = Instant::now() + SURFACE_TIMEOUT_RETRY_DELAY;
-                        self.redraw_retry_at = Some(retry_at);
-                        event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
+                        self.redraw_retry.schedule(event_loop);
                     }
                     Err(e) => eprintln!("{e:?}"),
                 }
             }
             _ => {}
-        }
-    }
-
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(retry_at) = self.redraw_retry_at else {
-            // Clear a stale WaitUntil deadline left behind when a successful
-            // render cancelled the pending retry before it fired.
-            event_loop.set_control_flow(ControlFlow::Wait);
-            return;
-        };
-        if Instant::now() >= retry_at {
-            self.redraw_retry_at = None;
-            if let Some(window) = &self.window {
-                window.request_redraw();
-            }
-            event_loop.set_control_flow(ControlFlow::Wait);
-        } else {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
         }
     }
 }

@@ -65,8 +65,8 @@ pub use effect::{
 pub use gradient::errors::GradientError;
 pub use gradient::types::{
     ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
-    GradientDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientSupport,
-    GradientUnits, HueComponent, HueInterpolationMethod, LinearGradientDesc, LinearGradientLine,
+    GradientDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
+    HueComponent, HueInterpolationMethod, LinearGradientDesc, LinearGradientLine,
     RadialGradientDesc, RadialGradientShape, RadialGradientSize, SpreadMode,
 };
 pub use renderer::{

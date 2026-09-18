@@ -1046,11 +1046,13 @@ impl ShapeDrawCommandOptions {
 #[derive(Debug)]
 pub(crate) struct CachedShapeDrawData {
     pub(crate) cached_shape: CachedShapeHandle,
+    /// Assigned when geometry is appended to the shared buffers.
     pub(crate) geometry_buffer_range: Option<GeometryBufferRange>,
     pub(crate) is_empty: bool,
-    /// Stencil reference assigned during render traversal (parent + 1). Cleared after frame.
+    /// Stencil reference used by this shape during traversal. Cleared after rendering.
+    /// Stencil clips increment the inherited reference; ordinary leaf draws inherit it.
     pub(crate) stencil_ref: Option<u32>,
-    /// Index into the per-frame instance transform buffer
+    /// Assigned when instance data is appended to the shared buffers.
     pub(crate) instance_index: Option<usize>,
     /// Optional per-shape transform applied in pixel space before clip-space normalization.
     pub(crate) transform: Option<InstanceTransform>,
@@ -1083,10 +1085,8 @@ impl CachedShapeDrawData {
     pub fn new(cached_shape: CachedShapeHandle, options: &ShapeDrawCommandOptions) -> Self {
         Self {
             cached_shape,
-            // Will be set during add_command
             geometry_buffer_range: None,
             is_empty: false,
-            // Data from options
             transform: options.transform,
             texture_bindings: [
                 options
@@ -1104,9 +1104,7 @@ impl CachedShapeDrawData {
                 _ => None,
             },
             fill: options.fill.clone(),
-            // Set later after buffer update
             instance_index: None,
-            // Set during render traversal
             stencil_ref: None,
             gradient_bind_group: None,
             backdrop_material_params_buffer: None,

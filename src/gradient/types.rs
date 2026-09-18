@@ -490,12 +490,6 @@ pub struct LinearGradientLine {
     pub end: [f32; 2],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GradientSupport {
-    Unsupported,
-    Supported,
-}
-
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Fill {
