@@ -660,7 +660,6 @@ fn cached_shape_effect_uses_exact_parameter_bytes_on_transparent_shape() {
     assert_eq!(changed_parameter_frame.hits, 0);
 }
 
-/// Main regression test — renders all shared visual-regression tiles.
 #[test]
 fn main_scene_pixel_expectations() {
     let Some(mut renderer) = create_headless_renderer() else {
@@ -683,14 +682,12 @@ fn main_scene_pixel_expectations() {
     }
 }
 
-/// Regression test — empty draw queue should not crash.
 #[test]
 fn empty_draw_queue() {
     let Some(mut renderer) = create_headless_renderer() else {
         return;
     };
 
-    // Render with nothing in the draw queue
     let mut pixel_buffer: Vec<u8> = Vec::new();
     renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
@@ -702,7 +699,6 @@ fn empty_draw_queue() {
         "Pixel buffer length should equal width * height * {bytes_per_pixel}",
     );
 
-    // Every pixel should be fully transparent (all bytes zero)
     assert!(
         pixel_buffer.iter().all(|&byte| byte == 0),
         "Empty scene should produce a fully transparent (all-zero) buffer",
@@ -800,7 +796,6 @@ fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent()
     assert_eq!(read_pixel_rgba(&second_pixels, 16, 8, 8), [0, 255, 0, 255]);
 }
 
-/// Regression test — single root shape with no children should render correctly.
 #[test]
 fn single_root_no_children() {
     let Some(mut renderer) = create_headless_renderer() else {
@@ -828,7 +823,6 @@ fn single_root_no_children() {
     assert_pixels_match(&pixel_buffer, &expectations);
 }
 
-/// Regression test — OriginalSize texture fit uses physical pixels, not logical units.
 #[test]
 fn original_size_texture_fit_uses_physical_pixels_on_hidpi() {
     let physical_size = (200, 200);
@@ -1000,7 +994,6 @@ fn cover_and_contain_texture_fit_preserve_aspect_ratio() {
     );
 }
 
-/// Regression test — scissor-only clipping rect clips children without drawing itself.
 #[test]
 fn clipping_rect_clips_child_without_visible_surface() {
     let Some(mut renderer) = create_headless_renderer() else {
@@ -1039,7 +1032,6 @@ fn clipping_rect_clips_child_without_visible_surface() {
     assert_pixels_match(&pixel_buffer, &expectations);
 }
 
-/// Regression test — partially offscreen backdrop captures clear untouched pooled pixels.
 #[test]
 fn partially_offscreen_backdrop_capture_clears_reused_texture_space() {
     let physical_size = (100, 80);
@@ -1056,7 +1048,8 @@ const LOOKAHEAD_UV: vec2<f32> = vec2<f32>(0.4, 0.0);
 fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     let base = textureSample(t_input, s_input, uv);
     let lookahead = textureSample(t_input, s_input, uv + LOOKAHEAD_UV);
-    return 0.5 * (base + lookahead);
+    // Keep alpha opaque so cleared capture pixels darken the output.
+    return vec4<f32>(0.5 * (base.rgb + lookahead.rgb), 1.0);
 }
 "#;
 
@@ -1127,34 +1120,32 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
             partially_offscreen_panel_id,
             AVERAGE_WITH_RIGHT_NEIGHBOR_EFFECT_ID,
             &[],
-            grafo::BackdropEffectConfig::new().capture_area(
-                grafo::BackdropCaptureArea::ScreenRect([(70.0, 20.0), (110.0, 60.0)]),
-            ),
+            grafo::BackdropEffectConfig::new()
+                .capture_area(grafo::BackdropCaptureArea::ScreenRect([
+                        (80.0, 30.0),
+                        (100.0, 50.0),
+                ]))
+                .padding(10.0),
         )
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
     renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
-    let sampled_pixel = read_pixel_rgba(&pixel_buffer, physical_size.0, 86, 40);
-    assert!(
-        sampled_pixel[0] > 80,
-        "expected visible red contribution after clearing untouched capture space, got {:?}",
-        sampled_pixel
+    let failures = check_pixels(
+        &pixel_buffer,
+        physical_size.0,
+        physical_size.1,
+        &[
+            PixelExpectation::opaque(75, 40, 220, 40, 40, "both_samples_inside_red_source"),
+            // The second sample lands outside the viewport. Half the linear red
+            // source color encodes to roughly [161, 27, 27] in sRGB.
+            PixelExpectation::opaque_approx(86, 40, 161, 27, 27, 2, "lookahead_in_cleared_padding"),
+        ],
     );
-    assert!(
-        sampled_pixel[2] <= 50,
-        "expected offscreen capture space to stay transparent instead of leaking recycled blue, got {:?}",
-        sampled_pixel
-    );
-    assert!(
-        sampled_pixel[3] > 240,
-        "expected the cleared backdrop sample to composite back over the visible red source, got {:?}",
-        sampled_pixel
-    );
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// Regression test — standalone clipping rect is a no-op and does not enter shape drawing.
 #[test]
 fn standalone_clipping_rect_does_not_panic() {
     let Some(mut renderer) = create_headless_renderer() else {
@@ -1179,7 +1170,6 @@ fn standalone_clipping_rect_does_not_panic() {
     );
 }
 
-/// Regression test — unsupported clip-rect transforms are rejected instead of disabling clipping.
 #[test]
 fn clipping_rect_rejects_non_axis_aligned_transform() {
     let Some(mut renderer) = create_headless_renderer() else {
@@ -1436,8 +1426,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
     );
 }
 
-/// Regression test — touching triangle subpaths in one filled shape should not
-/// show an internal AA seam along their shared diagonal.
+/// Touching triangle subpaths must not create an AA seam along their shared diagonal.
 #[test]
 fn multi_subpath_fill_has_no_internal_seam() {
     let Some(mut renderer) = create_headless_renderer() else {

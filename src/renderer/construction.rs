@@ -13,7 +13,10 @@ use crate::vertex::CustomVertex;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 use tracing::{error, info, warn};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
-use wgpu::{DownlevelFlags, InstanceDescriptor};
+use wgpu::{
+    BindGroup, BindGroupLayout, Buffer, DownlevelFlags, InstanceDescriptor, Sampler,
+    SurfaceConfiguration,
+};
 
 fn create_transparent_texture_view_and_sampler(
     device: &wgpu::Device,
@@ -111,6 +114,158 @@ fn pick_alpha_mode(alpha_modes: &[CompositeAlphaMode], transparent: bool) -> Com
                     .copied()
                     .unwrap_or(CompositeAlphaMode::Opaque)
             })
+    }
+}
+
+struct RendererPipelineResources {
+    pipelines: Pipelines,
+    and_uniforms: Uniforms,
+    and_uniform_buffer: Buffer,
+    decrementing_uniforms: Uniforms,
+    decrementing_uniform_buffer: Buffer,
+    backdrop_texture_bind_group_layout: Arc<BindGroupLayout>,
+    default_backdrop_texture_bind_group: Arc<BindGroup>,
+    gradient_bind_group_layout: BindGroupLayout,
+    backdrop_gradient_bind_group_layout: BindGroupLayout,
+    gradient_ramp_sampler: Sampler,
+}
+
+impl RendererPipelineResources {
+    fn new(
+        context: &RendererContext,
+        config: &SurfaceConfiguration,
+        physical_size: (u32, u32),
+        scale_factor: f64,
+        fringe_width: f32,
+        msaa_sample_count: u32,
+    ) -> Self {
+        let device = &context.inner.device;
+        let queue = &context.inner.queue;
+        let canvas_logical_size = to_logical(physical_size, scale_factor);
+
+        let (
+            and_uniforms,
+            and_uniform_buffer,
+            and_bind_group,
+            background_texture_layout,
+            foreground_texture_layout,
+            and_pipeline,
+        ) = create_pipeline(
+            canvas_logical_size,
+            scale_factor,
+            fringe_width,
+            device,
+            config,
+            PipelineType::EqualIncrementStencil,
+            msaa_sample_count,
+        );
+
+        let (
+            decrementing_uniforms,
+            decrementing_uniform_buffer,
+            decrementing_bind_group,
+            _,
+            _,
+            decrementing_pipeline,
+        ) = create_pipeline(
+            canvas_logical_size,
+            scale_factor,
+            fringe_width,
+            device,
+            config,
+            PipelineType::EqualDecrementStencil,
+            msaa_sample_count,
+        );
+
+        let gradient_bind_group_layout = create_gradient_bind_group_layout(device);
+        let backdrop_texture_bind_group_layout = create_backdrop_texture_bind_group_layout(device);
+        let backdrop_gradient_bind_group_layout =
+            create_backdrop_gradient_bind_group_layout(device);
+        let and_gradient_pipeline = create_gradient_increment_pipeline(
+            device,
+            config.format,
+            msaa_sample_count,
+            &and_pipeline.get_bind_group_layout(0),
+            &background_texture_layout,
+            &foreground_texture_layout,
+            &gradient_bind_group_layout,
+        );
+
+        let leaf_draw_pipeline = create_stencil_keep_color_pipeline(
+            device,
+            config.format,
+            msaa_sample_count,
+            &and_pipeline.get_bind_group_layout(0),
+            &background_texture_layout,
+            &foreground_texture_layout,
+        );
+        let leaf_draw_gradient_pipeline = create_gradient_stencil_keep_color_pipeline(
+            device,
+            config.format,
+            msaa_sample_count,
+            &and_pipeline.get_bind_group_layout(0),
+            &background_texture_layout,
+            &foreground_texture_layout,
+            &gradient_bind_group_layout,
+        );
+
+        let gradient_ramp_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("gradient_ramp_sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        let default_background_texture_bind_group =
+            Renderer::create_default_shape_texture_bind_group(
+                device,
+                queue,
+                &background_texture_layout,
+            );
+        let default_foreground_texture_bind_group =
+            Renderer::create_default_shape_texture_bind_group(
+                device,
+                queue,
+                &foreground_texture_layout,
+            );
+        let default_backdrop_texture_bind_group =
+            Renderer::create_default_backdrop_texture_bind_group(
+                device,
+                queue,
+                &backdrop_texture_bind_group_layout,
+            );
+
+        Self {
+            pipelines: Pipelines {
+                and_pipeline: Arc::new(and_pipeline),
+                and_gradient_pipeline: Arc::new(and_gradient_pipeline),
+                and_bind_group,
+                decrementing_pipeline: Arc::new(decrementing_pipeline),
+                decrementing_bind_group,
+                leaf_draw_pipeline: Arc::new(leaf_draw_pipeline),
+                leaf_draw_gradient_pipeline: Arc::new(leaf_draw_gradient_pipeline),
+                shape_texture_bind_group_layout_background: Arc::new(background_texture_layout),
+                shape_texture_bind_group_layout_foreground: Arc::new(foreground_texture_layout),
+                default_shape_texture_bind_groups: [
+                    Arc::new(default_background_texture_bind_group),
+                    Arc::new(default_foreground_texture_bind_group),
+                ],
+                texture_manager: context.inner.texture_manager.clone(),
+            },
+            and_uniforms,
+            and_uniform_buffer,
+            decrementing_uniforms,
+            decrementing_uniform_buffer,
+            backdrop_texture_bind_group_layout: Arc::new(backdrop_texture_bind_group_layout),
+            default_backdrop_texture_bind_group: Arc::new(default_backdrop_texture_bind_group),
+            gradient_bind_group_layout,
+            backdrop_gradient_bind_group_layout,
+            gradient_ramp_sampler,
+        }
     }
 }
 
@@ -286,9 +441,6 @@ impl<'a> Renderer<'a> {
         )
     }
 
-    /// Shared constructor: takes an existing context plus a surface configuration and builds a
-    /// complete per-surface renderer.
-    #[allow(clippy::too_many_arguments)]
     fn build_from_context(
         context: RendererContext,
         surface: Option<wgpu::Surface<'a>>,
@@ -302,98 +454,16 @@ impl<'a> Renderer<'a> {
         }
 
         let device = context.inner.device.clone();
-        let canvas_logical_size = to_logical(physical_size, scale_factor);
-
-        let (
-            and_uniforms,
-            and_uniform_buffer,
-            and_bind_group,
-            and_texture_bgl_layer0,
-            and_texture_bgl_layer1,
-            and_pipeline,
-        ) = create_pipeline(
-            canvas_logical_size,
+        let resources = RendererPipelineResources::new(
+            &context,
+            &config,
+            physical_size,
             scale_factor,
             Self::DEFAULT_FRINGE_WIDTH,
-            &device,
-            &config,
-            PipelineType::EqualIncrementStencil,
             msaa_sample_count,
         );
-
-        let (
-            decrementing_uniforms,
-            decrementing_uniform_buffer,
-            decrementing_bind_group,
-            _shape_texture_bind_group_layout_init0,
-            _shape_texture_bind_group_layout_init1,
-            decrementing_pipeline,
-        ) = create_pipeline(
-            canvas_logical_size,
-            scale_factor,
-            Self::DEFAULT_FRINGE_WIDTH,
-            &device,
-            &config,
-            PipelineType::EqualDecrementStencil,
-            msaa_sample_count,
-        );
-
-        let gradient_bind_group_layout = create_gradient_bind_group_layout(&device);
-        let backdrop_texture_bind_group_layout = create_backdrop_texture_bind_group_layout(&device);
-        let backdrop_gradient_bind_group_layout =
-            create_backdrop_gradient_bind_group_layout(&device);
-        let and_gradient_pipeline = create_gradient_increment_pipeline(
-            &device,
-            config.format,
-            msaa_sample_count,
-            &and_pipeline.get_bind_group_layout(0),
-            &and_texture_bgl_layer0,
-            &and_texture_bgl_layer1,
-            &gradient_bind_group_layout,
-        );
-
-        let leaf_draw_pipeline = create_stencil_keep_color_pipeline(
-            &device,
-            config.format,
-            msaa_sample_count,
-            &and_pipeline.get_bind_group_layout(0),
-            &and_texture_bgl_layer0,
-            &and_texture_bgl_layer1,
-        );
-        let leaf_draw_gradient_pipeline = create_gradient_stencil_keep_color_pipeline(
-            &device,
-            config.format,
-            msaa_sample_count,
-            &and_pipeline.get_bind_group_layout(0),
-            &and_texture_bgl_layer0,
-            &and_texture_bgl_layer1,
-            &gradient_bind_group_layout,
-        );
-
-        let gradient_ramp_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("gradient_ramp_sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
-
         let instance = context.inner.instance.clone();
         let queue = context.inner.queue.clone();
-        let texture_manager = context.inner.texture_manager.clone();
-
-        let default_shape_texture_bind_group_layer0 =
-            Self::create_default_shape_texture_bind_group(&device, &queue, &and_texture_bgl_layer0);
-        let default_shape_texture_bind_group_layer1 =
-            Self::create_default_shape_texture_bind_group(&device, &queue, &and_texture_bgl_layer1);
-        let default_backdrop_texture_bind_group = Self::create_default_backdrop_texture_bind_group(
-            &device,
-            &queue,
-            &backdrop_texture_bind_group_layout,
-        );
         let shape_effect_resources = ShapeEffectRendererResources::new(&device, config.format);
 
         let supports_base_vertex = context.inner.supports_base_vertex;
@@ -406,12 +476,12 @@ impl<'a> Renderer<'a> {
             config,
             fringe_width: Self::DEFAULT_FRINGE_WIDTH,
             tessellator: FillTessellator::new(),
-            and_uniforms,
-            and_uniform_buffer,
-            backdrop_texture_bind_group_layout: Arc::new(backdrop_texture_bind_group_layout),
-            default_backdrop_texture_bind_group: Arc::new(default_backdrop_texture_bind_group),
-            decrementing_uniforms,
-            decrementing_uniform_buffer,
+            and_uniforms: resources.and_uniforms,
+            and_uniform_buffer: resources.and_uniform_buffer,
+            backdrop_texture_bind_group_layout: resources.backdrop_texture_bind_group_layout,
+            default_backdrop_texture_bind_group: resources.default_backdrop_texture_bind_group,
+            decrementing_uniforms: resources.decrementing_uniforms,
+            decrementing_uniform_buffer: resources.decrementing_uniform_buffer,
             temp_vertices: Vec::new(),
             temp_indices: Vec::new(),
             geometry_dedup_map: HashMap::new(),
@@ -454,9 +524,9 @@ impl<'a> Renderer<'a> {
             stencil_only_pipeline: None,
             backdrop_color_pipeline: None,
             backdrop_color_gradient_pipeline: None,
-            gradient_bind_group_layout,
-            backdrop_gradient_bind_group_layout,
-            gradient_ramp_sampler,
+            gradient_bind_group_layout: resources.gradient_bind_group_layout,
+            backdrop_gradient_bind_group_layout: resources.backdrop_gradient_bind_group_layout,
+            gradient_ramp_sampler: resources.gradient_ramp_sampler,
             #[cfg(feature = "render_metrics")]
             render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),
             #[cfg(feature = "render_metrics")]
@@ -476,22 +546,7 @@ impl<'a> Renderer<'a> {
                 pipeline_switch_counts: Default::default(),
                 #[cfg(feature = "render_metrics")]
                 shape_effect_cache_metrics: Default::default(),
-                pipelines: Pipelines {
-                    and_pipeline: Arc::new(and_pipeline),
-                    and_gradient_pipeline: Arc::new(and_gradient_pipeline),
-                    and_bind_group,
-                    decrementing_pipeline: Arc::new(decrementing_pipeline),
-                    decrementing_bind_group,
-                    leaf_draw_pipeline: Arc::new(leaf_draw_pipeline),
-                    leaf_draw_gradient_pipeline: Arc::new(leaf_draw_gradient_pipeline),
-                    shape_texture_bind_group_layout_background: Arc::new(and_texture_bgl_layer0),
-                    shape_texture_bind_group_layout_foreground: Arc::new(and_texture_bgl_layer1),
-                    default_shape_texture_bind_groups: [
-                        Arc::new(default_shape_texture_bind_group_layer0),
-                        Arc::new(default_shape_texture_bind_group_layer1),
-                    ],
-                    texture_manager,
-                },
+                pipelines: resources.pipelines,
                 buffers: Buffers {
                     supports_base_vertex,
                     aggregated_vertex_buffer: None,
@@ -791,125 +846,30 @@ impl<'a> Renderer<'a> {
     }
 
     pub(super) fn recreate_pipelines(&mut self) {
-        let canvas_logical_size = to_logical(self.state.physical_size, self.state.scale_factor);
-
-        let (
-            and_uniforms,
-            and_uniform_buffer,
-            and_bind_group,
-            and_texture_bgl_layer0,
-            and_texture_bgl_layer1,
-            and_pipeline,
-        ) = create_pipeline(
-            canvas_logical_size,
+        let resources = RendererPipelineResources::new(
+            &self.context,
+            &self.config,
+            self.state.physical_size,
             self.state.scale_factor,
             self.fringe_width,
-            &self.device,
-            &self.config,
-            PipelineType::EqualIncrementStencil,
             self.msaa_sample_count,
         );
+        self.state.pipelines = resources.pipelines;
+        self.and_uniforms = resources.and_uniforms;
+        self.and_uniform_buffer = resources.and_uniform_buffer;
+        self.decrementing_uniforms = resources.decrementing_uniforms;
+        self.decrementing_uniform_buffer = resources.decrementing_uniform_buffer;
+        self.backdrop_texture_bind_group_layout = resources.backdrop_texture_bind_group_layout;
+        self.default_backdrop_texture_bind_group = resources.default_backdrop_texture_bind_group;
+        self.gradient_bind_group_layout = resources.gradient_bind_group_layout;
+        self.backdrop_gradient_bind_group_layout = resources.backdrop_gradient_bind_group_layout;
+        self.gradient_ramp_sampler = resources.gradient_ramp_sampler;
 
-        let (
-            decrementing_uniforms,
-            decrementing_uniform_buffer,
-            decrementing_bind_group,
-            _,
-            _,
-            decrementing_pipeline,
-        ) = create_pipeline(
-            canvas_logical_size,
-            self.state.scale_factor,
-            self.fringe_width,
-            &self.device,
-            &self.config,
-            PipelineType::EqualDecrementStencil,
-            self.msaa_sample_count,
-        );
-
-        let pipelines = &mut self.state.pipelines;
-        pipelines.and_pipeline = Arc::new(and_pipeline);
-        self.and_uniforms = and_uniforms;
-        self.and_uniform_buffer = and_uniform_buffer;
-        pipelines.and_bind_group = and_bind_group;
-
-        pipelines.decrementing_pipeline = Arc::new(decrementing_pipeline);
-        self.decrementing_uniforms = decrementing_uniforms;
-        self.decrementing_uniform_buffer = decrementing_uniform_buffer;
-        pipelines.decrementing_bind_group = decrementing_bind_group;
-
-        pipelines.shape_texture_bind_group_layout_background = Arc::new(and_texture_bgl_layer0);
-        pipelines.shape_texture_bind_group_layout_foreground = Arc::new(and_texture_bgl_layer1);
         self.shape_effect_cache.clear();
         self.shape_effect_mask_cache.clear();
-        self.backdrop_texture_bind_group_layout =
-            Arc::new(create_backdrop_texture_bind_group_layout(&self.device));
-
-        self.gradient_bind_group_layout = create_gradient_bind_group_layout(&self.device);
-        self.backdrop_gradient_bind_group_layout =
-            create_backdrop_gradient_bind_group_layout(&self.device);
-        self.gradient_ramp_sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("gradient_ramp_sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-        pipelines.and_gradient_pipeline = Arc::new(create_gradient_increment_pipeline(
-            &self.device,
-            self.config.format,
-            self.msaa_sample_count,
-            &pipelines.and_pipeline.get_bind_group_layout(0),
-            &pipelines.shape_texture_bind_group_layout_background,
-            &pipelines.shape_texture_bind_group_layout_foreground,
-            &self.gradient_bind_group_layout,
-        ));
-
-        let default_shape_texture_bind_group_background =
-            Self::create_default_shape_texture_bind_group(
-                &self.device,
-                &self.queue,
-                &pipelines.shape_texture_bind_group_layout_background,
-            );
-        let default_shape_texture_bind_group_foreground =
-            Self::create_default_shape_texture_bind_group(
-                &self.device,
-                &self.queue,
-                &pipelines.shape_texture_bind_group_layout_foreground,
-            );
-        let default_backdrop_texture_bind_group = Self::create_default_backdrop_texture_bind_group(
-            &self.device,
-            &self.queue,
-            &self.backdrop_texture_bind_group_layout,
-        );
-        pipelines.default_shape_texture_bind_groups = [
-            Arc::new(default_shape_texture_bind_group_background),
-            Arc::new(default_shape_texture_bind_group_foreground),
-        ];
-        self.default_backdrop_texture_bind_group = Arc::new(default_backdrop_texture_bind_group);
-
         self.state.composite_resources = None;
         self.shape_effect_resources
             .recreate_pipeline(&self.device, self.config.format);
-
-        pipelines.leaf_draw_pipeline = Arc::new(create_stencil_keep_color_pipeline(
-            &self.device,
-            self.config.format,
-            self.msaa_sample_count,
-            &pipelines.and_pipeline.get_bind_group_layout(0),
-            &pipelines.shape_texture_bind_group_layout_background,
-            &pipelines.shape_texture_bind_group_layout_foreground,
-        ));
-        pipelines.leaf_draw_gradient_pipeline =
-            Arc::new(create_gradient_stencil_keep_color_pipeline(
-                &self.device,
-                self.config.format,
-                self.msaa_sample_count,
-                &pipelines.and_pipeline.get_bind_group_layout(0),
-                &pipelines.shape_texture_bind_group_layout_background,
-                &pipelines.shape_texture_bind_group_layout_foreground,
-                &self.gradient_bind_group_layout,
-            ));
 
         // Reset lazily-created pipelines so they pick up the new layout
         self.texture_blit_pipeline = None;

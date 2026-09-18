@@ -787,19 +787,6 @@ impl BackdropCaptureRegion {
     }
 }
 
-#[cfg(test)]
-fn screen_point_to_capture_uv(
-    sample_transform: BackdropSamplingUniform,
-    screen_point: (f32, f32),
-) -> (f32, f32) {
-    (
-        (screen_point.0 - sample_transform.capture_origin[0])
-            * sample_transform.inverse_capture_size[0],
-        (screen_point.1 - sample_transform.capture_origin[1])
-            * sample_transform.inverse_capture_size[1],
-    )
-}
-
 fn resolve_capture_region_to_viewport(
     requested_rect: (i32, i32, u32, u32),
     physical_size: (u32, u32),
@@ -1796,7 +1783,7 @@ mod tests {
     use super::{
         capture_size_exceeds_budget, capture_size_exceeds_limits, inflate_logical_rect,
         logical_rect_to_physical_capture_rect, resolve_capture_region_to_viewport,
-        screen_point_to_capture_uv, transform_point_to_logical_screen,
+        transform_point_to_logical_screen,
     };
     use crate::vertex::InstanceTransform;
 
@@ -1874,19 +1861,15 @@ mod tests {
     }
 
     #[test]
-    fn padded_capture_preserves_node_window_inside_capture() {
+    fn padded_capture_sets_sampling_origin_and_size() {
         let padded_rect = inflate_logical_rect([(100.0, 100.0), (200.0, 200.0)], 20.0);
         let requested_rect = logical_rect_to_physical_capture_rect(padded_rect, 1.0)
             .expect("capture rect should be non-empty");
         let capture_region = resolve_capture_region_to_viewport(requested_rect, (1_000, 1_000));
         let sample_transform = capture_region.sample_uniform();
 
-        let top_left_uv = screen_point_to_capture_uv(sample_transform, (100.5, 100.5));
-        let bottom_right_uv = screen_point_to_capture_uv(sample_transform, (199.5, 199.5));
-
-        assert!((top_left_uv.0 - (20.5 / 140.0)).abs() < 1e-6);
-        assert!((top_left_uv.1 - (20.5 / 140.0)).abs() < 1e-6);
-        assert!((bottom_right_uv.0 - (119.5 / 140.0)).abs() < 1e-6);
-        assert!((bottom_right_uv.1 - (119.5 / 140.0)).abs() < 1e-6);
+        assert_eq!(capture_region.capture_size, (140, 140));
+        assert_eq!(sample_transform.capture_origin, [80.0, 80.0]);
+        assert_eq!(sample_transform.inverse_capture_size, [1.0 / 140.0; 2]);
     }
 }

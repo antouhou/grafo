@@ -193,7 +193,7 @@ impl ShapeEffectConfig {
 
 /// Draws a fullscreen triangle from three vertex indices, without a vertex buffer.
 /// Effect and composite passes share this shader.
-pub(crate) const FULLSCREEN_QUAD_VS: &str = include_str!("shaders/fullscreen_quad_vs.wgsl");
+pub(crate) const FULLSCREEN_TRIANGLE_VS: &str = include_str!("shaders/fullscreen_quad_vs.wgsl");
 
 /// Built-in fragment shader preamble providing the input texture bindings.
 /// This is prepended to the user's effect fragment shader.
@@ -508,12 +508,12 @@ pub(crate) fn create_effect_params_bind_group_layout(
 
 /// Concatenate built-in vertex shader + preamble + user fragment shader into a single WGSL module.
 pub(crate) fn build_effect_wgsl(user_fragment_source: &str) -> String {
-    format!("{FULLSCREEN_QUAD_VS}\n{EFFECT_FS_PREAMBLE}\n{user_fragment_source}")
+    format!("{FULLSCREEN_TRIANGLE_VS}\n{EFFECT_FS_PREAMBLE}\n{user_fragment_source}")
 }
 
 /// Build the composite WGSL module (fullscreen VS + passthrough FS).
 pub(crate) fn build_composite_wgsl() -> String {
-    format!("{FULLSCREEN_QUAD_VS}\n{COMPOSITE_FS}")
+    format!("{FULLSCREEN_TRIANGLE_VS}\n{COMPOSITE_FS}")
 }
 
 /// Validates the complete effect module and detects its parameter uniform.
@@ -627,7 +627,7 @@ pub(crate) fn compile_effect_pipeline(
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: Some("vs_quad"),
+                entry_point: Some("vs_triangle"),
                 compilation_options: Default::default(),
                 buffers: &[],
             },
@@ -701,7 +701,7 @@ pub(crate) fn compile_composite_pipeline(
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: Some("vs_quad"),
+            entry_point: Some("vs_triangle"),
             compilation_options: Default::default(),
             buffers: &[],
         },
@@ -767,7 +767,7 @@ pub(crate) fn compile_texture_blit_pipeline(
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: Some("vs_quad"),
+            entry_point: Some("vs_triangle"),
             compilation_options: Default::default(),
             buffers: &[],
         },
@@ -798,7 +798,7 @@ pub(crate) fn compile_backdrop_layer_composite_pipeline(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
 ) -> CompositePipelineResources {
-    let shader_source = format!("{FULLSCREEN_QUAD_VS}\n{BACKDROP_LAYER_COMPOSITE_FS}");
+    let shader_source = format!("{FULLSCREEN_TRIANGLE_VS}\n{BACKDROP_LAYER_COMPOSITE_FS}");
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("backdrop_layer_composite_shader"),
         source: wgpu::ShaderSource::Wgsl(shader_source.into()),
@@ -838,7 +838,7 @@ pub(crate) fn compile_backdrop_layer_composite_pipeline(
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: Some("vs_quad"),
+            entry_point: Some("vs_triangle"),
             compilation_options: Default::default(),
             buffers: &[],
         },
