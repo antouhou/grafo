@@ -1,11 +1,12 @@
 //! Blurs a group of overlapping rectangles with two Gaussian passes.
-//! The horizontal and vertical passes share the blur radius and texture size.
+//! Both passes use the same radius and sample in input texture pixels.
 
 use futures::executor::block_on;
 use grafo::wgpu::SurfaceError;
 use grafo::RenderError;
 use grafo::Shape;
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use grafo_test_scenes::shaders::{HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -20,62 +21,7 @@ const BLUR_EFFECT: u64 = 1;
 struct BlurParams {
     radius: f32,
     _pad: f32,
-    tex_size: [f32; 2],
 }
-
-const HORIZONTAL_BLUR_WGSL: &str = r#"
-const DIRECTION: vec2<f32> = vec2<f32>(1.0, 0.0);
-
-struct Params {
-    radius: f32,
-    _pad: f32,
-    tex_size: vec2<f32>,
-}
-@group(1) @binding(0) var<uniform> params: Params;
-
-@fragment
-fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let pixel = DIRECTION / params.tex_size;
-    let sigma = max(params.radius / 3.0, 0.001);
-    var color = vec4<f32>(0.0);
-    var total_weight = 0.0;
-    let r = i32(ceil(params.radius));
-    for (var i = -r; i <= r; i++) {
-        let offset = f32(i);
-        let weight = exp(-(offset * offset) / (2.0 * sigma * sigma));
-        color += textureSample(t_input, s_input, uv + pixel * offset) * weight;
-        total_weight += weight;
-    }
-    return color / total_weight;
-}
-"#;
-
-const VERTICAL_BLUR_WGSL: &str = r#"
-const DIRECTION: vec2<f32> = vec2<f32>(0.0, 1.0);
-
-struct Params {
-    radius: f32,
-    _pad: f32,
-    tex_size: vec2<f32>,
-}
-@group(1) @binding(0) var<uniform> params: Params;
-
-@fragment
-fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let pixel = DIRECTION / params.tex_size;
-    let sigma = max(params.radius / 3.0, 0.001);
-    var color = vec4<f32>(0.0);
-    var total_weight = 0.0;
-    let r = i32(ceil(params.radius));
-    for (var i = -r; i <= r; i++) {
-        let offset = f32(i);
-        let weight = exp(-(offset * offset) / (2.0 * sigma * sigma));
-        color += textureSample(t_input, s_input, uv + pixel * offset) * weight;
-        total_weight += weight;
-    }
-    return color / total_weight;
-}
-"#;
 
 #[derive(Default)]
 struct App<'a> {
@@ -139,8 +85,6 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                let (pw, ph) = renderer.size();
-
                 // Background without an effect
                 let bg = Shape::rect(
                     [(30.0, 30.0), (770.0, 570.0)],
@@ -214,7 +158,6 @@ impl<'a> ApplicationHandler for App<'a> {
                 let blur_params = BlurParams {
                     radius: 8.0,
                     _pad: 0.0,
-                    tex_size: [pw as f32, ph as f32],
                 };
                 renderer
                     .set_group_effect(group, BLUR_EFFECT, bytemuck::bytes_of(&blur_params))

@@ -5,7 +5,7 @@
 use crate::cache::CachedTessellation;
 use crate::gradient::gpu::{GpuMaterialParams, GradientCache};
 use crate::gradient::types::Fill;
-use crate::pipeline::{create_buffer_init, BackdropSamplingUniform};
+use crate::pipeline::BackdropSamplingUniform;
 use crate::util::ShapeResources;
 use crate::vertex::{CustomVertex, GeometryBufferRange, InstanceTransform};
 use crate::{Color, Stroke};
@@ -17,6 +17,7 @@ use lyon::path::Winding;
 use lyon::tessellation::FillVertexConstructor;
 use smallvec::SmallVec;
 use std::sync::Arc;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 #[derive(Debug, Clone)]
 pub struct CachedShapeHandle {
@@ -1154,12 +1155,12 @@ impl CachedShapeDrawData {
         if let Some(existing_buffer) = self.backdrop_material_params_buffer.as_ref() {
             queue.write_buffer(existing_buffer, 0, bytemuck::bytes_of(&params));
         } else {
-            self.backdrop_material_params_buffer = Some(create_buffer_init(
-                device,
-                Some("gradient_backdrop_material_params_buffer"),
-                bytemuck::bytes_of(&params),
-                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            ));
+            self.backdrop_material_params_buffer =
+                Some(device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("gradient_backdrop_material_params_buffer"),
+                    contents: bytemuck::bytes_of(&params),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                }));
         }
 
         self.backdrop_material_params_buffer.clone()

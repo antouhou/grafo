@@ -3,7 +3,7 @@ use super::types::{DrawCommand, GeometryBufferError};
 use super::Renderer;
 use crate::cache::{CachedTessellation, FrameCache};
 use crate::effect::{self, PooledTexture, ShapeEffectConfig};
-use crate::pipeline::{create_buffer_init, draw_indexed_geometry};
+use crate::pipeline::draw_indexed_geometry;
 use crate::renderer::preparation::{self, InstanceTextureData};
 use crate::shape::{CachedShapeDrawData, CachedShapeHandle, ShapeTextureBinding};
 use crate::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
@@ -12,6 +12,7 @@ use bytemuck::{Pod, Zeroable};
 use lyon::tessellation::VertexBuffers;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 const SHAPE_EFFECT_MASK_SHADER: &str = include_str!("../shaders/shape_effect_mask.wgsl");
 
@@ -560,12 +561,11 @@ impl<'a> Renderer<'a> {
                 );
                 let mask_uniform =
                     raster_rect.mask_uniform(self.state.scale_factor, self.fringe_width);
-                let mask_uniform_buffer = create_buffer_init(
-                    &self.device,
-                    Some("shape_effect_mask_uniform"),
-                    bytemuck::bytes_of(&mask_uniform),
-                    wgpu::BufferUsages::UNIFORM,
-                );
+                let mask_uniform_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("shape_effect_mask_uniform"),
+                    contents: bytemuck::bytes_of(&mask_uniform),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                });
                 let mask_bind_group = create_mask_bind_group(
                     &self.device,
                     &self.shape_effect_resources.mask_bind_group_layout,
@@ -612,12 +612,11 @@ impl<'a> Renderer<'a> {
             };
 
             let parameter_buffer = (!shape_effect_instance.params.is_empty()).then(|| {
-                create_buffer_init(
-                    &self.device,
-                    Some("shape_effect_params_buffer"),
-                    shape_effect_instance.params.as_ref(),
-                    wgpu::BufferUsages::UNIFORM,
-                )
+                self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("shape_effect_params_buffer"),
+                    contents: shape_effect_instance.params.as_ref(),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                })
             });
             let parameter_bind_group = parameter_buffer.as_ref().and_then(|buffer| {
                 loaded_effect

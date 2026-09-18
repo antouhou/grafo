@@ -6,6 +6,7 @@ use grafo::wgpu::SurfaceError;
 use grafo::RenderError;
 use grafo::{BackdropEffectConfig, BorderRadii, Shape};
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use grafo_test_scenes::shaders::{HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -21,58 +22,6 @@ struct BlurParams {
     radius: f32,
     _pad: f32,
 }
-
-const HORIZONTAL_BLUR_WGSL: &str = r#"
-const DIRECTION: vec2<f32> = vec2<f32>(1.0, 0.0);
-
-struct Params {
-    radius: f32,
-    _pad: f32,
-}
-@group(1) @binding(0) var<uniform> params: Params;
-
-@fragment
-fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let pixel = DIRECTION / vec2<f32>(textureDimensions(t_input));
-    let sigma = max(params.radius / 3.0, 0.001);
-    var color = vec4<f32>(0.0);
-    var total_weight = 0.0;
-    let r = i32(ceil(params.radius));
-    for (var i = -r; i <= r; i++) {
-        let offset = f32(i);
-        let weight = exp(-(offset * offset) / (2.0 * sigma * sigma));
-        color += textureSample(t_input, s_input, uv + pixel * offset) * weight;
-        total_weight += weight;
-    }
-    return color / total_weight;
-}
-"#;
-
-const VERTICAL_BLUR_WGSL: &str = r#"
-const DIRECTION: vec2<f32> = vec2<f32>(0.0, 1.0);
-
-struct Params {
-    radius: f32,
-    _pad: f32,
-}
-@group(1) @binding(0) var<uniform> params: Params;
-
-@fragment
-fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let pixel = DIRECTION / vec2<f32>(textureDimensions(t_input));
-    let sigma = max(params.radius / 3.0, 0.001);
-    var color = vec4<f32>(0.0);
-    var total_weight = 0.0;
-    let r = i32(ceil(params.radius));
-    for (var i = -r; i <= r; i++) {
-        let offset = f32(i);
-        let weight = exp(-(offset * offset) / (2.0 * sigma * sigma));
-        color += textureSample(t_input, s_input, uv + pixel * offset) * weight;
-        total_weight += weight;
-    }
-    return color / total_weight;
-}
-"#;
 
 #[derive(Default)]
 struct App<'a> {

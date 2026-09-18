@@ -6,12 +6,13 @@ use crate::cache::FrameCache;
 use crate::gradient::gpu::GpuMaterialParams;
 use crate::pipeline::{
     create_backdrop_gradient_bind_group_layout, create_backdrop_texture_bind_group_layout,
-    create_buffer_init, create_gradient_bind_group_layout, create_gradient_increment_pipeline,
+    create_gradient_bind_group_layout, create_gradient_increment_pipeline,
     create_gradient_stencil_keep_color_pipeline, create_stencil_keep_color_pipeline,
 };
 use crate::vertex::CustomVertex;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 use tracing::{error, info, warn};
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{DownlevelFlags, InstanceDescriptor};
 
 fn create_transparent_texture_view_and_sampler(
@@ -681,12 +682,11 @@ impl<'a> Renderer<'a> {
             "default_transparent_backdrop_texture",
         );
 
-        let material_params_buffer = create_buffer_init(
-            device,
-            Some("default_backdrop_material_params_buffer"),
-            bytemuck::bytes_of(&GpuMaterialParams::default()),
-            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        );
+        let material_params_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("default_backdrop_material_params_buffer"),
+            contents: bytemuck::bytes_of(&GpuMaterialParams::default()),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
 
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: backdrop_texture_bind_group_layout,

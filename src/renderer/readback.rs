@@ -3,6 +3,27 @@ use crate::pipeline::create_argb_params_buffer;
 #[cfg(feature = "render_metrics")]
 use crate::renderer::metrics::PhaseTimings;
 use crate::renderer::types::GeometryBufferError;
+use std::sync::mpsc;
+use thiserror::Error;
+use wgpu::{BufferAsyncError, BufferDescriptor, PollError, PollType};
+
+/// An offscreen render could not prepare geometry or read its pixels back from the GPU.
+#[derive(Error, Debug)]
+pub enum ReadbackError {
+    #[error(transparent)]
+    GeometryBuffer(#[from] GeometryBufferError),
+    #[error("Output buffer needs {required_pixels} pixels, but has {provided_pixels}")]
+    OutputTooSmall {
+        required_pixels: usize,
+        provided_pixels: usize,
+    },
+    #[error("Failed to wait for GPU readback: {0}")]
+    GpuWait(#[from] PollError),
+    #[error("Failed to map the readback buffer: {0}")]
+    BufferMap(#[from] BufferAsyncError),
+    #[error("Readback mapping callback was dropped before reporting a result")]
+    MapCallbackDropped,
+}
 
 fn copy_padded_readback_rows(
     data: &[u8],
@@ -33,40 +54,34 @@ impl<'a> Renderer<'a> {
         device: &wgpu::Device,
         buffer: &wgpu::Buffer,
         mapped_bytes: &mut Vec<u8>,
-    ) {
+    ) -> Result<(), ReadbackError> {
         mapped_bytes.clear();
 
         let buffer_slice = buffer.slice(..);
-        let (sender, receiver) = std::sync::mpsc::channel();
+        let (sender, receiver) = mpsc::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            if sender.send(result).is_err() {
-                warn!("Failed to send map_async result from callback");
-            }
+            let _ = sender.send(result);
         });
 
-        let _ = device.poll(wgpu::MaintainBase::Wait);
-
-        let map_result = match receiver.recv() {
-            Ok(result) => result,
-            Err(error) => {
-                warn!("Failed to receive mapped buffer result: {}", error);
-                return;
-            }
-        };
-
-        if let Err(error) = map_result {
-            warn!("Failed to map readback buffer: {:?}", error);
-            return;
+        if let Err(error) = device.poll(PollType::Wait) {
+            buffer.unmap();
+            return Err(error.into());
         }
+        receiver
+            .recv()
+            .map_err(|_| ReadbackError::MapCallbackDropped)??;
 
         let mapped_range = buffer_slice.get_mapped_range();
         mapped_bytes.extend_from_slice(&mapped_range);
         drop(mapped_range);
         buffer.unmap();
+        Ok(())
     }
 
-    /// Returns an error if geometry preparation exceeds an indexed draw limit.
-    pub fn render_to_buffer(&mut self, buffer: &mut Vec<u8>) -> Result<(), GeometryBufferError> {
+    /// Reads tightly packed BGRA pixels into `buffer`, resizing it to the viewport.
+    /// Returns an error if geometry preparation or GPU readback fails.
+    /// On error, `buffer` retains its previous contents.
+    pub fn render_to_buffer(&mut self, buffer: &mut Vec<u8>) -> Result<(), ReadbackError> {
         #[cfg(feature = "render_metrics")]
         let frame_render_loop_started_at = std::time::Instant::now();
 
@@ -140,22 +155,15 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         let after_submit = std::time::Instant::now();
 
-        let mut readback_bytes = std::mem::take(&mut self.state.scratch.readback_bytes);
-        Self::map_readback_buffer_into(&self.device, output_buffer, &mut readback_bytes);
-        let required_readback_len = (height as usize).saturating_mul(padded_bytes_per_row as usize);
-        if readback_bytes.is_empty() || readback_bytes.len() < required_readback_len {
-            self.state.scratch.readback_bytes = readback_bytes;
-            return Ok(());
-        }
+        let readback_bytes = &mut self.state.scratch.readback_bytes;
+        Self::map_readback_buffer_into(&self.device, output_buffer, readback_bytes)?;
         copy_padded_readback_rows(
-            &readback_bytes,
+            readback_bytes,
             height,
             unpadded_bytes_per_row,
             padded_bytes_per_row,
             buffer,
         );
-
-        self.state.scratch.readback_bytes = readback_bytes;
 
         #[cfg(feature = "render_metrics")]
         {
@@ -178,8 +186,19 @@ impl<'a> Renderer<'a> {
         Ok(())
     }
 
-    /// Returns an error if geometry preparation exceeds an indexed draw limit.
-    pub fn render_to_argb32(&mut self, out_pixels: &mut [u32]) -> Result<(), GeometryBufferError> {
+    /// Reads ARGB pixels into the first viewport-sized portion of `out_pixels`.
+    /// Returns an error if the output is too small, geometry preparation fails,
+    /// or GPU readback fails. On error, `out_pixels` retains its previous contents.
+    pub fn render_to_argb32(&mut self, out_pixels: &mut [u32]) -> Result<(), ReadbackError> {
+        let (width, height) = self.state.physical_size;
+        let needed_len = (width as usize) * (height as usize);
+        if out_pixels.len() < needed_len {
+            return Err(ReadbackError::OutputTooSmall {
+                required_pixels: needed_len,
+                provided_pixels: out_pixels.len(),
+            });
+        }
+
         #[cfg(feature = "render_metrics")]
         let frame_render_loop_started_at = std::time::Instant::now();
 
@@ -187,17 +206,6 @@ impl<'a> Renderer<'a> {
 
         #[cfg(feature = "render_metrics")]
         let after_prepare = std::time::Instant::now();
-
-        let (width, height) = self.state.physical_size;
-        let needed_len = (width as usize) * (height as usize);
-        if out_pixels.len() < needed_len {
-            warn!(
-                "render_to_argb32: output slice too small: {} < {}",
-                out_pixels.len(),
-                needed_len
-            );
-            return Ok(());
-        }
 
         let size_changed = self.argb_cached_width != width || self.argb_cached_height != height;
         if size_changed {
@@ -229,11 +237,12 @@ impl<'a> Renderer<'a> {
             || self.argb_input_buffer.is_none()
             || self.argb_input_buffer_size < input_buffer_size
         {
-            self.argb_input_buffer = Some(create_storage_input_buffer(
-                &self.device,
-                Some("argb_input_padded_bytes"),
-                input_buffer_size,
-            ));
+            self.argb_input_buffer = Some(self.device.create_buffer(&BufferDescriptor {
+                label: Some("argb_input_padded_bytes"),
+                size: input_buffer_size,
+                usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+                mapped_at_creation: false,
+            }));
             self.argb_input_buffer_size = input_buffer_size;
         }
 
@@ -258,11 +267,12 @@ impl<'a> Renderer<'a> {
             || self.argb_output_storage_buffer.is_none()
             || self.argb_output_buffer_size < output_buffer_size
         {
-            self.argb_output_storage_buffer = Some(create_storage_output_buffer(
-                &self.device,
-                Some("argb_output_u32_storage"),
-                output_buffer_size,
-            ));
+            self.argb_output_storage_buffer = Some(self.device.create_buffer(&BufferDescriptor {
+                label: Some("argb_output_u32_storage"),
+                size: output_buffer_size,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            }));
             self.argb_output_buffer_size = output_buffer_size;
             self.argb_readback_buffer = Some(create_readback_buffer(
                 &self.device,
@@ -342,20 +352,15 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         let after_submit = std::time::Instant::now();
 
-        let mut readback_bytes = std::mem::take(&mut self.state.scratch.readback_bytes);
+        let readback_bytes = &mut self.state.scratch.readback_bytes;
         Self::map_readback_buffer_into(
             &self.device,
             self.argb_readback_buffer.as_ref().unwrap(),
-            &mut readback_bytes,
-        );
-        if readback_bytes.is_empty() {
-            self.state.scratch.readback_bytes = readback_bytes;
-            return Ok(());
-        }
+            readback_bytes,
+        )?;
 
-        let src_words: &[u32] = bytemuck::cast_slice(&readback_bytes);
+        let src_words: &[u32] = bytemuck::cast_slice(readback_bytes);
         out_pixels[..needed_len].copy_from_slice(&src_words[..needed_len]);
-        self.state.scratch.readback_bytes = readback_bytes;
 
         #[cfg(feature = "render_metrics")]
         {

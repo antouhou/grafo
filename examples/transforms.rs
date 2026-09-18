@@ -184,7 +184,6 @@ impl<'a> ApplicationHandler for App<'a> {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        // Initialize the renderer
         let mut renderer = block_on(grafo::Renderer::new(
             window.clone(),
             physical_size,
@@ -194,7 +193,6 @@ impl<'a> ApplicationHandler for App<'a> {
             1,     // msaa_samples
         ));
 
-        // Load a demo texture (Rust logo) and upload it once
         let rust_logo_png_bytes = include_bytes!("assets/rust-logo-256x256-blk.png");
         let rust_logo_png = image::ImageReader::new(std::io::Cursor::new(rust_logo_png_bytes))
             .with_guessed_format()
@@ -213,7 +211,6 @@ impl<'a> ApplicationHandler for App<'a> {
             &rust_logo_png_bytes,
         );
 
-        // Build demo paths
         self.red_path = build_rect_path(200.0, 100.0);
         self.green_path = build_rect_path(200.0, 100.0);
         self.blue_path = build_rect_path(self.blue_size.0, self.blue_size.1);
@@ -270,14 +267,12 @@ impl<'a> ApplicationHandler for App<'a> {
             Some(PERSPECTIVE_SHAPE_CACHE_KEY),
         );
 
-        // Colors for hover states
         self.red_color = (Color::rgb(200, 60, 60), Color::rgb(255, 120, 120));
         self.green_color = (Color::rgb(60, 200, 60), Color::rgb(120, 255, 120));
         self.blue_color = (Color::rgb(60, 60, 200), Color::rgb(120, 120, 255));
         self.heart_color = (Color::rgb(220, 0, 90), Color::rgb(255, 80, 150));
         self.perspective_color = (Color::rgb(255, 180, 0), Color::rgb(255, 220, 120));
 
-        // Save state
         self.scale_factor = scale_factor;
         self.rust_logo_png_dimensions = rust_logo_png_dimensions;
         self.rust_logo_png_bytes = rust_logo_png_bytes;
@@ -381,7 +376,6 @@ impl<'a> ApplicationHandler for App<'a> {
                         }
                         _ => {}
                     }
-                    // Trigger redraw after parameter change
                     window.request_redraw();
                 }
             }
@@ -596,7 +590,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Advance animation angle
                 self.angle = (self.angle + 0.02) % (std::f32::consts::TAU);
 
                 match renderer.render() {

@@ -2,11 +2,12 @@ use super::sampling::bake_gradient_ramp;
 use super::types::{
     GradientData, GradientGeometry, GradientRamp, GradientRampCacheKey, GradientUnits, SpreadMode,
 };
-use crate::pipeline::{create_buffer_init, BackdropSamplingUniform};
+use crate::pipeline::BackdropSamplingUniform;
 use lru::LruCache;
 use std::f32::consts::TAU;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 const MAX_GRADIENT_RAMP_CACHE_SIZE: usize = 256;
 const MAX_GRADIENT_BIND_GROUP_CACHE_SIZE: usize = 1024;
@@ -392,12 +393,11 @@ impl GradientCache {
             self.get_or_create_ramp_texture(gradient_data, device, queue)
         };
 
-        let params_buffer = create_buffer_init(
-            device,
-            Some("Material Params Buffer"),
-            bytemuck::cast_slice(&[material_params]),
-            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        );
+        let params_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Material Params Buffer"),
+            contents: bytemuck::cast_slice(&[material_params]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
 
         let bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Gradient Bind Group"),

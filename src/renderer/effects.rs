@@ -2,8 +2,9 @@ use super::*;
 use crate::effect::EffectParameterResources;
 use crate::pipeline::{
     create_backdrop_gradient_stencil_keep_color_pipeline,
-    create_backdrop_stencil_keep_color_pipeline, create_buffer_init, create_stencil_only_pipeline,
+    create_backdrop_stencil_keep_color_pipeline, create_stencil_only_pipeline,
 };
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 fn overwrite_effect_params(storage: &mut Vec<u8>, params: &[u8]) {
     storage.clear();
@@ -115,12 +116,11 @@ fn create_effect_parameter_resources(
     params: &[u8],
     buffer_label: &'static str,
 ) -> EffectParameterResources {
-    let buffer = create_buffer_init(
-        device,
-        Some(buffer_label),
-        params,
-        BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-    );
+    let buffer = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some(buffer_label),
+        contents: params,
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+    });
     let bind_group = create_params_bind_group(device, layout, &buffer);
     EffectParameterResources { buffer, bind_group }
 }

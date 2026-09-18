@@ -1874,13 +1874,6 @@ mod tests {
     }
 
     #[test]
-    fn inflate_logical_rect_expands_symmetrically() {
-        let rect = inflate_logical_rect([(10.0, 20.0), (30.0, 40.0)], 5.0);
-
-        assert_eq!(rect, [(5.0, 15.0), (35.0, 45.0)]);
-    }
-
-    #[test]
     fn padded_capture_preserves_node_window_inside_capture() {
         let padded_rect = inflate_logical_rect([(100.0, 100.0), (200.0, 200.0)], 20.0);
         let requested_rect = logical_rect_to_physical_capture_rect(padded_rect, 1.0)

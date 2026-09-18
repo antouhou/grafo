@@ -13,11 +13,12 @@
 //! and can supply different parameters.
 
 use crate::gradient::gpu::GpuMaterialParams;
-use crate::pipeline::{create_buffer_init, BackdropSamplingUniform};
+use crate::pipeline::BackdropSamplingUniform;
 use naga::front::wgsl::{self, ParseError};
 use naga::valid::{ValidationError, Validator};
 use naga::{AddressSpace, ShaderStage, WithSpan};
 use std::sync::Arc;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 #[cfg(test)]
 mod tests;
@@ -949,12 +950,11 @@ pub(crate) fn prepare_solid_backdrop_material_params_buffer(
     if let Some(existing_buffer) = backdrop_material_params_buffer.as_ref() {
         queue.write_buffer(existing_buffer, 0, bytemuck::bytes_of(&material_params));
     } else {
-        *backdrop_material_params_buffer = Some(create_buffer_init(
-            device,
-            Some("solid_backdrop_material_params_buffer"),
-            bytemuck::bytes_of(&material_params),
-            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        ));
+        *backdrop_material_params_buffer = Some(device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("solid_backdrop_material_params_buffer"),
+            contents: bytemuck::bytes_of(&material_params),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        }));
     }
 
     backdrop_material_params_buffer
@@ -972,12 +972,11 @@ pub(crate) fn prepare_backdrop_layer_params_buffer(
     if let Some(existing_buffer) = backdrop_layer_params_buffer.as_ref() {
         queue.write_buffer(existing_buffer, 0, bytemuck::bytes_of(&layer_params));
     } else {
-        *backdrop_layer_params_buffer = Some(create_buffer_init(
-            device,
-            Some("backdrop_layer_params_buffer"),
-            bytemuck::bytes_of(&layer_params),
-            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        ));
+        *backdrop_layer_params_buffer = Some(device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("backdrop_layer_params_buffer"),
+            contents: bytemuck::bytes_of(&layer_params),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        }));
     }
 
     backdrop_layer_params_buffer

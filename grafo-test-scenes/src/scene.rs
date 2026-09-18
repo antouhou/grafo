@@ -1877,11 +1877,9 @@ fn tile_27_group_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         )
         .unwrap(); // semi-transparent red
 
-    let (pw, ph) = renderer.size();
     let blur_params = BlurParams {
         radius: 8.0,
         _pad: 0.0,
-        tex_size: [pw as f32, ph as f32],
     };
     renderer
         .set_group_effect(id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
@@ -1956,11 +1954,9 @@ fn tile_28_group_blur_with_children(renderer: &mut Renderer) -> Vec<PixelExpecta
         )
         .unwrap();
 
-    let (pw, ph) = renderer.size();
     let blur_params = BlurParams {
         radius: 6.0,
         _pad: 0.0,
-        tex_size: [pw as f32, ph as f32],
     };
     renderer
         .set_group_effect(parent_id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
@@ -2054,7 +2050,6 @@ fn tile_29_backdrop_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> 
     let blur_params = BlurParams {
         radius: 10.0,
         _pad: 0.0,
-        tex_size: [40.0, 50.0],
     };
     renderer
         .set_shape_backdrop_effect(
@@ -2151,7 +2146,6 @@ fn tile_30_backdrop_blur_nonleaf(renderer: &mut Renderer) -> Vec<PixelExpectatio
     let blur_params = BlurParams {
         radius: 8.0,
         _pad: 0.0,
-        tex_size: [50.0, 60.0],
     };
     renderer
         .set_shape_backdrop_effect(
@@ -2267,7 +2261,6 @@ fn tile_31_backdrop_under_scissor(renderer: &mut Renderer) -> Vec<PixelExpectati
     let blur_params = BlurParams {
         radius: 6.0,
         _pad: 0.0,
-        tex_size: [40.0, 50.0],
     };
     renderer
         .set_shape_backdrop_effect(
@@ -3169,11 +3162,9 @@ fn tile_45_gradient_group_blur(renderer: &mut Renderer) -> Vec<PixelExpectation>
         )
         .unwrap();
 
-    let (pw, ph) = renderer.size();
     let blur_params = BlurParams {
         radius: 8.0,
         _pad: 0.0,
-        tex_size: [pw as f32, ph as f32],
     };
     renderer
         .set_group_effect(id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
@@ -3276,7 +3267,6 @@ fn tile_46_gradient_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectati
     let blur_params = BlurParams {
         radius: 10.0,
         _pad: 0.0,
-        tex_size: [40.0, 50.0],
     };
     renderer
         .set_shape_backdrop_effect(
@@ -3786,7 +3776,6 @@ fn tile_52_backdrop_overflow_visible_children(renderer: &mut Renderer) -> Vec<Pi
     let blur_params = BlurParams {
         radius: 5.0,
         _pad: 0.0,
-        tex_size: [30.0, 30.0],
     };
     renderer
         .set_shape_backdrop_effect(
@@ -4663,7 +4652,6 @@ fn tile_64_drop_shadow_with_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelE
     let backdrop_blur_params = BlurParams {
         radius: 5.0,
         _pad: 0.0,
-        tex_size: [38.0, 38.0],
     };
     renderer
         .set_shape_backdrop_effect(
@@ -4980,7 +4968,6 @@ fn tile_67_downsampled_drop_shadow_with_backdrop_blur(
     let backdrop_blur_params = BlurParams {
         radius: 5.0,
         _pad: 0.0,
-        tex_size: [38.0, 38.0],
     };
     renderer
         .set_shape_backdrop_effect(

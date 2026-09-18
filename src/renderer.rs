@@ -19,9 +19,8 @@ use crate::effect::{
 use crate::pipeline::{
     compute_padded_bytes_per_row, create_and_depth_texture, create_argb_swizzle_bind_group,
     create_argb_swizzle_pipeline, create_msaa_color_texture, create_offscreen_color_texture,
-    create_pipeline, create_readback_buffer, create_storage_input_buffer,
-    create_storage_output_buffer, encode_copy_texture_to_buffer, ArgbParams, PipelineType,
-    Uniforms,
+    create_pipeline, create_readback_buffer, encode_copy_texture_to_buffer, ArgbParams,
+    PipelineType, Uniforms,
 };
 use crate::shape::{CachedShapeDrawData, Shape};
 use crate::texture_manager::TextureManager;
@@ -32,6 +31,7 @@ use crate::vertex::{
 };
 use crate::CachedShapeHandle;
 pub use construction::RendererCreationError;
+pub use readback::ReadbackError;
 
 mod construction;
 mod draw_queue;

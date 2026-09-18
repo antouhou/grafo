@@ -1,7 +1,7 @@
 use super::*;
-use crate::pipeline::create_buffer_init;
 use crate::renderer::types::GeometryBufferError;
 use crate::vertex::CustomVertex;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{BufferDescriptor, COPY_BUFFER_ALIGNMENT};
 
 #[derive(Copy, Clone)]
@@ -31,7 +31,13 @@ fn upsert_gpu_buffer(
                 mapped_at_creation: false,
             }));
         }
-        _ => *buffer = Some(create_buffer_init(device, Some(label), bytes, usage)),
+        _ => {
+            *buffer = Some(device.create_buffer_init(&BufferInitDescriptor {
+                label: Some(label),
+                contents: bytes,
+                usage,
+            }))
+        }
     }
 }
 
@@ -119,32 +125,32 @@ impl<'a> Renderer<'a> {
         let buffers = &mut self.state.buffers;
         if buffers.identity_instance_transform_buffer.is_none() {
             let identity = InstanceTransform::identity();
-            buffers.identity_instance_transform_buffer = Some(create_buffer_init(
-                &self.device,
-                Some("Identity Instance Transform Buffer"),
-                bytemuck::cast_slice(&[identity]),
-                BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            ));
+            buffers.identity_instance_transform_buffer =
+                Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Identity Instance Transform Buffer"),
+                    contents: bytemuck::cast_slice(&[identity]),
+                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                }));
         }
 
         if buffers.identity_instance_color_buffer.is_none() {
             let transparent = InstanceColor::transparent();
-            buffers.identity_instance_color_buffer = Some(create_buffer_init(
-                &self.device,
-                Some("Identity Instance Color Buffer"),
-                bytemuck::cast_slice(&[transparent]),
-                BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            ));
+            buffers.identity_instance_color_buffer =
+                Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Identity Instance Color Buffer"),
+                    contents: bytemuck::cast_slice(&[transparent]),
+                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                }));
         }
 
         if buffers.identity_instance_metadata_buffer.is_none() {
             let metadata = InstanceMetadata::default();
-            buffers.identity_instance_metadata_buffer = Some(create_buffer_init(
-                &self.device,
-                Some("Identity Instance Metadata Buffer"),
-                bytemuck::cast_slice(&[metadata]),
-                BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            ));
+            buffers.identity_instance_metadata_buffer =
+                Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Identity Instance Metadata Buffer"),
+                    contents: bytemuck::cast_slice(&[metadata]),
+                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                }));
         }
     }
 

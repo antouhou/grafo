@@ -71,7 +71,8 @@ pub use gradient::types::{
 };
 pub use renderer::{
     types::{DrawCommandError, GeometryBufferError, RenderError},
-    MathRect, Renderer, RendererContext, RendererCreationError, ShapeOverflow, TextureLayer,
+    MathRect, ReadbackError, Renderer, RendererContext, RendererCreationError, ShapeOverflow,
+    TextureLayer,
 };
 pub use shape::*;
 pub use stroke::Stroke;

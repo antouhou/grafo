@@ -45,7 +45,6 @@ impl NormalizedGradient {
     pub(crate) fn from_common(common: &GradientCommonDesc, kind: GradientKind) -> Self {
         let is_conic = kind == GradientKind::Conic;
 
-        // Single-stop extension
         if common.stops.len() == 1 {
             return NormalizedGradient {
                 stops: smallvec![NormalizedStop {
@@ -117,7 +116,6 @@ impl NormalizedGradient {
 
         fill_implicit_positions(&mut authored);
 
-        // Build stops
         let mut stops: SmallVec<[NormalizedStop; NORMALIZED_INLINE_STOP_CAPACITY]> =
             SmallVec::with_capacity(authored.len());
         for authored_stop in &authored {
@@ -145,7 +143,6 @@ impl NormalizedGradient {
             }
         }
 
-        // Build segments
         let mut segments: SmallVec<[NormalizedSegment; NORMALIZED_INLINE_SEGMENT_CAPACITY]> =
             SmallVec::with_capacity(stops.len().saturating_sub(1));
         for (start_stop, end_stop) in stops.iter().zip(stops.iter().skip(1)) {
@@ -186,13 +183,11 @@ fn fill_implicit_positions(authored_stops: &mut [AuthoredStop]) {
             i += 1;
             continue;
         }
-        // Find the start of the run (the explicit position before it)
         let run_start = i;
         let left_value = authored_stops[run_start - 1]
             .raw_position
             .expect("implicit position runs must have an explicit left bound");
 
-        // Find the end of the run
         let mut run_end = run_start;
         while run_end < len && authored_stops[run_end].raw_position.is_none() {
             run_end += 1;
