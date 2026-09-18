@@ -1,5 +1,7 @@
 use euclid::{Point2D, UnknownUnit};
 use futures::executor::block_on;
+use grafo::wgpu::SurfaceError;
+use grafo::RenderError;
 use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -219,11 +221,11 @@ impl<'a> ApplicationHandler for App<'a> {
 
                     match renderer.render() {
                         Ok(_) => {}
-                        Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                        Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
                             let size = renderer.size();
                             renderer.resize(size);
                         }
-                        Err(wgpu::SurfaceError::Timeout) => {
+                        Err(RenderError::Surface(SurfaceError::Timeout)) => {
                             if let Some(window) = &self.window {
                                 window.request_redraw();
                             }

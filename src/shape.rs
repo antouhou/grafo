@@ -37,7 +37,7 @@ use crate::gradient::gpu::{GpuMaterialParams, GradientCache};
 use crate::gradient::types::Fill;
 use crate::pipeline::{create_buffer_init, BackdropSamplingUniform};
 use crate::util::ShapeResources;
-use crate::vertex::{CustomVertex, InstanceTransform};
+use crate::vertex::{CustomVertex, GeometryBufferRange, InstanceTransform};
 use crate::{Color, Stroke};
 use ahash::AHashMap;
 use lyon::lyon_tessellation::{
@@ -1116,7 +1116,7 @@ impl ShapeDrawCommandOptions {
 #[derive(Debug)]
 pub(crate) struct CachedShapeDrawData {
     pub(crate) cached_shape: CachedShapeHandle,
-    pub(crate) index_buffer_range: Option<(usize, usize)>,
+    pub(crate) geometry_buffer_range: Option<GeometryBufferRange>,
     pub(crate) is_empty: bool,
     /// Stencil reference assigned during render traversal (parent + 1). Cleared after frame.
     pub(crate) stencil_ref: Option<u32>,
@@ -1154,7 +1154,7 @@ impl CachedShapeDrawData {
         Self {
             cached_shape,
             // Will be set during add_command
-            index_buffer_range: None,
+            geometry_buffer_range: None,
             is_empty: false,
             // Data from options
             transform: options.transform,

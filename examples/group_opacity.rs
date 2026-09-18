@@ -1,3 +1,4 @@
+use futures::executor::block_on;
 /// Example: Group opacity effect
 ///
 /// Demonstrates using the effect system to apply group opacity to a parent shape
@@ -10,7 +11,8 @@
 ///   - Two overlapping child shapes clipped to the parent
 /// - A second group with 80% opacity
 ///   - Its own child shape
-use futures::executor::block_on;
+use grafo::wgpu::SurfaceError;
+use grafo::RenderError;
 use grafo::Shape;
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
@@ -201,11 +203,11 @@ impl<'a> ApplicationHandler for App<'a> {
                         self.redraw_retry_at = None;
                         renderer.clear_draw_queue();
                     }
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                    Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
                         renderer.resize(renderer.size())
                     }
 
-                    Err(wgpu::SurfaceError::Timeout) => {
+                    Err(RenderError::Surface(SurfaceError::Timeout)) => {
                         renderer.clear_draw_queue();
                         let retry_at = Instant::now() + SURFACE_TIMEOUT_RETRY_DELAY;
                         self.redraw_retry_at = Some(retry_at);

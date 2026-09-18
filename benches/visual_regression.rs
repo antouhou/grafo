@@ -33,11 +33,15 @@ fn benchmark_visual_regression_scene(criterion: &mut Criterion) {
     let expectations = build_main_scene(&mut renderer);
     let mut pixel_buffer = Vec::new();
 
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
     validate_scene(&pixel_buffer, &expectations);
 
     criterion.bench_function("visual_regression/end_to_end_readback", |bencher| {
-        bencher.iter(|| renderer.render_to_buffer(black_box(&mut pixel_buffer)));
+        bencher.iter(|| {
+            renderer
+                .render_to_buffer(black_box(&mut pixel_buffer))
+                .unwrap()
+        });
     });
 }
 

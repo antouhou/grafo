@@ -277,20 +277,12 @@ fn pipeline_has_shared_geometry_bindings(pipeline: Pipeline) -> bool {
     !matches!(pipeline, Pipeline::None)
 }
 
-fn bind_aggregated_geometry_buffers(
-    render_pass: &mut wgpu::RenderPass<'_>,
-    buffers: &Buffers,
-) -> bool {
-    let (Some(aggregated_vertex_buffer), Some(aggregated_index_buffer)) = (
-        buffers.aggregated_vertex_buffer,
-        buffers.aggregated_index_buffer,
-    ) else {
-        return false;
-    };
-
-    render_pass.set_vertex_buffer(0, aggregated_vertex_buffer.slice(..));
-    render_pass.set_index_buffer(aggregated_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-    true
+fn bind_aggregated_geometry_buffers(render_pass: &mut wgpu::RenderPass<'_>, buffers: &Buffers) {
+    render_pass.set_vertex_buffer(0, buffers.aggregated_vertex_buffer.slice(..));
+    render_pass.set_index_buffer(
+        buffers.aggregated_index_buffer.slice(..),
+        wgpu::IndexFormat::Uint16,
+    );
 }
 
 pub(super) fn handle_increment_pass<'rp>(
@@ -302,7 +294,7 @@ pub(super) fn handle_increment_pass<'rp>(
     pipelines: &Pipelines,
     buffers: &Buffers,
 ) {
-    if let Some(index_range) = shape.index_buffer_range {
+    if let Some(geometry_range) = shape.geometry_buffer_range {
         if shape.is_empty {
             return;
         }
@@ -327,10 +319,8 @@ pub(super) fn handle_increment_pass<'rp>(
             bound_texture_state.mark_bound(0, ShapeTextureBinding::None);
             bound_texture_state.mark_bound(1, ShapeTextureBinding::None);
 
-            if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current)
-                && !bind_aggregated_geometry_buffers(render_pass, buffers)
-            {
-                return;
+            if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current) {
+                bind_aggregated_geometry_buffers(render_pass, buffers);
             }
 
             currently_set_pipeline.switch_to(target_pipeline);
@@ -357,7 +347,8 @@ pub(super) fn handle_increment_pass<'rp>(
         bind_instance_buffers(render_pass, shape, buffers);
 
         let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
-        render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
+        render_pass.set_stencil_reference(parent_stencil);
+        buffers.draw_indexed(render_pass, geometry_range, 0..1);
         #[cfg(feature = "render_metrics")]
         currently_set_pipeline.record_stencil_pass();
 
@@ -376,7 +367,7 @@ pub(super) fn handle_decrement_pass<'rp>(
     pipelines: &Pipelines,
     buffers: &Buffers,
 ) {
-    if let Some(index_range) = shape.index_buffer_range {
+    if let Some(geometry_range) = shape.geometry_buffer_range {
         if shape.is_empty {
             return;
         }
@@ -389,10 +380,8 @@ pub(super) fn handle_decrement_pass<'rp>(
             bound_texture_state.mark_bound(0, ShapeTextureBinding::None);
             bound_texture_state.mark_bound(1, ShapeTextureBinding::None);
 
-            if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current)
-                && !bind_aggregated_geometry_buffers(render_pass, buffers)
-            {
-                return;
+            if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current) {
+                bind_aggregated_geometry_buffers(render_pass, buffers);
             }
 
             currently_set_pipeline.switch_to(Pipeline::StencilDecrement);
@@ -401,7 +390,8 @@ pub(super) fn handle_decrement_pass<'rp>(
         bind_instance_buffers(render_pass, shape, buffers);
 
         let this_shape_stencil = shape.stencil_ref.unwrap_or(0);
-        render_buffer_range_to_texture(index_range, render_pass, this_shape_stencil);
+        render_pass.set_stencil_reference(this_shape_stencil);
+        buffers.draw_indexed(render_pass, geometry_range, 0..1);
         #[cfg(feature = "render_metrics")]
         currently_set_pipeline.record_stencil_pass();
 
@@ -421,7 +411,7 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
     pipelines: &Pipelines,
     buffers: &Buffers,
 ) {
-    if let Some(index_range) = shape.index_buffer_range {
+    if let Some(geometry_range) = shape.geometry_buffer_range {
         if shape.is_empty {
             return;
         }
@@ -445,10 +435,8 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
             bound_texture_state.mark_bound(0, ShapeTextureBinding::None);
             bound_texture_state.mark_bound(1, ShapeTextureBinding::None);
 
-            if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current)
-                && !bind_aggregated_geometry_buffers(render_pass, buffers)
-            {
-                return;
+            if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current) {
+                bind_aggregated_geometry_buffers(render_pass, buffers);
             }
 
             currently_set_pipeline.switch_to(target_pipeline);
@@ -475,7 +463,8 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
         bind_instance_buffers(render_pass, shape, buffers);
 
         let parent_stencil = stencil_stack.last().copied().unwrap_or(0);
-        render_buffer_range_to_texture(index_range, render_pass, parent_stencil);
+        render_pass.set_stencil_reference(parent_stencil);
+        buffers.draw_indexed(render_pass, geometry_range, 0..1);
 
         // The leaf inherits its parent's stencil reference because it makes no stencil writes.
         shape.stencil_ref = Some(parent_stencil);
@@ -484,7 +473,7 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
 
 #[derive(Default)]
 pub(super) struct PendingLeafBatch {
-    index_range: (usize, usize),
+    geometry_range: GeometryBufferRange,
     texture_bindings: [ShapeTextureBinding; 2],
     parent_stencil: u32,
     first_instance_index: u32,
@@ -498,12 +487,12 @@ impl PendingLeafBatch {
 
     fn matches(
         &self,
-        index_range: (usize, usize),
+        geometry_range: GeometryBufferRange,
         texture_bindings: &[ShapeTextureBinding; 2],
         parent_stencil: u32,
         instance_index: u32,
     ) -> bool {
-        self.index_range == index_range
+        self.geometry_range == geometry_range
             && self.texture_bindings == *texture_bindings
             && self.parent_stencil == parent_stencil
             && instance_index == self.first_instance_index + self.instance_count
@@ -534,9 +523,7 @@ pub(super) fn flush_pending_leaf_batch(
         currently_set_pipeline.switch_to(Pipeline::LeafDraw);
     }
 
-    if !bind_aggregated_geometry_buffers(render_pass, buffers) {
-        return;
-    }
+    bind_aggregated_geometry_buffers(render_pass, buffers);
     bind_shape_texture_layers(
         render_pass,
         &batch.texture_bindings,
@@ -563,12 +550,10 @@ pub(super) fn flush_pending_leaf_batch(
     }
 
     render_pass.set_stencil_reference(batch.parent_stencil);
-    let index_start = batch.index_range.0 as u32;
-    let index_end = (batch.index_range.0 + batch.index_range.1) as u32;
     let first_instance_index = batch.first_instance_index;
-    render_pass.draw_indexed(
-        index_start..index_end,
-        0,
+    buffers.draw_indexed(
+        render_pass,
+        batch.geometry_range,
         first_instance_index..first_instance_index + batch.instance_count,
     );
     batch.instance_count = 0;
@@ -582,7 +567,7 @@ pub(super) fn try_batch_leaf(
     shape: &CachedShapeDrawData,
     parent_stencil: u32,
 ) -> bool {
-    let index_range = match shape.index_buffer_range {
+    let geometry_range = match shape.geometry_buffer_range {
         Some(range) => range,
         None => return false,
     };
@@ -600,7 +585,7 @@ pub(super) fn try_batch_leaf(
     let texture_bindings = &shape.texture_bindings;
 
     if batch.is_empty() {
-        batch.index_range = index_range;
+        batch.geometry_range = geometry_range;
         batch.texture_bindings = texture_bindings.clone();
         batch.parent_stencil = parent_stencil;
         batch.first_instance_index = instance_index;
@@ -609,7 +594,7 @@ pub(super) fn try_batch_leaf(
     }
 
     if batch.matches(
-        index_range,
+        geometry_range,
         texture_bindings,
         parent_stencil,
         instance_index,
@@ -1633,19 +1618,15 @@ pub(super) fn render_segments(
                     &*pipelines.default_shape_texture_bind_groups[1],
                     &[],
                 );
-                if !bind_aggregated_geometry_buffers(&mut render_pass, buffers) {
-                    continue;
-                }
+                bind_aggregated_geometry_buffers(&mut render_pass, buffers);
 
                 let shape = cached_shape_mut(draw_command);
                 bind_instance_buffers(&mut render_pass, shape, buffers);
-                let shape_index_range = shape.index_buffer_range;
+                let shape_geometry_range = shape.geometry_buffer_range;
 
-                if let Some(idx_range) = shape_index_range {
+                if let Some(geometry_range) = shape_geometry_range {
                     render_pass.set_stencil_reference(parent_stencil);
-                    let start = idx_range.0 as u32;
-                    let end = (idx_range.0 + idx_range.1) as u32;
-                    render_pass.draw_indexed(start..end, 0, 0..1);
+                    buffers.draw_indexed(&mut render_pass, geometry_range, 0..1);
                     #[cfg(feature = "render_metrics")]
                     currently_set_pipeline.record_stencil_pass();
                 }
@@ -1685,14 +1666,12 @@ pub(super) fn render_segments(
                 );
                 bound_texture_state.mark_bound(0, ShapeTextureBinding::None);
                 bound_texture_state.mark_bound(1, ShapeTextureBinding::None);
-                if !bind_aggregated_geometry_buffers(&mut render_pass, buffers) {
-                    continue;
-                }
+                bind_aggregated_geometry_buffers(&mut render_pass, buffers);
 
                 let shape = cached_shape_mut(draw_command);
                 bind_instance_buffers(&mut render_pass, shape, buffers);
                 let texture_bindings = shape.texture_bindings.clone();
-                let shape_index_range = shape.index_buffer_range;
+                let shape_geometry_range = shape.geometry_buffer_range;
 
                 if uses_gradient {
                     if let Some(gradient_backdrop_bind_group) =
@@ -1725,11 +1704,9 @@ pub(super) fn render_segments(
                     &mut bound_texture_state,
                 );
 
-                if let Some(idx_range) = shape_index_range {
+                if let Some(geometry_range) = shape_geometry_range {
                     render_pass.set_stencil_reference(this_stencil);
-                    let start = idx_range.0 as u32;
-                    let end = (idx_range.0 + idx_range.1) as u32;
-                    render_pass.draw_indexed(start..end, 0, 0..1);
+                    buffers.draw_indexed(&mut render_pass, geometry_range, 0..1);
 
                     // Restore the ancestor's stencil unless children still need this shape's clip.
                     // Clipping parents retain `this_stencil` until Post.
@@ -1747,7 +1724,7 @@ pub(super) fn render_segments(
                             &[],
                         );
                         render_pass.set_stencil_reference(this_stencil);
-                        render_pass.draw_indexed(start..end, 0, 0..1);
+                        buffers.draw_indexed(&mut render_pass, geometry_range, 0..1);
                         #[cfg(feature = "render_metrics")]
                         currently_set_pipeline.record_stencil_pass();
                     }

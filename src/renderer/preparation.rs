@@ -1,6 +1,8 @@
 use super::*;
 use crate::pipeline::create_buffer_init;
+use crate::renderer::types::GeometryBufferError;
 use crate::vertex::CustomVertex;
+use wgpu::{BufferDescriptor, COPY_BUFFER_ALIGNMENT};
 
 #[derive(Copy, Clone)]
 pub(crate) struct InstanceTextureData {
@@ -20,6 +22,15 @@ fn upsert_gpu_buffer(
         Some(existing_buffer) if existing_buffer.size() >= bytes.len() as u64 => {
             queue.write_buffer(existing_buffer, 0, bytes);
         }
+        None if bytes.is_empty() => {
+            // Keep empty scenes bindable until geometry fills these buffers.
+            *buffer = Some(device.create_buffer(&BufferDescriptor {
+                label: Some(label),
+                size: COPY_BUFFER_ALIGNMENT,
+                usage,
+                mapped_at_creation: false,
+            }));
+        }
         _ => *buffer = Some(create_buffer_init(device, Some(label), bytes, usage)),
     }
 }
@@ -29,41 +40,40 @@ fn append_aggregated_geometry(
     temp_indices: &mut Vec<u16>,
     vertices: &[CustomVertex],
     indices: &[u16],
-) -> Option<(usize, usize)> {
+) -> Result<Option<GeometryBufferRange>, GeometryBufferError> {
     if vertices.is_empty() || indices.is_empty() {
-        return None;
+        return Ok(None);
     }
 
-    let vertex_start = temp_vertices.len();
-    if vertex_start > u16::MAX as usize {
-        warn!(
-            "Aggregated vertex count ({}) exceeds u16 limit. Rendering artifacts may occur.",
-            vertex_start
-        );
-    }
-
-    let index_start = temp_indices.len();
-    let vertex_offset = vertex_start as u16;
+    let vertex_start = i32::try_from(temp_vertices.len())
+        .map_err(|_| GeometryBufferError::VertexOffsetOverflow)?;
+    let index_end = temp_indices
+        .len()
+        .checked_add(indices.len())
+        .and_then(|end| u32::try_from(end).ok())
+        .ok_or(GeometryBufferError::IndexRangeOverflow)?;
+    let index_start = temp_indices.len() as u32;
     temp_vertices.extend_from_slice(vertices);
+    temp_indices.extend_from_slice(indices);
 
-    for &index in indices {
-        temp_indices.push(index + vertex_offset);
-    }
-
-    Some((index_start, indices.len()))
+    Ok(Some(GeometryBufferRange {
+        index_start,
+        index_count: index_end - index_start,
+        vertex_start,
+    }))
 }
 
 pub(crate) fn append_aggregated_geometry_for_shape(
     cached_shape_data: &CachedShapeDrawData,
     temp_vertices: &mut Vec<CustomVertex>,
     temp_indices: &mut Vec<u16>,
-    geometry_dedup_map: &mut HashMap<u64, (usize, usize)>,
-) -> Option<(usize, usize)> {
+    geometry_dedup_map: &mut HashMap<u64, GeometryBufferRange>,
+) -> Result<Option<GeometryBufferRange>, GeometryBufferError> {
     let geometry_id = cached_shape_data.cached_shape.geometry_id;
     // Geometry deduplication: if we already appended this cache
     // key's vertices/indices, reuse the same range.
     if let Some(&existing_range) = geometry_id.and_then(|id| geometry_dedup_map.get(&id)) {
-        Some(existing_range)
+        Ok(Some(existing_range))
     } else {
         let cached_shape = &cached_shape_data.cached_shape;
         let vertex_buffers = cached_shape.vertex_buffers();
@@ -72,11 +82,11 @@ pub(crate) fn append_aggregated_geometry_for_shape(
             temp_indices,
             &vertex_buffers.vertices,
             &vertex_buffers.indices,
-        );
+        )?;
         if let (Some(id), Some(range)) = (geometry_id, range) {
             geometry_dedup_map.insert(id, range);
         }
-        range
+        Ok(range)
     }
 }
 
@@ -147,7 +157,7 @@ impl<'a> Renderer<'a> {
     }
 
     pub(super) fn upload_buffers_for_frame(&mut self) {
-        if !self.temp_vertices.is_empty() {
+        if !self.temp_vertices.is_empty() || self.aggregated_vertex_buffer.is_none() {
             upsert_gpu_buffer(
                 &self.device,
                 &self.queue,
@@ -158,7 +168,7 @@ impl<'a> Renderer<'a> {
             );
         }
 
-        if !self.temp_indices.is_empty() {
+        if !self.temp_indices.is_empty() || self.aggregated_index_buffer.is_none() {
             upsert_gpu_buffer(
                 &self.device,
                 &self.queue,
@@ -205,19 +215,20 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    pub(super) fn prepare_render(&mut self) {
+    pub(super) fn prepare_render(&mut self) -> Result<(), GeometryBufferError> {
         self.begin_frame_scratch();
         // Include prepared effect leaves in this upload without making them part
         // of the durable user draw queue.
         let base_vertex_count = self.temp_vertices.len();
         let base_index_count = self.temp_indices.len();
         let base_instance_count = self.temp_instance_transforms.len();
-        self.prepare_shape_effect_leaves();
+        self.prepare_shape_effect_leaves()?;
         self.upload_buffers_for_frame();
         self.temp_vertices.truncate(base_vertex_count);
         self.temp_indices.truncate(base_index_count);
         self.temp_instance_transforms.truncate(base_instance_count);
         self.temp_instance_colors.truncate(base_instance_count);
         self.temp_instance_metadata.truncate(base_instance_count);
+        Ok(())
     }
 }

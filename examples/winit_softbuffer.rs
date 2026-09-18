@@ -169,7 +169,11 @@ impl<'a> ApplicationHandler for App<'a> {
                 if self.argb_buffer.len() < needed_len {
                     self.argb_buffer.resize(needed_len, 0);
                 }
-                renderer.render_to_argb32(&mut self.argb_buffer);
+                if let Err(error) = renderer.render_to_argb32(&mut self.argb_buffer) {
+                    eprintln!("Render failed: {error}");
+                    event_loop.exit();
+                    return;
+                }
                 let render_time = render_start.elapsed();
 
                 // Present ARGB u32s via softbuffer

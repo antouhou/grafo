@@ -1,9 +1,12 @@
 //! WGPU pipelines, stencil states, and buffer helpers.
-use crate::vertex::{CustomVertex, InstanceColor, InstanceMetadata, InstanceTransform};
+use crate::vertex::{
+    CustomVertex, GeometryBufferRange, InstanceColor, InstanceMetadata, InstanceTransform,
+};
+use std::{mem, ops::Range};
 use wgpu::util::DeviceExt;
 use wgpu::{
-    BindGroup, BindGroupLayout, ComputePipeline, Device, RenderPass, RenderPipeline, StoreOp,
-    Texture, TextureView,
+    BindGroup, BindGroupLayout, Buffer, ComputePipeline, Device, RenderPass, RenderPipeline,
+    StoreOp, Texture, TextureView,
 };
 
 /// Viewport dimensions and antialiasing settings used by the vertex shader.
@@ -536,19 +539,23 @@ pub fn create_and_depth_texture(device: &Device, size: (u32, u32), sample_count:
     })
 }
 
-// Draws the index range using the given stencil reference.
-pub fn render_buffer_range_to_texture(
-    index_range: (usize, usize), // (start_index, index_count)
+/// Draws local indices using a base vertex or an offset vertex binding.
+pub(crate) fn draw_indexed_geometry(
     render_pass: &mut RenderPass<'_>,
-    parent_stencil_reference: u32,
+    geometry_range: GeometryBufferRange,
+    vertex_buffer: &Buffer,
+    supports_base_vertex: bool,
+    instances: Range<u32>,
 ) {
-    render_pass.set_stencil_reference(parent_stencil_reference);
-
-    // Aggregated indices already include vertex offsets, so the base vertex is zero.
-    let index_start = index_range.0 as u32;
-    let index_end = (index_range.0 + index_range.1) as u32;
-
-    render_pass.draw_indexed(index_start..index_end, 0, 0..1);
+    let base_vertex = if supports_base_vertex {
+        geometry_range.vertex_start
+    } else {
+        let vertex_offset =
+            geometry_range.vertex_start as u64 * mem::size_of::<CustomVertex>() as u64;
+        render_pass.set_vertex_buffer(0, vertex_buffer.slice(vertex_offset..));
+        0
+    };
+    render_pass.draw_indexed(geometry_range.indices(), base_vertex, instances);
 }
 
 /// Creates an offscreen color texture for rendering and copying.

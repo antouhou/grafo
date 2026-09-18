@@ -5,6 +5,7 @@ use crate::renderer::passes::{apply_effect_passes, render_segments, EffectPassRu
 use crate::renderer::traversal::{
     compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects,
 };
+use crate::renderer::types::RenderError;
 
 impl<'a> Renderer<'a> {
     pub(super) fn render_to_texture_view(
@@ -131,8 +132,15 @@ impl<'a> Renderer<'a> {
         };
 
         let buffers = types::Buffers {
-            aggregated_vertex_buffer: self.aggregated_vertex_buffer.as_ref(),
-            aggregated_index_buffer: self.aggregated_index_buffer.as_ref(),
+            supports_base_vertex: self.context.inner.supports_base_vertex,
+            aggregated_vertex_buffer: self
+                .aggregated_vertex_buffer
+                .as_ref()
+                .expect("vertex buffer is initialized during frame preparation"),
+            aggregated_index_buffer: self
+                .aggregated_index_buffer
+                .as_ref()
+                .expect("index buffer is initialized during frame preparation"),
             identity_instance_transform_buffer: self
                 .identity_instance_transform_buffer
                 .as_ref()
@@ -480,10 +488,11 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    /// Returns an error if geometry preparation or surface acquisition fails.
+    pub fn render(&mut self) -> Result<(), RenderError> {
         #[cfg(feature = "render_metrics")]
         let frame_render_loop_started_at = std::time::Instant::now();
-        self.prepare_render();
+        self.prepare_render()?;
 
         #[cfg(feature = "render_metrics")]
         let after_prepare = std::time::Instant::now();

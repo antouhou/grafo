@@ -1,5 +1,7 @@
 use futures::executor::block_on;
-use grafo::{wgpu, Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke};
+use grafo::wgpu::SurfaceError;
+use grafo::RenderError;
+use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -90,10 +92,10 @@ impl<'a> ApplicationHandler for App<'a> {
                 // Keep the static scene queued so later redraws render the same shapes.
                 match renderer.render() {
                     Ok(_) => {}
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                    Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
                         renderer.resize(renderer.size())
                     }
-                    Err(wgpu::SurfaceError::Timeout) => {
+                    Err(RenderError::Surface(SurfaceError::Timeout)) => {
                         window.request_redraw();
                     }
                     Err(e) => eprintln!("{e:?}"),

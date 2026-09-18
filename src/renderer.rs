@@ -19,14 +19,15 @@ use crate::pipeline::{
     compute_padded_bytes_per_row, create_and_depth_texture, create_argb_swizzle_bind_group,
     create_argb_swizzle_pipeline, create_msaa_color_texture, create_offscreen_color_texture,
     create_pipeline, create_readback_buffer, create_storage_input_buffer,
-    create_storage_output_buffer, encode_copy_texture_to_buffer, render_buffer_range_to_texture,
-    ArgbParams, PipelineType, Uniforms,
+    create_storage_output_buffer, encode_copy_texture_to_buffer, ArgbParams, PipelineType,
+    Uniforms,
 };
 use crate::shape::{CachedShapeDrawData, Shape};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, ShapeResources};
 use crate::vertex::{
-    CustomVertex, InstanceColor, InstanceMetadata, InstanceTransform, TextureUvTransform,
+    CustomVertex, GeometryBufferRange, InstanceColor, InstanceMetadata, InstanceTransform,
+    TextureUvTransform,
 };
 use crate::CachedShapeHandle;
 pub use construction::RendererCreationError;
@@ -88,6 +89,7 @@ pub struct RendererContext {
 pub(crate) struct RendererContextInner {
     pub(crate) instance: Arc<wgpu::Instance>,
     pub(crate) adapter: Arc<wgpu::Adapter>,
+    pub(crate) supports_base_vertex: bool,
     pub(crate) device: Arc<wgpu::Device>,
     pub(crate) queue: Arc<wgpu::Queue>,
     pub(crate) texture_manager: TextureManager,
@@ -152,10 +154,8 @@ pub struct Renderer<'a> {
     temp_vertices: Vec<CustomVertex>,
     temp_indices: Vec<u16>,
 
-    /// Per-frame map from cache key to (index_start, index_count) in the
-    /// aggregated buffers, used to avoid duplicating vertex/index data for
-    /// cached shapes that share the same geometry.
-    geometry_dedup_map: HashMap<u64, (usize, usize)>,
+    /// Shared buffer locations for each uploaded geometry ID.
+    geometry_dedup_map: HashMap<u64, GeometryBufferRange>,
 
     /// Per-frame instance transforms for shapes.
     temp_instance_transforms: Vec<InstanceTransform>,

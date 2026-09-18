@@ -1,4 +1,6 @@
 use futures::executor::block_on;
+use grafo::wgpu::SurfaceError;
+use grafo::RenderError;
 use grafo::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use std::time::Instant;
@@ -102,11 +104,11 @@ impl<'a> ApplicationHandler for App<'a> {
                         renderer.clear_draw_queue();
                         println!("Render time: {:?}", timer.elapsed());
                     }
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                    Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
                         println!("Surface lost or outdated, resizing...");
                         renderer.resize(renderer.size())
                     }
-                    Err(wgpu::SurfaceError::Timeout) => {
+                    Err(RenderError::Surface(SurfaceError::Timeout)) => {
                         renderer.clear_draw_queue();
                         window.request_redraw();
                     }
