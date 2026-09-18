@@ -2,9 +2,9 @@
 use super::metrics::PipelineSwitchCounts;
 use super::traversal::TraversalScratch;
 use crate::effect::{self, LoadedEffect};
-use crate::shape::{CachedShapeDrawData, DrawShapeCommand, ShapeTextureBinding};
+use crate::gradient::gpu::GradientCache;
+use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
 use crate::texture_manager::TextureManager;
-use crate::util::GradientCache;
 use crate::vertex::InstanceTransform;
 use ahash::{HashMap, HashMapExt};
 use std::sync::Arc;
@@ -65,7 +65,7 @@ impl DrawCommand {
 impl DrawCommand {
     pub(super) fn transform(&self) -> Option<InstanceTransform> {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.transform(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.transform,
             DrawCommand::ClipRect(clip_rect) => clip_rect.transform,
         }
     }
@@ -73,7 +73,7 @@ impl DrawCommand {
     pub(super) fn texture_id(&self, layer: usize) -> Option<u64> {
         match self {
             DrawCommand::CachedShape(cached_shape) => cached_shape
-                .texture_bindings()
+                .texture_bindings
                 .get(layer)
                 .and_then(ShapeTextureBinding::managed_texture_id),
             DrawCommand::ClipRect(_) => None,
@@ -82,14 +82,14 @@ impl DrawCommand {
 
     pub(super) fn local_bounds(&self) -> [(f32, f32); 2] {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.local_bounds(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.cached_shape.local_bounds(),
             DrawCommand::ClipRect(clip_rect) => clip_rect.rect_bounds,
         }
     }
 
     pub(super) fn instance_color_override(&self) -> Option<[f32; 4]> {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.instance_color_override(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.color_override,
             DrawCommand::ClipRect(_) => None,
         }
     }
@@ -101,9 +101,9 @@ impl DrawCommand {
         }
     }
 
-    pub(super) fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>> {
+    pub(super) fn gradient_bind_group(&self) -> Option<&Arc<wgpu::BindGroup>> {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.gradient_bind_group(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.gradient_bind_group.as_ref(),
             DrawCommand::ClipRect(_) => None,
         }
     }
@@ -115,7 +115,6 @@ impl DrawCommand {
         queue: &wgpu::Queue,
         layout: &wgpu::BindGroupLayout,
         sampler: &wgpu::Sampler,
-        layout_epoch: u64,
     ) {
         match self {
             DrawCommand::ClipRect(_) => {}
@@ -125,28 +124,27 @@ impl DrawCommand {
                 queue,
                 layout,
                 sampler,
-                layout_epoch,
             ),
         }
     }
 
     pub(super) fn clips_children(&self) -> bool {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.clips_children(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.clips_children,
             DrawCommand::ClipRect(clip_rect) => clip_rect.clips_children,
         }
     }
 
     pub(super) fn is_rect(&self) -> bool {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.is_rect(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.cached_shape.is_rect,
             DrawCommand::ClipRect(_) => true,
         }
     }
 
     pub(super) fn rect_bounds(&self) -> Option<[(f32, f32); 2]> {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.rect_bounds(),
+            DrawCommand::CachedShape(cached_shape) => cached_shape.cached_shape.rect_bounds,
             DrawCommand::ClipRect(clip_rect) => Some(clip_rect.rect_bounds),
         }
     }
@@ -268,28 +266,17 @@ pub(super) struct BoundTextureState {
 }
 
 impl BoundTextureState {
-    /// Reset both layers to "unknown" — forces the next bind call to actually issue
-    /// `set_bind_group`. Call this whenever a pipeline switch resets bind group state.
+    /// Forget both bindings after a pipeline switch resets the bind group state.
     pub(super) fn invalidate(&mut self) {
         self.layers = [None, None];
     }
 
     /// Returns `true` when the given texture source is not already bound on `layer`.
-    pub(super) fn needs_rebind(
-        &mut self,
-        layer: usize,
-        texture_binding: &ShapeTextureBinding,
-    ) -> bool {
-        if self.layers[layer].as_ref() == Some(texture_binding) {
-            return false;
-        }
-        self.layers[layer] = Some(texture_binding.clone());
-        true
+    pub(super) fn needs_rebind(&self, layer: usize, texture_binding: &ShapeTextureBinding) -> bool {
+        self.layers[layer].as_ref() != Some(texture_binding)
     }
 
-    /// Update the tracked state for `layer` without returning whether a rebind is
-    /// needed. Use this when you know the bind group was just set (e.g. after a
-    /// pipeline switch that binds default textures).
+    /// Record the texture source after setting its bind group.
     pub(super) fn mark_bound(&mut self, layer: usize, texture_binding: ShapeTextureBinding) {
         self.layers[layer] = Some(texture_binding);
     }
@@ -317,7 +304,6 @@ pub(super) struct Pipelines<'a> {
     pub(super) shape_texture_bind_group_layout_background: &'a wgpu::BindGroupLayout,
     pub(super) shape_texture_bind_group_layout_foreground: &'a wgpu::BindGroupLayout,
     pub(super) default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
-    pub(super) shape_texture_layout_epoch: u64,
     pub(super) texture_manager: &'a TextureManager,
 }
 
@@ -378,7 +364,6 @@ const MAX_EFFECT_NODE_IDS_CAPACITY: usize = 4_096;
 const MAX_TEXTURE_RECYCLE_CAPACITY: usize = 1_024;
 const MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY: usize = 2_048;
 const MAX_STENCIL_STACK_CAPACITY: usize = 16_384;
-const MAX_SKIPPED_STACK_CAPACITY: usize = 16_384;
 const MAX_SCISSOR_STACK_CAPACITY: usize = 16_384;
 const MAX_READBACK_BYTES_CAPACITY: usize = 64 * 1024 * 1024;
 
@@ -389,7 +374,6 @@ pub(super) struct RendererScratch {
     pub(super) textures_to_recycle: Vec<effect::PooledTexture>,
     pub(super) effect_output_textures: Vec<effect::PooledTexture>,
     pub(super) stencil_stack: Vec<u32>,
-    pub(super) skipped_stack: Vec<usize>,
     /// Stack of intersected scissor rects (x, y, width, height) in physical pixels.
     /// Used to replace stencil clipping for axis-aligned rect parents.
     pub(super) scissor_stack: Vec<(u32, u32, u32, u32)>,
@@ -397,8 +381,7 @@ pub(super) struct RendererScratch {
     /// non-leaf parent used so the `Post` path avoids re-evaluating eligibility.
     pub(super) clip_kind_stack: Vec<ClipKind>,
     pub(super) backdrop_work_textures: Vec<effect::PooledTexture>,
-    /// Reused across readback calls; intentionally not cleared on `begin_frame`
-    /// because readback may run after render submission and reuse prior capacity.
+    /// CPU storage reused for mapped readback data.
     pub(super) readback_bytes: Vec<u8>,
     pub(super) traversal_scratch: TraversalScratch,
 }
@@ -412,7 +395,6 @@ impl RendererScratch {
             textures_to_recycle: Vec::new(),
             effect_output_textures: Vec::new(),
             stencil_stack: Vec::new(),
-            skipped_stack: Vec::new(),
             scissor_stack: Vec::new(),
             clip_kind_stack: Vec::new(),
             backdrop_work_textures: Vec::new(),
@@ -428,13 +410,11 @@ impl RendererScratch {
         self.textures_to_recycle.clear();
         self.effect_output_textures.clear();
         self.stencil_stack.clear();
-        self.skipped_stack.clear();
         self.scissor_stack.clear();
         self.clip_kind_stack.clear();
         self.backdrop_work_textures.clear();
+        self.readback_bytes.clear();
         self.traversal_scratch.begin();
-        // Keep readback bytes length/capacity untouched to preserve reuse across
-        // `render_to_buffer`/`render_to_argb32` calls that are not tied to frame start.
     }
 
     pub(super) fn trim_to_policy(&mut self) {
@@ -450,7 +430,6 @@ impl RendererScratch {
             MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY,
         );
         trim_vector_if_needed(&mut self.stencil_stack, MAX_STENCIL_STACK_CAPACITY);
-        trim_vector_if_needed(&mut self.skipped_stack, MAX_SKIPPED_STACK_CAPACITY);
         trim_vector_if_needed(&mut self.scissor_stack, MAX_SCISSOR_STACK_CAPACITY);
         trim_vector_if_needed(&mut self.clip_kind_stack, MAX_SCISSOR_STACK_CAPACITY);
         trim_vector_if_needed(
@@ -477,83 +456,5 @@ where
 {
     if values.capacity() > max_capacity {
         values.shrink_to(max_capacity);
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct BufferSizingDecision {
-    pub(super) should_reallocate: bool,
-}
-
-pub(super) fn decide_buffer_sizing(
-    existing_size: Option<u64>,
-    required_size: usize,
-) -> BufferSizingDecision {
-    let required_size = required_size as u64;
-    let should_reallocate = existing_size
-        .map(|size| size < required_size)
-        .unwrap_or(true);
-
-    BufferSizingDecision { should_reallocate }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        decide_buffer_sizing, RendererScratch, MAX_EFFECT_NODE_IDS_CAPACITY,
-        MAX_READBACK_BYTES_CAPACITY,
-    };
-
-    #[test]
-    fn decide_buffer_sizing_reallocates_when_missing() {
-        let decision = decide_buffer_sizing(None, 128);
-        assert!(decision.should_reallocate);
-    }
-
-    #[test]
-    fn decide_buffer_sizing_reallocates_when_too_small() {
-        let decision = decide_buffer_sizing(Some(64), 128);
-        assert!(decision.should_reallocate);
-    }
-
-    #[test]
-    fn decide_buffer_sizing_keeps_buffer_when_large_enough() {
-        let decision = decide_buffer_sizing(Some(512), 128);
-        assert!(!decision.should_reallocate);
-    }
-
-    #[test]
-    fn renderer_scratch_begin_frame_clears_lengths() {
-        let mut scratch = RendererScratch::new();
-        scratch.effect_node_ids.extend([(1, 1), (2, 2)]);
-        scratch.readback_bytes.extend([1, 2, 3, 4]);
-        scratch.begin_frame();
-
-        assert!(scratch.effect_node_ids.is_empty());
-        assert_eq!(scratch.readback_bytes.len(), 4);
-    }
-
-    #[test]
-    fn renderer_scratch_trims_large_capacities() {
-        let mut scratch = RendererScratch::new();
-        scratch
-            .effect_node_ids
-            .resize(MAX_EFFECT_NODE_IDS_CAPACITY + 2_048, (0, 0));
-        scratch.effect_node_ids.clear();
-
-        scratch.trim_to_policy();
-        assert!(scratch.effect_node_ids.capacity() <= MAX_EFFECT_NODE_IDS_CAPACITY);
-    }
-
-    #[test]
-    fn renderer_scratch_trims_readback_bytes_length_before_shrinking() {
-        let mut scratch = RendererScratch::new();
-        scratch
-            .readback_bytes
-            .resize(MAX_READBACK_BYTES_CAPACITY + 1_024, 0);
-
-        scratch.trim_to_policy();
-
-        assert!(scratch.readback_bytes.len() <= MAX_READBACK_BYTES_CAPACITY);
     }
 }

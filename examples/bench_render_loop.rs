@@ -1,17 +1,14 @@
-/// Renderer performance benchmark — two scenarios, both using the real `render()` path
-/// (present to screen, vsync OFF).
-///
-/// **Benchmark 1 — Static scene:**
-///   Build the scene once, then render() repeatedly. Measures pure GPU + present cost.
-///
-/// **Benchmark 2 — Dynamic scene (re-add every frame):**
-///   Each frame: clear_draw_queue() → rebuild all cached shapes → render().
-///   Simulates a real UI where the render queue is reconstructed each frame.
-///
-/// Build and run with:
-/// ```
-/// cargo run --example bench_render_loop --features render_metrics --release
-/// ```
+//! Compares rendering an unchanged draw queue with rebuilding it from cached shapes
+//! before each frame. Both cases present to a window with vsync disabled.
+//!
+//! Render samples measure elapsed time in `render()`, including CPU work. Queue
+//! rebuild time is measured separately. Throughput and average frame time include
+//! time between redraws.
+//!
+//! Run with:
+//! ```
+//! cargo run --example bench_render_loop --features render_metrics --release
+//! ```
 use futures::executor::block_on;
 use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke, TransformInstance};
 use std::sync::Arc;
@@ -35,7 +32,7 @@ const ROWS_PER_CONTAINER: usize = 4;
 const CELLS_PER_ROW: usize = 5;
 const CIRCLES_IN_SIDEBAR: usize = 4;
 
-/// Textured elements matching real-world usage.
+/// Shapes with separate texture allocations.
 const TEXTURED_ELEMENTS: usize = 25;
 const TEXTURE_SIZE: u32 = 250;
 
@@ -89,22 +86,34 @@ fn load_textures_and_shapes(renderer: &mut grafo::Renderer<'_>) {
 }
 
 fn load_shape_geometries(renderer: &mut grafo::Renderer<'_>) {
-    let container = Shape::rect([(0.0, 0.0), (240.0, 500.0)], Stroke::new(1.0, Color::BLACK));
+    let container = Shape::rect(
+        [(0.0, 0.0), (240.0, 500.0)],
+        Stroke::new(1.0_f32, Color::BLACK),
+    );
     renderer.load_shape(container, CACHE_KEY_CONTAINER, Some(CACHE_KEY_CONTAINER));
 
-    let row = Shape::rect([(0.0, 0.0), (220.0, 110.0)], Stroke::new(1.0, Color::BLACK));
+    let row = Shape::rect(
+        [(0.0, 0.0), (220.0, 110.0)],
+        Stroke::new(1.0_f32, Color::BLACK),
+    );
     renderer.load_shape(row, CACHE_KEY_ROW, Some(CACHE_KEY_ROW));
 
-    let cell = Shape::rect([(0.0, 0.0), (36.0, 90.0)], Stroke::new(1.0, Color::BLACK));
+    let cell = Shape::rect(
+        [(0.0, 0.0), (36.0, 90.0)],
+        Stroke::new(1.0_f32, Color::BLACK),
+    );
     renderer.load_shape(cell, CACHE_KEY_CELL, Some(CACHE_KEY_CELL));
 
-    let sidebar = Shape::rect([(0.0, 0.0), (100.0, 500.0)], Stroke::new(1.0, Color::BLACK));
+    let sidebar = Shape::rect(
+        [(0.0, 0.0), (100.0, 500.0)],
+        Stroke::new(1.0_f32, Color::BLACK),
+    );
     renderer.load_shape(sidebar, CACHE_KEY_SIDEBAR, Some(CACHE_KEY_SIDEBAR));
 
     let circle = Shape::rounded_rect(
         [(0.0, 0.0), (40.0, 40.0)],
         grafo::BorderRadii::new(20.0),
-        Stroke::new(1.0, Color::BLACK),
+        Stroke::new(1.0_f32, Color::BLACK),
     );
     renderer.load_shape(circle, CACHE_KEY_CIRCLE, Some(CACHE_KEY_CIRCLE));
 }
@@ -193,12 +202,10 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
         total_shapes += 1;
     }
 
-    // Textured elements — 25 shapes with distinct textures, some overlapping
-    // Laid out in a 5×5 grid starting below the containers, partially overlapping by 30px
+    // Place textured shapes below the containers, with 30px overlap between neighbors.
     for i in 0..TEXTURED_ELEMENTS {
         let col = i % 5;
         let row = i / 5;
-        // Overlap: offset by 220px instead of 250px so they overlap by 30px
         let tx = 10.0 + col as f32 * 220.0;
         let ty = 520.0 + row as f32 * 220.0;
         renderer
@@ -215,8 +222,6 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
 
     total_shapes
 }
-
-// ── Reporting helpers ────────────────────────────────────────────────────────
 
 fn print_results(label: &str, frame_times: &mut [Duration], total_elapsed: Duration) {
     frame_times.sort();
@@ -301,9 +306,6 @@ fn print_metrics(renderer: &mut grafo::Renderer<'_>) {
     println!("  Scissor clips:    {}", pc.scissor_clips);
     println!("  Stencil passes:   {}", pc.stencil_passes);
 }
-
-// ── Event-loop–driven benchmark ──────────────────────────────────────────────
-// Uses request_redraw() + RedrawRequested so macOS compositor doesn't throttle.
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
@@ -488,7 +490,7 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                         match renderer.render() {
                             Ok(_) => {}
                             Err(wgpu::SurfaceError::Timeout) => {
-                                // Window not visible — skip without counting the frame.
+                                // Exclude failed renders from the warmup count.
                                 window.request_redraw();
                                 return;
                             }
@@ -518,7 +520,7 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                             match renderer.render() {
                                 Ok(_) => {}
                                 Err(wgpu::SurfaceError::Timeout) => {
-                                    // Window not visible — skip without measuring the frame.
+                                    // Exclude failed renders from render samples.
                                     window.request_redraw();
                                     return;
                                 }
@@ -559,7 +561,7 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                         match renderer.render() {
                             Ok(_) => {}
                             Err(wgpu::SurfaceError::Timeout) => {
-                                // Window not visible — skip without counting the frame.
+                                // Exclude failed renders from the warmup count.
                                 renderer.clear_draw_queue();
                                 window.request_redraw();
                                 return;
@@ -596,7 +598,7 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                             match renderer.render() {
                                 Ok(_) => {}
                                 Err(wgpu::SurfaceError::Timeout) => {
-                                    // Window not visible — skip without measuring the frame.
+                                    // Exclude failed renders from render samples.
                                     renderer.clear_draw_queue();
                                     window.request_redraw();
                                     return;

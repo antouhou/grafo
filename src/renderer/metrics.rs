@@ -64,8 +64,8 @@ pub struct PhaseTimings {
     pub encode_and_submit: Duration,
     /// Time spent on presentation or readback (present, or map + poll + copy for offscreen).
     pub present_or_readback: Duration,
-    /// Time spent waiting for the GPU to finish all submitted work (`device.poll(Wait)`).
-    /// This reveals actual GPU execution time that is otherwise hidden by async submit.
+    /// Time spent waiting for outstanding GPU work after presentation.
+    /// GPU work can also run during earlier phases, so this is only the remaining wait.
     pub gpu_wait: Duration,
     /// Total frame time (sum of all phases including GPU wait).
     pub total: Duration,
@@ -217,8 +217,8 @@ impl RenderLoopMetricsTracker {
 impl<'a> Renderer<'a> {
     /// Returns the cumulative average frames-per-second since metrics tracking started.
     ///
-    /// FPS is computed as:
-    /// `total_presented_frames / elapsed_time_between_first_render_loop_start_and_last_present`.
+    /// Divides the completed frame count by the time from the first render's start
+    /// through the latest render's GPU wait after presentation.
     pub fn overall_average_frames_per_second(&self) -> f64 {
         self.render_loop_metrics_tracker
             .cumulative_average_frames_per_second()
@@ -226,7 +226,7 @@ impl<'a> Renderer<'a> {
 
     /// Returns the cumulative average time spent in `render()` for successfully presented frames.
     ///
-    /// This measures from the start of the render loop to `present()` completion.
+    /// Includes the GPU wait after presentation.
     pub fn average_render_loop_duration(&self) -> Duration {
         self.render_loop_metrics_tracker
             .cumulative_average_render_loop_duration()
@@ -240,7 +240,7 @@ impl<'a> Renderer<'a> {
 
     /// Returns the rolling 1-second average render-loop duration.
     ///
-    /// This measures from `render()` start to `present()` completion.
+    /// Includes the GPU wait after presentation.
     pub fn rolling_one_second_average_render_loop_duration(&mut self) -> Duration {
         self.render_loop_metrics_tracker
             .rolling_one_second_average_render_loop_duration()

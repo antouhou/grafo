@@ -27,7 +27,7 @@ impl<'a> Renderer<'a> {
                     ..Default::default()
                 };
             }
-            self.buffers_pool_manager.tessellation_cache.end_frame();
+            self.shape_resources.tessellation_cache.end_frame();
             self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
             return;
         }
@@ -39,7 +39,6 @@ impl<'a> Renderer<'a> {
         let mut textures_to_recycle = std::mem::take(&mut self.scratch.textures_to_recycle);
         let mut effect_output_textures = std::mem::take(&mut self.scratch.effect_output_textures);
         let mut stencil_stack = std::mem::take(&mut self.scratch.stencil_stack);
-        let skipped_stack = std::mem::take(&mut self.scratch.skipped_stack);
         let mut scissor_stack = std::mem::take(&mut self.scratch.scissor_stack);
         let mut clip_kind_stack = std::mem::take(&mut self.scratch.clip_kind_stack);
         let mut backdrop_work_textures = std::mem::take(&mut self.scratch.backdrop_work_textures);
@@ -62,7 +61,6 @@ impl<'a> Renderer<'a> {
             self.ensure_backdrop_color_gradient_pipeline();
         }
 
-        // O1: Ensure depth/stencil texture exists (lazy init on first frame)
         if self.depth_stencil_view.is_none() {
             self.recreate_depth_stencil_texture();
         }
@@ -88,6 +86,34 @@ impl<'a> Renderer<'a> {
             );
         }
 
+        let backdrop_context = if has_backdrop_effects {
+            let backdrop_composite = self.backdrop_layer_composite_resources.as_ref().unwrap();
+            Some(types::BackdropContext {
+                loaded_effects: &self.loaded_effects,
+                composite_bgl: &self.composite_resources.as_ref().unwrap().bind_group_layout,
+                effect_sampler: self.effect_sampler.as_ref().unwrap(),
+                gradient_ramp_sampler: &self.gradient_ramp_sampler,
+                texture_blit_pipeline: self.texture_blit_pipeline.as_ref().unwrap(),
+                backdrop_layer_composite_pipeline: &backdrop_composite.pipeline,
+                backdrop_layer_composite_bind_group_layout: &backdrop_composite.bind_group_layout,
+                stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
+                backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
+                backdrop_color_gradient_pipeline: self
+                    .backdrop_color_gradient_pipeline
+                    .as_ref()
+                    .unwrap(),
+                device: &self.device,
+                queue: &self.queue,
+                config_format: self.config.format,
+                max_texture_dimension_2d: self.device.limits().max_texture_dimension_2d,
+                backdrop_texture_bind_group_layout: &self.backdrop_texture_bind_group_layout,
+                default_backdrop_texture_bind_group: &self.default_backdrop_texture_bind_group,
+                backdrop_gradient_bind_group_layout: &self.backdrop_gradient_bind_group_layout,
+            })
+        } else {
+            None
+        };
+
         let pipelines = types::Pipelines {
             and_pipeline: &self.and_pipeline,
             and_gradient_pipeline: &self.and_gradient_pipeline,
@@ -101,7 +127,6 @@ impl<'a> Renderer<'a> {
             shape_texture_bind_group_layout_foreground: &self
                 .shape_texture_bind_group_layout_foreground,
             default_shape_texture_bind_groups: &self.default_shape_texture_bind_groups,
-            shape_texture_layout_epoch: self.shape_texture_layout_epoch,
             texture_manager: &self.texture_manager,
         };
 
@@ -159,7 +184,7 @@ impl<'a> Renderer<'a> {
                 let subtree_needs_backdrop_effects =
                     subtree_has_backdrop_effects(&self.draw_tree, &self.backdrop_effects, node_id);
 
-                // --- Behind-group rendering (when subtree has backdrop effects) ---
+                // Backdrops inside the group need the scene painted before the group.
                 let behind_texture = if subtree_needs_backdrop_effects {
                     let behind_tex = self.offscreen_texture_pool.acquire_color_only(
                         &self.device,
@@ -186,8 +211,6 @@ impl<'a> Renderer<'a> {
                         (&behind_tex.color_view as &wgpu::TextureView, None)
                     };
 
-                    // Use plan_traversal (full tree, excluding this subtree)
-                    // + render_segments to render the scene behind the group.
                     plan_traversal_in_place(
                         &mut self.draw_tree,
                         &effect_results,
@@ -211,9 +234,11 @@ impl<'a> Renderer<'a> {
                         true,
                         &pipelines,
                         &buffers,
-                        &mut self.buffers_pool_manager.gradient_cache,
+                        &mut self.shape_resources.gradient_cache,
                         &mut self.offscreen_texture_pool,
-                        self.composite_pipeline.as_ref(),
+                        self.composite_resources
+                            .as_ref()
+                            .map(|resources| &resources.pipeline),
                         None,
                         &mut backdrop_work_textures,
                         &mut stencil_stack,
@@ -231,7 +256,6 @@ impl<'a> Renderer<'a> {
                     None
                 };
 
-                // --- Subtree rendering (unified: always use plan_traversal + render_segments) ---
                 plan_traversal_in_place(
                     &mut self.draw_tree,
                     &effect_results,
@@ -250,42 +274,6 @@ impl<'a> Renderer<'a> {
                     )
                 } else {
                     (&subtree_texture.color_view, None)
-                };
-
-                let backdrop_ctx_opt = if subtree_needs_backdrop_effects {
-                    Some(types::BackdropContext {
-                        loaded_effects: &self.loaded_effects,
-                        composite_bgl: self.composite_bgl.as_ref().unwrap(),
-                        effect_sampler: self.effect_sampler.as_ref().unwrap(),
-                        gradient_ramp_sampler: &self.gradient_ramp_sampler,
-                        texture_blit_pipeline: self.texture_blit_pipeline.as_ref().unwrap(),
-                        backdrop_layer_composite_pipeline: self
-                            .backdrop_layer_composite_pipeline
-                            .as_ref()
-                            .unwrap(),
-                        backdrop_layer_composite_bind_group_layout: self
-                            .backdrop_layer_composite_bind_group_layout
-                            .as_ref()
-                            .unwrap(),
-                        stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
-                        backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
-                        backdrop_color_gradient_pipeline: self
-                            .backdrop_color_gradient_pipeline
-                            .as_ref()
-                            .unwrap(),
-                        device: &self.device,
-                        queue: &self.queue,
-                        config_format: self.config.format,
-                        max_texture_dimension_2d: self.device.limits().max_texture_dimension_2d,
-                        backdrop_texture_bind_group_layout: &self
-                            .backdrop_texture_bind_group_layout,
-                        default_backdrop_texture_bind_group: &self
-                            .default_backdrop_texture_bind_group,
-                        backdrop_gradient_bind_group_layout: &self
-                            .backdrop_gradient_bind_group_layout,
-                    })
-                } else {
-                    None
                 };
 
                 let backdrop_source = behind_texture.as_ref().map(|texture| {
@@ -323,10 +311,14 @@ impl<'a> Renderer<'a> {
                     true,
                     &pipelines,
                     &buffers,
-                    &mut self.buffers_pool_manager.gradient_cache,
+                    &mut self.shape_resources.gradient_cache,
                     &mut self.offscreen_texture_pool,
-                    self.composite_pipeline.as_ref(),
-                    backdrop_ctx_opt.as_ref(),
+                    self.composite_resources
+                        .as_ref()
+                        .map(|resources| &resources.pipeline),
+                    backdrop_context
+                        .as_ref()
+                        .filter(|_| subtree_needs_backdrop_effects),
                     &mut backdrop_work_textures,
                     &mut stencil_stack,
                     &mut scissor_stack,
@@ -357,10 +349,17 @@ impl<'a> Renderer<'a> {
                     &mut self.offscreen_texture_pool,
                     EffectPassRunConfig {
                         loaded_effect,
-                        params_bind_group: effect_instance.params_bind_group.as_ref(),
+                        params_bind_group: effect_instance
+                            .parameter_resources
+                            .as_ref()
+                            .map(|resources| &resources.bind_group),
                         source_view,
                         effect_sampler: self.effect_sampler.as_ref().unwrap(),
-                        composite_bind_group_layout: self.composite_bgl.as_ref().unwrap(),
+                        composite_bind_group_layout: &self
+                            .composite_resources
+                            .as_ref()
+                            .unwrap()
+                            .bind_group_layout,
                         create_composite_bind_group: true,
                         width,
                         height,
@@ -380,7 +379,6 @@ impl<'a> Renderer<'a> {
         {
             let depth_texture_view = self.depth_stencil_view.as_ref().unwrap();
 
-            // Unified main-scene rendering: always plan_traversal + render_segments.
             plan_traversal_in_place(
                 &mut self.draw_tree,
                 &effect_results,
@@ -399,39 +397,6 @@ impl<'a> Renderer<'a> {
                 } else {
                     (texture_view as &wgpu::TextureView, None)
                 };
-
-            let backdrop_ctx_opt = if has_backdrop_effects {
-                Some(types::BackdropContext {
-                    loaded_effects: &self.loaded_effects,
-                    composite_bgl: self.composite_bgl.as_ref().unwrap(),
-                    effect_sampler: self.effect_sampler.as_ref().unwrap(),
-                    gradient_ramp_sampler: &self.gradient_ramp_sampler,
-                    texture_blit_pipeline: self.texture_blit_pipeline.as_ref().unwrap(),
-                    backdrop_layer_composite_pipeline: self
-                        .backdrop_layer_composite_pipeline
-                        .as_ref()
-                        .unwrap(),
-                    backdrop_layer_composite_bind_group_layout: self
-                        .backdrop_layer_composite_bind_group_layout
-                        .as_ref()
-                        .unwrap(),
-                    stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
-                    backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
-                    backdrop_color_gradient_pipeline: self
-                        .backdrop_color_gradient_pipeline
-                        .as_ref()
-                        .unwrap(),
-                    device: &self.device,
-                    queue: &self.queue,
-                    config_format: self.config.format,
-                    max_texture_dimension_2d: self.device.limits().max_texture_dimension_2d,
-                    backdrop_texture_bind_group_layout: &self.backdrop_texture_bind_group_layout,
-                    default_backdrop_texture_bind_group: &self.default_backdrop_texture_bind_group,
-                    backdrop_gradient_bind_group_layout: &self.backdrop_gradient_bind_group_layout,
-                })
-            } else {
-                None
-            };
 
             let backdrop_source = if has_backdrop_effects {
                 Some(types::BackdropSource::Flattened {
@@ -456,10 +421,12 @@ impl<'a> Renderer<'a> {
                 true,
                 &pipelines,
                 &buffers,
-                &mut self.buffers_pool_manager.gradient_cache,
+                &mut self.shape_resources.gradient_cache,
                 &mut self.offscreen_texture_pool,
-                self.composite_pipeline.as_ref(),
-                backdrop_ctx_opt.as_ref(),
+                self.composite_resources
+                    .as_ref()
+                    .map(|resources| &resources.pipeline),
+                backdrop_context.as_ref(),
                 &mut backdrop_work_textures,
                 &mut stencil_stack,
                 &mut scissor_stack,
@@ -497,15 +464,12 @@ impl<'a> Renderer<'a> {
         self.scratch.textures_to_recycle = textures_to_recycle;
         self.scratch.effect_output_textures = effect_output_textures;
         self.scratch.stencil_stack = stencil_stack;
-        self.scratch.skipped_stack = skipped_stack;
         self.scratch.scissor_stack = scissor_stack;
         self.scratch.clip_kind_stack = clip_kind_stack;
         self.scratch.backdrop_work_textures = backdrop_work_textures;
         let _collected_shape_effect_results = self.shape_effect_cache.end_frame();
         let _collected_shape_effect_masks = self.shape_effect_mask_cache.end_frame();
-        self.buffers_pool_manager.tessellation_cache.end_frame();
-
-        // println!("Tesselation cache size: {}", self.buffers_pool_manager.tessellation_cache.len());
+        self.shape_resources.tessellation_cache.end_frame();
 
         #[cfg(feature = "render_metrics")]
         {
@@ -542,7 +506,7 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         {
             let after_present = std::time::Instant::now();
-            // Force GPU completion to measure actual GPU execution time.
+            // Measure the remaining wait for GPU work after presentation.
             let _ = self.device.poll(wgpu::MaintainBase::Wait);
             let after_gpu_wait = std::time::Instant::now();
 

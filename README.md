@@ -4,39 +4,36 @@
 [![Grafo documentation](https://docs.rs/grafo/badge.svg)](https://docs.rs/grafo)
 [![Build and test](https://github.com/antouhou/grafo/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/antouhou/grafo/actions)
 
-Grafo is a GPU-accelerated rendering library for Rust. It’s a quick way to render shapes and images, with masking and hierarchical clipping built in.
-
-The library is designed for flexibility and ease of use, making it suitable for a wide 
-range of applications, from simple graphical interfaces to complex rendering engines.
+Grafo is a GPU-accelerated vector graphics library for Rust.
 
 ## Features
 
-* Shape Rendering: Create and render vector shapes (with optional texture layers).
-* (Text rendering was previously integrated; it has now been extracted into a separate crate - https://crates.io/crates/protextinator)
-* Stencil Operations: Advanced stencil operations for clipping and masking.
-* Shape hierarchy: Attach shapes to parent nodes and choose whether each parent clips descendants.
-* Per-instance data: Set transform and color per shape instance (no fill color stored on geometry).
-* Antialiasing: You can choose between built-in support of inflated geometry or MSAA
+* Path rendering with cached tessellation.
+* Hierarchical path clipping.
+* Per-instance 3D and perspective transforms.
+* Solid fills and linear, radial, and conic gradients.
+* Custom WGSL shader effects on shape masks, groups, and backdrops.
+* Geometry-based antialiasing and MSAA.
 
 Grafo is [available on crates.io](https://crates.io/crates/grafo), and
 [API Documentation is available on docs.rs](https://docs.rs/grafo/).
 
-## Getting Started
+## Getting started
 
 Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-grafo = "0.10"
-winit = "0.30"      # For window creation and event handling
-image = "0.25"      # For image decoding (textures)
-env_logger = "0.11" # For logging
-log = "0.4"         # For logging
+grafo = "0.19"
+winit = "0.30"
+futures = "0.3"
+env_logger = "0.11"
 ```
 
-### Basic Usage
+### Basic usage
 
-Below is a minimal snippet showing how to create a shape, set per-instance color and transform, and render. For a complete runnable window using `winit` 0.30 (ApplicationHandler API), see `examples/basic.rs`.
+Create a shape, set its fill and transform, then render it. For a complete window, run
+`cargo run --example basic`. The same example appears in the [crate documentation](https://docs.rs/grafo/).
 
 ```rust
 use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke};
@@ -44,7 +41,7 @@ use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke};
 // Create a rectangle shape (no fill color on the shape itself)
 let rect = Shape::rect(
     [(0.0, 0.0), (200.0, 100.0)],
-    Stroke::new(2.0, Color::BLACK),
+    Stroke::new(2.0_f32, Color::BLACK),
 );
 renderer
     .add_shape(
@@ -154,9 +151,8 @@ Run the visual-regression benchmark in release mode:
 cargo bench --bench visual_regression
 ```
 
-For a detailed example showcasing advanced features like hierarchical clipping and
-multi-layer shape texturing, please refer to the 
-[examples](https://github.com/antouhou/grafo/tree/main/examples) directory in the repository.
+The [examples](https://github.com/antouhou/grafo/tree/main/examples) directory includes
+hierarchical clipping, texture layers, transforms, and shader effects.
 
 ### Multi-texturing (Background + Foreground)
 
@@ -177,7 +173,7 @@ use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke};
 // After allocating textures via renderer.texture_manager()
 renderer
     .add_shape(
-        Shape::rect([(0.0, 0.0), (300.0, 200.0)], Stroke::new(1.0, Color::BLACK)),
+        Shape::rect([(0.0, 0.0), (300.0, 200.0)], Stroke::new(1.0_f32, Color::BLACK)),
         None,
         None,
         ShapeDrawCommandOptions::new()
@@ -190,7 +186,7 @@ renderer
 // Single-layer helper (Background):
 renderer
     .add_shape(
-        Shape::rect([(0.0, 0.0), (300.0, 200.0)], Stroke::new(1.0, Color::BLACK)),
+        Shape::rect([(0.0, 0.0), (300.0, 200.0)], Stroke::new(1.0_f32, Color::BLACK)),
         None,
         None,
         ShapeDrawCommandOptions::new()
@@ -232,7 +228,6 @@ renderer
 ## Documentation
 
 [Documentation is available on docs.rs](https://docs.rs/grafo/).
-- [Renderer architecture notes](./docs/renderer-architecture.md)
 
 ## Contributing
 

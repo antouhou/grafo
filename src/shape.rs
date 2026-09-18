@@ -1,6 +1,4 @@
-//! The `shape` module provides structures and methods for creating and managing graphical shapes
-//! within the Grafo library. It supports both simple and complex shapes, including rectangles and
-//! custom paths with stroke properties. Fill color is per-instance and set via the renderer.
+//! Rectangles and paths. Set each instance's fill through the renderer.
 //!
 //! # Examples
 //!
@@ -14,19 +12,19 @@
 //! // Create a simple rectangle
 //! let rect = Shape::rect(
 //!     [(0.0, 0.0), (100.0, 50.0)],
-//!     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+//!     Stroke::new(2.0_f32, Color::BLACK),
 //! );
 //!
 //! // Create a rounded rectangle
 //! let rounded_rect = Shape::rounded_rect(
 //!     [(0.0, 0.0), (100.0, 50.0)],
 //!     BorderRadii::new(10.0),
-//!     Stroke::new(1.5, Color::BLACK), // Black stroke with width 1.5
+//!     Stroke::new(1.5_f32, Color::BLACK),
 //! );
 //!
 //! // Build a custom shape using ShapeBuilder
 //! let custom_shape = Shape::builder()
-//!     .stroke(Stroke::new(3.0, Color::BLACK)) // Black stroke with width 3.0
+//!     .stroke(Stroke::new(3.0_f32, Color::BLACK))
 //!     .begin((0.0, 0.0))
 //!     .line_to((50.0, 10.0))
 //!     .line_to((50.0, 50.0))
@@ -35,10 +33,10 @@
 //! ```
 
 use crate::cache::CachedTessellation;
-use crate::gradient::gpu::GpuMaterialParams;
+use crate::gradient::gpu::{GpuMaterialParams, GradientCache};
 use crate::gradient::types::Fill;
 use crate::pipeline::{create_buffer_init, BackdropSamplingUniform};
-use crate::util::{GradientCache, PoolManager};
+use crate::util::ShapeResources;
 use crate::vertex::{CustomVertex, InstanceTransform};
 use crate::{Color, Stroke};
 use ahash::AHashMap;
@@ -106,30 +104,20 @@ impl PartialEq for ShapeTextureBinding {
 impl Eq for ShapeTextureBinding {}
 
 impl CachedShapeHandle {
-    /// Creates a new `CachedShapeHandle`.
-    ///
-    /// `geometry_id` is the tessellator cache key. Callers such as
-    /// [`Renderer::load_shape`](crate::Renderer::load_shape) and
-    /// [`Renderer::add_shape`](crate::Renderer::add_shape) must derive it from shape content, not
-    /// draw-tree identity: two different shapes must not share the same `geometry_id` unless
-    /// their tessellated geometry is identical.
-    ///
-    /// This value flows into the tessellation cache and later into
-    /// `preparation::append_aggregated_geometry_for_shape`, so collisions are a correctness
-    /// hazard rather than just a performance miss. A stable hash of the path or other
-    /// content-derived shape data is a good way to satisfy this contract. Pass `None` when no
-    /// reliable content-derived id is available.
+    /// Caches tessellation under `geometry_id` and reuses it during buffer aggregation.
+    /// Equal IDs must identify identical geometry. Use a content-derived key, or `None`
+    /// to disable reuse when no reliable key is available.
     pub(crate) fn new(
         shape: &Shape,
         tessellator: &mut FillTessellator,
-        pool: &mut PoolManager,
+        shape_resources: &mut ShapeResources,
         geometry_id: Option<u64>,
     ) -> Self {
         let (is_rect, rect_bounds) = match shape {
             Shape::Rect(r) => (true, Some(r.rect)),
             _ => (false, None),
         };
-        let tessellation = shape.tessellate(tessellator, pool, geometry_id);
+        let tessellation = shape.tessellate(tessellator, shape_resources, geometry_id);
         Self {
             tessellation,
             is_rect,
@@ -191,12 +179,7 @@ fn compute_vertex_bounds(vertices: &[CustomVertex]) -> [(f32, f32); 2] {
     [(min_x, min_y), (max_x, max_y)]
 }
 
-/// Represents a graphical shape, which can be either a custom path or a simple rectangle.
-///
-/// # Variants
-///
-/// - `Path(PathShape)`: A custom path shape defined using Bézier curves and lines.
-/// - `Rect(RectShape)`: A simple rectangular shape with optional rounded corners.
+/// A rectangle or a path made of lines and Bézier curves.
 ///
 /// # Examples
 ///
@@ -208,12 +191,12 @@ fn compute_vertex_bounds(vertices: &[CustomVertex]) -> [(f32, f32); 2] {
 /// // Create a simple rectangle
 /// let rect = Shape::rect(
 ///     [(0.0, 0.0), (100.0, 50.0)],
-///     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+///     Stroke::new(2.0_f32, Color::BLACK),
 /// );
 ///
 /// // Create a custom path shape
 /// let custom_path = Shape::builder()
-///     .stroke(Stroke::new(1.0, Color::BLACK))
+///     .stroke(Stroke::new(1.0_f32, Color::BLACK))
 ///     .begin((0.0, 0.0))
 ///     .line_to((50.0, 10.0))
 ///     .line_to((50.0, 50.0))
@@ -224,31 +207,17 @@ fn compute_vertex_bounds(vertices: &[CustomVertex]) -> [(f32, f32); 2] {
 pub enum Shape {
     /// A custom path shape defined using Bézier curves and lines.
     Path(PathShape),
-    /// A simple rectangular shape.
+    /// An axis-aligned rectangle with square corners.
     Rect(RectShape),
 }
 
 impl Shape {
-    /// Creates a new [`ShapeBuilder`] for constructing complex shapes.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::Shape;
-    ///
-    /// let builder = Shape::builder();
-    /// ```
+    /// Starts a path with the default black stroke. See [`ShapeBuilder`] for an example.
     pub fn builder() -> ShapeBuilder {
         ShapeBuilder::new()
     }
 
-    /// Creates a simple rectangle shape with the specified coordinates and stroke.
-    ///
-    /// # Parameters
-    ///
-    /// - `rect`: An array containing two tuples representing the top-left and bottom-right
-    ///   coordinates of the rectangle.
-    /// - `stroke`: The stroke properties of the rectangle.
+    /// Creates a rectangle from its top-left and bottom-right coordinates.
     ///
     /// # Examples
     ///
@@ -259,7 +228,7 @@ impl Shape {
     ///
     /// let rect = Shape::rect(
     ///     [(0.0, 0.0), (100.0, 50.0)],
-    ///     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+    ///     Stroke::new(2.0_f32, Color::BLACK),
     /// );
     /// ```
     pub fn rect(rect: [(f32, f32); 2], stroke: Stroke) -> Shape {
@@ -267,14 +236,8 @@ impl Shape {
         Shape::Rect(rect_shape)
     }
 
-    /// Creates a rectangle shape with rounded corners.
-    ///
-    /// # Parameters
-    ///
-    /// - `rect`: An array containing two tuples representing the top-left and bottom-right
-    ///   coordinates of the rectangle.
-    /// - `border_radii`: The radii for each corner of the rectangle.
-    /// - `stroke`: The stroke properties of the rectangle.
+    /// Creates a rounded rectangle from its top-left and bottom-right coordinates.
+    /// Each corner radius is specified by [`BorderRadii`].
     ///
     /// # Examples
     ///
@@ -286,7 +249,7 @@ impl Shape {
     /// let rounded_rect = Shape::rounded_rect(
     ///     [(0.0, 0.0), (100.0, 50.0)],
     ///     BorderRadii::new(10.0),
-    ///     Stroke::new(1.5, Color::BLACK), // Black stroke with width 1.5
+    ///     Stroke::new(1.5_f32, Color::BLACK),
     /// );
     /// ```
     pub fn rounded_rect(rect: [(f32, f32); 2], border_radii: BorderRadii, stroke: Stroke) -> Shape {
@@ -303,56 +266,55 @@ impl Shape {
     pub(crate) fn tessellate(
         &self,
         tessellator: &mut FillTessellator,
-        buffers_pool: &mut PoolManager,
+        shape_resources: &mut ShapeResources,
         tesselation_cache_key: Option<u64>,
     ) -> Arc<CachedTessellation> {
         match &self {
             Shape::Path(path_shape) => {
-                path_shape.tessellate(tessellator, buffers_pool, tesselation_cache_key)
+                path_shape.tessellate(tessellator, shape_resources, tesselation_cache_key)
             }
             Shape::Rect(rect_shape) => {
                 if let Some(cache_key) = tesselation_cache_key {
-                    if let Some(cached_tessellation) = buffers_pool
+                    if let Some(cached_tessellation) = shape_resources
                         .tessellation_cache
-                        .get_vertex_buffers(&cache_key)
+                        .get_tessellation(&cache_key)
                     {
                         return cached_tessellation;
                     }
                 }
 
-                let min_width = rect_shape.rect[0].0;
-                let min_height = rect_shape.rect[0].1;
-                let max_width = rect_shape.rect[1].0;
-                let max_height = rect_shape.rect[1].1;
+                let min_x = rect_shape.rect[0].0;
+                let min_y = rect_shape.rect[0].1;
+                let max_x = rect_shape.rect[1].0;
+                let max_y = rect_shape.rect[1].1;
 
                 // Compute UVs mapping the rectangle to [0,1] in local space
-                let w = (max_width - min_width).max(1e-6);
-                let h = (max_height - min_height).max(1e-6);
-                let uv =
-                    |x: f32, y: f32| -> [f32; 2] { [(x - min_width) / w, (y - min_height) / h] };
+                let w = (max_x - min_x).max(1e-6);
+                let h = (max_y - min_y).max(1e-6);
+                let uv = |x: f32, y: f32| -> [f32; 2] { [(x - min_x) / w, (y - min_y) / h] };
 
                 let quad = [
                     CustomVertex {
-                        position: [min_width, min_height],
-                        tex_coords: uv(min_width, min_height),
+                        position: [min_x, min_y],
+                        tex_coords: uv(min_x, min_y),
                         normal: [0.0, 0.0],
                         coverage: 1.0,
                     },
                     CustomVertex {
-                        position: [max_width, min_height],
-                        tex_coords: uv(max_width, min_height),
+                        position: [max_x, min_y],
+                        tex_coords: uv(max_x, min_y),
                         normal: [0.0, 0.0],
                         coverage: 1.0,
                     },
                     CustomVertex {
-                        position: [max_width, max_height],
-                        tex_coords: uv(max_width, max_height),
+                        position: [max_x, max_y],
+                        tex_coords: uv(max_x, max_y),
                         normal: [0.0, 0.0],
                         coverage: 1.0,
                     },
                     CustomVertex {
-                        position: [min_width, max_height],
-                        tex_coords: uv(min_width, max_height),
+                        position: [min_x, max_y],
+                        tex_coords: uv(min_x, max_y),
                         normal: [0.0, 0.0],
                         coverage: 1.0,
                     },
@@ -360,7 +322,7 @@ impl Shape {
                 let indices = [0u16, 1, 2, 0, 2, 3];
                 let local_bounds = rect_shape.rect;
 
-                let mut vertex_buffers = buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
+                let mut vertex_buffers = VertexBuffers::new();
 
                 vertex_buffers.vertices.extend(quad);
                 vertex_buffers.indices.extend(indices);
@@ -369,7 +331,7 @@ impl Shape {
                 generate_aa_fringe(
                     &mut vertex_buffers.vertices,
                     &mut vertex_buffers.indices,
-                    &mut buffers_pool.aa_fringe_scratch,
+                    &mut shape_resources.aa_fringe_scratch,
                 );
 
                 let tessellation = Arc::new(CachedTessellation {
@@ -379,9 +341,9 @@ impl Shape {
                 });
 
                 if let Some(tesselation_cache_key) = tesselation_cache_key {
-                    buffers_pool
+                    shape_resources
                         .tessellation_cache
-                        .insert_vertex_buffers(tesselation_cache_key, Arc::clone(&tessellation));
+                        .insert_tessellation(tesselation_cache_key, Arc::clone(&tessellation));
                 }
 
                 tessellation
@@ -408,15 +370,9 @@ impl AsRef<Shape> for Shape {
     }
 }
 
-/// Represents a simple rectangular shape with a fill color and stroke.
+/// A rectangle's coordinates and stroke. Set its fill with [`ShapeDrawCommandOptions`].
 ///
-/// You typically do not need to use `RectShape` directly; instead, use the [`Shape::rect`] method.
-///
-/// # Fields
-///
-/// - `rect`: An array containing two tuples representing the top-left and bottom-right
-///   coordinates of the rectangle.
-/// - `stroke`: The stroke properties of the rectangle.
+/// [`Shape::rect`] constructs this and wraps it in [`Shape::Rect`].
 ///
 /// # Examples
 ///
@@ -427,13 +383,12 @@ impl AsRef<Shape> for Shape {
 ///
 /// let rect_shape = RectShape::new(
 ///     [(0.0, 0.0), (100.0, 50.0)],
-///     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
+///     Stroke::new(2.0_f32, Color::BLACK),
 /// );
 /// ```
 #[derive(Debug, Clone)]
 pub struct RectShape {
-    /// An array containing two tuples representing the top-left and bottom-right coordinates
-    /// of the rectangle.
+    /// Top-left and bottom-right coordinates.
     pub(crate) rect: [(f32, f32); 2],
     /// The stroke properties of the rectangle.
     #[allow(unused)]
@@ -441,58 +396,15 @@ pub struct RectShape {
 }
 
 impl RectShape {
-    /// Creates a new `RectShape` with the specified coordinates and stroke.
-    ///
-    /// # Parameters
-    ///
-    /// - `rect`: An array containing two tuples representing the top-left and bottom-right
-    ///   coordinates of the rectangle.
-    /// - `stroke`: The stroke properties of the rectangle.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::RectShape;
-    /// use grafo::Stroke;
-    /// use grafo::Color;
-    ///
-    /// let rect_shape = RectShape::new(
-    ///     [(0.0, 0.0), (100.0, 50.0)],
-    ///     Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
-    /// );
-    /// ```
+    /// Creates a rectangle from its top-left and bottom-right coordinates.
     pub fn new(rect: [(f32, f32); 2], stroke: Stroke) -> Self {
         Self { rect, stroke }
     }
 }
 
-/// Represents a custom path shape with stroke.
+/// A custom path with stroke settings.
 ///
-/// You typically do not need to use `PathShape` directly; instead, use the [`Shape::builder`]
-/// method to construct complex shapes.
-///
-/// # Fields
-///
-/// - `path`: The geometric path defining the shape.
-/// - `stroke`: The stroke properties of the shape.
-///
-/// # Examples
-///
-/// ```rust
-/// use grafo::{Shape, PathShape};
-/// use grafo::Stroke;
-/// use grafo::Color;
-///
-/// // Replace this with your own path
-/// let path = lyon::path::Path::builder().build();
-///
-/// let path_shape = PathShape::new(
-///     path,
-///     Stroke::new(1.0, Color::BLACK), // Black stroke with width 1.0
-/// );
-///
-/// let shape = Shape::Path(path_shape);
-/// ```
+/// [`Shape::builder`] constructs this and wraps it in [`Shape::Path`].
 #[derive(Clone, Debug)]
 pub struct PathShape {
     /// The geometric path defining the shape.
@@ -645,11 +557,10 @@ fn normalized_float_bits(value: f32) -> u32 {
 // Anti-Aliasing: Inflated-Geometry Fringe Generation
 // ---------------------------------------------------------------------------
 
-/// Identifies boundary edges (edges belonging to only one triangle) from a triangle index buffer.
+/// Clears and fills scratch storage with edge owners and incident triangles keyed by position.
 ///
-/// Returns a list of `(vertex_a, vertex_b, opposite_vertex)` tuples. The `opposite_vertex` is
-/// the third vertex of the triangle that owns the edge — it is used to determine which side
-/// of the edge faces outward (away from the triangle interior).
+/// Edges used by one triangle become boundary edges. Each records the triangle and its
+/// opposite vertex so fringe generation can determine the outward direction.
 fn build_boundary_data(vertices: &[CustomVertex], indices: &[u16], scratch: &mut AaFringeScratch) {
     scratch.clear();
 
@@ -770,13 +681,6 @@ fn build_triangle_component_map(scratch: &mut AaFringeScratch) {
     }
 }
 
-/// Generates a thin fringe of antialiasing triangles around shape boundaries.
-///
-/// For each boundary edge, two triangles are added, forming a quad that fades from
-/// `coverage = 1.0` (at the original boundary) to `coverage = 0.0` (at the outer fringe).
-/// The actual screen-space offset is computed in the vertex shader, so the fringe positions
-/// in the buffer are identical to the source boundary vertices — only the `normal` and
-/// `coverage` fields differ.
 #[cfg(test)]
 fn find_boundary_edges<'a>(
     vertices: &[CustomVertex],
@@ -787,6 +691,9 @@ fn find_boundary_edges<'a>(
     &scratch.boundary_edges
 }
 
+/// Adds two antialiasing triangles per boundary edge, fading coverage from 1 to 0.
+/// Outer vertices keep the boundary positions. The vertex shader uses their normals
+/// to apply the screen-space offset.
 fn generate_aa_fringe(
     vertices: &mut Vec<CustomVertex>,
     indices: &mut Vec<u16>,
@@ -800,7 +707,7 @@ fn generate_aa_fringe(
 
     build_triangle_component_map(scratch);
 
-    // --- Step 1: Compute per-boundary-vertex averaged outward (miter) normals ---
+    // Average outward normals at each boundary corner.
 
     for boundary_edge in &scratch.boundary_edges {
         let pa = vertices[boundary_edge.start_vertex_index as usize].position;
@@ -864,7 +771,7 @@ fn generate_aa_fringe(
         }
     }
 
-    // --- Step 2: Create outer fringe (duplicate) vertices ---
+    // Duplicate boundary vertices with zero coverage for the outer fringe.
 
     vertices.reserve(scratch.boundary_corner_normals.len());
     indices.reserve(scratch.boundary_edges.len() * 6);
@@ -884,7 +791,7 @@ fn generate_aa_fringe(
             .insert(boundary_corner_key, new_idx);
     }
 
-    // --- Step 3: Emit fringe quads (two triangles per boundary edge) ---
+    // Join each boundary edge to its outer vertices with two triangles.
 
     for boundary_edge in &scratch.boundary_edges {
         let start_vertex_key = BoundaryVertexKey::from_position(
@@ -987,58 +894,32 @@ fn generate_aa_fringe(
 }
 
 impl PathShape {
-    /// Creates a new `PathShape` with the specified path and stroke.
-    ///
-    /// # Parameters
-    ///
-    /// - `path`: The geometric path defining the shape.
-    /// - `stroke`: The stroke properties of the shape.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::PathShape;
-    /// use grafo::Stroke;
-    /// use lyon::path::Path;
-    ///
-    /// let path = Path::builder().build();
-    /// let path_shape = PathShape::new(path, Stroke::default());
-    /// ```
+    /// Uses an existing Lyon path as the shape's geometry.
     pub fn new(path: lyon::path::Path, stroke: Stroke) -> Self {
         Self { path, stroke }
     }
 
-    /// Tessellates the path shape into vertex and index buffers for rendering.
-    ///
-    /// # Parameters
-    ///
-    /// - `depth`: The depth value used for rendering order.
-    ///
-    /// # Returns
-    ///
-    /// A `VertexBuffers` structure containing the tessellated vertices and indices.
-    /// ```
+    /// Returns shared geometry and bounds, reusing the tessellation cache when a key is given.
     pub(crate) fn tessellate(
         &self,
         tessellator: &mut FillTessellator,
-        buffers_pool: &mut PoolManager,
+        shape_resources: &mut ShapeResources,
         tesselation_cache_key: Option<u64>,
     ) -> Arc<CachedTessellation> {
         if let Some(cache_key) = tesselation_cache_key {
-            if let Some(cached_tessellation) = buffers_pool
+            if let Some(cached_tessellation) = shape_resources
                 .tessellation_cache
-                .get_vertex_buffers(&cache_key)
+                .get_tessellation(&cache_key)
             {
                 return cached_tessellation;
             }
         }
 
-        let mut buffers: VertexBuffers<CustomVertex, u16> =
-            buffers_pool.lyon_vertex_buffers_pool.get_vertex_buffers();
+        let mut buffers = VertexBuffers::new();
         let local_bounds = self.tessellate_into_buffers(
             &mut buffers,
             tessellator,
-            &mut buffers_pool.aa_fringe_scratch,
+            &mut shape_resources.aa_fringe_scratch,
         );
 
         #[allow(clippy::manual_is_multiple_of)]
@@ -1054,9 +935,9 @@ impl PathShape {
         });
 
         if let Some(cache_key) = tesselation_cache_key {
-            buffers_pool
+            shape_resources
                 .tessellation_cache
-                .insert_vertex_buffers(cache_key, Arc::clone(&tessellation));
+                .insert_tessellation(cache_key, Arc::clone(&tessellation));
         }
 
         tessellation
@@ -1241,11 +1122,11 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) stencil_ref: Option<u32>,
     /// Index into the per-frame instance transform buffer
     pub(crate) instance_index: Option<usize>,
-    /// Optional per-shape transform applied in clip-space (post-normalization)
+    /// Optional per-shape transform applied in pixel space before clip-space normalization.
     pub(crate) transform: Option<InstanceTransform>,
     /// Texture sources associated with this cached shape.
     pub(crate) texture_bindings: [ShapeTextureBinding; 2],
-    /// Optional per-instance color override (normalized [0,1]). If None, use cached shape default.
+    /// Linear RGBA color for a solid fill. Other fills leave this unset.
     pub(crate) color_override: Option<[f32; 4]>,
     /// The fill for this shape (solid color or gradient). If None, transparent.
     pub(crate) fill: Option<Fill>,
@@ -1265,6 +1146,10 @@ pub(crate) struct CachedShapeDrawData {
 }
 
 impl CachedShapeDrawData {
+    pub(crate) fn has_gradient_fill(&self) -> bool {
+        matches!(&self.fill, Some(Fill::Gradient(_)))
+    }
+
     pub fn new(cached_shape: CachedShapeHandle, options: &ShapeDrawCommandOptions) -> Self {
         Self {
             cached_shape,
@@ -1308,7 +1193,6 @@ impl CachedShapeDrawData {
         queue: &wgpu::Queue,
         layout: &wgpu::BindGroupLayout,
         sampler: &wgpu::Sampler,
-        layout_epoch: u64,
     ) {
         self.gradient_bind_group = match self.fill.as_mut() {
             Some(Fill::Gradient(gradient)) => Some(gradient_cache.get_or_create_bind_group(
@@ -1317,7 +1201,6 @@ impl CachedShapeDrawData {
                 queue,
                 layout,
                 sampler,
-                layout_epoch,
             )),
             _ => None,
         };
@@ -1390,60 +1273,46 @@ impl CachedShapeDrawData {
     }
 }
 
-/// A builder for creating complex shapes using a fluent interface.
+/// Builds a shape's path and stroke through method chaining.
 ///
-/// The `ShapeBuilder` allows you to define the stroke and path of a shape using
-/// method chaining. Fill is assigned per instance through the renderer, and an
-/// unset fill renders as transparent. You also can get it from the [`Shape::builder`] method.
+/// Assign a fill through [`ShapeDrawCommandOptions`] when queueing the shape.
+/// An unset fill renders as transparent. [`Shape::builder`] also creates this builder.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use grafo::Color;
-/// use grafo::Stroke;
-/// use grafo::ShapeBuilder;
+/// use grafo::{Color, ShapeBuilder, ShapeDrawCommandOptions, Stroke};
 ///
+/// # fn example(renderer: &mut grafo::Renderer<'_>) {
 /// let custom_shape = ShapeBuilder::new()
-///     // Fill is set per-instance via the renderer (renderer.set_shape_color)
-///     .stroke(Stroke::new(3.0, Color::BLACK)) // Black stroke with width 3.0
+///     .stroke(Stroke::new(3.0_f32, Color::BLACK))
 ///     .begin((0.0, 0.0))
 ///     .line_to((50.0, 10.0))
 ///     .line_to((50.0, 50.0))
 ///     .close()
 ///     .build();
+/// renderer.add_shape(
+///     custom_shape,
+///     None,
+///     None,
+///     ShapeDrawCommandOptions::new().color(Color::rgb(0, 128, 255)),
+/// ).unwrap();
+/// # }
 /// ```
 #[derive(Clone)]
 pub struct ShapeBuilder {
-    /// The stroke properties of the shape.
     stroke: Stroke,
-    /// The path builder used to construct the shape's geometric path.
     path_builder: lyon::path::Builder,
 }
 
 impl Default for ShapeBuilder {
-    /// Creates a default `ShapeBuilder` with a black stroke.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::ShapeBuilder;    ///
-    /// let builder = ShapeBuilder::default();
-    /// ```
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl ShapeBuilder {
-    /// Creates a new `ShapeBuilder` with a default black stroke.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let builder = ShapeBuilder::new();
-    /// ```
+    /// Starts an empty path with a black stroke of width 1.0.
     pub fn new() -> Self {
         Self {
             stroke: Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
@@ -1452,162 +1321,45 @@ impl ShapeBuilder {
     }
 
     /// Sets the stroke properties of the shape.
-    ///
-    /// # Parameters
-    ///
-    /// - `stroke`: The desired stroke properties.
-    ///
-    /// # Returns
-    ///
-    /// The updated `ShapeBuilder` instance.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::Stroke;
-    /// use grafo::Color;
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let builder = ShapeBuilder::new().stroke(Stroke::new(2.0, Color::BLACK)); // Black stroke with width 2.0
-    /// ```
     pub fn stroke(mut self, stroke: Stroke) -> Self {
         self.stroke = stroke;
         self
     }
 
-    /// Begin path at point
-    ///
-    /// # Parameters
-    ///
-    /// - `point`: The start point of the shape.
-    ///
-    /// # Returns
-    ///
-    /// The updated `ShapeBuilder` instance.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let builder = ShapeBuilder::new().begin((0.0, 0.0));
-    /// ```
+    /// Starts a new subpath at `point`.
     pub fn begin(mut self, point: (f32, f32)) -> Self {
         self.path_builder.begin(point.into());
         self
     }
 
-    /// Draws a line from the current point to the specified point.
-    ///
-    /// # Parameters
-    ///
-    /// - `point`: The end point of the line.
-    ///
-    /// # Returns
-    ///
-    /// The updated `ShapeBuilder` instance.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let builder = ShapeBuilder::new().begin((0.0, 0.0)).line_to((50.0, 10.0));
-    /// ```
+    /// Draws a line from the current point to `point`.
     pub fn line_to(mut self, point: (f32, f32)) -> Self {
         self.path_builder.line_to(point.into());
         self
     }
 
-    /// Draws a cubic Bézier curve from the current point to the specified end point.
-    ///
-    /// # Parameters
-    ///
-    /// - `ctrl`: The first control point.
-    /// - `ctrl2`: The second control point.
-    /// - `to`: The end point of the curve.
-    ///
-    /// # Returns
-    ///
-    /// The updated `ShapeBuilder` instance.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let builder = ShapeBuilder::new()
-    ///     .begin((0.0, 0.0))
-    ///     .cubic_bezier_to((20.0, 30.0), (40.0, 30.0), (50.0, 10.0));
-    /// ```
+    /// Draws a cubic Bézier curve to `to`, using `ctrl` and `ctrl2` as the first
+    /// and second control points.
     pub fn cubic_bezier_to(mut self, ctrl: (f32, f32), ctrl2: (f32, f32), to: (f32, f32)) -> Self {
         self.path_builder
             .cubic_bezier_to(ctrl.into(), ctrl2.into(), to.into());
         self
     }
 
-    /// Draws a quadratic Bézier curve from the current point to the specified end point.
-    ///
-    /// # Parameters
-    ///
-    /// - `ctrl`: The control point.
-    /// - `to`: The end point of the curve.
-    ///
-    /// # Returns
-    ///
-    /// The updated `ShapeBuilder` instance.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let builder = ShapeBuilder::new()
-    ///     .begin((0.0, 0.0))
-    ///     .quadratic_bezier_to((25.0, 40.0), (50.0, 10.0));
-    /// ```
+    /// Draws a quadratic Bézier curve to `to`, using `ctrl` as the control point.
     pub fn quadratic_bezier_to(mut self, ctrl: (f32, f32), to: (f32, f32)) -> Self {
         self.path_builder
             .quadratic_bezier_to(ctrl.into(), to.into());
         self
     }
 
-    /// Closes the current sub-path by drawing a line back to the starting point.
-    ///
-    /// # Returns
-    ///
-    /// The updated `ShapeBuilder` instance.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let builder = ShapeBuilder::new().begin((0.0, 0.0)).close();
-    /// ```
+    /// Closes the current subpath with a line back to its starting point.
     pub fn close(mut self) -> Self {
         self.path_builder.close();
         self
     }
 
-    /// Builds the [`Shape`] from the accumulated path, fill color, and stroke.
-    ///
-    /// # Returns
-    ///
-    /// A `Shape` instance representing the constructed shape.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::ShapeBuilder;
-    ///
-    /// let shape = ShapeBuilder::new()
-    ///     .begin((0.0, 0.0))
-    ///     .line_to((50.0, 10.0))
-    ///     .line_to((50.0, 50.0))
-    ///     .close()
-    ///     .build();
-    /// ```
+    /// Builds the [`Shape`] from the accumulated path and stroke.
     pub fn build(self) -> Shape {
         let path = self.path_builder.build();
         Shape::Path(PathShape {
@@ -1623,23 +1375,7 @@ impl From<ShapeBuilder> for Shape {
     }
 }
 
-/// A set of border radii for a rounded rectangle
-#[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Default)]
-pub struct BorderRadii {
-    pub top_left: f32,
-    pub top_right: f32,
-    pub bottom_left: f32,
-    pub bottom_right: f32,
-}
-
-/// Represents the radii of each corner for a rounded rectangle.
-///
-/// # Fields
-///
-/// - `top_left`: Radius of the top-left corner.
-/// - `top_right`: Radius of the top-right corner.
-/// - `bottom_left`: Radius of the bottom-left corner.
-/// - `bottom_right`: Radius of the bottom-right corner.
+/// The radius of each corner of a rounded rectangle.
 ///
 /// # Examples
 ///
@@ -1659,16 +1395,16 @@ pub struct BorderRadii {
 ///     bottom_right: 20.0,
 /// };
 /// ```
+#[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Default)]
+pub struct BorderRadii {
+    pub top_left: f32,
+    pub top_right: f32,
+    pub bottom_left: f32,
+    pub bottom_right: f32,
+}
+
 impl BorderRadii {
-    /// Creates a new `BorderRadii` with the same radius for all corners.
-    ///
-    /// # Parameters
-    ///
-    /// - `radius`: The radius to apply to all corners.
-    ///
-    /// # Returns
-    ///
-    /// A `BorderRadii` instance with uniform corner radii.
+    /// Sets every corner to the absolute value of `radius`.
     ///
     /// # Examples
     ///
@@ -1690,7 +1426,6 @@ impl BorderRadii {
 
 impl core::fmt::Display for BorderRadii {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        // In the order of a well known convention (CSS) clockwise from top left
         write!(
             f,
             "BorderRadii({}, {}, {}, {})",
@@ -1710,104 +1445,14 @@ impl From<BorderRadii> for lyon::path::builder::BorderRadii {
     }
 }
 
-pub(crate) trait DrawShapeCommand {
-    fn index_buffer_range(&self) -> Option<(usize, usize)>; // (start_index, index_count)
-    fn is_empty(&self) -> bool;
-    fn stencil_ref_mut(&mut self) -> &mut Option<u32>;
-    fn instance_index_mut(&mut self) -> &mut Option<usize>;
-    fn instance_index(&self) -> Option<usize>;
-    fn transform(&self) -> Option<InstanceTransform>;
-    fn texture_bindings(&self) -> &[ShapeTextureBinding; 2];
-    fn local_bounds(&self) -> [(f32, f32); 2];
-    fn instance_color_override(&self) -> Option<[f32; 4]>;
-    fn has_gradient_fill(&self) -> bool;
-    fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>>;
-    fn clips_children(&self) -> bool;
-    fn is_rect(&self) -> bool;
-    fn rect_bounds(&self) -> Option<[(f32, f32); 2]>;
-}
-
-impl DrawShapeCommand for CachedShapeDrawData {
-    #[inline]
-    fn index_buffer_range(&self) -> Option<(usize, usize)> {
-        self.index_buffer_range
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        self.is_empty
-    }
-
-    #[inline]
-    fn stencil_ref_mut(&mut self) -> &mut Option<u32> {
-        &mut self.stencil_ref
-    }
-
-    #[inline]
-    fn instance_index_mut(&mut self) -> &mut Option<usize> {
-        &mut self.instance_index
-    }
-
-    #[inline]
-    fn instance_index(&self) -> Option<usize> {
-        self.instance_index
-    }
-
-    #[inline]
-    fn transform(&self) -> Option<InstanceTransform> {
-        self.transform
-    }
-
-    #[inline]
-    fn texture_bindings(&self) -> &[ShapeTextureBinding; 2] {
-        &self.texture_bindings
-    }
-
-    #[inline]
-    fn local_bounds(&self) -> [(f32, f32); 2] {
-        self.cached_shape.local_bounds()
-    }
-
-    #[inline]
-    fn instance_color_override(&self) -> Option<[f32; 4]> {
-        self.color_override
-    }
-
-    #[inline]
-    fn has_gradient_fill(&self) -> bool {
-        matches!(&self.fill, Some(Fill::Gradient(_)))
-    }
-
-    #[inline]
-    fn gradient_bind_group(&self) -> Option<&std::sync::Arc<wgpu::BindGroup>> {
-        self.gradient_bind_group.as_ref()
-    }
-
-    #[inline]
-    fn clips_children(&self) -> bool {
-        self.clips_children
-    }
-
-    #[inline]
-    fn is_rect(&self) -> bool {
-        self.cached_shape.is_rect
-    }
-
-    #[inline]
-    fn rect_bounds(&self) -> Option<[(f32, f32); 2]> {
-        self.cached_shape.rect_bounds
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         find_boundary_edges, generate_aa_fringe, AaFringeScratch, BoundaryVertexKey, CustomVertex,
         RectShape, Shape,
     };
-    use crate::{util::PoolManager, Stroke};
+    use crate::{util::ShapeResources, Stroke};
     use lyon::lyon_tessellation::FillTessellator;
-    use std::num::NonZeroUsize;
 
     fn test_vertex(position: [f32; 2]) -> CustomVertex {
         CustomVertex {
@@ -1857,10 +1502,10 @@ mod tests {
     fn rect_tessellation_uses_shared_quad_corners() {
         let rect_shape = RectShape::new([(10.0, 20.0), (30.0, 50.0)], Stroke::default());
         let mut tessellator = FillTessellator::new();
-        let mut pool_manager = PoolManager::new(NonZeroUsize::new(1).unwrap());
+        let mut shape_resources = ShapeResources::new();
 
         let tessellated_geometry =
-            Shape::Rect(rect_shape).tessellate(&mut tessellator, &mut pool_manager, None);
+            Shape::Rect(rect_shape).tessellate(&mut tessellator, &mut shape_resources, None);
 
         assert_eq!(tessellated_geometry.vertex_buffers.vertices.len(), 8);
         assert_eq!(tessellated_geometry.vertex_buffers.indices.len(), 30);

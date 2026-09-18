@@ -58,13 +58,6 @@ impl<'a> Renderer<'a> {
         }
         self.recreate_msaa_texture();
         self.recreate_depth_stencil_texture();
-
-        self.offscreen_texture_pool.trim(
-            new_physical_size.0,
-            new_physical_size.1,
-            self.msaa_sample_count,
-        );
-        self.trim_scratch_on_resize_or_policy();
     }
 
     pub fn msaa_samples(&self) -> u32 {
@@ -113,17 +106,12 @@ impl<'a> Renderer<'a> {
             self.msaa_color_texture_view = None;
         }
 
-        self.texture_blit_pipeline = None;
-        self.stencil_only_pipeline = None;
-        self.backdrop_color_pipeline = None;
-        self.backdrop_color_gradient_pipeline = None;
-
         self.offscreen_texture_pool.trim(
             self.physical_size.0,
             self.physical_size.1,
             self.msaa_sample_count,
         );
-        self.trim_scratch_on_resize_or_policy();
+        self.trim_scratch_storage();
     }
 
     /// Recreate the cached depth/stencil texture to match current physical size and MSAA settings.

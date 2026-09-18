@@ -1,5 +1,5 @@
-// Swizzle BGRA8 bytes (with padded row stride) into packed ARGB32 u32 pixels.
-// Input buffer layout matches wgpu copy_texture_to_buffer with bytes_per_row alignment.
+// The input may contain unused bytes at the end of each image row.
+// Skip those bytes when copying the pixels to the output. Pixel values stay unchanged.
 
 struct Params {
     width: u32,
@@ -25,14 +25,6 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     let row_words = (gid.y * params.padded_bpr) / 4u;
     let word_index = row_words + gid.x; // 1 word per pixel (4 bytes)
-    let px = input_words[word_index];
-
-    let b = px & 0xffu;
-    let g = (px >> 8u) & 0xffu;
-    let r = (px >> 16u) & 0xffu;
-    let a = (px >> 24u) & 0xffu;
-
-    let out_val = (a << 24u) | (r << 16u) | (g << 8u) | b;
     let out_index = gid.y * params.width + gid.x;
-    output_argb[out_index] = out_val;
+    output_argb[out_index] = input_words[word_index];
 }

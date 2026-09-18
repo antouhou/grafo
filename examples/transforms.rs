@@ -9,30 +9,31 @@ use lyon::path::FillRule;
 use lyon::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::keyboard::{Key, NamedKey};
+use winit::window::{Window, WindowId};
 
 // Local converter from euclid to grafo's GPU instance layout so we keep euclid out of the main crate.
 fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstance {
-    // Euclid's to_arrays() returns row-major [[f32; 4]; 4] which matches column-major GPU layout
+    // Euclid's packed vectors become columns in the GPU's matrix convention.
     grafo::TransformInstance::from_cols(m.to_arrays())
 }
 
-// Convert world point (in pixels) into shape-local coordinates using the same 2D affine
-// that the shader applies: world = A * local + t, where
-//   A = [[m11, m12], [m21, m22]] and t = [m41, m42].
-// Returns None if the transform is not invertible.
+// Map a world point back to the shape's z=0 plane through the inverse homography.
+// Return None for a nearly singular transform or a point with near-zero homogeneous w.
 fn world_to_local_2d(tx: &Transform3D<f32>, world: (f32, f32)) -> Option<(f32, f32)> {
-    // In our vertex shader we transform local (x,y,0,1) by the 4x4 model, then divide by w
-    // and treat (x/w, y/w) as pixel-space before canvas normalization. This induces a 2D
-    // homography on the z=0 plane: [px, py, pw]^T = H * [x, y, 1]^T with
-    //   H = [[m11, m12, m41],
-    //        [m21, m22, m42],
+    // On the z=0 plane, GPU multiplication gives [px, py, pw]^T = H * [x, y, 1]^T:
+    //   H = [[m11, m21, m41],
+    //        [m12, m22, m42],
     //        [m14, m24, m44]].
     // To hit-test, invert H and map [mx, my, 1] back to local, then divide by w.
     let m = tx;
     let h11 = m.m11;
-    let h12 = m.m12;
+    let h12 = m.m21;
     let h13 = m.m41;
-    let h21 = m.m21;
+    let h21 = m.m12;
     let h22 = m.m22;
     let h23 = m.m42;
     let h31 = m.m14;
@@ -56,7 +57,7 @@ fn world_to_local_2d(tx: &Transform3D<f32>, world: (f32, f32)) -> Option<(f32, f
     }
     let inv_det = 1.0 / det;
 
-    // adj(H)^T times inv_det gives H^{-1}
+    // Transpose the cofactor matrix and divide by the determinant.
     let i11 = c11 * inv_det;
     let i12 = c21 * inv_det;
     let i13 = c31 * inv_det;
@@ -77,12 +78,6 @@ fn world_to_local_2d(tx: &Transform3D<f32>, world: (f32, f32)) -> Option<(f32, f
     }
     Some((lx / lw, ly / lw))
 }
-use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{Key, NamedKey};
-use winit::window::{Window, WindowId};
-
 const RED_SHAPE_CACHE_KEY: u64 = 1;
 const GREEN_SHAPE_CACHE_KEY: u64 = 2;
 const BLUE_SHAPE_CACHE_KEY: u64 = 3;
@@ -90,7 +85,6 @@ const JELLY_SHAPE_CACHE_KEY: u64 = 4;
 const HEART_SHAPE_CACHE_KEY: u64 = 5;
 const PERSPECTIVE_SHAPE_CACHE_KEY: u64 = 6;
 
-// Simple helpers to build a few paths for the demo
 fn build_rect_path(w: f32, h: f32) -> Path {
     let mut pb = Path::builder();
     pb.begin(point(0.0, 0.0));
@@ -124,15 +118,13 @@ fn build_perspective_demo_path() -> Path {
     pb.build()
 }
 
-/// How long to wait before retrying a frame that was skipped because the surface
-/// reported it was not visible (`Occluded`/`Timeout`).
-const OCCLUDED_RETRY_DELAY: Duration = Duration::from_millis(50);
+const SURFACE_TIMEOUT_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 #[derive(Default)]
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
-    /// Pending retry of a frame skipped because the window was not visible.
+    /// Pending redraw after a surface timeout.
     redraw_retry_at: Option<Instant>,
     angle: f32,
     // Last mouse position in physical pixels (window space)
@@ -230,7 +222,7 @@ impl<'a> ApplicationHandler for App<'a> {
         renderer.load_shape(
             Shape::Path(grafo::PathShape::new(
                 self.red_path.clone(),
-                Stroke::new(2.0, Color::BLACK),
+                Stroke::new(2.0_f32, Color::BLACK),
             )),
             RED_SHAPE_CACHE_KEY,
             Some(RED_SHAPE_CACHE_KEY),
@@ -238,7 +230,7 @@ impl<'a> ApplicationHandler for App<'a> {
         renderer.load_shape(
             Shape::Path(grafo::PathShape::new(
                 self.green_path.clone(),
-                Stroke::new(2.0, Color::BLACK),
+                Stroke::new(2.0_f32, Color::BLACK),
             )),
             GREEN_SHAPE_CACHE_KEY,
             Some(GREEN_SHAPE_CACHE_KEY),
@@ -246,7 +238,7 @@ impl<'a> ApplicationHandler for App<'a> {
         renderer.load_shape(
             Shape::Path(grafo::PathShape::new(
                 self.blue_path.clone(),
-                Stroke::new(2.0, Color::BLACK),
+                Stroke::new(2.0_f32, Color::BLACK),
             )),
             BLUE_SHAPE_CACHE_KEY,
             Some(BLUE_SHAPE_CACHE_KEY),
@@ -254,7 +246,7 @@ impl<'a> ApplicationHandler for App<'a> {
         renderer.load_shape(
             Shape::Path(grafo::PathShape::new(
                 self.jelly_path.clone(),
-                Stroke::new(2.0, Color::BLACK),
+                Stroke::new(2.0_f32, Color::BLACK),
             )),
             JELLY_SHAPE_CACHE_KEY,
             Some(JELLY_SHAPE_CACHE_KEY),
@@ -262,7 +254,7 @@ impl<'a> ApplicationHandler for App<'a> {
         renderer.load_shape(
             Shape::Path(grafo::PathShape::new(
                 self.heart_path.clone(),
-                Stroke::new(2.0, Color::BLACK),
+                Stroke::new(2.0_f32, Color::BLACK),
             )),
             HEART_SHAPE_CACHE_KEY,
             Some(HEART_SHAPE_CACHE_KEY),
@@ -270,7 +262,7 @@ impl<'a> ApplicationHandler for App<'a> {
         renderer.load_shape(
             Shape::Path(grafo::PathShape::new(
                 self.perspective_path.clone(),
-                Stroke::new(2.0, Color::BLACK),
+                Stroke::new(2.0_f32, Color::BLACK),
             )),
             PERSPECTIVE_SHAPE_CACHE_KEY,
             Some(PERSPECTIVE_SHAPE_CACHE_KEY),
@@ -408,7 +400,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let logical_h = window.inner_size().height as f32 / self.scale_factor as f32;
                 let background = Shape::rect(
                     [(0.0, 0.0), (logical_w, logical_h)],
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
                 renderer
                     .add_shape(
@@ -419,7 +411,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Compute transforms in euclid space (same as before)
                 let red_tx = Transform3D::rotation(0.0, 0.0, 1.0, Angle::degrees(45.0))
                     .then(&Transform3D::translation(100.0, 100.0, 0.0));
                 let green_tx = Transform3D::scale(0.5, 0.5, 1.0)
@@ -430,15 +421,15 @@ impl<'a> ApplicationHandler for App<'a> {
                 // perspective origin in both X and Y with the mouse.
                 let d = self.blue_perspective_d; // perspective distance (bigger = subtler perspective)
                 let blue_pos = self.blue_pos;
-                let blue_size = self.blue_size; // local rect path size
-                let blue_center_local = (blue_size.0 * 0.5, blue_size.1 * 0.5); // local pivot
+                let blue_size = self.blue_size;
+                let blue_center_local = (blue_size.0 * 0.5, blue_size.1 * 0.5);
                 let blue_center = (
                     blue_pos.0 + blue_size.0 * 0.5,
                     blue_pos.1 + blue_size.1 * 0.5,
                 );
                 let (origin_x_for_blue, origin_y_for_blue) = if self.blue_follow_mouse {
                     match self.last_mouse_pos {
-                        Some((mx, my)) => (mx, my), // react to both horizontal and vertical motion
+                        Some((mx, my)) => (mx, my),
                         None => blue_center,
                     }
                 } else {
@@ -453,8 +444,8 @@ impl<'a> ApplicationHandler for App<'a> {
                             0.0,
                         ));
 
-                let yaw = 45.0 + self.orbit_yaw_deg; // base + yaw
-                let pitch = self.orbit_pitch_deg; // pitch
+                let yaw = 45.0 + self.orbit_yaw_deg;
+                let pitch = self.orbit_pitch_deg;
 
                 // Rotate around the shape's local center to simulate orbiting
                 let blue_tx =
@@ -469,7 +460,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         .then(&Transform3D::translation(blue_pos.0, blue_pos.1, 0.0))
                         .then(&blue_perspective);
 
-                // Hover detection: transform mouse point back into local space and test against path's bbox
+                // Map the mouse into local coordinates and test the filled path.
                 let mouse = self.last_mouse_pos;
                 let is_hover =
                     |path: &Path, tx: &Transform3D<f32>, mouse: Option<(f32, f32)>| -> bool {
@@ -509,7 +500,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     .then(&Transform3D::translation(jelly_pivot.0, jelly_pivot.1, 0.0))
                     .then(&Transform3D::translation(jelly_pos.0, jelly_pos.1, 0.0));
                 let jelly_hover = is_hover(&self.jelly_path, &jelly_tx, mouse);
-                // Heart transform: scale and rotate a bit, then translate
                 let heart_tx = Transform3D::scale(1.8, 1.8, 1.0)
                     .then(&Transform3D::rotation(0.0, 0.0, 1.0, Angle::degrees(-20.0)))
                     .then(&Transform3D::translation(450.0, 300.0, 0.0));
@@ -618,12 +608,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     }
 
                     Err(wgpu::SurfaceError::Timeout) => {
-                        // The window is not visible yet (still appearing, minimized, or fully
-                        // covered). Retry shortly instead of busy-looping redraws — winit does
-                        // not request one when the window becomes visible again. `WaitUntil`
-                        // wakes the event loop without spinning while the window stays hidden.
                         renderer.clear_draw_queue();
-                        let retry_at = Instant::now() + OCCLUDED_RETRY_DELAY;
+                        let retry_at = Instant::now() + SURFACE_TIMEOUT_RETRY_DELAY;
                         self.redraw_retry_at = Some(retry_at);
                         event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
                     }
@@ -657,7 +643,6 @@ pub fn main() {
     env_logger::init();
     let event_loop = EventLoop::new().expect("To create the event loop");
 
-    // Initialize app with defaults and placeholders; actual renderer/window set on resume
     let mut app = App {
         window: None,
         renderer: None,

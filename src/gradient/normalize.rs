@@ -39,8 +39,6 @@ pub(crate) struct NormalizedGradient {
     pub(crate) segments: SmallVec<[NormalizedSegment; NORMALIZED_INLINE_SEGMENT_CAPACITY]>,
     pub(crate) period_start: f32,
     pub(crate) period_len: f32,
-    pub(crate) is_single_stop: bool,
-    pub(crate) single_stop_color: Option<GradientColor>,
 }
 
 impl NormalizedGradient {
@@ -58,12 +56,10 @@ impl NormalizedGradient {
                 segments: SmallVec::new(),
                 period_start: 0.0,
                 period_len: 0.0,
-                is_single_stop: true,
-                single_stop_color: Some(common.stops[0].color),
             };
         }
 
-        // Step 1-2: Expand double positions into paired stops
+        // Expand double positions into paired stops.
         let mut authored: SmallVec<[AuthoredStop; NORMALIZED_INLINE_STOP_CAPACITY]> =
             SmallVec::with_capacity(common.stops.len() * 2);
         for stop in &common.stops {
@@ -83,13 +79,12 @@ impl NormalizedGradient {
                     });
                 }
                 GradientStopPositions::Double(a, b) => {
-                    // First stop of the pair: gets the hint
                     authored.push(AuthoredStop {
                         color: stop.color,
                         raw_position: Some(a.value()),
                         hint_to_next_segment: None,
                     });
-                    // Second stop of the pair
+                    // The hint applies after the second position of the double stop.
                     authored.push(AuthoredStop {
                         color: stop.color,
                         raw_position: Some(b.value()),
@@ -99,7 +94,7 @@ impl NormalizedGradient {
             }
         }
 
-        // Step 4: Default first and last positions if omitted
+        // Omitted endpoints span one turn for conic gradients and 0..1 otherwise.
         let default_end = if is_conic { TAU } else { 1.0 };
 
         if authored[0].raw_position.is_none() {
@@ -110,32 +105,34 @@ impl NormalizedGradient {
             authored[last_index].raw_position = Some(default_end);
         }
 
-        // Step 5: Fill interior runs of omitted positions.
+        // Resolve decreasing explicit positions before spacing the omitted stops.
+        let mut previous_position = f32::NEG_INFINITY;
+        for position in authored
+            .iter_mut()
+            .filter_map(|stop| stop.raw_position.as_mut())
+        {
+            *position = position.max(previous_position);
+            previous_position = *position;
+        }
+
         fill_implicit_positions(&mut authored);
 
-        // Build normalized stops
-        let mut previous_position: Option<f32> = None;
+        // Build stops
         let mut stops: SmallVec<[NormalizedStop; NORMALIZED_INLINE_STOP_CAPACITY]> =
             SmallVec::with_capacity(authored.len());
         for authored_stop in &authored {
-            let mut position = authored_stop
+            let position = authored_stop
                 .raw_position
                 .expect("gradient stop positions should be resolved before normalization");
-            if let Some(previous_position) = previous_position {
-                if position < previous_position {
-                    position = previous_position;
-                }
-            }
 
             stops.push(NormalizedStop {
                 position,
                 color: authored_stop.color,
                 hint: None,
             });
-            previous_position = Some(position);
         }
 
-        // Step 9: Validate and retain hints
+        // Keep only hints strictly inside the following segment.
         for (stop_index, authored_stop) in authored.iter().enumerate() {
             if let Some(hint_value) = authored_stop.hint_to_next_segment {
                 if stop_index + 1 < stops.len() {
@@ -144,7 +141,6 @@ impl NormalizedGradient {
                     if current_position < hint_value && hint_value < next_position {
                         stops[stop_index].hint = Some(hint_value);
                     }
-                    // Otherwise drop the hint
                 }
             }
         }
@@ -162,7 +158,6 @@ impl NormalizedGradient {
             });
         }
 
-        // Step 10: Derive repeating metadata
         let period_start = stops.first().unwrap().position;
         let period_end = stops.last().unwrap().position;
         let period_len = period_end - period_start;
@@ -172,19 +167,12 @@ impl NormalizedGradient {
             segments,
             period_start,
             period_len,
-            is_single_stop: false,
-            single_stop_color: None,
         }
     }
 
     /// The degenerate constant color: final linear premultiplied color of the last stop.
     pub(crate) fn degenerate_constant_color(&self) -> [f32; 4] {
-        let color = if self.is_single_stop {
-            self.single_stop_color.unwrap()
-        } else {
-            self.stops.last().unwrap().color
-        };
-        color_to_final_linear_premultiplied(&color)
+        color_to_final_linear_premultiplied(&self.stops.last().unwrap().color)
     }
 }
 
@@ -326,19 +314,6 @@ mod tests {
         let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
         // Second stop should be bumped to 0.5 (max with previous)
         assert!((normalized.stops[1].position - 0.5).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_single_stop() {
-        let common = GradientCommonDesc {
-            units: GradientUnits::Local,
-            spread: SpreadMode::Pad,
-            interpolation: ColorInterpolation::SrgbLinear,
-            stops: vec![make_stop(srgb_color(1.0, 0.0, 0.0), Some(0.5))].into(),
-        };
-
-        let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
-        assert!(normalized.is_single_stop);
     }
 
     #[test]

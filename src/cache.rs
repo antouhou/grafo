@@ -2,7 +2,6 @@ use crate::vertex::CustomVertex;
 use ahash::{HashMap, HashMapExt};
 use lyon::tessellation::VertexBuffers;
 use std::hash::Hash;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -78,7 +77,7 @@ pub(crate) struct Cache {
 }
 
 impl Cache {
-    pub(crate) fn new(_size: NonZeroUsize) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             entries: FrameCache::new(),
         }
@@ -88,14 +87,11 @@ impl Cache {
         self.entries.len()
     }
 
-    pub(crate) fn get_vertex_buffers(
-        &mut self,
-        cache_key: &u64,
-    ) -> Option<Arc<CachedTessellation>> {
+    pub(crate) fn get_tessellation(&mut self, cache_key: &u64) -> Option<Arc<CachedTessellation>> {
         self.entries.get(cache_key)
     }
 
-    pub(crate) fn insert_vertex_buffers(
+    pub(crate) fn insert_tessellation(
         &mut self,
         cache_key: u64,
         tessellation: Arc<CachedTessellation>,
@@ -103,7 +99,7 @@ impl Cache {
         self.entries.insert(cache_key, tessellation);
     }
 
-    pub(crate) fn refresh_vertex_buffers(
+    pub(crate) fn refresh_tessellation(
         &mut self,
         cache_key: u64,
         tessellation: &Arc<CachedTessellation>,
@@ -123,7 +119,6 @@ mod tests {
     use super::{Cache, CachedTessellation, FrameCache};
     use crate::vertex::CustomVertex;
     use lyon::tessellation::VertexBuffers;
-    use std::num::NonZeroUsize;
     use std::sync::{Arc, Mutex};
 
     struct DropCounter(Arc<Mutex<usize>>);
@@ -170,7 +165,7 @@ mod tests {
 
     #[test]
     fn cache_returns_shared_arc_without_cloning_vertex_buffers() {
-        let mut cache = Cache::new(NonZeroUsize::new(4).unwrap());
+        let mut cache = Cache::new();
         let mut vertex_buffers = VertexBuffers::<CustomVertex, u16>::new();
         vertex_buffers.vertices.push(CustomVertex {
             position: [0.0, 0.0],
@@ -181,7 +176,7 @@ mod tests {
         vertex_buffers.indices.push(0);
 
         let shared_vertex_buffers = Arc::new(vertex_buffers);
-        cache.insert_vertex_buffers(
+        cache.insert_tessellation(
             7,
             Arc::new(CachedTessellation {
                 vertex_buffers: shared_vertex_buffers.clone(),
@@ -190,18 +185,18 @@ mod tests {
             }),
         );
 
-        let cached_vertex_buffers = cache.get_vertex_buffers(&7).unwrap();
+        let cached_tessellation = cache.get_tessellation(&7).unwrap();
         assert!(Arc::ptr_eq(
             &shared_vertex_buffers,
-            &cached_vertex_buffers.vertex_buffers
+            &cached_tessellation.vertex_buffers
         ));
     }
 
     #[test]
     fn cache_promotes_previous_frame_hits_into_current_frame() {
-        let mut cache = Cache::new(NonZeroUsize::new(4).unwrap());
+        let mut cache = Cache::new();
         let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u16>::new());
-        cache.insert_vertex_buffers(
+        cache.insert_tessellation(
             7,
             Arc::new(CachedTessellation {
                 vertex_buffers: Arc::clone(&shared_vertex_buffers),
@@ -212,26 +207,26 @@ mod tests {
 
         cache.end_frame();
 
-        let cached_vertex_buffers = cache.get_vertex_buffers(&7).unwrap();
+        let cached_tessellation = cache.get_tessellation(&7).unwrap();
         assert!(Arc::ptr_eq(
             &shared_vertex_buffers,
-            &cached_vertex_buffers.vertex_buffers
+            &cached_tessellation.vertex_buffers
         ));
 
         cache.end_frame();
 
-        let cached_vertex_buffers = cache.get_vertex_buffers(&7).unwrap();
+        let cached_tessellation = cache.get_tessellation(&7).unwrap();
         assert!(Arc::ptr_eq(
             &shared_vertex_buffers,
-            &cached_vertex_buffers.vertex_buffers
+            &cached_tessellation.vertex_buffers
         ));
     }
 
     #[test]
     fn cache_drops_entries_not_used_for_a_frame() {
-        let mut cache = Cache::new(NonZeroUsize::new(4).unwrap());
+        let mut cache = Cache::new();
         let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u16>::new());
-        cache.insert_vertex_buffers(
+        cache.insert_tessellation(
             7,
             Arc::new(CachedTessellation {
                 vertex_buffers: shared_vertex_buffers,
@@ -243,15 +238,15 @@ mod tests {
         cache.end_frame();
         cache.end_frame();
 
-        assert!(cache.get_vertex_buffers(&7).is_none());
+        assert!(cache.get_tessellation(&7).is_none());
     }
 
     #[test]
     fn cache_refresh_keeps_rendered_geometry_available_next_frame() {
-        let mut cache = Cache::new(NonZeroUsize::new(4).unwrap());
+        let mut cache = Cache::new();
         let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u16>::new());
 
-        cache.refresh_vertex_buffers(
+        cache.refresh_tessellation(
             7,
             &Arc::new(CachedTessellation {
                 vertex_buffers: shared_vertex_buffers.clone(),
@@ -261,10 +256,10 @@ mod tests {
         );
         cache.end_frame();
 
-        let cached_vertex_buffers = cache.get_vertex_buffers(&7).unwrap();
+        let cached_tessellation = cache.get_tessellation(&7).unwrap();
         assert!(Arc::ptr_eq(
             &shared_vertex_buffers,
-            &cached_vertex_buffers.vertex_buffers
+            &cached_tessellation.vertex_buffers
         ));
     }
 }

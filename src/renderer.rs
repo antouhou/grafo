@@ -1,7 +1,6 @@
 //! Renderer for the Grafo library.
 use ahash::{HashMap, HashMapExt};
 use lyon::tessellation::FillTessellator;
-use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tracing::warn;
@@ -12,7 +11,8 @@ use self::metrics::RenderLoopMetricsTracker;
 use self::types::{DrawCommand, RendererScratch};
 use crate::effect::{
     self, compile_composite_pipeline, compile_effect_pipeline, create_params_bind_group,
-    EffectError, EffectInstance, LoadedEffect, OffscreenTexturePool, ShapeEffectInstance,
+    CompositePipelineResources, EffectError, EffectInstance, LoadedEffect, OffscreenTexturePool,
+    ShapeEffectInstance,
 };
 use crate::pipeline::{
     compute_padded_bytes_per_row, create_and_depth_texture, create_argb_swizzle_bind_group,
@@ -21,9 +21,9 @@ use crate::pipeline::{
     create_storage_output_buffer, encode_copy_texture_to_buffer, render_buffer_range_to_texture,
     ArgbParams, PipelineType, Uniforms,
 };
-use crate::shape::{CachedShapeDrawData, DrawShapeCommand, Shape};
+use crate::shape::{CachedShapeDrawData, Shape};
 use crate::texture_manager::TextureManager;
-use crate::util::{to_logical, PoolManager};
+use crate::util::{to_logical, ShapeResources};
 use crate::vertex::{
     CustomVertex, InstanceColor, InstanceMetadata, InstanceTransform, TextureUvTransform,
 };
@@ -46,9 +46,6 @@ mod traversal;
 pub(crate) mod types;
 
 pub type MathRect = lyon::math::Box2D;
-
-// TODO: move to the config/constructor
-const MAX_CACHED_SHAPES: usize = 1024;
 
 /// Semantic texture layers for a shape. Background is layer 0, Foreground is layer 1.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -76,14 +73,12 @@ pub enum ShapeOverflow {
     Visible,
 }
 
-/// The renderer for the Grafo library. This is the main struct used to render shapes and images.
+/// GPU resources shared by renderers.
 ///
-/// A [`Renderer`] owns one render surface and one independent draw queue. Create a
-/// [`RendererContext`] once and pass clones of it to additional renderers when multiple
-/// windows should share the same GPU device, texture storage, and loaded-shape cache. Shape
-/// cache keys are scoped to the context: use the same content-derived key to reuse a shape across
-/// renderers, and avoid reusing a key for different shapes because loading or removing it affects
-/// every renderer using the context.
+/// Create a context once and pass clones to renderers to share the GPU device, queue,
+/// texture storage, and loaded shapes. Shape cache keys belong to the context. Use the
+/// same content-derived key to reuse a shape across renderers. Loading a different shape
+/// under that key, or removing it, affects every renderer using the context.
 #[derive(Clone)]
 pub struct RendererContext {
     pub(crate) inner: Arc<RendererContextInner>,
@@ -98,6 +93,9 @@ pub(crate) struct RendererContextInner {
     pub(crate) shape_cache: RwLock<HashMap<u64, CachedShapeHandle>>,
 }
 
+/// Renders shapes and images with its own draw queue and an optional window surface.
+///
+/// Multiple renderers can share GPU resources through a [`RendererContext`].
 pub struct Renderer<'a> {
     // Window information
     /// Size of the window in pixels.
@@ -105,8 +103,7 @@ pub struct Renderer<'a> {
     /// Scale factor of the window (e.g., for high-DPI displays).
     scale_factor: f64,
 
-    /// AA fringe offset in physical pixels. Controls how far the anti-aliasing
-    /// fringe extends outward from shape edges. Default is 0.75.
+    /// Outward AA fringe width in physical pixels.
     fringe_width: f32,
 
     // WGPU components
@@ -118,13 +115,11 @@ pub struct Renderer<'a> {
     config: wgpu::SurfaceConfiguration,
 
     tessellator: FillTessellator,
-    buffers_pool_manager: PoolManager,
+    shape_resources: ShapeResources,
     texture_manager: TextureManager,
 
     /// Tree structure holding shapes to be rendered.
     draw_tree: easy_tree::Tree<DrawCommand>,
-    /// Maps node metadata indices to their clip-parent node ids.
-    metadata_to_clips: HashMap<usize, usize>,
 
     /// Uniforms for the stencil-increment ("and") rendering pipeline.
     and_uniforms: Uniforms,
@@ -139,8 +134,6 @@ pub struct Renderer<'a> {
     shape_texture_bind_group_layout_foreground: Arc<wgpu::BindGroupLayout>,
     /// Bind group layout for backdrop textures (group 3, bindings 3 and 4).
     backdrop_texture_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-    /// Monotonic counter to invalidate cached shape texture bind groups when the layout changes.
-    shape_texture_layout_epoch: u64,
     /// Default transparent texture bind groups for both layers.
     default_shape_texture_bind_groups: [Arc<wgpu::BindGroup>; 2], // [background, foreground]
     /// Default transparent bind group for backdrop sampling.
@@ -214,7 +207,6 @@ pub struct Renderer<'a> {
     /// View of the cached depth/stencil texture.
     depth_stencil_view: Option<wgpu::TextureView>,
 
-    // ── Effect system ──────────────────────────────────────────────────
     /// Loaded (compiled) effects, keyed by user-provided effect_id.
     loaded_effects: HashMap<u64, LoadedEffect>,
     /// Per-node group effect instances, keyed by node_id.
@@ -236,24 +228,17 @@ pub struct Renderer<'a> {
     offscreen_texture_pool: OffscreenTexturePool,
     /// Shared composite pipeline for drawing effect results into the parent target.
     /// Created lazily on first use.
-    composite_pipeline: Option<wgpu::RenderPipeline>,
-    /// Bind group layout for the composite pipeline's input texture.
-    composite_bgl: Option<wgpu::BindGroupLayout>,
+    composite_resources: Option<CompositePipelineResources>,
     /// Reusable sampler for effect texture sampling.
     effect_sampler: Option<wgpu::Sampler>,
 
-    // ── Backdrop effect infrastructure ─────────────────────────────────
     /// Fullscreen sampling pipeline used to downsample a captured backdrop region.
     texture_blit_pipeline: Option<wgpu::RenderPipeline>,
     /// Premultiplied-alpha pipeline for layering a transparent group prefix into a backdrop.
-    backdrop_layer_composite_pipeline: Option<wgpu::RenderPipeline>,
-    /// Bind group layout used by the group-prefix backdrop compositor.
-    backdrop_layer_composite_bind_group_layout: Option<wgpu::BindGroupLayout>,
-    /// Stencil-only pipeline: writes stencil but no color output.
-    /// Used for Step 1 of the three-step backdrop draw.
+    backdrop_layer_composite_resources: Option<CompositePipelineResources>,
+    /// Clips backdrop compositing to the shape by incrementing stencil without drawing color.
     stencil_only_pipeline: Option<wgpu::RenderPipeline>,
-    /// Shape color pipeline with stencil Keep: draws color but doesn't modify stencil.
-    /// Used for Step 3 of the three-step backdrop draw.
+    /// Draws the shape over its processed backdrop without incrementing stencil again.
     backdrop_color_pipeline: Option<wgpu::RenderPipeline>,
     /// Gradient color pipeline with stencil Keep for backdrop shapes.
     backdrop_color_gradient_pipeline: Option<wgpu::RenderPipeline>,
@@ -266,14 +251,11 @@ pub struct Renderer<'a> {
     /// Gradient pipeline for visible non-leaf parents that increment stencil.
     and_gradient_pipeline: Arc<wgpu::RenderPipeline>,
 
-    // ── Gradient fill infrastructure ───────────────────────────────────
     /// Bind group layout for gradient resources (group 3 in shader).
     gradient_bind_group_layout: wgpu::BindGroupLayout,
     /// Bind group layout for gradient resources plus backdrop sampling.
     backdrop_gradient_bind_group_layout: wgpu::BindGroupLayout,
-    /// Monotonic counter to invalidate cached gradient bind groups when the layout changes.
-    gradient_bind_group_layout_epoch: u64,
-    /// Sampler for gradient ramp textures (nearest, clamp-to-edge).
+    /// Samples gradient ramps with linear filtering and clamps at the endpoints.
     gradient_ramp_sampler: wgpu::Sampler,
 
     #[cfg(feature = "render_metrics")]
@@ -299,7 +281,6 @@ pub struct Renderer<'a> {
     /// forced GPU waits after submission.
     last_render_to_texture_view_cpu_time: Duration,
 
-    // ── Reusable scratch state ───────────────────────────────────────────
     scratch: RendererScratch,
 }
 
@@ -313,11 +294,8 @@ impl<'a> Renderer<'a> {
         self.scratch.begin_frame();
     }
 
-    pub(super) fn trim_scratch_on_resize_or_policy(&mut self) {
-        // This is safe to call frequently: `shrink_to` is effectively a no-op
-        // when capacities are below thresholds, so this acts as amortized
-        // memory hygiene for long-running sessions.
-        self.buffers_pool_manager.trim();
+    pub(super) fn trim_scratch_storage(&mut self) {
+        self.shape_resources.aa_fringe_scratch.trim();
         self.scratch.trim_to_policy();
     }
 

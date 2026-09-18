@@ -122,9 +122,8 @@ pub(super) fn intersect_scissor(
     (left, top, width, height)
 }
 
-/// Check whether a non-leaf draw command is eligible for scissor clipping,
-/// and if so, compute the scissor rect. This centralizes the eligibility logic
-/// so pre-visit and post-visit make the same deterministic decision.
+/// Returns a scissor rect when the draw command is a rectangle whose transform
+/// preserves axis alignment.
 pub(super) fn try_scissor_for_rect(
     draw_command: &DrawCommand,
     scale_factor: f64,
@@ -148,13 +147,12 @@ mod tests {
     };
     use crate::renderer::types::DrawCommand;
     use crate::shape::CachedShapeDrawData;
-    use crate::util::PoolManager;
+    use crate::util::ShapeResources;
     use crate::{
         CachedShapeHandle, Color, Shape, ShapeDrawCommandOptions, Stroke, TransformInstance,
     };
     use ahash::{HashMap, HashMapExt};
     use lyon::tessellation::FillTessellator;
-    use std::num::NonZeroUsize;
 
     fn create_test_gradient() -> Gradient {
         Gradient::linear(
@@ -181,11 +179,11 @@ mod tests {
 
     fn rect_draw_command_with_options(options: ShapeDrawCommandOptions) -> DrawCommand {
         let mut tessellator = FillTessellator::new();
-        let mut pool = PoolManager::new(NonZeroUsize::new(4).unwrap());
+        let mut shape_resources = ShapeResources::new();
         let shape_handle = CachedShapeHandle::new(
             &Shape::rect([(0.0, 0.0), (10.0, 10.0)], Stroke::default()),
             &mut tessellator,
-            &mut pool,
+            &mut shape_resources,
             None,
         );
         DrawCommand::CachedShape(CachedShapeDrawData::new(shape_handle, &options))
@@ -226,8 +224,7 @@ mod tests {
             EffectInstance {
                 effect_id: 1,
                 params: Vec::new(),
-                params_buffer: None,
-                params_bind_group: None,
+                parameter_resources: None,
                 backdrop_config: None,
                 backdrop_material_params_buffer: None,
                 backdrop_layer_params_buffer: None,
@@ -249,8 +246,7 @@ mod tests {
             EffectInstance {
                 effect_id: 2,
                 params: Vec::new(),
-                params_buffer: None,
-                params_bind_group: None,
+                parameter_resources: None,
                 backdrop_config: None,
                 backdrop_material_params_buffer: None,
                 backdrop_layer_params_buffer: None,

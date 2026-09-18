@@ -4,161 +4,48 @@
 //! [![Grafo documentation](https://docs.rs/grafo/badge.svg)](https://docs.rs/grafo)
 //! [![Build and test](https://github.com/antouhou/grafo/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/antouhou/grafo/actions)
 //!
-//! Grafo is a GPU-accelerated rendering library for Rust. It is a one-stop solution in case
-//! you need a quick and simple way to render shapes (with optional texture layers) in your application. It
-//! supports features such as masking, clipping, and font loading and rendering.
-//!
-//! The library is designed for flexibility and ease of use, making it suitable for a wide
-//! range of applications, from simple graphical interfaces to complex rendering engines.
+//! Grafo is a GPU-accelerated vector graphics library for Rust.
 //!
 //! ## Features
 //!
-//! * Shape Rendering: Create and render complex vector shapes.
-//! * Shape Texturing: Apply up to two texture layers per shape with hierarchical clipping.
-//! * Stencil Operations: Advanced stencil operations for clipping and masking.
-//! * Shape Hierarchy: Attach shapes to parent nodes and choose whether each parent clips children.
-//! * Shader Effects: Process complete subtrees, captured backdrops, or cacheable local shape masks.
+//! * Path rendering with cached tessellation.
+//! * Hierarchical path clipping.
+//! * Per-instance 3D and perspective transforms.
+//! * Solid fills and linear, radial, and conic gradients.
+//! * Custom WGSL shader effects on shape masks, groups, and backdrops.
+//! * Geometry-based antialiasing and MSAA.
 //!
-//! Grafo [available on crates.io](https://crates.io/crates/grafo), and
+//! Grafo is [available on crates.io](https://crates.io/crates/grafo), and
 //! [API Documentation is available on docs.rs](https://docs.rs/grafo/).
 //!
-//! ## Getting Started
+//! ## Getting started
 //!
 //! Add the following to your `Cargo.toml`:
 //!
 //! ```toml
 //! [dependencies]
-//! grafo = "0.1.0"
-//! winit = "0.27"   # For window creation and event handling
-//! image = "0.24"   # For image processing
-//! env_logger = "0.10" # For logging
-//! log = "0.4"      # For logging
+//! grafo = "0.19"
+//! winit = "0.30"
+//! futures = "0.3"
+//! env_logger = "0.11"
 //! ```
 //!
-//! ### Basic Usage
+//! ### Basic usage
 //!
-//! Below is a simple example demonstrating how to initialize the `Renderer`, add shapes and text,
-//! and render a frame using `winit`. For a more comprehensive example, refer to the
-//! [examples](https://github.com/antouhou/grafo/tree/main/examples) folder in the repository.
+//! This is `examples/basic.rs`. It queues two rectangles once and renders them on each
+//! redraw. Run it with `cargo run --example basic`.
 //!
-//! ```rust,no_run
-//! use futures::executor::block_on;
-//! use grafo::{BorderRadii, Shape};
-//! use grafo::{Color, ShapeDrawCommandOptions, Stroke};
-//! use std::sync::Arc;
-//! use winit::application::ApplicationHandler;
-//! use winit::event::WindowEvent;
-//! use winit::event_loop::{ActiveEventLoop, EventLoop};
-//! use winit::window::{Window, WindowId};
-//!
-//! #[derive(Default)]
-//! struct App<'a> {
-//!     window: Option<Arc<Window>>,
-//!     renderer: Option<grafo::Renderer<'a>>,
-//! }
-//!
-//! impl<'a> ApplicationHandler for App<'a> {
-//!     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-//!         let window = Arc::new(
-//!             event_loop
-//!                 .create_window(Window::default_attributes())
-//!                 .unwrap(),
-//!         );
-//!
-//!         let window_size = window.inner_size();
-//!         let scale_factor = window.scale_factor();
-//!         let physical_size = (window_size.width, window_size.height);
-//!
-//!         // Initialize the renderer
-//!         let mut renderer = block_on(grafo::Renderer::new(
-//!             window.clone(),
-//!             physical_size,
-//!             scale_factor,
-//!             true,  // vsync
-//!             false, // transparent
-//!             1,     // msaa_samples (1 = off)
-//!         ));
-//!
-//!         // Define a simple rectangle shape
-//!         let rect = Shape::rect(
-//!             [(0.0, 0.0), (200.0, 100.0)],
-//!             Stroke::new(2.0, Color::BLACK), // Black stroke with width 2.0
-//!         );
-//!         renderer
-//!             .add_shape(
-//!                 rect,
-//!                 None,
-//!                 None,
-//!                 ShapeDrawCommandOptions::new()
-//!                     .color(Color::rgb(0, 128, 255))
-//!                     .transform(grafo::TransformInstance::identity())
-//!                     .clips_children(true),
-//!             )
-//!             .expect("to add shape to the renderer");
-//!
-//!         self.window = Some(window);
-//!         self.renderer = Some(renderer);
-//!     }
-//!
-//!     fn window_event(
-//!         &mut self,
-//!         event_loop: &ActiveEventLoop,
-//!         window_id: WindowId,
-//!         event: WindowEvent,
-//!     ) {
-//!         if let Some(ref mut renderer) = self.renderer {
-//!             match event {
-//!                 WindowEvent::CloseRequested => event_loop.exit(),
-//!                 WindowEvent::Resized(physical_size) => {
-//!                     let new_size = (physical_size.width, physical_size.height);
-//!                     renderer.resize(new_size);
-//!                     if let Some(window) = &self.window {
-//!                         window.request_redraw();
-//!                     }
-//!                 }
-//!                 WindowEvent::RedrawRequested => {
-//!                     match renderer.render() {
-//!                         Ok(_) => {
-//!                             renderer.clear_draw_queue();
-//!                         }
-//!                         Err(
-//!                             wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
-//!                         ) => renderer.resize(renderer.size()),
-//!                         Err(wgpu::SurfaceError::Timeout) => {
-//!                             // The window is not visible yet (still appearing, minimized, or
-//!                             // fully covered). Ask for another redraw instead of dropping the
-//!                             // frame — winit does not request one when the window becomes
-//!                             // visible again.
-//!                             if let Some(window) = &self.window {
-//!                                 window.request_redraw();
-//!                             }
-//!                         }
-//!                         Err(e) => eprintln!("{:?}", e),
-//!                     }
-//!                 }
-//!                 _ => {}
-//!             }
-//!         }
-//!     }
-//! }
-//!
-//!     env_logger::init();
-//!     let event_loop = EventLoop::new().expect("to start an event loop");
-//!     let mut app = App::default();
-//!     event_loop.run_app(&mut app).unwrap();
-//! ```
+#![doc = concat!("```rust,no_run\n", include_str!("../examples/basic.rs"), "\n```\n")]
 //!
 //! ## Examples
 //!
-//! For a detailed example showcasing advanced features like hierarchical clipping,
-//! multi-layer texturing, please refer to the
-//! [examples](https://github.com/antouhou/grafo/tree/main/examples) directory in the repository.
+//! The [examples](https://github.com/antouhou/grafo/tree/main/examples) directory includes
+//! hierarchical clipping, texture layers, transforms, and shader effects.
 
 pub use lyon;
 pub use wgpu;
 
 mod color;
-mod debug_tools;
 mod effect;
 pub mod gradient;
 mod pipeline;

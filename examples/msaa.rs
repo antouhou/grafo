@@ -13,15 +13,13 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
-/// How long to wait before retrying a frame that was skipped because the surface
-/// reported it was not visible (`Occluded`/`Timeout`).
-const OCCLUDED_RETRY_DELAY: Duration = Duration::from_millis(50);
+const SURFACE_TIMEOUT_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
     msaa_enabled: bool,
-    /// Pending retry of a frame skipped because the window was not visible.
+    /// Pending redraw after a surface timeout.
     redraw_retry_at: Option<Instant>,
 }
 
@@ -110,7 +108,7 @@ impl<'a> ApplicationHandler for App<'a> {
             WindowEvent::RedrawRequested => {
                 let background = Shape::rect(
                     [(0.0, 0.0), (800.0, 600.0)],
-                    Stroke::new(2.0, Color::rgb(255, 0, 0)),
+                    Stroke::new(2.0_f32, Color::rgb(255, 0, 0)),
                 );
                 renderer
                     .add_shape(
@@ -123,7 +121,7 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 // Draw a triangle — diagonal edges show aliasing clearly
                 let triangle = Shape::builder()
-                    .stroke(Stroke::new(2.0, Color::BLACK))
+                    .stroke(Stroke::new(2.0_f32, Color::BLACK))
                     .begin((200.0, 80.0))
                     .line_to((80.0, 350.0))
                     .line_to((320.0, 350.0))
@@ -142,7 +140,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let rounded_rect = Shape::rounded_rect(
                     [(380.0, 100.0), (620.0, 330.0)],
                     BorderRadii::new(30.0),
-                    Stroke::new(2.0, Color::rgb(255, 0, 0)),
+                    Stroke::new(2.0_f32, Color::rgb(255, 0, 0)),
                 );
                 renderer
                     .add_shape(
@@ -157,7 +155,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let circle = Shape::rounded_rect(
                     [(100.0, 270.0), (260.0, 430.0)],
                     BorderRadii::new(80.0),
-                    Stroke::new(2.0, Color::BLACK),
+                    Stroke::new(2.0_f32, Color::BLACK),
                 );
                 renderer
                     .add_shape(
@@ -171,7 +169,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 // Draw a small detailed shape - thin diagonal lines are great for MSAA testing
                 let small_rect = Shape::rect(
                     [(400.0, 280.0), (550.0, 420.0)],
-                    Stroke::new(1.0, Color::rgb(100, 0, 150)),
+                    Stroke::new(1.0_f32, Color::rgb(100, 0, 150)),
                 );
                 renderer
                     .add_shape(
@@ -192,12 +190,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     }
 
                     Err(wgpu::SurfaceError::Timeout) => {
-                        // The window is not visible yet (still appearing, minimized, or fully
-                        // covered). Retry shortly instead of busy-looping redraws — winit does
-                        // not request one when the window becomes visible again. `WaitUntil`
-                        // wakes the event loop without spinning while the window stays hidden.
                         renderer.clear_draw_queue();
-                        let retry_at = Instant::now() + OCCLUDED_RETRY_DELAY;
+                        let retry_at = Instant::now() + SURFACE_TIMEOUT_RETRY_DELAY;
                         self.redraw_retry_at = Some(retry_at);
                         event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
                     }

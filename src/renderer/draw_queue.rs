@@ -26,7 +26,7 @@ impl<'a> Renderer<'a> {
         let cached_shape = CachedShapeHandle::new(
             shape.as_ref(),
             &mut self.tessellator,
-            &mut self.buffers_pool_manager,
+            &mut self.shape_resources,
             geometry_id,
         );
         self.context
@@ -90,7 +90,7 @@ impl<'a> Renderer<'a> {
         let cached_shape = CachedShapeHandle::new(
             shape.as_ref(),
             &mut self.tessellator,
-            &mut self.buffers_pool_manager,
+            &mut self.shape_resources,
             geometry_id,
         );
         let mut draw_data = CachedShapeDrawData::new(cached_shape, &options);
@@ -104,9 +104,8 @@ impl<'a> Renderer<'a> {
     /// This node clips its children like a transparent rect parent by default when its
     /// transform preserves axis alignment. Rotated, skewed, or perspective transforms are
     /// rejected by the transform setters because this node intentionally has no geometry
-    /// for stencil fallback. To let children overflow from a shape parent, queue that parent with
-    /// [`ShapeDrawCommandOptions::clips_children(false)`] instead of relying on the older
-    /// overflow API wording.
+    /// for stencil fallback. Set [`ShapeDrawCommandOptions::clips_children`] to `false` on a
+    /// shape parent to let its children draw outside it.
     ///
     /// When `parent_shape_id` is `Some`, the clipping rectangle is attached as a child of
     /// that node and inherits ancestor clips.
@@ -140,12 +139,11 @@ impl<'a> Renderer<'a> {
     ) {
         self.refresh_geometry_cache(cached_shape_data);
         cached_shape_data.refresh_gradient_bind_group(
-            &mut self.buffers_pool_manager.gradient_cache,
+            &mut self.shape_resources.gradient_cache,
             &self.device,
             &self.queue,
             &self.gradient_bind_group_layout,
             &self.gradient_ramp_sampler,
-            self.gradient_bind_group_layout_epoch,
         );
         let index_range = preparation::append_aggregated_geometry_for_shape(
             cached_shape_data,
@@ -177,7 +175,7 @@ impl<'a> Renderer<'a> {
                     texture_uv_transforms,
                 },
             );
-            *cached_shape_data.instance_index_mut() = Some(instance_index);
+            cached_shape_data.instance_index = Some(instance_index);
         } else {
             cached_shape_data.is_empty = true;
         }
@@ -192,7 +190,6 @@ impl<'a> Renderer<'a> {
             let node_id = self.draw_tree.add_node(draw_command);
             Ok(node_id)
         } else if let Some(parent_shape_id) = parent_shape_id {
-            // Mark the parent as non-leaf since it now has a child.
             if let Some(parent) = self.draw_tree.get_mut(parent_shape_id) {
                 parent.set_not_leaf();
                 let node_id = self.draw_tree.add_child(parent_shape_id, draw_command);
@@ -201,7 +198,6 @@ impl<'a> Renderer<'a> {
                 Err(DrawCommandError::InvalidShapeId(parent_shape_id))
             }
         } else {
-            // Adding to root — mark root as non-leaf.
             if let Some(root) = self.draw_tree.get_mut(0) {
                 root.set_not_leaf();
             }
@@ -212,9 +208,9 @@ impl<'a> Renderer<'a> {
 
     fn refresh_geometry_cache(&mut self, cached_shape_data: &CachedShapeDrawData) {
         if let Some(geometry_id) = cached_shape_data.cached_shape.geometry_id {
-            self.buffers_pool_manager
+            self.shape_resources
                 .tessellation_cache
-                .refresh_vertex_buffers(geometry_id, &cached_shape_data.cached_shape.tessellation);
+                .refresh_tessellation(geometry_id, &cached_shape_data.cached_shape.tessellation);
         }
     }
 
@@ -224,13 +220,9 @@ impl<'a> Renderer<'a> {
 
     pub fn clear_draw_queue(&mut self) {
         self.draw_tree.clear();
-        self.metadata_to_clips.clear();
         self.group_effects.clear();
         self.backdrop_effects.clear();
         self.shape_effects.clear();
-        // Keep scratch storage bounded even if queue contents fluctuate frame-to-frame.
-        self.trim_scratch_on_resize_or_policy();
-        // Clear memory buffers that are used for GPU upload
         self.clear_buffers();
     }
 

@@ -1,7 +1,7 @@
 use grafo::{
-    BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color, ColorInterpolation,
-    ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc, GradientStop,
-    GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
+    premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
+    ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
+    GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
     LinearGradientLine, RadialGradientDesc, RadialGradientShape, RadialGradientSize, Renderer,
     Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
     SpreadMode, Stroke, TransformInstance,
@@ -33,6 +33,7 @@ const CHECKERBOARD_TEXTURE_ID: u64 = 100;
 const SOLID_GREEN_TEXTURE_ID: u64 = 101;
 const SOLID_GREEN_20X20_TEXTURE_ID: u64 = 102;
 const SOLID_RED_TEXTURE_ID: u64 = 103;
+const TRANSLUCENT_CHECKERBOARD_TEXTURE_ID: u64 = 104;
 
 /// Returns the pixel origin (top-left corner) of tile number `n` (1-based).
 fn tile_origin(tile_number: u32) -> (f32, f32) {
@@ -142,8 +143,126 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_65_grouped_shape_effect_in_backdrop(renderer));
     expectations.extend(tile_66_same_node_shape_backdrop_and_group_effects(renderer));
     expectations.extend(tile_67_downsampled_drop_shadow_with_backdrop_blur(renderer));
+    expectations.extend(tile_68_gradient_transition_hints(renderer));
+    expectations.extend(tile_69_gradient_automatic_stop_after_decreasing_stop(
+        renderer,
+    ));
 
     expectations
+}
+
+fn tile_68_gradient_transition_hints(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(68);
+    for (top, bottom, hint) in [(8.0, 36.0, 0.25), (44.0, 72.0, 0.75)] {
+        let gradient = Gradient::linear(LinearGradientDesc::new(
+            LinearGradientLine {
+                start: [origin_x + 8.5, origin_y],
+                end: [origin_x + 72.5, origin_y],
+            },
+            [
+                GradientStop::at_position(GradientStopOffset::linear_radial(0.0), Color::BLACK)
+                    .with_hint_to_next_segment(GradientStopOffset::linear_radial(hint)),
+                GradientStop::at_position(GradientStopOffset::linear_radial(1.0), Color::WHITE),
+            ],
+        ))
+        .unwrap();
+        renderer
+            .add_shape(
+                Shape::rect(
+                    [
+                        (origin_x + 8.0, origin_y + top),
+                        (origin_x + 72.0, origin_y + bottom),
+                    ],
+                    Stroke::default(),
+                ),
+                None,
+                None,
+                ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+            )
+            .unwrap();
+    }
+
+    // 255 * P^log_H(0.5), with P measured at the pixel center.
+    [
+        (12, 20, 64, "t68_quarter_hint_before"),
+        (48, 20, 202, "t68_quarter_hint_after"),
+        (40, 56, 48, "t68_three_quarter_hint_before"),
+        (64, 56, 185, "t68_three_quarter_hint_after"),
+    ]
+    .into_iter()
+    .map(|(x, y, channel, label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            channel,
+            channel,
+            channel,
+            label,
+        )
+        .with_tolerance(2)
+    })
+    .collect()
+}
+
+fn tile_69_gradient_automatic_stop_after_decreasing_stop(
+    renderer: &mut Renderer,
+) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(69);
+    let gradient = Gradient::linear(LinearGradientDesc::new(
+        LinearGradientLine {
+            start: [origin_x + 8.5, origin_y],
+            end: [origin_x + 72.5, origin_y],
+        },
+        [
+            GradientStop::at_position(GradientStopOffset::linear_radial(0.5), Color::BLACK),
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(0.25),
+                Color::rgb(255, 0, 0),
+            ),
+            GradientStop::auto(Color::rgb(0, 255, 0)),
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(1.0),
+                Color::rgb(0, 0, 255),
+            ),
+        ],
+    ))
+    .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x + 8.0, origin_y + 8.0),
+                    (origin_x + 72.0, origin_y + 72.0),
+                ],
+                Stroke::default(),
+            ),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+        )
+        .unwrap();
+
+    // Corrected stop positions are 0.5, 0.5, 0.75, 1.0.
+    vec![
+        PixelExpectation::opaque(
+            origin_x as u32 + 48,
+            origin_y as u32 + 40,
+            128,
+            128,
+            0,
+            "t69_red_to_automatic_green",
+        )
+        .with_tolerance(2),
+        PixelExpectation::opaque(
+            origin_x as u32 + 60,
+            origin_y as u32 + 40,
+            0,
+            191,
+            64,
+            "t69_automatic_green_to_blue",
+        )
+        .with_tolerance(2),
+    ]
 }
 
 // ── Shared resource setup ────────────────────────────────────────────────────
@@ -192,6 +311,15 @@ fn load_shared_resources(renderer: &mut Renderer) {
     }
     renderer.texture_manager().allocate_texture_with_data(
         CHECKERBOARD_TEXTURE_ID,
+        (4, 4),
+        &checkerboard,
+    );
+    for pixel in checkerboard.as_chunks_mut::<4>().0 {
+        pixel[3] = 128;
+    }
+    premultiply_rgba8_srgb_inplace(&mut checkerboard);
+    renderer.texture_manager().allocate_texture_with_data(
+        TRANSLUCENT_CHECKERBOARD_TEXTURE_ID,
         (4, 4),
         &checkerboard,
     );
@@ -1470,31 +1598,26 @@ fn tile_21_alpha_overlap(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     vec![
         // Blue region only
         PixelExpectation::opaque(ox as u32 + 15, oy as u32 + 15, 50, 50, 220, "t21_blue_only"),
-        // Overlap region: semi-transparent red over opaque blue
-        // Blend: dst_rgb*(1-src_a) + src_rgb = (50,50,220)*(1-0.5) + (220,50,50)*0.5
-        //      ≈ (25+110, 25+25, 110+25) = (135, 50, 135)
+        // Blend in linear RGB with alpha 128/255, then encode the result as sRGB.
         PixelExpectation::new(
             ox as u32 + 35,
             oy as u32 + 35,
-            135,
+            165,
             50,
-            135,
+            164,
             255,
             "t21_red_over_blue",
-        )
-        .with_tolerance(30),
-        // Red-only region — semi-transparent red over white canvas bg
-        // Alpha blending produces a pinkish tint
+        ),
+        // The same red over the white canvas.
         PixelExpectation::new(
             ox as u32 + 55,
             oy as u32 + 40,
             238,
-            152,
-            152,
+            190,
+            190,
             255,
             "t21_red_over_white",
-        )
-        .with_tolerance(40),
+        ),
     ]
 }
 
@@ -1591,18 +1714,16 @@ fn tile_24_textured_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         .unwrap();
 
     vec![
-        // Textured interior — should not be fully white or fully transparent
-        // The checkerboard alternates white/black, so center pixel is one or the other
-        PixelExpectation::new(
-            ox as u32 + 40,
-            oy as u32 + 40,
-            128,
-            128,
-            128,
+        // Adjacent texel centers avoid interpolation between black and white.
+        PixelExpectation::opaque(
+            ox as u32 + 17,
+            oy as u32 + 17,
             255,
-            "t24_textured_interior",
-        )
-        .with_tolerance(128), // white or black—just verify opaque & non-canvas
+            255,
+            255,
+            "t24_white_texel",
+        ),
+        PixelExpectation::opaque(ox as u32 + 32, oy as u32 + 17, 0, 0, 0, "t24_black_texel"),
         // Outside the textured rect — canvas bg
         PixelExpectation::opaque(
             ox as u32 + 5,
@@ -1627,22 +1748,30 @@ fn tile_25_textured_with_color(renderer: &mut Renderer) -> Vec<PixelExpectation>
             None,
             None,
             ShapeDrawCommandOptions::new()
-                .background_texture_id(CHECKERBOARD_TEXTURE_ID)
+                .background_texture_id(TRANSLUCENT_CHECKERBOARD_TEXTURE_ID)
                 .color(Color::rgb(255, 100, 100)),
         )
         .unwrap();
 
     vec![
-        PixelExpectation::new(
-            ox as u32 + 40,
-            oy as u32 + 40,
-            190,
-            130,
-            130,
+        // Sample texel centers. In linear RGB, texture * alpha + fill * (1 - alpha)
+        // gives these sRGB colors for white and black texels at alpha 128/255.
+        PixelExpectation::opaque(
+            ox as u32 + 17,
+            oy as u32 + 17,
             255,
-            "t25_tinted_texture",
-        )
-        .with_tolerance(80),
+            198,
+            198,
+            "t25_translucent_white_over_fill",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 32,
+            oy as u32 + 17,
+            187,
+            71,
+            71,
+            "t25_translucent_black_over_fill",
+        ),
         // Outside the textured rect
         PixelExpectation::opaque(
             ox as u32 + 5,
@@ -1695,17 +1824,23 @@ fn tile_26_textured_parent_child(renderer: &mut Renderer) -> Vec<PixelExpectatio
             50,
             "t26_child_over_texture",
         ),
-        // Textured parent visible in its border area (not pure white canvas bg)
-        PixelExpectation::new(
+        // The corner texels stay unmixed under linear sampling and outside the child.
+        PixelExpectation::opaque(
             ox as u32 + 10,
             oy as u32 + 10,
-            128,
-            128,
-            128,
             255,
-            "t26_parent_texture_visible",
-        )
-        .with_tolerance(128),
+            255,
+            255,
+            "t26_parent_white_texel",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 70,
+            oy as u32 + 10,
+            0,
+            0,
+            0,
+            "t26_parent_black_texel",
+        ),
     ]
 }
 
@@ -1832,27 +1967,40 @@ fn tile_28_group_blur_with_children(renderer: &mut Renderer) -> Vec<PixelExpecta
         .expect("Failed to set group effect");
 
     vec![
-        // Child center inside blurred group: blue-ish
-        PixelExpectation::new(
+        PixelExpectation::opaque(
             ox as u32 + 40,
             oy as u32 + 40,
-            80,
-            80,
+            50,
+            50,
             220,
-            200,
             "t28_group_blur_center",
-        )
-        .with_tolerance(60),
-        // Yellow stripe outside blurred group — stays sharp
+        ),
+        // Each blur pass must mix the blue child with the parent at its edge.
+        PixelExpectation::opaque(
+            ox as u32 + 20,
+            oy as u32 + 40,
+            140,
+            134,
+            205,
+            "t28_group_blur_child_left_edge",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 40,
+            oy as u32 + 20,
+            146,
+            146,
+            217,
+            "t28_group_blur_child_top_edge",
+        ),
+        // The parent's blur reaches the stripe outside the original bounds.
         PixelExpectation::opaque(
             ox as u32 + 8,
             oy as u32 + 40,
-            220,
-            180,
-            50,
-            "t28_bg_stripe_sharp",
-        )
-        .with_tolerance(55),
+            217,
+            184,
+            100,
+            "t28_group_blur_outer_edge",
+        ),
     ]
 }
 
@@ -2015,6 +2163,26 @@ fn tile_30_backdrop_blur_nonleaf(renderer: &mut Renderer) -> Vec<PixelExpectatio
         .expect("Failed to set backdrop effect");
 
     vec![
+        // At the stripe edge, 42.5% of the blur kernel samples the other side.
+        // Composite the white panel in linear color, then encode sRGB.
+        PixelExpectation::opaque_approx(
+            ox as u32 + 40,
+            oy as u32 + 29,
+            193,
+            188,
+            157,
+            5,
+            "t30_blur_above_stripe_edge",
+        ),
+        PixelExpectation::opaque_approx(
+            ox as u32 + 40,
+            oy as u32 + 30,
+            204,
+            181,
+            157,
+            5,
+            "t30_blur_inside_stripe_edge",
+        ),
         // Child visible on top of blurred background
         PixelExpectation::opaque(
             ox as u32 + 40,
@@ -2175,11 +2343,14 @@ fn tile_32_tiny_1px_shape(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 }
 
 fn tile_33_shape_at_canvas_edge(renderer: &mut Renderer) -> Vec<PixelExpectation> {
-    let (ox, oy) = tile_origin(33);
-    // Shape that extends beyond the right and bottom edges of this tile
-    // (and possibly beyond the canvas itself for the last-row tiles)
+    // Reserve the bottom-right grid slot for a shape crossing both canvas edges.
+    let origin_x = (CANVAS_WIDTH - TILE_SIZE) as f32;
+    let origin_y = (CANVAS_HEIGHT - TILE_SIZE) as f32;
     let shape = Shape::rect(
-        [(ox + 50.0, oy + 50.0), (ox + 120.0, oy + 120.0)],
+        [
+            (origin_x + 50.0, origin_y + 50.0),
+            (origin_x + 120.0, origin_y + 120.0),
+        ],
         Stroke::default(),
     );
     renderer
@@ -2192,14 +2363,45 @@ fn tile_33_shape_at_canvas_edge(renderer: &mut Renderer) -> Vec<PixelExpectation
         .unwrap();
 
     vec![
-        // Interior of the visible portion
         PixelExpectation::opaque(
-            ox as u32 + 60,
-            oy as u32 + 60,
+            CANVAS_WIDTH - 1,
+            CANVAS_HEIGHT - 15,
             180,
             50,
             180,
-            "t33_visible_portion",
+            "t33_right_edge",
+        ),
+        PixelExpectation::opaque(
+            CANVAS_WIDTH - 15,
+            CANVAS_HEIGHT - 1,
+            180,
+            50,
+            180,
+            "t33_bottom_edge",
+        ),
+        PixelExpectation::opaque(
+            CANVAS_WIDTH - 1,
+            CANVAS_HEIGHT - 1,
+            180,
+            50,
+            180,
+            "t33_bottom_right_corner",
+        ),
+        PixelExpectation::opaque(
+            CANVAS_WIDTH - 40,
+            CANVAS_HEIGHT - 15,
+            255,
+            255,
+            255,
+            "t33_left_of_shape",
+        ),
+        PixelExpectation::opaque(
+            CANVAS_WIDTH - 15,
+            CANVAS_HEIGHT - 40,
+            255,
+            255,
+            255,
+            "t33_above_shape",
         ),
     ]
 }
@@ -2885,15 +3087,34 @@ fn tile_44_gradient_clipped(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         .unwrap();
 
     vec![
-        // Center should have a gradient mix
+        // For tile-local pixels, t = (x + y + 1 - 20) / 120 at the pixel center.
+        // Interpolate sRGB bytes and allow a tolerance of 2 for GPU rounding.
+        PixelExpectation::opaque_approx(
+            ox as u32 + 25,
+            oy as u32 + 25,
+            79,
+            171,
+            79,
+            2,
+            "t44_gradient_start",
+        ),
         PixelExpectation::opaque_approx(
             ox as u32 + 40,
             oy as u32 + 40,
-            125,
-            125,
-            125,
-            80,
+            127,
+            123,
+            127,
+            2,
             "t44_center_gradient_mix",
+        ),
+        PixelExpectation::opaque_approx(
+            ox as u32 + 55,
+            oy as u32 + 55,
+            174,
+            76,
+            174,
+            2,
+            "t44_gradient_end",
         ),
         // Corner is outside the rounded clip — should be canvas white
         PixelExpectation::opaque(
@@ -2959,27 +3180,40 @@ fn tile_45_gradient_group_blur(renderer: &mut Renderer) -> Vec<PixelExpectation>
         .expect("Failed to set group effect");
 
     vec![
-        // Blurred gradient center: purple-ish mix (high tolerance due to blur)
-        PixelExpectation::new(
+        // Pixels outside the left and top edges require both blur passes to spread coverage.
+        PixelExpectation::opaque(
+            ox as u32 + 14,
+            oy as u32 + 40,
+            118,
+            143,
+            78,
+            "t45_horizontal_blur_spread",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 40,
+            oy as u32 + 9,
+            227,
+            202,
+            206,
+            "t45_vertical_blur_spread",
+        ),
+        PixelExpectation::opaque(
             ox as u32 + 40,
             oy as u32 + 40,
-            120,
-            40,
-            140,
-            255,
+            134,
+            50,
+            137,
             "t45_blurred_gradient_center",
-        )
-        .with_tolerance(70),
-        // Green stripe outside blurred shape — stays sharp and fully green
+        ),
+        // This stripe pixel is beyond the eight-pixel blur radius.
         PixelExpectation::opaque(
-            ox as u32 + 10,
+            ox as u32 + 5,
             oy as u32 + 40,
             50,
             180,
             50,
             "t45_bg_stripe_sharp",
-        )
-        .with_tolerance(20),
+        ),
     ]
 }
 
@@ -3201,15 +3435,34 @@ fn tile_48_gradient_state_leak(renderer: &mut Renderer) -> Vec<PixelExpectation>
         .unwrap(); // cyan
 
     vec![
-        // Gradient rect center: should be a gradient mix (yellow-ish).
+        // For tile-local pixels, t = (32*(x + 0.5 - 5) + 60*(y + 0.5 - 10)) / 4624.
+        // Interpolate sRGB bytes and allow a tolerance of 2 for GPU rounding.
+        PixelExpectation::opaque_approx(
+            ox as u32 + 13,
+            oy as u32 + 25,
+            171,
+            79,
+            30,
+            2,
+            "t48_gradient_start",
+        ),
         PixelExpectation::opaque_approx(
             ox as u32 + 21,
             oy as u32 + 40,
-            125,
-            125,
+            123,
+            127,
             30,
-            80,
+            2,
             "t48_gradient_center",
+        ),
+        PixelExpectation::opaque_approx(
+            ox as u32 + 29,
+            oy as u32 + 55,
+            76,
+            174,
+            30,
+            2,
+            "t48_gradient_end",
         ),
         // Solid cyan rect center: must be cyan, NOT showing leaked gradient.
         PixelExpectation::opaque(

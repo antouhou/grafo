@@ -22,16 +22,14 @@ use winit::window::{Window, WindowId};
 
 const OPACITY_EFFECT: u64 = 1;
 
-/// How long to wait before retrying a frame that was skipped because the surface
-/// reported it was not visible (`Occluded`/`Timeout`).
-const OCCLUDED_RETRY_DELAY: Duration = Duration::from_millis(50);
+const SURFACE_TIMEOUT_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 #[derive(Default)]
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
     effect_loaded: bool,
-    /// Pending retry of a frame skipped because the window was not visible.
+    /// Pending redraw after a surface timeout.
     redraw_retry_at: Option<Instant>,
 }
 
@@ -104,10 +102,10 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                // ── Background (no effect) ───────────────────────────────
+                // Background without an effect
                 let bg = Shape::rect(
                     [(50.0, 50.0), (750.0, 550.0)],
-                    Stroke::new(2.0, Color::BLACK),
+                    Stroke::new(2.0_f32, Color::BLACK),
                 );
                 let _bg_id = renderer
                     .add_shape(
@@ -118,10 +116,10 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // ── Group 1: 50% opacity ─────────────────────────────────
+                // Group 1: 50% opacity
                 let group1_bg = Shape::rect(
                     [(100.0, 100.0), (400.0, 350.0)],
-                    Stroke::new(0.0, Color::TRANSPARENT),
+                    Stroke::new(0.0_f32, Color::TRANSPARENT),
                 );
                 let group1 = renderer
                     .add_shape(
@@ -135,7 +133,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 // Child 1: overlapping blue rectangle
                 let child1 = Shape::rect(
                     [(120.0, 120.0), (300.0, 250.0)],
-                    Stroke::new(2.0, Color::BLACK),
+                    Stroke::new(2.0_f32, Color::BLACK),
                 );
                 renderer
                     .add_shape(
@@ -149,7 +147,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 // Child 2: overlapping green rectangle
                 let child2 = Shape::rect(
                     [(200.0, 180.0), (380.0, 320.0)],
-                    Stroke::new(2.0, Color::BLACK),
+                    Stroke::new(2.0_f32, Color::BLACK),
                 );
                 renderer
                     .add_shape(
@@ -166,10 +164,10 @@ impl<'a> ApplicationHandler for App<'a> {
                     .set_group_effect(group1, OPACITY_EFFECT, bytemuck::bytes_of(&opacity))
                     .expect("Failed to set effect");
 
-                // ── Group 2: 80% opacity ─────────────────────────────────
+                // Group 2: 80% opacity
                 let group2_bg = Shape::rect(
                     [(350.0, 100.0), (700.0, 350.0)],
-                    Stroke::new(0.0, Color::TRANSPARENT),
+                    Stroke::new(0.0_f32, Color::TRANSPARENT),
                 );
                 let group2 = renderer
                     .add_shape(
@@ -182,7 +180,7 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 let child3 = Shape::rect(
                     [(370.0, 130.0), (680.0, 320.0)],
-                    Stroke::new(2.0, Color::BLACK),
+                    Stroke::new(2.0_f32, Color::BLACK),
                 );
                 renderer
                     .add_shape(
@@ -198,7 +196,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     .set_group_effect(group2, OPACITY_EFFECT, bytemuck::bytes_of(&opacity2))
                     .expect("Failed to set effect");
 
-                // ── Render ───────────────────────────────────────────────
                 match renderer.render() {
                     Ok(_) => {
                         self.redraw_retry_at = None;
@@ -209,12 +206,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     }
 
                     Err(wgpu::SurfaceError::Timeout) => {
-                        // The window is not visible yet (still appearing, minimized, or fully
-                        // covered). Retry shortly instead of busy-looping redraws — winit does
-                        // not request one when the window becomes visible again. `WaitUntil`
-                        // wakes the event loop without spinning while the window stays hidden.
                         renderer.clear_draw_queue();
-                        let retry_at = Instant::now() + OCCLUDED_RETRY_DELAY;
+                        let retry_at = Instant::now() + SURFACE_TIMEOUT_RETRY_DELAY;
                         self.redraw_retry_at = Some(retry_at);
                         event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
                     }

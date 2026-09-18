@@ -9,9 +9,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
-/// How long to wait before retrying a frame that was skipped because the surface
-/// reported it was not visible (`Occluded`/`Timeout`).
-const OCCLUDED_RETRY_DELAY: Duration = Duration::from_millis(50);
+const SURFACE_TIMEOUT_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 struct App<'a> {
     window: Option<Arc<Window>>,
@@ -19,7 +17,7 @@ struct App<'a> {
     rust_logo_png_bytes: Vec<u8>,
     rust_logo_png_dimensions: (u32, u32),
     rust_logo_png_dimensions_f32: (f32, f32),
-    /// Pending retry of a frame skipped because the window was not visible.
+    /// Pending redraw after a surface timeout.
     redraw_retry_at: Option<Instant>,
 }
 
@@ -105,7 +103,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         (0.0, 0.0),
                         (window_size.width as f32, window_size.height as f32),
                     ],
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
                 let background_id = renderer
                     .add_shape(
@@ -119,7 +117,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let red = Shape::rounded_rect(
                     [(0.0, 0.0), (200.0, 200.0)],
                     BorderRadii::new(0.0),
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
                 let red_id = renderer
                     .add_shape(
@@ -133,7 +131,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let green = Shape::rounded_rect(
                     [(0.0, 0.0), (200.0, 200.0)],
                     BorderRadii::new(0.0),
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
                 let green_id = renderer
                     .add_shape(
@@ -149,7 +147,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let blue = Shape::rounded_rect(
                     [(0.0, 0.0), (200.0, 200.0)],
                     BorderRadii::new(10.0),
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
                 let blue_id = renderer
                     .add_shape(
@@ -165,7 +163,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let yellow = Shape::rounded_rect(
                     [(0.0, 0.0), (150.0, 150.0)],
                     BorderRadii::new(0.0),
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
                 let yellow_id = renderer
                     .add_shape(
@@ -179,7 +177,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let white = Shape::rounded_rect(
                     [(0.0, 0.0), (20.0, 20.0)],
                     BorderRadii::new(0.0),
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
                 let white_id = renderer
                     .add_shape(
@@ -193,7 +191,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let shape_that_doesnt_fit = Shape::rounded_rect(
                     [(0.0, 0.0), (20.0, 20.0)],
                     BorderRadii::new(0.0),
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
                 let doesnt_fit_id = renderer
                     .add_shape(
@@ -217,7 +215,6 @@ impl<'a> ApplicationHandler for App<'a> {
                         &self.rust_logo_png_bytes,
                     )
                     .unwrap();
-                // Replace legacy image draws with textured shapes (rectangles) for demonstration
                 let img_rect1 = Shape::rect(
                     [
                         (0.0, 0.0),
@@ -226,7 +223,7 @@ impl<'a> ApplicationHandler for App<'a> {
                             self.rust_logo_png_dimensions_f32.1,
                         ),
                     ],
-                    Stroke::new(0.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(0.0_f32, Color::rgb(0, 0, 0)),
                 );
                 let img_rect2 = img_rect1.clone();
                 let img_rect3 = img_rect1.clone();
@@ -277,12 +274,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     }
 
                     Err(wgpu::SurfaceError::Timeout) => {
-                        // The window is not visible yet (still appearing, minimized, or fully
-                        // covered). Retry shortly instead of busy-looping redraws — winit does
-                        // not request one when the window becomes visible again. `WaitUntil`
-                        // wakes the event loop without spinning while the window stays hidden.
                         renderer.clear_draw_queue();
-                        let retry_at = Instant::now() + OCCLUDED_RETRY_DELAY;
+                        let retry_at = Instant::now() + SURFACE_TIMEOUT_RETRY_DELAY;
                         self.redraw_retry_at = Some(retry_at);
                         event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
                     }

@@ -2,7 +2,7 @@ use futures::executor::block_on;
 use grafo::Shape;
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use std::num::NonZeroU32;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -11,11 +11,10 @@ use winit::window::{Window, WindowId};
 #[derive(Default)]
 struct App<'a> {
     window: Option<Arc<Window>>,
-    renderer: Option<Arc<RwLock<grafo::Renderer<'a>>>>,
+    renderer: Option<grafo::Renderer<'a>>,
     softbuffer_context: Option<softbuffer::Context<Arc<Window>>>,
     softbuffer_surface: Option<softbuffer::Surface<Arc<Window>, Arc<Window>>>,
     pending_resize: Option<(u32, u32)>,
-    frame_count: u64,
     bgra_bytes: Vec<u8>,
     argb_buffer: Vec<u32>,
 }
@@ -54,8 +53,6 @@ impl<'a> ApplicationHandler for App<'a> {
                 NonZeroU32::new(physical_size.1).unwrap(),
             )
             .unwrap();
-
-        let renderer = Arc::new(RwLock::new(renderer));
 
         self.window = Some(window);
         self.renderer = Some(renderer);
@@ -101,13 +98,10 @@ impl<'a> ApplicationHandler for App<'a> {
             WindowEvent::RedrawRequested => {
                 // Apply any pending resize to GPU renderer
                 if let Some(pending) = self.pending_resize.take() {
-                    renderer.write().unwrap().resize(pending);
+                    renderer.resize(pending);
                 }
 
-                self.frame_count += 1;
-
-                let mut renderer_guard = renderer.write().unwrap();
-                renderer_guard.clear_draw_queue();
+                renderer.clear_draw_queue();
 
                 let window_size = window.inner_size();
 
@@ -117,9 +111,9 @@ impl<'a> ApplicationHandler for App<'a> {
                         (0.0, 0.0),
                         (window_size.width as f32, window_size.height as f32),
                     ],
-                    Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                 );
-                renderer_guard
+                renderer
                     .add_shape(
                         background,
                         None,
@@ -128,11 +122,11 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                renderer_guard
+                renderer
                     .add_shape(
                         Shape::rect(
                             [(0.0, 0.0), (200.0, 200.0)],
-                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                            Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                         ),
                         None,
                         None,
@@ -142,11 +136,11 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                renderer_guard
+                renderer
                     .add_shape(
                         Shape::rect(
                             [(0.0, 0.0), (200.0, 200.0)],
-                            Stroke::new(1.0, Color::rgb(0, 0, 0)),
+                            Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
                         ),
                         None,
                         None,
@@ -161,7 +155,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 if self.bgra_bytes.len() < needed_bytes {
                     self.bgra_bytes.resize(needed_bytes, 0);
                 }
-                renderer_guard.render_to_buffer(&mut self.bgra_bytes);
+                renderer.render_to_buffer(&mut self.bgra_bytes);
 
                 // CPU swizzle BGRA8 -> ARGB32 u32s for softbuffer
                 let needed_words = (window_size.width as usize) * (window_size.height as usize);

@@ -46,11 +46,11 @@ struct GradientVertexOutput {
     @location(6) screen_pos: vec2<f32>,
 };
 
-// This is a struct that will be used for position normalization
+// Viewport dimensions and antialiasing settings from the renderer.
 struct Uniforms {
     canvas_size: vec2<f32>,
     scale_factor: f32,
-    /// AA fringe offset in physical pixels (default 0.5). Set to 0 to disable fringe.
+    // Outward AA fringe width in physical pixels. Zero disables the fringe.
     fringe_width: f32,
 };
 
@@ -98,20 +98,6 @@ struct MaterialParams {
 // Specialized backdrop layer used only by backdrop color pipelines.
 @group(3) @binding(3) var t_backdrop_layer: texture_2d<f32>;
 @group(3) @binding(4) var s_backdrop_layer: sampler;
-
-fn to_linear(color: vec3<f32>) -> vec3<f32> {
-    let cutoff = vec3<f32>(0.04045);
-    let higher = pow((color + vec3<f32>(0.055)) / vec3<f32>(1.055), vec3<f32>(2.4));
-    let lower = color / vec3<f32>(12.92);
-    return select(higher, lower, color <= cutoff);
-}
-
-fn to_srgb(color: vec3<f32>) -> vec3<f32> {
-    let cutoff = vec3<f32>(0.0031308);
-    let higher = vec3<f32>(1.055) * pow(color, vec3<f32>(1.0 / 2.4)) - vec3<f32>(0.055);
-    let lower = color * vec3<f32>(12.92);
-    return select(higher, lower, color <= cutoff);
-}
 
 const BAYER_4X4_THRESHOLDS: array<f32, 16> = array<f32, 16>(
     0.0, 8.0, 2.0, 10.0,
@@ -230,7 +216,12 @@ fn evaluate_gradient(model_pos: vec2<f32>, screen_pos: vec2<f32>) -> vec4<f32> {
     return textureSampleLevel(t_gradient_ramp, s_gradient_ramp, uv, 0.0);
 }
 
-fn compute_vertex_position(input: VertexInput) -> vec4<f32> {
+struct VertexPosition {
+    clip_position: vec4<f32>,
+    screen_position: vec2<f32>,
+};
+
+fn compute_vertex_position(input: VertexInput) -> VertexPosition {
     // Build the transform matrix from column-major CPU data.
     // Each vec4 (t_col0..t_col3) is one column of the matrix. WGSL's mat4x4
     // constructor treats each argument as a column, so this is a direct mapping.
@@ -246,9 +237,8 @@ fn compute_vertex_position(input: VertexInput) -> vec4<f32> {
     let py = p.y * invw;
     let pz = p.z * invw;
 
-    // AA fringe offset: push outer fringe vertices outward by 1 logical pixel in screen space.
-    // Only applied to fringe vertices (coverage < 1.0). This ensures the fringe width is
-    // uniform regardless of perspective transforms.
+    // Offset fringe vertices after projection to keep the configured physical-pixel
+    // width independent of the shape's transform.
     var final_px = px;
     var final_py = py;
 
@@ -266,23 +256,18 @@ fn compute_vertex_position(input: VertexInput) -> vec4<f32> {
 
         if (screen_len > 1e-8) {
             let unit_dir = screen_dir / screen_len;
-            // Offset outward by the configured fringe width (in physical pixels).
-            // This centers the AA band on the shape boundary, avoiding bloating thin features
-            // (a 1px line stays ~2px instead of 3px with a full-pixel fringe).
+            // Convert the physical-pixel width to logical screen coordinates.
             let fringe_width = uniforms.fringe_width / uniforms.scale_factor;
             final_px = px + unit_dir.x * fringe_width;
             final_py = py + unit_dir.y * fringe_width;
         }
     }
 
-    // Then convert to NDC (Normalized Device Coordinates)
-    // NDC is a cube with corners (-1, -1, -1) and (1, 1, 1).
+    // Map screen coordinates to [-1, 1], with Y increasing upward.
     let ndc_x = 2.0 * final_px / uniforms.canvas_size.x - 1.0;
     let ndc_y = 1.0 - 2.0 * final_py / uniforms.canvas_size.y;
-    // Map pz to [0, 1] depth range. Scale determines the Z range that maps to full depth.
-    // Clamp to ensure we stay within valid depth bounds.
-    // Larger Z -> smaller depth (closer to camera)
-    let scale = 1000.0;  // Z range of [-scale, +scale] maps to [1, 0]
+    // Map Z from [-scale / 2, scale / 2] to [1, 0], clamping values outside that range.
+    let scale = 1000.0;
     var depth = clamp(0.5 - pz / scale, 0.0, 1.0);
 
     // TODO: a bit of a hacky hack to avoid intersection between shapes that do and shapes that doesn't use perspective.
@@ -308,13 +293,16 @@ fn compute_vertex_position(input: VertexInput) -> vec4<f32> {
     //  I don't have a particular use case for it right now, so I'm leaving it as is.
     //  If you want to enable intersection without transparency, change the pipeline to enable depth test/write with
     //  less-equal function. (set depth_compare: wgpu::CompareFunction::LessEqual on the stencil/depth state)
-    return vec4<f32>(ndc_x, ndc_y, biased_depth, 1.0);
+    return VertexPosition(
+        vec4<f32>(ndc_x, ndc_y, biased_depth, 1.0),
+        vec2<f32>(final_px, final_py),
+    );
 }
 
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = compute_vertex_position(input);
+    output.position = compute_vertex_position(input).clip_position;
     output.color = input.color;
     output.layer0_tex_coords = input.tex_coords * input.texture_uv_transform_layer0.xy
         + input.texture_uv_transform_layer0.zw;
@@ -327,8 +315,9 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
 @vertex
 fn vs_main_gradient(input: VertexInput) -> GradientVertexOutput {
+    let position = compute_vertex_position(input);
     var output: GradientVertexOutput;
-    output.position = compute_vertex_position(input);
+    output.position = position.clip_position;
     output.color = input.color;
     output.layer0_tex_coords = input.tex_coords * input.texture_uv_transform_layer0.xy
         + input.texture_uv_transform_layer0.zw;
@@ -338,32 +327,7 @@ fn vs_main_gradient(input: VertexInput) -> GradientVertexOutput {
     output.texture_flags = input.texture_flags;
     output.model_pos = input.position;
 
-    let model: mat4x4<f32> = mat4x4<f32>(input.t_col0, input.t_col1, input.t_col2, input.t_col3);
-    let p = model * vec4<f32>(input.position, 0.0, 1.0);
-    let invw = 1.0 / max(abs(p.w), 1e-6);
-    let px = p.x * invw;
-    let py = p.y * invw;
-
-    var final_px = px;
-    var final_py = py;
-    if (input.coverage < 1.0) {
-        let epsilon = 0.01;
-        let p2 = model * vec4<f32>(input.position + input.normal * epsilon, 0.0, 1.0);
-        let invw2 = 1.0 / max(abs(p2.w), 1e-6);
-        let px2 = p2.x * invw2;
-        let py2 = p2.y * invw2;
-        let screen_dir = vec2<f32>(px2 - px, py2 - py);
-        let screen_len = length(screen_dir);
-
-        if (screen_len > 1e-8) {
-            let unit_dir = screen_dir / screen_len;
-            let fringe_width = uniforms.fringe_width / uniforms.scale_factor;
-            final_px = px + unit_dir.x * fringe_width;
-            final_py = py + unit_dir.y * fringe_width;
-        }
-    }
-
-    output.screen_pos = vec2<f32>(final_px, final_py);
+    output.screen_pos = position.screen_position;
     return output;
 }
 
@@ -374,38 +338,25 @@ fn texture_footprint_coverage(texture_coordinates: vec2<f32>) -> f32 {
     return select(0.0, 1.0, is_inside);
 }
 
-// Computes the final premultiplied color for a fragment given fill color, texture
-// coordinates, and AA coverage.
-fn compute_fragment_color(
-    color: vec4<f32>,
+fn composite_texture_layers(
+    color_pma: vec4<f32>,
     layer0_tex_coords: vec2<f32>,
     layer1_tex_coords: vec2<f32>,
     coverage: f32,
     texture_flags: f32,
 ) -> vec4<f32> {
-    // Shape fill color arrives already in linear space (sRGB->linear conversion
-    // is performed on the CPU in normalize_rgba_color).
-    // Convert fill to premultiplied
-    let fill_pma = vec4<f32>(color.rgb * color.a, color.a);
-
-    // Fast path: no textures bound — solid fill only. Skip both texture samples.
     let flags = u32(texture_flags);
     if (flags == 0u) {
-        return fill_pma * coverage;
+        return color_pma * coverage;
     }
 
-    // At least one texture layer is active.
-    // Use textureSampleLevel (explicit LOD 0) instead of textureSample so that
-    // sampling is valid inside non-uniform control flow. Our textures are created
-    // without mipmaps (mip_level_count = 1), so LOD 0 is always correct.
-    // Data is premultiplied (Rgba8UnormSrgb -> linear automatically).
-
-    // Compose: base = texture layer 0 over shape fill, then layer 1 over result.
-    var base_pma = fill_pma;
+    // Explicit LOD permits sampling in non-uniform control flow. Shape textures
+    // have one mip level and contain premultiplied colors.
+    var base_pma = color_pma;
     if ((flags & 1u) != 0u) {
         let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0)
             * texture_footprint_coverage(layer0_tex_coords);
-        base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
+        base_pma = layer0_pma + color_pma * (1.0 - layer0_pma.a);
     }
 
     var final_pma = base_pma;
@@ -415,10 +366,22 @@ fn compute_fragment_color(
         final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
     }
 
-    // Apply AA coverage: scale premultiplied color by coverage factor.
-    // With premultiplied alpha blending (src: One, dst: OneMinusSrcAlpha),
-    // multiplying all four channels by coverage correctly fades the fringe to transparent.
+    // Scale alpha and RGB together to preserve premultiplication at AA edges.
     return final_pma * coverage;
+}
+
+fn compute_fragment_color(
+    color: vec4<f32>,
+    layer0_tex_coords: vec2<f32>,
+    layer1_tex_coords: vec2<f32>,
+    coverage: f32,
+    texture_flags: f32,
+) -> vec4<f32> {
+    // The CPU converts the fill to linear RGB; premultiply it before compositing.
+    let fill_pma = vec4<f32>(color.rgb * color.a, color.a);
+    return composite_texture_layers(
+        fill_pma, layer0_tex_coords, layer1_tex_coords, coverage, texture_flags,
+    );
 }
 
 fn compute_gradient_fragment_color(
@@ -435,26 +398,9 @@ fn compute_gradient_fragment_color(
         dither_coords,
     );
 
-    let flags = u32(texture_flags);
-    if (flags == 0u) {
-        return fill_pma * coverage;
-    }
-
-    var base_pma = fill_pma;
-    if ((flags & 1u) != 0u) {
-        let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0)
-            * texture_footprint_coverage(layer0_tex_coords);
-        base_pma = layer0_pma + fill_pma * (1.0 - layer0_pma.a);
-    }
-
-    var final_pma = base_pma;
-    if ((flags & 2u) != 0u) {
-        let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, layer1_tex_coords, 0.0)
-            * texture_footprint_coverage(layer1_tex_coords);
-        final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
-    }
-
-    return final_pma * coverage;
+    return composite_texture_layers(
+        fill_pma, layer0_tex_coords, layer1_tex_coords, coverage, texture_flags,
+    );
 }
 
 fn compute_fragment_color_with_backdrop(
@@ -470,22 +416,10 @@ fn compute_fragment_color_with_backdrop(
         * material_params.backdrop_sampling.inverse_capture_size;
     let backdrop_pma = textureSampleLevel(t_backdrop_layer, s_backdrop_layer, backdrop_uv, 0.0);
 
-    let flags = u32(texture_flags);
-    var base_pma = fill_pma + backdrop_pma * (1.0 - fill_pma.a);
-    if ((flags & 1u) != 0u) {
-        let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0)
-            * texture_footprint_coverage(layer0_tex_coords);
-        base_pma = layer0_pma + base_pma * (1.0 - layer0_pma.a);
-    }
-
-    var final_pma = base_pma;
-    if ((flags & 2u) != 0u) {
-        let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, layer1_tex_coords, 0.0)
-            * texture_footprint_coverage(layer1_tex_coords);
-        final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
-    }
-
-    return final_pma * coverage;
+    let base_pma = fill_pma + backdrop_pma * (1.0 - fill_pma.a);
+    return composite_texture_layers(
+        base_pma, layer0_tex_coords, layer1_tex_coords, coverage, texture_flags,
+    );
 }
 
 fn compute_gradient_fragment_color_with_backdrop(
@@ -505,22 +439,10 @@ fn compute_gradient_fragment_color_with_backdrop(
         * material_params.backdrop_sampling.inverse_capture_size;
     let backdrop_pma = textureSampleLevel(t_backdrop_layer, s_backdrop_layer, backdrop_uv, 0.0);
 
-    let flags = u32(texture_flags);
-    var base_pma = fill_pma + backdrop_pma * (1.0 - fill_pma.a);
-    if ((flags & 1u) != 0u) {
-        let layer0_pma = textureSampleLevel(t_shape_layer0, s_shape_layer0, layer0_tex_coords, 0.0)
-            * texture_footprint_coverage(layer0_tex_coords);
-        base_pma = layer0_pma + base_pma * (1.0 - layer0_pma.a);
-    }
-
-    var final_pma = base_pma;
-    if ((flags & 2u) != 0u) {
-        let layer1_pma = textureSampleLevel(t_shape_layer1, s_shape_layer1, layer1_tex_coords, 0.0)
-            * texture_footprint_coverage(layer1_tex_coords);
-        final_pma = layer1_pma + base_pma * (1.0 - layer1_pma.a);
-    }
-
-    return final_pma * coverage;
+    let base_pma = fill_pma + backdrop_pma * (1.0 - fill_pma.a);
+    return composite_texture_layers(
+        base_pma, layer0_tex_coords, layer1_tex_coords, coverage, texture_flags,
+    );
 }
 
 @fragment

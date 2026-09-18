@@ -86,17 +86,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     // Mouse position in logical coordinates
                     let mouse_x = self.mouse_position.x / scale_factor as f32;
                     let mouse_y = self.mouse_position.y / scale_factor as f32;
-                    // Position the rectangle at center of screen (400, 300)
-                    // In the HTML, the rectangle is rotated 45 degrees around the X axis (rotateX(45deg))
-                    // and the container has perspective: 500px
-                    //
-                    // To replicate this:
-                    // 1. Center the rectangle's origin
-                    // 2. Apply rotateX(45deg)
-                    // 3. Set perspective_distance to 500
-                    // 4. Use offset to position at screen center
 
-                    // Parent transform replicating the CSS 3D container
+                    // Center the 100x100 parent and its perspective origin in the viewport.
                     let parent_local = transformator::Transform::new()
                         .with_position_relative_to_parent(
                             viewport_center.0 - 50.0,
@@ -107,15 +98,13 @@ impl<'a> ApplicationHandler for App<'a> {
                             viewport_center.0,
                             viewport_center.1,
                         )
-                        // TODO: important! Order of rotations matters!
+                        // Y rotation precedes X rotation because the rotations do not commute.
                         .then_rotate_y_deg(30.0)
                         .then_rotate_x_deg(45.0)
                         .with_origin(50.0, 50.0)
                         .compose_2(&transformator::Transform::new());
 
-                    // Inner rectangles inherit parent transform and sit inside with 10px padding.
-                    // Layout: padding(10) + rect(35) + gap(10) + rect(35) + padding(10) = 100 total width.
-                    // Vertical: padding(10) + height(80) + padding(10) = 100 total height.
+                    // The 35x80 children fit inside the 100x100 parent with 10px padding and gap.
 
                     let child1 = transformator::Transform::new()
                         .with_position_relative_to_parent(10.0, 10.0)
@@ -128,8 +117,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         .with_origin(17.5, 40.0)
                         .compose_2(&parent_local);
 
-                    // Hit testing: transform mouse position to local coordinates for each shape
-                    // Check children first (they're on top)
+                    // Children take hover priority over the parent.
                     let child1_local = child1.project_screen_point_to_local_2d((mouse_x, mouse_y));
                     let child1_hit = if let Some((lx, ly)) = child1_local {
                         (0.0..=35.0).contains(&lx) && (0.0..=80.0).contains(&ly)
@@ -156,7 +144,6 @@ impl<'a> ApplicationHandler for App<'a> {
                         false
                     };
 
-                    // Update hover states
                     self.parent_hovered = parent_hit;
                     self.child1_hovered = child1_hit;
                     self.child2_hovered = child2_hit;
@@ -165,7 +152,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         .add_shape(
                             Shape::rect(
                                 [(0.0, 0.0), (width, height)],
-                                Stroke::new(2.0, Color::TRANSPARENT),
+                                Stroke::new(2.0_f32, Color::TRANSPARENT),
                             ),
                             None,
                             None,
@@ -177,7 +164,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         .add_shape(
                             Shape::rect(
                                 [(0.0, 0.0), (100.0, 100.0)],
-                                Stroke::new(2.0, Color::TRANSPARENT),
+                                Stroke::new(2.0_f32, Color::TRANSPARENT),
                             ),
                             None,
                             None,
@@ -193,8 +180,10 @@ impl<'a> ApplicationHandler for App<'a> {
                         )
                         .unwrap();
 
-                    let inner_rect_shape =
-                        Shape::rect([(0.0, 0.0), (35.0, 80.0)], Stroke::new(1.0, Color::BLACK));
+                    let inner_rect_shape = Shape::rect(
+                        [(0.0, 0.0), (35.0, 80.0)],
+                        Stroke::new(1.0_f32, Color::BLACK),
+                    );
                     renderer
                         .add_shape(
                             inner_rect_shape.clone(),
@@ -235,10 +224,6 @@ impl<'a> ApplicationHandler for App<'a> {
                             renderer.resize(size);
                         }
                         Err(wgpu::SurfaceError::Timeout) => {
-                            // The window is not visible yet (still appearing, minimized, or
-                            // fully covered). Ask for another redraw instead of dropping the
-                            // frame for good — winit does not request one when the window
-                            // becomes visible again.
                             if let Some(window) = &self.window {
                                 window.request_redraw();
                             }
