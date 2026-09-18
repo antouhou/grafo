@@ -1,6 +1,7 @@
 //! Renderer for the Grafo library.
 use ahash::{HashMap, HashMapExt};
 use lyon::tessellation::FillTessellator;
+use naga::valid::Validator;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tracing::warn;
@@ -207,6 +208,8 @@ pub struct Renderer<'a> {
     /// View of the cached depth/stencil texture.
     depth_stencil_view: Option<wgpu::TextureView>,
 
+    /// Reuses validation scratch storage across effect loads.
+    effect_shader_validator: Validator,
     /// Loaded (compiled) effects, keyed by user-provided effect_id.
     loaded_effects: HashMap<u64, LoadedEffect>,
     /// Per-node group effect instances, keyed by node_id.
