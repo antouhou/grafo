@@ -158,18 +158,28 @@ fn update_effect_instance_params(
     instance: &mut EffectInstance,
     params: &[u8],
     params_buffer_label: &'static str,
-) {
+) -> Result<(), EffectError> {
+    if let Some(resources) = instance.parameter_resources.as_ref() {
+        let expected_size = resources.buffer.size();
+        let actual_size = params.len() as u64;
+        if actual_size != expected_size {
+            return Err(EffectError::ParameterSizeMismatch {
+                effect_id: instance.effect_id,
+                expected_size,
+                actual_size,
+            });
+        }
+    }
+
     overwrite_effect_params(&mut instance.params, params);
 
     let Some(params_bind_group_layout) = loaded_effect.params_bind_group_layout.as_ref() else {
-        return;
+        return Ok(());
     };
 
     if let Some(resources) = instance.parameter_resources.as_ref() {
-        if params.len() as u64 <= resources.buffer.size() {
-            queue.write_buffer(&resources.buffer, 0, params);
-            return;
-        }
+        queue.write_buffer(&resources.buffer, 0, params);
+        return Ok(());
     }
 
     instance.parameter_resources = Some(create_effect_parameter_resources(
@@ -178,6 +188,7 @@ fn update_effect_instance_params(
         params,
         params_buffer_label,
     ));
+    Ok(())
 }
 
 fn refresh_effect_instance_after_reload(
@@ -314,9 +325,7 @@ impl<'a> Renderer<'a> {
             instance,
             params,
             "effect_params_buffer",
-        );
-
-        Ok(())
+        )
     }
 
     pub fn remove_group_effect(&mut self, node_id: usize) {
@@ -397,9 +406,7 @@ impl<'a> Renderer<'a> {
             instance,
             params,
             "backdrop_effect_params_buffer",
-        );
-
-        Ok(())
+        )
     }
 
     pub fn remove_backdrop_effect(&mut self, node_id: usize) {

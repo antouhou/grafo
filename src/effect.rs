@@ -25,7 +25,16 @@ pub enum EffectError {
     /// The referenced node_id does not exist in the draw tree.
     #[error("Node {0} not found in draw tree")]
     NodeNotFound(usize),
-    /// Invalid parameter data (e.g. wrong size for uniform buffer).
+    /// Parameter data does not match the existing uniform buffer size.
+    #[error(
+        "Effect {effect_id} expects {expected_size} parameter bytes but {actual_size} were provided"
+    )]
+    ParameterSizeMismatch {
+        effect_id: u64,
+        expected_size: u64,
+        actual_size: u64,
+    },
+    /// Invalid effect parameters or configuration.
     #[error("Invalid effect parameters: {0}")]
     InvalidParams(String),
 }

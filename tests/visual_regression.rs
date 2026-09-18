@@ -6,9 +6,9 @@
 /// Run with:   cargo test --test visual_regression
 use futures::executor::block_on;
 use grafo::{
-    BackdropEffectConfig, BorderRadii, Color, ColorInterpolation, Fill, Gradient, GradientStop,
-    GradientStopOffset, LinearGradientDesc, LinearGradientLine, Shape, ShapeDrawCommandOptions,
-    Stroke,
+    BackdropEffectConfig, BorderRadii, Color, ColorInterpolation, EffectError, Fill, Gradient,
+    GradientStop, GradientStopOffset, LinearGradientDesc, LinearGradientLine, Shape,
+    ShapeDrawCommandOptions, Stroke,
 };
 use grafo_test_scenes::{
     build_main_scene, check_pixels, PixelExpectation, CANVAS_HEIGHT, CANVAS_WIDTH,
@@ -212,6 +212,29 @@ fn group_and_backdrop_effect_params_survive_updates_and_reload() {
         read_pixel_rgba(&pixel_buffer, 32, 24, 16),
         [255, 255, 0, 255]
     );
+
+    for params in [&[1.0_f32, 0.0, 1.0][..], &[1.0_f32, 0.0, 1.0, 1.0, 0.0][..]] {
+        let params = bytemuck::cast_slice(params);
+        for result in [
+            renderer.update_group_effect_params(group, params),
+            renderer.update_backdrop_effect_params(backdrop, params),
+        ] {
+            assert!(matches!(
+                result,
+                Err(EffectError::ParameterSizeMismatch {
+                    effect_id: rejected_effect_id,
+                    expected_size: 16,
+                    actual_size,
+                }) if rejected_effect_id == effect_id && actual_size == params.len() as u64
+            ));
+        }
+        renderer.render_to_buffer(&mut pixel_buffer);
+        assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [0, 255, 0, 255]);
+        assert_eq!(
+            read_pixel_rgba(&pixel_buffer, 32, 24, 16),
+            [255, 255, 0, 255]
+        );
+    }
 
     let reloaded_source = format!("{PARAMETERIZED_COLOR_EFFECT}\n");
     renderer
