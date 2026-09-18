@@ -223,8 +223,10 @@ fn refresh_effect_instance_after_reload(
 impl<'a> Renderer<'a> {
     /// Loads or replaces an effect from WGSL passes.
     ///
-    /// WGPU shader and pipeline errors are logged through `tracing`, so the function
-    /// doesn't need to become async for now - subject to change at a later point.
+    /// Naga validates every pass before GPU resources are created. Invalid WGSL,
+    /// missing fragment entry points, and unsupported bindings return an error
+    /// without replacing an existing effect. Device-specific WGPU errors are
+    /// logged through `tracing`.
     pub fn load_effect(
         &mut self,
         effect_id: u64,
@@ -241,8 +243,12 @@ impl<'a> Renderer<'a> {
             return Ok(());
         }
 
-        let loaded_effect =
-            compile_effect_pipeline(&self.device, pass_sources, self.config.format)?;
+        let loaded_effect = compile_effect_pipeline(
+            &self.device,
+            pass_sources,
+            self.config.format,
+            &mut self.effect_shader_validator,
+        )?;
         self.loaded_effects.insert(effect_id, loaded_effect);
         let loaded_effect = self
             .loaded_effects

@@ -1089,7 +1089,7 @@ dependencies = [
  "image",
  "lru",
  "lyon",
- "regex",
+ "naga",
  "smallvec",
  "softbuffer",
  "thiserror 2.0.18",

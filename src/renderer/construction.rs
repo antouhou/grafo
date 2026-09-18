@@ -9,6 +9,7 @@ use crate::pipeline::{
     create_gradient_stencil_keep_color_pipeline, create_stencil_keep_color_pipeline,
 };
 use crate::vertex::CustomVertex;
+use naga::valid::{Capabilities, ValidationFlags, Validator};
 use tracing::{error, info, warn};
 use wgpu::InstanceDescriptor;
 
@@ -454,6 +455,10 @@ impl<'a> Renderer<'a> {
             msaa_color_texture_view: None,
             depth_stencil_texture: None,
             depth_stencil_view: None,
+            effect_shader_validator: Validator::new(
+                ValidationFlags::all(),
+                Capabilities::default(),
+            ),
             loaded_effects: HashMap::new(),
             group_effects: HashMap::new(),
             backdrop_effects: HashMap::new(),

@@ -264,9 +264,16 @@ fn invalid_effect_can_be_replaced_with_a_valid_shader() {
         return;
     };
 
-    // Invalid WGSL, followed by a valid module missing the fragment entry point.
-    for source in ["@fragment fn effect_main(", ""] {
-        let _ = renderer.load_effect(9_201, &[source]);
+    // Parsing and semantic failures must not poison the renderer's shared validator.
+    for source in [
+        "@fragment fn effect_main(",
+        "",
+        "@fragment fn effect_main() -> @location(0) vec4<f32> { return vec3<f32>(1.0); }",
+    ] {
+        assert!(matches!(
+            renderer.load_effect(9_201, &[source]),
+            Err(EffectError::InvalidShader { pass_index: 0, .. })
+        ));
     }
     renderer
         .load_effect(9_201, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
@@ -284,6 +291,15 @@ fn invalid_effect_can_be_replaced_with_a_valid_shader() {
     let mut pixel_buffer = Vec::new();
     renderer.render_to_buffer(&mut pixel_buffer);
     assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 16, 16), [255, 0, 0, 255]);
+
+    for _ in 0..2 {
+        assert!(matches!(
+            renderer.load_effect(9_201, &[CACHED_SHAPE_EFFECT_PASSTHROUGH, ""]),
+            Err(EffectError::InvalidShader { pass_index: 1, .. })
+        ));
+        renderer.render_to_buffer(&mut pixel_buffer);
+        assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 16, 16), [255, 0, 0, 255]);
+    }
 }
 
 #[cfg(feature = "render_metrics")]

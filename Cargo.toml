@@ -22,7 +22,7 @@ lyon = { version = "1.0"}
 easy-tree = { version = "0.3" }
 tracing = "0.1.44"
 lru = "0.15"
-regex = "1"
+naga = { version = "25.0", features = ["wgsl-in"] }
 softbuffer = "0.4.8"
 thiserror = "2.0.18"
 smallvec = "1.13"

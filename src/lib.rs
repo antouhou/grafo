@@ -59,7 +59,9 @@ mod shape;
 mod texture_manager;
 
 pub use color::Color;
-pub use effect::{BackdropCaptureArea, BackdropEffectConfig, EffectError, ShapeEffectConfig};
+pub use effect::{
+    BackdropCaptureArea, BackdropEffectConfig, EffectError, EffectShaderError, ShapeEffectConfig,
+};
 pub use gradient::errors::GradientError;
 pub use gradient::types::{
     ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
