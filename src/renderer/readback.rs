@@ -75,7 +75,7 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         let after_prepare = std::time::Instant::now();
 
-        let (width, height) = self.physical_size;
+        let (width, height) = self.state.physical_size;
 
         let size_changed = self.rtb_cached_width != width || self.rtb_cached_height != height;
         if size_changed {
@@ -140,11 +140,11 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         let after_submit = std::time::Instant::now();
 
-        let mut readback_bytes = std::mem::take(&mut self.scratch.readback_bytes);
+        let mut readback_bytes = std::mem::take(&mut self.state.scratch.readback_bytes);
         Self::map_readback_buffer_into(&self.device, output_buffer, &mut readback_bytes);
         let required_readback_len = (height as usize).saturating_mul(padded_bytes_per_row as usize);
         if readback_bytes.is_empty() || readback_bytes.len() < required_readback_len {
-            self.scratch.readback_bytes = readback_bytes;
+            self.state.scratch.readback_bytes = readback_bytes;
             return Ok(());
         }
         copy_padded_readback_rows(
@@ -155,7 +155,7 @@ impl<'a> Renderer<'a> {
             buffer,
         );
 
-        self.scratch.readback_bytes = readback_bytes;
+        self.state.scratch.readback_bytes = readback_bytes;
 
         #[cfg(feature = "render_metrics")]
         {
@@ -188,7 +188,7 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         let after_prepare = std::time::Instant::now();
 
-        let (width, height) = self.physical_size;
+        let (width, height) = self.state.physical_size;
         let needed_len = (width as usize) * (height as usize);
         if out_pixels.len() < needed_len {
             warn!(
@@ -342,20 +342,20 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         let after_submit = std::time::Instant::now();
 
-        let mut readback_bytes = std::mem::take(&mut self.scratch.readback_bytes);
+        let mut readback_bytes = std::mem::take(&mut self.state.scratch.readback_bytes);
         Self::map_readback_buffer_into(
             &self.device,
             self.argb_readback_buffer.as_ref().unwrap(),
             &mut readback_bytes,
         );
         if readback_bytes.is_empty() {
-            self.scratch.readback_bytes = readback_bytes;
+            self.state.scratch.readback_bytes = readback_bytes;
             return Ok(());
         }
 
         let src_words: &[u32] = bytemuck::cast_slice(&readback_bytes);
         out_pixels[..needed_len].copy_from_slice(&src_words[..needed_len]);
-        self.scratch.readback_bytes = readback_bytes;
+        self.state.scratch.readback_bytes = readback_bytes;
 
         #[cfg(feature = "render_metrics")]
         {
@@ -396,16 +396,30 @@ mod tests {
             Err(error) => panic!("Failed to create headless renderer: {error}"),
         };
         let readback_size = 65 * 1024 * 1024;
-        renderer.scratch.readback_bytes.resize(readback_size, 0);
-        let storage_pointer = renderer.scratch.readback_bytes.as_ptr();
-        let storage_capacity = renderer.scratch.readback_bytes.capacity();
+        renderer
+            .state
+            .scratch
+            .readback_bytes
+            .resize(readback_size, 0);
+        let storage_pointer = renderer.state.scratch.readback_bytes.as_ptr();
+        let storage_capacity = renderer.state.scratch.readback_bytes.capacity();
 
         for _ in 0..3 {
             renderer.clear_draw_queue();
             renderer.begin_frame_scratch();
-            assert_eq!(renderer.scratch.readback_bytes.capacity(), storage_capacity);
-            assert_eq!(renderer.scratch.readback_bytes.as_ptr(), storage_pointer);
-            renderer.scratch.readback_bytes.resize(readback_size, 0);
+            assert_eq!(
+                renderer.state.scratch.readback_bytes.capacity(),
+                storage_capacity
+            );
+            assert_eq!(
+                renderer.state.scratch.readback_bytes.as_ptr(),
+                storage_pointer
+            );
+            renderer
+                .state
+                .scratch
+                .readback_bytes
+                .resize(readback_size, 0);
         }
     }
 

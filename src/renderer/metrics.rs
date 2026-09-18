@@ -267,12 +267,12 @@ impl<'a> Renderer<'a> {
     /// Shows how many times each GPU pipeline was bound, and how many parent shapes
     /// used scissor clipping instead of stencil increment/decrement.
     pub fn last_pipeline_switch_counts(&self) -> PipelineSwitchCounts {
-        self.last_pipeline_switch_counts
+        self.state.pipeline_switch_counts
     }
 
     /// Returns cached shape-effect activity for the most recently rendered frame.
     pub fn last_shape_effect_cache_metrics(&self) -> ShapeEffectCacheMetrics {
-        self.last_shape_effect_cache_metrics
+        self.state.shape_effect_cache_metrics
     }
 }
 

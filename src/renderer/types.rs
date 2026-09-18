@@ -3,15 +3,12 @@ use super::metrics::PipelineSwitchCounts;
 use super::traversal::TraversalScratch;
 use crate::effect::{self, LoadedEffect};
 use crate::gradient::gpu::GradientCache;
-use crate::pipeline::draw_indexed_geometry;
 use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
-use crate::texture_manager::TextureManager;
-use crate::vertex::{GeometryBufferRange, InstanceTransform};
+use crate::vertex::InstanceTransform;
 use ahash::{HashMap, HashMapExt};
-use std::ops::Range;
 use std::sync::Arc;
 use thiserror::Error;
-use wgpu::{RenderPass, SurfaceError};
+use wgpu::SurfaceError;
 
 // TODO: probably some parts of it also can be cached, so we don't need to copy it all the time.
 #[allow(clippy::large_enum_variant)]
@@ -306,49 +303,6 @@ impl BoundTextureState {
     }
 }
 
-pub(super) struct Buffers<'a> {
-    pub(super) supports_base_vertex: bool,
-    pub(super) aggregated_vertex_buffer: &'a wgpu::Buffer,
-    pub(super) aggregated_index_buffer: &'a wgpu::Buffer,
-    pub(super) identity_instance_transform_buffer: &'a wgpu::Buffer,
-    pub(super) identity_instance_color_buffer: &'a wgpu::Buffer,
-    pub(super) identity_instance_metadata_buffer: &'a wgpu::Buffer,
-    pub(super) aggregated_instance_transform_buffer: Option<&'a wgpu::Buffer>,
-    pub(super) aggregated_instance_color_buffer: Option<&'a wgpu::Buffer>,
-    pub(super) aggregated_instance_metadata_buffer: Option<&'a wgpu::Buffer>,
-}
-
-impl Buffers<'_> {
-    pub(super) fn draw_indexed(
-        &self,
-        render_pass: &mut RenderPass<'_>,
-        geometry_range: GeometryBufferRange,
-        instances: Range<u32>,
-    ) {
-        draw_indexed_geometry(
-            render_pass,
-            geometry_range,
-            self.aggregated_vertex_buffer,
-            self.supports_base_vertex,
-            instances,
-        );
-    }
-}
-
-pub(super) struct Pipelines<'a> {
-    pub(super) and_pipeline: &'a wgpu::RenderPipeline,
-    pub(super) and_gradient_pipeline: &'a wgpu::RenderPipeline,
-    pub(super) and_bind_group: &'a wgpu::BindGroup,
-    pub(super) decrementing_pipeline: &'a wgpu::RenderPipeline,
-    pub(super) decrementing_bind_group: &'a wgpu::BindGroup,
-    pub(super) leaf_draw_pipeline: &'a wgpu::RenderPipeline,
-    pub(super) leaf_draw_gradient_pipeline: &'a wgpu::RenderPipeline,
-    pub(super) shape_texture_bind_group_layout_background: &'a wgpu::BindGroupLayout,
-    pub(super) shape_texture_bind_group_layout_foreground: &'a wgpu::BindGroupLayout,
-    pub(super) default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
-    pub(super) texture_manager: &'a TextureManager,
-}
-
 #[derive(Clone, Copy)]
 pub(super) enum BackdropSource<'a> {
     /// The source already contains every layer painted before the backdrop node.
@@ -382,7 +336,6 @@ impl<'a> BackdropSource<'a> {
 /// General resources (pipelines, buffers, textures) are passed separately.
 pub(super) struct BackdropContext<'a> {
     pub(super) loaded_effects: &'a HashMap<u64, LoadedEffect>,
-    pub(super) composite_bgl: &'a wgpu::BindGroupLayout,
     pub(super) effect_sampler: &'a wgpu::Sampler,
     pub(super) gradient_ramp_sampler: &'a wgpu::Sampler,
     pub(super) texture_blit_pipeline: &'a wgpu::RenderPipeline,

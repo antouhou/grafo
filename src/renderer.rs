@@ -5,10 +5,11 @@ use naga::valid::Validator;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tracing::warn;
-use wgpu::{BindGroup, BufferUsages, CompositeAlphaMode, SurfaceTarget};
+use wgpu::{BufferUsages, CompositeAlphaMode, SurfaceTarget};
 
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
+use self::state::RendererState;
 use self::types::{DrawCommand, RendererScratch};
 use crate::effect::{
     self, compile_composite_pipeline, compile_effect_pipeline, create_params_bind_group,
@@ -43,6 +44,7 @@ mod readback;
 mod rect_utils;
 mod rendering;
 mod shape_effects;
+mod state;
 mod surface;
 mod traversal;
 pub(crate) mod types;
@@ -100,12 +102,6 @@ pub(crate) struct RendererContextInner {
 ///
 /// Multiple renderers can share GPU resources through a [`RendererContext`].
 pub struct Renderer<'a> {
-    // Window information
-    /// Size of the window in pixels.
-    pub(crate) physical_size: (u32, u32),
-    /// Scale factor of the window (e.g., for high-DPI displays).
-    scale_factor: f64,
-
     /// Outward AA fringe width in physical pixels.
     fringe_width: f32,
 
@@ -118,38 +114,20 @@ pub struct Renderer<'a> {
     config: wgpu::SurfaceConfiguration,
 
     tessellator: FillTessellator,
-    shape_resources: ShapeResources,
-    texture_manager: TextureManager,
-
-    /// Tree structure holding shapes to be rendered.
-    draw_tree: easy_tree::Tree<DrawCommand>,
 
     /// Uniforms for the stencil-increment ("and") rendering pipeline.
     and_uniforms: Uniforms,
     /// GPU buffer backing the "and" pipeline uniforms.
     and_uniform_buffer: wgpu::Buffer,
-    /// Bind group for the stencil-increment rendering pipeline.
-    and_bind_group: BindGroup,
-    /// Render pipeline for stencil-increment operations.
-    and_pipeline: Arc<wgpu::RenderPipeline>,
-    /// Bind group layouts for shape texture layers (groups 1 and 2).
-    shape_texture_bind_group_layout_background: Arc<wgpu::BindGroupLayout>,
-    shape_texture_bind_group_layout_foreground: Arc<wgpu::BindGroupLayout>,
     /// Bind group layout for backdrop textures (group 3, bindings 3 and 4).
     backdrop_texture_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-    /// Default transparent texture bind groups for both layers.
-    default_shape_texture_bind_groups: [Arc<wgpu::BindGroup>; 2], // [background, foreground]
     /// Default transparent bind group for backdrop sampling.
     default_backdrop_texture_bind_group: Arc<wgpu::BindGroup>,
 
-    /// Render pipeline for decrementing stencil values.
-    decrementing_pipeline: Arc<wgpu::RenderPipeline>,
     /// Uniforms for the decrementing pipeline.
     decrementing_uniforms: Uniforms,
     /// GPU buffer backing the decrementing pipeline uniforms.
     decrementing_uniform_buffer: wgpu::Buffer,
-    /// Bind group for the decrementing pipeline.
-    decrementing_bind_group: BindGroup,
 
     temp_vertices: Vec<CustomVertex>,
     temp_indices: Vec<u16>,
@@ -163,16 +141,6 @@ pub struct Renderer<'a> {
     temp_instance_colors: Vec<InstanceColor>,
     /// Per-frame instance metadata (draw order) for shapes.
     temp_instance_metadata: Vec<InstanceMetadata>,
-
-    aggregated_vertex_buffer: Option<wgpu::Buffer>,
-    aggregated_index_buffer: Option<wgpu::Buffer>,
-    aggregated_instance_transform_buffer: Option<wgpu::Buffer>,
-    aggregated_instance_color_buffer: Option<wgpu::Buffer>,
-    aggregated_instance_metadata_buffer: Option<wgpu::Buffer>,
-
-    identity_instance_transform_buffer: Option<wgpu::Buffer>,
-    identity_instance_color_buffer: Option<wgpu::Buffer>,
-    identity_instance_metadata_buffer: Option<wgpu::Buffer>,
 
     // Cached resources for render_to_argb32 compute swizzle path
     argb_cs_bgl: Option<wgpu::BindGroupLayout>,
@@ -212,11 +180,6 @@ pub struct Renderer<'a> {
     effect_shader_validator: Validator,
     /// Loaded (compiled) effects, keyed by user-provided effect_id.
     loaded_effects: HashMap<u64, LoadedEffect>,
-    /// Per-node group effect instances, keyed by node_id.
-    group_effects: HashMap<usize, EffectInstance>,
-    /// Per-node backdrop effect instances, keyed by node_id.
-    /// A backdrop effect processes the pixels already rendered behind a shape.
-    backdrop_effects: HashMap<usize, EffectInstance>,
     /// Per-node cached shape effect attachments, keyed by node_id.
     shape_effects: HashMap<usize, ShapeEffectInstance>,
     /// Exact GPU results retained while referenced by consecutive rendered frames.
@@ -227,11 +190,6 @@ pub struct Renderer<'a> {
     shape_effect_mask_cache: shape_effects::ShapeEffectMaskCache,
     /// Pipeline and immutable geometry resources used by shape effects.
     shape_effect_resources: shape_effects::ShapeEffectRendererResources,
-    /// Pool of offscreen textures for effect compositing.
-    offscreen_texture_pool: OffscreenTexturePool,
-    /// Shared composite pipeline for drawing effect results into the parent target.
-    /// Created lazily on first use.
-    composite_resources: Option<CompositePipelineResources>,
     /// Reusable sampler for effect texture sampling.
     effect_sampler: Option<wgpu::Sampler>,
 
@@ -245,14 +203,6 @@ pub struct Renderer<'a> {
     backdrop_color_pipeline: Option<wgpu::RenderPipeline>,
     /// Gradient color pipeline with stencil Keep for backdrop shapes.
     backdrop_color_gradient_pipeline: Option<wgpu::RenderPipeline>,
-
-    /// Pipeline for rendering leaf nodes (no children) with stencil Equal + Keep.
-    /// Avoids the redundant increment + decrement pair for childless shapes.
-    leaf_draw_pipeline: Arc<wgpu::RenderPipeline>,
-    /// Gradient pipeline for leaf nodes.
-    leaf_draw_gradient_pipeline: Arc<wgpu::RenderPipeline>,
-    /// Gradient pipeline for visible non-leaf parents that increment stencil.
-    and_gradient_pipeline: Arc<wgpu::RenderPipeline>,
 
     /// Bind group layout for gradient resources (group 3 in shader).
     gradient_bind_group_layout: wgpu::BindGroupLayout,
@@ -269,14 +219,6 @@ pub struct Renderer<'a> {
     /// Per-phase timing breakdown for the most recently rendered frame.
     last_phase_timings: self::metrics::PhaseTimings,
 
-    #[cfg(feature = "render_metrics")]
-    /// Per-frame pipeline switch counts for the most recently rendered frame.
-    last_pipeline_switch_counts: self::metrics::PipelineSwitchCounts,
-
-    #[cfg(feature = "render_metrics")]
-    /// Cache activity for shape effects during the most recently rendered frame.
-    last_shape_effect_cache_metrics: self::metrics::ShapeEffectCacheMetrics,
-
     /// Wall-clock CPU time spent inside the most recent `render_to_texture_view()` call.
     ///
     /// This measures CPU-side traversal planning, render/effect pass encoding,
@@ -284,7 +226,7 @@ pub struct Renderer<'a> {
     /// forced GPU waits after submission.
     last_render_to_texture_view_cpu_time: Duration,
 
-    scratch: RendererScratch,
+    state: RendererState,
 }
 
 /// Default AA fringe width in physical pixels.
@@ -294,12 +236,12 @@ impl<'a> Renderer<'a> {
     const DEFAULT_FRINGE_WIDTH: f32 = DEFAULT_FRINGE_WIDTH;
 
     pub(super) fn begin_frame_scratch(&mut self) {
-        self.scratch.begin_frame();
+        self.state.scratch.begin_frame();
     }
 
     pub(super) fn trim_scratch_storage(&mut self) {
-        self.shape_resources.aa_fringe_scratch.trim();
-        self.scratch.trim_to_policy();
+        self.state.shape_resources.aa_fringe_scratch.trim();
+        self.state.scratch.trim_to_policy();
     }
 
     /// Returns the wall-clock CPU time spent in the most recent `render_to_texture_view()` call.

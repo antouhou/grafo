@@ -254,11 +254,11 @@ impl<'a> Renderer<'a> {
             .loaded_effects
             .get(&effect_id)
             .expect("the newly compiled effect must be stored");
-        self.group_effects.retain(|_, instance| {
+        self.state.group_effects.retain(|_, instance| {
             instance.effect_id != effect_id
                 || refresh_effect_instance_after_reload(&self.device, loaded_effect, instance)
         });
-        self.backdrop_effects.retain(|_, instance| {
+        self.state.backdrop_effects.retain(|_, instance| {
             instance.effect_id != effect_id
                 || refresh_effect_instance_after_reload(&self.device, loaded_effect, instance)
         });
@@ -282,10 +282,11 @@ impl<'a> Renderer<'a> {
         effect_id: u64,
         params: &[u8],
     ) -> Result<(), EffectError> {
-        if self.draw_tree.get(node_id).is_none() {
+        if self.state.draw_tree.get(node_id).is_none() {
             return Err(EffectError::NodeNotFound(node_id));
         }
         if self
+            .state
             .draw_tree
             .get(node_id)
             .is_some_and(DrawCommand::is_clip_rect)
@@ -307,7 +308,7 @@ impl<'a> Renderer<'a> {
             "effect_params_buffer",
         );
 
-        self.group_effects.insert(node_id, instance);
+        self.state.group_effects.insert(node_id, instance);
         Ok(())
     }
 
@@ -317,6 +318,7 @@ impl<'a> Renderer<'a> {
         params: &[u8],
     ) -> Result<(), EffectError> {
         let instance = self
+            .state
             .group_effects
             .get_mut(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
@@ -335,7 +337,7 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn remove_group_effect(&mut self, node_id: usize) {
-        self.group_effects.remove(&node_id);
+        self.state.group_effects.remove(&node_id);
     }
 
     pub fn set_shape_backdrop_effect(
@@ -345,10 +347,11 @@ impl<'a> Renderer<'a> {
         params: &[u8],
         backdrop_config: effect::BackdropEffectConfig,
     ) -> Result<(), EffectError> {
-        if self.draw_tree.get(node_id).is_none() {
+        if self.state.draw_tree.get(node_id).is_none() {
             return Err(EffectError::NodeNotFound(node_id));
         }
         if self
+            .state
             .draw_tree
             .get(node_id)
             .is_some_and(DrawCommand::is_clip_rect)
@@ -371,7 +374,7 @@ impl<'a> Renderer<'a> {
             "backdrop_effect_params_buffer",
         );
 
-        self.backdrop_effects.insert(node_id, instance);
+        self.state.backdrop_effects.insert(node_id, instance);
         Ok(())
     }
 
@@ -383,6 +386,7 @@ impl<'a> Renderer<'a> {
         validate_backdrop_config(&backdrop_config)?;
 
         let instance = self
+            .state
             .backdrop_effects
             .get_mut(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
@@ -398,6 +402,7 @@ impl<'a> Renderer<'a> {
         params: &[u8],
     ) -> Result<(), EffectError> {
         let instance = self
+            .state
             .backdrop_effects
             .get_mut(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
@@ -416,7 +421,7 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn remove_backdrop_effect(&mut self, node_id: usize) {
-        self.backdrop_effects.remove(&node_id);
+        self.state.backdrop_effects.remove(&node_id);
     }
 
     /// Attaches a cached shader effect generated from the node's local coverage mask.
@@ -428,6 +433,7 @@ impl<'a> Renderer<'a> {
         config: effect::ShapeEffectConfig,
     ) -> Result<(), EffectError> {
         let draw_command = self
+            .state
             .draw_tree
             .get(node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
@@ -489,9 +495,11 @@ impl<'a> Renderer<'a> {
 
     pub fn unload_effect(&mut self, effect_id: u64) {
         self.loaded_effects.remove(&effect_id);
-        self.group_effects
+        self.state
+            .group_effects
             .retain(|_, instance| instance.effect_id != effect_id);
-        self.backdrop_effects
+        self.state
+            .backdrop_effects
             .retain(|_, instance| instance.effect_id != effect_id);
         self.shape_effects
             .retain(|_, instance| instance.effect_id != effect_id);
@@ -500,7 +508,8 @@ impl<'a> Renderer<'a> {
     }
 
     pub(super) fn ensure_composite_pipeline(&mut self) -> &CompositePipelineResources {
-        self.composite_resources
+        self.state
+            .composite_resources
             .get_or_insert_with(|| compile_composite_pipeline(&self.device, self.config.format))
     }
 
@@ -545,14 +554,15 @@ impl<'a> Renderer<'a> {
             return;
         }
 
-        let uniform_bind_group_layout = self.and_pipeline.get_bind_group_layout(0);
+        let pipelines = &self.state.pipelines;
+        let uniform_bind_group_layout = pipelines.and_pipeline.get_bind_group_layout(0);
         let pipeline = create_stencil_only_pipeline(
             &self.device,
             self.config.format,
             self.msaa_sample_count,
             &uniform_bind_group_layout,
-            &self.shape_texture_bind_group_layout_background,
-            &self.shape_texture_bind_group_layout_foreground,
+            &pipelines.shape_texture_bind_group_layout_background,
+            &pipelines.shape_texture_bind_group_layout_foreground,
         );
         self.stencil_only_pipeline = Some(pipeline);
     }
@@ -562,14 +572,15 @@ impl<'a> Renderer<'a> {
             return;
         }
 
-        let uniform_bind_group_layout = self.and_pipeline.get_bind_group_layout(0);
+        let pipelines = &self.state.pipelines;
+        let uniform_bind_group_layout = pipelines.and_pipeline.get_bind_group_layout(0);
         let pipeline = create_backdrop_stencil_keep_color_pipeline(
             &self.device,
             self.config.format,
             self.msaa_sample_count,
             &uniform_bind_group_layout,
-            &self.shape_texture_bind_group_layout_background,
-            &self.shape_texture_bind_group_layout_foreground,
+            &pipelines.shape_texture_bind_group_layout_background,
+            &pipelines.shape_texture_bind_group_layout_foreground,
             &self.backdrop_texture_bind_group_layout,
         );
         self.backdrop_color_pipeline = Some(pipeline);
@@ -580,14 +591,15 @@ impl<'a> Renderer<'a> {
             return;
         }
 
-        let uniform_bind_group_layout = self.and_pipeline.get_bind_group_layout(0);
+        let pipelines = &self.state.pipelines;
+        let uniform_bind_group_layout = pipelines.and_pipeline.get_bind_group_layout(0);
         let pipeline = create_backdrop_gradient_stencil_keep_color_pipeline(
             &self.device,
             self.config.format,
             self.msaa_sample_count,
             &uniform_bind_group_layout,
-            &self.shape_texture_bind_group_layout_background,
-            &self.shape_texture_bind_group_layout_foreground,
+            &pipelines.shape_texture_bind_group_layout_background,
+            &pipelines.shape_texture_bind_group_layout_foreground,
             &self.backdrop_gradient_bind_group_layout,
         );
         self.backdrop_color_gradient_pipeline = Some(pipeline);

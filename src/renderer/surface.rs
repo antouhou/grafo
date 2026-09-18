@@ -7,21 +7,21 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn size(&self) -> (u32, u32) {
-        self.physical_size
+        self.state.physical_size
     }
 
     pub fn change_scale_factor(&mut self, new_scale_factor: f64) {
-        self.scale_factor = new_scale_factor;
-        self.resize(self.physical_size)
+        self.state.scale_factor = new_scale_factor;
+        self.resize(self.state.physical_size)
     }
 
     pub fn scale_factor(&self) -> f64 {
-        self.scale_factor
+        self.state.scale_factor
     }
 
     pub fn set_fringe_width(&mut self, fringe_width: f32) {
         self.fringe_width = fringe_width;
-        self.resize(self.physical_size);
+        self.resize(self.state.physical_size);
     }
 
     pub fn fringe_width(&self) -> f32 {
@@ -29,17 +29,17 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn resize(&mut self, new_physical_size: (u32, u32)) {
-        self.physical_size = new_physical_size;
+        self.state.physical_size = new_physical_size;
         self.config.width = new_physical_size.0;
         self.config.height = new_physical_size.1;
 
-        let logical_size = to_logical(new_physical_size, self.scale_factor);
+        let logical_size = to_logical(new_physical_size, self.state.scale_factor);
         self.and_uniforms.canvas_size = [logical_size.0, logical_size.1];
-        self.and_uniforms.scale_factor = self.scale_factor as f32;
+        self.and_uniforms.scale_factor = self.state.scale_factor as f32;
         self.and_uniforms.fringe_width = self.fringe_width;
 
         self.decrementing_uniforms.canvas_size = [logical_size.0, logical_size.1];
-        self.decrementing_uniforms.scale_factor = self.scale_factor as f32;
+        self.decrementing_uniforms.scale_factor = self.state.scale_factor as f32;
         self.decrementing_uniforms.fringe_width = self.fringe_width;
 
         self.queue.write_buffer(
@@ -94,7 +94,7 @@ impl<'a> Renderer<'a> {
         if self.msaa_sample_count > 1 {
             let texture = create_msaa_color_texture(
                 &self.device,
-                self.physical_size,
+                self.state.physical_size,
                 self.config.format,
                 self.msaa_sample_count,
             );
@@ -106,9 +106,9 @@ impl<'a> Renderer<'a> {
             self.msaa_color_texture_view = None;
         }
 
-        self.offscreen_texture_pool.trim(
-            self.physical_size.0,
-            self.physical_size.1,
+        self.state.texture_pool.trim(
+            self.state.physical_size.0,
+            self.state.physical_size.1,
             self.msaa_sample_count,
         );
         self.trim_scratch_storage();
@@ -116,8 +116,11 @@ impl<'a> Renderer<'a> {
 
     /// Recreate the cached depth/stencil texture to match current physical size and MSAA settings.
     pub(super) fn recreate_depth_stencil_texture(&mut self) {
-        let texture =
-            create_and_depth_texture(&self.device, self.physical_size, self.msaa_sample_count);
+        let texture = create_and_depth_texture(
+            &self.device,
+            self.state.physical_size,
+            self.msaa_sample_count,
+        );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.depth_stencil_texture = Some(texture);
         self.depth_stencil_view = Some(view);

@@ -116,9 +116,10 @@ pub(crate) fn append_instance_data(
 
 impl<'a> Renderer<'a> {
     fn ensure_identity_instance_buffers(&mut self) {
-        if self.identity_instance_transform_buffer.is_none() {
+        let buffers = &mut self.state.buffers;
+        if buffers.identity_instance_transform_buffer.is_none() {
             let identity = InstanceTransform::identity();
-            self.identity_instance_transform_buffer = Some(create_buffer_init(
+            buffers.identity_instance_transform_buffer = Some(create_buffer_init(
                 &self.device,
                 Some("Identity Instance Transform Buffer"),
                 bytemuck::cast_slice(&[identity]),
@@ -126,9 +127,9 @@ impl<'a> Renderer<'a> {
             ));
         }
 
-        if self.identity_instance_color_buffer.is_none() {
+        if buffers.identity_instance_color_buffer.is_none() {
             let transparent = InstanceColor::transparent();
-            self.identity_instance_color_buffer = Some(create_buffer_init(
+            buffers.identity_instance_color_buffer = Some(create_buffer_init(
                 &self.device,
                 Some("Identity Instance Color Buffer"),
                 bytemuck::cast_slice(&[transparent]),
@@ -136,9 +137,9 @@ impl<'a> Renderer<'a> {
             ));
         }
 
-        if self.identity_instance_metadata_buffer.is_none() {
+        if buffers.identity_instance_metadata_buffer.is_none() {
             let metadata = InstanceMetadata::default();
-            self.identity_instance_metadata_buffer = Some(create_buffer_init(
+            buffers.identity_instance_metadata_buffer = Some(create_buffer_init(
                 &self.device,
                 Some("Identity Instance Metadata Buffer"),
                 bytemuck::cast_slice(&[metadata]),
@@ -157,22 +158,23 @@ impl<'a> Renderer<'a> {
     }
 
     pub(super) fn upload_buffers_for_frame(&mut self) {
-        if !self.temp_vertices.is_empty() || self.aggregated_vertex_buffer.is_none() {
+        let buffers = &mut self.state.buffers;
+        if !self.temp_vertices.is_empty() || buffers.aggregated_vertex_buffer.is_none() {
             upsert_gpu_buffer(
                 &self.device,
                 &self.queue,
-                &mut self.aggregated_vertex_buffer,
+                &mut buffers.aggregated_vertex_buffer,
                 "Aggregated Vertex Buffer",
                 bytemuck::cast_slice(&self.temp_vertices),
                 BufferUsages::VERTEX | BufferUsages::COPY_DST,
             );
         }
 
-        if !self.temp_indices.is_empty() || self.aggregated_index_buffer.is_none() {
+        if !self.temp_indices.is_empty() || buffers.aggregated_index_buffer.is_none() {
             upsert_gpu_buffer(
                 &self.device,
                 &self.queue,
-                &mut self.aggregated_index_buffer,
+                &mut buffers.aggregated_index_buffer,
                 "Aggregated Index Buffer",
                 bytemuck::cast_slice(&self.temp_indices),
                 BufferUsages::INDEX | BufferUsages::COPY_DST,
@@ -180,12 +182,13 @@ impl<'a> Renderer<'a> {
         }
 
         self.ensure_identity_instance_buffers();
+        let buffers = &mut self.state.buffers;
 
         if !self.temp_instance_transforms.is_empty() {
             upsert_gpu_buffer(
                 &self.device,
                 &self.queue,
-                &mut self.aggregated_instance_transform_buffer,
+                &mut buffers.aggregated_instance_transform_buffer,
                 "Aggregated Instance Transform Buffer",
                 bytemuck::cast_slice(&self.temp_instance_transforms),
                 BufferUsages::VERTEX | BufferUsages::COPY_DST,
@@ -196,7 +199,7 @@ impl<'a> Renderer<'a> {
             upsert_gpu_buffer(
                 &self.device,
                 &self.queue,
-                &mut self.aggregated_instance_color_buffer,
+                &mut buffers.aggregated_instance_color_buffer,
                 "Aggregated Instance Color Buffer",
                 bytemuck::cast_slice(&self.temp_instance_colors),
                 BufferUsages::VERTEX | BufferUsages::COPY_DST,
@@ -207,7 +210,7 @@ impl<'a> Renderer<'a> {
             upsert_gpu_buffer(
                 &self.device,
                 &self.queue,
-                &mut self.aggregated_instance_metadata_buffer,
+                &mut buffers.aggregated_instance_metadata_buffer,
                 "Aggregated Instance Metadata Buffer",
                 bytemuck::cast_slice(&self.temp_instance_metadata),
                 BufferUsages::VERTEX | BufferUsages::COPY_DST,

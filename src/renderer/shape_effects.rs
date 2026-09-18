@@ -1,5 +1,3 @@
-#[cfg(feature = "render_metrics")]
-use super::metrics::ShapeEffectCacheMetrics;
 use super::passes::{apply_effect_passes, compute_downsampled_dimensions, EffectPassRunConfig};
 use super::types::{DrawCommand, GeometryBufferError};
 use super::Renderer;
@@ -366,12 +364,12 @@ pub(super) fn create_mask_bind_group(
 impl<'a> Renderer<'a> {
     pub(super) fn prepare_shape_effect_leaves(&mut self) -> Result<(), GeometryBufferError> {
         let maximum_texture_dimension = self.device.limits().max_texture_dimension_2d;
-        let maximum_texel_count = u64::from(self.physical_size.0)
-            .saturating_mul(u64::from(self.physical_size.1))
+        let maximum_texel_count = u64::from(self.state.physical_size.0)
+            .saturating_mul(u64::from(self.state.physical_size.1))
             .saturating_mul(4);
         let mut quad_geometry_range = None;
         for (&node_id, shape_effect) in &self.shape_effects {
-            let Some(draw_command) = self.draw_tree.get(node_id) else {
+            let Some(draw_command) = self.state.draw_tree.get(node_id) else {
                 continue;
             };
             let DrawCommand::CachedShape(source_shape) = draw_command else {
@@ -382,7 +380,7 @@ impl<'a> Renderer<'a> {
             let Some(raster_rect) = compute_shape_effect_raster_rect(
                 local_bounds,
                 shape_effect.config,
-                self.scale_factor,
+                self.state.scale_factor,
                 self.fringe_width,
             ) else {
                 tracing::warn!(
@@ -405,7 +403,7 @@ impl<'a> Renderer<'a> {
                     height,
                     maximum_texture_dimension,
                     maximum_texel_count,
-                    scale_factor = self.scale_factor,
+                    scale_factor = self.state.scale_factor,
                     "skipping oversized shape effect texture"
                 );
                 continue;
@@ -448,7 +446,7 @@ impl<'a> Renderer<'a> {
                     texture_uv_transforms: [TextureUvTransform::IDENTITY; 2],
                 },
             ));
-            self.scratch.shape_effect_leaves.insert(node_id, leaf);
+            self.state.scratch.shape_effect_leaves.insert(node_id, leaf);
         }
         Ok(())
     }
@@ -456,14 +454,17 @@ impl<'a> Renderer<'a> {
     pub(super) fn resolve_shape_effects(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
-        shape_effect_leaves: &mut ahash::HashMap<usize, CachedShapeDrawData>,
         textures_to_recycle: &mut Vec<PooledTexture>,
-        #[cfg(feature = "render_metrics")] metrics: &mut ShapeEffectCacheMetrics,
     ) {
-        let Some(aggregated_vertex_buffer) = self.aggregated_vertex_buffer.as_ref() else {
+        let shape_effect_leaves = &mut self.state.scratch.shape_effect_leaves;
+        #[cfg(feature = "render_metrics")]
+        let metrics = &mut self.state.shape_effect_cache_metrics;
+        let Some(aggregated_vertex_buffer) = self.state.buffers.aggregated_vertex_buffer.as_ref()
+        else {
             return;
         };
-        let Some(aggregated_index_buffer) = self.aggregated_index_buffer.as_ref() else {
+        let Some(aggregated_index_buffer) = self.state.buffers.aggregated_index_buffer.as_ref()
+        else {
             return;
         };
         let effect_sampler = self
@@ -474,7 +475,8 @@ impl<'a> Renderer<'a> {
             if !shape_effect_leaves.contains_key(&node_id) {
                 continue;
             }
-            let Some(DrawCommand::CachedShape(cached_shape)) = self.draw_tree.get(node_id) else {
+            let Some(DrawCommand::CachedShape(cached_shape)) = self.state.draw_tree.get(node_id)
+            else {
                 continue;
             };
             let Some(geometry_range) = cached_shape.geometry_buffer_range else {
@@ -487,7 +489,7 @@ impl<'a> Renderer<'a> {
             let Some(raster_rect) = compute_shape_effect_raster_rect(
                 cached_shape.cached_shape.tessellation.local_bounds,
                 shape_effect_instance.config,
-                self.scale_factor,
+                self.state.scale_factor,
                 self.fringe_width,
             ) else {
                 continue;
@@ -498,7 +500,7 @@ impl<'a> Renderer<'a> {
                 tessellation: Arc::clone(&cached_shape.cached_shape.tessellation),
                 local_raster_origin: raster_rect.local_physical_origin,
                 raster_size: raster_rect.texture_size,
-                scale_factor_bits: self.scale_factor.to_bits(),
+                scale_factor_bits: self.state.scale_factor.to_bits(),
                 fringe_width_bits: self.fringe_width.to_bits(),
                 downsample_bits: shape_effect_instance.config.downsample.to_bits(),
                 texture_format: self.config.format,
@@ -549,14 +551,15 @@ impl<'a> Renderer<'a> {
                 {
                     metrics.generated_masks += 1;
                 }
-                let mask_texture = self.offscreen_texture_pool.acquire_color_only(
+                let mask_texture = self.state.texture_pool.acquire_color_only(
                     &self.device,
                     width,
                     height,
                     self.config.format,
                     1,
                 );
-                let mask_uniform = raster_rect.mask_uniform(self.scale_factor, self.fringe_width);
+                let mask_uniform =
+                    raster_rect.mask_uniform(self.state.scale_factor, self.fringe_width);
                 let mask_uniform_buffer = create_buffer_init(
                     &self.device,
                     Some("shape_effect_mask_uniform"),
@@ -625,13 +628,16 @@ impl<'a> Renderer<'a> {
             let effect_output = apply_effect_passes(
                 &self.device,
                 encoder,
-                &mut self.offscreen_texture_pool,
+                &mut self.state.texture_pool,
                 EffectPassRunConfig {
                     loaded_effect,
                     params_bind_group: parameter_bind_group.as_ref(),
                     source_view: &cached_mask.texture.color_view,
                     effect_sampler,
-                    composite_bind_group_layout: &self.shape_texture_bind_group_layout_background,
+                    composite_bind_group_layout: &self
+                        .state
+                        .pipelines
+                        .shape_texture_bind_group_layout_background,
                     create_composite_bind_group: true,
                     width,
                     height,
