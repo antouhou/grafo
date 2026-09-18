@@ -1,6 +1,7 @@
 use super::*;
 use crate::pipeline::create_buffer_init;
 use crate::vertex::CustomVertex;
+use wgpu::{BufferDescriptor, COPY_BUFFER_ALIGNMENT};
 
 #[derive(Copy, Clone)]
 pub(crate) struct InstanceTextureData {
@@ -20,6 +21,15 @@ fn upsert_gpu_buffer(
         Some(existing_buffer) if existing_buffer.size() >= bytes.len() as u64 => {
             queue.write_buffer(existing_buffer, 0, bytes);
         }
+        None if bytes.is_empty() => {
+            // Keep empty scenes bindable until geometry fills these buffers.
+            *buffer = Some(device.create_buffer(&BufferDescriptor {
+                label: Some(label),
+                size: COPY_BUFFER_ALIGNMENT,
+                usage,
+                mapped_at_creation: false,
+            }));
+        }
         _ => *buffer = Some(create_buffer_init(device, Some(label), bytes, usage)),
     }
 }
@@ -29,36 +39,40 @@ fn append_aggregated_geometry(
     temp_indices: &mut Vec<u16>,
     vertices: &[CustomVertex],
     indices: &[u16],
-) -> Option<(usize, usize)> {
+) -> Option<GeometryBufferRange> {
     if vertices.is_empty() || indices.is_empty() {
         return None;
     }
 
-    let vertex_start = temp_vertices.len();
-    if vertex_start > u16::MAX as usize {
-        warn!(
-            "Aggregated vertex count ({}) exceeds u16 limit. Rendering artifacts may occur.",
-            vertex_start
-        );
-    }
-
-    let index_start = temp_indices.len();
-    let vertex_offset = vertex_start as u16;
+    let Ok(vertex_start) = i32::try_from(temp_vertices.len()) else {
+        warn!("Skipping geometry: vertex offset exceeds the draw command limit");
+        return None;
+    };
+    let Some(index_end) = temp_indices
+        .len()
+        .checked_add(indices.len())
+        .and_then(|end| u32::try_from(end).ok())
+    else {
+        warn!("Skipping geometry: index range exceeds the draw command limit");
+        return None;
+    };
+    let index_start = temp_indices.len() as u32;
     temp_vertices.extend_from_slice(vertices);
+    temp_indices.extend_from_slice(indices);
 
-    for &index in indices {
-        temp_indices.push(index + vertex_offset);
-    }
-
-    Some((index_start, indices.len()))
+    Some(GeometryBufferRange {
+        index_start,
+        index_count: index_end - index_start,
+        vertex_start,
+    })
 }
 
 pub(crate) fn append_aggregated_geometry_for_shape(
     cached_shape_data: &CachedShapeDrawData,
     temp_vertices: &mut Vec<CustomVertex>,
     temp_indices: &mut Vec<u16>,
-    geometry_dedup_map: &mut HashMap<u64, (usize, usize)>,
-) -> Option<(usize, usize)> {
+    geometry_dedup_map: &mut HashMap<u64, GeometryBufferRange>,
+) -> Option<GeometryBufferRange> {
     let geometry_id = cached_shape_data.cached_shape.geometry_id;
     // Geometry deduplication: if we already appended this cache
     // key's vertices/indices, reuse the same range.
@@ -147,7 +161,7 @@ impl<'a> Renderer<'a> {
     }
 
     pub(super) fn upload_buffers_for_frame(&mut self) {
-        if !self.temp_vertices.is_empty() {
+        if !self.temp_vertices.is_empty() || self.aggregated_vertex_buffer.is_none() {
             upsert_gpu_buffer(
                 &self.device,
                 &self.queue,
@@ -158,7 +172,7 @@ impl<'a> Renderer<'a> {
             );
         }
 
-        if !self.temp_indices.is_empty() {
+        if !self.temp_indices.is_empty() || self.aggregated_index_buffer.is_none() {
             upsert_gpu_buffer(
                 &self.device,
                 &self.queue,

@@ -1,4 +1,19 @@
 use bytemuck::{Pod, Zeroable};
+use std::ops::Range;
+
+/// Locations of one geometry's vertices and local indices in the shared buffers.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct GeometryBufferRange {
+    pub(crate) index_start: u32,
+    pub(crate) index_count: u32,
+    pub(crate) vertex_start: i32,
+}
+
+impl GeometryBufferRange {
+    pub(crate) fn indices(self) -> Range<u32> {
+        self.index_start..self.index_start + self.index_count
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]

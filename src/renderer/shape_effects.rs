@@ -5,7 +5,7 @@ use super::types::DrawCommand;
 use super::Renderer;
 use crate::cache::{CachedTessellation, FrameCache};
 use crate::effect::{self, PooledTexture, ShapeEffectConfig};
-use crate::pipeline::create_buffer_init;
+use crate::pipeline::{create_buffer_init, draw_indexed_geometry};
 use crate::renderer::preparation::{self, InstanceTextureData};
 use crate::shape::{CachedShapeDrawData, CachedShapeHandle, ShapeTextureBinding};
 use crate::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
@@ -369,7 +369,7 @@ impl<'a> Renderer<'a> {
         let maximum_texel_count = u64::from(self.physical_size.0)
             .saturating_mul(u64::from(self.physical_size.1))
             .saturating_mul(4);
-        let mut quad_index_buffer_range = None;
+        let mut quad_geometry_range = None;
         for (&node_id, shape_effect) in &self.shape_effects {
             let Some(draw_command) = self.draw_tree.get(node_id) else {
                 continue;
@@ -420,24 +420,22 @@ impl<'a> Renderer<'a> {
             let mut leaf = CachedShapeDrawData::new(quad_handle, &ShapeDrawCommandOptions::new());
             let transform = shape_effect_quad_transform(raster_rect.local_bounds, source_transform);
             leaf.transform = Some(transform);
-            let index_buffer_range = match quad_index_buffer_range {
-                Some(index_buffer_range) => index_buffer_range,
+            let geometry_range = match quad_geometry_range {
+                Some(geometry_range) => geometry_range,
                 None => {
-                    let Some(index_buffer_range) =
-                        preparation::append_aggregated_geometry_for_shape(
-                            &leaf,
-                            &mut self.temp_vertices,
-                            &mut self.temp_indices,
-                            &mut self.geometry_dedup_map,
-                        )
-                    else {
+                    let Some(geometry_range) = preparation::append_aggregated_geometry_for_shape(
+                        &leaf,
+                        &mut self.temp_vertices,
+                        &mut self.temp_indices,
+                        &mut self.geometry_dedup_map,
+                    ) else {
                         continue;
                     };
-                    quad_index_buffer_range = Some(index_buffer_range);
-                    index_buffer_range
+                    quad_geometry_range = Some(geometry_range);
+                    geometry_range
                 }
             };
-            leaf.index_buffer_range = Some(index_buffer_range);
+            leaf.geometry_buffer_range = Some(geometry_range);
             leaf.instance_index = Some(preparation::append_instance_data(
                 &mut self.temp_instance_transforms,
                 &mut self.temp_instance_colors,
@@ -477,7 +475,7 @@ impl<'a> Renderer<'a> {
             let Some(DrawCommand::CachedShape(cached_shape)) = self.draw_tree.get(node_id) else {
                 continue;
             };
-            let Some(index_buffer_range) = cached_shape.index_buffer_range else {
+            let Some(geometry_range) = cached_shape.geometry_buffer_range else {
                 continue;
             };
             if cached_shape.is_empty {
@@ -591,9 +589,13 @@ impl<'a> Renderer<'a> {
                         aggregated_index_buffer.slice(..),
                         wgpu::IndexFormat::Uint16,
                     );
-                    let index_start = index_buffer_range.0 as u32;
-                    let index_end = (index_buffer_range.0 + index_buffer_range.1) as u32;
-                    render_pass.draw_indexed(index_start..index_end, 0, 0..1);
+                    draw_indexed_geometry(
+                        &mut render_pass,
+                        geometry_range,
+                        aggregated_vertex_buffer,
+                        self.context.inner.supports_base_vertex,
+                        0..1,
+                    );
                 }
 
                 let cached_mask = Arc::new(CachedShapeEffectMask {

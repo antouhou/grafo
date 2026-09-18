@@ -145,14 +145,14 @@ impl<'a> Renderer<'a> {
             &self.gradient_bind_group_layout,
             &self.gradient_ramp_sampler,
         );
-        let index_range = preparation::append_aggregated_geometry_for_shape(
+        let geometry_range = preparation::append_aggregated_geometry_for_shape(
             cached_shape_data,
             &mut self.temp_vertices,
             &mut self.temp_indices,
             &mut self.geometry_dedup_map,
         );
-        if let Some((index_start, index_count)) = index_range {
-            cached_shape_data.index_buffer_range = Some((index_start, index_count));
+        if let Some(geometry_range) = geometry_range {
+            cached_shape_data.geometry_buffer_range = Some(geometry_range);
             cached_shape_data.is_empty = false;
             let texture_uv_transforms = self.compute_texture_uv_transforms(
                 cached_shape_data.cached_shape.texture_mapping_size(),

@@ -11,7 +11,7 @@ use crate::pipeline::{
 use crate::vertex::CustomVertex;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 use tracing::{error, info, warn};
-use wgpu::InstanceDescriptor;
+use wgpu::{DownlevelFlags, InstanceDescriptor};
 
 fn create_transparent_texture_view_and_sampler(
     device: &wgpu::Device,
@@ -171,6 +171,10 @@ impl RendererContext {
         Ok(Self {
             inner: Arc::new(RendererContextInner {
                 instance,
+                supports_base_vertex: adapter
+                    .get_downlevel_capabilities()
+                    .flags
+                    .contains(DownlevelFlags::BASE_VERTEX),
                 adapter,
                 texture_manager: TextureManager::new(device.clone(), queue.clone()),
                 shape_cache: RwLock::new(HashMap::new()),

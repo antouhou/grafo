@@ -131,8 +131,15 @@ impl<'a> Renderer<'a> {
         };
 
         let buffers = types::Buffers {
-            aggregated_vertex_buffer: self.aggregated_vertex_buffer.as_ref(),
-            aggregated_index_buffer: self.aggregated_index_buffer.as_ref(),
+            supports_base_vertex: self.context.inner.supports_base_vertex,
+            aggregated_vertex_buffer: self
+                .aggregated_vertex_buffer
+                .as_ref()
+                .expect("vertex buffer is initialized during frame preparation"),
+            aggregated_index_buffer: self
+                .aggregated_index_buffer
+                .as_ref()
+                .expect("index buffer is initialized during frame preparation"),
             identity_instance_transform_buffer: self
                 .identity_instance_transform_buffer
                 .as_ref()

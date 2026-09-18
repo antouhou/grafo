@@ -3,11 +3,14 @@ use super::metrics::PipelineSwitchCounts;
 use super::traversal::TraversalScratch;
 use crate::effect::{self, LoadedEffect};
 use crate::gradient::gpu::GradientCache;
+use crate::pipeline::draw_indexed_geometry;
 use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
 use crate::texture_manager::TextureManager;
-use crate::vertex::InstanceTransform;
+use crate::vertex::{GeometryBufferRange, InstanceTransform};
 use ahash::{HashMap, HashMapExt};
+use std::ops::Range;
 use std::sync::Arc;
+use wgpu::RenderPass;
 
 // TODO: probably some parts of it also can be cached, so we don't need to copy it all the time.
 #[allow(clippy::large_enum_variant)]
@@ -283,14 +286,32 @@ impl BoundTextureState {
 }
 
 pub(super) struct Buffers<'a> {
-    pub(super) aggregated_vertex_buffer: Option<&'a wgpu::Buffer>,
-    pub(super) aggregated_index_buffer: Option<&'a wgpu::Buffer>,
+    pub(super) supports_base_vertex: bool,
+    pub(super) aggregated_vertex_buffer: &'a wgpu::Buffer,
+    pub(super) aggregated_index_buffer: &'a wgpu::Buffer,
     pub(super) identity_instance_transform_buffer: &'a wgpu::Buffer,
     pub(super) identity_instance_color_buffer: &'a wgpu::Buffer,
     pub(super) identity_instance_metadata_buffer: &'a wgpu::Buffer,
     pub(super) aggregated_instance_transform_buffer: Option<&'a wgpu::Buffer>,
     pub(super) aggregated_instance_color_buffer: Option<&'a wgpu::Buffer>,
     pub(super) aggregated_instance_metadata_buffer: Option<&'a wgpu::Buffer>,
+}
+
+impl Buffers<'_> {
+    pub(super) fn draw_indexed(
+        &self,
+        render_pass: &mut RenderPass<'_>,
+        geometry_range: GeometryBufferRange,
+        instances: Range<u32>,
+    ) {
+        draw_indexed_geometry(
+            render_pass,
+            geometry_range,
+            self.aggregated_vertex_buffer,
+            self.supports_base_vertex,
+            instances,
+        );
+    }
 }
 
 pub(super) struct Pipelines<'a> {
