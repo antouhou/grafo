@@ -1,16 +1,7 @@
+//! Applies 50% and 80% opacity to two groups of shapes.
+//! Each group composites its parent and children into one translucent layer.
+
 use futures::executor::block_on;
-/// Example: Group opacity effect
-///
-/// Demonstrates using the effect system to apply group opacity to a parent shape
-/// and all its children, so they composite as a single translucent layer rather
-/// than individually blending with the background.
-///
-/// The scene has:
-/// - A background shape (full opacity, not part of any effect group)
-/// - A "group" parent shape with 50% opacity effect
-///   - Two overlapping child shapes clipped to the parent
-/// - A second group with 80% opacity
-///   - Its own child shape
 use grafo::wgpu::SurfaceError;
 use grafo::RenderError;
 use grafo::Shape;

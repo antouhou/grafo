@@ -67,7 +67,7 @@ pub(super) struct EffectPassRunConfig<'a> {
     pub(super) width: u32,
     pub(super) height: u32,
     pub(super) texture_format: wgpu::TextureFormat,
-    pub(super) label_prefix: &'a str,
+    pub(super) label: &'static str,
 }
 
 pub(super) fn apply_effect_passes(
@@ -112,14 +112,11 @@ pub(super) fn apply_effect_passes(
             &config.loaded_effect.input_bind_group_layout,
             previous_input_view,
             config.effect_sampler,
-            Some(&format!("{}_pass_input_bg", config.label_prefix)),
+            Some(config.label),
         );
 
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some(&format!(
-                "{}_apply_pass_{}",
-                config.label_prefix, pass_index
-            )),
+            label: Some(config.label),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: output_view,
                 resolve_target: None,
@@ -152,7 +149,7 @@ pub(super) fn apply_effect_passes(
             config.composite_bind_group_layout,
             previous_input_view,
             config.effect_sampler,
-            Some(&format!("{}_composite_bg", config.label_prefix)),
+            Some(config.label),
         )
     });
 
@@ -1535,7 +1532,7 @@ pub(super) fn render_segments(
                             width: effect_input_size.0,
                             height: effect_input_size.1,
                             texture_format: bctx.config_format,
-                            label_prefix: "backdrop_effect",
+                            label: "backdrop_effect",
                         },
                     );
 

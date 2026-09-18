@@ -290,7 +290,7 @@ impl<'a> Renderer<'a> {
                         width,
                         height,
                         texture_format: self.config.format,
-                        label_prefix: "group_effect",
+                        label: "group_effect",
                     },
                 );
 

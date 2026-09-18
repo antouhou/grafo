@@ -1,13 +1,8 @@
+//! Draws cards with different shadow radii, colors, and offsets.
+//! Each card supplies a geometry ID so Grafo can reuse its coverage mask and
+//! rendered shadow while the geometry and effect parameters stay unchanged.
+
 use futures::executor::block_on;
-/// Example: cached shader-generated box shadows with rounded corners.
-///
-/// Each card supplies a stable geometry id. Grafo rasterizes its local coverage mask and
-/// executes the shadow shader once, then reuses the exact GPU result on later frames.
-///
-/// The scene shows several cards with different shadow parameters:
-/// - A card with a soft, large-radius shadow
-/// - A card with a tight, dark shadow
-/// - A card with a colored shadow and an offset
 use grafo::wgpu::SurfaceError;
 use grafo::RenderError;
 use grafo::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, Stroke};

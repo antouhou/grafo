@@ -1,9 +1,6 @@
-/// Visual regression tests for the Grafo renderer.
-///
-/// These tests use the headless renderer to render scenes into a pixel buffer,
-/// then validate specific pixel locations against expected colors.
-///
-/// Run with:   cargo test --test visual_regression
+//! Checks rendered pixels against expected colors.
+//! Run with `cargo test --test visual_regression`.
+
 use futures::executor::block_on;
 use grafo::{
     BackdropEffectConfig, BorderRadii, Color, ColorInterpolation, EffectError, Fill, Gradient,
@@ -195,6 +192,20 @@ fn group_and_backdrop_effect_params_survive_updates_and_reload() {
         )
         .unwrap();
 
+    for result in [
+        renderer.set_group_effect(group, effect_id, &[]),
+        renderer.set_shape_backdrop_effect(
+            backdrop,
+            effect_id,
+            &[],
+            BackdropEffectConfig::default(),
+        ),
+        renderer.update_group_effect_params(group, &[]),
+        renderer.update_backdrop_effect_params(backdrop, &[]),
+    ] {
+        assert!(matches!(result, Err(EffectError::InvalidParams(_))));
+    }
+
     let mut pixel_buffer = Vec::new();
     renderer.render_to_buffer(&mut pixel_buffer).unwrap();
     assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [255, 0, 0, 255]);
@@ -253,6 +264,28 @@ fn group_and_backdrop_effect_params_survive_updates_and_reload() {
     renderer
         .load_effect(effect_id, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
         .unwrap();
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [255; 4]);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 24, 16), [255; 4]);
+
+    renderer.set_group_effect(group, effect_id, &[]).unwrap();
+    renderer
+        .set_shape_backdrop_effect(backdrop, effect_id, &[], BackdropEffectConfig::default())
+        .unwrap();
+    let unexpected_params = bytemuck::cast_slice(&[1.0_f32, 0.0, 0.0, 1.0]);
+    for result in [
+        renderer.set_group_effect(group, effect_id, unexpected_params),
+        renderer.set_shape_backdrop_effect(
+            backdrop,
+            effect_id,
+            unexpected_params,
+            BackdropEffectConfig::default(),
+        ),
+        renderer.update_group_effect_params(group, unexpected_params),
+        renderer.update_backdrop_effect_params(backdrop, unexpected_params),
+    ] {
+        assert!(matches!(result, Err(EffectError::InvalidParams(_))));
+    }
     renderer.render_to_buffer(&mut pixel_buffer).unwrap();
     assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [255; 4]);
     assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 24, 16), [255; 4]);

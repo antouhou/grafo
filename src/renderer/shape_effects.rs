@@ -642,7 +642,7 @@ impl<'a> Renderer<'a> {
                     width,
                     height,
                     texture_format: self.config.format,
-                    label_prefix: "shape_effect",
+                    label: "shape_effect",
                 },
             );
             #[cfg(feature = "render_metrics")]

@@ -15,7 +15,7 @@ use crate::shaders::{
     VERTICAL_BLUR_WGSL,
 };
 
-// ── Grid layout constants ────────────────────────────────────────────────────
+// Grid layout
 
 const TILE_SIZE: u32 = 80;
 const COLUMNS: u32 = 6;
@@ -107,7 +107,7 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_37_textured_transparent_rects(renderer));
     expectations.extend(tile_38_sheared_transparent_parent(renderer));
 
-    // ── Gradient tiles ───────────────────────────────────────────────────
+    // Gradient tiles
     expectations.extend(tile_39_linear_gradient(renderer));
     expectations.extend(tile_40_radial_gradient(renderer));
     expectations.extend(tile_41_conic_gradient(renderer));
@@ -117,7 +117,7 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_45_gradient_group_blur(renderer));
     expectations.extend(tile_46_gradient_backdrop_blur(renderer));
 
-    // ── Gradient regression tiles ────────────────────────────────────────
+    // Gradient regression tiles
     expectations.extend(tile_47_gradient_nonleaf_stencil(renderer));
     expectations.extend(tile_48_gradient_state_leak(renderer));
     expectations.extend(tile_49_conic_quadrant_colors(renderer));
@@ -265,7 +265,7 @@ fn tile_69_gradient_automatic_stop_after_decreasing_stop(
     ]
 }
 
-// ── Shared resource setup ────────────────────────────────────────────────────
+// Shared resource setup
 
 fn load_shared_resources(renderer: &mut Renderer) {
     renderer
@@ -352,7 +352,7 @@ fn load_shared_resources(renderer: &mut Renderer) {
     );
 }
 
-// ── Section A: Basic Shapes ──────────────────────────────────────────────────
+// Basic shapes
 
 fn tile_01_rect_solid(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(1);
@@ -480,7 +480,7 @@ fn tile_04_path_bezier(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     ]
 }
 
-// ── Section B: Hierarchy & Scissor Clipping ──────────────────────────────────
+// Hierarchy and scissor clipping
 
 fn tile_05_rect_parent_child_inside(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(5);
@@ -769,7 +769,7 @@ fn tile_09_rect_siblings_overlap(renderer: &mut Renderer) -> Vec<PixelExpectatio
     ]
 }
 
-// ── Section C: Stencil Clipping ──────────────────────────────────────────────
+// Stencil clipping
 
 fn tile_10_rounded_rect_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(10);
@@ -1055,7 +1055,7 @@ fn tile_13_rotated_rect_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     ]
 }
 
-// ── Section D: Mixed Scissor + Stencil ───────────────────────────────────────
+// Mixed scissor and stencil clipping
 
 fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(14);
@@ -1397,7 +1397,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
     ]
 }
 
-// ── Section E: Transforms ────────────────────────────────────────────────────
+// Transforms
 
 fn tile_17_translated_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(17);
@@ -1563,7 +1563,7 @@ fn tile_20_transform_parent_child(renderer: &mut Renderer) -> Vec<PixelExpectati
     ]
 }
 
-// ── Section F: Colors & Alpha ────────────────────────────────────────────────
+// Colors and alpha
 
 fn tile_21_alpha_overlap(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(21);
@@ -1694,7 +1694,7 @@ fn tile_23_fully_transparent(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     )]
 }
 
-// ── Section G: Textures ──────────────────────────────────────────────────────
+// Textures
 
 fn tile_24_textured_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(24);
@@ -1844,7 +1844,7 @@ fn tile_26_textured_parent_child(renderer: &mut Renderer) -> Vec<PixelExpectatio
     ]
 }
 
-// ── Section H: Group Effects ─────────────────────────────────────────────────
+// Group effects
 
 fn tile_27_group_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(27);
@@ -2004,7 +2004,7 @@ fn tile_28_group_blur_with_children(renderer: &mut Renderer) -> Vec<PixelExpecta
     ]
 }
 
-// ── Section I: Backdrop Effects ──────────────────────────────────────────────
+// Backdrop effects
 
 fn tile_29_backdrop_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(29);
@@ -2311,7 +2311,7 @@ fn tile_31_backdrop_under_scissor(renderer: &mut Renderer) -> Vec<PixelExpectati
     ]
 }
 
-// ── Section J: Edge Cases ────────────────────────────────────────────────────
+// Edge cases
 
 fn tile_32_tiny_1px_shape(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(32);
@@ -2644,7 +2644,7 @@ fn tile_38_sheared_transparent_parent(renderer: &mut Renderer) -> Vec<PixelExpec
     ]
 }
 
-// ── Section G: Gradient Fills ────────────────────────────────────────────────
+// Gradient fills
 
 /// Helper: creates a simple two-stop sRGB gradient common descriptor.
 fn two_stop_common(c1: (u8, u8, u8), c2: (u8, u8, u8), spread: SpreadMode) -> GradientCommonDesc {
@@ -3314,7 +3314,7 @@ fn tile_46_gradient_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectati
     ]
 }
 
-// ── Gradient regression test tiles ───────────────────────────────────────────
+// Gradient regression tiles
 
 /// Tile 47 — Regression: gradient on a non-leaf rounded-rect parent (stencil increment path).
 /// The parent's gradient should be visible; a child rect sits inside.

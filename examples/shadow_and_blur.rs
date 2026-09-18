@@ -1,15 +1,7 @@
+//! Combines a box shadow on a transparent parent with backdrop blur on its child.
+//! The child covers the same area and blurs the colored rectangles behind it.
+
 use futures::executor::block_on;
-/// Example: Box shadow + backdrop blur (nested effects)
-///
-/// Demonstrates combining two effects on a single panel:
-/// - A **group effect** (analytical box shadow) on the parent shape
-/// - A **backdrop effect** (Gaussian blur) on a child shape inside it
-///
-/// The parent is a transparent rounded rectangle with a box shadow. Its child
-/// is the same size/position and carries the backdrop blur, producing a
-/// frosted-glass panel with a soft shadow underneath.
-///
-/// Behind everything, colorful rectangles provide content for the blur to act on.
 use grafo::wgpu::SurfaceError;
 use grafo::RenderError;
 use grafo::{BackdropEffectConfig, BorderRadii, Shape};

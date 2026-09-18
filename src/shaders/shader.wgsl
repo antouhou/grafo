@@ -124,7 +124,7 @@ fn apply_gradient_bayer_dither(color_pma: vec4<f32>, pixel_pos: vec2<f32>) -> ve
     return vec4<f32>(dithered_rgb * alpha, alpha);
 }
 
-// ── Gradient evaluation ─────────────────────────────────────────────
+// Gradient evaluation
 
 /// Computes the raw gradient parameter t for the given position.
 fn gradient_raw_t(pos: vec2<f32>) -> f32 {

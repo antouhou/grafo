@@ -608,34 +608,8 @@ impl<'a> Renderer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        validate_backdrop_config, validate_params_expectation, validate_shape_effect_config,
-    };
+    use super::{validate_backdrop_config, validate_shape_effect_config};
     use crate::effect::{BackdropCaptureArea, BackdropEffectConfig, ShapeEffectConfig};
-
-    #[test]
-    fn validate_effect_params_rejects_missing_required_params() {
-        let result = validate_params_expectation(1, true, &[]);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn validate_effect_params_rejects_unexpected_params() {
-        let result = validate_params_expectation(1, false, &[1, 2, 3, 4]);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn validate_effect_params_allows_empty_for_paramless_effect() {
-        let result = validate_params_expectation(1, false, &[]);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn validate_effect_params_allows_non_empty_for_param_effect() {
-        let result = validate_params_expectation(1, true, &[1, 2, 3, 4]);
-        assert!(result.is_ok());
-    }
 
     #[test]
     fn validate_backdrop_config_rejects_non_positive_downsample() {

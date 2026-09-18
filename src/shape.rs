@@ -1,36 +1,6 @@
 //! Rectangles and paths. Set each instance's fill through the renderer.
 //!
-//! # Examples
-//!
-//! Creating and using different shapes:
-//!
-//! ```rust
-//! use grafo::Stroke;
-//! use grafo::{Shape, ShapeBuilder, BorderRadii};
-//! use grafo::Color;
-//!
-//! // Create a simple rectangle
-//! let rect = Shape::rect(
-//!     [(0.0, 0.0), (100.0, 50.0)],
-//!     Stroke::new(2.0_f32, Color::BLACK),
-//! );
-//!
-//! // Create a rounded rectangle
-//! let rounded_rect = Shape::rounded_rect(
-//!     [(0.0, 0.0), (100.0, 50.0)],
-//!     BorderRadii::new(10.0),
-//!     Stroke::new(1.5_f32, Color::BLACK),
-//! );
-//!
-//! // Build a custom shape using ShapeBuilder
-//! let custom_shape = Shape::builder()
-//!     .stroke(Stroke::new(3.0_f32, Color::BLACK))
-//!     .begin((0.0, 0.0))
-//!     .line_to((50.0, 10.0))
-//!     .line_to((50.0, 50.0))
-//!     .close()
-//!     .build();
-//! ```
+//! See [`Shape::rect`], [`Shape::rounded_rect`], and [`ShapeBuilder`] for examples.
 
 use crate::cache::CachedTessellation;
 use crate::gradient::gpu::{GpuMaterialParams, GradientCache};
@@ -181,28 +151,8 @@ fn compute_vertex_bounds(vertices: &[CustomVertex]) -> [(f32, f32); 2] {
 
 /// A rectangle or a path made of lines and Bézier curves.
 ///
-/// # Examples
-///
-/// ```rust
-/// use grafo::Stroke;
-/// use grafo::{Shape, BorderRadii};
-/// use grafo::Color;
-///
-/// // Create a simple rectangle
-/// let rect = Shape::rect(
-///     [(0.0, 0.0), (100.0, 50.0)],
-///     Stroke::new(2.0_f32, Color::BLACK),
-/// );
-///
-/// // Create a custom path shape
-/// let custom_path = Shape::builder()
-///     .stroke(Stroke::new(1.0_f32, Color::BLACK))
-///     .begin((0.0, 0.0))
-///     .line_to((50.0, 10.0))
-///     .line_to((50.0, 50.0))
-///     .close()
-///     .build();
-/// ```
+/// Use [`Self::rect`] or [`Self::rounded_rect`] for rectangles, or [`Self::builder`]
+/// for a custom path. Set the fill when queueing the shape with [`ShapeDrawCommandOptions`].
 #[derive(Debug, Clone)]
 pub enum Shape {
     /// A custom path shape defined using Bézier curves and lines.
@@ -222,9 +172,7 @@ impl Shape {
     /// # Examples
     ///
     /// ```rust
-    /// use grafo::Color;
-    /// use grafo::Stroke;
-    /// use grafo::Shape;
+    /// use grafo::{Color, Shape, Stroke};
     ///
     /// let rect = Shape::rect(
     ///     [(0.0, 0.0), (100.0, 50.0)],
@@ -242,9 +190,7 @@ impl Shape {
     /// # Examples
     ///
     /// ```rust
-    /// use grafo::Color;
-    /// use grafo::Stroke;
-    /// use grafo::{Shape, BorderRadii};
+    /// use grafo::{BorderRadii, Color, Shape, Stroke};
     ///
     /// let rounded_rect = Shape::rounded_rect(
     ///     [(0.0, 0.0), (100.0, 50.0)],
@@ -373,19 +319,6 @@ impl AsRef<Shape> for Shape {
 /// A rectangle's coordinates and stroke. Set its fill with [`ShapeDrawCommandOptions`].
 ///
 /// [`Shape::rect`] constructs this and wraps it in [`Shape::Rect`].
-///
-/// # Examples
-///
-/// ```rust
-/// use grafo::RectShape;
-/// use grafo::Stroke;
-/// use grafo::Color;
-///
-/// let rect_shape = RectShape::new(
-///     [(0.0, 0.0), (100.0, 50.0)],
-///     Stroke::new(2.0_f32, Color::BLACK),
-/// );
-/// ```
 #[derive(Debug, Clone)]
 pub struct RectShape {
     /// Top-left and bottom-right coordinates.
@@ -552,10 +485,6 @@ fn normalized_float_bits(value: f32) -> u32 {
         value.to_bits()
     }
 }
-
-// ---------------------------------------------------------------------------
-// Anti-Aliasing: Inflated-Geometry Fringe Generation
-// ---------------------------------------------------------------------------
 
 /// Clears and fills scratch storage with edge owners and incident triangles keyed by position.
 ///
@@ -1379,15 +1308,11 @@ impl From<ShapeBuilder> for Shape {
 ///
 /// # Examples
 ///
-/// Creating uniform and non-uniform border radii:
-///
 /// ```rust
 /// use grafo::BorderRadii;
 ///
-/// // Uniform border radii
 /// let uniform_radii = BorderRadii::new(10.0);
 ///
-/// // Custom border radii
 /// let custom_radii = BorderRadii {
 ///     top_left: 5.0,
 ///     top_right: 10.0,
@@ -1405,14 +1330,6 @@ pub struct BorderRadii {
 
 impl BorderRadii {
     /// Sets every corner to the absolute value of `radius`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::BorderRadii;
-    ///
-    /// let radii = BorderRadii::new(10.0);
-    /// ```
     pub fn new(radius: f32) -> Self {
         let r = radius.abs();
         BorderRadii {

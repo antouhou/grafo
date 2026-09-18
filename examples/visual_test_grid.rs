@@ -1,10 +1,7 @@
+//! Displays the tile grid checked by the headless visual regression test.
+//! Run with `cargo run --example visual_test_grid`.
+
 use futures::executor::block_on;
-/// Visual confirmation example — renders the shared visual-regression tile grid.
-///
-/// Run with:    cargo run --example visual_test_grid
-///
-/// The window shows the exact same scene that the headless visual-regression
-/// test validates with pixel-level assertions.
 use grafo::wgpu::SurfaceError;
 use grafo::RenderError;
 use grafo_test_scenes::{build_main_scene, CANVAS_HEIGHT, CANVAS_WIDTH};

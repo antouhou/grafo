@@ -1,13 +1,7 @@
+//! Blurs a group of overlapping rectangles with two Gaussian passes.
+//! The horizontal and vertical passes share the blur radius and texture size.
+
 use futures::executor::block_on;
-/// Example: Separable Gaussian blur effect
-///
-/// Demonstrates a multi-pass effect: a two-pass separable Gaussian blur.
-/// Pass 1 blurs horizontally, Pass 2 blurs vertically.
-/// Both passes share the same params uniform (radius + texture size).
-///
-/// The scene has:
-/// - A background shape (no effect)
-/// - A group of overlapping colored rectangles with a Gaussian blur applied
 use grafo::wgpu::SurfaceError;
 use grafo::RenderError;
 use grafo::Shape;

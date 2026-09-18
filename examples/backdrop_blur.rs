@@ -1,16 +1,7 @@
+//! Blurs the colored shapes behind a translucent panel with a backdrop effect.
+//! Uses the same two-pass Gaussian blur shader as the `gaussian_blur` example.
+
 use futures::executor::block_on;
-/// Example: Backdrop blur (frosted-glass) effect
-///
-/// Demonstrates the backdrop effect system: a semi-transparent panel blurs
-/// whatever is rendered *behind* it, producing a frosted-glass look.
-///
-/// The scene has:
-/// - Several colored shapes drawn first (the "background content")
-/// - A semi-transparent panel on top, with a Gaussian blur backdrop effect
-///
-/// The blur reuses the same two-pass separable Gaussian blur shader from the
-/// `gaussian_blur` example, but applied as a *backdrop* effect rather than a
-/// *group* effect.
 use grafo::wgpu::SurfaceError;
 use grafo::RenderError;
 use grafo::{BackdropEffectConfig, BorderRadii, Shape};
