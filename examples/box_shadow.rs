@@ -1,3 +1,4 @@
+use futures::executor::block_on;
 /// Example: cached shader-generated box shadows with rounded corners.
 ///
 /// Each card supplies a stable geometry id. Grafo rasterizes its local coverage mask and
@@ -7,7 +8,8 @@
 /// - A card with a soft, large-radius shadow
 /// - A card with a tight, dark shadow
 /// - A card with a colored shadow and an offset
-use futures::executor::block_on;
+use grafo::wgpu::SurfaceError;
+use grafo::RenderError;
 use grafo::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -301,11 +303,11 @@ impl<'a> ApplicationHandler for App<'a> {
                     Ok(_) => {
                         renderer.clear_draw_queue();
                     }
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                    Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
                         renderer.resize(renderer.size())
                     }
 
-                    Err(wgpu::SurfaceError::Timeout) => {
+                    Err(RenderError::Surface(SurfaceError::Timeout)) => {
                         renderer.clear_draw_queue();
                         window.request_redraw();
                     }

@@ -5,6 +5,7 @@ use crate::renderer::passes::{apply_effect_passes, render_segments, EffectPassRu
 use crate::renderer::traversal::{
     compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects,
 };
+use crate::renderer::types::RenderError;
 
 impl<'a> Renderer<'a> {
     pub(super) fn render_to_texture_view(
@@ -487,10 +488,11 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    /// Returns an error if geometry preparation or surface acquisition fails.
+    pub fn render(&mut self) -> Result<(), RenderError> {
         #[cfg(feature = "render_metrics")]
         let frame_render_loop_started_at = std::time::Instant::now();
-        self.prepare_render();
+        self.prepare_render()?;
 
         #[cfg(feature = "render_metrics")]
         let after_prepare = std::time::Instant::now();

@@ -155,7 +155,11 @@ impl<'a> ApplicationHandler for App<'a> {
                 if self.bgra_bytes.len() < needed_bytes {
                     self.bgra_bytes.resize(needed_bytes, 0);
                 }
-                renderer.render_to_buffer(&mut self.bgra_bytes);
+                if let Err(error) = renderer.render_to_buffer(&mut self.bgra_bytes) {
+                    eprintln!("Render failed: {error}");
+                    event_loop.exit();
+                    return;
+                }
 
                 // CPU swizzle BGRA8 -> ARGB32 u32s for softbuffer
                 let needed_words = (window_size.width as usize) * (window_size.height as usize);

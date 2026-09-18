@@ -1,3 +1,4 @@
+use futures::executor::block_on;
 /// Example: Separable Gaussian blur effect
 ///
 /// Demonstrates a multi-pass effect: a two-pass separable Gaussian blur.
@@ -7,7 +8,8 @@
 /// The scene has:
 /// - A background shape (no effect)
 /// - A group of overlapping colored rectangles with a Gaussian blur applied
-use futures::executor::block_on;
+use grafo::wgpu::SurfaceError;
+use grafo::RenderError;
 use grafo::Shape;
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
@@ -268,11 +270,11 @@ impl<'a> ApplicationHandler for App<'a> {
                     Ok(_) => {
                         renderer.clear_draw_queue();
                     }
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                    Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
                         renderer.resize(renderer.size())
                     }
 
-                    Err(wgpu::SurfaceError::Timeout) => {
+                    Err(RenderError::Surface(SurfaceError::Timeout)) => {
                         renderer.clear_draw_queue();
                         window.request_redraw();
                     }

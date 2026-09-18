@@ -10,7 +10,8 @@ use crate::vertex::{GeometryBufferRange, InstanceTransform};
 use ahash::{HashMap, HashMapExt};
 use std::ops::Range;
 use std::sync::Arc;
-use wgpu::RenderPass;
+use thiserror::Error;
+use wgpu::{RenderPass, SurfaceError};
 
 // TODO: probably some parts of it also can be cached, so we don't need to copy it all the time.
 #[allow(clippy::large_enum_variant)]
@@ -164,9 +165,29 @@ impl DrawCommand {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
+/// Geometry cannot be addressed by an indexed draw command.
+#[derive(Error, Debug)]
+pub enum GeometryBufferError {
+    #[error("Aggregated vertex offset exceeds the draw command limit")]
+    VertexOffsetOverflow,
+    #[error("Aggregated index range exceeds the draw command limit")]
+    IndexRangeOverflow,
+}
+
+/// A frame could not be prepared or its surface texture could not be acquired.
+#[derive(Error, Debug)]
+pub enum RenderError {
+    #[error(transparent)]
+    GeometryBuffer(#[from] GeometryBufferError),
+    #[error(transparent)]
+    Surface(#[from] SurfaceError),
+}
+
+#[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum DrawCommandError {
+    #[error(transparent)]
+    GeometryBuffer(#[from] GeometryBufferError),
     #[error("Shape with id {0} doesn't exist in the draw tree.")]
     InvalidShapeId(usize),
     #[error("Shape with id {0} has not been loaded yet")]

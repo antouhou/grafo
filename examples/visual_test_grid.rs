@@ -1,10 +1,12 @@
+use futures::executor::block_on;
 /// Visual confirmation example — renders the shared visual-regression tile grid.
 ///
 /// Run with:    cargo run --example visual_test_grid
 ///
 /// The window shows the exact same scene that the headless visual-regression
 /// test validates with pixel-level assertions.
-use futures::executor::block_on;
+use grafo::wgpu::SurfaceError;
+use grafo::RenderError;
 use grafo_test_scenes::{build_main_scene, CANVAS_HEIGHT, CANVAS_WIDTH};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -80,10 +82,10 @@ impl<'a> ApplicationHandler for App<'a> {
                     Ok(_) => {
                         self.redraw_retry_at = None;
                     }
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                    Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
                         renderer.resize(renderer.size())
                     }
-                    Err(wgpu::SurfaceError::Timeout) => {
+                    Err(RenderError::Surface(SurfaceError::Timeout)) => {
                         let retry_at = Instant::now() + SURFACE_TIMEOUT_RETRY_DELAY;
                         self.redraw_retry_at = Some(retry_at);
                         event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));

@@ -10,6 +10,8 @@
 //! cargo run --example bench_render_loop --features render_metrics --release
 //! ```
 use futures::executor::block_on;
+use grafo::wgpu::SurfaceError;
+use grafo::RenderError;
 use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke, TransformInstance};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -489,12 +491,14 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                         let renderer = self.renderer.as_mut().unwrap();
                         match renderer.render() {
                             Ok(_) => {}
-                            Err(wgpu::SurfaceError::Timeout) => {
+                            Err(RenderError::Surface(SurfaceError::Timeout)) => {
                                 // Exclude failed renders from the warmup count.
                                 window.request_redraw();
                                 return;
                             }
-                            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                            Err(RenderError::Surface(
+                                SurfaceError::Lost | SurfaceError::Outdated,
+                            )) => {
                                 let size = renderer.size();
                                 renderer.resize(size);
                                 window.request_redraw();
@@ -519,12 +523,14 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                             let frame_start = Instant::now();
                             match renderer.render() {
                                 Ok(_) => {}
-                                Err(wgpu::SurfaceError::Timeout) => {
+                                Err(RenderError::Surface(SurfaceError::Timeout)) => {
                                     // Exclude failed renders from render samples.
                                     window.request_redraw();
                                     return;
                                 }
-                                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                                Err(RenderError::Surface(
+                                    SurfaceError::Lost | SurfaceError::Outdated,
+                                )) => {
                                     let size = renderer.size();
                                     renderer.resize(size);
                                     window.request_redraw();
@@ -560,13 +566,15 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                         build_scene(renderer);
                         match renderer.render() {
                             Ok(_) => {}
-                            Err(wgpu::SurfaceError::Timeout) => {
+                            Err(RenderError::Surface(SurfaceError::Timeout)) => {
                                 // Exclude failed renders from the warmup count.
                                 renderer.clear_draw_queue();
                                 window.request_redraw();
                                 return;
                             }
-                            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                            Err(RenderError::Surface(
+                                SurfaceError::Lost | SurfaceError::Outdated,
+                            )) => {
                                 renderer.clear_draw_queue();
                                 let size = renderer.size();
                                 renderer.resize(size);
@@ -597,13 +605,15 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                             let frame_start = Instant::now();
                             match renderer.render() {
                                 Ok(_) => {}
-                                Err(wgpu::SurfaceError::Timeout) => {
+                                Err(RenderError::Surface(SurfaceError::Timeout)) => {
                                     // Exclude failed renders from render samples.
                                     renderer.clear_draw_queue();
                                     window.request_redraw();
                                     return;
                                 }
-                                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                                Err(RenderError::Surface(
+                                    SurfaceError::Lost | SurfaceError::Outdated,
+                                )) => {
                                     renderer.clear_draw_queue();
                                     let size = renderer.size();
                                     renderer.resize(size);

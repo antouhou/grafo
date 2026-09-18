@@ -70,7 +70,7 @@ impl<'a> Renderer<'a> {
         } else {
             return Err(DrawCommandError::ShapeNotLoaded(cache_key));
         };
-        self.append_buffers_for_shape(&mut draw_data, &options);
+        self.append_buffers_for_shape(&mut draw_data, &options)?;
         self.add_draw_command(DrawCommand::CachedShape(draw_data), parent_shape_id)
     }
 
@@ -95,7 +95,7 @@ impl<'a> Renderer<'a> {
         );
         let mut draw_data = CachedShapeDrawData::new(cached_shape, &options);
 
-        self.append_buffers_for_shape(&mut draw_data, &options);
+        self.append_buffers_for_shape(&mut draw_data, &options)?;
         self.add_draw_command(DrawCommand::CachedShape(draw_data), parent_shape_id)
     }
 
@@ -136,7 +136,7 @@ impl<'a> Renderer<'a> {
         &mut self,
         cached_shape_data: &mut CachedShapeDrawData,
         draw_options: &ShapeDrawCommandOptions,
-    ) {
+    ) -> Result<(), DrawCommandError> {
         self.refresh_geometry_cache(cached_shape_data);
         cached_shape_data.refresh_gradient_bind_group(
             &mut self.shape_resources.gradient_cache,
@@ -150,7 +150,7 @@ impl<'a> Renderer<'a> {
             &mut self.temp_vertices,
             &mut self.temp_indices,
             &mut self.geometry_dedup_map,
-        );
+        )?;
         if let Some(geometry_range) = geometry_range {
             cached_shape_data.geometry_buffer_range = Some(geometry_range);
             cached_shape_data.is_empty = false;
@@ -179,6 +179,7 @@ impl<'a> Renderer<'a> {
         } else {
             cached_shape_data.is_empty = true;
         }
+        Ok(())
     }
 
     fn add_draw_command(

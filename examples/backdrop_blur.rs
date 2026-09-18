@@ -1,3 +1,4 @@
+use futures::executor::block_on;
 /// Example: Backdrop blur (frosted-glass) effect
 ///
 /// Demonstrates the backdrop effect system: a semi-transparent panel blurs
@@ -10,7 +11,8 @@
 /// The blur reuses the same two-pass separable Gaussian blur shader from the
 /// `gaussian_blur` example, but applied as a *backdrop* effect rather than a
 /// *group* effect.
-use futures::executor::block_on;
+use grafo::wgpu::SurfaceError;
+use grafo::RenderError;
 use grafo::{BackdropEffectConfig, BorderRadii, Shape};
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
@@ -285,11 +287,11 @@ impl<'a> ApplicationHandler for App<'a> {
                     Ok(_) => {
                         renderer.clear_draw_queue();
                     }
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                    Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
                         renderer.resize(renderer.size())
                     }
 
-                    Err(wgpu::SurfaceError::Timeout) => {
+                    Err(RenderError::Surface(SurfaceError::Timeout)) => {
                         renderer.clear_draw_queue();
                         window.request_redraw();
                     }

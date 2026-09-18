@@ -2,6 +2,7 @@ use super::*;
 use crate::pipeline::create_argb_params_buffer;
 #[cfg(feature = "render_metrics")]
 use crate::renderer::metrics::PhaseTimings;
+use crate::renderer::types::GeometryBufferError;
 
 fn copy_padded_readback_rows(
     data: &[u8],
@@ -64,11 +65,12 @@ impl<'a> Renderer<'a> {
         buffer.unmap();
     }
 
-    pub fn render_to_buffer(&mut self, buffer: &mut Vec<u8>) {
+    /// Returns an error if geometry preparation exceeds an indexed draw limit.
+    pub fn render_to_buffer(&mut self, buffer: &mut Vec<u8>) -> Result<(), GeometryBufferError> {
         #[cfg(feature = "render_metrics")]
         let frame_render_loop_started_at = std::time::Instant::now();
 
-        self.prepare_render();
+        self.prepare_render()?;
 
         #[cfg(feature = "render_metrics")]
         let after_prepare = std::time::Instant::now();
@@ -143,7 +145,7 @@ impl<'a> Renderer<'a> {
         let required_readback_len = (height as usize).saturating_mul(padded_bytes_per_row as usize);
         if readback_bytes.is_empty() || readback_bytes.len() < required_readback_len {
             self.scratch.readback_bytes = readback_bytes;
-            return;
+            return Ok(());
         }
         copy_padded_readback_rows(
             &readback_bytes,
@@ -173,13 +175,15 @@ impl<'a> Renderer<'a> {
             self.render_loop_metrics_tracker
                 .record_presented_frame(frame_render_loop_started_at, frame_presented_at);
         }
+        Ok(())
     }
 
-    pub fn render_to_argb32(&mut self, out_pixels: &mut [u32]) {
+    /// Returns an error if geometry preparation exceeds an indexed draw limit.
+    pub fn render_to_argb32(&mut self, out_pixels: &mut [u32]) -> Result<(), GeometryBufferError> {
         #[cfg(feature = "render_metrics")]
         let frame_render_loop_started_at = std::time::Instant::now();
 
-        self.prepare_render();
+        self.prepare_render()?;
 
         #[cfg(feature = "render_metrics")]
         let after_prepare = std::time::Instant::now();
@@ -192,7 +196,7 @@ impl<'a> Renderer<'a> {
                 out_pixels.len(),
                 needed_len
             );
-            return;
+            return Ok(());
         }
 
         let size_changed = self.argb_cached_width != width || self.argb_cached_height != height;
@@ -346,7 +350,7 @@ impl<'a> Renderer<'a> {
         );
         if readback_bytes.is_empty() {
             self.scratch.readback_bytes = readback_bytes;
-            return;
+            return Ok(());
         }
 
         let src_words: &[u32] = bytemuck::cast_slice(&readback_bytes);
@@ -371,6 +375,7 @@ impl<'a> Renderer<'a> {
             self.render_loop_metrics_tracker
                 .record_presented_frame(frame_render_loop_started_at, frame_presented_at);
         }
+        Ok(())
     }
 }
 

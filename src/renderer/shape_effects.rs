@@ -1,7 +1,7 @@
 #[cfg(feature = "render_metrics")]
 use super::metrics::ShapeEffectCacheMetrics;
 use super::passes::{apply_effect_passes, compute_downsampled_dimensions, EffectPassRunConfig};
-use super::types::DrawCommand;
+use super::types::{DrawCommand, GeometryBufferError};
 use super::Renderer;
 use crate::cache::{CachedTessellation, FrameCache};
 use crate::effect::{self, PooledTexture, ShapeEffectConfig};
@@ -364,7 +364,7 @@ pub(super) fn create_mask_bind_group(
 }
 
 impl<'a> Renderer<'a> {
-    pub(super) fn prepare_shape_effect_leaves(&mut self) {
+    pub(super) fn prepare_shape_effect_leaves(&mut self) -> Result<(), GeometryBufferError> {
         let maximum_texture_dimension = self.device.limits().max_texture_dimension_2d;
         let maximum_texel_count = u64::from(self.physical_size.0)
             .saturating_mul(u64::from(self.physical_size.1))
@@ -428,7 +428,8 @@ impl<'a> Renderer<'a> {
                         &mut self.temp_vertices,
                         &mut self.temp_indices,
                         &mut self.geometry_dedup_map,
-                    ) else {
+                    )?
+                    else {
                         continue;
                     };
                     quad_geometry_range = Some(geometry_range);
@@ -449,6 +450,7 @@ impl<'a> Renderer<'a> {
             ));
             self.scratch.shape_effect_leaves.insert(node_id, leaf);
         }
+        Ok(())
     }
 
     pub(super) fn resolve_shape_effects(

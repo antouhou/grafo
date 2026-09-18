@@ -70,8 +70,8 @@ pub use gradient::types::{
     RadialGradientDesc, RadialGradientShape, RadialGradientSize, SpreadMode,
 };
 pub use renderer::{
-    types::DrawCommandError, MathRect, Renderer, RendererContext, RendererCreationError,
-    ShapeOverflow, TextureLayer,
+    types::{DrawCommandError, GeometryBufferError, RenderError},
+    MathRect, Renderer, RendererContext, RendererCreationError, ShapeOverflow, TextureLayer,
 };
 pub use shape::*;
 pub use stroke::Stroke;

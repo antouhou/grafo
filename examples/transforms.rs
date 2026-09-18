@@ -1,5 +1,7 @@
 use euclid::{default::Transform3D, Angle};
 use futures::executor::block_on;
+use grafo::wgpu::SurfaceError;
+use grafo::RenderError;
 use grafo::{premultiply_rgba8_srgb_inplace, Shape};
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use lyon::algorithms::hit_test::hit_test_path;
@@ -603,11 +605,11 @@ impl<'a> ApplicationHandler for App<'a> {
                         renderer.clear_draw_queue();
                         window.request_redraw();
                     }
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                    Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
                         renderer.resize(renderer.size())
                     }
 
-                    Err(wgpu::SurfaceError::Timeout) => {
+                    Err(RenderError::Surface(SurfaceError::Timeout)) => {
                         renderer.clear_draw_queue();
                         let retry_at = Instant::now() + SURFACE_TIMEOUT_RETRY_DELAY;
                         self.redraw_retry_at = Some(retry_at);

@@ -91,7 +91,7 @@ fn shape_effect_is_resolved_before_backdrop_capture_with_msaa() {
         .expect("to attach the MSAA backdrop effect");
 
     let mut pixel_buffer = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
     assert_eq!(read_pixel_rgba(&pixel_buffer, 64, 32, 32), [0, 0, 255, 255]);
     assert_eq!(read_pixel_rgba(&pixel_buffer, 64, 52, 32), [0, 0, 255, 255]);
@@ -196,7 +196,7 @@ fn group_and_backdrop_effect_params_survive_updates_and_reload() {
         .unwrap();
 
     let mut pixel_buffer = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
     assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [255, 0, 0, 255]);
     assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 24, 16), [0, 0, 255, 255]);
 
@@ -206,7 +206,7 @@ fn group_and_backdrop_effect_params_survive_updates_and_reload() {
     renderer
         .update_backdrop_effect_params(backdrop, bytemuck::cast_slice(&[1.0_f32, 1.0, 0.0, 1.0]))
         .unwrap();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
     assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [0, 255, 0, 255]);
     assert_eq!(
         read_pixel_rgba(&pixel_buffer, 32, 24, 16),
@@ -228,7 +228,7 @@ fn group_and_backdrop_effect_params_survive_updates_and_reload() {
                 }) if rejected_effect_id == effect_id && actual_size == params.len() as u64
             ));
         }
-        renderer.render_to_buffer(&mut pixel_buffer);
+        renderer.render_to_buffer(&mut pixel_buffer).unwrap();
         assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [0, 255, 0, 255]);
         assert_eq!(
             read_pixel_rgba(&pixel_buffer, 32, 24, 16),
@@ -242,7 +242,7 @@ fn group_and_backdrop_effect_params_survive_updates_and_reload() {
         .unwrap();
     for samples in [1, 4, 1] {
         renderer.set_msaa_samples(samples);
-        renderer.render_to_buffer(&mut pixel_buffer);
+        renderer.render_to_buffer(&mut pixel_buffer).unwrap();
         assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [0, 255, 0, 255]);
         assert_eq!(
             read_pixel_rgba(&pixel_buffer, 32, 24, 16),
@@ -253,7 +253,7 @@ fn group_and_backdrop_effect_params_survive_updates_and_reload() {
     renderer
         .load_effect(effect_id, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
         .unwrap();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
     assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [255; 4]);
     assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 24, 16), [255; 4]);
 }
@@ -289,7 +289,7 @@ fn invalid_effect_can_be_replaced_with_a_valid_shader() {
     renderer.set_group_effect(shape_id, 9_201, &[]).unwrap();
 
     let mut pixel_buffer = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
     assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 16, 16), [255, 0, 0, 255]);
 
     for _ in 0..2 {
@@ -297,7 +297,7 @@ fn invalid_effect_can_be_replaced_with_a_valid_shader() {
             renderer.load_effect(9_201, &[CACHED_SHAPE_EFFECT_PASSTHROUGH, ""]),
             Err(EffectError::InvalidShader { pass_index: 1, .. })
         ));
-        renderer.render_to_buffer(&mut pixel_buffer);
+        renderer.render_to_buffer(&mut pixel_buffer).unwrap();
         assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 16, 16), [255, 0, 0, 255]);
     }
 }
@@ -329,7 +329,7 @@ fn unchanged_shape_effect_reuses_exact_gpu_result_and_collects_when_unused() {
         .unwrap();
 
     let mut pixels = Vec::new();
-    renderer.render_to_buffer(&mut pixels);
+    renderer.render_to_buffer(&mut pixels).unwrap();
     let first_frame = renderer.last_shape_effect_cache_metrics();
     assert_eq!(first_frame.misses, 1);
     assert_eq!(first_frame.hits, 0);
@@ -339,7 +339,7 @@ fn unchanged_shape_effect_reuses_exact_gpu_result_and_collects_when_unused() {
     renderer
         .load_effect(8_001, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
         .unwrap();
-    renderer.render_to_buffer(&mut pixels);
+    renderer.render_to_buffer(&mut pixels).unwrap();
     let second_frame = renderer.last_shape_effect_cache_metrics();
     assert_eq!(second_frame.hits, 1);
     assert_eq!(second_frame.misses, 0);
@@ -349,7 +349,7 @@ fn unchanged_shape_effect_reuses_exact_gpu_result_and_collects_when_unused() {
     renderer
         .load_effect(8_001, &[CACHED_SHAPE_EFFECT_RED_MASK])
         .unwrap();
-    renderer.render_to_buffer(&mut pixels);
+    renderer.render_to_buffer(&mut pixels).unwrap();
     let replaced_effect_frame = renderer.last_shape_effect_cache_metrics();
     assert_eq!(replaced_effect_frame.misses, 1);
     assert_eq!(replaced_effect_frame.hits, 0);
@@ -357,7 +357,7 @@ fn unchanged_shape_effect_reuses_exact_gpu_result_and_collects_when_unused() {
     assert_eq!(replaced_effect_frame.generated_masks, 0);
 
     renderer.remove_shape_effect(shape_id);
-    renderer.render_to_buffer(&mut pixels);
+    renderer.render_to_buffer(&mut pixels).unwrap();
     let unused_effect_frame = renderer.last_shape_effect_cache_metrics();
     assert_eq!(unused_effect_frame.collected_results, 1);
     assert_eq!(unused_effect_frame.collected_masks, 1);
@@ -415,7 +415,7 @@ fn cached_shape_effect_is_shared_by_instances_and_survives_queue_rebuild() {
     }
 
     let mut pixels = Vec::new();
-    renderer.render_to_buffer(&mut pixels);
+    renderer.render_to_buffer(&mut pixels).unwrap();
     let shared_frame = renderer.last_shape_effect_cache_metrics();
     assert_eq!(shared_frame.misses, 1);
     assert_eq!(shared_frame.hits, 1);
@@ -437,7 +437,7 @@ fn cached_shape_effect_is_shared_by_instances_and_survives_queue_rebuild() {
             grafo::ShapeEffectConfig::new().outset(3.0),
         )
         .unwrap();
-    renderer.render_to_buffer(&mut pixels);
+    renderer.render_to_buffer(&mut pixels).unwrap();
 
     let rebuilt_frame = renderer.last_shape_effect_cache_metrics();
     assert_eq!(rebuilt_frame.hits, 1);
@@ -491,8 +491,8 @@ fn cached_shape_effects_share_the_normal_texture_pipeline() {
     }
 
     let mut pixels = Vec::new();
-    renderer.render_to_buffer(&mut pixels);
-    renderer.render_to_buffer(&mut pixels);
+    renderer.render_to_buffer(&mut pixels).unwrap();
+    renderer.render_to_buffer(&mut pixels).unwrap();
 
     let cache_metrics = renderer.last_shape_effect_cache_metrics();
     assert_eq!(cache_metrics.hits, 2);
@@ -531,9 +531,9 @@ fn cached_shape_effect_is_invalidated_by_normal_pipeline_recreation() {
         .unwrap();
 
     let mut pixels = Vec::new();
-    renderer.render_to_buffer(&mut pixels);
+    renderer.render_to_buffer(&mut pixels).unwrap();
     renderer.set_msaa_samples(4);
-    renderer.render_to_buffer(&mut pixels);
+    renderer.render_to_buffer(&mut pixels).unwrap();
 
     let cache_metrics = renderer.last_shape_effect_cache_metrics();
     assert_eq!(cache_metrics.hits, 0);
@@ -568,17 +568,17 @@ fn shape_effect_scale_change_rebuilds_leaf_and_invalidates_cached_texture() {
         .unwrap();
 
     let mut pixels = Vec::new();
-    renderer.render_to_buffer(&mut pixels);
-    renderer.render_to_buffer(&mut pixels);
+    renderer.render_to_buffer(&mut pixels).unwrap();
+    renderer.render_to_buffer(&mut pixels).unwrap();
     assert_eq!(renderer.last_shape_effect_cache_metrics().hits, 1);
     assert_eq!(renderer.last_shape_effect_cache_metrics().misses, 0);
 
     renderer.change_scale_factor(2.0);
-    renderer.render_to_buffer(&mut pixels);
+    renderer.render_to_buffer(&mut pixels).unwrap();
     assert_eq!(renderer.last_shape_effect_cache_metrics().hits, 0);
     assert_eq!(renderer.last_shape_effect_cache_metrics().misses, 1);
 
-    renderer.render_to_buffer(&mut pixels);
+    renderer.render_to_buffer(&mut pixels).unwrap();
     assert_eq!(renderer.last_shape_effect_cache_metrics().hits, 1);
     assert_eq!(renderer.last_shape_effect_cache_metrics().misses, 0);
 }
@@ -612,7 +612,7 @@ fn cached_shape_effect_uses_exact_parameter_bytes_on_transparent_shape() {
         .unwrap();
 
     let mut pixels = Vec::new();
-    renderer.render_to_buffer(&mut pixels);
+    renderer.render_to_buffer(&mut pixels).unwrap();
     assert_eq!(read_pixel_rgba(&pixels, 48, 14, 14), [0, 0, 0, 0]);
     assert_eq!(read_pixel_rgba(&pixels, 48, 30, 28), [0, 0, 255, 255]);
 
@@ -620,7 +620,7 @@ fn cached_shape_effect_uses_exact_parameter_bytes_on_transparent_shape() {
     renderer
         .update_shape_effect_params(shape_id, bytemuck::bytes_of(&red))
         .unwrap();
-    renderer.render_to_buffer(&mut pixels);
+    renderer.render_to_buffer(&mut pixels).unwrap();
     assert_eq!(read_pixel_rgba(&pixels, 48, 30, 28), [255, 0, 0, 255]);
     let changed_parameter_frame = renderer.last_shape_effect_cache_metrics();
     assert_eq!(changed_parameter_frame.misses, 1);
@@ -637,7 +637,7 @@ fn main_scene_pixel_expectations() {
     let expectations = build_main_scene(&mut renderer);
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
     let failures = check_pixels(&pixel_buffer, CANVAS_WIDTH, CANVAS_HEIGHT, &expectations);
     if !failures.is_empty() {
@@ -659,7 +659,7 @@ fn empty_draw_queue() {
 
     // Render with nothing in the draw queue
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
     let bytes_per_pixel = 4;
     let expected_length = (CANVAS_WIDTH as usize) * (CANVAS_HEIGHT as usize) * bytes_per_pixel;
@@ -727,8 +727,8 @@ fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent()
 
     let mut first_pixels = Vec::new();
     let mut second_pixels = Vec::new();
-    first.render_to_buffer(&mut first_pixels);
-    second.render_to_buffer(&mut second_pixels);
+    first.render_to_buffer(&mut first_pixels).unwrap();
+    second.render_to_buffer(&mut second_pixels).unwrap();
 
     assert_eq!(read_pixel_rgba(&first_pixels, 16, 8, 8), [255, 0, 0, 255]);
     assert_eq!(read_pixel_rgba(&second_pixels, 16, 8, 8), [0, 255, 0, 255]);
@@ -737,8 +737,8 @@ fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent()
     for samples in [4, 1, 4] {
         first.set_msaa_samples(samples);
         first.resize((20, 20));
-        first.render_to_buffer(&mut first_pixels);
-        second.render_to_buffer(&mut second_pixels);
+        first.render_to_buffer(&mut first_pixels).unwrap();
+        second.render_to_buffer(&mut second_pixels).unwrap();
 
         assert_eq!(read_pixel_rgba(&first_pixels, 20, 8, 8), [255, 0, 0, 255]);
         assert_eq!(read_pixel_rgba(&second_pixels, 16, 8, 8), [0, 255, 0, 255]);
@@ -753,16 +753,16 @@ fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent()
         .texture_manager()
         .allocate_texture_with_data(42, (1, 1), &[0, 0, 255, 255]);
     assert_eq!(second.texture_manager().size(), (1, 0));
-    first.render_to_buffer(&mut first_pixels);
-    second.render_to_buffer(&mut second_pixels);
+    first.render_to_buffer(&mut first_pixels).unwrap();
+    second.render_to_buffer(&mut second_pixels).unwrap();
     assert_eq!(read_pixel_rgba(&first_pixels, 20, 8, 8), [0, 0, 255, 255]);
     assert_eq!(read_pixel_rgba(&second_pixels, 16, 8, 8), [0, 0, 255, 255]);
     assert_eq!(first.texture_manager().size(), (1, 1));
 
     first.texture_manager().remove_texture(42);
     assert_eq!(second.texture_manager().size(), (0, 0));
-    first.render_to_buffer(&mut first_pixels);
-    second.render_to_buffer(&mut second_pixels);
+    first.render_to_buffer(&mut first_pixels).unwrap();
+    second.render_to_buffer(&mut second_pixels).unwrap();
     assert_eq!(read_pixel_rgba(&first_pixels, 20, 8, 8), [255, 0, 0, 255]);
     assert_eq!(read_pixel_rgba(&second_pixels, 16, 8, 8), [0, 255, 0, 255]);
 }
@@ -785,7 +785,7 @@ fn single_root_no_children() {
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
     let expectations = vec![
         grafo_test_scenes::PixelExpectation::opaque(55, 55, 200, 50, 50, "center_red"),
@@ -840,7 +840,7 @@ fn original_size_texture_fit_uses_physical_pixels_on_hidpi() {
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
     let expectations = vec![
         grafo_test_scenes::PixelExpectation::opaque(
@@ -933,7 +933,7 @@ fn cover_and_contain_texture_fit_preserve_aspect_ratio() {
         .unwrap();
 
     let mut pixel_buffer = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
     assert_eq!(
         read_pixel_rgba(&pixel_buffer, physical_size.0, 12, 32),
@@ -993,7 +993,7 @@ fn clipping_rect_clips_child_without_visible_surface() {
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
     let expectations = vec![
         grafo_test_scenes::PixelExpectation::opaque(50, 50, 200, 50, 50, "inside_clip_rect"),
@@ -1064,7 +1064,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
         .unwrap();
 
     let mut seeded_frame: Vec<u8> = Vec::new();
-    renderer.render_to_buffer(&mut seeded_frame);
+    renderer.render_to_buffer(&mut seeded_frame).unwrap();
 
     renderer.clear_draw_queue();
 
@@ -1101,7 +1101,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
     let sampled_pixel = read_pixel_rgba(&pixel_buffer, physical_size.0, 86, 40);
     assert!(
@@ -1138,7 +1138,7 @@ fn standalone_clipping_rect_does_not_panic() {
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
     assert!(
         pixel_buffer.iter().all(|&byte| byte == 0),
@@ -1182,7 +1182,7 @@ fn clipping_rect_rejects_non_axis_aligned_transform() {
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
     let expectations = vec![
         grafo_test_scenes::PixelExpectation::opaque(
@@ -1246,7 +1246,7 @@ fn gradient_fill_basic() {
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
     // At each pixel center, t = (x + 0.5 - 10) / 80 and sRGB = 255 * [1 - t, 0, t].
     let expectations = [
@@ -1300,14 +1300,14 @@ fn gradient_survives_pipeline_recreation() {
         PixelExpectation::opaque_approx(80, 50, 30, 0, 225, 3, "gradient_right"),
     ];
     let mut pixel_buffer = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
     assert_pixels_match(&pixel_buffer, &expectations);
 
     // Changing MSAA recreates pipelines and their bind group layouts.
     renderer.set_msaa_samples(4);
 
     pixel_buffer.clear();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
     assert_pixels_match(&pixel_buffer, &expectations);
 }
 
@@ -1392,7 +1392,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
         .unwrap();
 
     let mut pixel_buffer = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
     assert_pixels_match(
         &pixel_buffer,
         &[
@@ -1454,7 +1454,7 @@ fn multi_subpath_fill_has_no_internal_seam() {
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
     let expectations = vec![
         grafo_test_scenes::PixelExpectation::opaque(30, 30, 200, 50, 50, "diag_top_left"),

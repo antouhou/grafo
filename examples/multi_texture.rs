@@ -1,6 +1,8 @@
 //! Example demonstrating multi-texturing (background + foreground) on a single shape.
 //! Run with: `cargo run --example multi_texture`
 
+use grafo::wgpu::SurfaceError;
+use grafo::RenderError;
 use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -134,11 +136,11 @@ impl ApplicationHandler for App {
                     Ok(_) => {
                         self.redraw_retry_at = None;
                     }
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                    Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
                         let size = renderer.size();
                         renderer.resize(size);
                     }
-                    Err(wgpu::SurfaceError::Timeout) => {
+                    Err(RenderError::Surface(SurfaceError::Timeout)) => {
                         let retry_at = Instant::now() + SURFACE_TIMEOUT_RETRY_DELAY;
                         self.redraw_retry_at = Some(retry_at);
                         event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
