@@ -1,30 +1,23 @@
+//! Combines a box shadow on a transparent parent with backdrop blur on its child.
+//! The child covers the same area and blurs the colored rectangles behind it.
+
 use futures::executor::block_on;
-/// Example: Box shadow + backdrop blur (nested effects)
-///
-/// Demonstrates combining two effects on a single panel:
-/// - A **group effect** (analytical box shadow) on the parent shape
-/// - A **backdrop effect** (Gaussian blur) on a child shape inside it
-///
-/// The parent is a transparent rounded rectangle with a box shadow. Its child
-/// is the same size/position and carries the backdrop blur, producing a
-/// frosted-glass panel with a soft shadow underneath.
-///
-/// Behind everything, colorful rectangles provide content for the blur to act on.
 use grafo::wgpu::SurfaceError;
 use grafo::RenderError;
 use grafo::{BackdropEffectConfig, BorderRadii, Shape};
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use grafo_test_scenes::shaders::{HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
+use redraw_retry::RedrawRetry;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event::{StartCause, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
+
+mod redraw_retry;
 
 const BOX_SHADOW_EFFECT: u64 = 1;
 const BLUR_EFFECT: u64 = 2;
-
-const SURFACE_TIMEOUT_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 // Box shadow params & shader
 #[repr(C)]
@@ -103,72 +96,24 @@ struct BlurParams {
     _pad: f32,
 }
 
-const HORIZONTAL_BLUR_WGSL: &str = r#"
-const DIRECTION: vec2<f32> = vec2<f32>(1.0, 0.0);
-
-struct Params {
-    radius: f32,
-    _pad: f32,
-}
-@group(1) @binding(0) var<uniform> params: Params;
-
-@fragment
-fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let pixel = DIRECTION / vec2<f32>(textureDimensions(t_input));
-    let sigma = max(params.radius / 3.0, 0.001);
-    var color = vec4<f32>(0.0);
-    var total_weight = 0.0;
-    let r = i32(ceil(params.radius));
-    for (var i = -r; i <= r; i++) {
-        let offset = f32(i);
-        let weight = exp(-(offset * offset) / (2.0 * sigma * sigma));
-        color += textureSample(t_input, s_input, uv + pixel * offset) * weight;
-        total_weight += weight;
-    }
-    return color / total_weight;
-}
-"#;
-
-const VERTICAL_BLUR_WGSL: &str = r#"
-const DIRECTION: vec2<f32> = vec2<f32>(0.0, 1.0);
-
-struct Params {
-    radius: f32,
-    _pad: f32,
-}
-@group(1) @binding(0) var<uniform> params: Params;
-
-@fragment
-fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let pixel = DIRECTION / vec2<f32>(textureDimensions(t_input));
-    let sigma = max(params.radius / 3.0, 0.001);
-    var color = vec4<f32>(0.0);
-    var total_weight = 0.0;
-    let r = i32(ceil(params.radius));
-    for (var i = -r; i <= r; i++) {
-        let offset = f32(i);
-        let weight = exp(-(offset * offset) / (2.0 * sigma * sigma));
-        color += textureSample(t_input, s_input, uv + pixel * offset) * weight;
-        total_weight += weight;
-    }
-    return color / total_weight;
-}
-"#;
-
 #[derive(Default)]
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
-    /// Pending redraw after a surface timeout.
-    redraw_retry_at: Option<Instant>,
+    redraw_retry: RedrawRetry,
 }
 
 impl<'a> ApplicationHandler for App<'a> {
+    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+        self.redraw_retry
+            .new_events(event_loop, cause, self.window.as_deref());
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
                 .create_window(
-                    Window::default_attributes().with_title("Grafo – Box Shadow + Backdrop Blur"),
+                    Window::default_attributes().with_title("Grafo box shadow and backdrop blur"),
                 )
                 .unwrap(),
         );
@@ -186,7 +131,6 @@ impl<'a> ApplicationHandler for App<'a> {
             1,
         ));
 
-        // Load both effects once at startup
         renderer
             .load_effect(BOX_SHADOW_EFFECT, &[BOX_SHADOW_WGSL])
             .expect("Failed to compile box shadow effect");
@@ -293,8 +237,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     .unwrap();
 
                 // Parent panel with a box shadow group effect
-                // The parent is transparent — it exists to carry the box
-                // shadow group effect. The shadow is rendered analytically.
                 let panel_x = 150.0;
                 let panel_y = 120.0;
                 let panel_w = 500.0;
@@ -315,7 +257,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Attach box shadow as a group effect on the parent
                 let shadow_params = BoxShadowParams {
                     box_min: [panel_x, panel_y],
                     box_max: [panel_x + panel_w, panel_y + panel_h],
@@ -330,11 +271,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     .set_group_effect(panel, BOX_SHADOW_EFFECT, bytemuck::bytes_of(&shadow_params))
                     .expect("Failed to set box shadow effect");
 
-                // Child panel with backdrop blur
-                // This child is the same size as the parent. It has a
-                // semi-transparent fill so the blurred background shows
-                // through, and a backdrop effect that blurs everything
-                // already rendered behind it.
+                // This child matches the parent's size. Its translucent fill reveals
+                // the blurred shapes behind it.
                 let glass_shape = Shape::rounded_rect(
                     [(panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h)],
                     BorderRadii::new(panel_radius),
@@ -349,7 +287,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Attach backdrop blur on the child
                 let blur_params = BlurParams {
                     radius: 14.0,
                     _pad: 0.0,
@@ -365,7 +302,7 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 match renderer.render() {
                     Ok(_) => {
-                        self.redraw_retry_at = None;
+                        self.redraw_retry.cancel(event_loop);
                         renderer.clear_draw_queue();
                     }
                     Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
@@ -374,32 +311,12 @@ impl<'a> ApplicationHandler for App<'a> {
 
                     Err(RenderError::Surface(SurfaceError::Timeout)) => {
                         renderer.clear_draw_queue();
-                        let retry_at = Instant::now() + SURFACE_TIMEOUT_RETRY_DELAY;
-                        self.redraw_retry_at = Some(retry_at);
-                        event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
+                        self.redraw_retry.schedule(event_loop);
                     }
                     Err(e) => eprintln!("{e:?}"),
                 }
             }
             _ => {}
-        }
-    }
-
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(retry_at) = self.redraw_retry_at else {
-            // Clear a stale WaitUntil deadline left behind when a successful
-            // render cancelled the pending retry before it fired.
-            event_loop.set_control_flow(ControlFlow::Wait);
-            return;
-        };
-        if Instant::now() >= retry_at {
-            self.redraw_retry_at = None;
-            if let Some(window) = &self.window {
-                window.request_redraw();
-            }
-            event_loop.set_control_flow(ControlFlow::Wait);
-        } else {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
         }
     }
 }

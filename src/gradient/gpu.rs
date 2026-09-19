@@ -2,16 +2,17 @@ use super::sampling::bake_gradient_ramp;
 use super::types::{
     GradientData, GradientGeometry, GradientRamp, GradientRampCacheKey, GradientUnits, SpreadMode,
 };
-use crate::pipeline::{create_buffer_init, BackdropSamplingUniform};
+use crate::pipeline::BackdropSamplingUniform;
 use lru::LruCache;
 use std::f32::consts::TAU;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 const MAX_GRADIENT_RAMP_CACHE_SIZE: usize = 256;
 const MAX_GRADIENT_BIND_GROUP_CACHE_SIZE: usize = 1024;
 
-/// GPU-side gradient-only parameters packed into a uniform-friendly struct.
+/// Gradient parameters laid out for a GPU uniform buffer.
 /// Matches the WGSL `GradientColorParams` struct in shader.wgsl.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -24,7 +25,7 @@ pub(crate) struct GpuGradientColorParams {
     pub units: u32,
     pub is_constant: u32,
 
-    // Constant color (for degenerate cases)
+    // Constant color for degenerate gradients.
     pub constant_color: [f32; 4],
 
     // Linear params: start_x, start_y, end_x, end_y
@@ -64,12 +65,14 @@ impl GpuGradientColorParams {
         let mut params = Self {
             spread_mode,
             units,
-            is_constant: data.is_constant as u32,
-            constant_color: data.constant_color,
             period_start: data.period_start,
             period_len: data.period_len,
             ..Self::none()
         };
+        if let GradientRamp::Constant(color) = &data.ramp {
+            params.is_constant = 1;
+            params.constant_color = *color;
+        }
         match data.geometry {
             GradientGeometry::Linear(line) => {
                 params.gradient_type = 1;
@@ -122,9 +125,8 @@ impl GpuGradientColorParams {
 
 /// GPU-side material parameters bound at group 3 binding 0.
 ///
-/// This uniform layout is shared across regular gradient fills and backdrop-capable pipelines.
-/// Solid backdrop draws leave `gradient` in its inert `none()` state and only populate
-/// `backdrop_sampling`.
+/// Gradient fills and backdrop pipelines share this uniform layout.
+/// Solid backdrop draws disable the gradient and populate only `backdrop_sampling`.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct GpuMaterialParams {
@@ -160,7 +162,7 @@ impl GpuMaterialParams {
 }
 
 /// Creates a 1D ramp texture from the baked ramp data.
-/// Returns (texture, texture_view).
+/// Returns `(texture, texture_view)`.
 pub(crate) fn create_ramp_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -215,7 +217,7 @@ pub(crate) fn create_ramp_texture(
     (texture, view)
 }
 
-/// Creates a default (transparent) 1D ramp texture (single texel).
+/// Creates a default 1D ramp texture with one transparent texel.
 pub(crate) fn create_default_ramp_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -386,18 +388,17 @@ impl GradientCache {
             return bind_group.clone();
         }
 
-        let ramp_texture = if gradient_data.is_constant {
+        let ramp_texture = if matches!(gradient_data.ramp, GradientRamp::Constant(_)) {
             self.get_or_create_default_ramp_texture(device, queue)
         } else {
             self.get_or_create_ramp_texture(gradient_data, device, queue)
         };
 
-        let params_buffer = create_buffer_init(
-            device,
-            Some("Material Params Buffer"),
-            bytemuck::cast_slice(&[material_params]),
-            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        );
+        let params_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Material Params Buffer"),
+            contents: bytemuck::cast_slice(&[material_params]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
 
         let bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Gradient Bind Group"),
@@ -434,7 +435,7 @@ impl GradientCache {
         backdrop_view: &wgpu::TextureView,
         backdrop_sampler: &wgpu::Sampler,
     ) -> wgpu::BindGroup {
-        let ramp_texture = if gradient_data.is_constant {
+        let ramp_texture = if matches!(gradient_data.ramp, GradientRamp::Constant(_)) {
             self.get_or_create_default_ramp_texture(device, queue)
         } else {
             self.get_or_create_ramp_texture(gradient_data, device, queue)

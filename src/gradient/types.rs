@@ -490,12 +490,6 @@ pub struct LinearGradientLine {
     pub end: [f32; 2],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GradientSupport {
-    Unsupported,
-    Supported,
-}
-
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Fill {
@@ -577,9 +571,6 @@ pub(crate) struct GradientData {
     /// For repeating: period_start and period_len in the t/theta domain
     pub(crate) period_start: f32,
     pub(crate) period_len: f32,
-    /// True when the gradient is a constant fill (degenerate cases, single stop)
-    pub(crate) is_constant: bool,
-    pub(crate) constant_color: [f32; 4],
 }
 
 impl GradientData {
@@ -587,24 +578,23 @@ impl GradientData {
         common: &GradientCommonDesc,
         geometry: GradientGeometry,
         normalized: NormalizedGradient,
-        is_constant: bool,
+        is_degenerate: bool,
     ) -> Self {
         let ramp_cache_key =
             GradientRampCacheKey::from_normalized(&common.interpolation, &normalized);
         let period_start = normalized.period_start;
         let period_len = normalized.period_len;
-        let constant_color = if is_constant {
-            normalized.degenerate_constant_color()
+        let constant_color = if is_degenerate {
+            Some(normalized.degenerate_constant_color())
         } else {
-            [0.0; 4]
+            normalized.constant_color()
         };
-        let ramp = if is_constant {
-            GradientRamp::Constant(constant_color)
-        } else {
-            GradientRamp::Pending(Box::new(GradientRampSource {
+        let ramp = match constant_color {
+            Some(color) => GradientRamp::Constant(color),
+            None => GradientRamp::Pending(Box::new(GradientRampSource {
                 interpolation: common.interpolation,
                 normalized,
-            }))
+            })),
         };
 
         Self {
@@ -615,8 +605,6 @@ impl GradientData {
             ramp,
             period_start,
             period_len,
-            is_constant,
-            constant_color,
         }
     }
 }
@@ -854,7 +842,6 @@ fn validate_common(common: &GradientCommonDesc, kind: GradientKind) -> Result<()
             }
         }
 
-        // Validate hint
         if let Some(hint) = &stop.hint_to_next_segment {
             if is_conic && !hint.is_conic() {
                 return Err(GradientError::InvalidHintOffsetKind { stop_index });
@@ -986,7 +973,6 @@ mod tests {
             },
         })
         .unwrap();
-        assert!(g.data.is_constant);
         assert!(matches!(g.data.ramp, GradientRamp::Constant(_)));
     }
 
@@ -999,7 +985,6 @@ mod tests {
             size: RadialGradientSize::ExplicitCircleRadius(0.0), // zero radius → degenerate
         })
         .unwrap();
-        assert!(g.data.is_constant);
         assert!(matches!(g.data.ramp, GradientRamp::Constant(_)));
     }
 

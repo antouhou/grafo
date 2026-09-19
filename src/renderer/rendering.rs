@@ -1,7 +1,9 @@
 use super::*;
 #[cfg(feature = "render_metrics")]
 use crate::renderer::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
-use crate::renderer::passes::{apply_effect_passes, render_segments, EffectPassRunConfig};
+use crate::renderer::passes::{
+    apply_effect_passes, render_segments, EffectPassRunConfig, SegmentRenderTarget,
+};
 use crate::renderer::traversal::{
     compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects,
 };
@@ -15,38 +17,34 @@ impl<'a> Renderer<'a> {
     ) {
         let render_to_texture_view_started_at = std::time::Instant::now();
 
-        // Nothing to render when the draw queue is empty.
-        if self.draw_tree.is_empty() {
-            self.scratch.shape_effect_leaves.clear();
-            let _collected_shape_effect_results = self.shape_effect_cache.end_frame();
-            let _collected_shape_effect_masks = self.shape_effect_mask_cache.end_frame();
+        if self.state.draw_tree.is_empty() {
+            self.state.scratch.shape_effect_leaves.clear();
+            let _collected_shape_effect_results = self.state.shape_effect_cache.end_frame();
+            let _collected_shape_effect_masks = self.state.shape_effect_mask_cache.end_frame();
             #[cfg(feature = "render_metrics")]
             {
-                self.last_shape_effect_cache_metrics = ShapeEffectCacheMetrics {
+                self.state.pipeline_switch_counts = PipelineSwitchCounts::default();
+                self.state.shape_effect_cache_metrics = ShapeEffectCacheMetrics {
                     collected_results: _collected_shape_effect_results as u64,
                     collected_masks: _collected_shape_effect_masks as u64,
                     ..Default::default()
                 };
             }
-            self.shape_resources.tessellation_cache.end_frame();
+            self.state.shape_resources.tessellation_cache.end_frame();
             self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
             return;
         }
 
-        let mut traversal_scratch = std::mem::take(&mut self.scratch.traversal_scratch);
-        let mut effect_results = std::mem::take(&mut self.scratch.effect_results);
-        let mut shape_effect_leaves = std::mem::take(&mut self.scratch.shape_effect_leaves);
-        let mut effect_node_ids = std::mem::take(&mut self.scratch.effect_node_ids);
-        let mut textures_to_recycle = std::mem::take(&mut self.scratch.textures_to_recycle);
-        let mut effect_output_textures = std::mem::take(&mut self.scratch.effect_output_textures);
-        let mut stencil_stack = std::mem::take(&mut self.scratch.stencil_stack);
-        let mut scissor_stack = std::mem::take(&mut self.scratch.scissor_stack);
-        let mut clip_kind_stack = std::mem::take(&mut self.scratch.clip_kind_stack);
-        let mut backdrop_work_textures = std::mem::take(&mut self.scratch.backdrop_work_textures);
+        let mut traversal_scratch = std::mem::take(&mut self.state.scratch.traversal_scratch);
+        let mut effect_results = std::mem::take(&mut self.state.scratch.effect_results);
+        let mut effect_node_ids = std::mem::take(&mut self.state.scratch.effect_node_ids);
+        let mut textures_to_recycle = std::mem::take(&mut self.state.scratch.textures_to_recycle);
+        let mut effect_output_textures =
+            std::mem::take(&mut self.state.scratch.effect_output_textures);
 
-        let has_group_effects = !self.group_effects.is_empty();
-        let has_backdrop_effects = !self.backdrop_effects.is_empty();
-        let has_shape_effects = !self.shape_effects.is_empty();
+        let has_group_effects = !self.state.group_effects.is_empty();
+        let has_backdrop_effects = !self.state.backdrop_effects.is_empty();
+        let has_shape_effects = !self.state.shape_effects.is_empty();
 
         if has_group_effects || has_backdrop_effects {
             self.ensure_composite_pipeline();
@@ -67,9 +65,10 @@ impl<'a> Renderer<'a> {
         }
 
         #[cfg(feature = "render_metrics")]
-        let mut frame_pipeline_counts = PipelineSwitchCounts::default();
-        #[cfg(feature = "render_metrics")]
-        let mut shape_effect_cache_metrics = ShapeEffectCacheMetrics::default();
+        {
+            self.state.pipeline_switch_counts = PipelineSwitchCounts::default();
+            self.state.shape_effect_cache_metrics = ShapeEffectCacheMetrics::default();
+        }
 
         let mut encoder = self
             .device
@@ -78,28 +77,28 @@ impl<'a> Renderer<'a> {
             });
 
         if has_shape_effects {
-            self.resolve_shape_effects(
-                &mut encoder,
-                &mut shape_effect_leaves,
-                &mut textures_to_recycle,
-                #[cfg(feature = "render_metrics")]
-                &mut shape_effect_cache_metrics,
-            );
+            self.resolve_shape_effects(&mut encoder, &mut textures_to_recycle);
         }
 
+        let pipeline_resources = &self.pipeline_resources;
         let backdrop_context = if has_backdrop_effects {
-            let backdrop_composite = self.backdrop_layer_composite_resources.as_ref().unwrap();
+            let backdrop_composite = pipeline_resources
+                .backdrop_layer_composite_resources
+                .as_ref()
+                .unwrap();
             Some(types::BackdropContext {
                 loaded_effects: &self.loaded_effects,
-                composite_bgl: &self.composite_resources.as_ref().unwrap().bind_group_layout,
-                effect_sampler: self.effect_sampler.as_ref().unwrap(),
-                gradient_ramp_sampler: &self.gradient_ramp_sampler,
-                texture_blit_pipeline: self.texture_blit_pipeline.as_ref().unwrap(),
+                effect_sampler: pipeline_resources.effect_sampler.as_ref().unwrap(),
+                gradient_ramp_sampler: &pipeline_resources.shapes.gradient_ramp_sampler,
+                texture_blit_pipeline: pipeline_resources.texture_blit_pipeline.as_ref().unwrap(),
                 backdrop_layer_composite_pipeline: &backdrop_composite.pipeline,
                 backdrop_layer_composite_bind_group_layout: &backdrop_composite.bind_group_layout,
-                stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
-                backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
-                backdrop_color_gradient_pipeline: self
+                stencil_only_pipeline: pipeline_resources.stencil_only_pipeline.as_ref().unwrap(),
+                backdrop_color_pipeline: pipeline_resources
+                    .backdrop_color_pipeline
+                    .as_ref()
+                    .unwrap(),
+                backdrop_color_gradient_pipeline: pipeline_resources
                     .backdrop_color_gradient_pipeline
                     .as_ref()
                     .unwrap(),
@@ -107,72 +106,36 @@ impl<'a> Renderer<'a> {
                 queue: &self.queue,
                 config_format: self.config.format,
                 max_texture_dimension_2d: self.device.limits().max_texture_dimension_2d,
-                backdrop_texture_bind_group_layout: &self.backdrop_texture_bind_group_layout,
-                default_backdrop_texture_bind_group: &self.default_backdrop_texture_bind_group,
-                backdrop_gradient_bind_group_layout: &self.backdrop_gradient_bind_group_layout,
+                backdrop_texture_bind_group_layout: &pipeline_resources
+                    .shapes
+                    .backdrop_texture_bind_group_layout,
+                default_backdrop_texture_bind_group: &pipeline_resources
+                    .shapes
+                    .default_backdrop_texture_bind_group,
+                backdrop_gradient_bind_group_layout: &pipeline_resources
+                    .shapes
+                    .backdrop_gradient_bind_group_layout,
             })
         } else {
             None
         };
 
-        let pipelines = types::Pipelines {
-            and_pipeline: &self.and_pipeline,
-            and_gradient_pipeline: &self.and_gradient_pipeline,
-            and_bind_group: &self.and_bind_group,
-            decrementing_pipeline: &self.decrementing_pipeline,
-            decrementing_bind_group: &self.decrementing_bind_group,
-            leaf_draw_pipeline: &self.leaf_draw_pipeline,
-            leaf_draw_gradient_pipeline: &self.leaf_draw_gradient_pipeline,
-            shape_texture_bind_group_layout_background: &self
-                .shape_texture_bind_group_layout_background,
-            shape_texture_bind_group_layout_foreground: &self
-                .shape_texture_bind_group_layout_foreground,
-            default_shape_texture_bind_groups: &self.default_shape_texture_bind_groups,
-            texture_manager: &self.texture_manager,
-        };
-
-        let buffers = types::Buffers {
-            supports_base_vertex: self.context.inner.supports_base_vertex,
-            aggregated_vertex_buffer: self
-                .aggregated_vertex_buffer
-                .as_ref()
-                .expect("vertex buffer is initialized during frame preparation"),
-            aggregated_index_buffer: self
-                .aggregated_index_buffer
-                .as_ref()
-                .expect("index buffer is initialized during frame preparation"),
-            identity_instance_transform_buffer: self
-                .identity_instance_transform_buffer
-                .as_ref()
-                .unwrap(),
-            identity_instance_color_buffer: self.identity_instance_color_buffer.as_ref().unwrap(),
-            identity_instance_metadata_buffer: self
-                .identity_instance_metadata_buffer
-                .as_ref()
-                .unwrap(),
-            aggregated_instance_transform_buffer: self
-                .aggregated_instance_transform_buffer
-                .as_ref(),
-            aggregated_instance_color_buffer: self.aggregated_instance_color_buffer.as_ref(),
-            aggregated_instance_metadata_buffer: self.aggregated_instance_metadata_buffer.as_ref(),
-        };
+        let state = &mut self.state;
 
         if has_group_effects {
             effect_node_ids.clear();
-            for &node_id in self.group_effects.keys() {
-                if self.draw_tree.get(node_id).is_some() {
-                    let depth = compute_node_depth(&self.draw_tree, node_id);
+            for &node_id in state.group_effects.keys() {
+                if state.draw_tree.get(node_id).is_some() {
+                    let depth = compute_node_depth(&state.draw_tree, node_id);
                     effect_node_ids.push((node_id, depth));
                 }
             }
             effect_node_ids.sort_by_key(|right| std::cmp::Reverse(right.1));
 
-            let (width, height) = self.physical_size;
-            let physical_size = self.physical_size;
-            let scale_factor = self.scale_factor;
+            let (width, height) = state.physical_size;
 
             for &(node_id, _depth) in &effect_node_ids {
-                let effect_instance = match self.group_effects.get(&node_id) {
+                let effect_instance = match state.group_effects.get(&node_id) {
                     Some(instance) => instance,
                     None => continue,
                 };
@@ -181,7 +144,7 @@ impl<'a> Renderer<'a> {
                     continue;
                 }
 
-                let subtree_texture = self.offscreen_texture_pool.acquire_with_depth(
+                let subtree_texture = state.texture_pool.acquire_with_depth(
                     &self.device,
                     width,
                     height,
@@ -189,12 +152,15 @@ impl<'a> Renderer<'a> {
                     self.msaa_sample_count,
                 );
 
-                let subtree_needs_backdrop_effects =
-                    subtree_has_backdrop_effects(&self.draw_tree, &self.backdrop_effects, node_id);
+                let subtree_needs_backdrop_effects = subtree_has_backdrop_effects(
+                    &state.draw_tree,
+                    &state.backdrop_effects,
+                    node_id,
+                );
 
                 // Backdrops inside the group need the scene painted before the group.
                 let behind_texture = if subtree_needs_backdrop_effects {
-                    let behind_tex = self.offscreen_texture_pool.acquire_color_only(
+                    let behind_tex = state.texture_pool.acquire_color_only(
                         &self.device,
                         width,
                         height,
@@ -220,44 +186,26 @@ impl<'a> Renderer<'a> {
                     };
 
                     plan_traversal_in_place(
-                        &mut self.draw_tree,
+                        &mut state.draw_tree,
                         &effect_results,
-                        &shape_effect_leaves,
+                        &state.scratch.shape_effect_leaves,
                         None,
                         Some(node_id),
                         &mut traversal_scratch,
                     );
                     render_segments(
-                        &mut self.draw_tree,
                         &mut encoder,
                         traversal_scratch.events(),
                         &effect_results,
-                        &mut shape_effect_leaves,
-                        &self.group_effects,
-                        &mut self.backdrop_effects,
-                        behind_color_view,
-                        behind_resolve_target,
-                        &behind_depth_view,
-                        None,
-                        true,
-                        &pipelines,
-                        &buffers,
-                        &mut self.shape_resources.gradient_cache,
-                        &mut self.offscreen_texture_pool,
-                        self.composite_resources
-                            .as_ref()
-                            .map(|resources| &resources.pipeline),
-                        None,
-                        &mut backdrop_work_textures,
-                        &mut stencil_stack,
-                        &mut scissor_stack,
-                        &mut clip_kind_stack,
-                        self.scale_factor,
-                        self.physical_size,
-                        #[cfg(feature = "render_metrics")]
-                        &mut frame_pipeline_counts,
-                        #[cfg(feature = "render_metrics")]
-                        &mut shape_effect_cache_metrics,
+                        SegmentRenderTarget {
+                            color_view: behind_color_view,
+                            color_resolve_target: behind_resolve_target,
+                            depth_stencil_view: &behind_depth_view,
+                            backdrop_source: None,
+                            backdrop_context: None,
+                        },
+                        pipeline_resources,
+                        state,
                     );
                     Some(behind_tex)
                 } else {
@@ -265,9 +213,9 @@ impl<'a> Renderer<'a> {
                 };
 
                 plan_traversal_in_place(
-                    &mut self.draw_tree,
+                    &mut state.draw_tree,
                     &effect_results,
-                    &shape_effect_leaves,
+                    &state.scratch.shape_effect_leaves,
                     Some(node_id),
                     None,
                     &mut traversal_scratch,
@@ -302,44 +250,25 @@ impl<'a> Renderer<'a> {
                 });
 
                 render_segments(
-                    &mut self.draw_tree,
                     &mut encoder,
                     traversal_scratch.events(),
                     &effect_results,
-                    &mut shape_effect_leaves,
-                    &self.group_effects,
-                    &mut self.backdrop_effects,
-                    subtree_color_view,
-                    subtree_resolve_target,
-                    subtree_texture
-                        .depth_stencil_view
-                        .as_ref()
-                        .expect("subtree render targets must include a depth/stencil attachment"),
-                    backdrop_source,
-                    true,
-                    &pipelines,
-                    &buffers,
-                    &mut self.shape_resources.gradient_cache,
-                    &mut self.offscreen_texture_pool,
-                    self.composite_resources
-                        .as_ref()
-                        .map(|resources| &resources.pipeline),
-                    backdrop_context
-                        .as_ref()
-                        .filter(|_| subtree_needs_backdrop_effects),
-                    &mut backdrop_work_textures,
-                    &mut stencil_stack,
-                    &mut scissor_stack,
-                    &mut clip_kind_stack,
-                    scale_factor,
-                    physical_size,
-                    #[cfg(feature = "render_metrics")]
-                    &mut frame_pipeline_counts,
-                    #[cfg(feature = "render_metrics")]
-                    &mut shape_effect_cache_metrics,
+                    SegmentRenderTarget {
+                        color_view: subtree_color_view,
+                        color_resolve_target: subtree_resolve_target,
+                        depth_stencil_view: subtree_texture.depth_stencil_view.as_ref().expect(
+                            "subtree render targets must include a depth/stencil attachment",
+                        ),
+                        backdrop_source,
+                        backdrop_context: backdrop_context
+                            .as_ref()
+                            .filter(|_| subtree_needs_backdrop_effects),
+                    },
+                    pipeline_resources,
+                    state,
                 );
 
-                effect_output_textures.append(&mut backdrop_work_textures);
+                effect_output_textures.append(&mut state.scratch.backdrop_work_textures);
                 if let Some(behind_tex) = behind_texture {
                     textures_to_recycle.push(behind_tex);
                 }
@@ -351,10 +280,14 @@ impl<'a> Renderer<'a> {
                 };
 
                 let loaded_effect = self.loaded_effects.get(&effect_id).unwrap();
+                let effect_instance = state
+                    .group_effects
+                    .get(&node_id)
+                    .expect("group effect remains attached during rendering");
                 let effect_output = apply_effect_passes(
                     &self.device,
                     &mut encoder,
-                    &mut self.offscreen_texture_pool,
+                    &mut state.texture_pool,
                     EffectPassRunConfig {
                         loaded_effect,
                         params_bind_group: effect_instance
@@ -362,8 +295,8 @@ impl<'a> Renderer<'a> {
                             .as_ref()
                             .map(|resources| &resources.bind_group),
                         source_view,
-                        effect_sampler: self.effect_sampler.as_ref().unwrap(),
-                        composite_bind_group_layout: &self
+                        effect_sampler: pipeline_resources.effect_sampler.as_ref().unwrap(),
+                        composite_bind_group_layout: &pipeline_resources
                             .composite_resources
                             .as_ref()
                             .unwrap()
@@ -372,7 +305,7 @@ impl<'a> Renderer<'a> {
                         width,
                         height,
                         texture_format: self.config.format,
-                        label_prefix: "group_effect",
+                        label: "group_effect",
                     },
                 );
 
@@ -388,9 +321,9 @@ impl<'a> Renderer<'a> {
             let depth_texture_view = self.depth_stencil_view.as_ref().unwrap();
 
             plan_traversal_in_place(
-                &mut self.draw_tree,
+                &mut state.draw_tree,
                 &effect_results,
-                &shape_effect_leaves,
+                &state.scratch.shape_effect_leaves,
                 None,
                 None,
                 &mut traversal_scratch,
@@ -415,36 +348,18 @@ impl<'a> Renderer<'a> {
             };
 
             render_segments(
-                &mut self.draw_tree,
                 &mut encoder,
                 traversal_scratch.events(),
                 &effect_results,
-                &mut shape_effect_leaves,
-                &self.group_effects,
-                &mut self.backdrop_effects,
-                phase2_color_view,
-                phase2_resolve_target,
-                depth_texture_view,
-                backdrop_source,
-                true,
-                &pipelines,
-                &buffers,
-                &mut self.shape_resources.gradient_cache,
-                &mut self.offscreen_texture_pool,
-                self.composite_resources
-                    .as_ref()
-                    .map(|resources| &resources.pipeline),
-                backdrop_context.as_ref(),
-                &mut backdrop_work_textures,
-                &mut stencil_stack,
-                &mut scissor_stack,
-                &mut clip_kind_stack,
-                self.scale_factor,
-                self.physical_size,
-                #[cfg(feature = "render_metrics")]
-                &mut frame_pipeline_counts,
-                #[cfg(feature = "render_metrics")]
-                &mut shape_effect_cache_metrics,
+                SegmentRenderTarget {
+                    color_view: phase2_color_view,
+                    color_resolve_target: phase2_resolve_target,
+                    depth_stencil_view: depth_texture_view,
+                    backdrop_source,
+                    backdrop_context: backdrop_context.as_ref(),
+                },
+                pipeline_resources,
+                state,
             );
         }
 
@@ -452,39 +367,33 @@ impl<'a> Renderer<'a> {
 
         self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
 
-        effect_output_textures.append(&mut backdrop_work_textures);
+        effect_output_textures.append(&mut state.scratch.backdrop_work_textures);
         textures_to_recycle.append(&mut effect_output_textures);
-        self.offscreen_texture_pool
-            .recycle(&mut textures_to_recycle);
+        state.texture_pool.recycle(&mut textures_to_recycle);
 
-        self.draw_tree
+        state
+            .draw_tree
             .iter_mut()
             .for_each(|(_node_id, draw_command)| {
                 draw_command.clear_frame_state();
             });
 
-        shape_effect_leaves.clear();
+        state.scratch.shape_effect_leaves.clear();
 
-        self.scratch.traversal_scratch = traversal_scratch;
-        self.scratch.effect_results = effect_results;
-        self.scratch.shape_effect_leaves = shape_effect_leaves;
-        self.scratch.effect_node_ids = effect_node_ids;
-        self.scratch.textures_to_recycle = textures_to_recycle;
-        self.scratch.effect_output_textures = effect_output_textures;
-        self.scratch.stencil_stack = stencil_stack;
-        self.scratch.scissor_stack = scissor_stack;
-        self.scratch.clip_kind_stack = clip_kind_stack;
-        self.scratch.backdrop_work_textures = backdrop_work_textures;
-        let _collected_shape_effect_results = self.shape_effect_cache.end_frame();
-        let _collected_shape_effect_masks = self.shape_effect_mask_cache.end_frame();
-        self.shape_resources.tessellation_cache.end_frame();
+        state.scratch.traversal_scratch = traversal_scratch;
+        state.scratch.effect_results = effect_results;
+        state.scratch.effect_node_ids = effect_node_ids;
+        state.scratch.textures_to_recycle = textures_to_recycle;
+        state.scratch.effect_output_textures = effect_output_textures;
+        let _collected_shape_effect_results = state.shape_effect_cache.end_frame();
+        let _collected_shape_effect_masks = state.shape_effect_mask_cache.end_frame();
+        state.shape_resources.tessellation_cache.end_frame();
 
         #[cfg(feature = "render_metrics")]
         {
-            shape_effect_cache_metrics.collected_results = _collected_shape_effect_results as u64;
-            shape_effect_cache_metrics.collected_masks = _collected_shape_effect_masks as u64;
-            self.last_pipeline_switch_counts = frame_pipeline_counts;
-            self.last_shape_effect_cache_metrics = shape_effect_cache_metrics;
+            state.shape_effect_cache_metrics.collected_results =
+                _collected_shape_effect_results as u64;
+            state.shape_effect_cache_metrics.collected_masks = _collected_shape_effect_masks as u64;
         }
     }
 

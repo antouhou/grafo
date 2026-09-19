@@ -13,11 +13,12 @@
 //! and can supply different parameters.
 
 use crate::gradient::gpu::GpuMaterialParams;
-use crate::pipeline::{create_buffer_init, BackdropSamplingUniform};
+use crate::pipeline::BackdropSamplingUniform;
 use naga::front::wgsl::{self, ParseError};
 use naga::valid::{ValidationError, Validator};
 use naga::{AddressSpace, ShaderStage, WithSpan};
 use std::sync::Arc;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 #[cfg(test)]
 mod tests;
@@ -39,7 +40,7 @@ pub enum EffectShaderError {
     DuplicateParameterBinding,
 }
 
-/// Errors that can occur when working with the effect system.
+/// Errors from loading or attaching effects and updating their parameters.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum EffectError {
     /// WGSL or the effect interface is invalid for the zero-based pass index.
@@ -69,10 +70,10 @@ pub enum EffectError {
     InvalidParams(String),
 }
 
-/// Defines which already-rendered region a backdrop effect captures before processing it.
+/// The rendered region to capture as input to a backdrop effect.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub enum BackdropCaptureArea {
-    /// Capture the effect-bearing node's transformed local bounds.
+    /// Capture the node's transformed local bounds.
     #[default]
     NodeBounds,
     /// Capture the entire viewport.
@@ -84,12 +85,11 @@ pub enum BackdropCaptureArea {
 /// Per-node configuration for backdrop capture before the effect shader runs.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct BackdropEffectConfig {
-    /// Which logical screen-space region should be captured from what has already rendered.
+    /// The rendered region to capture, in logical screen coordinates.
     pub capture_area: BackdropCaptureArea,
     /// Additional logical screen-space padding applied around the requested capture area.
     ///
-    /// This is most useful for blur-like effects that need pixels outside the node bounds to
-    /// avoid clipped edges.
+    /// Blur effects need pixels outside the node bounds to avoid clipped edges.
     pub padding: f32,
     /// Scale factor applied to the captured region before running the effect.
     /// `1.0` keeps full resolution, `0.5` halves each axis, and so on.
@@ -192,10 +192,9 @@ impl ShapeEffectConfig {
 
 /// Draws a fullscreen triangle from three vertex indices, without a vertex buffer.
 /// Effect and composite passes share this shader.
-pub(crate) const FULLSCREEN_QUAD_VS: &str = include_str!("shaders/fullscreen_quad_vs.wgsl");
+pub(crate) const FULLSCREEN_TRIANGLE_VS: &str = include_str!("shaders/fullscreen_quad_vs.wgsl");
 
-/// Built-in fragment shader preamble providing the input texture bindings.
-/// This is prepended to the user's effect fragment shader.
+/// Input texture bindings prepended to the user's effect fragment shader.
 pub(crate) const EFFECT_FS_PREAMBLE: &str = include_str!("shaders/effect_fs_preamble.wgsl");
 
 /// Samples effect results for compositing into the parent target.
@@ -207,7 +206,7 @@ const BACKDROP_LAYER_COMPOSITE_FS: &str = include_str!("shaders/backdrop_layer_c
 pub(crate) struct LoadedEffectPass {
     /// The compiled render pipeline for this pass's fullscreen triangle.
     pub pipeline: wgpu::RenderPipeline,
-    /// Whether this pass references @group(1) (user params).
+    /// Whether this pass references user parameters at `@group(1)`.
     pub has_params: bool,
 }
 
@@ -217,9 +216,9 @@ pub(crate) struct LoadedEffect {
     pub pass_sources: Box<[Box<str>]>,
     /// Compiled passes, executed sequentially with ping-pong textures.
     pub passes: Vec<LoadedEffectPass>,
-    /// A bind group layout for the input texture (group 0): texture and sampler.
+    /// The input texture and sampler layout at group 0.
     pub input_bind_group_layout: wgpu::BindGroupLayout,
-    /// Bind group layout for the user's parameter uniform (group 1).
+    /// The user's parameter uniform layout at group 1.
     /// None if no pass uses user params. Shared across all passes that reference it.
     pub params_bind_group_layout: Option<wgpu::BindGroupLayout>,
 }
@@ -245,7 +244,7 @@ pub(crate) struct CompositePipelineResources {
 
 /// An effect attachment stored by node ID in the renderer.
 pub(crate) struct EffectInstance {
-    /// Reference to the loaded effect (by effect_id key).
+    /// The loaded effect's ID.
     pub effect_id: u64,
     /// Raw bytes for the effect's uniform parameters.
     /// The byte layout must match the shader's uniform declaration.
@@ -459,7 +458,7 @@ impl OffscreenTexturePool {
     }
 }
 
-/// Creates the bind group layout for effect input: texture_2d + sampler at group(0).
+/// Creates the layout for the input texture and sampler at group 0.
 pub(crate) fn create_effect_input_bind_group_layout(
     device: &wgpu::Device,
 ) -> wgpu::BindGroupLayout {
@@ -486,7 +485,7 @@ pub(crate) fn create_effect_input_bind_group_layout(
     })
 }
 
-/// Creates a bind group layout for user effect parameters: uniform buffer at group(1) binding(0).
+/// Creates the user parameter uniform layout at group 1, binding 0.
 pub(crate) fn create_effect_params_bind_group_layout(
     device: &wgpu::Device,
 ) -> wgpu::BindGroupLayout {
@@ -505,14 +504,14 @@ pub(crate) fn create_effect_params_bind_group_layout(
     })
 }
 
-/// Concatenate built-in vertex shader + preamble + user fragment shader into a single WGSL module.
+/// Combines the built-in vertex shader, input bindings, and user fragment shader into one module.
 pub(crate) fn build_effect_wgsl(user_fragment_source: &str) -> String {
-    format!("{FULLSCREEN_QUAD_VS}\n{EFFECT_FS_PREAMBLE}\n{user_fragment_source}")
+    format!("{FULLSCREEN_TRIANGLE_VS}\n{EFFECT_FS_PREAMBLE}\n{user_fragment_source}")
 }
 
-/// Build the composite WGSL module (fullscreen VS + passthrough FS).
+/// Combines the fullscreen vertex shader and passthrough fragment shader.
 pub(crate) fn build_composite_wgsl() -> String {
-    format!("{FULLSCREEN_QUAD_VS}\n{COMPOSITE_FS}")
+    format!("{FULLSCREEN_TRIANGLE_VS}\n{COMPOSITE_FS}")
 }
 
 /// Validates the complete effect module and detects its parameter uniform.
@@ -553,11 +552,11 @@ fn validate_effect_shader(
     Ok(has_params)
 }
 
-/// Compile a (possibly multi-pass) effect from WGSL source(s).
+/// Compiles one or more WGSL passes into an effect.
 ///
 /// Each entry in `pass_sources` is a WGSL fragment shader for one pass.
 /// Passes execute sequentially; each reads the previous pass's output via `t_input`.
-/// All passes share the same user-params uniform layout (group 1) when present.
+/// Passes that use user parameters share the uniform layout at group 1.
 ///
 /// For single-pass effects, pass a one-element slice.
 pub(crate) fn compile_effect_pipeline(
@@ -626,7 +625,7 @@ pub(crate) fn compile_effect_pipeline(
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: Some("vs_quad"),
+                entry_point: Some("vs_triangle"),
                 compilation_options: Default::default(),
                 buffers: &[],
             },
@@ -667,7 +666,7 @@ pub(crate) fn compile_effect_pipeline(
     })
 }
 
-/// Compile the shared composite pipeline (passthrough FS, stencil-aware for parent clipping).
+/// Compiles the composite pipeline, which samples the effect result and respects the parent clip.
 pub(crate) fn compile_composite_pipeline(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
@@ -700,7 +699,7 @@ pub(crate) fn compile_composite_pipeline(
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: Some("vs_quad"),
+            entry_point: Some("vs_triangle"),
             compilation_options: Default::default(),
             buffers: &[],
         },
@@ -766,7 +765,7 @@ pub(crate) fn compile_texture_blit_pipeline(
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: Some("vs_quad"),
+            entry_point: Some("vs_triangle"),
             compilation_options: Default::default(),
             buffers: &[],
         },
@@ -797,7 +796,7 @@ pub(crate) fn compile_backdrop_layer_composite_pipeline(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
 ) -> CompositePipelineResources {
-    let shader_source = format!("{FULLSCREEN_QUAD_VS}\n{BACKDROP_LAYER_COMPOSITE_FS}");
+    let shader_source = format!("{FULLSCREEN_TRIANGLE_VS}\n{BACKDROP_LAYER_COMPOSITE_FS}");
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("backdrop_layer_composite_shader"),
         source: wgpu::ShaderSource::Wgsl(shader_source.into()),
@@ -837,7 +836,7 @@ pub(crate) fn compile_backdrop_layer_composite_pipeline(
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: Some("vs_quad"),
+            entry_point: Some("vs_triangle"),
             compilation_options: Default::default(),
             buffers: &[],
         },
@@ -886,7 +885,7 @@ pub(crate) fn create_backdrop_layer_composite_bind_group(
     })
 }
 
-/// Create a bind group to sample a texture (for effect input or composite input).
+/// Creates a texture binding for effect input or compositing.
 pub(crate) fn create_texture_sample_bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
@@ -949,12 +948,11 @@ pub(crate) fn prepare_solid_backdrop_material_params_buffer(
     if let Some(existing_buffer) = backdrop_material_params_buffer.as_ref() {
         queue.write_buffer(existing_buffer, 0, bytemuck::bytes_of(&material_params));
     } else {
-        *backdrop_material_params_buffer = Some(create_buffer_init(
-            device,
-            Some("solid_backdrop_material_params_buffer"),
-            bytemuck::bytes_of(&material_params),
-            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        ));
+        *backdrop_material_params_buffer = Some(device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("solid_backdrop_material_params_buffer"),
+            contents: bytemuck::bytes_of(&material_params),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        }));
     }
 
     backdrop_material_params_buffer
@@ -972,12 +970,11 @@ pub(crate) fn prepare_backdrop_layer_params_buffer(
     if let Some(existing_buffer) = backdrop_layer_params_buffer.as_ref() {
         queue.write_buffer(existing_buffer, 0, bytemuck::bytes_of(&layer_params));
     } else {
-        *backdrop_layer_params_buffer = Some(create_buffer_init(
-            device,
-            Some("backdrop_layer_params_buffer"),
-            bytemuck::bytes_of(&layer_params),
-            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        ));
+        *backdrop_layer_params_buffer = Some(device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("backdrop_layer_params_buffer"),
+            contents: bytemuck::bytes_of(&layer_params),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        }));
     }
 
     backdrop_layer_params_buffer

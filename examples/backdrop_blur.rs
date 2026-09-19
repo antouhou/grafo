@@ -1,20 +1,12 @@
+//! Blurs the colored shapes behind a translucent panel with a backdrop effect.
+//! Uses the same two-pass Gaussian blur shader as the `gaussian_blur` example.
+
 use futures::executor::block_on;
-/// Example: Backdrop blur (frosted-glass) effect
-///
-/// Demonstrates the backdrop effect system: a semi-transparent panel blurs
-/// whatever is rendered *behind* it, producing a frosted-glass look.
-///
-/// The scene has:
-/// - Several colored shapes drawn first (the "background content")
-/// - A semi-transparent panel on top, with a Gaussian blur backdrop effect
-///
-/// The blur reuses the same two-pass separable Gaussian blur shader from the
-/// `gaussian_blur` example, but applied as a *backdrop* effect rather than a
-/// *group* effect.
 use grafo::wgpu::SurfaceError;
 use grafo::RenderError;
 use grafo::{BackdropEffectConfig, BorderRadii, Shape};
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use grafo_test_scenes::shaders::{HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -31,58 +23,6 @@ struct BlurParams {
     _pad: f32,
 }
 
-const HORIZONTAL_BLUR_WGSL: &str = r#"
-const DIRECTION: vec2<f32> = vec2<f32>(1.0, 0.0);
-
-struct Params {
-    radius: f32,
-    _pad: f32,
-}
-@group(1) @binding(0) var<uniform> params: Params;
-
-@fragment
-fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let pixel = DIRECTION / vec2<f32>(textureDimensions(t_input));
-    let sigma = max(params.radius / 3.0, 0.001);
-    var color = vec4<f32>(0.0);
-    var total_weight = 0.0;
-    let r = i32(ceil(params.radius));
-    for (var i = -r; i <= r; i++) {
-        let offset = f32(i);
-        let weight = exp(-(offset * offset) / (2.0 * sigma * sigma));
-        color += textureSample(t_input, s_input, uv + pixel * offset) * weight;
-        total_weight += weight;
-    }
-    return color / total_weight;
-}
-"#;
-
-const VERTICAL_BLUR_WGSL: &str = r#"
-const DIRECTION: vec2<f32> = vec2<f32>(0.0, 1.0);
-
-struct Params {
-    radius: f32,
-    _pad: f32,
-}
-@group(1) @binding(0) var<uniform> params: Params;
-
-@fragment
-fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let pixel = DIRECTION / vec2<f32>(textureDimensions(t_input));
-    let sigma = max(params.radius / 3.0, 0.001);
-    var color = vec4<f32>(0.0);
-    var total_weight = 0.0;
-    let r = i32(ceil(params.radius));
-    for (var i = -r; i <= r; i++) {
-        let offset = f32(i);
-        let weight = exp(-(offset * offset) / (2.0 * sigma * sigma));
-        color += textureSample(t_input, s_input, uv + pixel * offset) * weight;
-        total_weight += weight;
-    }
-    return color / total_weight;
-}
-"#;
-
 #[derive(Default)]
 struct App<'a> {
     window: Option<Arc<Window>>,
@@ -93,10 +33,7 @@ impl<'a> ApplicationHandler for App<'a> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
-                .create_window(
-                    Window::default_attributes()
-                        .with_title("Grafo – Backdrop Blur (Frosted Glass)"),
-                )
+                .create_window(Window::default_attributes().with_title("Grafo backdrop blur"))
                 .unwrap(),
         );
 
@@ -113,7 +50,6 @@ impl<'a> ApplicationHandler for App<'a> {
             1,
         ));
 
-        // Load the two-pass Gaussian blur effect
         renderer
             .load_effect(BLUR_EFFECT, &[HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL])
             .expect("Failed to compile blur effect");
@@ -159,7 +95,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Colorful rectangles that will be visible through the panel
+                // These rectangles remain visible through the blurred panel.
                 let r1 = Shape::rect(
                     [(60.0, 80.0), (260.0, 260.0)],
                     Stroke::new(2.0_f32, Color::rgb(0, 0, 0)),
@@ -212,9 +148,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Frosted-glass panel with backdrop blur
-                // This shape is rendered on top; the backdrop effect blurs
-                // everything already drawn behind it.
+                // The backdrop effect blurs the shapes already drawn behind this panel.
                 let panel = Shape::rect(
                     [(120.0, 120.0), (520.0, 460.0)],
                     Stroke::new(2.0_f32, Color::rgb(100, 100, 100)),
@@ -228,7 +162,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // To test that clipping works correctly with the blur
+                // The panel clips this child.
                 let panel_content = Shape::rounded_rect(
                     [(240.0, 240.0), (600.0, 540.0)],
                     BorderRadii::new(100.0),

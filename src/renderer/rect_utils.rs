@@ -66,10 +66,6 @@ pub(super) fn should_skip_visible_rect_draw(
 }
 
 /// Compute a screen-space scissor rect from a local-space axis-aligned rect and its transform.
-///
-/// Returns `Some((x, y, width, height))` in physical pixels if the transform preserves
-/// axis-alignment (identity, translation, and/or scale — no rotation, skew, or perspective).
-/// Returns `None` if scissor clipping cannot be used (the caller should fall back to stencil).
 pub(super) fn compute_scissor_rect(
     rect: [(f32, f32); 2],
     transform: Option<InstanceTransform>,

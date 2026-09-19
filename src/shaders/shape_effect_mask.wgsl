@@ -1,6 +1,6 @@
 // Rasterizes a shape's coverage mask into an offscreen texture for shape effects.
-// Anti-aliased boundary vertices are expanded along their normal by the fringe width
-// (converted from physical pixels to logical units) before interpolation.
+// Expands boundary vertices along their normals before interpolation,
+// converting the fringe width from physical pixels to logical units.
 
 struct MaskUniforms {
     local_origin: vec2<f32>,

@@ -103,7 +103,9 @@ fn degenerate_linear_gradient_uses_the_last_stop_color() {
         panic!("a degenerate gradient must have a constant ramp");
     };
     assert_eq!(color, [0.0, 0.25, 0.0, 0.25]);
-    assert_eq!(gradient.data.constant_color, color);
+    let params = GpuGradientColorParams::from_gradient_data(&gradient.data);
+    assert_eq!(params.is_constant, 1);
+    assert_eq!(params.constant_color, color);
 }
 
 #[test]

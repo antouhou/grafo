@@ -15,7 +15,7 @@ use crate::shaders::{
     VERTICAL_BLUR_WGSL,
 };
 
-// ── Grid layout constants ────────────────────────────────────────────────────
+// Grid layout
 
 const TILE_SIZE: u32 = 80;
 const COLUMNS: u32 = 6;
@@ -35,7 +35,7 @@ const SOLID_GREEN_20X20_TEXTURE_ID: u64 = 102;
 const SOLID_RED_TEXTURE_ID: u64 = 103;
 const TRANSLUCENT_CHECKERBOARD_TEXTURE_ID: u64 = 104;
 
-/// Returns the pixel origin (top-left corner) of tile number `n` (1-based).
+/// Returns the top-left pixel of the tile. Tile numbers start at one.
 fn tile_origin(tile_number: u32) -> (f32, f32) {
     let index = tile_number - 1;
     let column = index % COLUMNS;
@@ -43,11 +43,8 @@ fn tile_origin(tile_number: u32) -> (f32, f32) {
     ((column * TILE_SIZE) as f32, (row * TILE_SIZE) as f32)
 }
 
-/// Builds the entire main test scene on the given renderer and returns a list
-/// of pixel expectations to validate the rendered output.
-///
-/// This function is shared between the `#[test]` (via `render_to_buffer`) and
-/// the winit visual-confirmation example (via `render()`).
+/// Queues the tile grid and returns its expected pixel colors.
+/// The headless regression test and visual_test_grid example share this scene.
 pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let mut expectations: Vec<PixelExpectation> = Vec::new();
 
@@ -107,7 +104,7 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_37_textured_transparent_rects(renderer));
     expectations.extend(tile_38_sheared_transparent_parent(renderer));
 
-    // ── Gradient tiles ───────────────────────────────────────────────────
+    // Gradient tiles
     expectations.extend(tile_39_linear_gradient(renderer));
     expectations.extend(tile_40_radial_gradient(renderer));
     expectations.extend(tile_41_conic_gradient(renderer));
@@ -117,7 +114,7 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_45_gradient_group_blur(renderer));
     expectations.extend(tile_46_gradient_backdrop_blur(renderer));
 
-    // ── Gradient regression tiles ────────────────────────────────────────
+    // Gradient regression tiles
     expectations.extend(tile_47_gradient_nonleaf_stencil(renderer));
     expectations.extend(tile_48_gradient_state_leak(renderer));
     expectations.extend(tile_49_conic_quadrant_colors(renderer));
@@ -265,7 +262,7 @@ fn tile_69_gradient_automatic_stop_after_decreasing_stop(
     ]
 }
 
-// ── Shared resource setup ────────────────────────────────────────────────────
+// Shared resource setup
 
 fn load_shared_resources(renderer: &mut Renderer) {
     renderer
@@ -296,7 +293,7 @@ fn load_shared_resources(renderer: &mut Renderer) {
         )
         .expect("Failed to compile downsampled drop shadow effect");
 
-    // 4×4 checkerboard: alternating white and black pixels, RGBA
+    // A 4×4 RGBA checkerboard of alternating white and black pixels.
     let mut checkerboard = [0u8; 4 * 4 * 4];
     for row in 0..4u32 {
         for col in 0..4u32 {
@@ -352,7 +349,7 @@ fn load_shared_resources(renderer: &mut Renderer) {
     );
 }
 
-// ── Section A: Basic Shapes ──────────────────────────────────────────────────
+// Basic shapes
 
 fn tile_01_rect_solid(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(1);
@@ -400,7 +397,7 @@ fn tile_02_rounded_rect_solid(renderer: &mut Renderer) -> Vec<PixelExpectation> 
 
     vec![
         PixelExpectation::opaque(ox as u32 + 40, oy as u32 + 40, 50, 180, 50, "t02_interior"),
-        // Corner at (ox+11, oy+11) is inside the border radius curve — should be canvas bg
+        // The rounded corner leaves this pixel outside the shape, showing the canvas.
         PixelExpectation::opaque(
             ox as u32 + 11,
             oy as u32 + 11,
@@ -480,7 +477,7 @@ fn tile_04_path_bezier(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     ]
 }
 
-// ── Section B: Hierarchy & Scissor Clipping ──────────────────────────────────
+// Hierarchy and scissor clipping
 
 fn tile_05_rect_parent_child_inside(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(5);
@@ -568,7 +565,7 @@ fn tile_06_rect_parent_child_overflow(renderer: &mut Renderer) -> Vec<PixelExpec
             200,
             "t06_child_visible",
         ),
-        // Parent-only area (left of child, inside parent)
+        // Inside the parent, left of the child.
         PixelExpectation::opaque(
             ox as u32 + 15,
             oy as u32 + 40,
@@ -577,7 +574,7 @@ fn tile_06_rect_parent_child_overflow(renderer: &mut Renderer) -> Vec<PixelExpec
             150,
             "t06_parent_visible",
         ),
-        // Pixel outside parent boundary — child should be clipped, shows canvas bg
+        // The parent clips the child here, exposing the canvas.
         PixelExpectation::opaque(
             ox as u32 + 60,
             oy as u32 + 40,
@@ -717,7 +714,7 @@ fn tile_09_rect_siblings_overlap(renderer: &mut Renderer) -> Vec<PixelExpectatio
         )
         .unwrap();
 
-    // First child (drawn first)
+    // Draw this child before its overlapping sibling.
     let child1 = Shape::rect(
         [(ox + 15.0, oy + 20.0), (ox + 50.0, oy + 55.0)],
         Stroke::default(),
@@ -731,7 +728,7 @@ fn tile_09_rect_siblings_overlap(renderer: &mut Renderer) -> Vec<PixelExpectatio
         )
         .unwrap();
 
-    // Second child overlaps first (drawn on top)
+    // This child covers the first in their overlap.
     let child2 = Shape::rect(
         [(ox + 30.0, oy + 30.0), (ox + 65.0, oy + 65.0)],
         Stroke::default(),
@@ -746,7 +743,7 @@ fn tile_09_rect_siblings_overlap(renderer: &mut Renderer) -> Vec<PixelExpectatio
         .unwrap();
 
     vec![
-        // Overlap region — second child on top
+        // The second child covers the first in the overlap.
         PixelExpectation::opaque(
             ox as u32 + 40,
             oy as u32 + 40,
@@ -755,7 +752,7 @@ fn tile_09_rect_siblings_overlap(renderer: &mut Renderer) -> Vec<PixelExpectatio
             220,
             "t09_overlap_top",
         ),
-        // Area only in first child (may have anti-aliasing near overlap edge)
+        // Only the first child covers this pixel, near the antialiased overlap edge.
         PixelExpectation::new(
             ox as u32 + 20,
             oy as u32 + 25,
@@ -769,7 +766,7 @@ fn tile_09_rect_siblings_overlap(renderer: &mut Renderer) -> Vec<PixelExpectatio
     ]
 }
 
-// ── Section C: Stencil Clipping ──────────────────────────────────────────────
+// Stencil clipping
 
 fn tile_10_rounded_rect_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(10);
@@ -813,7 +810,7 @@ fn tile_10_rounded_rect_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             230,
             "t10_parent_ring",
         ),
-        // Corner outside rounded clip — shows canvas bg
+        // The canvas shows outside the rounded clip.
         PixelExpectation::opaque(
             ox as u32 + 7,
             oy as u32 + 7,
@@ -858,7 +855,7 @@ fn tile_11_path_parent_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         .unwrap();
 
     vec![
-        // Right side of triangle — child (orange) is visible and clipped to triangle
+        // The orange child remains visible inside the triangle.
         PixelExpectation::opaque(
             ox as u32 + 55,
             oy as u32 + 55,
@@ -867,7 +864,7 @@ fn tile_11_path_parent_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             50,
             "t11_child_in_tri",
         ),
-        // Left side of triangle — parent (blue-ish) is visible where child doesn't cover
+        // The child leaves this part of the blue parent uncovered.
         PixelExpectation::opaque(
             ox as u32 + 25,
             oy as u32 + 55,
@@ -876,7 +873,7 @@ fn tile_11_path_parent_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             220,
             "t11_parent_in_tri",
         ),
-        // Outside triangle — shows canvas bg
+        // The canvas shows outside the triangle.
         PixelExpectation::opaque(
             ox as u32 + 10,
             oy as u32 + 10,
@@ -891,7 +888,7 @@ fn tile_11_path_parent_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 fn tile_12_stencil_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(12);
 
-    // L0: rounded-rect in the NW quadrant — stencil clip.
+    // L0 uses stencil clipping in the upper-left quadrant.
     let level0 = Shape::rounded_rect(
         [(ox + 5.0, oy + 5.0), (ox + 60.0, oy + 60.0)],
         BorderRadii::new(10.0),
@@ -906,7 +903,7 @@ fn tile_12_stencil_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectat
         )
         .unwrap(); // lavender
 
-    // L1: shifted SE — overflows L0 right and bottom.
+    // L1 extends past the right and bottom of L0.
     // Visible (L0∩L1) ≈ (20,20)→(60,60).
     let level1 = Shape::rounded_rect(
         [(ox + 20.0, oy + 20.0), (ox + 75.0, oy + 75.0)],
@@ -922,7 +919,7 @@ fn tile_12_stencil_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectat
         )
         .unwrap(); // green
 
-    // L2: shifted SW/down — overflows L1 to the left and L0 below.
+    // L2 extends left of L1 and below L0.
     // Visible (L0∩L1∩L2) ≈ (20,35)→(50,60).
     let level2 = Shape::rounded_rect(
         [(ox + 10.0, oy + 35.0), (ox + 50.0, oy + 75.0)],
@@ -948,9 +945,9 @@ fn tile_12_stencil_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectat
             220,
             "t12_l2_visible",
         ),
-        // Inside L0 only (NW, outside L1 and L2) → L0 lavender
+        // L0 is visible above and left of L1 and L2.
         PixelExpectation::opaque(ox as u32 + 15, oy as u32 + 15, 200, 180, 200, "t12_l0_only"),
-        // Inside L0∩L1, outside L2 (y < 35) → L1 green
+        // Above y=35, L1 is visible inside L0 and outside L2.
         PixelExpectation::opaque(
             ox as u32 + 40,
             oy as u32 + 28,
@@ -959,9 +956,7 @@ fn tile_12_stencil_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectat
             100,
             "t12_l1_visible",
         ),
-        // --- Clipping proofs ---
-        // L1 extends to (65,40) but L0 ends at x=60 → bg white.
-        // Proves L0 stencil clips L1.
+        // L1 extends past L0 at x=60, so the canvas shows at (65,40).
         PixelExpectation::opaque(
             ox as u32 + 65,
             oy as u32 + 40,
@@ -970,8 +965,7 @@ fn tile_12_stencil_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectat
             255,
             "t12_l0_clips_l1",
         ),
-        // L2 extends to (15,50) (inside L0) but L1 starts at x=20 → L0 lavender.
-        // Proves L1 stencil clips L2: blue does NOT leak into L0's area.
+        // L1 clips L2 left of x=20, exposing L0 at (15,50).
         PixelExpectation::opaque(
             ox as u32 + 15,
             oy as u32 + 50,
@@ -980,8 +974,7 @@ fn tile_12_stencil_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectat
             200,
             "t12_l1_clips_l2",
         ),
-        // L1+L2 extend to (30,70) but L0 ends at y=60 → bg white.
-        // Proves L0 clips the entire chain.
+        // L0 clips both descendants below y=60, exposing the canvas at (30,70).
         PixelExpectation::opaque(
             ox as u32 + 30,
             oy as u32 + 70,
@@ -1010,7 +1003,7 @@ fn tile_13_rotated_rect_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         )
         .unwrap();
 
-    // Child is smaller than parent — parent ring visible around child
+    // The smaller child leaves a visible ring of the parent.
     let child = Shape::rect([(-12.0, -12.0), (12.0, 12.0)], Stroke::default());
     renderer
         .add_shape(
@@ -1024,7 +1017,7 @@ fn tile_13_rotated_rect_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         .unwrap();
 
     vec![
-        // Center of the rotated diamond — child visible
+        // The child covers the center of the rotated diamond.
         PixelExpectation::opaque(
             ox as u32 + 40,
             oy as u32 + 40,
@@ -1033,7 +1026,7 @@ fn tile_13_rotated_rect_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             80,
             "t13_child_center",
         ),
-        // Parent ring — between child edge and parent edge along the vertical axis
+        // The parent remains visible between its edge and the child edge.
         // Parent diamond tip is at ~(40, 40±28), child diamond tip at ~(40, 40±17)
         PixelExpectation::opaque(
             ox as u32 + 40,
@@ -1043,7 +1036,7 @@ fn tile_13_rotated_rect_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             180,
             "t13_parent_ring",
         ),
-        // Far corner — outside the diamond, shows canvas bg
+        // The canvas shows outside the diamond.
         PixelExpectation::opaque(
             ox as u32 + 10,
             oy as u32 + 10,
@@ -1055,12 +1048,12 @@ fn tile_13_rotated_rect_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     ]
 }
 
-// ── Section D: Mixed Scissor + Stencil ───────────────────────────────────────
+// Mixed scissor and stencil clipping
 
 fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(14);
 
-    // L0: rect in NW quadrant → scissor clip.
+    // L0 is a scissor-clipped rectangle in the upper-left quadrant.
     let level0 = Shape::rect(
         [(ox + 5.0, oy + 5.0), (ox + 60.0, oy + 60.0)],
         Stroke::default(),
@@ -1074,7 +1067,7 @@ fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation
         )
         .unwrap(); // gray
 
-    // L1: rounded-rect shifted SE — overflows L0 right and bottom → stencil clip.
+    // L1 uses stencil clipping and extends past the right and bottom of L0.
     // Visible (L0∩L1) ≈ (20,20)→(60,60).
     let level1 = Shape::rounded_rect(
         [(ox + 20.0, oy + 20.0), (ox + 75.0, oy + 75.0)],
@@ -1090,7 +1083,7 @@ fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation
         )
         .unwrap(); // green
 
-    // Leaf: rect shifted SW/down — overflows L1 to the left and L0 below.
+    // The leaf extends left of L1 and below L0.
     // Visible (L0∩L1∩leaf) ≈ (20,35)→(50,60).
     let leaf = Shape::rect(
         [(ox + 10.0, oy + 35.0), (ox + 50.0, oy + 75.0)],
@@ -1115,7 +1108,7 @@ fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation
             200,
             "t14_leaf_visible",
         ),
-        // Inside L0∩L1, outside leaf (y < 35) → L1 green
+        // Above y=35, L1 is visible inside L0 and outside the leaf.
         PixelExpectation::opaque(
             ox as u32 + 40,
             oy as u32 + 28,
@@ -1124,11 +1117,9 @@ fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation
             180,
             "t14_l1_visible",
         ),
-        // Inside L0 only (NW, outside L1 and leaf) → L0 gray
+        // L0 is visible above and left of L1 and the leaf.
         PixelExpectation::opaque(ox as u32 + 15, oy as u32 + 15, 200, 200, 200, "t14_l0_only"),
-        // --- Clipping proofs ---
-        // L1 extends to (65,40) but L0 ends at x=60 → bg white.
-        // Proves L0 scissor clips L1.
+        // L1 extends past L0 at x=60, so the canvas shows at (65,40).
         PixelExpectation::opaque(
             ox as u32 + 65,
             oy as u32 + 40,
@@ -1137,8 +1128,7 @@ fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation
             255,
             "t14_l0_clips_l1",
         ),
-        // Leaf extends to (15,50) (inside L0) but L1 starts at x=20 → L0 gray.
-        // Proves L1 stencil clips leaf: blue does NOT leak into L0's area.
+        // L1 clips the leaf left of x=20, exposing L0 at (15,50).
         PixelExpectation::opaque(
             ox as u32 + 15,
             oy as u32 + 50,
@@ -1147,8 +1137,7 @@ fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation
             200,
             "t14_l1_clips_leaf",
         ),
-        // Leaf extends to (30,65) but L0 ends at y=60 → bg white.
-        // Proves L0 scissor clips the entire chain.
+        // L0 clips the leaf below y=60, exposing the canvas at (30,65).
         PixelExpectation::opaque(
             ox as u32 + 30,
             oy as u32 + 65,
@@ -1163,7 +1152,7 @@ fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation
 fn tile_15_stencil_then_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(15);
 
-    // L0: rounded-rect in NW quadrant → stencil clip.
+    // L0 is a stencil-clipped rounded rectangle in the upper-left quadrant.
     let level0 = Shape::rounded_rect(
         [(ox + 5.0, oy + 5.0), (ox + 60.0, oy + 60.0)],
         BorderRadii::new(12.0),
@@ -1178,7 +1167,7 @@ fn tile_15_stencil_then_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation
         )
         .unwrap(); // pink
 
-    // L1: rect shifted SE — overflows L0 right and bottom → scissor clip.
+    // L1 uses scissor clipping and extends past the right and bottom of L0.
     // Visible (L0∩L1) ≈ (20,20)→(60,60).
     let level1 = Shape::rect(
         [(ox + 20.0, oy + 20.0), (ox + 75.0, oy + 75.0)],
@@ -1193,7 +1182,7 @@ fn tile_15_stencil_then_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation
         )
         .unwrap(); // green
 
-    // Leaf: rect shifted SW/down — overflows L1 to the left and L0 below.
+    // The leaf extends left of L1 and below L0.
     // Visible (L0∩L1∩leaf) ≈ (20,35)→(50,60).
     let leaf = Shape::rect(
         [(ox + 10.0, oy + 35.0), (ox + 50.0, oy + 75.0)],
@@ -1218,7 +1207,7 @@ fn tile_15_stencil_then_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation
             50,
             "t15_leaf_visible",
         ),
-        // Inside L0∩L1, outside leaf (y < 35) → L1 green
+        // Above y=35, L1 is visible inside L0 and outside the leaf.
         PixelExpectation::opaque(
             ox as u32 + 40,
             oy as u32 + 28,
@@ -1227,11 +1216,9 @@ fn tile_15_stencil_then_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation
             200,
             "t15_l1_visible",
         ),
-        // Inside L0 only (NW, outside L1 and leaf) → L0 pink
+        // L0 is visible above and left of L1 and the leaf.
         PixelExpectation::opaque(ox as u32 + 15, oy as u32 + 15, 220, 200, 200, "t15_l0_only"),
-        // --- Clipping proofs ---
-        // L1 extends to (65,40) but L0 ends at x=60 → bg white.
-        // Proves L0 stencil clips L1.
+        // L1 extends past L0 at x=60, so the canvas shows at (65,40).
         PixelExpectation::opaque(
             ox as u32 + 65,
             oy as u32 + 40,
@@ -1240,8 +1227,7 @@ fn tile_15_stencil_then_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation
             255,
             "t15_l0_clips_l1",
         ),
-        // Leaf extends to (15,50) (inside L0) but L1 starts at x=20 → L0 pink.
-        // Proves L1 scissor clips leaf.
+        // L1 clips the leaf left of x=20, exposing L0 at (15,50).
         PixelExpectation::opaque(
             ox as u32 + 15,
             oy as u32 + 50,
@@ -1250,7 +1236,7 @@ fn tile_15_stencil_then_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation
             200,
             "t15_l1_clips_leaf",
         ),
-        // L0 stencil corner: inside L0 bbox but outside rounded corner → bg.
+        // The canvas shows inside L0's bounding box but outside its rounded corner.
         // TL corner center (17,17) r=12, dist((7,7),(17,17)) ≈ 14.1 > 12.
         PixelExpectation::opaque(
             ox as u32 + 7,
@@ -1266,7 +1252,7 @@ fn tile_15_stencil_then_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation
 fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(16);
 
-    // L0: rect, tall left portion → scissor.
+    // L0 is a tall scissor-clipped rectangle on the left.
     let l0 = Shape::rect(
         [(ox + 5.0, oy + 5.0), (ox + 55.0, oy + 75.0)],
         Stroke::default(),
@@ -1280,7 +1266,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
         )
         .unwrap(); // light gray
 
-    // L1: rect, wide top portion — overflows L0 to right → scissor.
+    // L1 uses scissor clipping and extends right of L0.
     // Visible (L0∩L1) = (20,5)→(55,55).
     let l1 = Shape::rect(
         [(ox + 20.0, oy + 5.0), (ox + 75.0, oy + 55.0)],
@@ -1295,7 +1281,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
         )
         .unwrap(); // blue-gray
 
-    // L2: rounded-rect, tall — overflows L1 below → stencil.
+    // L2 uses stencil clipping and extends below L1.
     // Visible (L0∩L1∩L2) ≈ (20,20)→(50,55).
     let l2 = Shape::rounded_rect(
         [(ox + 15.0, oy + 20.0), (ox + 50.0, oy + 70.0)],
@@ -1311,7 +1297,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
         )
         .unwrap(); // green
 
-    // L3: rect, wide — overflows L2 right and above → scissor.
+    // L3 uses scissor clipping and extends right of and above L2.
     // Visible (L0∩L1∩L2∩L3) ≈ (25,20)→(50,50).
     let l3 = Shape::rect(
         [(ox + 25.0, oy + 10.0), (ox + 70.0, oy + 50.0)],
@@ -1326,7 +1312,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
         )
         .unwrap(); // purple
 
-    // L4: leaf rect — overflows L3 left and below.
+    // L4 extends left of and below L3.
     // Visible (all 5) ≈ (25,30)→(45,50).
     let l4 = Shape::rect(
         [(ox + 10.0, oy + 30.0), (ox + 45.0, oy + 65.0)],
@@ -1344,7 +1330,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
     vec![
         // Center of 5-way intersection → L4 blue
         PixelExpectation::opaque(ox as u32 + 35, oy as u32 + 40, 50, 50, 200, "t16_leaf"),
-        // Inside L0∩L1∩L2∩L3, outside L4 (x=47 > L4.right=45) → L3 purple
+        // At x=47, L3 is visible inside all ancestor clips and beyond L4's right edge at x=45.
         PixelExpectation::opaque(
             ox as u32 + 47,
             oy as u32 + 35,
@@ -1353,9 +1339,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
             220,
             "t16_l3_visible",
         ),
-        // --- Clipping proofs (one per level) ---
-        // L4 extends to (22,40) but L3 starts at x=25 → L2 green.
-        // Proves L3 clips L4.
+        // L3 clips L4 left of x=25, exposing L2 at (22,40).
         PixelExpectation::opaque(
             ox as u32 + 22,
             oy as u32 + 40,
@@ -1364,8 +1348,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
             180,
             "t16_l3_clips_l4",
         ),
-        // L3 extends to (35,12) but L2 starts at y=20 → L1 blue-gray.
-        // Proves L2 clips L3.
+        // L2 clips L3 above y=20, exposing L1 at (35,12).
         PixelExpectation::opaque(
             ox as u32 + 35,
             oy as u32 + 12,
@@ -1374,8 +1357,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
             220,
             "t16_l2_clips_l3",
         ),
-        // L2 extends to (17,40) but L1 starts at x=20 (inside L0) → L0 gray.
-        // Proves L1 clips L2.
+        // L1 clips L2 left of x=20, exposing L0 at (17,40).
         PixelExpectation::opaque(
             ox as u32 + 17,
             oy as u32 + 40,
@@ -1384,8 +1366,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
             220,
             "t16_l1_clips_l2",
         ),
-        // L1 extends to (60,30) but L0 ends at x=55 → bg white.
-        // Proves L0 clips L1.
+        // L0 clips L1 right of x=55, exposing the canvas at (60,30).
         PixelExpectation::opaque(
             ox as u32 + 60,
             oy as u32 + 30,
@@ -1397,7 +1378,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
     ]
 }
 
-// ── Section E: Transforms ────────────────────────────────────────────────────
+// Transforms
 
 fn tile_17_translated_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(17);
@@ -1415,7 +1396,7 @@ fn tile_17_translated_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         .unwrap();
 
     vec![
-        // Inside the translated rect (bottom-right area)
+        // Inside the translated rectangle at the bottom right.
         PixelExpectation::opaque(
             ox as u32 + 50,
             oy as u32 + 57,
@@ -1424,7 +1405,7 @@ fn tile_17_translated_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             50,
             "t17_translated",
         ),
-        // Original position at origin is empty (translation moved it)
+        // Translation leaves the original position empty.
         PixelExpectation::opaque(
             ox as u32 + 10,
             oy as u32 + 10,
@@ -1433,7 +1414,7 @@ fn tile_17_translated_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             255,
             "t17_origin_is_bg",
         ),
-        // Top-left of tile is bg (rect is bottom-right)
+        // The rectangle has moved away from the tile's top-left corner.
         PixelExpectation::opaque(
             ox as u32 + 15,
             oy as u32 + 40,
@@ -1448,7 +1429,7 @@ fn tile_17_translated_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 fn tile_18_scaled_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(18);
     // 60×60 rect, scaled to 0.5× horizontally and 1.0× vertically around tile center.
-    // Result: 30×60 rect, horizontally centered in tile.
+    // The resulting 30×60 rectangle stays centered in the tile.
     let shape = Shape::rect(
         [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
         Stroke::default(),
@@ -1468,9 +1449,9 @@ fn tile_18_scaled_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         .unwrap();
 
     vec![
-        // Center should still have color
+        // Scaling preserves the center.
         PixelExpectation::opaque(ox as u32 + 40, oy as u32 + 40, 150, 50, 200, "t18_center"),
-        // Left edge of original rect (x=15) now scaled inward → bg
+        // Scaling moves the left edge past x=15, exposing the canvas.
         PixelExpectation::opaque(
             ox as u32 + 15,
             oy as u32 + 40,
@@ -1479,7 +1460,7 @@ fn tile_18_scaled_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             255,
             "t18_left_scaled_away",
         ),
-        // Right edge of original rect (x=65) now scaled inward → bg
+        // Scaling moves the right edge inside x=65, exposing the canvas.
         PixelExpectation::opaque(
             ox as u32 + 65,
             oy as u32 + 40,
@@ -1544,7 +1525,7 @@ fn tile_20_transform_parent_child(renderer: &mut Renderer) -> Vec<PixelExpectati
         )
         .unwrap();
 
-    // Child at local (10,10)-(40,40) — ends up at tile (25,25)-(55,55)
+    // The transform maps the child bounds from local (10,10)-(40,40) to tile (25,25)-(55,55).
     let child = Shape::rect([(10.0, 10.0), (40.0, 40.0)], Stroke::default());
     renderer
         .add_shape(
@@ -1563,7 +1544,7 @@ fn tile_20_transform_parent_child(renderer: &mut Renderer) -> Vec<PixelExpectati
     ]
 }
 
-// ── Section F: Colors & Alpha ────────────────────────────────────────────────
+// Colors and alpha
 
 fn tile_21_alpha_overlap(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(21);
@@ -1641,13 +1622,13 @@ fn tile_22_no_color_default(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         [(ox + 20.0, oy + 20.0), (ox + 60.0, oy + 60.0)],
         Stroke::default(),
     );
-    // No set_shape_color call — defaults to transparent
+    // An unset fill is transparent.
     renderer
         .add_shape(shape, None, None, ShapeDrawCommandOptions::new())
         .unwrap();
 
     vec![
-        // Shape center — transparent, so the background shows through
+        // The background shows through the transparent shape.
         PixelExpectation::opaque(
             ox as u32 + 40,
             oy as u32 + 40,
@@ -1694,7 +1675,7 @@ fn tile_23_fully_transparent(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     )]
 }
 
-// ── Section G: Textures ──────────────────────────────────────────────────────
+// Textures
 
 fn tile_24_textured_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(24);
@@ -1724,7 +1705,7 @@ fn tile_24_textured_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             "t24_white_texel",
         ),
         PixelExpectation::opaque(ox as u32 + 32, oy as u32 + 17, 0, 0, 0, "t24_black_texel"),
-        // Outside the textured rect — canvas bg
+        // The canvas shows outside the textured rectangle.
         PixelExpectation::opaque(
             ox as u32 + 5,
             oy as u32 + 5,
@@ -1844,12 +1825,12 @@ fn tile_26_textured_parent_child(renderer: &mut Renderer) -> Vec<PixelExpectatio
     ]
 }
 
-// ── Section H: Group Effects ─────────────────────────────────────────────────
+// Group effects
 
 fn tile_27_group_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(27);
 
-    // Background stripe (sharp, NOT blurred) — partially behind the blurred shape
+    // Only the shape is blurred; the background stripe must stay sharp.
     let bg_stripe = Shape::rect(
         [(ox + 5.0, oy + 30.0), (ox + 75.0, oy + 50.0)],
         Stroke::default(),
@@ -1863,7 +1844,7 @@ fn tile_27_group_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         )
         .unwrap(); // green stripe
 
-    // Blurred shape (slightly transparent so stripe shows through)
+    // The blurred shape is translucent, so the stripe shows through.
     let shape = Shape::rect(
         [(ox + 15.0, oy + 10.0), (ox + 65.0, oy + 70.0)],
         Stroke::default(),
@@ -1877,18 +1858,16 @@ fn tile_27_group_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         )
         .unwrap(); // semi-transparent red
 
-    let (pw, ph) = renderer.size();
     let blur_params = BlurParams {
         radius: 8.0,
         _pad: 0.0,
-        tex_size: [pw as f32, ph as f32],
     };
     renderer
         .set_group_effect(id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
         .expect("Failed to set group effect");
 
     vec![
-        // Blurred shape center: red-ish (blurred, high tolerance)
+        // The translucent red blur composites over the green stripe.
         PixelExpectation::new(
             ox as u32 + 40,
             oy as u32 + 40,
@@ -1899,7 +1878,7 @@ fn tile_27_group_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             "t27_blurred_center",
         )
         .with_tolerance(60),
-        // Green stripe outside blurred shape — stays sharp and fully green
+        // The uncovered stripe stays sharp and green.
         PixelExpectation::opaque(
             ox as u32 + 10,
             oy as u32 + 40,
@@ -1915,7 +1894,7 @@ fn tile_27_group_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 fn tile_28_group_blur_with_children(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(28);
 
-    // Background stripe (sharp, NOT blurred) — partially behind the blurred group
+    // Only the group is blurred; the background stripe must stay sharp.
     let bg_stripe = Shape::rect(
         [(ox + 5.0, oy + 30.0), (ox + 75.0, oy + 50.0)],
         Stroke::default(),
@@ -1929,7 +1908,7 @@ fn tile_28_group_blur_with_children(renderer: &mut Renderer) -> Vec<PixelExpecta
         )
         .unwrap(); // yellow stripe
 
-    // Blurred parent (group effect applies to parent+child as a unit)
+    // The group effect blurs the parent and child together.
     let parent = Shape::rect(
         [(ox + 10.0, oy + 5.0), (ox + 70.0, oy + 75.0)],
         Stroke::default(),
@@ -1956,11 +1935,9 @@ fn tile_28_group_blur_with_children(renderer: &mut Renderer) -> Vec<PixelExpecta
         )
         .unwrap();
 
-    let (pw, ph) = renderer.size();
     let blur_params = BlurParams {
         radius: 6.0,
         _pad: 0.0,
-        tex_size: [pw as f32, ph as f32],
     };
     renderer
         .set_group_effect(parent_id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
@@ -2004,7 +1981,7 @@ fn tile_28_group_blur_with_children(renderer: &mut Renderer) -> Vec<PixelExpecta
     ]
 }
 
-// ── Section I: Backdrop Effects ──────────────────────────────────────────────
+// Backdrop effects
 
 fn tile_29_backdrop_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(29);
@@ -2023,7 +2000,7 @@ fn tile_29_backdrop_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> 
         .unwrap();
 
     // Sharp-edged stripe that partially overlaps the backdrop panel.
-    // Outside the panel it should be crisp; under the panel it should get blurred.
+    // The panel blurs the covered part of the stripe. The uncovered part stays sharp.
     let stripe = Shape::rect(
         [(ox + 10.0, oy + 32.0), (ox + 70.0, oy + 48.0)],
         Stroke::default(),
@@ -2037,7 +2014,7 @@ fn tile_29_backdrop_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> 
         )
         .unwrap(); // blue stripe
 
-    // Backdrop blur panel on top (leaf, no children)
+    // A backdrop blur panel with no children.
     let panel = Shape::rect(
         [(ox + 20.0, oy + 15.0), (ox + 60.0, oy + 65.0)],
         Stroke::default(),
@@ -2054,7 +2031,6 @@ fn tile_29_backdrop_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> 
     let blur_params = BlurParams {
         radius: 10.0,
         _pad: 0.0,
-        tex_size: [40.0, 50.0],
     };
     renderer
         .set_shape_backdrop_effect(
@@ -2066,7 +2042,7 @@ fn tile_29_backdrop_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> 
         .expect("Failed to set backdrop effect");
 
     vec![
-        // Panel interior: blurred mix of red bg + blue stripe under the panel's white fill
+        // The white fill overlays the blurred red background and blue stripe.
         PixelExpectation::new(
             ox as u32 + 40,
             oy as u32 + 40,
@@ -2151,7 +2127,6 @@ fn tile_30_backdrop_blur_nonleaf(renderer: &mut Renderer) -> Vec<PixelExpectatio
     let blur_params = BlurParams {
         radius: 8.0,
         _pad: 0.0,
-        tex_size: [50.0, 60.0],
     };
     renderer
         .set_shape_backdrop_effect(
@@ -2222,7 +2197,7 @@ fn tile_31_backdrop_under_scissor(renderer: &mut Renderer) -> Vec<PixelExpectati
         )
         .unwrap();
 
-    // Sharp-edged blue stripe as child of bg — partially behind the backdrop panel
+    // The panel should blur only the covered part of the blue stripe.
     let stripe = Shape::rect(
         [(ox + 8.0, oy + 32.0), (ox + 72.0, oy + 48.0)],
         Stroke::default(),
@@ -2236,7 +2211,7 @@ fn tile_31_backdrop_under_scissor(renderer: &mut Renderer) -> Vec<PixelExpectati
         )
         .unwrap(); // blue stripe
 
-    // Scissor-clipping parent (child of bg, sibling of stripe — drawn after stripe)
+    // Draw the scissor-clipping parent after its sibling stripe.
     let clip_parent = Shape::rect(
         [(ox + 10.0, oy + 10.0), (ox + 60.0, oy + 70.0)],
         Stroke::default(),
@@ -2248,7 +2223,7 @@ fn tile_31_backdrop_under_scissor(renderer: &mut Renderer) -> Vec<PixelExpectati
             None,
             ShapeDrawCommandOptions::new().color(Color::rgba(0, 0, 0, 0)),
         )
-        .unwrap(); // transparent — just clips
+        .unwrap(); // Transparent fill leaves only the clip.
 
     // Backdrop panel inside scissor-clipped parent
     let panel = Shape::rect(
@@ -2267,7 +2242,6 @@ fn tile_31_backdrop_under_scissor(renderer: &mut Renderer) -> Vec<PixelExpectati
     let blur_params = BlurParams {
         radius: 6.0,
         _pad: 0.0,
-        tex_size: [40.0, 50.0],
     };
     renderer
         .set_shape_backdrop_effect(
@@ -2279,7 +2253,7 @@ fn tile_31_backdrop_under_scissor(renderer: &mut Renderer) -> Vec<PixelExpectati
         .expect("Failed to set backdrop effect");
 
     vec![
-        // Panel interior: blurred mix of yellow bg + blue stripe under the panel's white fill
+        // The white fill overlays the blurred yellow background and blue stripe.
         PixelExpectation::new(
             ox as u32 + 35,
             oy as u32 + 40,
@@ -2311,7 +2285,7 @@ fn tile_31_backdrop_under_scissor(renderer: &mut Renderer) -> Vec<PixelExpectati
     ]
 }
 
-// ── Section J: Edge Cases ────────────────────────────────────────────────────
+// Edge cases
 
 fn tile_32_tiny_1px_shape(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(32);
@@ -2328,8 +2302,7 @@ fn tile_32_tiny_1px_shape(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         )
         .unwrap();
 
-    // Small shape — check that the general area has some color
-    // Anti-aliasing fringe might spread the pixel
+    // The antialiasing fringe can spread coverage beyond the one-pixel shape.
     vec![PixelExpectation::new(
         ox as u32 + 40,
         oy as u32 + 40,
@@ -2432,7 +2405,7 @@ fn tile_34_cached_shape(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             220,
             "t34_cached_interior",
         ),
-        // Outside the cached shape — canvas bg
+        // The canvas shows outside the cached shape.
         PixelExpectation::opaque(
             ox as u32 + 5,
             oy as u32 + 5,
@@ -2644,9 +2617,8 @@ fn tile_38_sheared_transparent_parent(renderer: &mut Renderer) -> Vec<PixelExpec
     ]
 }
 
-// ── Section G: Gradient Fills ────────────────────────────────────────────────
+// Gradient fills
 
-/// Helper: creates a simple two-stop sRGB gradient common descriptor.
 fn two_stop_common(c1: (u8, u8, u8), c2: (u8, u8, u8), spread: SpreadMode) -> GradientCommonDesc {
     two_stop_common_with_units(c1, c2, spread, GradientUnits::Local)
 }
@@ -2680,7 +2652,6 @@ fn two_stop_common_with_units(
     .with_interpolation(ColorInterpolation::Srgb)
 }
 
-/// Tile 39 — Linear gradient: red (left) → blue (right).
 fn tile_39_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(39);
     let shape = Shape::rect([(0.0, 0.0), (60.0, 60.0)], Stroke::default());
@@ -2729,7 +2700,6 @@ fn tile_39_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     ]
 }
 
-/// Tile 40 — Radial gradient: yellow center → green edge.
 fn tile_40_radial_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(40);
     let shape = Shape::rect(
@@ -2764,7 +2734,7 @@ fn tile_40_radial_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             20,
             "t40_center_yellow",
         ),
-        // Edge (~28px from center) should be greenish
+        // Sample the green end of the gradient, about 28px from the center.
         PixelExpectation::opaque_approx(
             ox as u32 + 65,
             oy as u32 + 40,
@@ -2777,7 +2747,6 @@ fn tile_40_radial_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     ]
 }
 
-/// Tile 41 — Conic gradient: red (0°) → green (120°) → blue (240°) → red (360°).
 fn tile_41_conic_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(41);
     let shape = Shape::rect(
@@ -2853,7 +2822,7 @@ fn tile_41_conic_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         .unwrap();
 
     vec![
-        // Right of center (0°) should be reddish
+        // At 0°, right of center, sample the red end of the gradient.
         PixelExpectation::opaque_approx(
             ox as u32 + 65,
             oy as u32 + 40,
@@ -2866,7 +2835,6 @@ fn tile_41_conic_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     ]
 }
 
-/// Tile 42 — Repeating linear gradient: red/blue stripes.
 fn tile_42_repeating_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(42);
     let shape = Shape::rect(
@@ -2930,7 +2898,7 @@ fn tile_42_repeating_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpect
         .unwrap();
 
     vec![
-        // Midpoint of first period (10px in 20px period) should be bluish
+        // At 10px, sample the midpoint of the first 20px period.
         PixelExpectation::opaque_approx(
             ox as u32 + 20,
             oy as u32 + 40,
@@ -2953,7 +2921,6 @@ fn tile_42_repeating_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpect
     ]
 }
 
-/// Tile 43 — Hard color stops: left half red, right half blue (no transition).
 fn tile_43_gradient_hard_stops(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(43);
     let shape = Shape::rect(
@@ -3049,7 +3016,6 @@ fn tile_43_gradient_hard_stops(renderer: &mut Renderer) -> Vec<PixelExpectation>
     ]
 }
 
-/// Tile 44 — Gradient fill clipped by a rounded parent.
 fn tile_44_gradient_clipped(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(44);
 
@@ -3116,7 +3082,7 @@ fn tile_44_gradient_clipped(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             2,
             "t44_gradient_end",
         ),
-        // Corner is outside the rounded clip — should be canvas white
+        // The white canvas shows outside the rounded clip.
         PixelExpectation::opaque(
             ox as u32 + 11,
             oy as u32 + 11,
@@ -3128,11 +3094,10 @@ fn tile_44_gradient_clipped(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     ]
 }
 
-/// Tile 45 — Gradient shape with a group blur effect (like tile 27 but gradient instead of red).
 fn tile_45_gradient_group_blur(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(45);
 
-    // Background stripe (sharp, NOT blurred) — partially behind the blurred shape
+    // Only the shape is blurred; the background stripe must stay sharp.
     let bg_stripe = Shape::rect(
         [(ox + 5.0, oy + 30.0), (ox + 75.0, oy + 50.0)],
         Stroke::default(),
@@ -3169,11 +3134,9 @@ fn tile_45_gradient_group_blur(renderer: &mut Renderer) -> Vec<PixelExpectation>
         )
         .unwrap();
 
-    let (pw, ph) = renderer.size();
     let blur_params = BlurParams {
         radius: 8.0,
         _pad: 0.0,
-        tex_size: [pw as f32, ph as f32],
     };
     renderer
         .set_group_effect(id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
@@ -3217,7 +3180,6 @@ fn tile_45_gradient_group_blur(renderer: &mut Renderer) -> Vec<PixelExpectation>
     ]
 }
 
-/// Tile 46 — Gradient behind a backdrop blur panel (like tile 29 but gradient instead of blue stripe).
 fn tile_46_gradient_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(46);
 
@@ -3236,7 +3198,7 @@ fn tile_46_gradient_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectati
         .unwrap();
 
     // Gradient stripe that partially overlaps the backdrop panel.
-    // Outside the panel it should be crisp; under the panel it should get blurred.
+    // The panel blurs the covered part of the stripe. The uncovered part stays sharp.
     let stripe = Shape::rect(
         [(ox + 10.0, oy + 32.0), (ox + 70.0, oy + 48.0)],
         Stroke::default(),
@@ -3259,7 +3221,7 @@ fn tile_46_gradient_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectati
         )
         .unwrap();
 
-    // Backdrop blur panel on top (leaf, no children)
+    // A backdrop blur panel with no children.
     let panel = Shape::rect(
         [(ox + 20.0, oy + 15.0), (ox + 60.0, oy + 65.0)],
         Stroke::default(),
@@ -3276,7 +3238,6 @@ fn tile_46_gradient_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectati
     let blur_params = BlurParams {
         radius: 10.0,
         _pad: 0.0,
-        tex_size: [40.0, 50.0],
     };
     renderer
         .set_shape_backdrop_effect(
@@ -3288,7 +3249,7 @@ fn tile_46_gradient_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectati
         .expect("Failed to set backdrop effect");
 
     vec![
-        // Panel interior: blurred mix of red bg + gradient stripe under the panel's white fill
+        // The white fill overlays the blurred red background and gradient stripe.
         PixelExpectation::new(
             ox as u32 + 40,
             oy as u32 + 40,
@@ -3299,7 +3260,7 @@ fn tile_46_gradient_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectati
             "t46_backdrop_interior",
         )
         .with_tolerance(25),
-        // Gradient stripe outside panel — should be crisp blue (left side)
+        // The uncovered left side of the gradient stays sharp and blue.
         PixelExpectation::opaque(
             ox as u32 + 12,
             oy as u32 + 40,
@@ -3314,14 +3275,13 @@ fn tile_46_gradient_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectati
     ]
 }
 
-// ── Gradient regression test tiles ───────────────────────────────────────────
+// Gradient regression tiles
 
-/// Tile 47 — Regression: gradient on a non-leaf rounded-rect parent (stencil increment path).
-/// The parent's gradient should be visible; a child rect sits inside.
+/// Stencil increment must draw the parent gradient before its child.
 fn tile_47_gradient_nonleaf_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(47);
 
-    // Rounded-rect parent with gradient fill (forces stencil path, not scissor).
+    // Rounded corners require stencil clipping for this gradient parent.
     let parent = Shape::rounded_rect(
         [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
         BorderRadii::new(12.0),
@@ -3360,7 +3320,7 @@ fn tile_47_gradient_nonleaf_stencil(renderer: &mut Renderer) -> Vec<PixelExpecta
         .unwrap(); // yellow
 
     vec![
-        // Left side of parent (gradient should be red-ish, not white/background).
+        // Sample the exposed red side of the parent gradient.
         PixelExpectation::opaque_approx(
             ox as u32 + 15,
             oy as u32 + 40,
@@ -3370,7 +3330,7 @@ fn tile_47_gradient_nonleaf_stencil(renderer: &mut Renderer) -> Vec<PixelExpecta
             60,
             "t47_parent_gradient_left_red",
         ),
-        // Right side of parent (gradient should be blue-ish, not white/background).
+        // Sample the exposed blue side of the parent gradient.
         PixelExpectation::opaque_approx(
             ox as u32 + 65,
             oy as u32 + 40,
@@ -3380,7 +3340,7 @@ fn tile_47_gradient_nonleaf_stencil(renderer: &mut Renderer) -> Vec<PixelExpecta
             60,
             "t47_parent_gradient_right_blue",
         ),
-        // Child center should be yellow (drawn on top of gradient parent).
+        // The yellow child covers the parent gradient at its center.
         PixelExpectation::opaque(
             ox as u32 + 40,
             oy as u32 + 40,
@@ -3392,12 +3352,11 @@ fn tile_47_gradient_nonleaf_stencil(renderer: &mut Renderer) -> Vec<PixelExpecta
     ]
 }
 
-/// Tile 48 — Regression: gradient state leak. A gradient leaf followed by a solid leaf.
-/// The solid shape must render in its own color, not the leaked gradient.
+/// A solid draw following a gradient must not inherit the gradient binding.
 fn tile_48_gradient_state_leak(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(48);
 
-    // First: gradient-filled rect (left half).
+    // Draw the gradient rectangle on the left first.
     let grad_shape = Shape::rect(
         [(ox + 5.0, oy + 10.0), (ox + 37.0, oy + 70.0)],
         Stroke::default(),
@@ -3420,7 +3379,7 @@ fn tile_48_gradient_state_leak(renderer: &mut Renderer) -> Vec<PixelExpectation>
         )
         .unwrap();
 
-    // Second: solid cyan rect (right half), drawn immediately after the gradient.
+    // Draw the cyan rectangle on the right immediately after the gradient.
     let solid_shape = Shape::rect(
         [(ox + 43.0, oy + 10.0), (ox + 75.0, oy + 70.0)],
         Stroke::default(),
@@ -3464,7 +3423,7 @@ fn tile_48_gradient_state_leak(renderer: &mut Renderer) -> Vec<PixelExpectation>
             2,
             "t48_gradient_end",
         ),
-        // Solid cyan rect center: must be cyan, NOT showing leaked gradient.
+        // The cyan rectangle must not inherit the preceding shape's gradient.
         PixelExpectation::opaque(
             ox as u32 + 59,
             oy as u32 + 40,
@@ -3476,9 +3435,7 @@ fn tile_48_gradient_state_leak(renderer: &mut Renderer) -> Vec<PixelExpectation>
     ]
 }
 
-/// Tile 49 — Regression: conic gradient quadrant colors.
-/// Four stops at 0°, 90°, 180°, 270°. Tests non-trivial angles
-/// where the CPU↔shader unit mismatch causes wrong ramp lookups.
+/// Four quadrant colors expose unit mismatches between CPU angles and shader ramp lookups.
 fn tile_49_conic_quadrant_colors(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(49);
     let cx = ox + 40.0;
@@ -3568,7 +3525,7 @@ fn tile_49_conic_quadrant_colors(renderer: &mut Renderer) -> Vec<PixelExpectatio
         .unwrap();
 
     vec![
-        // Bottom of center (90°, atan2(+y, 0)) — should be green.
+        // At 90 degrees, below the center, the gradient is green.
         PixelExpectation::opaque_approx(
             ox as u32 + 40,
             oy as u32 + 65,
@@ -3578,7 +3535,7 @@ fn tile_49_conic_quadrant_colors(renderer: &mut Renderer) -> Vec<PixelExpectatio
             40,
             "t49_bottom_green_90deg",
         ),
-        // Left of center (180°, atan2(0, -x)) — should be blue.
+        // At 180 degrees, left of the center, the gradient is blue.
         PixelExpectation::opaque_approx(
             ox as u32 + 15,
             oy as u32 + 40,
@@ -3588,7 +3545,7 @@ fn tile_49_conic_quadrant_colors(renderer: &mut Renderer) -> Vec<PixelExpectatio
             40,
             "t49_left_blue_180deg",
         ),
-        // Top of center (270°, atan2(-y, 0)) — should be yellow.
+        // At 270 degrees, above the center, the gradient is yellow.
         PixelExpectation::opaque_approx(
             ox as u32 + 40,
             oy as u32 + 15,
@@ -3601,8 +3558,7 @@ fn tile_49_conic_quadrant_colors(renderer: &mut Renderer) -> Vec<PixelExpectatio
     ]
 }
 
-/// Tile 50 — Overflow visible: children skip the immediate parent clip while
-/// still inheriting the nearest clipping ancestor.
+/// Visible overflow skips the parent clip but still respects the ancestor clip.
 fn tile_50_overflow_visible_delegates_to_ancestor(
     renderer: &mut Renderer,
 ) -> Vec<PixelExpectation> {
@@ -3679,8 +3635,7 @@ fn tile_50_overflow_visible_delegates_to_ancestor(
     ]
 }
 
-/// Tile 51 — A clipping rectangle can act as a non-clipping container while
-/// descendants still inherit clipping from an ancestor.
+/// A non-clipping rectangle must preserve the ancestor clip for its descendants.
 fn tile_51_clip_rect_overflow_visible_container(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(51);
 
@@ -3748,8 +3703,7 @@ fn tile_51_clip_rect_overflow_visible_container(renderer: &mut Renderer) -> Vec<
     ]
 }
 
-/// Tile 52 — A backdrop-effect parent with visible overflow only clips its own
-/// backdrop/color passes; descendants inherit the ancestor clip.
+/// Visible overflow clips the backdrop to its node and descendants to the ancestor.
 fn tile_52_backdrop_overflow_visible_children(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(52);
 
@@ -3786,7 +3740,6 @@ fn tile_52_backdrop_overflow_visible_children(renderer: &mut Renderer) -> Vec<Pi
     let blur_params = BlurParams {
         radius: 5.0,
         _pad: 0.0,
-        tex_size: [30.0, 30.0],
     };
     renderer
         .set_shape_backdrop_effect(
@@ -4363,7 +4316,7 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
     ]
 }
 
-/// Tile 60 — A cached shape effect draws outside its rectangular source before the source fill.
+/// The cached effect must draw beyond the source bounds and behind its fill.
 fn tile_60_cached_shape_effect_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(60);
     let shape = Shape::rect(
@@ -4433,7 +4386,6 @@ fn tile_60_cached_shape_effect_rect(renderer: &mut Renderer) -> Vec<PixelExpecta
     ]
 }
 
-/// Tile 61 — Arbitrary path effects respect ancestor stencil clipping.
 fn tile_61_cached_shape_effect_path_clipped(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(61);
     let clip_parent = Shape::rounded_rect(
@@ -4499,7 +4451,7 @@ fn tile_61_cached_shape_effect_path_clipped(renderer: &mut Renderer) -> Vec<Pixe
     ]
 }
 
-/// Tile 62 — Group preprocessing includes a node's shape effect exactly once.
+/// Group preprocessing must include the node's shape effect exactly once.
 fn tile_62_cached_shape_effect_inside_group_effect(
     renderer: &mut Renderer,
 ) -> Vec<PixelExpectation> {
@@ -4551,7 +4503,7 @@ fn tile_62_cached_shape_effect_inside_group_effect(
     ]
 }
 
-/// Tile 63 — A backdrop captures the target node's previously composited shape effect.
+/// Backdrop capture must include the target node's shape effect.
 fn tile_63_cached_shape_effect_with_backdrop(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(63);
     let backdrop_source = Shape::rect(
@@ -4617,7 +4569,6 @@ fn tile_63_cached_shape_effect_with_backdrop(renderer: &mut Renderer) -> Vec<Pix
     ]
 }
 
-/// Tile 64 — A translucent backdrop-blur card casts a cached drop shadow over another shape.
 fn tile_64_drop_shadow_with_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(64);
     let backing_shape = Shape::rect(
@@ -4663,7 +4614,6 @@ fn tile_64_drop_shadow_with_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelE
     let backdrop_blur_params = BlurParams {
         radius: 5.0,
         _pad: 0.0,
-        tex_size: [38.0, 38.0],
     };
     renderer
         .set_shape_backdrop_effect(
@@ -4755,7 +4705,7 @@ fn tile_64_drop_shadow_with_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelE
     ]
 }
 
-/// Tile 65 — A grouped backdrop captures the shape effect already drawn in its subtree.
+/// A grouped backdrop must capture the shape effect already drawn in its subtree.
 fn tile_65_grouped_shape_effect_in_backdrop(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(65);
     let backing_shape = Shape::rect(
@@ -4848,7 +4798,7 @@ fn tile_65_grouped_shape_effect_in_backdrop(renderer: &mut Renderer) -> Vec<Pixe
     ]
 }
 
-/// Tile 66 — Shape, backdrop, and group effects compose in painter order on one node.
+/// Shape, backdrop, and group effects on one node must preserve painter order.
 fn tile_66_same_node_shape_backdrop_and_group_effects(
     renderer: &mut Renderer,
 ) -> Vec<PixelExpectation> {
@@ -4927,10 +4877,8 @@ fn tile_66_same_node_shape_backdrop_and_group_effects(
     ]
 }
 
-/// Tile 67 — Tile 64 rendered at half mask resolution: the drop shadow is
-/// rasterized into a half-size texture and bilinearly upscaled when drawn.
-/// Shader sigma and offset are halved so the result should match tile 64
-/// on screen, with slightly softer edges from the upscale.
+/// Halving the mask resolution, shader sigma, and offset must preserve the shadow size.
+/// Bilinear upscaling slightly softens its edges.
 fn tile_67_downsampled_drop_shadow_with_backdrop_blur(
     renderer: &mut Renderer,
 ) -> Vec<PixelExpectation> {
@@ -4980,7 +4928,6 @@ fn tile_67_downsampled_drop_shadow_with_backdrop_blur(
     let backdrop_blur_params = BlurParams {
         radius: 5.0,
         _pad: 0.0,
-        tex_size: [38.0, 38.0],
     };
     renderer
         .set_shape_backdrop_effect(

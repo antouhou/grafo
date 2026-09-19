@@ -8,15 +8,15 @@
 //!
 //! ## Features
 //!
-//! * Path rendering with cached tessellation.
-//! * Hierarchical path clipping.
-//! * Per-instance 3D and perspective transforms.
-//! * Solid fills and linear, radial, and conic gradients.
-//! * Custom WGSL shader effects on shape masks, groups, and backdrops.
-//! * Geometry-based antialiasing and MSAA.
+//! * Path rendering with cached tessellation
+//! * Hierarchical path clipping
+//! * Per-instance 3D and perspective transforms
+//! * Solid fills and linear, radial, and conic gradients
+//! * Custom WGSL shader effects on shape masks, groups, and backdrops
+//! * Geometry-based antialiasing and MSAA
 //!
-//! Grafo is [available on crates.io](https://crates.io/crates/grafo), and
-//! [API Documentation is available on docs.rs](https://docs.rs/grafo/).
+//! [Install Grafo from crates.io](https://crates.io/crates/grafo) or read the
+//! [API documentation](https://docs.rs/grafo/).
 //!
 //! ## Getting started
 //!
@@ -65,13 +65,14 @@ pub use effect::{
 pub use gradient::errors::GradientError;
 pub use gradient::types::{
     ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
-    GradientDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientSupport,
-    GradientUnits, HueComponent, HueInterpolationMethod, LinearGradientDesc, LinearGradientLine,
+    GradientDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
+    HueComponent, HueInterpolationMethod, LinearGradientDesc, LinearGradientLine,
     RadialGradientDesc, RadialGradientShape, RadialGradientSize, SpreadMode,
 };
 pub use renderer::{
     types::{DrawCommandError, GeometryBufferError, RenderError},
-    MathRect, Renderer, RendererContext, RendererCreationError, ShapeOverflow, TextureLayer,
+    MathRect, ReadbackError, Renderer, RendererContext, RendererCreationError, ShapeOverflow,
+    TextureLayer,
 };
 pub use shape::*;
 pub use stroke::Stroke;

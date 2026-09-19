@@ -33,7 +33,6 @@ impl<'a> ApplicationHandler for App<'a> {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        // Create GPU renderer (renders offscreen)
         let renderer = block_on(grafo::Renderer::new(
             window.clone(),
             physical_size,
@@ -48,7 +47,6 @@ impl<'a> ApplicationHandler for App<'a> {
         println!("then copies to CPU and presents via softbuffer.");
         println!("If resize jitter disappears, the issue is GPU presentation timing.\n");
 
-        // Create softbuffer for CPU presentation
         let softbuffer_context = softbuffer::Context::new(window.clone()).unwrap();
         let mut softbuffer_surface =
             softbuffer::Surface::new(&softbuffer_context, window.clone()).unwrap();
@@ -92,7 +90,6 @@ impl<'a> ApplicationHandler for App<'a> {
                 );
                 self.pending_resize = Some((physical_size.width, physical_size.height));
 
-                // Resize softbuffer surface immediately
                 if physical_size.width > 0 && physical_size.height > 0 {
                     softbuffer_surface
                         .resize(
@@ -105,7 +102,6 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                // Apply any pending resize to GPU renderer
                 if let Some(pending) = self.pending_resize.take() {
                     println!("Applying resize to GPU renderer: {:?}", pending);
                     renderer.resize(pending);
@@ -117,7 +113,6 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 let window_size = window.inner_size();
 
-                // Create shapes to render
                 let background = Shape::rect(
                     [
                         (0.0, 0.0),
@@ -164,7 +159,6 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 // Render to GPU offscreen texture and get ARGB32 pixels
                 let render_start = std::time::Instant::now();
-                // Ensure buffer capacity for current size
                 let needed_len = (window_size.width as usize) * (window_size.height as usize);
                 if self.argb_buffer.len() < needed_len {
                     self.argb_buffer.resize(needed_len, 0);
@@ -176,7 +170,6 @@ impl<'a> ApplicationHandler for App<'a> {
                 }
                 let render_time = render_start.elapsed();
 
-                // Present ARGB u32s via softbuffer
                 let copy_start = std::time::Instant::now();
                 let mut buffer = softbuffer_surface.buffer_mut().unwrap();
                 let count = buffer.len().min(self.argb_buffer.len());

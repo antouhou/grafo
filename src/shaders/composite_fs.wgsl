@@ -1,4 +1,4 @@
-// Simple passthrough fragment shader for compositing effect results back into the parent target.
+// Samples effect results for compositing into the parent target.
 
 @group(0) @binding(0) var t_input: texture_2d<f32>;
 @group(0) @binding(1) var s_input: sampler;

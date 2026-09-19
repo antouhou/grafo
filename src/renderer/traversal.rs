@@ -76,7 +76,7 @@ pub(super) fn plan_traversal_in_place(
     let exclude_id = exclude_subtree_id;
 
     let pre_fn = |node_id: usize, _draw_command: &mut DrawCommand, state: &mut TraversalScratch| {
-        // Handle excluded subtree: skip the node and all descendants entirely.
+        // Skip the excluded node and its descendants
         if state.excluded_depth > 0 {
             state.excluded_depth += 1;
             return;
@@ -104,7 +104,6 @@ pub(super) fn plan_traversal_in_place(
 
     let post_fn =
         |node_id: usize, _draw_command: &mut DrawCommand, state: &mut TraversalScratch| {
-            // Handle excluded subtree.
             if state.excluded_depth > 0 {
                 state.excluded_depth -= 1;
                 return;
@@ -177,11 +176,26 @@ mod tests {
     }
 
     #[test]
-    fn compute_node_depth_returns_zero_for_root() {
+    fn compute_node_depth_counts_ancestors_across_uneven_branches() {
         let mut tree = easy_tree::Tree::new();
         let root = tree.add_node(DrawCommand::CachedShape(cached_draw_data()));
+        let child = tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
+        let grandchild = tree.add_child(child, DrawCommand::CachedShape(cached_draw_data()));
+        let great_grandchild =
+            tree.add_child(grandchild, DrawCommand::CachedShape(cached_draw_data()));
+        let sibling = tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
+        let sibling_child = tree.add_child(sibling, DrawCommand::CachedShape(cached_draw_data()));
 
-        assert_eq!(compute_node_depth(&tree, root), 0);
+        for (node_id, expected_depth) in [
+            (root, 0),
+            (child, 1),
+            (grandchild, 2),
+            (great_grandchild, 3),
+            (sibling, 1),
+            (sibling_child, 2),
+        ] {
+            assert_eq!(compute_node_depth(&tree, node_id), expected_depth);
+        }
     }
 
     #[test]

@@ -22,8 +22,7 @@ fn bake_segments<Interpolator: Fn(f32) -> [f32; 4]>(
     normalized: &NormalizedGradient,
     prepare_colors: impl Fn(&GradientColor, &GradientColor) -> Interpolator,
 ) -> GradientRamp {
-    if let [stop] = normalized.stops.as_slice() {
-        let color = color_to_final_linear_premultiplied(&stop.color);
+    if let Some(color) = normalized.constant_color() {
         return GradientRamp::Constant(color);
     }
 
@@ -32,12 +31,7 @@ fn bake_segments<Interpolator: Fn(f32) -> [f32; 4]>(
     let span = last_pos - first_pos;
 
     if span <= RESOLVED_DEGENERATE_EPSILON {
-        if has_actual_zero_length_run(normalized) {
-            return GradientRamp::Sampled(Arc::new(bake_degenerate_hard_stop_ramp(normalized)));
-        }
-
-        let color = color_to_final_linear_premultiplied(&normalized.stops.last().unwrap().color);
-        return GradientRamp::Constant(color);
+        return GradientRamp::Sampled(Arc::new(bake_degenerate_hard_stop_ramp(normalized)));
     }
 
     let last_color = color_to_final_linear_premultiplied(&normalized.stops.last().unwrap().color);
@@ -101,14 +95,6 @@ pub(crate) fn bake_gradient_ramp(ramp_source: &GradientRampSource) -> GradientRa
             prepare_cylindrical_interpolation(start, end, CylSpace::Hwb, hue)
         }),
     }
-}
-
-fn has_actual_zero_length_run(normalized: &NormalizedGradient) -> bool {
-    normalized.stops.len() > 1
-        && normalized
-            .stops
-            .windows(2)
-            .any(|pair| (pair[1].position - pair[0].position).abs() <= f32::EPSILON)
 }
 
 fn bake_degenerate_hard_stop_ramp(normalized: &NormalizedGradient) -> [[f32; 4]; RAMP_RESOLUTION] {
@@ -227,8 +213,7 @@ fn to_rect_space(color: &GradientColor, space: RectSpace) -> [f32; 4] {
         _ => {}
     }
 
-    // First get the color as [r, g, b, alpha] in sRGB space, handling
-    // missing/powerless hue for HSL/HWB.
+    // Convert to sRGB, resolving missing or powerless hue for HSL and HWB.
     let (srgb_r, srgb_g, srgb_b, alpha) = gradient_color_to_srgb(color);
     let alpha = alpha.clamp(0.0, 1.0);
 
@@ -372,8 +357,8 @@ fn compute_hue_delta(h0: f32, h1: f32, method: HueInterpolationMethod) -> f32 {
     }
 }
 
-/// Converts any GradientColor to sRGB (r, g, b, alpha).
-/// Missing hue for HSL/HWB is treated as 0 for the purpose of conversion.
+/// Converts a `GradientColor` to sRGB `(r, g, b, alpha)`.
+/// Uses zero for missing HSL or HWB hue.
 fn gradient_color_to_srgb(color: &GradientColor) -> (f32, f32, f32, f32) {
     match color {
         GradientColor::Srgb {
@@ -440,7 +425,7 @@ fn gradient_color_to_srgb(color: &GradientColor) -> (f32, f32, f32, f32) {
     }
 }
 
-/// Convert a single authored GradientColor to final linear premultiplied RGBA.
+/// Converts a `GradientColor` to linear premultiplied RGBA.
 pub(crate) fn color_to_final_linear_premultiplied(color: &GradientColor) -> [f32; 4] {
     let (sr, sg, sb, alpha) = gradient_color_to_srgb(color);
     let alpha = alpha.clamp(0.0, 1.0);
@@ -526,9 +511,9 @@ fn hsl_to_srgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
 }
 
 fn hwb_to_srgb(h: f32, w: f32, b: f32) -> (f32, f32, f32) {
-    // HWB to sRGB: first get the pure hue from HSL with S=1, L=0.5
+    // HSL with S=1 and L=0.5 gives the pure hue for HWB conversion.
     let (r, g, bl) = hsl_to_srgb(h, 1.0, 0.5);
-    // Then mix with white and black
+    // Mix the pure hue with white and black.
     let r = r * (1.0 - w - b) + w;
     let g = g * (1.0 - w - b) + w;
     let bl = bl * (1.0 - w - b) + w;
@@ -649,6 +634,14 @@ mod tests {
 
     #[test]
     fn mixed_color_ramps_preserve_interpolation_output() {
+        // Fixed output baseline added with the sampling refactor in a28d97a.
+        // This detects numerical changes; it is not an independent color reference.
+        // Review intentional output changes against the color equations before updating it.
+        const CHANNEL_TOLERANCE: f32 = 2e-6;
+        // Positions are index / 1023: inside the hinted segment, just after the
+        // hard stop at 0.3, and inside each of the two remaining segments.
+        const SAMPLE_TEXEL_INDICES: [usize; 4] = [137, 307, 512, 767];
+
         let interpolations = [
             ColorInterpolation::Srgb,
             ColorInterpolation::SrgbLinear,
@@ -748,11 +741,11 @@ mod tests {
         ];
         for (interpolation, expected_samples) in interpolations.into_iter().zip(expected_samples) {
             let ramp = bake_gradient_ramp(&mixed_color_ramp_source(interpolation));
-            for (index, expected) in [137, 307, 512, 767].into_iter().zip(expected_samples) {
+            for (index, expected) in SAMPLE_TEXEL_INDICES.into_iter().zip(expected_samples) {
                 let actual = ramp.as_slice()[index];
                 for (actual_channel, expected_channel) in actual.into_iter().zip(expected) {
                     assert!(
-                        (actual_channel - expected_channel).abs() < 2e-6,
+                        (actual_channel - expected_channel).abs() < CHANNEL_TOLERANCE,
                         "{interpolation:?} texel {index}: expected {expected:?}, got {actual:?}",
                     );
                 }

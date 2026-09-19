@@ -1,41 +1,11 @@
 //! Rectangles and paths. Set each instance's fill through the renderer.
 //!
-//! # Examples
-//!
-//! Creating and using different shapes:
-//!
-//! ```rust
-//! use grafo::Stroke;
-//! use grafo::{Shape, ShapeBuilder, BorderRadii};
-//! use grafo::Color;
-//!
-//! // Create a simple rectangle
-//! let rect = Shape::rect(
-//!     [(0.0, 0.0), (100.0, 50.0)],
-//!     Stroke::new(2.0_f32, Color::BLACK),
-//! );
-//!
-//! // Create a rounded rectangle
-//! let rounded_rect = Shape::rounded_rect(
-//!     [(0.0, 0.0), (100.0, 50.0)],
-//!     BorderRadii::new(10.0),
-//!     Stroke::new(1.5_f32, Color::BLACK),
-//! );
-//!
-//! // Build a custom shape using ShapeBuilder
-//! let custom_shape = Shape::builder()
-//!     .stroke(Stroke::new(3.0_f32, Color::BLACK))
-//!     .begin((0.0, 0.0))
-//!     .line_to((50.0, 10.0))
-//!     .line_to((50.0, 50.0))
-//!     .close()
-//!     .build();
-//! ```
+//! See [`Shape::rect`], [`Shape::rounded_rect`], and [`ShapeBuilder`] for examples.
 
 use crate::cache::CachedTessellation;
 use crate::gradient::gpu::{GpuMaterialParams, GradientCache};
 use crate::gradient::types::Fill;
-use crate::pipeline::{create_buffer_init, BackdropSamplingUniform};
+use crate::pipeline::BackdropSamplingUniform;
 use crate::util::ShapeResources;
 use crate::vertex::{CustomVertex, GeometryBufferRange, InstanceTransform};
 use crate::{Color, Stroke};
@@ -47,6 +17,7 @@ use lyon::path::Winding;
 use lyon::tessellation::FillVertexConstructor;
 use smallvec::SmallVec;
 use std::sync::Arc;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 #[derive(Debug, Clone)]
 pub struct CachedShapeHandle {
@@ -181,28 +152,8 @@ fn compute_vertex_bounds(vertices: &[CustomVertex]) -> [(f32, f32); 2] {
 
 /// A rectangle or a path made of lines and Bézier curves.
 ///
-/// # Examples
-///
-/// ```rust
-/// use grafo::Stroke;
-/// use grafo::{Shape, BorderRadii};
-/// use grafo::Color;
-///
-/// // Create a simple rectangle
-/// let rect = Shape::rect(
-///     [(0.0, 0.0), (100.0, 50.0)],
-///     Stroke::new(2.0_f32, Color::BLACK),
-/// );
-///
-/// // Create a custom path shape
-/// let custom_path = Shape::builder()
-///     .stroke(Stroke::new(1.0_f32, Color::BLACK))
-///     .begin((0.0, 0.0))
-///     .line_to((50.0, 10.0))
-///     .line_to((50.0, 50.0))
-///     .close()
-///     .build();
-/// ```
+/// Use [`Self::rect`] or [`Self::rounded_rect`] for rectangles, or [`Self::builder`]
+/// for a custom path. Set the fill when queueing the shape with [`ShapeDrawCommandOptions`].
 #[derive(Debug, Clone)]
 pub enum Shape {
     /// A custom path shape defined using Bézier curves and lines.
@@ -222,9 +173,7 @@ impl Shape {
     /// # Examples
     ///
     /// ```rust
-    /// use grafo::Color;
-    /// use grafo::Stroke;
-    /// use grafo::Shape;
+    /// use grafo::{Color, Shape, Stroke};
     ///
     /// let rect = Shape::rect(
     ///     [(0.0, 0.0), (100.0, 50.0)],
@@ -242,9 +191,7 @@ impl Shape {
     /// # Examples
     ///
     /// ```rust
-    /// use grafo::Color;
-    /// use grafo::Stroke;
-    /// use grafo::{Shape, BorderRadii};
+    /// use grafo::{BorderRadii, Color, Shape, Stroke};
     ///
     /// let rounded_rect = Shape::rounded_rect(
     ///     [(0.0, 0.0), (100.0, 50.0)],
@@ -373,19 +320,6 @@ impl AsRef<Shape> for Shape {
 /// A rectangle's coordinates and stroke. Set its fill with [`ShapeDrawCommandOptions`].
 ///
 /// [`Shape::rect`] constructs this and wraps it in [`Shape::Rect`].
-///
-/// # Examples
-///
-/// ```rust
-/// use grafo::RectShape;
-/// use grafo::Stroke;
-/// use grafo::Color;
-///
-/// let rect_shape = RectShape::new(
-///     [(0.0, 0.0), (100.0, 50.0)],
-///     Stroke::new(2.0_f32, Color::BLACK),
-/// );
-/// ```
 #[derive(Debug, Clone)]
 pub struct RectShape {
     /// Top-left and bottom-right coordinates.
@@ -552,10 +486,6 @@ fn normalized_float_bits(value: f32) -> u32 {
         value.to_bits()
     }
 }
-
-// ---------------------------------------------------------------------------
-// Anti-Aliasing: Inflated-Geometry Fringe Generation
-// ---------------------------------------------------------------------------
 
 /// Clears and fills scratch storage with edge owners and incident triangles keyed by position.
 ///
@@ -1116,11 +1046,13 @@ impl ShapeDrawCommandOptions {
 #[derive(Debug)]
 pub(crate) struct CachedShapeDrawData {
     pub(crate) cached_shape: CachedShapeHandle,
+    /// Assigned when geometry is appended to the shared buffers.
     pub(crate) geometry_buffer_range: Option<GeometryBufferRange>,
     pub(crate) is_empty: bool,
-    /// Stencil reference assigned during render traversal (parent + 1). Cleared after frame.
+    /// Stencil reference used by this shape during traversal. Cleared after rendering.
+    /// Stencil clips increment the inherited reference; ordinary leaf draws inherit it.
     pub(crate) stencil_ref: Option<u32>,
-    /// Index into the per-frame instance transform buffer
+    /// Assigned when instance data is appended to the shared buffers.
     pub(crate) instance_index: Option<usize>,
     /// Optional per-shape transform applied in pixel space before clip-space normalization.
     pub(crate) transform: Option<InstanceTransform>,
@@ -1128,7 +1060,7 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) texture_bindings: [ShapeTextureBinding; 2],
     /// Linear RGBA color for a solid fill. Other fills leave this unset.
     pub(crate) color_override: Option<[f32; 4]>,
-    /// The fill for this shape (solid color or gradient). If None, transparent.
+    /// A solid or gradient fill. `None` leaves the shape transparent
     pub(crate) fill: Option<Fill>,
     /// Cached gradient bind group, refreshed when the fill or gradient layout changes.
     pub(crate) gradient_bind_group: Option<Arc<wgpu::BindGroup>>,
@@ -1138,10 +1070,9 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) backdrop_gradient_bind_group: Option<wgpu::BindGroup>,
     /// Stable id of the pooled texture referenced by `backdrop_gradient_bind_group`.
     pub(crate) backdrop_gradient_texture_id: Option<u64>,
-    /// Whether this node is a leaf in the draw tree (no children).
+    /// Whether this node has no children in the draw tree.
     pub(crate) is_leaf: bool,
-    /// When `false`, skip stencil increment/decrement for this parent
-    /// (children render without being clipped to this shape).
+    /// When `false`, skip this parent's stencil operations so it does not clip its children.
     pub(crate) clips_children: bool,
 }
 
@@ -1153,10 +1084,8 @@ impl CachedShapeDrawData {
     pub fn new(cached_shape: CachedShapeHandle, options: &ShapeDrawCommandOptions) -> Self {
         Self {
             cached_shape,
-            // Will be set during add_command
             geometry_buffer_range: None,
             is_empty: false,
-            // Data from options
             transform: options.transform,
             texture_bindings: [
                 options
@@ -1174,9 +1103,7 @@ impl CachedShapeDrawData {
                 _ => None,
             },
             fill: options.fill.clone(),
-            // Set later after buffer update
             instance_index: None,
-            // Set during render traversal
             stencil_ref: None,
             gradient_bind_group: None,
             backdrop_material_params_buffer: None,
@@ -1225,12 +1152,12 @@ impl CachedShapeDrawData {
         if let Some(existing_buffer) = self.backdrop_material_params_buffer.as_ref() {
             queue.write_buffer(existing_buffer, 0, bytemuck::bytes_of(&params));
         } else {
-            self.backdrop_material_params_buffer = Some(create_buffer_init(
-                device,
-                Some("gradient_backdrop_material_params_buffer"),
-                bytemuck::bytes_of(&params),
-                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            ));
+            self.backdrop_material_params_buffer =
+                Some(device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("gradient_backdrop_material_params_buffer"),
+                    contents: bytemuck::bytes_of(&params),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                }));
         }
 
         self.backdrop_material_params_buffer.clone()
@@ -1379,15 +1306,11 @@ impl From<ShapeBuilder> for Shape {
 ///
 /// # Examples
 ///
-/// Creating uniform and non-uniform border radii:
-///
 /// ```rust
 /// use grafo::BorderRadii;
 ///
-/// // Uniform border radii
 /// let uniform_radii = BorderRadii::new(10.0);
 ///
-/// // Custom border radii
 /// let custom_radii = BorderRadii {
 ///     top_left: 5.0,
 ///     top_right: 10.0,
@@ -1405,14 +1328,6 @@ pub struct BorderRadii {
 
 impl BorderRadii {
     /// Sets every corner to the absolute value of `radius`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use grafo::BorderRadii;
-    ///
-    /// let radii = BorderRadii::new(10.0);
-    /// ```
     pub fn new(radius: f32) -> Self {
         let r = radius.abs();
         BorderRadii {

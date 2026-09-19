@@ -1,11 +1,9 @@
-#[cfg(feature = "render_metrics")]
-use super::metrics::ShapeEffectCacheMetrics;
 use super::passes::{apply_effect_passes, compute_downsampled_dimensions, EffectPassRunConfig};
 use super::types::{DrawCommand, GeometryBufferError};
 use super::Renderer;
 use crate::cache::{CachedTessellation, FrameCache};
 use crate::effect::{self, PooledTexture, ShapeEffectConfig};
-use crate::pipeline::{create_buffer_init, draw_indexed_geometry};
+use crate::pipeline::draw_indexed_geometry;
 use crate::renderer::preparation::{self, InstanceTextureData};
 use crate::shape::{CachedShapeDrawData, CachedShapeHandle, ShapeTextureBinding};
 use crate::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
@@ -14,6 +12,7 @@ use bytemuck::{Pod, Zeroable};
 use lyon::tessellation::VertexBuffers;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 const SHAPE_EFFECT_MASK_SHADER: &str = include_str!("../shaders/shape_effect_mask.wgsl");
 
@@ -29,9 +28,8 @@ pub(super) struct ShapeEffectMaskUniform {
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(super) struct ShapeEffectRasterRect {
-    /// Origin in shape-local coordinates scaled to physical pixels. This is not a
-    /// screen position: node transforms are applied later, so moving a shape on
-    /// screen does not change this value.
+    /// Shape-local origin scaled to physical pixels. Node transforms apply later,
+    /// so moving the shape on screen does not change this value.
     pub local_physical_origin: [i32; 2],
     /// Mask/effect texture size in texels. Smaller than the full-resolution
     /// physical extent when the effect config downsamples the rasterization.
@@ -149,8 +147,8 @@ pub(super) fn compute_shape_effect_raster_rect(
 #[derive(Clone)]
 pub(super) struct ShapeEffectMaskCacheKey {
     pub tessellation: Arc<CachedTessellation>,
-    /// Local-space raster origin (see [`ShapeEffectRasterRect::local_physical_origin`]).
-    /// Not a screen position, so node transforms do not invalidate the entry.
+    /// Local raster origin from [`ShapeEffectRasterRect::local_physical_origin`].
+    /// Node transforms do not invalidate this entry.
     pub local_raster_origin: [i32; 2],
     pub raster_size: [u32; 2],
     pub scale_factor_bits: u64,
@@ -366,12 +364,12 @@ pub(super) fn create_mask_bind_group(
 impl<'a> Renderer<'a> {
     pub(super) fn prepare_shape_effect_leaves(&mut self) -> Result<(), GeometryBufferError> {
         let maximum_texture_dimension = self.device.limits().max_texture_dimension_2d;
-        let maximum_texel_count = u64::from(self.physical_size.0)
-            .saturating_mul(u64::from(self.physical_size.1))
+        let maximum_texel_count = u64::from(self.state.physical_size.0)
+            .saturating_mul(u64::from(self.state.physical_size.1))
             .saturating_mul(4);
         let mut quad_geometry_range = None;
-        for (&node_id, shape_effect) in &self.shape_effects {
-            let Some(draw_command) = self.draw_tree.get(node_id) else {
+        for (&node_id, shape_effect) in &self.state.shape_effects {
+            let Some(draw_command) = self.state.draw_tree.get(node_id) else {
                 continue;
             };
             let DrawCommand::CachedShape(source_shape) = draw_command else {
@@ -382,7 +380,7 @@ impl<'a> Renderer<'a> {
             let Some(raster_rect) = compute_shape_effect_raster_rect(
                 local_bounds,
                 shape_effect.config,
-                self.scale_factor,
+                self.state.scale_factor,
                 self.fringe_width,
             ) else {
                 tracing::warn!(
@@ -405,14 +403,14 @@ impl<'a> Renderer<'a> {
                     height,
                     maximum_texture_dimension,
                     maximum_texel_count,
-                    scale_factor = self.scale_factor,
+                    scale_factor = self.state.scale_factor,
                     "skipping oversized shape effect texture"
                 );
                 continue;
             }
 
             let quad_handle = CachedShapeHandle {
-                tessellation: Arc::clone(&self.shape_effect_resources.quad_tessellation),
+                tessellation: Arc::clone(&self.pipeline_resources.shape_effects.quad_tessellation),
                 is_rect: true,
                 rect_bounds: Some([(0.0, 0.0), (1.0, 1.0)]),
                 geometry_id: None,
@@ -448,7 +446,7 @@ impl<'a> Renderer<'a> {
                     texture_uv_transforms: [TextureUvTransform::IDENTITY; 2],
                 },
             ));
-            self.scratch.shape_effect_leaves.insert(node_id, leaf);
+            self.state.scratch.shape_effect_leaves.insert(node_id, leaf);
         }
         Ok(())
     }
@@ -456,25 +454,30 @@ impl<'a> Renderer<'a> {
     pub(super) fn resolve_shape_effects(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
-        shape_effect_leaves: &mut ahash::HashMap<usize, CachedShapeDrawData>,
         textures_to_recycle: &mut Vec<PooledTexture>,
-        #[cfg(feature = "render_metrics")] metrics: &mut ShapeEffectCacheMetrics,
     ) {
-        let Some(aggregated_vertex_buffer) = self.aggregated_vertex_buffer.as_ref() else {
+        let shape_effect_leaves = &mut self.state.scratch.shape_effect_leaves;
+        #[cfg(feature = "render_metrics")]
+        let metrics = &mut self.state.shape_effect_cache_metrics;
+        let Some(aggregated_vertex_buffer) = self.state.buffers.aggregated_vertex_buffer.as_ref()
+        else {
             return;
         };
-        let Some(aggregated_index_buffer) = self.aggregated_index_buffer.as_ref() else {
+        let Some(aggregated_index_buffer) = self.state.buffers.aggregated_index_buffer.as_ref()
+        else {
             return;
         };
         let effect_sampler = self
+            .pipeline_resources
             .effect_sampler
             .as_ref()
             .expect("shape effects require the shared effect sampler");
-        for (&node_id, shape_effect_instance) in &self.shape_effects {
+        for (&node_id, shape_effect_instance) in &self.state.shape_effects {
             if !shape_effect_leaves.contains_key(&node_id) {
                 continue;
             }
-            let Some(DrawCommand::CachedShape(cached_shape)) = self.draw_tree.get(node_id) else {
+            let Some(DrawCommand::CachedShape(cached_shape)) = self.state.draw_tree.get(node_id)
+            else {
                 continue;
             };
             let Some(geometry_range) = cached_shape.geometry_buffer_range else {
@@ -487,7 +490,7 @@ impl<'a> Renderer<'a> {
             let Some(raster_rect) = compute_shape_effect_raster_rect(
                 cached_shape.cached_shape.tessellation.local_bounds,
                 shape_effect_instance.config,
-                self.scale_factor,
+                self.state.scale_factor,
                 self.fringe_width,
             ) else {
                 continue;
@@ -498,7 +501,7 @@ impl<'a> Renderer<'a> {
                 tessellation: Arc::clone(&cached_shape.cached_shape.tessellation),
                 local_raster_origin: raster_rect.local_physical_origin,
                 raster_size: raster_rect.texture_size,
-                scale_factor_bits: self.scale_factor.to_bits(),
+                scale_factor_bits: self.state.scale_factor.to_bits(),
                 fringe_width_bits: self.fringe_width.to_bits(),
                 downsample_bits: shape_effect_instance.config.downsample.to_bits(),
                 texture_format: self.config.format,
@@ -508,8 +511,8 @@ impl<'a> Renderer<'a> {
                 effect_id: shape_effect_instance.effect_id,
                 params: Arc::clone(&shape_effect_instance.params),
             };
-            if let Some(cached_result) = self.shape_effect_cache.get(&cache_key) {
-                let _cached_mask = self.shape_effect_mask_cache.get(&mask_cache_key);
+            if let Some(cached_result) = self.state.shape_effect_cache.get(&cache_key) {
+                let _cached_mask = self.state.shape_effect_mask_cache.get(&mask_cache_key);
                 #[cfg(feature = "render_metrics")]
                 {
                     metrics.hits += 1;
@@ -533,11 +536,10 @@ impl<'a> Renderer<'a> {
                 metrics.misses += 1;
             }
 
-            // The mask depends only on geometry and rasterization parameters, so it
-            // is cached separately from the effect result and reused across effect
-            // cache misses (e.g. animated effect parameters).
+            // Cache the mask separately because it depends only on geometry and
+            // rasterization settings. Changing effect parameters can reuse it.
             let cached_mask = if let Some(cached_mask) =
-                self.shape_effect_mask_cache.get(&mask_cache_key)
+                self.state.shape_effect_mask_cache.get(&mask_cache_key)
             {
                 #[cfg(feature = "render_metrics")]
                 {
@@ -549,23 +551,23 @@ impl<'a> Renderer<'a> {
                 {
                     metrics.generated_masks += 1;
                 }
-                let mask_texture = self.offscreen_texture_pool.acquire_color_only(
+                let mask_texture = self.state.texture_pool.acquire_color_only(
                     &self.device,
                     width,
                     height,
                     self.config.format,
                     1,
                 );
-                let mask_uniform = raster_rect.mask_uniform(self.scale_factor, self.fringe_width);
-                let mask_uniform_buffer = create_buffer_init(
-                    &self.device,
-                    Some("shape_effect_mask_uniform"),
-                    bytemuck::bytes_of(&mask_uniform),
-                    wgpu::BufferUsages::UNIFORM,
-                );
+                let mask_uniform =
+                    raster_rect.mask_uniform(self.state.scale_factor, self.fringe_width);
+                let mask_uniform_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("shape_effect_mask_uniform"),
+                    contents: bytemuck::bytes_of(&mask_uniform),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                });
                 let mask_bind_group = create_mask_bind_group(
                     &self.device,
-                    &self.shape_effect_resources.mask_bind_group_layout,
+                    &self.pipeline_resources.shape_effects.mask_bind_group_layout,
                     &mask_uniform_buffer,
                 );
 
@@ -584,7 +586,7 @@ impl<'a> Renderer<'a> {
                         timestamp_writes: None,
                         occlusion_query_set: None,
                     });
-                    render_pass.set_pipeline(&self.shape_effect_resources.mask_pipeline);
+                    render_pass.set_pipeline(&self.pipeline_resources.shape_effects.mask_pipeline);
                     render_pass.set_bind_group(0, &mask_bind_group, &[]);
                     render_pass.set_vertex_buffer(0, aggregated_vertex_buffer.slice(..));
                     render_pass.set_index_buffer(
@@ -603,18 +605,18 @@ impl<'a> Renderer<'a> {
                 let cached_mask = Arc::new(CachedShapeEffectMask {
                     texture: mask_texture,
                 });
-                self.shape_effect_mask_cache
+                self.state
+                    .shape_effect_mask_cache
                     .insert(mask_cache_key, Arc::clone(&cached_mask));
                 cached_mask
             };
 
             let parameter_buffer = (!shape_effect_instance.params.is_empty()).then(|| {
-                create_buffer_init(
-                    &self.device,
-                    Some("shape_effect_params_buffer"),
-                    shape_effect_instance.params.as_ref(),
-                    wgpu::BufferUsages::UNIFORM,
-                )
+                self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("shape_effect_params_buffer"),
+                    contents: shape_effect_instance.params.as_ref(),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                })
             });
             let parameter_bind_group = parameter_buffer.as_ref().and_then(|buffer| {
                 loaded_effect
@@ -625,18 +627,21 @@ impl<'a> Renderer<'a> {
             let effect_output = apply_effect_passes(
                 &self.device,
                 encoder,
-                &mut self.offscreen_texture_pool,
+                &mut self.state.texture_pool,
                 EffectPassRunConfig {
                     loaded_effect,
                     params_bind_group: parameter_bind_group.as_ref(),
                     source_view: &cached_mask.texture.color_view,
                     effect_sampler,
-                    composite_bind_group_layout: &self.shape_texture_bind_group_layout_background,
+                    composite_bind_group_layout: &self
+                        .pipeline_resources
+                        .shapes
+                        .shape_texture_bind_group_layout_background,
                     create_composite_bind_group: true,
                     width,
                     height,
                     texture_format: self.config.format,
-                    label_prefix: "shape_effect",
+                    label: "shape_effect",
                 },
             );
             #[cfg(feature = "render_metrics")]
@@ -653,7 +658,8 @@ impl<'a> Renderer<'a> {
                 ),
             });
 
-            self.shape_effect_cache
+            self.state
+                .shape_effect_cache
                 .insert(cache_key, Arc::clone(&cached_result));
             if let Some(shape_effect_leaf) = shape_effect_leaves.get_mut(&node_id) {
                 shape_effect_leaf.texture_bindings[0] = ShapeTextureBinding::Direct {

@@ -1,47 +1,40 @@
+//! Applies 50% and 80% opacity to two groups of shapes.
+//! Each group composites its parent and children into one translucent layer.
+
 use futures::executor::block_on;
-/// Example: Group opacity effect
-///
-/// Demonstrates using the effect system to apply group opacity to a parent shape
-/// and all its children, so they composite as a single translucent layer rather
-/// than individually blending with the background.
-///
-/// The scene has:
-/// - A background shape (full opacity, not part of any effect group)
-/// - A "group" parent shape with 50% opacity effect
-///   - Two overlapping child shapes clipped to the parent
-/// - A second group with 80% opacity
-///   - Its own child shape
 use grafo::wgpu::SurfaceError;
 use grafo::RenderError;
 use grafo::Shape;
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use redraw_retry::RedrawRetry;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event::{StartCause, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
-const OPACITY_EFFECT: u64 = 1;
+mod redraw_retry;
 
-const SURFACE_TIMEOUT_RETRY_DELAY: Duration = Duration::from_millis(50);
+const OPACITY_EFFECT: u64 = 1;
 
 #[derive(Default)]
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
     effect_loaded: bool,
-    /// Pending redraw after a surface timeout.
-    redraw_retry_at: Option<Instant>,
+    redraw_retry: RedrawRetry,
 }
 
 impl<'a> ApplicationHandler for App<'a> {
+    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+        self.redraw_retry
+            .new_events(event_loop, cause, self.window.as_deref());
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
-                .create_window(
-                    Window::default_attributes().with_title("Grafo – Group Opacity Effect"),
-                )
+                .create_window(Window::default_attributes().with_title("Grafo group opacity"))
                 .unwrap(),
         );
 
@@ -58,7 +51,6 @@ impl<'a> ApplicationHandler for App<'a> {
             1,
         ));
 
-        // Load the opacity effect shader once
         let opacity_wgsl = r#"
             struct Params {
                 opacity: f32,
@@ -118,7 +110,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Group 1: 50% opacity
                 let group1_bg = Shape::rect(
                     [(100.0, 100.0), (400.0, 350.0)],
                     Stroke::new(0.0_f32, Color::TRANSPARENT),
@@ -132,7 +123,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Child 1: overlapping blue rectangle
+                // The overlap gets the group's opacity once, after the children are composited.
                 let child1 = Shape::rect(
                     [(120.0, 120.0), (300.0, 250.0)],
                     Stroke::new(2.0_f32, Color::BLACK),
@@ -146,7 +137,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Child 2: overlapping green rectangle
                 let child2 = Shape::rect(
                     [(200.0, 180.0), (380.0, 320.0)],
                     Stroke::new(2.0_f32, Color::BLACK),
@@ -160,13 +150,11 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Attach 50% opacity to group1
                 let opacity: f32 = 0.5;
                 renderer
                     .set_group_effect(group1, OPACITY_EFFECT, bytemuck::bytes_of(&opacity))
                     .expect("Failed to set effect");
 
-                // Group 2: 80% opacity
                 let group2_bg = Shape::rect(
                     [(350.0, 100.0), (700.0, 350.0)],
                     Stroke::new(0.0_f32, Color::TRANSPARENT),
@@ -200,7 +188,7 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 match renderer.render() {
                     Ok(_) => {
-                        self.redraw_retry_at = None;
+                        self.redraw_retry.cancel(event_loop);
                         renderer.clear_draw_queue();
                     }
                     Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
@@ -209,32 +197,12 @@ impl<'a> ApplicationHandler for App<'a> {
 
                     Err(RenderError::Surface(SurfaceError::Timeout)) => {
                         renderer.clear_draw_queue();
-                        let retry_at = Instant::now() + SURFACE_TIMEOUT_RETRY_DELAY;
-                        self.redraw_retry_at = Some(retry_at);
-                        event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
+                        self.redraw_retry.schedule(event_loop);
                     }
                     Err(e) => eprintln!("{e:?}"),
                 }
             }
             _ => {}
-        }
-    }
-
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(retry_at) = self.redraw_retry_at else {
-            // Clear a stale WaitUntil deadline left behind when a successful
-            // render cancelled the pending retry before it fired.
-            event_loop.set_control_flow(ControlFlow::Wait);
-            return;
-        };
-        if Instant::now() >= retry_at {
-            self.redraw_retry_at = None;
-            if let Some(window) = &self.window {
-                window.request_redraw();
-            }
-            event_loop.set_control_flow(ControlFlow::Wait);
-        } else {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
         }
     }
 }

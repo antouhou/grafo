@@ -20,9 +20,9 @@ impl GeometryBufferRange {
 pub struct CustomVertex {
     pub(crate) position: [f32; 2],
     pub(crate) tex_coords: [f32; 2],
-    /// Outward boundary normal in model space (used for AA fringe offset in the shader)
+    /// Outward model-space normal used by the shader to offset the AA fringe.
     pub(crate) normal: [f32; 2],
-    /// Coverage factor: 1.0 for interior/boundary vertices, 0.0 for outer fringe vertices
+    /// Coverage is 1.0 at interior and boundary vertices, and 0.0 at the outer fringe.
     pub(crate) coverage: f32,
 }
 
@@ -44,13 +44,13 @@ impl CustomVertex {
                     offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
                     shader_location: 2,
                 },
-                // AA Normal (outward boundary direction in model space)
+                // Outward model-space normal for the AA fringe.
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32x2,
                     offset: (std::mem::size_of::<[f32; 2]>() * 2) as wgpu::BufferAddress,
                     shader_location: 8,
                 },
-                // AA Coverage (1.0 = interior, 0.0 = outer fringe)
+                // AA coverage, from 1.0 at the interior to 0.0 at the outer fringe.
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32,
                     offset: (std::mem::size_of::<[f32; 2]>() * 3) as wgpu::BufferAddress,
@@ -109,7 +109,7 @@ impl InstanceTransform {
 
     /// Create a 2D translation transform (tx, ty) in pixels.
     ///
-    /// Each field (`col0`..`col3`) stores one column of the GPU `mat4x4`.
+    /// Fields `col0` through `col3` store the columns of the GPU `mat4x4`.
     /// Translation lives in `col3`.
     pub fn translation(tx: f32, ty: f32) -> Self {
         Self {

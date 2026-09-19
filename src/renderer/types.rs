@@ -3,15 +3,12 @@ use super::metrics::PipelineSwitchCounts;
 use super::traversal::TraversalScratch;
 use crate::effect::{self, LoadedEffect};
 use crate::gradient::gpu::GradientCache;
-use crate::pipeline::draw_indexed_geometry;
 use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
-use crate::texture_manager::TextureManager;
-use crate::vertex::{GeometryBufferRange, InstanceTransform};
+use crate::vertex::InstanceTransform;
 use ahash::{HashMap, HashMapExt};
-use std::ops::Range;
 use std::sync::Arc;
 use thiserror::Error;
-use wgpu::{RenderPass, SurfaceError};
+use wgpu::SurfaceError;
 
 // TODO: probably some parts of it also can be cached, so we don't need to copy it all the time.
 #[allow(clippy::large_enum_variant)]
@@ -45,7 +42,7 @@ impl ClipRectDrawData {
 }
 
 impl DrawCommand {
-    /// Whether this node is a leaf (has no children in the draw tree).
+    /// Whether this node has no children in the draw tree
     /// Starts as `true`; set to `false` when a child is added.
     pub(super) fn is_leaf(&self) -> bool {
         match self {
@@ -217,16 +214,15 @@ pub(super) enum Pipeline {
     LeafDrawGradient,
 }
 
-/// Records which clipping strategy was used by each non-leaf parent during
-/// `Pre` traversal so the `Post` path can tear down state without
-/// re-evaluating the scissor eligibility check.
+/// Records each parent's clip strategy during `Pre`.
+/// `Post` uses it to restore the clip state without checking scissor eligibility again.
 #[derive(Clone, Copy)]
 pub(super) enum ClipKind {
-    /// Parent does not clip children — a dummy stencil entry was pushed.
+    /// Parent does not clip children
     NonClipping,
-    /// Parent clips children via hardware scissor rect.
+    /// Parent clips children via hardware scissor rect
     Scissor,
-    /// Parent clips children via stencil increment/decrement.
+    /// Parent clips children via stencil increment/decrement
     Stencil,
 }
 
@@ -250,7 +246,7 @@ impl PipelineTracker {
         }
     }
 
-    /// Record a real GPU pipeline switch (only when the pipeline actually changes).
+    /// Records a GPU pipeline switch when the pipeline changes.
     pub(super) fn switch_to(&mut self, pipeline: Pipeline) {
         if self.current == pipeline {
             return;
@@ -306,49 +302,6 @@ impl BoundTextureState {
     }
 }
 
-pub(super) struct Buffers<'a> {
-    pub(super) supports_base_vertex: bool,
-    pub(super) aggregated_vertex_buffer: &'a wgpu::Buffer,
-    pub(super) aggregated_index_buffer: &'a wgpu::Buffer,
-    pub(super) identity_instance_transform_buffer: &'a wgpu::Buffer,
-    pub(super) identity_instance_color_buffer: &'a wgpu::Buffer,
-    pub(super) identity_instance_metadata_buffer: &'a wgpu::Buffer,
-    pub(super) aggregated_instance_transform_buffer: Option<&'a wgpu::Buffer>,
-    pub(super) aggregated_instance_color_buffer: Option<&'a wgpu::Buffer>,
-    pub(super) aggregated_instance_metadata_buffer: Option<&'a wgpu::Buffer>,
-}
-
-impl Buffers<'_> {
-    pub(super) fn draw_indexed(
-        &self,
-        render_pass: &mut RenderPass<'_>,
-        geometry_range: GeometryBufferRange,
-        instances: Range<u32>,
-    ) {
-        draw_indexed_geometry(
-            render_pass,
-            geometry_range,
-            self.aggregated_vertex_buffer,
-            self.supports_base_vertex,
-            instances,
-        );
-    }
-}
-
-pub(super) struct Pipelines<'a> {
-    pub(super) and_pipeline: &'a wgpu::RenderPipeline,
-    pub(super) and_gradient_pipeline: &'a wgpu::RenderPipeline,
-    pub(super) and_bind_group: &'a wgpu::BindGroup,
-    pub(super) decrementing_pipeline: &'a wgpu::RenderPipeline,
-    pub(super) decrementing_bind_group: &'a wgpu::BindGroup,
-    pub(super) leaf_draw_pipeline: &'a wgpu::RenderPipeline,
-    pub(super) leaf_draw_gradient_pipeline: &'a wgpu::RenderPipeline,
-    pub(super) shape_texture_bind_group_layout_background: &'a wgpu::BindGroupLayout,
-    pub(super) shape_texture_bind_group_layout_foreground: &'a wgpu::BindGroupLayout,
-    pub(super) default_shape_texture_bind_groups: &'a [Arc<wgpu::BindGroup>; 2],
-    pub(super) texture_manager: &'a TextureManager,
-}
-
 #[derive(Clone, Copy)]
 pub(super) enum BackdropSource<'a> {
     /// The source already contains every layer painted before the backdrop node.
@@ -379,10 +332,9 @@ impl<'a> BackdropSource<'a> {
 }
 
 /// Backdrop-specific rendering resources. Only needed when backdrop effects exist.
-/// General resources (pipelines, buffers, textures) are passed separately.
+/// Callers pass shared pipelines, buffers, and textures separately.
 pub(super) struct BackdropContext<'a> {
     pub(super) loaded_effects: &'a HashMap<u64, LoadedEffect>,
-    pub(super) composite_bgl: &'a wgpu::BindGroupLayout,
     pub(super) effect_sampler: &'a wgpu::Sampler,
     pub(super) gradient_ramp_sampler: &'a wgpu::Sampler,
     pub(super) texture_blit_pipeline: &'a wgpu::RenderPipeline,
@@ -419,8 +371,8 @@ pub(super) struct RendererScratch {
     /// Stack of intersected scissor rects (x, y, width, height) in physical pixels.
     /// Used to replace stencil clipping for axis-aligned rect parents.
     pub(super) scissor_stack: Vec<(u32, u32, u32, u32)>,
-    /// Parallel stack to `stencil_stack`: records which clipping strategy each
-    /// non-leaf parent used so the `Post` path avoids re-evaluating eligibility.
+    /// Clip strategies for the parents in `stencil_stack`.
+    /// `Post` uses them to restore each parent's clip state.
     pub(super) clip_kind_stack: Vec<ClipKind>,
     pub(super) backdrop_work_textures: Vec<effect::PooledTexture>,
     /// CPU storage reused for mapped readback data.

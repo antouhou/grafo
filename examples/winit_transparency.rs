@@ -69,7 +69,6 @@ impl<'a> ApplicationHandler for App<'a> {
             WindowEvent::RedrawRequested => {
                 let timer = Instant::now();
 
-                // Create a simple rectangle to test rendering
                 let rect = Shape::rect(
                     [(100.0, 100.0), (300.0, 200.0)],
                     Stroke::new(3.0_f32, Color::BLACK),
@@ -83,7 +82,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Create a rounded rectangle to test different shapes
                 let rounded_rect = Shape::rounded_rect(
                     [(350.0, 250.0), (450.0, 350.0)],
                     BorderRadii::new(50.0),
@@ -98,7 +96,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Render the frame
                 match renderer.render() {
                     Ok(_) => {
                         renderer.clear_draw_queue();

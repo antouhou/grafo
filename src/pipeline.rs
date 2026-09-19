@@ -3,10 +3,10 @@ use crate::vertex::{
     CustomVertex, GeometryBufferRange, InstanceColor, InstanceMetadata, InstanceTransform,
 };
 use std::{mem, ops::Range};
-use wgpu::util::DeviceExt;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
-    BindGroup, BindGroupLayout, Buffer, ComputePipeline, Device, RenderPass, RenderPipeline,
-    StoreOp, Texture, TextureView,
+    BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, ComputePipeline, Device,
+    RenderPass, RenderPipeline, StoreOp, Texture, TextureView,
 };
 
 /// Viewport dimensions and antialiasing settings used by the vertex shader.
@@ -295,7 +295,7 @@ pub fn create_pipeline(
         fringe_width,
     );
 
-    let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+    let uniform_buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: None,
         contents: bytemuck::cast_slice(&[uniforms]),
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -641,7 +641,7 @@ pub fn create_argb_swizzle_pipeline(device: &Device) -> (BindGroupLayout, Comput
     (bgl, pipeline)
 }
 
-/// Helper to create the ARGB swizzle bind group given buffers and params buffer.
+/// Binds the ARGB input, output, and parameter buffers.
 pub fn create_argb_swizzle_bind_group(
     device: &Device,
     bgl: &BindGroupLayout,
@@ -670,41 +670,12 @@ pub fn create_argb_swizzle_bind_group(
 }
 
 /// Compute unpadded and padded bytes-per-row given a width and bytes-per-pixel.
-/// Padded value respects wgpu::COPY_BYTES_PER_ROW_ALIGNMENT (256 bytes).
+/// Rounds the padded value up to a multiple of `wgpu::COPY_BYTES_PER_ROW_ALIGNMENT`.
 pub fn compute_padded_bytes_per_row(width: u32, bytes_per_pixel: u32) -> (u32, u32) {
     let unpadded = width * bytes_per_pixel;
     let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
     let padded = unpadded.div_ceil(align) * align;
     (unpadded, padded)
-}
-
-/// Convenience wrapper to create a buffer with a label and usage.
-pub fn create_buffer(
-    device: &Device,
-    label: Option<&str>,
-    size: u64,
-    usage: wgpu::BufferUsages,
-) -> wgpu::Buffer {
-    device.create_buffer(&wgpu::BufferDescriptor {
-        label,
-        size,
-        usage,
-        mapped_at_creation: false,
-    })
-}
-
-/// Convenience wrapper to create and initialize a buffer from bytes.
-pub fn create_buffer_init(
-    device: &Device,
-    label: Option<&str>,
-    bytes: &[u8],
-    usage: wgpu::BufferUsages,
-) -> wgpu::Buffer {
-    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label,
-        contents: bytes,
-        usage,
-    })
 }
 
 /// Encode a copy from a texture to a buffer with the provided padded bytes-per-row.
@@ -741,40 +712,12 @@ pub fn encode_copy_texture_to_buffer(
 
 /// Create a CPU readback buffer of given size.
 pub fn create_readback_buffer(device: &Device, label: Option<&str>, size: u64) -> wgpu::Buffer {
-    create_buffer(
-        device,
+    device.create_buffer(&BufferDescriptor {
         label,
         size,
-        wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-    )
-}
-
-/// Create a storage input buffer (COPY_DST | STORAGE), typically for texture bytes input.
-pub fn create_storage_input_buffer(
-    device: &Device,
-    label: Option<&str>,
-    size: u64,
-) -> wgpu::Buffer {
-    create_buffer(
-        device,
-        label,
-        size,
-        wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::STORAGE,
-    )
-}
-
-/// Create a storage output buffer (STORAGE | COPY_SRC), typically for compute outputs.
-pub fn create_storage_output_buffer(
-    device: &Device,
-    label: Option<&str>,
-    size: u64,
-) -> wgpu::Buffer {
-    create_buffer(
-        device,
-        label,
-        size,
-        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-    )
+        usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    })
 }
 
 /// Parameters for ARGB compute swizzle, shared between modules.
@@ -789,16 +732,15 @@ pub struct ArgbParams {
 
 /// Creates a uniform buffer initialized with `ArgbParams`.
 pub fn create_argb_params_buffer(device: &Device, params: &ArgbParams) -> wgpu::Buffer {
-    create_buffer_init(
-        device,
-        Some("argb_params"),
-        bytemuck::bytes_of(params),
-        wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-    )
+    device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("argb_params"),
+        contents: bytemuck::bytes_of(params),
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    })
 }
 
 /// Creates a multisampled color texture for MSAA rendering.
-/// When sample_count == 1, this should not be called (no MSAA texture needed).
+/// Call only when `sample_count > 1`.
 pub fn create_msaa_color_texture(
     device: &Device,
     size: (u32, u32),

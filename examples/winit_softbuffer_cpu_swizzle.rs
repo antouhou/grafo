@@ -33,7 +33,6 @@ impl<'a> ApplicationHandler for App<'a> {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        // Create GPU renderer (renders offscreen)
         let renderer = block_on(grafo::Renderer::new(
             window.clone(),
             physical_size,
@@ -43,7 +42,6 @@ impl<'a> ApplicationHandler for App<'a> {
             1,     // msaa_samples
         ));
 
-        // Create softbuffer for CPU presentation
         let softbuffer_context = softbuffer::Context::new(window.clone()).unwrap();
         let mut softbuffer_surface =
             softbuffer::Surface::new(&softbuffer_context, window.clone()).unwrap();
@@ -83,7 +81,6 @@ impl<'a> ApplicationHandler for App<'a> {
             WindowEvent::Resized(physical_size) => {
                 self.pending_resize = Some((physical_size.width, physical_size.height));
 
-                // Resize softbuffer surface immediately
                 if physical_size.width > 0 && physical_size.height > 0 {
                     softbuffer_surface
                         .resize(
@@ -96,7 +93,6 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                // Apply any pending resize to GPU renderer
                 if let Some(pending) = self.pending_resize.take() {
                     renderer.resize(pending);
                 }
@@ -105,7 +101,6 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 let window_size = window.inner_size();
 
-                // Create shapes to render
                 let background = Shape::rect(
                     [
                         (0.0, 0.0),
@@ -150,7 +145,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Render to BGRA byte buffer
                 let needed_bytes = (window_size.width as usize) * (window_size.height as usize) * 4;
                 if self.bgra_bytes.len() < needed_bytes {
                     self.bgra_bytes.resize(needed_bytes, 0);
@@ -174,7 +168,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     self.argb_buffer[i] = (a << 24) | (r << 16) | (g << 8) | b;
                 }
 
-                // Present ARGB u32s via softbuffer
                 let mut buffer = softbuffer_surface.buffer_mut().unwrap();
                 let count = buffer.len().min(self.argb_buffer.len());
                 buffer[..count].copy_from_slice(&self.argb_buffer[..count]);

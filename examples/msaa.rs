@@ -1,28 +1,25 @@
+//! Press Space to toggle 4x MSAA and compare straight, diagonal, and curved edges.
+
 use futures::executor::block_on;
-/// MSAA example: Toggle MSAA with spacebar to see anti-aliasing effect.
-///
-/// Renders a triangle and a rounded rectangle so you can visually
-/// compare edge quality between MSAA off (1x) and MSAA on (4x).
 use grafo::wgpu::SurfaceError;
 use grafo::RenderError;
 use grafo::{BorderRadii, Shape};
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use redraw_retry::RedrawRetry;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event::{ElementState, KeyEvent, StartCause, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
-const SURFACE_TIMEOUT_RETRY_DELAY: Duration = Duration::from_millis(50);
+mod redraw_retry;
 
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
     msaa_enabled: bool,
-    /// Pending redraw after a surface timeout.
-    redraw_retry_at: Option<Instant>,
+    redraw_retry: RedrawRetry,
 }
 
 impl<'a> Default for App<'a> {
@@ -31,19 +28,21 @@ impl<'a> Default for App<'a> {
             window: None,
             renderer: None,
             msaa_enabled: true,
-            redraw_retry_at: None,
+            redraw_retry: RedrawRetry::default(),
         }
     }
 }
 
 impl<'a> ApplicationHandler for App<'a> {
+    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+        self.redraw_retry
+            .new_events(event_loop, cause, self.window.as_deref());
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
-                .create_window(
-                    Window::default_attributes()
-                        .with_title("Grafo MSAA Demo — Press SPACE to toggle"),
-                )
+                .create_window(Window::default_attributes().with_title("Press SPACE to toggle"))
                 .unwrap(),
         );
 
@@ -121,7 +120,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Draw a triangle — diagonal edges show aliasing clearly
+                // Diagonal edges make aliasing visible.
                 let triangle = Shape::builder()
                     .stroke(Stroke::new(2.0_f32, Color::BLACK))
                     .begin((200.0, 80.0))
@@ -138,7 +137,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Draw a rounded rectangle — curved edges benefit from MSAA
+                // Curved edges show the effect of MSAA.
                 let rounded_rect = Shape::rounded_rect(
                     [(380.0, 100.0), (620.0, 330.0)],
                     BorderRadii::new(30.0),
@@ -153,7 +152,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Draw a circle (approximated with a rounded rect)
+                // A corner radius of half the width makes this square circular.
                 let circle = Shape::rounded_rect(
                     [(100.0, 270.0), (260.0, 430.0)],
                     BorderRadii::new(80.0),
@@ -168,7 +167,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Draw a small detailed shape - thin diagonal lines are great for MSAA testing
                 let small_rect = Shape::rect(
                     [(400.0, 280.0), (550.0, 420.0)],
                     Stroke::new(1.0_f32, Color::rgb(100, 0, 150)),
@@ -184,7 +182,7 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 match renderer.render() {
                     Ok(_) => {
-                        self.redraw_retry_at = None;
+                        self.redraw_retry.cancel(event_loop);
                         renderer.clear_draw_queue();
                     }
                     Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
@@ -193,32 +191,12 @@ impl<'a> ApplicationHandler for App<'a> {
 
                     Err(RenderError::Surface(SurfaceError::Timeout)) => {
                         renderer.clear_draw_queue();
-                        let retry_at = Instant::now() + SURFACE_TIMEOUT_RETRY_DELAY;
-                        self.redraw_retry_at = Some(retry_at);
-                        event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
+                        self.redraw_retry.schedule(event_loop);
                     }
                     Err(e) => eprintln!("{e:?}"),
                 }
             }
             _ => {}
-        }
-    }
-
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(retry_at) = self.redraw_retry_at else {
-            // Clear a stale WaitUntil deadline left behind when a successful
-            // render cancelled the pending retry before it fired.
-            event_loop.set_control_flow(ControlFlow::Wait);
-            return;
-        };
-        if Instant::now() >= retry_at {
-            self.redraw_retry_at = None;
-            if let Some(window) = &self.window {
-                window.request_redraw();
-            }
-            event_loop.set_control_flow(ControlFlow::Wait);
-        } else {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
         }
     }
 }

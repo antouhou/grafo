@@ -1,38 +1,39 @@
+//! Displays the tile grid checked by the headless visual regression test.
+//! Run with `cargo run --example visual_test_grid`.
+
 use futures::executor::block_on;
-/// Visual confirmation example — renders the shared visual-regression tile grid.
-///
-/// Run with:    cargo run --example visual_test_grid
-///
-/// The window shows the exact same scene that the headless visual-regression
-/// test validates with pixel-level assertions.
 use grafo::wgpu::SurfaceError;
 use grafo::RenderError;
 use grafo_test_scenes::{build_main_scene, CANVAS_HEIGHT, CANVAS_WIDTH};
+use redraw_retry::RedrawRetry;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event::{StartCause, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
-const SURFACE_TIMEOUT_RETRY_DELAY: Duration = Duration::from_millis(50);
+mod redraw_retry;
 
 #[derive(Default)]
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
-    /// Pending redraw after a surface timeout.
-    redraw_retry_at: Option<Instant>,
+    redraw_retry: RedrawRetry,
 }
 
 impl<'a> ApplicationHandler for App<'a> {
+    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+        self.redraw_retry
+            .new_events(event_loop, cause, self.window.as_deref());
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
                 .create_window(
                     Window::default_attributes()
                         .with_inner_size(winit::dpi::PhysicalSize::new(CANVAS_WIDTH, CANVAS_HEIGHT))
-                        .with_title("Visual Test Grid — grafo")
+                        .with_title("Visual regression test pattern")
                         .with_resizable(false),
                 )
                 .unwrap(),
@@ -44,10 +45,10 @@ impl<'a> ApplicationHandler for App<'a> {
         let mut renderer = block_on(grafo::Renderer::new(
             window.clone(),
             physical_size,
-            1.0,   // scale_factor — match test expectations
-            true,  // vsync
-            false, // transparent
-            1,     // msaa_samples — match test expectations
+            1.0,
+            true,
+            false,
+            1,
         ));
 
         build_main_scene(&mut renderer);
@@ -80,38 +81,18 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 match renderer.render() {
                     Ok(_) => {
-                        self.redraw_retry_at = None;
+                        self.redraw_retry.cancel(event_loop);
                     }
                     Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
                         renderer.resize(renderer.size())
                     }
                     Err(RenderError::Surface(SurfaceError::Timeout)) => {
-                        let retry_at = Instant::now() + SURFACE_TIMEOUT_RETRY_DELAY;
-                        self.redraw_retry_at = Some(retry_at);
-                        event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
+                        self.redraw_retry.schedule(event_loop);
                     }
                     Err(e) => eprintln!("{e:?}"),
                 }
             }
             _ => {}
-        }
-    }
-
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(retry_at) = self.redraw_retry_at else {
-            // Clear a stale WaitUntil deadline left behind when a successful
-            // render cancelled the pending retry before it fired.
-            event_loop.set_control_flow(ControlFlow::Wait);
-            return;
-        };
-        if Instant::now() >= retry_at {
-            self.redraw_retry_at = None;
-            if let Some(window) = &self.window {
-                window.request_redraw();
-            }
-            event_loop.set_control_flow(ControlFlow::Wait);
-        } else {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
         }
     }
 }

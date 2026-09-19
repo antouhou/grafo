@@ -1,5 +1,8 @@
 use super::sampling::color_to_final_linear_premultiplied;
-use super::types::{GradientColor, GradientCommonDesc, GradientKind, GradientStopPositions};
+use super::types::{
+    GradientColor, GradientCommonDesc, GradientKind, GradientStopPositions,
+    RESOLVED_DEGENERATE_EPSILON,
+};
 use smallvec::{smallvec, SmallVec};
 use std::f32::consts::TAU;
 
@@ -13,7 +16,7 @@ struct AuthoredStop {
     hint_to_next_segment: Option<f32>,
 }
 
-/// A single normalized stop after CSS canonicalization.
+/// A gradient stop after resolving its CSS position.
 #[derive(Debug, Clone)]
 pub(crate) struct NormalizedStop {
     pub(crate) position: f32,
@@ -22,7 +25,7 @@ pub(crate) struct NormalizedStop {
     pub(crate) hint: Option<f32>,
 }
 
-/// A pairwise interpolation segment between two normalized stops.
+/// An interpolation segment between two normalized stops.
 #[derive(Debug, Clone)]
 pub(crate) struct NormalizedSegment {
     pub(crate) start_position: f32,
@@ -32,7 +35,7 @@ pub(crate) struct NormalizedSegment {
     pub(crate) hint: Option<f32>,
 }
 
-/// The fully normalized gradient after CSS stop resolution.
+/// A gradient with resolved CSS stop positions.
 #[derive(Debug, Clone)]
 pub(crate) struct NormalizedGradient {
     pub(crate) stops: SmallVec<[NormalizedStop; NORMALIZED_INLINE_STOP_CAPACITY]>,
@@ -45,7 +48,6 @@ impl NormalizedGradient {
     pub(crate) fn from_common(common: &GradientCommonDesc, kind: GradientKind) -> Self {
         let is_conic = kind == GradientKind::Conic;
 
-        // Single-stop extension
         if common.stops.len() == 1 {
             return NormalizedGradient {
                 stops: smallvec![NormalizedStop {
@@ -117,7 +119,6 @@ impl NormalizedGradient {
 
         fill_implicit_positions(&mut authored);
 
-        // Build stops
         let mut stops: SmallVec<[NormalizedStop; NORMALIZED_INLINE_STOP_CAPACITY]> =
             SmallVec::with_capacity(authored.len());
         for authored_stop in &authored {
@@ -145,7 +146,6 @@ impl NormalizedGradient {
             }
         }
 
-        // Build segments
         let mut segments: SmallVec<[NormalizedSegment; NORMALIZED_INLINE_SEGMENT_CAPACITY]> =
             SmallVec::with_capacity(stops.len().saturating_sub(1));
         for (start_stop, end_stop) in stops.iter().zip(stops.iter().skip(1)) {
@@ -170,7 +170,22 @@ impl NormalizedGradient {
         }
     }
 
-    /// The degenerate constant color: final linear premultiplied color of the last stop.
+    /// Returns a constant color for a single stop or a short span without a hard stop.
+    pub(crate) fn constant_color(&self) -> Option<[f32; 4]> {
+        if self.stops.len() == 1
+            || (self.period_len <= RESOLVED_DEGENERATE_EPSILON
+                && !self
+                    .stops
+                    .windows(2)
+                    .any(|pair| (pair[1].position - pair[0].position).abs() <= f32::EPSILON))
+        {
+            Some(self.degenerate_constant_color())
+        } else {
+            None
+        }
+    }
+
+    /// Returns the last stop's color in linear premultiplied RGBA.
     pub(crate) fn degenerate_constant_color(&self) -> [f32; 4] {
         color_to_final_linear_premultiplied(&self.stops.last().unwrap().color)
     }
@@ -186,13 +201,11 @@ fn fill_implicit_positions(authored_stops: &mut [AuthoredStop]) {
             i += 1;
             continue;
         }
-        // Find the start of the run (the explicit position before it)
         let run_start = i;
         let left_value = authored_stops[run_start - 1]
             .raw_position
             .expect("implicit position runs must have an explicit left bound");
 
-        // Find the end of the run
         let mut run_end = run_start;
         while run_end < len && authored_stops[run_end].raw_position.is_none() {
             run_end += 1;
@@ -312,7 +325,7 @@ mod tests {
         };
 
         let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
-        // Second stop should be bumped to 0.5 (max with previous)
+        // The second stop cannot precede the first stop at 0.5.
         assert!((normalized.stops[1].position - 0.5).abs() < 1e-6);
     }
 

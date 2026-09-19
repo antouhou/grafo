@@ -9,24 +9,21 @@ fn clip_rect_supports_transform(transform: InstanceTransform) -> bool {
 }
 
 impl<'a> Renderer<'a> {
-    /// Tessellates the shape and stores the tessellated result in the context-wide cache, so any
-    /// renderer created from the same context can access it with `cache_key`. Accepts optional
-    /// `geometry_id` to dedupe geometry and avoid loading the same geometry multiple times.
-    /// `geometry_id` should be a stable id describing that particular shape path. Pass `None` if
-    /// you're not sure what that means. Or use a hash of the points in the path if you're sure that
-    /// you're going to draw a lot of the same shapes.
+    /// Tessellates the shape and stores it under `cache_key` in the shared context.
+    /// Renderers using that context can reuse the cached shape.
+    ///
+    /// Use a content-derived `geometry_id` to reuse identical geometry during tessellation
+    /// and GPU upload. Pass `None` if you cannot supply a reliable geometry key.
     pub fn load_shape(
         &mut self,
         shape: impl AsRef<Shape>,
         cache_key: u64,
-        // id to identify the geometry for that shape; Geometry will be deduped by this id when
-        //  the geometry is loaded to the GPU.
         geometry_id: Option<u64>,
     ) {
         let cached_shape = CachedShapeHandle::new(
             shape.as_ref(),
             &mut self.tessellator,
-            &mut self.shape_resources,
+            &mut self.state.shape_resources,
             geometry_id,
         );
         self.context
@@ -74,8 +71,8 @@ impl<'a> Renderer<'a> {
         self.add_draw_command(DrawCommand::CachedShape(draw_data), parent_shape_id)
     }
 
-    /// Adds a shape to the draw tree. Doesn't cache the shape, so for performance reasons it's
-    /// recommended to use [`load_shape`] and [`add_cached_shape_to_the_render_queue`] instead.
+    /// Adds a shape to the draw tree without retaining it in the loaded-shape cache.
+    /// To reuse a loaded shape, call [`load_shape`] and [`add_cached_shape_to_the_render_queue`].
     ///
     /// When `parent_shape_id` is `Some`, the new shape is attached as a child of that node.
     /// Children are clipped to their parent unless the parent was queued with
@@ -90,7 +87,7 @@ impl<'a> Renderer<'a> {
         let cached_shape = CachedShapeHandle::new(
             shape.as_ref(),
             &mut self.tessellator,
-            &mut self.shape_resources,
+            &mut self.state.shape_resources,
             geometry_id,
         );
         let mut draw_data = CachedShapeDrawData::new(cached_shape, &options);
@@ -101,11 +98,9 @@ impl<'a> Renderer<'a> {
 
     /// Adds an axis-aligned scissor clipping rectangle without preparing geometry.
     ///
-    /// This node clips its children like a transparent rect parent by default when its
-    /// transform preserves axis alignment. Rotated, skewed, or perspective transforms are
-    /// rejected by the transform setters because this node intentionally has no geometry
-    /// for stencil fallback. Set [`ShapeDrawCommandOptions::clips_children`] to `false` on a
-    /// shape parent to let its children draw outside it.
+    /// This node clips its children when `clips_children` is true.
+    /// The transform setters reject rotation, skew, and perspective because the node
+    /// has no geometry for stencil clipping.
     ///
     /// When `parent_shape_id` is `Some`, the clipping rectangle is attached as a child of
     /// that node and inherits ancestor clips.
@@ -139,11 +134,11 @@ impl<'a> Renderer<'a> {
     ) -> Result<(), DrawCommandError> {
         self.refresh_geometry_cache(cached_shape_data);
         cached_shape_data.refresh_gradient_bind_group(
-            &mut self.shape_resources.gradient_cache,
+            &mut self.state.shape_resources.gradient_cache,
             &self.device,
             &self.queue,
-            &self.gradient_bind_group_layout,
-            &self.gradient_ramp_sampler,
+            &self.pipeline_resources.shapes.gradient_bind_group_layout,
+            &self.pipeline_resources.shapes.gradient_ramp_sampler,
         );
         let geometry_range = preparation::append_aggregated_geometry_for_shape(
             cached_shape_data,
@@ -187,43 +182,47 @@ impl<'a> Renderer<'a> {
         draw_command: DrawCommand,
         parent_shape_id: Option<usize>,
     ) -> Result<usize, DrawCommandError> {
-        if self.draw_tree.is_empty() {
-            let node_id = self.draw_tree.add_node(draw_command);
+        if self.state.draw_tree.is_empty() {
+            let node_id = self.state.draw_tree.add_node(draw_command);
             Ok(node_id)
         } else if let Some(parent_shape_id) = parent_shape_id {
-            if let Some(parent) = self.draw_tree.get_mut(parent_shape_id) {
+            if let Some(parent) = self.state.draw_tree.get_mut(parent_shape_id) {
                 parent.set_not_leaf();
-                let node_id = self.draw_tree.add_child(parent_shape_id, draw_command);
+                let node_id = self
+                    .state
+                    .draw_tree
+                    .add_child(parent_shape_id, draw_command);
                 Ok(node_id)
             } else {
                 Err(DrawCommandError::InvalidShapeId(parent_shape_id))
             }
         } else {
-            if let Some(root) = self.draw_tree.get_mut(0) {
+            if let Some(root) = self.state.draw_tree.get_mut(0) {
                 root.set_not_leaf();
             }
-            let node_id = self.draw_tree.add_child_to_root(draw_command);
+            let node_id = self.state.draw_tree.add_child_to_root(draw_command);
             Ok(node_id)
         }
     }
 
     fn refresh_geometry_cache(&mut self, cached_shape_data: &CachedShapeDrawData) {
         if let Some(geometry_id) = cached_shape_data.cached_shape.geometry_id {
-            self.shape_resources
+            self.state
+                .shape_resources
                 .tessellation_cache
                 .refresh_tessellation(geometry_id, &cached_shape_data.cached_shape.tessellation);
         }
     }
 
     pub fn texture_manager(&self) -> &TextureManager {
-        &self.texture_manager
+        &self.pipeline_resources.shapes.texture_manager
     }
 
     pub fn clear_draw_queue(&mut self) {
-        self.draw_tree.clear();
-        self.group_effects.clear();
-        self.backdrop_effects.clear();
-        self.shape_effects.clear();
+        self.state.draw_tree.clear();
+        self.state.group_effects.clear();
+        self.state.backdrop_effects.clear();
+        self.state.shape_effects.clear();
         self.clear_buffers();
     }
 
@@ -260,8 +259,11 @@ impl<'a> Renderer<'a> {
             return TextureUvTransform::IDENTITY;
         };
 
-        let Some((texture_width, texture_height)) =
-            self.texture_manager.texture_dimensions(texture_id)
+        let Some((texture_width, texture_height)) = self
+            .pipeline_resources
+            .shapes
+            .texture_manager
+            .texture_dimensions(texture_id)
         else {
             return TextureUvTransform::IDENTITY;
         };
@@ -308,8 +310,10 @@ impl<'a> Renderer<'a> {
         texture_dimensions: (u32, u32),
     ) -> [f32; 2] {
         [
-            texture_mapping_size[0] * self.scale_factor as f32 / texture_dimensions.0.max(1) as f32,
-            texture_mapping_size[1] * self.scale_factor as f32 / texture_dimensions.1.max(1) as f32,
+            texture_mapping_size[0] * self.state.scale_factor as f32
+                / texture_dimensions.0.max(1) as f32,
+            texture_mapping_size[1] * self.state.scale_factor as f32
+                / texture_dimensions.1.max(1) as f32,
         ]
     }
 }
