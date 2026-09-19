@@ -6,7 +6,7 @@ pub struct PixelExpectation {
     pub expected_g: u8,
     pub expected_b: u8,
     pub expected_a: u8,
-    /// Per-channel tolerance for comparison (default 5).
+    /// Per-channel comparison tolerance. Defaults to 5.
     pub tolerance: u8,
     /// Human-readable label for failure messages.
     pub label: &'static str,
@@ -31,12 +31,12 @@ impl PixelExpectation {
         self
     }
 
-    /// Convenience: expect a fully opaque color.
+    /// Expects an opaque color.
     pub fn opaque(x: u32, y: u32, r: u8, g: u8, b: u8, label: &'static str) -> Self {
         Self::new(x, y, r, g, b, 255, label)
     }
 
-    /// Convenience: expect a fully opaque color with a custom tolerance.
+    /// Expects an opaque color with a custom tolerance.
     pub fn opaque_approx(
         x: u32,
         y: u32,
@@ -49,7 +49,7 @@ impl PixelExpectation {
         Self::new(x, y, r, g, b, 255, label).with_tolerance(tolerance)
     }
 
-    /// Convenience: expect a fully transparent pixel.
+    /// Expects a transparent pixel.
     pub fn transparent(x: u32, y: u32, label: &'static str) -> Self {
         Self::new(x, y, 0, 0, 0, 0, label)
     }

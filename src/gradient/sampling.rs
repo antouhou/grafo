@@ -213,8 +213,7 @@ fn to_rect_space(color: &GradientColor, space: RectSpace) -> [f32; 4] {
         _ => {}
     }
 
-    // First get the color as [r, g, b, alpha] in sRGB space, handling
-    // missing/powerless hue for HSL/HWB.
+    // Convert to sRGB, resolving missing or powerless hue for HSL and HWB.
     let (srgb_r, srgb_g, srgb_b, alpha) = gradient_color_to_srgb(color);
     let alpha = alpha.clamp(0.0, 1.0);
 
@@ -358,8 +357,8 @@ fn compute_hue_delta(h0: f32, h1: f32, method: HueInterpolationMethod) -> f32 {
     }
 }
 
-/// Converts any GradientColor to sRGB (r, g, b, alpha).
-/// Missing hue for HSL/HWB is treated as 0 for the purpose of conversion.
+/// Converts a `GradientColor` to sRGB `(r, g, b, alpha)`.
+/// Uses zero for missing HSL or HWB hue.
 fn gradient_color_to_srgb(color: &GradientColor) -> (f32, f32, f32, f32) {
     match color {
         GradientColor::Srgb {
@@ -426,7 +425,7 @@ fn gradient_color_to_srgb(color: &GradientColor) -> (f32, f32, f32, f32) {
     }
 }
 
-/// Convert a single authored GradientColor to final linear premultiplied RGBA.
+/// Converts a `GradientColor` to linear premultiplied RGBA.
 pub(crate) fn color_to_final_linear_premultiplied(color: &GradientColor) -> [f32; 4] {
     let (sr, sg, sb, alpha) = gradient_color_to_srgb(color);
     let alpha = alpha.clamp(0.0, 1.0);
@@ -512,9 +511,9 @@ fn hsl_to_srgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
 }
 
 fn hwb_to_srgb(h: f32, w: f32, b: f32) -> (f32, f32, f32) {
-    // HWB to sRGB: first get the pure hue from HSL with S=1, L=0.5
+    // HSL with S=1 and L=0.5 gives the pure hue for HWB conversion.
     let (r, g, bl) = hsl_to_srgb(h, 1.0, 0.5);
-    // Then mix with white and black
+    // Mix the pure hue with white and black.
     let r = r * (1.0 - w - b) + w;
     let g = g * (1.0 - w - b) + w;
     let bl = bl * (1.0 - w - b) + w;

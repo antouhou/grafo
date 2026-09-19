@@ -76,7 +76,7 @@ pub(super) fn plan_traversal_in_place(
     let exclude_id = exclude_subtree_id;
 
     let pre_fn = |node_id: usize, _draw_command: &mut DrawCommand, state: &mut TraversalScratch| {
-        // Handle excluded subtree: skip the node and all descendants entirely.
+        // Skip the excluded node and its descendants
         if state.excluded_depth > 0 {
             state.excluded_depth += 1;
             return;
@@ -104,7 +104,6 @@ pub(super) fn plan_traversal_in_place(
 
     let post_fn =
         |node_id: usize, _draw_command: &mut DrawCommand, state: &mut TraversalScratch| {
-            // Handle excluded subtree.
             if state.excluded_depth > 0 {
                 state.excluded_depth -= 1;
                 return;

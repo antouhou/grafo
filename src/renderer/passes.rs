@@ -310,7 +310,6 @@ pub(super) fn handle_increment_pass<'rp>(
             render_pass.set_bind_group(0, &pipelines.and_bind_group, &[]);
             render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
             render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
-            // Inform the tracker that default textures are now bound on both layers.
             bound_texture_state.mark_bound(0, ShapeTextureBinding::None);
             bound_texture_state.mark_bound(1, ShapeTextureBinding::None);
 
@@ -554,9 +553,8 @@ pub(super) fn flush_pending_leaf_batch(
     batch.instance_count = 0;
 }
 
-/// Try to add a leaf shape to the pending batch. Returns `true` if the shape
-/// was successfully batched (no draw call needed yet). Returns `false` if
-/// the shape could not be batched (caller should use the normal single-draw path).
+/// Tries to add a leaf shape to the pending batch. Returns `true` when added.
+/// On `false`, the caller must flush the batch and draw the shape separately.
 pub(super) fn try_batch_leaf(
     batch: &mut PendingLeafBatch,
     shape: &CachedShapeDrawData,
@@ -1178,8 +1176,7 @@ pub(super) fn render_segments(
                             );
 
                             if !draw_command.clips_children() {
-                                // Non-clipping parent: draw as leaf, children inherit
-                                // the same stencil.
+                                // Draw the parent as a leaf. Its children inherit the same stencil.
                                 let parent_stencil =
                                     scratch.stencil_stack.last().copied().unwrap_or(0);
                                 if let DrawCommand::CachedShape(shape) = draw_command {
@@ -1203,8 +1200,7 @@ pub(super) fn render_segments(
                                 state.scale_factor,
                                 state.physical_size,
                             ) {
-                                // Scissor optimization: rect parent with axis-aligned
-                                // transform. Use hardware scissor instead of stencil.
+                                // An axis-aligned rectangle can clip children with a hardware scissor.
                                 let current_scissor = scratch
                                     .scissor_stack
                                     .last()
@@ -1260,13 +1256,13 @@ pub(super) fn render_segments(
                     TraversalEvent::Post(node_id) => {
                         let node_id = *node_id;
 
-                        // Effect result: Pre composited, no stencil was pushed.
+                        // Pre composited the effect result without pushing a stencil entry.
                         if effect_results.contains_key(&node_id) {
                             continue;
                         }
 
                         if let Some(draw_command) = state.draw_tree.get_mut(node_id) {
-                            // Leaf: already drew in Pre, nothing to undo.
+                            // Pre drew the leaf without changing the clip stacks.
                             if draw_command.is_leaf() {
                                 continue;
                             }
@@ -1324,7 +1320,6 @@ pub(super) fn render_segments(
                 }
             }
 
-            // Flush any remaining leaf batch at the end of the segment.
             flush_pending_leaf_batch(
                 &mut pending_leaf_batch,
                 &mut render_pass,
@@ -1755,17 +1750,17 @@ pub(super) fn render_segments(
             is_first_segment = false;
 
             if backdrop_is_leaf {
-                // Leaf: skip both Pre and Post events.
+                // The leaf is complete. Skip its Pre and Post events.
                 event_idx += 2;
             } else if backdrop_clips_children {
-                // Non-leaf clipping node: children inherit the backdrop shape's stencil. The
-                // normal Post handler decrements after descendants render.
+                // Children inherit the backdrop shape's stencil.
+                // Post decrements it after rendering the descendants.
                 scratch.stencil_stack.push(this_stencil);
                 scratch.clip_kind_stack.push(ClipKind::Stencil);
                 event_idx += 1;
             } else {
-                // Non-leaf visible-overflow node: the backdrop effect itself used this node's
-                // stencil, but descendants inherit the nearest ancestor clip.
+                // The backdrop used this node's stencil.
+                // Visible-overflow children inherit the nearest ancestor clip.
                 scratch.stencil_stack.push(parent_stencil);
                 scratch.clip_kind_stack.push(ClipKind::NonClipping);
                 event_idx += 1;

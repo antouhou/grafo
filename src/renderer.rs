@@ -47,7 +47,7 @@ pub(crate) mod types;
 
 pub type MathRect = lyon::math::Box2D;
 
-/// Semantic texture layers for a shape. Background is layer 0, Foreground is layer 1.
+/// Texture layers for a shape. Background is layer 0, foreground is layer 1.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum TextureLayer {
     Background,
@@ -66,7 +66,7 @@ impl From<TextureLayer> for usize {
 /// Controls whether a shape clips descendants attached to it in the draw tree.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub enum ShapeOverflow {
-    /// Descendants are clipped to this shape. This is the default.
+    /// Clip descendants to this shape. This is the default.
     #[default]
     Hidden,
     /// Descendants can render outside this shape, while still inheriting ancestor clips.
@@ -123,16 +123,16 @@ pub struct Renderer<'a> {
     temp_instance_transforms: Vec<InstanceTransform>,
     /// Per-frame instance colors for shapes.
     temp_instance_colors: Vec<InstanceColor>,
-    /// Per-frame instance metadata (draw order) for shapes.
+    /// Per-frame instance metadata, including draw order.
     temp_instance_metadata: Vec<InstanceMetadata>,
 
     argb_readback: Option<ArgbReadbackResources>,
     bgra_readback: Option<BgraReadbackResources>,
 
-    /// Current MSAA sample count (1 = off, 4 = 4x, etc.)
+    /// MSAA sample count. A value of 1 disables MSAA.
     msaa_sample_count: u32,
 
-    /// The multisampled color texture (None when sample_count == 1).
+    /// The multisampled color texture. `None` when MSAA is disabled.
     msaa_color_texture: Option<wgpu::Texture>,
     /// View of the MSAA color texture.
     msaa_color_texture_view: Option<wgpu::TextureView>,
@@ -145,7 +145,7 @@ pub struct Renderer<'a> {
 
     /// Reuses validation scratch storage across effect loads.
     effect_shader_validator: Validator,
-    /// Loaded (compiled) effects, keyed by user-provided effect_id.
+    /// Compiled effects keyed by the user-provided `effect_id`.
     loaded_effects: HashMap<u64, LoadedEffect>,
     #[cfg(feature = "render_metrics")]
     /// Tracking for cumulative render-loop timing metrics.

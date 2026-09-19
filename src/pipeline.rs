@@ -641,7 +641,7 @@ pub fn create_argb_swizzle_pipeline(device: &Device) -> (BindGroupLayout, Comput
     (bgl, pipeline)
 }
 
-/// Helper to create the ARGB swizzle bind group given buffers and params buffer.
+/// Binds the ARGB input, output, and parameter buffers.
 pub fn create_argb_swizzle_bind_group(
     device: &Device,
     bgl: &BindGroupLayout,
@@ -670,7 +670,7 @@ pub fn create_argb_swizzle_bind_group(
 }
 
 /// Compute unpadded and padded bytes-per-row given a width and bytes-per-pixel.
-/// Padded value respects wgpu::COPY_BYTES_PER_ROW_ALIGNMENT (256 bytes).
+/// Rounds the padded value up to a multiple of `wgpu::COPY_BYTES_PER_ROW_ALIGNMENT`.
 pub fn compute_padded_bytes_per_row(width: u32, bytes_per_pixel: u32) -> (u32, u32) {
     let unpadded = width * bytes_per_pixel;
     let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
@@ -740,7 +740,7 @@ pub fn create_argb_params_buffer(device: &Device, params: &ArgbParams) -> wgpu::
 }
 
 /// Creates a multisampled color texture for MSAA rendering.
-/// When sample_count == 1, this should not be called (no MSAA texture needed).
+/// Call only when `sample_count > 1`.
 pub fn create_msaa_color_texture(
     device: &Device,
     size: (u32, u32),

@@ -51,7 +51,7 @@ const TEXTURE_ID_BASE: u64 = 100;
 
 /// Create procedural textures and load the textured shape geometry.
 fn load_textures_and_shapes(renderer: &mut grafo::Renderer<'_>) {
-    // Generate a checkerboard RGBA texture (TEXTURE_SIZE × TEXTURE_SIZE)
+    // Generate a checkerboard RGBA texture.
     let tex_w = TEXTURE_SIZE;
     let tex_h = TEXTURE_SIZE;
     let mut rgba = vec![0u8; (tex_w * tex_h * 4) as usize];
@@ -67,7 +67,7 @@ fn load_textures_and_shapes(renderer: &mut grafo::Renderer<'_>) {
         }
     }
 
-    // Allocate TEXTURED_ELEMENTS distinct textures (same pixel data, different IDs)
+    // Each texture has its own ID and allocation but uses the same pixels.
     for i in 0..TEXTURED_ELEMENTS {
         let tex_id = TEXTURE_ID_BASE + i as u64;
         renderer
@@ -79,7 +79,7 @@ fn load_textures_and_shapes(renderer: &mut grafo::Renderer<'_>) {
             .unwrap();
     }
 
-    // Textured rect shape (250×250)
+    // A 250×250 textured rectangle.
     let textured_rect = Shape::rect(
         [(0.0, 0.0), (TEXTURE_SIZE as f32, TEXTURE_SIZE as f32)],
         Stroke::default(),
@@ -454,7 +454,7 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
             window.clone(),
             physical_size,
             scale_factor,
-            false, // vsync OFF
+            false, // vsync disabled
             false, // not transparent
             1,     // no MSAA
         ));

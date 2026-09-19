@@ -33,10 +33,7 @@ impl<'a> ApplicationHandler for App<'a> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
-                .create_window(
-                    Window::default_attributes()
-                        .with_title("Grafo – Backdrop Blur (Frosted Glass)"),
-                )
+                .create_window(Window::default_attributes().with_title("Grafo backdrop blur"))
                 .unwrap(),
         );
 
@@ -53,7 +50,6 @@ impl<'a> ApplicationHandler for App<'a> {
             1,
         ));
 
-        // Load the two-pass Gaussian blur effect
         renderer
             .load_effect(BLUR_EFFECT, &[HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL])
             .expect("Failed to compile blur effect");
@@ -99,7 +95,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Colorful rectangles that will be visible through the panel
+                // These rectangles remain visible through the blurred panel.
                 let r1 = Shape::rect(
                     [(60.0, 80.0), (260.0, 260.0)],
                     Stroke::new(2.0_f32, Color::rgb(0, 0, 0)),
@@ -152,9 +148,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Frosted-glass panel with backdrop blur
-                // This shape is rendered on top; the backdrop effect blurs
-                // everything already drawn behind it.
+                // The backdrop effect blurs the shapes already drawn behind this panel.
                 let panel = Shape::rect(
                     [(120.0, 120.0), (520.0, 460.0)],
                     Stroke::new(2.0_f32, Color::rgb(100, 100, 100)),
@@ -168,7 +162,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // To test that clipping works correctly with the blur
+                // The panel clips this child.
                 let panel_content = Shape::rounded_rect(
                     [(240.0, 240.0), (600.0, 540.0)],
                     BorderRadii::new(100.0),

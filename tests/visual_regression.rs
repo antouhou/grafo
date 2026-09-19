@@ -11,8 +11,8 @@ use grafo_test_scenes::{
     build_main_scene, check_pixels, PixelExpectation, CANVAS_HEIGHT, CANVAS_WIDTH,
 };
 
-/// Creates a headless renderer, returning `None` (and printing a skip message)
-/// when no suitable GPU adapter is available.
+/// Creates a headless renderer. If no suitable GPU adapter is available,
+/// prints a skip message and returns `None`.
 fn create_headless_renderer() -> Option<grafo::Renderer<'static>> {
     create_headless_renderer_with_size_and_scale((CANVAS_WIDTH, CANVAS_HEIGHT), 1.0)
 }

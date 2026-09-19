@@ -12,7 +12,7 @@ use wgpu::util::{BufferInitDescriptor, DeviceExt};
 const MAX_GRADIENT_RAMP_CACHE_SIZE: usize = 256;
 const MAX_GRADIENT_BIND_GROUP_CACHE_SIZE: usize = 1024;
 
-/// GPU-side gradient-only parameters packed into a uniform-friendly struct.
+/// Gradient parameters laid out for a GPU uniform buffer.
 /// Matches the WGSL `GradientColorParams` struct in shader.wgsl.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -25,7 +25,7 @@ pub(crate) struct GpuGradientColorParams {
     pub units: u32,
     pub is_constant: u32,
 
-    // Constant color (for degenerate cases)
+    // Constant color for degenerate gradients.
     pub constant_color: [f32; 4],
 
     // Linear params: start_x, start_y, end_x, end_y
@@ -125,9 +125,8 @@ impl GpuGradientColorParams {
 
 /// GPU-side material parameters bound at group 3 binding 0.
 ///
-/// This uniform layout is shared across regular gradient fills and backdrop-capable pipelines.
-/// Solid backdrop draws leave `gradient` in its inert `none()` state and only populate
-/// `backdrop_sampling`.
+/// Gradient fills and backdrop pipelines share this uniform layout.
+/// Solid backdrop draws disable the gradient and populate only `backdrop_sampling`.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct GpuMaterialParams {
@@ -163,7 +162,7 @@ impl GpuMaterialParams {
 }
 
 /// Creates a 1D ramp texture from the baked ramp data.
-/// Returns (texture, texture_view).
+/// Returns `(texture, texture_view)`.
 pub(crate) fn create_ramp_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -218,7 +217,7 @@ pub(crate) fn create_ramp_texture(
     (texture, view)
 }
 
-/// Creates a default (transparent) 1D ramp texture (single texel).
+/// Creates a default 1D ramp texture with one transparent texel.
 pub(crate) fn create_default_ramp_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,

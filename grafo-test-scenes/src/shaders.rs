@@ -1,10 +1,10 @@
-/// Horizontal separable Gaussian blur pass (direction = (1,0)).
+/// Horizontal Gaussian blur pass with direction `(1,0)`
 pub const HORIZONTAL_BLUR_WGSL: &str = concat!(
     "const DIRECTION: vec2<f32> = vec2<f32>(1.0, 0.0);\n",
     include_str!("shaders/gaussian_blur.wgsl"),
 );
 
-/// Vertical separable Gaussian blur pass (direction = (0,1)).
+/// Vertical Gaussian blur pass with direction `(0,1)`
 pub const VERTICAL_BLUR_WGSL: &str = concat!(
     "const DIRECTION: vec2<f32> = vec2<f32>(0.0, 1.0);\n",
     include_str!("shaders/gaussian_blur.wgsl"),
@@ -57,7 +57,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 "#;
 
-/// Vertical Gaussian blur, offset, and premultiplied black tint for a real drop shadow.
+/// Vertical Gaussian blur, offset, and premultiplied black tint for a drop shadow.
 pub const DROP_SHADOW_VERTICAL_TINT_WGSL: &str = r#"
 @fragment
 fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {

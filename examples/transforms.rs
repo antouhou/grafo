@@ -100,7 +100,7 @@ fn build_rect_path(w: f32, h: f32) -> Path {
 }
 
 fn build_heart_path() -> Path {
-    // A rough heart shape centered around (0,0) extending mostly in +Y
+    // A heart centered at (0,0) and extending mostly in +Y.
     let mut hb = Path::builder();
     hb.begin(point(0.0, 30.0));
     hb.cubic_bezier_to(point(0.0, 0.0), point(50.0, 0.0), point(50.0, 30.0));
@@ -112,7 +112,7 @@ fn build_heart_path() -> Path {
 }
 
 fn build_perspective_demo_path() -> Path {
-    // A simple trapezoid to suggest perspective
+    // A trapezoid to suggest perspective.
     let mut pb = Path::builder();
     pb.begin(point(-60.0, 0.0));
     pb.line_to(point(60.0, 0.0));
@@ -128,23 +128,23 @@ struct App<'a> {
     renderer: Option<grafo::Renderer<'a>>,
     redraw_retry: RedrawRetry,
     angle: f32,
-    // Last mouse position in physical pixels (window space)
+    // Last mouse position in physical window pixels.
     last_mouse_pos: Option<(f32, f32)>,
-    // Accumulated orbit angles in degrees (mouse-driven)
+    // Orbit angles from mouse movement, in degrees.
     orbit_yaw_deg: f32,
     orbit_pitch_deg: f32,
-    // Orbit control decoupling: update yaw/pitch only during drag
+    // Update yaw and pitch only while dragging.
     orbit_dragging: bool,
     orbit_last_mouse_pos: Option<(f32, f32)>,
     // User-tweakable settings
     orbit_sensitivity: f32,  // degrees per logical pixel
     blue_perspective_d: f32, // perspective distance for blue shape
     blue_follow_mouse: bool, // whether perspective origin follows mouse
-    blue_pos: (f32, f32),    // world position (top-left) of blue rect
+    blue_pos: (f32, f32),    // top-left world position of the blue rectangle
     blue_size: (f32, f32),   // local size of blue rect
     // Window scale factor
     scale_factor: f64,
-    // Lyon paths for our rectangles (local space, origin at (0,0))
+    // Rectangle paths in local space, with origin at (0,0).
     red_path: Path,
     green_path: Path,
     blue_path: Path,
@@ -165,11 +165,11 @@ struct App<'a> {
 }
 
 // Keyboard controls in this example:
-// - Arrow Left/Right: orbit yaw -/+ (rotate camera around blue shape)
-// - Arrow Up/Down: orbit pitch -/+ (tilt camera around blue shape)
-// - [ / ]: decrease / increase the blue shape perspective distance (strength)
-// - F: toggle following mouse for camera origin (on/off)
-// - R: reset orbit (yaw=0, pitch=0)
+// - Left/Right arrows decrease/increase yaw around the blue shape
+// - Up/Down arrows decrease/increase pitch around the blue shape
+// - [ and ] decrease/increase the blue shape's perspective distance
+// - F toggles whether the camera origin follows the mouse
+// - R resets yaw and pitch to zero
 
 impl<'a> ApplicationHandler for App<'a> {
     fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
@@ -395,7 +395,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                // Background in logical coordinates (renderer normalizes using logical canvas size)
+                // The renderer uses logical canvas coordinates for the background
                 let logical_w = window.inner_size().width as f32 / self.scale_factor as f32;
                 let logical_h = window.inner_size().height as f32 / self.scale_factor as f32;
                 let background = Shape::rect(
@@ -416,10 +416,9 @@ impl<'a> ApplicationHandler for App<'a> {
                 let green_tx = Transform3D::scale(0.5, 0.5, 1.0)
                     .then(&Transform3D::translation(400.0, 100.0, 0.0));
 
-                // Blue shape: rotate around Y by base 45° + mouse-driven yaw, and around X by
-                // a mouse-driven pitch; also simulate a per-shape "camera" by sliding the
-                // perspective origin in both X and Y with the mouse.
-                let d = self.blue_perspective_d; // perspective distance (bigger = subtler perspective)
+                // Add mouse-driven yaw to the blue shape's base 45° Y rotation. Mouse
+                // movement also sets its X rotation and shifts the perspective origin
+                let d = self.blue_perspective_d; // Larger distances weaken the perspective
                 let blue_pos = self.blue_pos;
                 let blue_size = self.blue_size;
                 let blue_center_local = (blue_size.0 * 0.5, blue_size.1 * 0.5);
@@ -481,8 +480,8 @@ impl<'a> ApplicationHandler for App<'a> {
                 let red_hover = is_hover(&self.red_path, &red_tx, mouse);
                 let green_hover = is_hover(&self.green_path, &green_tx, mouse);
                 let blue_hover = is_hover(&self.blue_path, &blue_tx, mouse);
-                // Jelly wobble: bottom-anchored rectangle that squashes and rotates slightly
-                let jelly_pos = (750.0, 120.0); // world position (top-left approx)
+                // The rectangle squashes and rotates around its bottom edge
+                let jelly_pos = (750.0, 120.0); // Approximate top-left world position
                 let jelly_local_size = (200.0, 100.0);
                 let jelly_pivot = (jelly_local_size.0 * 0.5, jelly_local_size.1); // bottom-center
                 let s = (self.angle * 3.0).sin();
@@ -504,7 +503,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     .then(&Transform3D::rotation(0.0, 0.0, 1.0, Angle::degrees(-20.0)))
                     .then(&Transform3D::translation(450.0, 300.0, 0.0));
                 let heart_hover = is_hover(&self.heart_path, &heart_tx, mouse);
-                // Perspective demo: simulate a camera by giving the model a w-affecting row
+                // Perspective comes from the matrix row that changes homogeneous w
                 // Start with a tilt around X and some translation in Z, plus tiny perspective.
                 let persp = Transform3D::perspective(600.0);
                 let tilt = Transform3D::rotation(1.0, 0.0, 0.0, Angle::degrees(60.0));

@@ -1,23 +1,23 @@
-// Vertex input: per-vertex position/uv and per-instance color+transform
+// Per-vertex position and UV, with per-instance color and transform
 struct VertexInput {
     @location(0) position: vec2<f32>,
     // Per-instance solid color
     @location(1) color: vec4<f32>,
     // Optional texture coordinates for shape texturing
     @location(2) tex_coords: vec2<f32>,
-    // Per-instance transform matrix columns (column-major layout)
+    // Per-instance transform in column-major order
     @location(3) t_col0: vec4<f32>,
     @location(4) t_col1: vec4<f32>,
     @location(5) t_col2: vec4<f32>,
     @location(6) t_col3: vec4<f32>,
     // Per-instance draw order for Z-fighting resolution
     @location(7) draw_order: f32,
-    // AA: outward boundary normal in model space
+    // Outward model-space normal for the AA fringe
     @location(8) normal: vec2<f32>,
-    // AA: coverage factor (1.0 = interior, 0.0 = outer fringe)
+    // AA coverage is 1.0 at the interior and 0.0 at the outer fringe
     @location(9) coverage: f32,
-    // Per-instance bitmask: bit 0 = layer 0 active, bit 1 = layer 1 active.
-    // 0 = solid fill only (skip all texture samples).
+    // Bits 0 and 1 activate texture layers 0 and 1, respectively
+    // Zero skips texture sampling and uses only the solid fill
     @location(10) texture_flags: f32,
     // Per-layer UV transform. XY is scale and ZW is offset.
     @location(11) texture_uv_transform_layer0: vec4<f32>,
@@ -40,9 +40,9 @@ struct GradientVertexOutput {
     @location(2) layer1_tex_coords: vec2<f32>,
     @location(3) coverage: f32,
     @location(4) @interpolate(flat) texture_flags: f32,
-    // Model-space position for gradient evaluation (before transform)
+    // Model-space position before the transform, used to evaluate gradients
     @location(5) model_pos: vec2<f32>,
-    // Screen-space position (pixel coordinates, after transform)
+    // Screen position in pixels after the transform
     @location(6) screen_pos: vec2<f32>,
 };
 
@@ -56,17 +56,17 @@ struct Uniforms {
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 // Texture/sampler for optional shape texturing. A default white texture can be bound when unused.
-// Layer 0 (background)
+// Background texture at layer 0
 @group(1) @binding(0) var t_shape_layer0: texture_2d<f32>;
 @group(1) @binding(1) var s_shape_layer0: sampler;
-// Layer 1 (foreground/overlay)
+// Foreground texture at layer 1
 @group(2) @binding(0) var t_shape_layer1: texture_2d<f32>;
 @group(2) @binding(1) var s_shape_layer1: sampler;
-// Shared material resources (group 3)
+// Shared material resources at group 3
 struct GradientColorParams {
     gradient_type: u32,   // 0=none, 1=linear, 2=radial, 3=conic
     spread_mode: u32,     // 0=pad, 1=repeat
-    units: u32,           // 0=local (model space), 1=canvas (screen space)
+    units: u32,           // 0=model space, 1=screen space
     is_constant: u32,
     constant_color: vec4<f32>,
     linear_start: vec2<f32>,
@@ -138,7 +138,7 @@ fn gradient_raw_t(pos: vec2<f32>) -> f32 {
         }
         return dot(pos - material_params.gradient.linear_start, d) / len_sq;
     } else if gtype == 2u {
-        // Radial (elliptical)
+        // Elliptical radial gradient
         let diff = pos - material_params.gradient.radial_center;
         let rx = material_params.gradient.radial_radius.x;
         let ry = material_params.gradient.radial_radius.y;
@@ -161,7 +161,7 @@ fn gradient_raw_t(pos: vec2<f32>) -> f32 {
     return 0.0;
 }
 
-/// Applies the spread mode (pad or repeat) and maps t to the ramp UV.
+/// Pads or repeats t, then maps it to the ramp UV
 fn gradient_apply_spread(raw_t: f32) -> f32 {
     let period_start = material_params.gradient.period_start;
     let period_len = material_params.gradient.period_len;
@@ -169,7 +169,7 @@ fn gradient_apply_spread(raw_t: f32) -> f32 {
     let ramp_end = material_params.gradient.ramp_end;
 
     if period_len <= 0.0 {
-        // Non-repeating: clamp to ramp domain
+        // Clamp non-repeating gradients to the ramp domain
         let t_clamped = clamp(raw_t, ramp_start, ramp_end);
         if ramp_end <= ramp_start {
             return 0.5;
@@ -272,7 +272,7 @@ fn compute_vertex_position(input: VertexInput) -> VertexPosition {
     }
 
     // Apply a tiny depth bias based on draw order to resolve Z-fighting for coplanar shapes.
-    // Later shapes (higher draw_order) get a smaller depth value (closer to camera).
+    // Higher draw_order moves the depth closer to the camera.
     let bias = input.draw_order * 0.00001;
     let biased_depth = clamp(depth - bias, 0.0, 1.0);
 
@@ -485,8 +485,8 @@ fn fs_stencil_only() -> @location(0) vec4<f32> {
 }
 
 // Used by stencil-mutating passes that still produce visible color output.
-// Intentionally separate from fs_main: any future discard-based optimizations
-// in fs_main must not suppress stencil writes on these passes. Do not merge with fs_main.
+// Keep this separate from fs_main so adding discard there cannot suppress
+// stencil writes here.
 @fragment
 fn fs_passthrough(
     @location(0) color: vec4<f32>,

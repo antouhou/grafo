@@ -1060,7 +1060,7 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) texture_bindings: [ShapeTextureBinding; 2],
     /// Linear RGBA color for a solid fill. Other fills leave this unset.
     pub(crate) color_override: Option<[f32; 4]>,
-    /// The fill for this shape (solid color or gradient). If None, transparent.
+    /// A solid or gradient fill. `None` leaves the shape transparent
     pub(crate) fill: Option<Fill>,
     /// Cached gradient bind group, refreshed when the fill or gradient layout changes.
     pub(crate) gradient_bind_group: Option<Arc<wgpu::BindGroup>>,
@@ -1070,10 +1070,9 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) backdrop_gradient_bind_group: Option<wgpu::BindGroup>,
     /// Stable id of the pooled texture referenced by `backdrop_gradient_bind_group`.
     pub(crate) backdrop_gradient_texture_id: Option<u64>,
-    /// Whether this node is a leaf in the draw tree (no children).
+    /// Whether this node has no children in the draw tree.
     pub(crate) is_leaf: bool,
-    /// When `false`, skip stencil increment/decrement for this parent
-    /// (children render without being clipped to this shape).
+    /// When `false`, skip this parent's stencil operations so it does not clip its children.
     pub(crate) clips_children: bool,
 }
 

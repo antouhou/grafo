@@ -33,10 +33,7 @@ impl<'a> ApplicationHandler for App<'a> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
-                .create_window(
-                    Window::default_attributes()
-                        .with_title("Grafo – Gaussian Blur (Multi-Pass Effect)"),
-                )
+                .create_window(Window::default_attributes().with_title("Grafo Gaussian blur"))
                 .unwrap(),
         );
 
@@ -53,7 +50,6 @@ impl<'a> ApplicationHandler for App<'a> {
             1,
         ));
 
-        // Load the two-pass Gaussian blur effect
         renderer
             .load_effect(BLUR_EFFECT, &[HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL])
             .expect("Failed to compile blur effect");

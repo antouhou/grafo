@@ -8,15 +8,15 @@ Grafo is a GPU-accelerated vector graphics library for Rust.
 
 ## Features
 
-* Path rendering with cached tessellation.
-* Hierarchical path clipping.
-* Per-instance 3D and perspective transforms.
-* Solid fills and linear, radial, and conic gradients.
-* Custom WGSL shader effects on shape masks, groups, and backdrops.
-* Geometry-based antialiasing and MSAA.
+* Path rendering with cached tessellation
+* Hierarchical path clipping
+* Per-instance 3D and perspective transforms
+* Solid fills and linear, radial, and conic gradients
+* Custom WGSL shader effects on shape masks, groups, and backdrops
+* Geometry-based antialiasing and MSAA
 
-Grafo is [available on crates.io](https://crates.io/crates/grafo), and
-[API Documentation is available on docs.rs](https://docs.rs/grafo/).
+[Install Grafo from crates.io](https://crates.io/crates/grafo) or read the
+[API documentation](https://docs.rs/grafo/).
 
 ## Getting started
 
@@ -38,7 +38,7 @@ Create a shape, set its fill and transform, then render it. For a complete windo
 ```rust
 use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke};
 
-// Create a rectangle shape (no fill color on the shape itself)
+// Set the fill when queueing the shape.
 let rect = Shape::rect(
     [(0.0, 0.0), (200.0, 100.0)],
     Stroke::new(2.0_f32, Color::BLACK),
@@ -54,7 +54,7 @@ renderer
     )
     .unwrap();
 
-// Render one frame (typical winit loop would call this on RedrawRequested)
+// Call this on RedrawRequested in a winit event loop
 renderer.render().unwrap();
 renderer.clear_draw_queue();
 ```
@@ -78,8 +78,8 @@ let second_renderer = Renderer::new_with_context(
 );
 ```
 
-Create and drop renderers as windows are opened and closed. Draw calls added to one renderer never
-appear in another renderer's draw queue.
+Create a renderer when you open a window and drop it when you close the window.
+Draw calls added to one renderer never appear in another renderer's draw queue.
 
 Loaded shapes are also shared by the context. A `cache_key` passed to `load_shape` is scoped to
 the `RendererContext`, so another renderer can reuse that shape through
@@ -91,7 +91,7 @@ be shared; loading a different shape with the same key replaces the shared entry
 
 The second argument to `add_shape` and `add_clipping_rect` is the optional
 `parent_shape_id`. A child is drawn inside that parent in the draw tree.
-By default, children are clipped to their parent:
+By default, parents clip their children:
 
 ```rust
 use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke};
@@ -141,9 +141,9 @@ renderer
 
 ## Examples
 
-- `basic.rs` – draw simple shapes (winit 0.30 ApplicationHandler)
-- `transforms.rs` – demonstrates per-instance transform and color, perspective, and hit-testing
-- `benches/visual_regression.rs` – headless Criterion benchmark for the visual-regression scene
+- `basic.rs` draws shapes using winit 0.30's `ApplicationHandler`.
+- `transforms.rs` covers instance transforms, color, perspective, and hit-testing.
+- `benches/visual_regression.rs` benchmarks the visual regression scene with Criterion.
 
 Run the visual-regression benchmark in release mode:
 
@@ -154,14 +154,14 @@ cargo bench --bench visual_regression
 The [examples](https://github.com/antouhou/grafo/tree/main/examples) directory includes
 hierarchical clipping, texture layers, transforms, and shader effects.
 
-### Multi-texturing (Background + Foreground)
+### Background and foreground textures
 
-Shapes support up to two texture layers that are composited with per-instance color using premultiplied alpha:
+Shapes composite up to two texture layers over the instance color using premultiplied alpha:
 
-1. Background layer (index 0 / `TextureLayer::Background`)
-2. Foreground layer (index 1 / `TextureLayer::Foreground`)
+1. `TextureLayer::Background` uses index 0.
+2. `TextureLayer::Foreground` uses index 1.
 
-Composition order (bottom to top):
+Composition from bottom to top:
 
 `final = foreground + (background + color * (1 - background.a)) * (1 - foreground.a)`
 
@@ -183,7 +183,7 @@ renderer
     )
     .unwrap();
 
-// Single-layer helper (Background):
+// Transparent parts of the background texture reveal the white fill.
 renderer
     .add_shape(
         Shape::rect([(0.0, 0.0), (300.0, 200.0)], Stroke::new(1.0_f32, Color::BLACK)),
@@ -193,10 +193,10 @@ renderer
             .color(Color::WHITE)
             .background_texture_id(bg_tex_id),
     )
-    .unwrap(); // useful when texture transparency should reveal white
+    .unwrap();
 ```
 
-See `examples/multi_texture.rs` for a runnable demo that generates procedural background & foreground textures.
+See `examples/multi_texture.rs` for procedural background and foreground textures.
 
 ### Positioning shapes
 
@@ -204,8 +204,8 @@ Use per-shape transforms to position shapes. Common helpers:
 
 - Translate: `TransformInstance::translation(tx, ty)`
 - Scale: `TransformInstance::scale(sx, sy)`
-- Rotate (Z): `TransformInstance::rotation_z_deg(deg)`
-- Compose: `a.multiply(&b)` (or `a.then(&b)`) applies `a` first, then `b`
+- Rotate around Z: `TransformInstance::rotation_z_deg(deg)`
+- Compose: `a.multiply(&b)` and `a.then(&b)` apply `a` first, then `b`.
 
 Example:
 
@@ -231,14 +231,12 @@ renderer
 
 ## Contributing
 
-Everyone is welcome to contribute in any way or form! For further details, please read [CONTRIBUTING.md](./CONTRIBUTING.md).
+Read [CONTRIBUTING.md](./CONTRIBUTING.md) for coding conventions and required checks.
 
 ## Authors
-- [Anton Suprunchuk](https://github.com/antouhou) - [Website](https://antouhou.com)
 
-Also, see the list of contributors who participated in this project.
+- [Anton Suprunchuk](https://github.com/antouhou). [Website](https://antouhou.com).
 
 ## License
 
-This project is licensed under the MIT License - see the
-[LICENSE.md](./LICENSE.md) file for details
+This project is licensed under the MIT License - see the[LICENSE.md](./LICENSE.md) file for details

@@ -42,7 +42,7 @@ impl ClipRectDrawData {
 }
 
 impl DrawCommand {
-    /// Whether this node is a leaf (has no children in the draw tree).
+    /// Whether this node has no children in the draw tree
     /// Starts as `true`; set to `false` when a child is added.
     pub(super) fn is_leaf(&self) -> bool {
         match self {
@@ -214,9 +214,8 @@ pub(super) enum Pipeline {
     LeafDrawGradient,
 }
 
-/// Records which clipping strategy was used by each non-leaf parent during
-/// `Pre` traversal so the `Post` path can tear down state without
-/// re-evaluating the scissor eligibility check.
+/// Records each parent's clip strategy during `Pre`.
+/// `Post` uses it to restore the clip state without checking scissor eligibility again.
 #[derive(Clone, Copy)]
 pub(super) enum ClipKind {
     /// Parent does not clip children
@@ -247,7 +246,7 @@ impl PipelineTracker {
         }
     }
 
-    /// Record a real GPU pipeline switch (only when the pipeline actually changes).
+    /// Records a GPU pipeline switch when the pipeline changes.
     pub(super) fn switch_to(&mut self, pipeline: Pipeline) {
         if self.current == pipeline {
             return;
@@ -333,7 +332,7 @@ impl<'a> BackdropSource<'a> {
 }
 
 /// Backdrop-specific rendering resources. Only needed when backdrop effects exist.
-/// General resources (pipelines, buffers, textures) are passed separately.
+/// Callers pass shared pipelines, buffers, and textures separately.
 pub(super) struct BackdropContext<'a> {
     pub(super) loaded_effects: &'a HashMap<u64, LoadedEffect>,
     pub(super) effect_sampler: &'a wgpu::Sampler,
@@ -372,8 +371,8 @@ pub(super) struct RendererScratch {
     /// Stack of intersected scissor rects (x, y, width, height) in physical pixels.
     /// Used to replace stencil clipping for axis-aligned rect parents.
     pub(super) scissor_stack: Vec<(u32, u32, u32, u32)>,
-    /// Parallel stack to `stencil_stack`: records which clipping strategy each
-    /// non-leaf parent used so the `Post` path avoids re-evaluating eligibility.
+    /// Clip strategies for the parents in `stencil_stack`.
+    /// `Post` uses them to restore each parent's clip state.
     pub(super) clip_kind_stack: Vec<ClipKind>,
     pub(super) backdrop_work_textures: Vec<effect::PooledTexture>,
     /// CPU storage reused for mapped readback data.

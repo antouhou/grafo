@@ -76,8 +76,7 @@ pub(crate) fn append_aggregated_geometry_for_shape(
     geometry_dedup_map: &mut HashMap<u64, GeometryBufferRange>,
 ) -> Result<Option<GeometryBufferRange>, GeometryBufferError> {
     let geometry_id = cached_shape_data.cached_shape.geometry_id;
-    // Geometry deduplication: if we already appended this cache
-    // key's vertices/indices, reuse the same range.
+    // Reuse the range if this geometry is already in the frame's buffers.
     if let Some(&existing_range) = geometry_id.and_then(|id| geometry_dedup_map.get(&id)) {
         Ok(Some(existing_range))
     } else {

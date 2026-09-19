@@ -113,7 +113,7 @@ impl<'a> ApplicationHandler for App<'a> {
         let window = Arc::new(
             event_loop
                 .create_window(
-                    Window::default_attributes().with_title("Grafo – Box Shadow + Backdrop Blur"),
+                    Window::default_attributes().with_title("Grafo box shadow and backdrop blur"),
                 )
                 .unwrap(),
         );
@@ -271,11 +271,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     .set_group_effect(panel, BOX_SHADOW_EFFECT, bytemuck::bytes_of(&shadow_params))
                     .expect("Failed to set box shadow effect");
 
-                // Child panel with backdrop blur
-                // This child is the same size as the parent. It has a
-                // semi-transparent fill so the blurred background shows
-                // through, and a backdrop effect that blurs everything
-                // already rendered behind it.
+                // This child matches the parent's size. Its translucent fill reveals
+                // the blurred shapes behind it.
                 let glass_shape = Shape::rounded_rect(
                     [(panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h)],
                     BorderRadii::new(panel_radius),

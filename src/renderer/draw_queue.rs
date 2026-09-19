@@ -9,18 +9,15 @@ fn clip_rect_supports_transform(transform: InstanceTransform) -> bool {
 }
 
 impl<'a> Renderer<'a> {
-    /// Tessellates the shape and stores the tessellated result in the context-wide cache, so any
-    /// renderer created from the same context can access it with `cache_key`. Accepts optional
-    /// `geometry_id` to dedupe geometry and avoid loading the same geometry multiple times.
-    /// `geometry_id` should be a stable id describing that particular shape path. Pass `None` if
-    /// you're not sure what that means. Or use a hash of the points in the path if you're sure that
-    /// you're going to draw a lot of the same shapes.
+    /// Tessellates the shape and stores it under `cache_key` in the shared context.
+    /// Renderers using that context can reuse the cached shape.
+    ///
+    /// Use a content-derived `geometry_id` to reuse identical geometry during tessellation
+    /// and GPU upload. Pass `None` if you cannot supply a reliable geometry key.
     pub fn load_shape(
         &mut self,
         shape: impl AsRef<Shape>,
         cache_key: u64,
-        // id to identify the geometry for that shape; Geometry will be deduped by this id when
-        //  the geometry is loaded to the GPU.
         geometry_id: Option<u64>,
     ) {
         let cached_shape = CachedShapeHandle::new(
@@ -74,8 +71,8 @@ impl<'a> Renderer<'a> {
         self.add_draw_command(DrawCommand::CachedShape(draw_data), parent_shape_id)
     }
 
-    /// Adds a shape to the draw tree. Doesn't cache the shape, so for performance reasons it's
-    /// recommended to use [`load_shape`] and [`add_cached_shape_to_the_render_queue`] instead.
+    /// Adds a shape to the draw tree without retaining it in the loaded-shape cache.
+    /// To reuse a loaded shape, call [`load_shape`] and [`add_cached_shape_to_the_render_queue`].
     ///
     /// When `parent_shape_id` is `Some`, the new shape is attached as a child of that node.
     /// Children are clipped to their parent unless the parent was queued with
@@ -101,11 +98,9 @@ impl<'a> Renderer<'a> {
 
     /// Adds an axis-aligned scissor clipping rectangle without preparing geometry.
     ///
-    /// This node clips its children like a transparent rect parent by default when its
-    /// transform preserves axis alignment. Rotated, skewed, or perspective transforms are
-    /// rejected by the transform setters because this node intentionally has no geometry
-    /// for stencil fallback. Set [`ShapeDrawCommandOptions::clips_children`] to `false` on a
-    /// shape parent to let its children draw outside it.
+    /// This node clips its children when `clips_children` is true.
+    /// The transform setters reject rotation, skew, and perspective because the node
+    /// has no geometry for stencil clipping.
     ///
     /// When `parent_shape_id` is `Some`, the clipping rectangle is attached as a child of
     /// that node and inherits ancestor clips.

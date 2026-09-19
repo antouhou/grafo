@@ -251,10 +251,10 @@ impl ShapePipelines {
     }
 }
 
-/// Errors that can occur when creating a [`RendererContext`] or [`Renderer`].
+/// Errors from creating a [`RendererContext`] or [`Renderer`].
 #[derive(Debug, thiserror::Error)]
 pub enum RendererCreationError {
-    /// The provided `scale_factor` is not usable (must be finite and positive).
+    /// The `scale_factor` is not finite and positive.
     #[error("Invalid scale factor: {0} (must be finite and > 0.0)")]
     InvalidScaleFactor(f64),
     /// No suitable GPU adapter was found.
@@ -274,7 +274,7 @@ pub enum RendererCreationError {
 impl RendererContext {
     /// Creates GPU resources that can be shared by any number of independent renderers.
     ///
-    /// The context deliberately has no surface. A renderer created from it validates and
+    /// The context has no surface. A renderer created from it validates and
     /// configures its own surface, so windows can be added later without rebuilding the device.
     pub async fn try_new() -> Result<Self, RendererCreationError> {
         let instance = Arc::new(wgpu::Instance::new(&InstanceDescriptor::default()));
@@ -786,15 +786,13 @@ impl<'a> Renderer<'a> {
         )
     }
 
-    /// Creates a headless renderer without a window surface, panicking on
-    /// any error from [`Self::try_new_headless`] (e.g. no suitable GPU adapter,
-    /// invalid scale factor, device/queue creation failure).
+    /// Creates a headless renderer without a window surface.
+    /// Panics if [`Self::try_new_headless`] returns an error.
     ///
     /// Use `render_to_buffer()` or `render_to_argb32()` to read back rendered
     /// pixels. Calling `render()` on a headless renderer will panic.
     ///
-    /// For a non-panicking alternative (e.g. in tests), use
-    /// [`Self::try_new_headless`] instead.
+    /// Use [`Self::try_new_headless`] to handle creation errors.
     pub async fn new_headless(physical_size: (u32, u32), scale_factor: f64) -> Self {
         Self::try_new_headless(physical_size, scale_factor)
             .await

@@ -16,7 +16,7 @@ struct AuthoredStop {
     hint_to_next_segment: Option<f32>,
 }
 
-/// A single normalized stop after CSS canonicalization.
+/// A gradient stop after resolving its CSS position.
 #[derive(Debug, Clone)]
 pub(crate) struct NormalizedStop {
     pub(crate) position: f32,
@@ -25,7 +25,7 @@ pub(crate) struct NormalizedStop {
     pub(crate) hint: Option<f32>,
 }
 
-/// A pairwise interpolation segment between two normalized stops.
+/// An interpolation segment between two normalized stops.
 #[derive(Debug, Clone)]
 pub(crate) struct NormalizedSegment {
     pub(crate) start_position: f32,
@@ -35,7 +35,7 @@ pub(crate) struct NormalizedSegment {
     pub(crate) hint: Option<f32>,
 }
 
-/// The fully normalized gradient after CSS stop resolution.
+/// A gradient with resolved CSS stop positions.
 #[derive(Debug, Clone)]
 pub(crate) struct NormalizedGradient {
     pub(crate) stops: SmallVec<[NormalizedStop; NORMALIZED_INLINE_STOP_CAPACITY]>,
@@ -325,7 +325,7 @@ mod tests {
         };
 
         let normalized = NormalizedGradient::from_common(&common, GradientKind::Linear);
-        // Second stop should be bumped to 0.5 (max with previous)
+        // The second stop cannot precede the first stop at 0.5.
         assert!((normalized.stops[1].position - 0.5).abs() < 1e-6);
     }
 

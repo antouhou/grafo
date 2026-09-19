@@ -1,5 +1,5 @@
-//! Example demonstrating multi-texturing (background + foreground) on a single shape.
-//! Run with: `cargo run --example multi_texture`
+//! Composites a background texture and a foreground texture on one shape.
+//! Run with `cargo run --example multi_texture`.
 
 use grafo::wgpu::SurfaceError;
 use grafo::RenderError;
@@ -56,12 +56,12 @@ impl ApplicationHandler for App {
             1, // msaa_samples
         ));
 
-        // Allocate two textures (background checker, foreground circle mask for demo)
+        // Layer a circle mask over a checkerboard.
         let tex_mgr = renderer.texture_manager();
 
         let w = 256u32;
         let h = 256u32;
-        // Background: simple 2-color checkerboard premultiplied
+        // Premultiplied checkerboard background.
         let mut bg = vec![0u8; (w * h * 4) as usize];
         for y in 0..h {
             for x in 0..w {
@@ -76,7 +76,7 @@ impl ApplicationHandler for App {
         }
         tex_mgr.allocate_texture_with_data(self.bg_tex_id, (w, h), &bg);
 
-        // Foreground: white circle with soft edge over transparent
+        // White circle with a soft edge on a transparent foreground.
         let mut fg = vec![0u8; (w * h * 4) as usize];
         let cx = w as f32 / 2.0;
         let cy = h as f32 / 2.0;

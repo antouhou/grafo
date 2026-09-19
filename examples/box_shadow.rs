@@ -41,7 +41,7 @@ struct CardSpec {
 /// passes blur that mask and color the shadow, which is composited behind the card.
 /// The configured outsets leave room for the blur and offset beyond the card bounds.
 ///
-/// Returns the node id of the card, so children can be added to it.
+/// Returns the card's node ID. Use it as the parent ID when adding children.
 fn draw_card(renderer: &mut grafo::Renderer, card_spec: CardSpec) -> usize {
     let (x, y) = card_spec.position;
     let (width, height) = card_spec.size;
@@ -61,7 +61,7 @@ fn draw_card(renderer: &mut grafo::Renderer, card_spec: CardSpec) -> usize {
 
     // The shader samples in physical texels, so convert sigma and offset from logical
     // pixels to physical pixels using the current DPI scale factor. The outsets stay in
-    // logical units: the renderer converts them to physical pixels internally.
+    // logical units. The renderer converts them to physical pixels.
     let scale_factor = renderer.scale_factor() as f32;
     let [red, green, blue, alpha] = card_spec.shadow_rgba;
     let params = BoxShadowParams {
@@ -92,12 +92,11 @@ fn draw_card(renderer: &mut grafo::Renderer, card_spec: CardSpec) -> usize {
     card
 }
 
-/// The shader works for any tessellated shape, not only rectangles.
+/// The shader works for any tessellated shape.
 ///
-/// The blur is separable: pass 1 blurs the coverage mask horizontally, pass 2 blurs the
-/// intermediate result vertically and applies the shadow color. This keeps the same
-/// Gaussian result as a 2D kernel at O(radius) sampling cost per pass instead of
-/// O(radius^2) in a single pass.
+/// Pass 1 blurs the coverage mask horizontally. Pass 2 blurs it vertically and applies
+/// the shadow color. Separating the axes preserves the Gaussian result and reduces
+/// sampling cost from O(radius^2) to O(radius) per pass.
 const BOX_SHADOW_HORIZONTAL_WGSL: &str = r#"
 struct Params {
     shadow_color: vec4<f32>,
@@ -231,7 +230,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Card 1: Soft, large shadow
+                // Large blur radius.
                 draw_card(
                     renderer,
                     CardSpec {
@@ -246,7 +245,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     },
                 );
 
-                // Card 2: Tight, dark shadow
+                // Small blur radius and high opacity.
                 draw_card(
                     renderer,
                     CardSpec {
@@ -261,7 +260,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     },
                 );
 
-                // Card 3: Colored shadow with offset
+                // Offset colored shadow.
                 draw_card(
                     renderer,
                     CardSpec {
@@ -276,7 +275,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     },
                 );
 
-                // Card 4: Subtle elevation shadow
+                // Small offset and low opacity.
                 draw_card(
                     renderer,
                     CardSpec {

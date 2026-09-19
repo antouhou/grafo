@@ -28,9 +28,8 @@ pub(super) struct ShapeEffectMaskUniform {
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(super) struct ShapeEffectRasterRect {
-    /// Origin in shape-local coordinates scaled to physical pixels. This is not a
-    /// screen position: node transforms are applied later, so moving a shape on
-    /// screen does not change this value.
+    /// Shape-local origin scaled to physical pixels. Node transforms apply later,
+    /// so moving the shape on screen does not change this value.
     pub local_physical_origin: [i32; 2],
     /// Mask/effect texture size in texels. Smaller than the full-resolution
     /// physical extent when the effect config downsamples the rasterization.
@@ -148,8 +147,8 @@ pub(super) fn compute_shape_effect_raster_rect(
 #[derive(Clone)]
 pub(super) struct ShapeEffectMaskCacheKey {
     pub tessellation: Arc<CachedTessellation>,
-    /// Local-space raster origin (see [`ShapeEffectRasterRect::local_physical_origin`]).
-    /// Not a screen position, so node transforms do not invalidate the entry.
+    /// Local raster origin from [`ShapeEffectRasterRect::local_physical_origin`].
+    /// Node transforms do not invalidate this entry.
     pub local_raster_origin: [i32; 2],
     pub raster_size: [u32; 2],
     pub scale_factor_bits: u64,
@@ -537,9 +536,8 @@ impl<'a> Renderer<'a> {
                 metrics.misses += 1;
             }
 
-            // The mask depends only on geometry and rasterization parameters, so it
-            // is cached separately from the effect result and reused across effect
-            // cache misses (e.g. animated effect parameters).
+            // Cache the mask separately because it depends only on geometry and
+            // rasterization settings. Changing effect parameters can reuse it.
             let cached_mask = if let Some(cached_mask) =
                 self.state.shape_effect_mask_cache.get(&mask_cache_key)
             {

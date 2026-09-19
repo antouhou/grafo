@@ -2,7 +2,7 @@ use super::Renderer;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-/// Per-frame activity for the exact cached shape-effect result cache.
+/// Shape-effect cache activity during one frame.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ShapeEffectCacheMetrics {
     pub hits: u64,
@@ -29,9 +29,9 @@ pub struct PipelineSwitchCounts {
     pub to_stencil_decrement: u32,
     /// Number of switches to the leaf-draw pipeline.
     pub to_leaf_draw: u32,
-    /// Number of switches to the composite (effect) pipeline, which resets tracking.
+    /// Number of switches to the effect composite pipeline, which resets tracking.
     pub to_composite: u32,
-    /// Total GPU pipeline switches (`set_pipeline` calls).
+    /// Total `set_pipeline` calls.
     pub total_switches: u32,
     /// Number of parent shapes clipped via scissor rect instead of stencil.
     pub scissor_clips: u32,
@@ -60,14 +60,14 @@ impl PipelineSwitchCounts {
 pub struct PhaseTimings {
     /// Time spent preparing geometry buffers and uploading them to the GPU.
     pub prepare: Duration,
-    /// Time spent encoding GPU commands and submitting them (`render_to_texture_view` + `queue.submit`).
+    /// Time spent in `render_to_texture_view` and `queue.submit`.
     pub encode_and_submit: Duration,
-    /// Time spent on presentation or readback (present, or map + poll + copy for offscreen).
+    /// Time spent presenting, or mapping, waiting for, and copying offscreen pixels.
     pub present_or_readback: Duration,
     /// Time spent waiting for outstanding GPU work after presentation.
     /// GPU work can also run during earlier phases, so this is only the remaining wait.
     pub gpu_wait: Duration,
-    /// Total frame time (sum of all phases including GPU wait).
+    /// Sum of all phases, including the GPU wait.
     pub total: Duration,
 }
 

@@ -39,7 +39,7 @@ impl<'a> ApplicationHandler for App<'a> {
         }
 
         let window_attrs = winit::window::Window::default_attributes()
-            .with_title("Star Wars Tilt - grafo")
+            .with_title("Grafo Star Wars tilt")
             .with_inner_size(winit::dpi::LogicalSize::new(800, 600));
 
         let window = Arc::new(event_loop.create_window(window_attrs).unwrap());
