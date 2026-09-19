@@ -2,7 +2,7 @@ use super::*;
 #[cfg(feature = "render_metrics")]
 use crate::renderer::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
 use crate::renderer::passes::{
-    apply_effect_passes, render_segments, EffectPassRunConfig, SegmentRenderTarget,
+    apply_effect_passes, render_segments, BackdropInputs, EffectPassRunConfig, SegmentRenderTarget,
 };
 use crate::renderer::traversal::{
     compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects,
@@ -201,8 +201,7 @@ impl<'a> Renderer<'a> {
                             color_view: behind_color_view,
                             color_resolve_target: behind_resolve_target,
                             depth_stencil_view: &behind_depth_view,
-                            backdrop_source: None,
-                            backdrop_context: None,
+                            backdrop: None,
                         },
                         pipeline_resources,
                         state,
@@ -259,10 +258,12 @@ impl<'a> Renderer<'a> {
                         depth_stencil_view: subtree_texture.depth_stencil_view.as_ref().expect(
                             "subtree render targets must include a depth/stencil attachment",
                         ),
-                        backdrop_source,
-                        backdrop_context: backdrop_context
-                            .as_ref()
-                            .filter(|_| subtree_needs_backdrop_effects),
+                        backdrop: backdrop_source.map(|source| BackdropInputs {
+                            source,
+                            context: backdrop_context.as_ref().expect(
+                                "backdrop resources are initialized before group rendering",
+                            ),
+                        }),
                     },
                     pipeline_resources,
                     state,
@@ -355,8 +356,12 @@ impl<'a> Renderer<'a> {
                     color_view: phase2_color_view,
                     color_resolve_target: phase2_resolve_target,
                     depth_stencil_view: depth_texture_view,
-                    backdrop_source,
-                    backdrop_context: backdrop_context.as_ref(),
+                    backdrop: backdrop_source.map(|source| BackdropInputs {
+                        source,
+                        context: backdrop_context
+                            .as_ref()
+                            .expect("backdrop resources are initialized before final rendering"),
+                    }),
                 },
                 pipeline_resources,
                 state,

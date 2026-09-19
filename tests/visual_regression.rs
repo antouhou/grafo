@@ -94,6 +94,59 @@ fn shape_effect_is_resolved_before_backdrop_capture_with_msaa() {
     assert_eq!(read_pixel_rgba(&pixel_buffer, 64, 52, 32), [0, 0, 255, 255]);
 }
 
+#[test]
+fn first_node_backdrop_clears_previous_render_before_capture() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((32, 32), 1.0) else {
+        return;
+    };
+    renderer
+        .load_effect(9_104, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
+        .unwrap();
+    let mut pixel_buffer = Vec::new();
+
+    for sample_count in [1, 4] {
+        renderer.set_msaa_samples(sample_count);
+        renderer.clear_draw_queue();
+        renderer
+            .add_shape(
+                Shape::rect([(0.0, 0.0), (32.0, 32.0)], Stroke::default()),
+                None,
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+            )
+            .unwrap();
+        renderer.render_to_buffer(&mut pixel_buffer).unwrap();
+        assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 16, 16), [255, 0, 0, 255]);
+
+        renderer.clear_draw_queue();
+        let backdrop_node = renderer
+            .add_shape(
+                Shape::rect([(8.0, 8.0), (24.0, 24.0)], Stroke::default()),
+                None,
+                None,
+                ShapeDrawCommandOptions::new(),
+            )
+            .unwrap();
+        renderer
+            .set_shape_backdrop_effect(backdrop_node, 9_104, &[], BackdropEffectConfig::default())
+            .unwrap();
+        renderer
+            .add_shape(
+                Shape::rect([(0.0, 12.0), (32.0, 20.0)], Stroke::default()),
+                Some(backdrop_node),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(0, 255, 0)),
+            )
+            .unwrap();
+
+        renderer.render_to_buffer(&mut pixel_buffer).unwrap();
+        assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 16, 10), [0, 0, 0, 0]);
+        assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 16, 16), [0, 255, 0, 255]);
+        assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 4, 16), [0, 0, 0, 0]);
+        assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 28, 16), [0, 0, 0, 0]);
+    }
+}
+
 fn read_pixel_rgba(pixel_buffer: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
     let stride = (width as usize) * 4;
     let offset = (y as usize) * stride + (x as usize) * 4;
@@ -669,16 +722,17 @@ fn main_scene_pixel_expectations() {
     let expectations = build_main_scene(&mut renderer);
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
+    for sample_count in [1, 4] {
+        renderer.set_msaa_samples(sample_count);
+        renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
-    let failures = check_pixels(&pixel_buffer, CANVAS_WIDTH, CANVAS_HEIGHT, &expectations);
-    if !failures.is_empty() {
-        let message = format!(
-            "{} pixel expectation(s) failed:\n{}",
+        let failures = check_pixels(&pixel_buffer, CANVAS_WIDTH, CANVAS_HEIGHT, &expectations);
+        assert!(
+            failures.is_empty(),
+            "{} pixel expectation(s) failed with {sample_count} samples:\n{}",
             failures.len(),
             failures.join("\n"),
         );
-        panic!("{message}");
     }
 }
 

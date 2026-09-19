@@ -144,6 +144,7 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_69_gradient_automatic_stop_after_decreasing_stop(
         renderer,
     ));
+    expectations.extend(tile_70_backdrop_restores_mixed_clips_and_bindings(renderer));
 
     expectations
 }
@@ -5017,4 +5018,186 @@ fn tile_67_downsampled_drop_shadow_with_backdrop_blur(
             "t67_shadow_outsets_remain_transparent",
         ),
     ]
+}
+
+fn tile_70_backdrop_restores_mixed_clips_and_bindings(
+    renderer: &mut Renderer,
+) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(70);
+    let stencil_parent = renderer
+        .add_shape(
+            Shape::rounded_rect(
+                [
+                    (origin_x + 5.0, origin_y + 5.0),
+                    (origin_x + 75.0, origin_y + 75.0),
+                ],
+                BorderRadii::new(20.0),
+                Stroke::default(),
+            ),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(30, 60, 120)),
+        )
+        .unwrap();
+    let scissor_parent = renderer
+        .add_clipping_rect(
+            [
+                (origin_x + 5.0, origin_y + 10.0),
+                (origin_x + 60.0, origin_y + 60.0),
+            ],
+            Some(stencil_parent),
+            None::<TransformInstance>,
+            true,
+        )
+        .unwrap();
+
+    renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x, origin_y + 10.0),
+                    (origin_x + 70.0, origin_y + 24.0),
+                ],
+                Stroke::default(),
+            ),
+            Some(scissor_parent),
+            None,
+            ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
+        )
+        .unwrap();
+    let backdrop_parent = renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x, origin_y + 10.0),
+                    (origin_x + 70.0, origin_y + 48.0),
+                ],
+                Stroke::default(),
+            ),
+            Some(scissor_parent),
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    renderer
+        .set_shape_backdrop_effect(
+            backdrop_parent,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::default(),
+        )
+        .unwrap();
+
+    // The first draw after capture must rebind the texture used before the pass split.
+    renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x, origin_y + 26.0),
+                    (origin_x + 70.0, origin_y + 34.0),
+                ],
+                Stroke::default(),
+            ),
+            Some(backdrop_parent),
+            None,
+            ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
+        )
+        .unwrap();
+    let gradient = Gradient::linear(LinearGradientDesc {
+        common: two_stop_common_canvas((255, 0, 0), (0, 0, 255), SpreadMode::Pad),
+        line: LinearGradientLine {
+            start: [origin_x + 20.5, origin_y],
+            end: [origin_x + 40.5, origin_y],
+        },
+    })
+    .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x, origin_y + 36.0),
+                    (origin_x + 70.0, origin_y + 42.0),
+                ],
+                Stroke::default(),
+            ),
+            Some(backdrop_parent),
+            None,
+            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x, origin_y + 44.0),
+                    (origin_x + 70.0, origin_y + 47.0),
+                ],
+                Stroke::default(),
+            ),
+            Some(backdrop_parent),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(255, 255, 0)),
+        )
+        .unwrap();
+
+    // Leaving the backdrop restores the scissor ancestor's stencil reference.
+    renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x, origin_y + 50.0),
+                    (origin_x + 70.0, origin_y + 56.0),
+                ],
+                Stroke::default(),
+            ),
+            Some(scissor_parent),
+            None,
+            ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x + 5.0, origin_y + 62.0),
+                    (origin_x + 75.0, origin_y + 72.0),
+                ],
+                Stroke::default(),
+            ),
+            Some(stencil_parent),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+        )
+        .unwrap();
+
+    [
+        (25, 18, [0, 255, 0], "t70_capture_keeps_preceding_texture"),
+        (25, 30, [0, 255, 0], "t70_texture_rebound_after_capture"),
+        (
+            6,
+            12,
+            [255, 255, 255],
+            "t70_ancestor_stencil_survives_capture",
+        ),
+        (65, 30, [30, 60, 120], "t70_scissor_clips_backdrop_child"),
+        (15, 38, [255, 0, 0], "t70_gradient_after_texture_start"),
+        (45, 38, [0, 0, 255], "t70_gradient_after_texture_end"),
+        (25, 45, [255, 255, 0], "t70_solid_after_gradient"),
+        (25, 53, [0, 255, 0], "t70_sibling_after_backdrop"),
+        (65, 53, [30, 60, 120], "t70_scissor_clips_later_sibling"),
+        (10, 66, [255, 0, 0], "t70_scissor_restored_after_parent"),
+        (6, 70, [255, 255, 255], "t70_stencil_clips_later_sibling"),
+    ]
+    .into_iter()
+    .map(|(x, y, color, label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            color[0],
+            color[1],
+            color[2],
+            label,
+        )
+    })
+    .collect()
 }
