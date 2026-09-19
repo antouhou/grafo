@@ -65,12 +65,14 @@ impl GpuGradientColorParams {
         let mut params = Self {
             spread_mode,
             units,
-            is_constant: data.is_constant as u32,
-            constant_color: data.constant_color,
             period_start: data.period_start,
             period_len: data.period_len,
             ..Self::none()
         };
+        if let GradientRamp::Constant(color) = &data.ramp {
+            params.is_constant = 1;
+            params.constant_color = *color;
+        }
         match data.geometry {
             GradientGeometry::Linear(line) => {
                 params.gradient_type = 1;
@@ -387,7 +389,7 @@ impl GradientCache {
             return bind_group.clone();
         }
 
-        let ramp_texture = if gradient_data.is_constant {
+        let ramp_texture = if matches!(gradient_data.ramp, GradientRamp::Constant(_)) {
             self.get_or_create_default_ramp_texture(device, queue)
         } else {
             self.get_or_create_ramp_texture(gradient_data, device, queue)
@@ -434,7 +436,7 @@ impl GradientCache {
         backdrop_view: &wgpu::TextureView,
         backdrop_sampler: &wgpu::Sampler,
     ) -> wgpu::BindGroup {
-        let ramp_texture = if gradient_data.is_constant {
+        let ramp_texture = if matches!(gradient_data.ramp, GradientRamp::Constant(_)) {
             self.get_or_create_default_ramp_texture(device, queue)
         } else {
             self.get_or_create_ramp_texture(gradient_data, device, queue)

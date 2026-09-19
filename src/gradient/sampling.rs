@@ -22,8 +22,7 @@ fn bake_segments<Interpolator: Fn(f32) -> [f32; 4]>(
     normalized: &NormalizedGradient,
     prepare_colors: impl Fn(&GradientColor, &GradientColor) -> Interpolator,
 ) -> GradientRamp {
-    if let [stop] = normalized.stops.as_slice() {
-        let color = color_to_final_linear_premultiplied(&stop.color);
+    if let Some(color) = normalized.constant_color() {
         return GradientRamp::Constant(color);
     }
 
@@ -32,12 +31,7 @@ fn bake_segments<Interpolator: Fn(f32) -> [f32; 4]>(
     let span = last_pos - first_pos;
 
     if span <= RESOLVED_DEGENERATE_EPSILON {
-        if has_actual_zero_length_run(normalized) {
-            return GradientRamp::Sampled(Arc::new(bake_degenerate_hard_stop_ramp(normalized)));
-        }
-
-        let color = color_to_final_linear_premultiplied(&normalized.stops.last().unwrap().color);
-        return GradientRamp::Constant(color);
+        return GradientRamp::Sampled(Arc::new(bake_degenerate_hard_stop_ramp(normalized)));
     }
 
     let last_color = color_to_final_linear_premultiplied(&normalized.stops.last().unwrap().color);
@@ -101,14 +95,6 @@ pub(crate) fn bake_gradient_ramp(ramp_source: &GradientRampSource) -> GradientRa
             prepare_cylindrical_interpolation(start, end, CylSpace::Hwb, hue)
         }),
     }
-}
-
-fn has_actual_zero_length_run(normalized: &NormalizedGradient) -> bool {
-    normalized.stops.len() > 1
-        && normalized
-            .stops
-            .windows(2)
-            .any(|pair| (pair[1].position - pair[0].position).abs() <= f32::EPSILON)
 }
 
 fn bake_degenerate_hard_stop_ramp(normalized: &NormalizedGradient) -> [[f32; 4]; RAMP_RESOLUTION] {

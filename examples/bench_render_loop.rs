@@ -285,12 +285,12 @@ fn print_metrics(renderer: &mut grafo::Renderer<'_>) {
     println!("--- render_metrics ---");
     println!(
         "Rolling 1s FPS:  {:.1}",
-        renderer.rolling_one_second_frames_per_second()
+        renderer.rolling_frames_per_second()
     );
     println!(
         "Rolling 1s avg:  {:.3}ms",
         renderer
-            .rolling_one_second_average_render_loop_duration()
+            .rolling_average_render_loop_duration()
             .as_secs_f64()
             * 1000.0
     );

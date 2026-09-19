@@ -1,5 +1,8 @@
 use super::sampling::color_to_final_linear_premultiplied;
-use super::types::{GradientColor, GradientCommonDesc, GradientKind, GradientStopPositions};
+use super::types::{
+    GradientColor, GradientCommonDesc, GradientKind, GradientStopPositions,
+    RESOLVED_DEGENERATE_EPSILON,
+};
 use smallvec::{smallvec, SmallVec};
 use std::f32::consts::TAU;
 
@@ -167,7 +170,22 @@ impl NormalizedGradient {
         }
     }
 
-    /// The degenerate constant color: final linear premultiplied color of the last stop.
+    /// Returns a constant color for a single stop or a short span without a hard stop.
+    pub(crate) fn constant_color(&self) -> Option<[f32; 4]> {
+        if self.stops.len() == 1
+            || (self.period_len <= RESOLVED_DEGENERATE_EPSILON
+                && !self
+                    .stops
+                    .windows(2)
+                    .any(|pair| (pair[1].position - pair[0].position).abs() <= f32::EPSILON))
+        {
+            Some(self.degenerate_constant_color())
+        } else {
+            None
+        }
+    }
+
+    /// Returns the last stop's color in linear premultiplied RGBA.
     pub(crate) fn degenerate_constant_color(&self) -> [f32; 4] {
         color_to_final_linear_premultiplied(&self.stops.last().unwrap().color)
     }

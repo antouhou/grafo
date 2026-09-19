@@ -162,9 +162,7 @@ impl<'a> ApplicationHandler for App<'a> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
-                .create_window(
-                    Window::default_attributes().with_title("Grafo – Analytical Box Shadow"),
-                )
+                .create_window(Window::default_attributes().with_title("Grafo box shadows"))
                 .unwrap(),
         );
 

@@ -222,35 +222,27 @@ struct VertexPosition {
 };
 
 fn compute_vertex_position(input: VertexInput) -> VertexPosition {
-    // Build the transform matrix from column-major CPU data.
-    // Each vec4 (t_col0..t_col3) is one column of the matrix. WGSL's mat4x4
-    // constructor treats each argument as a column, so this is a direct mapping.
+    // CPU transform columns map directly to WGSL matrix columns.
     let model: mat4x4<f32> = mat4x4<f32>(input.t_col0, input.t_col1, input.t_col2, input.t_col3);
-
-    // Apply the per-instance transform in pixel space
     let p = model * vec4<f32>(input.position, 0.0, 1.0);
 
-    // Perform homogeneous divide to handle perspective projection
     let w = p.w;
     let invw = 1.0 / max(abs(w), 1e-6);
     let px = p.x * invw;
     let py = p.y * invw;
     let pz = p.z * invw;
 
-    // Offset fringe vertices after projection to keep the configured physical-pixel
-    // width independent of the shape's transform.
+    // Offset after projection so the AA fringe keeps its physical-pixel width.
     var final_px = px;
     var final_py = py;
 
     if (input.coverage < 1.0) {
-        // Transform a point slightly offset along the normal through the same model matrix
         let epsilon = 0.01;
         let p2 = model * vec4<f32>(input.position + input.normal * epsilon, 0.0, 1.0);
         let invw2 = 1.0 / max(abs(p2.w), 1e-6);
         let px2 = p2.x * invw2;
         let py2 = p2.y * invw2;
 
-        // Screen-space direction of the normal
         let screen_dir = vec2<f32>(px2 - px, py2 - py);
         let screen_len = length(screen_dir);
 
