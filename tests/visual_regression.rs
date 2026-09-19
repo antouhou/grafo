@@ -705,6 +705,42 @@ fn empty_draw_queue() {
     );
 }
 
+#[cfg(feature = "render_metrics")]
+#[test]
+fn empty_frame_resets_pipeline_switch_counts() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((16, 16), 1.0) else {
+        return;
+    };
+    renderer
+        .add_shape(
+            Shape::rect([(0.0, 0.0), (16.0, 16.0)], Stroke::default()),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::WHITE),
+        )
+        .unwrap();
+
+    let mut pixel_buffer = Vec::new();
+    for _ in 0..2 {
+        renderer.render_to_buffer(&mut pixel_buffer).unwrap();
+        let counts = renderer.last_pipeline_switch_counts();
+        assert_eq!(counts.to_leaf_draw, 1);
+        assert_eq!(counts.total_switches, 1);
+    }
+
+    renderer.clear_draw_queue();
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
+
+    let counts = renderer.last_pipeline_switch_counts();
+    assert_eq!(counts.to_stencil_increment, 0);
+    assert_eq!(counts.to_stencil_decrement, 0);
+    assert_eq!(counts.to_leaf_draw, 0);
+    assert_eq!(counts.to_composite, 0);
+    assert_eq!(counts.total_switches, 0);
+    assert_eq!(counts.scissor_clips, 0);
+    assert_eq!(counts.stencil_passes, 0);
+}
+
 /// Renderers created from the same context must keep independent draw queues while sharing GPU
 /// resources such as textures.
 #[test]

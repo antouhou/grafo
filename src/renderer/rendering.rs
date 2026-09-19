@@ -23,6 +23,7 @@ impl<'a> Renderer<'a> {
             let _collected_shape_effect_masks = self.state.shape_effect_mask_cache.end_frame();
             #[cfg(feature = "render_metrics")]
             {
+                self.state.pipeline_switch_counts = PipelineSwitchCounts::default();
                 self.state.shape_effect_cache_metrics = ShapeEffectCacheMetrics {
                     collected_results: _collected_shape_effect_results as u64,
                     collected_masks: _collected_shape_effect_masks as u64,
