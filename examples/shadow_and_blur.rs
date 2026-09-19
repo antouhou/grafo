@@ -131,7 +131,6 @@ impl<'a> ApplicationHandler for App<'a> {
             1,
         ));
 
-        // Load both effects once at startup
         renderer
             .load_effect(BOX_SHADOW_EFFECT, &[BOX_SHADOW_WGSL])
             .expect("Failed to compile box shadow effect");
@@ -238,8 +237,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     .unwrap();
 
                 // Parent panel with a box shadow group effect
-                // The parent is transparent — it exists to carry the box
-                // shadow group effect. The shadow is rendered analytically.
                 let panel_x = 150.0;
                 let panel_y = 120.0;
                 let panel_w = 500.0;
@@ -260,7 +257,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Attach box shadow as a group effect on the parent
                 let shadow_params = BoxShadowParams {
                     box_min: [panel_x, panel_y],
                     box_max: [panel_x + panel_w, panel_y + panel_h],
@@ -294,7 +290,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Attach backdrop blur on the child
                 let blur_params = BlurParams {
                     radius: 14.0,
                     _pad: 0.0,

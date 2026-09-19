@@ -475,22 +475,8 @@ impl<'a> Renderer<'a> {
             temp_instance_transforms: Vec::new(),
             temp_instance_colors: Vec::new(),
             temp_instance_metadata: Vec::new(),
-            argb_cs_bgl: None,
-            argb_cs_pipeline: None,
-            argb_swizzle_bind_group: None,
-            argb_params_buffer: None,
-            argb_input_buffer: None,
-            argb_output_storage_buffer: None,
-            argb_readback_buffer: None,
-            argb_input_buffer_size: 0,
-            argb_output_buffer_size: 0,
-            argb_cached_width: 0,
-            argb_cached_height: 0,
-            argb_offscreen_texture: None,
-            rtb_offscreen_texture: None,
-            rtb_readback_buffer: None,
-            rtb_cached_width: 0,
-            rtb_cached_height: 0,
+            argb_readback: None,
+            bgra_readback: None,
             msaa_sample_count,
             msaa_color_texture: None,
             msaa_color_texture_view: None,
@@ -615,44 +601,33 @@ impl<'a> Renderer<'a> {
         }
 
         println!("\n--- ARGB Compute Buffers ---");
-        if let Some(buf) = &self.argb_input_buffer {
+        if let Some(resources) = &self.argb_readback {
+            let target = &resources.target;
+            println!("ARGB input buffer: {} bytes", target.input_buffer.size());
             println!(
-                "ARGB input buffer: {} bytes (cached size: {})",
-                buf.size(),
-                self.argb_input_buffer_size
+                "ARGB output storage buffer: {} bytes",
+                target.output_buffer.size()
             );
-        }
-        if let Some(buf) = &self.argb_output_storage_buffer {
             println!(
-                "ARGB output storage buffer: {} bytes (cached size: {})",
-                buf.size(),
-                self.argb_output_buffer_size
+                "ARGB readback buffer: {} bytes",
+                target.readback_buffer.size()
             );
-        }
-        if let Some(buf) = &self.argb_readback_buffer {
-            println!("ARGB readback buffer: {} bytes", buf.size());
-        }
-        if let Some(buf) = &self.argb_params_buffer {
-            println!("ARGB params buffer: {} bytes", buf.size());
-        }
-        if let Some(tex) = &self.argb_offscreen_texture {
-            let size = tex.size();
+            println!("ARGB params buffer: {} bytes", target.params_buffer.size());
             println!(
-                "ARGB offscreen texture: {}x{} (cached: {}x{})",
-                size.width, size.height, self.argb_cached_width, self.argb_cached_height
+                "ARGB offscreen texture: {}x{}",
+                target.texture.width(),
+                target.texture.height()
             );
         }
 
         println!("\n--- Render-to-Buffer Caches ---");
-        if let Some(tex) = &self.rtb_offscreen_texture {
-            let size = tex.size();
+        if let Some(resources) = &self.bgra_readback {
             println!(
-                "RTB offscreen texture: {}x{} (cached: {}x{})",
-                size.width, size.height, self.rtb_cached_width, self.rtb_cached_height
+                "RTB offscreen texture: {}x{}",
+                resources.texture.width(),
+                resources.texture.height()
             );
-        }
-        if let Some(buf) = &self.rtb_readback_buffer {
-            println!("RTB readback buffer: {} bytes", buf.size());
+            println!("RTB readback buffer: {} bytes", resources.buffer.size());
         }
 
         println!("\n--- Uniform Buffers ---");

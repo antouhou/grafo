@@ -956,9 +956,7 @@ fn tile_12_stencil_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectat
             100,
             "t12_l1_visible",
         ),
-        // --- Clipping proofs ---
-        // L1 extends to (65,40) but L0 ends at x=60 → bg white.
-        // Proves L0 stencil clips L1.
+        // L1 extends past L0 at x=60, so the canvas shows at (65,40).
         PixelExpectation::opaque(
             ox as u32 + 65,
             oy as u32 + 40,
@@ -967,8 +965,7 @@ fn tile_12_stencil_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectat
             255,
             "t12_l0_clips_l1",
         ),
-        // L2 extends to (15,50) (inside L0) but L1 starts at x=20 → L0 lavender.
-        // Proves L1 stencil clips L2: blue does NOT leak into L0's area.
+        // L1 clips L2 left of x=20, exposing L0 at (15,50).
         PixelExpectation::opaque(
             ox as u32 + 15,
             oy as u32 + 50,
@@ -977,8 +974,7 @@ fn tile_12_stencil_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectat
             200,
             "t12_l1_clips_l2",
         ),
-        // L1+L2 extend to (30,70) but L0 ends at y=60 → bg white.
-        // Proves L0 clips the entire chain.
+        // L0 clips both descendants below y=60, exposing the canvas at (30,70).
         PixelExpectation::opaque(
             ox as u32 + 30,
             oy as u32 + 70,
@@ -1123,9 +1119,7 @@ fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation
         ),
         // Inside L0 only (NW, outside L1 and leaf) → L0 gray
         PixelExpectation::opaque(ox as u32 + 15, oy as u32 + 15, 200, 200, 200, "t14_l0_only"),
-        // --- Clipping proofs ---
-        // L1 extends to (65,40) but L0 ends at x=60 → bg white.
-        // Proves L0 scissor clips L1.
+        // L1 extends past L0 at x=60, so the canvas shows at (65,40).
         PixelExpectation::opaque(
             ox as u32 + 65,
             oy as u32 + 40,
@@ -1134,8 +1128,7 @@ fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation
             255,
             "t14_l0_clips_l1",
         ),
-        // Leaf extends to (15,50) (inside L0) but L1 starts at x=20 → L0 gray.
-        // Proves L1 stencil clips leaf: blue does NOT leak into L0's area.
+        // L1 clips the leaf left of x=20, exposing L0 at (15,50).
         PixelExpectation::opaque(
             ox as u32 + 15,
             oy as u32 + 50,
@@ -1144,8 +1137,7 @@ fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation
             200,
             "t14_l1_clips_leaf",
         ),
-        // Leaf extends to (30,65) but L0 ends at y=60 → bg white.
-        // Proves L0 scissor clips the entire chain.
+        // L0 clips the leaf below y=60, exposing the canvas at (30,65).
         PixelExpectation::opaque(
             ox as u32 + 30,
             oy as u32 + 65,
@@ -1226,9 +1218,7 @@ fn tile_15_stencil_then_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation
         ),
         // Inside L0 only (NW, outside L1 and leaf) → L0 pink
         PixelExpectation::opaque(ox as u32 + 15, oy as u32 + 15, 220, 200, 200, "t15_l0_only"),
-        // --- Clipping proofs ---
-        // L1 extends to (65,40) but L0 ends at x=60 → bg white.
-        // Proves L0 stencil clips L1.
+        // L1 extends past L0 at x=60, so the canvas shows at (65,40).
         PixelExpectation::opaque(
             ox as u32 + 65,
             oy as u32 + 40,
@@ -1237,8 +1227,7 @@ fn tile_15_stencil_then_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation
             255,
             "t15_l0_clips_l1",
         ),
-        // Leaf extends to (15,50) (inside L0) but L1 starts at x=20 → L0 pink.
-        // Proves L1 scissor clips leaf.
+        // L1 clips the leaf left of x=20, exposing L0 at (15,50).
         PixelExpectation::opaque(
             ox as u32 + 15,
             oy as u32 + 50,
@@ -1350,9 +1339,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
             220,
             "t16_l3_visible",
         ),
-        // --- Clipping proofs (one per level) ---
-        // L4 extends to (22,40) but L3 starts at x=25 → L2 green.
-        // Proves L3 clips L4.
+        // L3 clips L4 left of x=25, exposing L2 at (22,40).
         PixelExpectation::opaque(
             ox as u32 + 22,
             oy as u32 + 40,
@@ -1361,8 +1348,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
             180,
             "t16_l3_clips_l4",
         ),
-        // L3 extends to (35,12) but L2 starts at y=20 → L1 blue-gray.
-        // Proves L2 clips L3.
+        // L2 clips L3 above y=20, exposing L1 at (35,12).
         PixelExpectation::opaque(
             ox as u32 + 35,
             oy as u32 + 12,
@@ -1371,8 +1357,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
             220,
             "t16_l2_clips_l3",
         ),
-        // L2 extends to (17,40) but L1 starts at x=20 (inside L0) → L0 gray.
-        // Proves L1 clips L2.
+        // L1 clips L2 left of x=20, exposing L0 at (17,40).
         PixelExpectation::opaque(
             ox as u32 + 17,
             oy as u32 + 40,
@@ -1381,8 +1366,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
             220,
             "t16_l1_clips_l2",
         ),
-        // L1 extends to (60,30) but L0 ends at x=55 → bg white.
-        // Proves L0 clips L1.
+        // L0 clips L1 right of x=55, exposing the canvas at (60,30).
         PixelExpectation::opaque(
             ox as u32 + 60,
             oy as u32 + 30,
@@ -3439,7 +3423,7 @@ fn tile_48_gradient_state_leak(renderer: &mut Renderer) -> Vec<PixelExpectation>
             2,
             "t48_gradient_end",
         ),
-        // Solid cyan rect center: must be cyan, NOT showing leaked gradient.
+        // The cyan rectangle must not inherit the preceding shape's gradient.
         PixelExpectation::opaque(
             ox as u32 + 59,
             oy as u32 + 40,

@@ -200,7 +200,7 @@ fn gradient_apply_spread(raw_t: f32) -> f32 {
 fn evaluate_gradient(model_pos: vec2<f32>, screen_pos: vec2<f32>) -> vec4<f32> {
     let gtype = material_params.gradient.gradient_type;
     if gtype == 0u {
-        // No gradient — return transparent (caller uses solid fill)
+        // Transparent if no gradient
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
 
@@ -478,7 +478,7 @@ fn fs_main_gradient(
 
 // Used by stencil-only passes that write no color. Color work is skipped entirely;
 // only the fixed-function stencil operation matters for these draws.
-// NOTE: do not add discard here — that would also kill the stencil write.
+// NOTE: do not add discard here. That would kill the stencil write.
 @fragment
 fn fs_stencil_only() -> @location(0) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 0.0, 0.0);

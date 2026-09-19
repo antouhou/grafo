@@ -179,7 +179,6 @@ impl<'a> ApplicationHandler for App<'a> {
             1,
         ));
 
-        // Load the box shadow effect shader once (horizontal + vertical blur passes)
         renderer
             .load_effect(
                 BOX_SHADOW_EFFECT,

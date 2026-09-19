@@ -1,6 +1,7 @@
 //! Renderer for the Grafo library.
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
+use self::readback::{ArgbReadbackResources, BgraReadbackResources};
 use self::state::{RendererPipelineResources, RendererState};
 use self::types::{DrawCommand, RendererScratch};
 use crate::effect::{
@@ -8,10 +9,7 @@ use crate::effect::{
     CompositePipelineResources, EffectError, EffectInstance, LoadedEffect, OffscreenTexturePool,
 };
 use crate::pipeline::{
-    compute_padded_bytes_per_row, create_and_depth_texture, create_argb_swizzle_bind_group,
-    create_argb_swizzle_pipeline, create_msaa_color_texture, create_offscreen_color_texture,
-    create_pipeline, create_readback_buffer, encode_copy_texture_to_buffer, ArgbParams,
-    PipelineType,
+    create_and_depth_texture, create_msaa_color_texture, create_pipeline, PipelineType,
 };
 use crate::shape::{CachedShapeDrawData, Shape};
 use crate::texture_manager::TextureManager;
@@ -128,25 +126,8 @@ pub struct Renderer<'a> {
     /// Per-frame instance metadata (draw order) for shapes.
     temp_instance_metadata: Vec<InstanceMetadata>,
 
-    // Cached resources for render_to_argb32 compute swizzle path
-    argb_cs_bgl: Option<wgpu::BindGroupLayout>,
-    argb_cs_pipeline: Option<wgpu::ComputePipeline>,
-    argb_swizzle_bind_group: Option<wgpu::BindGroup>,
-    argb_params_buffer: Option<wgpu::Buffer>,
-    argb_input_buffer: Option<wgpu::Buffer>,
-    argb_output_storage_buffer: Option<wgpu::Buffer>,
-    argb_readback_buffer: Option<wgpu::Buffer>,
-    argb_input_buffer_size: u64,
-    argb_output_buffer_size: u64,
-    argb_cached_width: u32,
-    argb_cached_height: u32,
-    argb_offscreen_texture: Option<wgpu::Texture>,
-
-    // Cached resources for render_to_buffer (BGRA bytes) path
-    rtb_offscreen_texture: Option<wgpu::Texture>,
-    rtb_readback_buffer: Option<wgpu::Buffer>,
-    rtb_cached_width: u32,
-    rtb_cached_height: u32,
+    argb_readback: Option<ArgbReadbackResources>,
+    bgra_readback: Option<BgraReadbackResources>,
 
     /// Current MSAA sample count (1 = off, 4 = 4x, etc.)
     msaa_sample_count: u32,

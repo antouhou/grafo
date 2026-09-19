@@ -33,7 +33,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 .create_window(
                     Window::default_attributes()
                         .with_inner_size(winit::dpi::PhysicalSize::new(CANVAS_WIDTH, CANVAS_HEIGHT))
-                        .with_title("Visual Test Grid — grafo")
+                        .with_title("Visual regression test pattern")
                         .with_resizable(false),
                 )
                 .unwrap(),
@@ -45,10 +45,10 @@ impl<'a> ApplicationHandler for App<'a> {
         let mut renderer = block_on(grafo::Renderer::new(
             window.clone(),
             physical_size,
-            1.0,   // scale_factor — match test expectations
-            true,  // vsync
-            false, // transparent
-            1,     // msaa_samples — match test expectations
+            1.0,
+            true,
+            false,
+            1,
         ));
 
         build_main_scene(&mut renderer);

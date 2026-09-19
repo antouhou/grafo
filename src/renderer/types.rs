@@ -219,11 +219,11 @@ pub(super) enum Pipeline {
 /// re-evaluating the scissor eligibility check.
 #[derive(Clone, Copy)]
 pub(super) enum ClipKind {
-    /// Parent does not clip children — a dummy stencil entry was pushed.
+    /// Parent does not clip children
     NonClipping,
-    /// Parent clips children via hardware scissor rect.
+    /// Parent clips children via hardware scissor rect
     Scissor,
-    /// Parent clips children via stencil increment/decrement.
+    /// Parent clips children via stencil increment/decrement
     Stencil,
 }
 

@@ -53,7 +53,6 @@ impl<'a> ApplicationHandler for App<'a> {
             1,
         ));
 
-        // Load the opacity effect shader once
         let opacity_wgsl = r#"
             struct Params {
                 opacity: f32,
@@ -113,7 +112,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Group 1: 50% opacity
                 let group1_bg = Shape::rect(
                     [(100.0, 100.0), (400.0, 350.0)],
                     Stroke::new(0.0_f32, Color::TRANSPARENT),
@@ -127,7 +125,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Child 1: overlapping blue rectangle
+                // The overlap gets the group's opacity once, after the children are composited.
                 let child1 = Shape::rect(
                     [(120.0, 120.0), (300.0, 250.0)],
                     Stroke::new(2.0_f32, Color::BLACK),
@@ -141,7 +139,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Child 2: overlapping green rectangle
                 let child2 = Shape::rect(
                     [(200.0, 180.0), (380.0, 320.0)],
                     Stroke::new(2.0_f32, Color::BLACK),
@@ -155,13 +152,11 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Attach 50% opacity to group1
                 let opacity: f32 = 0.5;
                 renderer
                     .set_group_effect(group1, OPACITY_EFFECT, bytemuck::bytes_of(&opacity))
                     .expect("Failed to set effect");
 
-                // Group 2: 80% opacity
                 let group2_bg = Shape::rect(
                     [(350.0, 100.0), (700.0, 350.0)],
                     Stroke::new(0.0_f32, Color::TRANSPARENT),

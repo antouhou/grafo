@@ -154,7 +154,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Attach the blur effect with radius = 8 pixels
                 let blur_params = BlurParams {
                     radius: 8.0,
                     _pad: 0.0,
