@@ -262,7 +262,7 @@ impl<'a> Renderer<'a> {
             instance.effect_id != effect_id
                 || refresh_effect_instance_after_reload(&self.device, loaded_effect, instance)
         });
-        self.shape_effects.retain(|_, instance| {
+        self.state.shape_effects.retain(|_, instance| {
             instance.effect_id != effect_id
                 || validate_params_expectation(
                     effect_id,
@@ -271,7 +271,8 @@ impl<'a> Renderer<'a> {
                 )
                 .is_ok()
         });
-        self.shape_effect_cache
+        self.state
+            .shape_effect_cache
             .retain(|cache_key, _| cache_key.effect_id != effect_id);
         Ok(())
     }
@@ -445,7 +446,7 @@ impl<'a> Renderer<'a> {
 
         find_effect_and_validate_params(&self.loaded_effects, effect_id, params)?;
         validate_shape_effect_config(&config)?;
-        self.shape_effects.insert(
+        self.state.shape_effects.insert(
             node_id,
             effect::ShapeEffectInstance {
                 effect_id,
@@ -463,12 +464,13 @@ impl<'a> Renderer<'a> {
         params: &[u8],
     ) -> Result<(), EffectError> {
         let effect_id = self
+            .state
             .shape_effects
             .get(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?
             .effect_id;
         find_effect_and_validate_params(&self.loaded_effects, effect_id, params)?;
-        if let Some(instance) = self.shape_effects.get_mut(&node_id) {
+        if let Some(instance) = self.state.shape_effects.get_mut(&node_id) {
             instance.params = Arc::from(params);
         }
         Ok(())
@@ -482,6 +484,7 @@ impl<'a> Renderer<'a> {
     ) -> Result<(), EffectError> {
         validate_shape_effect_config(&config)?;
         let instance = self
+            .state
             .shape_effects
             .get_mut(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
@@ -490,7 +493,7 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn remove_shape_effect(&mut self, node_id: usize) {
-        self.shape_effects.remove(&node_id);
+        self.state.shape_effects.remove(&node_id);
     }
 
     pub fn unload_effect(&mut self, effect_id: u64) {
@@ -501,60 +504,65 @@ impl<'a> Renderer<'a> {
         self.state
             .backdrop_effects
             .retain(|_, instance| instance.effect_id != effect_id);
-        self.shape_effects
+        self.state
+            .shape_effects
             .retain(|_, instance| instance.effect_id != effect_id);
-        self.shape_effect_cache
+        self.state
+            .shape_effect_cache
             .retain(|cache_key, _| cache_key.effect_id != effect_id);
     }
 
     pub(super) fn ensure_composite_pipeline(&mut self) -> &CompositePipelineResources {
-        self.state
+        self.pipeline_resources
             .composite_resources
             .get_or_insert_with(|| compile_composite_pipeline(&self.device, self.config.format))
     }
 
     pub(super) fn ensure_texture_blit_pipeline(&mut self) {
-        if self.texture_blit_pipeline.is_some() {
+        if self.pipeline_resources.texture_blit_pipeline.is_some() {
             return;
         }
 
         let device = Arc::clone(&self.device);
         let format = self.config.format;
         let composite_resources = self.ensure_composite_pipeline();
-        self.texture_blit_pipeline = Some(effect::compile_texture_blit_pipeline(
-            &device,
-            format,
-            &composite_resources.bind_group_layout,
-        ));
+        self.pipeline_resources.texture_blit_pipeline =
+            Some(effect::compile_texture_blit_pipeline(
+                &device,
+                format,
+                &composite_resources.bind_group_layout,
+            ));
     }
 
     pub(super) fn ensure_backdrop_layer_composite_pipeline(&mut self) {
-        self.backdrop_layer_composite_resources
+        self.pipeline_resources
+            .backdrop_layer_composite_resources
             .get_or_insert_with(|| {
                 effect::compile_backdrop_layer_composite_pipeline(&self.device, self.config.format)
             });
     }
 
     pub(super) fn ensure_effect_sampler(&mut self) {
-        if self.effect_sampler.is_none() {
-            self.effect_sampler = Some(self.device.create_sampler(&wgpu::SamplerDescriptor {
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Linear,
-                ..Default::default()
-            }));
+        if self.pipeline_resources.effect_sampler.is_none() {
+            self.pipeline_resources.effect_sampler =
+                Some(self.device.create_sampler(&wgpu::SamplerDescriptor {
+                    address_mode_u: wgpu::AddressMode::ClampToEdge,
+                    address_mode_v: wgpu::AddressMode::ClampToEdge,
+                    address_mode_w: wgpu::AddressMode::ClampToEdge,
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    mipmap_filter: wgpu::FilterMode::Linear,
+                    ..Default::default()
+                }));
         }
     }
 
     pub(super) fn ensure_stencil_only_pipeline(&mut self) {
-        if self.stencil_only_pipeline.is_some() {
+        if self.pipeline_resources.stencil_only_pipeline.is_some() {
             return;
         }
 
-        let pipelines = &self.state.pipelines;
+        let pipelines = &self.pipeline_resources.shapes;
         let uniform_bind_group_layout = pipelines.and_pipeline.get_bind_group_layout(0);
         let pipeline = create_stencil_only_pipeline(
             &self.device,
@@ -564,15 +572,15 @@ impl<'a> Renderer<'a> {
             &pipelines.shape_texture_bind_group_layout_background,
             &pipelines.shape_texture_bind_group_layout_foreground,
         );
-        self.stencil_only_pipeline = Some(pipeline);
+        self.pipeline_resources.stencil_only_pipeline = Some(pipeline);
     }
 
     pub(super) fn ensure_backdrop_color_pipeline(&mut self) {
-        if self.backdrop_color_pipeline.is_some() {
+        if self.pipeline_resources.backdrop_color_pipeline.is_some() {
             return;
         }
 
-        let pipelines = &self.state.pipelines;
+        let pipelines = &self.pipeline_resources.shapes;
         let uniform_bind_group_layout = pipelines.and_pipeline.get_bind_group_layout(0);
         let pipeline = create_backdrop_stencil_keep_color_pipeline(
             &self.device,
@@ -581,17 +589,24 @@ impl<'a> Renderer<'a> {
             &uniform_bind_group_layout,
             &pipelines.shape_texture_bind_group_layout_background,
             &pipelines.shape_texture_bind_group_layout_foreground,
-            &self.backdrop_texture_bind_group_layout,
+            &self
+                .pipeline_resources
+                .shapes
+                .backdrop_texture_bind_group_layout,
         );
-        self.backdrop_color_pipeline = Some(pipeline);
+        self.pipeline_resources.backdrop_color_pipeline = Some(pipeline);
     }
 
     pub(super) fn ensure_backdrop_color_gradient_pipeline(&mut self) {
-        if self.backdrop_color_gradient_pipeline.is_some() {
+        if self
+            .pipeline_resources
+            .backdrop_color_gradient_pipeline
+            .is_some()
+        {
             return;
         }
 
-        let pipelines = &self.state.pipelines;
+        let pipelines = &self.pipeline_resources.shapes;
         let uniform_bind_group_layout = pipelines.and_pipeline.get_bind_group_layout(0);
         let pipeline = create_backdrop_gradient_stencil_keep_color_pipeline(
             &self.device,
@@ -600,9 +615,12 @@ impl<'a> Renderer<'a> {
             &uniform_bind_group_layout,
             &pipelines.shape_texture_bind_group_layout_background,
             &pipelines.shape_texture_bind_group_layout_foreground,
-            &self.backdrop_gradient_bind_group_layout,
+            &self
+                .pipeline_resources
+                .shapes
+                .backdrop_gradient_bind_group_layout,
         );
-        self.backdrop_color_gradient_pipeline = Some(pipeline);
+        self.pipeline_resources.backdrop_color_gradient_pipeline = Some(pipeline);
     }
 }
 

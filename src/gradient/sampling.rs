@@ -649,6 +649,14 @@ mod tests {
 
     #[test]
     fn mixed_color_ramps_preserve_interpolation_output() {
+        // Fixed output baseline added with the sampling refactor in a28d97a.
+        // This detects numerical changes; it is not an independent color reference.
+        // Review intentional output changes against the color equations before updating it.
+        const CHANNEL_TOLERANCE: f32 = 2e-6;
+        // Positions are index / 1023: inside the hinted segment, just after the
+        // hard stop at 0.3, and inside each of the two remaining segments.
+        const SAMPLE_TEXEL_INDICES: [usize; 4] = [137, 307, 512, 767];
+
         let interpolations = [
             ColorInterpolation::Srgb,
             ColorInterpolation::SrgbLinear,
@@ -748,11 +756,11 @@ mod tests {
         ];
         for (interpolation, expected_samples) in interpolations.into_iter().zip(expected_samples) {
             let ramp = bake_gradient_ramp(&mixed_color_ramp_source(interpolation));
-            for (index, expected) in [137, 307, 512, 767].into_iter().zip(expected_samples) {
+            for (index, expected) in SAMPLE_TEXEL_INDICES.into_iter().zip(expected_samples) {
                 let actual = ramp.as_slice()[index];
                 for (actual_channel, expected_channel) in actual.into_iter().zip(expected) {
                     assert!(
-                        (actual_channel - expected_channel).abs() < 2e-6,
+                        (actual_channel - expected_channel).abs() < CHANNEL_TOLERANCE,
                         "{interpolation:?} texel {index}: expected {expected:?}, got {actual:?}",
                     );
                 }

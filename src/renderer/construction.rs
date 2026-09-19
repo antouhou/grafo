@@ -1,5 +1,5 @@
 use super::shape_effects::ShapeEffectRendererResources;
-use super::state::{Buffers, Pipelines};
+use super::state::{Buffers, ShapePipelines};
 use super::types::DrawCommand;
 use super::*;
 use crate::cache::FrameCache;
@@ -13,10 +13,7 @@ use crate::vertex::CustomVertex;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 use tracing::{error, info, warn};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
-use wgpu::{
-    BindGroup, BindGroupLayout, Buffer, DownlevelFlags, InstanceDescriptor, Sampler,
-    SurfaceConfiguration,
-};
+use wgpu::{DownlevelFlags, InstanceDescriptor, SurfaceConfiguration};
 
 fn create_transparent_texture_view_and_sampler(
     device: &wgpu::Device,
@@ -117,20 +114,7 @@ fn pick_alpha_mode(alpha_modes: &[CompositeAlphaMode], transparent: bool) -> Com
     }
 }
 
-struct RendererPipelineResources {
-    pipelines: Pipelines,
-    and_uniforms: Uniforms,
-    and_uniform_buffer: Buffer,
-    decrementing_uniforms: Uniforms,
-    decrementing_uniform_buffer: Buffer,
-    backdrop_texture_bind_group_layout: Arc<BindGroupLayout>,
-    default_backdrop_texture_bind_group: Arc<BindGroup>,
-    gradient_bind_group_layout: BindGroupLayout,
-    backdrop_gradient_bind_group_layout: BindGroupLayout,
-    gradient_ramp_sampler: Sampler,
-}
-
-impl RendererPipelineResources {
+impl ShapePipelines {
     fn new(
         context: &RendererContext,
         config: &SurfaceConfiguration,
@@ -240,22 +224,20 @@ impl RendererPipelineResources {
             );
 
         Self {
-            pipelines: Pipelines {
-                and_pipeline: Arc::new(and_pipeline),
-                and_gradient_pipeline: Arc::new(and_gradient_pipeline),
-                and_bind_group,
-                decrementing_pipeline: Arc::new(decrementing_pipeline),
-                decrementing_bind_group,
-                leaf_draw_pipeline: Arc::new(leaf_draw_pipeline),
-                leaf_draw_gradient_pipeline: Arc::new(leaf_draw_gradient_pipeline),
-                shape_texture_bind_group_layout_background: Arc::new(background_texture_layout),
-                shape_texture_bind_group_layout_foreground: Arc::new(foreground_texture_layout),
-                default_shape_texture_bind_groups: [
-                    Arc::new(default_background_texture_bind_group),
-                    Arc::new(default_foreground_texture_bind_group),
-                ],
-                texture_manager: context.inner.texture_manager.clone(),
-            },
+            and_pipeline: Arc::new(and_pipeline),
+            and_gradient_pipeline: Arc::new(and_gradient_pipeline),
+            and_bind_group,
+            decrementing_pipeline: Arc::new(decrementing_pipeline),
+            decrementing_bind_group,
+            leaf_draw_pipeline: Arc::new(leaf_draw_pipeline),
+            leaf_draw_gradient_pipeline: Arc::new(leaf_draw_gradient_pipeline),
+            shape_texture_bind_group_layout_background: Arc::new(background_texture_layout),
+            shape_texture_bind_group_layout_foreground: Arc::new(foreground_texture_layout),
+            default_shape_texture_bind_groups: [
+                Arc::new(default_background_texture_bind_group),
+                Arc::new(default_foreground_texture_bind_group),
+            ],
+            texture_manager: context.inner.texture_manager.clone(),
             and_uniforms,
             and_uniform_buffer,
             decrementing_uniforms,
@@ -454,7 +436,7 @@ impl<'a> Renderer<'a> {
         }
 
         let device = context.inner.device.clone();
-        let resources = RendererPipelineResources::new(
+        let resources = ShapePipelines::new(
             &context,
             &config,
             physical_size,
@@ -476,12 +458,17 @@ impl<'a> Renderer<'a> {
             config,
             fringe_width: Self::DEFAULT_FRINGE_WIDTH,
             tessellator: FillTessellator::new(),
-            and_uniforms: resources.and_uniforms,
-            and_uniform_buffer: resources.and_uniform_buffer,
-            backdrop_texture_bind_group_layout: resources.backdrop_texture_bind_group_layout,
-            default_backdrop_texture_bind_group: resources.default_backdrop_texture_bind_group,
-            decrementing_uniforms: resources.decrementing_uniforms,
-            decrementing_uniform_buffer: resources.decrementing_uniform_buffer,
+            pipeline_resources: RendererPipelineResources {
+                shapes: resources,
+                shape_effects: shape_effect_resources,
+                effect_sampler: None,
+                composite_resources: None,
+                texture_blit_pipeline: None,
+                backdrop_layer_composite_resources: None,
+                stencil_only_pipeline: None,
+                backdrop_color_pipeline: None,
+                backdrop_color_gradient_pipeline: None,
+            },
             temp_vertices: Vec::new(),
             temp_indices: Vec::new(),
             geometry_dedup_map: HashMap::new(),
@@ -514,19 +501,6 @@ impl<'a> Renderer<'a> {
                 Capabilities::default(),
             ),
             loaded_effects: HashMap::new(),
-            shape_effects: HashMap::new(),
-            shape_effect_cache: FrameCache::new(),
-            shape_effect_mask_cache: FrameCache::new(),
-            shape_effect_resources,
-            effect_sampler: None,
-            texture_blit_pipeline: None,
-            backdrop_layer_composite_resources: None,
-            stencil_only_pipeline: None,
-            backdrop_color_pipeline: None,
-            backdrop_color_gradient_pipeline: None,
-            gradient_bind_group_layout: resources.gradient_bind_group_layout,
-            backdrop_gradient_bind_group_layout: resources.backdrop_gradient_bind_group_layout,
-            gradient_ramp_sampler: resources.gradient_ramp_sampler,
             #[cfg(feature = "render_metrics")]
             render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),
             #[cfg(feature = "render_metrics")]
@@ -537,7 +511,9 @@ impl<'a> Renderer<'a> {
                 shape_resources: ShapeResources::new(),
                 group_effects: HashMap::new(),
                 backdrop_effects: HashMap::new(),
-                composite_resources: None,
+                shape_effects: HashMap::new(),
+                shape_effect_cache: FrameCache::new(),
+                shape_effect_mask_cache: FrameCache::new(),
                 scratch: RendererScratch::new(),
                 scale_factor,
                 physical_size,
@@ -546,7 +522,6 @@ impl<'a> Renderer<'a> {
                 pipeline_switch_counts: Default::default(),
                 #[cfg(feature = "render_metrics")]
                 shape_effect_cache_metrics: Default::default(),
-                pipelines: resources.pipelines,
                 buffers: Buffers {
                     supports_base_vertex,
                     aggregated_vertex_buffer: None,
@@ -683,15 +658,21 @@ impl<'a> Renderer<'a> {
         println!("\n--- Uniform Buffers ---");
         println!(
             "AND uniform buffer: {} bytes",
-            self.and_uniform_buffer.size()
+            self.pipeline_resources.shapes.and_uniform_buffer.size()
         );
         println!(
             "Decrementing uniform buffer: {} bytes",
-            self.decrementing_uniform_buffer.size()
+            self.pipeline_resources
+                .shapes
+                .decrementing_uniform_buffer
+                .size()
         );
 
         println!("\n--- Texture Manager ---");
-        println!("{:?}", self.state.pipelines.texture_manager.size());
+        println!(
+            "{:?}",
+            self.pipeline_resources.shapes.texture_manager.size()
+        );
 
         println!("\n--- Shape Resources ---");
         self.state.shape_resources.print_sizes();
@@ -846,7 +827,7 @@ impl<'a> Renderer<'a> {
     }
 
     pub(super) fn recreate_pipelines(&mut self) {
-        let resources = RendererPipelineResources::new(
+        let resources = ShapePipelines::new(
             &self.context,
             &self.config,
             self.state.physical_size,
@@ -854,29 +835,21 @@ impl<'a> Renderer<'a> {
             self.fringe_width,
             self.msaa_sample_count,
         );
-        self.state.pipelines = resources.pipelines;
-        self.and_uniforms = resources.and_uniforms;
-        self.and_uniform_buffer = resources.and_uniform_buffer;
-        self.decrementing_uniforms = resources.decrementing_uniforms;
-        self.decrementing_uniform_buffer = resources.decrementing_uniform_buffer;
-        self.backdrop_texture_bind_group_layout = resources.backdrop_texture_bind_group_layout;
-        self.default_backdrop_texture_bind_group = resources.default_backdrop_texture_bind_group;
-        self.gradient_bind_group_layout = resources.gradient_bind_group_layout;
-        self.backdrop_gradient_bind_group_layout = resources.backdrop_gradient_bind_group_layout;
-        self.gradient_ramp_sampler = resources.gradient_ramp_sampler;
+        self.pipeline_resources.shapes = resources;
 
-        self.shape_effect_cache.clear();
-        self.shape_effect_mask_cache.clear();
-        self.state.composite_resources = None;
-        self.shape_effect_resources
+        self.state.shape_effect_cache.clear();
+        self.state.shape_effect_mask_cache.clear();
+        self.pipeline_resources.composite_resources = None;
+        self.pipeline_resources
+            .shape_effects
             .recreate_pipeline(&self.device, self.config.format);
 
         // Reset lazily-created pipelines so they pick up the new layout
-        self.texture_blit_pipeline = None;
-        self.backdrop_layer_composite_resources = None;
-        self.stencil_only_pipeline = None;
-        self.backdrop_color_pipeline = None;
-        self.backdrop_color_gradient_pipeline = None;
+        self.pipeline_resources.texture_blit_pipeline = None;
+        self.pipeline_resources.backdrop_layer_composite_resources = None;
+        self.pipeline_resources.stencil_only_pipeline = None;
+        self.pipeline_resources.backdrop_color_pipeline = None;
+        self.pipeline_resources.backdrop_color_gradient_pipeline = None;
 
         // Refresh per-shape gradient bind groups against the new layout so the
         // next render does not allocate gradient resources on the render path.
@@ -889,8 +862,8 @@ impl<'a> Renderer<'a> {
                 &mut self.state.shape_resources.gradient_cache,
                 &self.device,
                 &self.queue,
-                &self.gradient_bind_group_layout,
-                &self.gradient_ramp_sampler,
+                &self.pipeline_resources.shapes.gradient_bind_group_layout,
+                &self.pipeline_resources.shapes.gradient_ramp_sampler,
             );
 
             if let DrawCommand::CachedShape(cached_shape) = draw_command {

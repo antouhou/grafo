@@ -1,26 +1,17 @@
 //! Renderer for the Grafo library.
-use ahash::{HashMap, HashMapExt};
-use lyon::tessellation::FillTessellator;
-use naga::valid::Validator;
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
-use tracing::warn;
-use wgpu::{BufferUsages, CompositeAlphaMode, SurfaceTarget};
-
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
-use self::state::RendererState;
+use self::state::{RendererPipelineResources, RendererState};
 use self::types::{DrawCommand, RendererScratch};
 use crate::effect::{
     self, compile_composite_pipeline, compile_effect_pipeline, create_params_bind_group,
     CompositePipelineResources, EffectError, EffectInstance, LoadedEffect, OffscreenTexturePool,
-    ShapeEffectInstance,
 };
 use crate::pipeline::{
     compute_padded_bytes_per_row, create_and_depth_texture, create_argb_swizzle_bind_group,
     create_argb_swizzle_pipeline, create_msaa_color_texture, create_offscreen_color_texture,
     create_pipeline, create_readback_buffer, encode_copy_texture_to_buffer, ArgbParams,
-    PipelineType, Uniforms,
+    PipelineType,
 };
 use crate::shape::{CachedShapeDrawData, Shape};
 use crate::texture_manager::TextureManager;
@@ -30,8 +21,15 @@ use crate::vertex::{
     TextureUvTransform,
 };
 use crate::CachedShapeHandle;
+use ahash::{HashMap, HashMapExt};
 pub use construction::RendererCreationError;
+use lyon::tessellation::FillTessellator;
+use naga::valid::Validator;
 pub use readback::ReadbackError;
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
+use tracing::warn;
+use wgpu::{BufferUsages, CompositeAlphaMode, SurfaceTarget};
 
 mod construction;
 mod draw_queue;
@@ -115,19 +113,7 @@ pub struct Renderer<'a> {
 
     tessellator: FillTessellator,
 
-    /// Uniforms for the stencil-increment ("and") rendering pipeline.
-    and_uniforms: Uniforms,
-    /// GPU buffer backing the "and" pipeline uniforms.
-    and_uniform_buffer: wgpu::Buffer,
-    /// Bind group layout for backdrop textures (group 3, bindings 3 and 4).
-    backdrop_texture_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-    /// Default transparent bind group for backdrop sampling.
-    default_backdrop_texture_bind_group: Arc<wgpu::BindGroup>,
-
-    /// Uniforms for the decrementing pipeline.
-    decrementing_uniforms: Uniforms,
-    /// GPU buffer backing the decrementing pipeline uniforms.
-    decrementing_uniform_buffer: wgpu::Buffer,
+    pipeline_resources: RendererPipelineResources,
 
     temp_vertices: Vec<CustomVertex>,
     temp_indices: Vec<u16>,
@@ -180,37 +166,6 @@ pub struct Renderer<'a> {
     effect_shader_validator: Validator,
     /// Loaded (compiled) effects, keyed by user-provided effect_id.
     loaded_effects: HashMap<u64, LoadedEffect>,
-    /// Per-node cached shape effect attachments, keyed by node_id.
-    shape_effects: HashMap<usize, ShapeEffectInstance>,
-    /// Exact GPU results retained while referenced by consecutive rendered frames.
-    shape_effect_cache: shape_effects::ShapeEffectResultCache,
-    /// Rasterized shape masks retained while referenced by consecutive rendered frames.
-    /// Keyed by geometry and rasterization parameters only, so masks are reused
-    /// across effect result cache misses (e.g. animated effect parameters).
-    shape_effect_mask_cache: shape_effects::ShapeEffectMaskCache,
-    /// Pipeline and immutable geometry resources used by shape effects.
-    shape_effect_resources: shape_effects::ShapeEffectRendererResources,
-    /// Reusable sampler for effect texture sampling.
-    effect_sampler: Option<wgpu::Sampler>,
-
-    /// Fullscreen sampling pipeline used to downsample a captured backdrop region.
-    texture_blit_pipeline: Option<wgpu::RenderPipeline>,
-    /// Premultiplied-alpha pipeline for layering a transparent group prefix into a backdrop.
-    backdrop_layer_composite_resources: Option<CompositePipelineResources>,
-    /// Clips backdrop compositing to the shape by incrementing stencil without drawing color.
-    stencil_only_pipeline: Option<wgpu::RenderPipeline>,
-    /// Draws the shape over its processed backdrop without incrementing stencil again.
-    backdrop_color_pipeline: Option<wgpu::RenderPipeline>,
-    /// Gradient color pipeline with stencil Keep for backdrop shapes.
-    backdrop_color_gradient_pipeline: Option<wgpu::RenderPipeline>,
-
-    /// Bind group layout for gradient resources (group 3 in shader).
-    gradient_bind_group_layout: wgpu::BindGroupLayout,
-    /// Bind group layout for gradient resources plus backdrop sampling.
-    backdrop_gradient_bind_group_layout: wgpu::BindGroupLayout,
-    /// Samples gradient ramps with linear filtering and clamps at the endpoints.
-    gradient_ramp_sampler: wgpu::Sampler,
-
     #[cfg(feature = "render_metrics")]
     /// Tracking for cumulative render-loop timing metrics.
     render_loop_metrics_tracker: RenderLoopMetricsTracker,

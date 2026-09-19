@@ -142,8 +142,8 @@ impl<'a> Renderer<'a> {
             &mut self.state.shape_resources.gradient_cache,
             &self.device,
             &self.queue,
-            &self.gradient_bind_group_layout,
-            &self.gradient_ramp_sampler,
+            &self.pipeline_resources.shapes.gradient_bind_group_layout,
+            &self.pipeline_resources.shapes.gradient_ramp_sampler,
         );
         let geometry_range = preparation::append_aggregated_geometry_for_shape(
             cached_shape_data,
@@ -220,14 +220,14 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn texture_manager(&self) -> &TextureManager {
-        &self.state.pipelines.texture_manager
+        &self.pipeline_resources.shapes.texture_manager
     }
 
     pub fn clear_draw_queue(&mut self) {
         self.state.draw_tree.clear();
         self.state.group_effects.clear();
         self.state.backdrop_effects.clear();
-        self.shape_effects.clear();
+        self.state.shape_effects.clear();
         self.clear_buffers();
     }
 
@@ -265,8 +265,8 @@ impl<'a> Renderer<'a> {
         };
 
         let Some((texture_width, texture_height)) = self
-            .state
-            .pipelines
+            .pipeline_resources
+            .shapes
             .texture_manager
             .texture_dimensions(texture_id)
         else {

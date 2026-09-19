@@ -117,7 +117,6 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 let window_size = window.inner_size();
 
-                // Create shapes to render
                 let background = Shape::rect(
                     [
                         (0.0, 0.0),
@@ -164,7 +163,6 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 // Render to GPU offscreen texture and get ARGB32 pixels
                 let render_start = std::time::Instant::now();
-                // Ensure buffer capacity for current size
                 let needed_len = (window_size.width as usize) * (window_size.height as usize);
                 if self.argb_buffer.len() < needed_len {
                     self.argb_buffer.resize(needed_len, 0);

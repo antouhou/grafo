@@ -848,7 +848,6 @@ fn validate_common(common: &GradientCommonDesc, kind: GradientKind) -> Result<()
             }
         }
 
-        // Validate hint
         if let Some(hint) = &stop.hint_to_next_segment {
             if is_conic && !hint.is_conic() {
                 return Err(GradientError::InvalidHintOffsetKind { stop_index });

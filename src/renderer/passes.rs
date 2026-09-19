@@ -1,4 +1,4 @@
-use super::state::{Buffers, Pipelines, RendererState};
+use super::state::{Buffers, RendererPipelineResources, RendererState, ShapePipelines};
 use super::types::{
     BackdropContext, BackdropSource, BoundTextureState, ClipKind, Pipeline, PipelineTracker,
     TraversalEvent,
@@ -286,7 +286,7 @@ pub(super) fn handle_increment_pass<'rp>(
     bound_texture_state: &mut BoundTextureState,
     stencil_stack: &mut Vec<u32>,
     shape: &mut CachedShapeDrawData,
-    pipelines: &Pipelines,
+    pipelines: &ShapePipelines,
     buffers: &Buffers,
 ) {
     if let Some(geometry_range) = shape.geometry_buffer_range {
@@ -359,7 +359,7 @@ pub(super) fn handle_decrement_pass<'rp>(
     bound_texture_state: &mut BoundTextureState,
     stencil_stack: &mut Vec<u32>,
     shape: &mut CachedShapeDrawData,
-    pipelines: &Pipelines,
+    pipelines: &ShapePipelines,
     buffers: &Buffers,
 ) {
     if let Some(geometry_range) = shape.geometry_buffer_range {
@@ -403,7 +403,7 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
     bound_texture_state: &mut BoundTextureState,
     stencil_stack: &[u32],
     shape: &mut CachedShapeDrawData,
-    pipelines: &Pipelines,
+    pipelines: &ShapePipelines,
     buffers: &Buffers,
 ) {
     if let Some(geometry_range) = shape.geometry_buffer_range {
@@ -501,7 +501,7 @@ pub(super) fn flush_pending_leaf_batch(
     render_pass: &mut wgpu::RenderPass<'_>,
     currently_set_pipeline: &mut PipelineTracker,
     bound_texture_state: &mut BoundTextureState,
-    pipelines: &Pipelines,
+    pipelines: &ShapePipelines,
     buffers: &Buffers,
 ) {
     if batch.is_empty() {
@@ -611,7 +611,7 @@ fn queue_or_draw_leaf(
     currently_set_pipeline: &mut PipelineTracker,
     bound_texture_state: &mut BoundTextureState,
     stencil_stack: &[u32],
-    pipelines: &Pipelines,
+    pipelines: &ShapePipelines,
     buffers: &Buffers,
 ) {
     if try_batch_leaf(pending_leaf_batch, shape, parent_stencil) {
@@ -992,6 +992,7 @@ pub(super) fn render_segments(
     events: &[TraversalEvent],
     effect_results: &HashMap<usize, wgpu::BindGroup>,
     target: SegmentRenderTarget<'_>,
+    pipeline_resources: &RendererPipelineResources,
     state: &mut RendererState,
 ) {
     let SegmentRenderTarget {
@@ -1001,7 +1002,7 @@ pub(super) fn render_segments(
         backdrop_source,
         backdrop_context,
     } = target;
-    let pipelines = &state.pipelines;
+    let pipelines = &pipeline_resources.shapes;
     let buffers = &state.buffers;
     let scratch = &mut state.scratch;
     let mut event_idx = 0;
@@ -1117,7 +1118,7 @@ pub(super) fn render_segments(
                                 pipelines,
                                 buffers,
                             );
-                            if let Some(resources) = &state.composite_resources {
+                            if let Some(resources) = &pipeline_resources.composite_resources {
                                 let parent_stencil =
                                     scratch.stencil_stack.last().copied().unwrap_or(0);
                                 render_pass.set_pipeline(&resources.pipeline);
@@ -1371,7 +1372,7 @@ pub(super) fn render_segments(
 
         if let Some(backdrop_node_id) = backdrop_node_id {
             let bctx = backdrop_context.unwrap();
-            let composite_bind_group_layout = &state
+            let composite_bind_group_layout = &pipeline_resources
                 .composite_resources
                 .as_ref()
                 .expect("backdrop rendering requires composite resources")

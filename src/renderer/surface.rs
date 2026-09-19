@@ -33,24 +33,25 @@ impl<'a> Renderer<'a> {
         self.config.width = new_physical_size.0;
         self.config.height = new_physical_size.1;
 
+        let pipelines = &mut self.pipeline_resources.shapes;
         let logical_size = to_logical(new_physical_size, self.state.scale_factor);
-        self.and_uniforms.canvas_size = [logical_size.0, logical_size.1];
-        self.and_uniforms.scale_factor = self.state.scale_factor as f32;
-        self.and_uniforms.fringe_width = self.fringe_width;
+        pipelines.and_uniforms.canvas_size = [logical_size.0, logical_size.1];
+        pipelines.and_uniforms.scale_factor = self.state.scale_factor as f32;
+        pipelines.and_uniforms.fringe_width = self.fringe_width;
 
-        self.decrementing_uniforms.canvas_size = [logical_size.0, logical_size.1];
-        self.decrementing_uniforms.scale_factor = self.state.scale_factor as f32;
-        self.decrementing_uniforms.fringe_width = self.fringe_width;
+        pipelines.decrementing_uniforms.canvas_size = [logical_size.0, logical_size.1];
+        pipelines.decrementing_uniforms.scale_factor = self.state.scale_factor as f32;
+        pipelines.decrementing_uniforms.fringe_width = self.fringe_width;
 
         self.queue.write_buffer(
-            &self.and_uniform_buffer,
+            &pipelines.and_uniform_buffer,
             0,
-            bytemuck::cast_slice(&[self.and_uniforms]),
+            bytemuck::cast_slice(&[pipelines.and_uniforms]),
         );
         self.queue.write_buffer(
-            &self.decrementing_uniform_buffer,
+            &pipelines.decrementing_uniform_buffer,
             0,
-            bytemuck::cast_slice(&[self.decrementing_uniforms]),
+            bytemuck::cast_slice(&[pipelines.decrementing_uniforms]),
         );
 
         if let Some(surface) = &self.surface {

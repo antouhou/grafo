@@ -369,7 +369,7 @@ impl<'a> Renderer<'a> {
             .saturating_mul(u64::from(self.state.physical_size.1))
             .saturating_mul(4);
         let mut quad_geometry_range = None;
-        for (&node_id, shape_effect) in &self.shape_effects {
+        for (&node_id, shape_effect) in &self.state.shape_effects {
             let Some(draw_command) = self.state.draw_tree.get(node_id) else {
                 continue;
             };
@@ -411,7 +411,7 @@ impl<'a> Renderer<'a> {
             }
 
             let quad_handle = CachedShapeHandle {
-                tessellation: Arc::clone(&self.shape_effect_resources.quad_tessellation),
+                tessellation: Arc::clone(&self.pipeline_resources.shape_effects.quad_tessellation),
                 is_rect: true,
                 rect_bounds: Some([(0.0, 0.0), (1.0, 1.0)]),
                 geometry_id: None,
@@ -469,10 +469,11 @@ impl<'a> Renderer<'a> {
             return;
         };
         let effect_sampler = self
+            .pipeline_resources
             .effect_sampler
             .as_ref()
             .expect("shape effects require the shared effect sampler");
-        for (&node_id, shape_effect_instance) in &self.shape_effects {
+        for (&node_id, shape_effect_instance) in &self.state.shape_effects {
             if !shape_effect_leaves.contains_key(&node_id) {
                 continue;
             }
@@ -511,8 +512,8 @@ impl<'a> Renderer<'a> {
                 effect_id: shape_effect_instance.effect_id,
                 params: Arc::clone(&shape_effect_instance.params),
             };
-            if let Some(cached_result) = self.shape_effect_cache.get(&cache_key) {
-                let _cached_mask = self.shape_effect_mask_cache.get(&mask_cache_key);
+            if let Some(cached_result) = self.state.shape_effect_cache.get(&cache_key) {
+                let _cached_mask = self.state.shape_effect_mask_cache.get(&mask_cache_key);
                 #[cfg(feature = "render_metrics")]
                 {
                     metrics.hits += 1;
@@ -540,7 +541,7 @@ impl<'a> Renderer<'a> {
             // is cached separately from the effect result and reused across effect
             // cache misses (e.g. animated effect parameters).
             let cached_mask = if let Some(cached_mask) =
-                self.shape_effect_mask_cache.get(&mask_cache_key)
+                self.state.shape_effect_mask_cache.get(&mask_cache_key)
             {
                 #[cfg(feature = "render_metrics")]
                 {
@@ -568,7 +569,7 @@ impl<'a> Renderer<'a> {
                 });
                 let mask_bind_group = create_mask_bind_group(
                     &self.device,
-                    &self.shape_effect_resources.mask_bind_group_layout,
+                    &self.pipeline_resources.shape_effects.mask_bind_group_layout,
                     &mask_uniform_buffer,
                 );
 
@@ -587,7 +588,7 @@ impl<'a> Renderer<'a> {
                         timestamp_writes: None,
                         occlusion_query_set: None,
                     });
-                    render_pass.set_pipeline(&self.shape_effect_resources.mask_pipeline);
+                    render_pass.set_pipeline(&self.pipeline_resources.shape_effects.mask_pipeline);
                     render_pass.set_bind_group(0, &mask_bind_group, &[]);
                     render_pass.set_vertex_buffer(0, aggregated_vertex_buffer.slice(..));
                     render_pass.set_index_buffer(
@@ -606,7 +607,8 @@ impl<'a> Renderer<'a> {
                 let cached_mask = Arc::new(CachedShapeEffectMask {
                     texture: mask_texture,
                 });
-                self.shape_effect_mask_cache
+                self.state
+                    .shape_effect_mask_cache
                     .insert(mask_cache_key, Arc::clone(&cached_mask));
                 cached_mask
             };
@@ -634,8 +636,8 @@ impl<'a> Renderer<'a> {
                     source_view: &cached_mask.texture.color_view,
                     effect_sampler,
                     composite_bind_group_layout: &self
-                        .state
-                        .pipelines
+                        .pipeline_resources
+                        .shapes
                         .shape_texture_bind_group_layout_background,
                     create_composite_bind_group: true,
                     width,
@@ -658,7 +660,8 @@ impl<'a> Renderer<'a> {
                 ),
             });
 
-            self.shape_effect_cache
+            self.state
+                .shape_effect_cache
                 .insert(cache_key, Arc::clone(&cached_result));
             if let Some(shape_effect_leaf) = shape_effect_leaves.get_mut(&node_id) {
                 shape_effect_leaf.texture_bindings[0] = ShapeTextureBinding::Direct {

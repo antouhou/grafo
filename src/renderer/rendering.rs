@@ -17,11 +17,10 @@ impl<'a> Renderer<'a> {
     ) {
         let render_to_texture_view_started_at = std::time::Instant::now();
 
-        // Nothing to render when the draw queue is empty.
         if self.state.draw_tree.is_empty() {
             self.state.scratch.shape_effect_leaves.clear();
-            let _collected_shape_effect_results = self.shape_effect_cache.end_frame();
-            let _collected_shape_effect_masks = self.shape_effect_mask_cache.end_frame();
+            let _collected_shape_effect_results = self.state.shape_effect_cache.end_frame();
+            let _collected_shape_effect_masks = self.state.shape_effect_mask_cache.end_frame();
             #[cfg(feature = "render_metrics")]
             {
                 self.state.shape_effect_cache_metrics = ShapeEffectCacheMetrics {
@@ -44,7 +43,7 @@ impl<'a> Renderer<'a> {
 
         let has_group_effects = !self.state.group_effects.is_empty();
         let has_backdrop_effects = !self.state.backdrop_effects.is_empty();
-        let has_shape_effects = !self.shape_effects.is_empty();
+        let has_shape_effects = !self.state.shape_effects.is_empty();
 
         if has_group_effects || has_backdrop_effects {
             self.ensure_composite_pipeline();
@@ -80,18 +79,25 @@ impl<'a> Renderer<'a> {
             self.resolve_shape_effects(&mut encoder, &mut textures_to_recycle);
         }
 
+        let pipeline_resources = &self.pipeline_resources;
         let backdrop_context = if has_backdrop_effects {
-            let backdrop_composite = self.backdrop_layer_composite_resources.as_ref().unwrap();
+            let backdrop_composite = pipeline_resources
+                .backdrop_layer_composite_resources
+                .as_ref()
+                .unwrap();
             Some(types::BackdropContext {
                 loaded_effects: &self.loaded_effects,
-                effect_sampler: self.effect_sampler.as_ref().unwrap(),
-                gradient_ramp_sampler: &self.gradient_ramp_sampler,
-                texture_blit_pipeline: self.texture_blit_pipeline.as_ref().unwrap(),
+                effect_sampler: pipeline_resources.effect_sampler.as_ref().unwrap(),
+                gradient_ramp_sampler: &pipeline_resources.shapes.gradient_ramp_sampler,
+                texture_blit_pipeline: pipeline_resources.texture_blit_pipeline.as_ref().unwrap(),
                 backdrop_layer_composite_pipeline: &backdrop_composite.pipeline,
                 backdrop_layer_composite_bind_group_layout: &backdrop_composite.bind_group_layout,
-                stencil_only_pipeline: self.stencil_only_pipeline.as_ref().unwrap(),
-                backdrop_color_pipeline: self.backdrop_color_pipeline.as_ref().unwrap(),
-                backdrop_color_gradient_pipeline: self
+                stencil_only_pipeline: pipeline_resources.stencil_only_pipeline.as_ref().unwrap(),
+                backdrop_color_pipeline: pipeline_resources
+                    .backdrop_color_pipeline
+                    .as_ref()
+                    .unwrap(),
+                backdrop_color_gradient_pipeline: pipeline_resources
                     .backdrop_color_gradient_pipeline
                     .as_ref()
                     .unwrap(),
@@ -99,9 +105,15 @@ impl<'a> Renderer<'a> {
                 queue: &self.queue,
                 config_format: self.config.format,
                 max_texture_dimension_2d: self.device.limits().max_texture_dimension_2d,
-                backdrop_texture_bind_group_layout: &self.backdrop_texture_bind_group_layout,
-                default_backdrop_texture_bind_group: &self.default_backdrop_texture_bind_group,
-                backdrop_gradient_bind_group_layout: &self.backdrop_gradient_bind_group_layout,
+                backdrop_texture_bind_group_layout: &pipeline_resources
+                    .shapes
+                    .backdrop_texture_bind_group_layout,
+                default_backdrop_texture_bind_group: &pipeline_resources
+                    .shapes
+                    .default_backdrop_texture_bind_group,
+                backdrop_gradient_bind_group_layout: &pipeline_resources
+                    .shapes
+                    .backdrop_gradient_bind_group_layout,
             })
         } else {
             None
@@ -191,6 +203,7 @@ impl<'a> Renderer<'a> {
                             backdrop_source: None,
                             backdrop_context: None,
                         },
+                        pipeline_resources,
                         state,
                     );
                     Some(behind_tex)
@@ -250,6 +263,7 @@ impl<'a> Renderer<'a> {
                             .as_ref()
                             .filter(|_| subtree_needs_backdrop_effects),
                     },
+                    pipeline_resources,
                     state,
                 );
 
@@ -280,8 +294,8 @@ impl<'a> Renderer<'a> {
                             .as_ref()
                             .map(|resources| &resources.bind_group),
                         source_view,
-                        effect_sampler: self.effect_sampler.as_ref().unwrap(),
-                        composite_bind_group_layout: &state
+                        effect_sampler: pipeline_resources.effect_sampler.as_ref().unwrap(),
+                        composite_bind_group_layout: &pipeline_resources
                             .composite_resources
                             .as_ref()
                             .unwrap()
@@ -343,6 +357,7 @@ impl<'a> Renderer<'a> {
                     backdrop_source,
                     backdrop_context: backdrop_context.as_ref(),
                 },
+                pipeline_resources,
                 state,
             );
         }
@@ -369,8 +384,8 @@ impl<'a> Renderer<'a> {
         state.scratch.effect_node_ids = effect_node_ids;
         state.scratch.textures_to_recycle = textures_to_recycle;
         state.scratch.effect_output_textures = effect_output_textures;
-        let _collected_shape_effect_results = self.shape_effect_cache.end_frame();
-        let _collected_shape_effect_masks = self.shape_effect_mask_cache.end_frame();
+        let _collected_shape_effect_results = state.shape_effect_cache.end_frame();
+        let _collected_shape_effect_masks = state.shape_effect_mask_cache.end_frame();
         state.shape_resources.tessellation_cache.end_frame();
 
         #[cfg(feature = "render_metrics")]
