@@ -47,6 +47,7 @@ pub use wgpu;
 
 mod color;
 mod effect;
+mod geometry;
 pub mod gradient;
 mod pipeline;
 mod renderer;
@@ -62,6 +63,7 @@ pub use color::Color;
 pub use effect::{
     BackdropCaptureArea, BackdropEffectConfig, EffectError, EffectShaderError, ShapeEffectConfig,
 };
+pub use geometry::{MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
 pub use gradient::errors::GradientError;
 pub use gradient::types::{
     ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
@@ -71,8 +73,7 @@ pub use gradient::types::{
 };
 pub use renderer::{
     types::{DrawCommandError, GeometryBufferError, RenderError},
-    MathRect, ReadbackError, Renderer, RendererContext, RendererCreationError, ShapeOverflow,
-    TextureLayer,
+    ReadbackError, Renderer, RendererContext, RendererCreationError, ShapeOverflow, TextureLayer,
 };
 pub use shape::*;
 pub use stroke::Stroke;

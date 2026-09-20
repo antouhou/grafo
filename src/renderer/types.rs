@@ -5,6 +5,7 @@ use crate::effect::{self, LoadedEffect};
 use crate::gradient::gpu::GradientCache;
 use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
 use crate::vertex::InstanceTransform;
+use crate::UnsignedPhysicalRect;
 use ahash::{HashMap, HashMapExt};
 use std::sync::Arc;
 use thiserror::Error;
@@ -368,9 +369,9 @@ pub(super) struct RendererScratch {
     pub(super) textures_to_recycle: Vec<effect::PooledTexture>,
     pub(super) effect_output_textures: Vec<effect::PooledTexture>,
     pub(super) stencil_stack: Vec<u32>,
-    /// Stack of intersected scissor rects (x, y, width, height) in physical pixels.
+    /// Stack of intersected scissor rectangles in physical pixels.
     /// Used to replace stencil clipping for axis-aligned rect parents.
-    pub(super) scissor_stack: Vec<(u32, u32, u32, u32)>,
+    pub(super) scissor_stack: Vec<UnsignedPhysicalRect>,
     /// Clip strategies for the parents in `stencil_stack`.
     /// `Post` uses them to restore each parent's clip state.
     pub(super) clip_kind_stack: Vec<ClipKind>,

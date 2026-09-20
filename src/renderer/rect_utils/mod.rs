@@ -1,19 +1,14 @@
 use super::types::DrawCommand;
 use crate::effect::EffectInstance;
 use crate::vertex::InstanceTransform;
+use crate::{MathRect, PhysicalRect, Size, UnsignedPhysicalRect};
 use ahash::HashMap;
-
-#[derive(Clone, Copy)]
-pub(super) struct AxisAlignedRectTransform {
-    pub(super) scale_x: f32,
-    pub(super) scale_y: f32,
-    pub(super) translate_x: f32,
-    pub(super) translate_y: f32,
-}
+use lyon::geom::euclid::default::Transform3D;
+use lyon::math::{Point, Transform};
 
 pub(super) fn extract_axis_aligned_rect_transform(
     transform: Option<InstanceTransform>,
-) -> Option<AxisAlignedRectTransform> {
+) -> Option<Transform> {
     let transform = transform.unwrap_or_else(InstanceTransform::identity);
 
     if transform.col0[3] != 0.0 || transform.col1[3] != 0.0 || transform.col3[3] != 1.0 {
@@ -24,12 +19,14 @@ pub(super) fn extract_axis_aligned_rect_transform(
         return None;
     }
 
-    Some(AxisAlignedRectTransform {
-        scale_x: transform.col0[0],
-        scale_y: transform.col1[1],
-        translate_x: transform.col3[0],
-        translate_y: transform.col3[1],
-    })
+    Some(Transform::new(
+        transform.col0[0],
+        0.0,
+        0.0,
+        transform.col1[1],
+        transform.col3[0],
+        transform.col3[1],
+    ))
 }
 
 pub(super) fn should_skip_visible_rect_draw(
@@ -65,200 +62,96 @@ pub(super) fn should_skip_visible_rect_draw(
     extract_axis_aligned_rect_transform(draw_command.transform()).is_some()
 }
 
-/// Compute a screen-space scissor rect from a local-space axis-aligned rect and its transform.
+/// Resolves an axis-aligned rectangle to an outward-rounded viewport scissor.
 pub(super) fn compute_scissor_rect(
-    rect: [(f32, f32); 2],
+    rect: MathRect,
     transform: Option<InstanceTransform>,
     scale_factor: f64,
-    physical_size: (u32, u32),
-) -> Option<(u32, u32, u32, u32)> {
-    let axis_aligned_transform = extract_axis_aligned_rect_transform(transform)?;
-
-    let x0 = rect[0].0 * axis_aligned_transform.scale_x + axis_aligned_transform.translate_x;
-    let y0 = rect[0].1 * axis_aligned_transform.scale_y + axis_aligned_transform.translate_y;
-    let x1 = rect[1].0 * axis_aligned_transform.scale_x + axis_aligned_transform.translate_x;
-    let y1 = rect[1].1 * axis_aligned_transform.scale_y + axis_aligned_transform.translate_y;
-
-    let min_x = x0.min(x1);
-    let min_y = y0.min(y1);
-    let max_x = x0.max(x1);
-    let max_y = y0.max(y1);
-
+    physical_size: Size,
+) -> Option<UnsignedPhysicalRect> {
+    let transform = extract_axis_aligned_rect_transform(transform)?;
     let scale_factor = scale_factor as f32;
-    let px_min_x = ((min_x * scale_factor).floor().max(0.0) as u32).min(physical_size.0);
-    let px_min_y = ((min_y * scale_factor).floor().max(0.0) as u32).min(physical_size.1);
-    let px_max_x = (max_x * scale_factor).ceil().min(physical_size.0 as f32) as u32;
-    let px_max_y = (max_y * scale_factor).ceil().min(physical_size.1 as f32) as u32;
+    let physical_rect = transform
+        .outer_transformed_box(&rect)
+        .scale(scale_factor, scale_factor)
+        .round_out();
+    let viewport = MathRect::from_size(physical_size.to_f32());
 
-    let width = px_max_x.saturating_sub(px_min_x);
-    let height = px_max_y.saturating_sub(px_min_y);
-
-    Some((px_min_x, px_min_y, width, height))
+    physical_rect
+        .intersection(&viewport)
+        .unwrap_or_else(MathRect::zero)
+        .try_cast()
 }
 
-/// Intersect two scissor rects, returning the overlapping region.
-/// If the rects don't overlap, returns a zero-size rect.
-pub(super) fn intersect_scissor(
-    a: (u32, u32, u32, u32),
-    b: (u32, u32, u32, u32),
-) -> (u32, u32, u32, u32) {
-    let a_right = a.0 + a.2;
-    let a_bottom = a.1 + a.3;
-    let b_right = b.0 + b.2;
-    let b_bottom = b.1 + b.3;
-
-    let left = a.0.max(b.0);
-    let top = a.1.max(b.1);
-    let right = a_right.min(b_right);
-    let bottom = a_bottom.min(b_bottom);
-
-    let width = right.saturating_sub(left);
-    let height = bottom.saturating_sub(top);
-
-    (left, top, width, height)
-}
-
-/// Returns a scissor rect when the draw command is a rectangle whose transform
-/// preserves axis alignment.
+/// Returns a scissor rect when the draw command's transform preserves axis alignment.
 pub(super) fn try_scissor_for_rect(
     draw_command: &DrawCommand,
     scale_factor: f64,
-    physical_size: (u32, u32),
-) -> Option<(u32, u32, u32, u32)> {
+    physical_size: Size,
+) -> Option<UnsignedPhysicalRect> {
     if !draw_command.is_rect() {
         return None;
     }
     let rect_bounds = draw_command.rect_bounds()?;
-    let transform = draw_command.transform();
-    compute_scissor_rect(rect_bounds, transform, scale_factor, physical_size)
+    let rect = MathRect::new(rect_bounds[0].into(), rect_bounds[1].into());
+    compute_scissor_rect(rect, draw_command.transform(), scale_factor, physical_size)
 }
 
-fn transform_point_to_logical_screen(
-    point: (f32, f32),
-    transform: Option<InstanceTransform>,
-) -> (f32, f32) {
-    let transform = transform.unwrap_or_else(InstanceTransform::identity);
-    let homogeneous_x =
-        transform.col0[0] * point.0 + transform.col1[0] * point.1 + transform.col3[0];
-    let homogeneous_y =
-        transform.col0[1] * point.0 + transform.col1[1] * point.1 + transform.col3[1];
-    let homogeneous_w =
-        transform.col0[3] * point.0 + transform.col1[3] * point.1 + transform.col3[3];
-    let clamped_w = homogeneous_w.signum() * homogeneous_w.abs().max(1e-6);
+fn transform_point_to_logical_screen(point: Point, transform: Option<InstanceTransform>) -> Point {
+    let transform = Transform3D::from_arrays(
+        transform
+            .unwrap_or_else(InstanceTransform::identity)
+            .as_cols(),
+    );
+    let homogeneous = transform.transform_point2d_homogeneous(point);
+    let clamped_w = homogeneous.w.signum() * homogeneous.w.abs().max(1e-6);
     let inverse_w = 1.0 / clamped_w;
-    (homogeneous_x * inverse_w, homogeneous_y * inverse_w)
+    Point::new(homogeneous.x * inverse_w, homogeneous.y * inverse_w)
 }
 
 pub(super) fn transformed_bounds_to_logical_screen_rect(
-    local_bounds: [(f32, f32); 2],
+    local_bounds: MathRect,
     transform: Option<InstanceTransform>,
-) -> [(f32, f32); 2] {
+) -> MathRect {
     let corners = [
-        (local_bounds[0].0, local_bounds[0].1),
-        (local_bounds[1].0, local_bounds[0].1),
-        (local_bounds[1].0, local_bounds[1].1),
-        (local_bounds[0].0, local_bounds[1].1),
+        local_bounds.min,
+        Point::new(local_bounds.max.x, local_bounds.min.y),
+        local_bounds.max,
+        Point::new(local_bounds.min.x, local_bounds.max.y),
     ];
-
-    let mut min_x = f32::INFINITY;
-    let mut min_y = f32::INFINITY;
-    let mut max_x = f32::NEG_INFINITY;
-    let mut max_y = f32::NEG_INFINITY;
-
-    for corner in corners {
-        let (x, y) = transform_point_to_logical_screen(corner, transform);
-        min_x = min_x.min(x);
-        min_y = min_y.min(y);
-        max_x = max_x.max(x);
-        max_y = max_y.max(y);
-    }
-
-    [(min_x, min_y), (max_x, max_y)]
+    MathRect::from_points(
+        corners.map(|corner| transform_point_to_logical_screen(corner, transform)),
+    )
 }
 
-pub(super) fn inflate_logical_rect(logical_rect: [(f32, f32); 2], padding: f32) -> [(f32, f32); 2] {
-    if padding <= 0.0 {
-        return logical_rect;
-    }
-
-    let min_x = logical_rect[0].0.min(logical_rect[1].0) - padding;
-    let min_y = logical_rect[0].1.min(logical_rect[1].1) - padding;
-    let max_x = logical_rect[0].0.max(logical_rect[1].0) + padding;
-    let max_y = logical_rect[0].1.max(logical_rect[1].1) + padding;
-
-    [(min_x, min_y), (max_x, max_y)]
-}
-
-fn is_logical_rect_finite(logical_rect: [(f32, f32); 2]) -> bool {
-    logical_rect[0].0.is_finite()
-        && logical_rect[0].1.is_finite()
-        && logical_rect[1].0.is_finite()
-        && logical_rect[1].1.is_finite()
-}
-
-fn round_physical_coordinate(value: f32, scale_factor: f32, should_round_up: bool) -> Option<i32> {
-    let scaled_value = value * scale_factor;
-    if !scaled_value.is_finite() {
-        return None;
-    }
-
-    let rounded_value = if should_round_up {
-        scaled_value.ceil()
-    } else {
-        scaled_value.floor()
-    };
-    if !rounded_value.is_finite()
-        || rounded_value < i32::MIN as f32
-        || rounded_value > i32::MAX as f32
-    {
-        return None;
-    }
-
-    Some(rounded_value as i32)
-}
-
-/// Rounds outward and retains signed offscreen coordinates without viewport clipping.
+/// Keeps signed offscreen coordinates and rejects bounds or extents that exceed i32.
 pub(super) fn logical_rect_to_physical_rect(
-    logical_rect: [(f32, f32); 2],
+    logical_rect: MathRect,
     scale_factor: f64,
-) -> Option<(i32, i32, u32, u32)> {
+) -> Option<PhysicalRect> {
     let scale_factor = scale_factor as f32;
-    if !scale_factor.is_finite() || scale_factor <= 0.0 || !is_logical_rect_finite(logical_rect) {
+    if !scale_factor.is_finite() || scale_factor <= 0.0 || !logical_rect.is_finite() {
         return None;
     }
 
-    let min_x = logical_rect[0].0.min(logical_rect[1].0);
-    let min_y = logical_rect[0].1.min(logical_rect[1].1);
-    let max_x = logical_rect[0].0.max(logical_rect[1].0);
-    let max_y = logical_rect[0].1.max(logical_rect[1].1);
-
-    let physical_min_x = round_physical_coordinate(min_x, scale_factor, false)?;
-    let physical_min_y = round_physical_coordinate(min_y, scale_factor, false)?;
-    let physical_max_x = round_physical_coordinate(max_x, scale_factor, true)?;
-    let physical_max_y = round_physical_coordinate(max_y, scale_factor, true)?;
-
-    let width = physical_max_x.saturating_sub(physical_min_x) as u32;
-    let height = physical_max_y.saturating_sub(physical_min_y) as u32;
-    if width == 0 || height == 0 {
+    let physical_rect = logical_rect
+        .scale(scale_factor, scale_factor)
+        .round_out()
+        .try_cast::<i32>()?;
+    if physical_rect.is_empty() {
         return None;
     }
-
-    Some((physical_min_x, physical_min_y, width, height))
+    // Check the extent without overflowing when the endpoints span most of i32.
+    physical_rect.to_i64().size().try_cast::<i32>()?;
+    Some(physical_rect)
 }
 
 /// Rounds downsampled texture dimensions up and keeps at least one texel per axis.
-pub(super) fn compute_downsampled_dimensions(
-    full_resolution_size: (u32, u32),
-    downsample: f32,
-) -> (u32, u32) {
-    (
-        ((full_resolution_size.0 as f32) * downsample)
-            .ceil()
-            .max(1.0) as u32,
-        ((full_resolution_size.1 as f32) * downsample)
-            .ceil()
-            .max(1.0) as u32,
-    )
+pub(super) fn compute_downsampled_dimensions(full_resolution_size: Size, downsample: f32) -> Size {
+    let texture_size = (full_resolution_size.to_f32() * downsample)
+        .ceil()
+        .max(Size::new(1, 1).to_f32());
+    Size::new(texture_size.width as u32, texture_size.height as u32)
 }
 
 #[cfg(test)]

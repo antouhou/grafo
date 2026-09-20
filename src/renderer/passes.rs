@@ -8,10 +8,10 @@ use super::*;
 use crate::effect::PooledTexture;
 use crate::pipeline::{begin_render_pass_with_load_ops, RenderPassLoadOperations};
 use crate::renderer::rect_utils::{
-    compute_downsampled_dimensions, intersect_scissor, should_skip_visible_rect_draw,
-    try_scissor_for_rect,
+    compute_downsampled_dimensions, should_skip_visible_rect_draw, try_scissor_for_rect,
 };
 use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
+use crate::{Size, UnsignedPhysicalRect};
 
 fn cached_shape_mut(draw_command: &mut DrawCommand) -> &mut CachedShapeDrawData {
     match draw_command {
@@ -770,7 +770,7 @@ pub(super) fn render_segments(
     let mut currently_set_pipeline = PipelineTracker::new();
     let mut bound_texture_state = BoundTextureState::default();
     let (width, height) = state.physical_size;
-    let viewport_scissor = (0u32, 0u32, width, height);
+    let viewport_scissor = UnsignedPhysicalRect::from_size(Size::new(width, height));
     let mut pending_leaf_batch = PendingLeafBatch::default();
     scratch.stencil_stack.clear();
     scratch.scissor_stack.clear();
@@ -835,10 +835,10 @@ pub(super) fn render_segments(
                 .unwrap_or(viewport_scissor);
             if current_scissor != viewport_scissor {
                 render_pass.set_scissor_rect(
-                    current_scissor.0,
-                    current_scissor.1,
-                    current_scissor.2,
-                    current_scissor.3,
+                    current_scissor.min.x,
+                    current_scissor.min.y,
+                    current_scissor.width(),
+                    current_scissor.height(),
                 );
             }
 
@@ -960,7 +960,7 @@ pub(super) fn render_segments(
                             } else if let Some(scissor_rect) = try_scissor_for_rect(
                                 draw_command,
                                 state.scale_factor,
-                                state.physical_size,
+                                state.physical_size.into(),
                             ) {
                                 // An axis-aligned rectangle can clip children with a hardware scissor.
                                 let current_scissor = scratch
@@ -968,10 +968,16 @@ pub(super) fn render_segments(
                                     .last()
                                     .copied()
                                     .unwrap_or(viewport_scissor);
-                                let clipped = intersect_scissor(current_scissor, scissor_rect);
+                                let clipped = current_scissor
+                                    .intersection(&scissor_rect)
+                                    .unwrap_or_else(UnsignedPhysicalRect::zero);
                                 scratch.scissor_stack.push(clipped);
-                                render_pass
-                                    .set_scissor_rect(clipped.0, clipped.1, clipped.2, clipped.3);
+                                render_pass.set_scissor_rect(
+                                    clipped.min.x,
+                                    clipped.min.y,
+                                    clipped.width(),
+                                    clipped.height(),
+                                );
                                 #[cfg(feature = "render_metrics")]
                                 currently_set_pipeline.record_scissor_clip();
 
@@ -1048,7 +1054,12 @@ pub(super) fn render_segments(
                                         .last()
                                         .copied()
                                         .unwrap_or(viewport_scissor);
-                                    render_pass.set_scissor_rect(prev.0, prev.1, prev.2, prev.3);
+                                    render_pass.set_scissor_rect(
+                                        prev.min.x,
+                                        prev.min.y,
+                                        prev.width(),
+                                        prev.height(),
+                                    );
                                     scratch.stencil_stack.pop();
                                 }
                                 Some(ClipKind::Stencil) => {
@@ -1116,10 +1127,10 @@ pub(super) fn render_segments(
                 .unwrap_or(viewport_scissor);
             if current_scissor != viewport_scissor {
                 render_pass.set_scissor_rect(
-                    current_scissor.0,
-                    current_scissor.1,
-                    current_scissor.2,
-                    current_scissor.3,
+                    current_scissor.min.x,
+                    current_scissor.min.y,
+                    current_scissor.width(),
+                    current_scissor.height(),
                 );
             }
             is_first_segment = false;
@@ -1152,36 +1163,35 @@ pub(super) fn render_segments(
                     draw_command,
                     backdrop_config,
                     state.scale_factor,
-                    state.physical_size,
+                    state.physical_size.into(),
                     bctx.max_texture_dimension_2d,
                 ) {
                     let backdrop_sampling_uniform = capture_region.sample_uniform();
-                    let (capture_width, capture_height) = capture_region.capture_size;
+                    let capture_size = capture_region.bounds.size().to_u32();
                     let backdrop_source =
                         backdrop_source.expect("backdrop source required for backdrop effects");
                     let backdrop_capture_texture = state.texture_pool.acquire_color_only(
                         bctx.device,
-                        capture_width,
-                        capture_height,
+                        capture_size.width,
+                        capture_size.height,
                         bctx.config_format,
                         1,
                     );
-                    if capture_region.copy_size != capture_region.capture_size {
+                    if capture_region.source_rect.map(|rect| rect.size()) != Some(capture_size) {
                         clear_texture_to_transparent(
                             encoder,
                             &backdrop_capture_texture.color_view,
                             "backdrop_capture_clear",
                         );
                     }
-                    if let Some((copy_source_x, copy_source_y)) = capture_region.copy_source_origin
-                    {
+                    if let Some(source_rect) = capture_region.source_rect {
                         encoder.copy_texture_to_texture(
                             wgpu::TexelCopyTextureInfo {
                                 texture: backdrop_source.base_texture(),
                                 mip_level: 0,
                                 origin: wgpu::Origin3d {
-                                    x: copy_source_x,
-                                    y: copy_source_y,
+                                    x: source_rect.min.x,
+                                    y: source_rect.min.y,
                                     z: 0,
                                 },
                                 aspect: wgpu::TextureAspect::All,
@@ -1190,15 +1200,15 @@ pub(super) fn render_segments(
                                 texture: &backdrop_capture_texture.color_texture,
                                 mip_level: 0,
                                 origin: wgpu::Origin3d {
-                                    x: capture_region.copy_destination_origin.0,
-                                    y: capture_region.copy_destination_origin.1,
+                                    x: capture_region.copy_destination_origin.x,
+                                    y: capture_region.copy_destination_origin.y,
                                     z: 0,
                                 },
                                 aspect: wgpu::TextureAspect::All,
                             },
                             wgpu::Extent3d {
-                                width: capture_region.copy_size.0,
-                                height: capture_region.copy_size.1,
+                                width: source_rect.width(),
+                                height: source_rect.height(),
                                 depth_or_array_layers: 1,
                             },
                         );
@@ -1206,7 +1216,7 @@ pub(super) fn render_segments(
 
                     if let Some(foreground_view) = backdrop_source.foreground_view() {
                         let layer_params = effect::backdrop_layer_params(
-                            capture_region.capture_origin,
+                            capture_region.bounds.min.to_tuple(),
                             state.physical_size,
                         );
                         let layer_params_buffer = effect::prepare_backdrop_layer_params_buffer(
@@ -1226,17 +1236,15 @@ pub(super) fn render_segments(
                         );
                     }
 
-                    let effect_input_size = compute_downsampled_dimensions(
-                        (capture_width, capture_height),
-                        backdrop_config.downsample,
-                    );
+                    let effect_input_size =
+                        compute_downsampled_dimensions(capture_size, backdrop_config.downsample);
                     let mut downsampled_capture_texture: Option<PooledTexture> = None;
 
-                    if effect_input_size != (capture_width, capture_height) {
+                    if effect_input_size != capture_size {
                         let downsampled_capture_target = state.texture_pool.acquire_color_only(
                             bctx.device,
-                            effect_input_size.0,
-                            effect_input_size.1,
+                            effect_input_size.width,
+                            effect_input_size.height,
                             bctx.config_format,
                             1,
                         );
@@ -1274,8 +1282,8 @@ pub(super) fn render_segments(
                             effect_sampler: bctx.effect_sampler,
                             composite_bind_group_layout,
                             create_composite_bind_group: false,
-                            width: effect_input_size.0,
-                            height: effect_input_size.1,
+                            width: effect_input_size.width,
+                            height: effect_input_size.height,
                             texture_format: bctx.config_format,
                             label: "backdrop_effect",
                         },
@@ -1371,10 +1379,10 @@ pub(super) fn render_segments(
                 .unwrap_or(viewport_scissor);
             if current_scissor != viewport_scissor {
                 render_pass.set_scissor_rect(
-                    current_scissor.0,
-                    current_scissor.1,
-                    current_scissor.2,
-                    current_scissor.3,
+                    current_scissor.min.x,
+                    current_scissor.min.y,
+                    current_scissor.width(),
+                    current_scissor.height(),
                 );
             }
 

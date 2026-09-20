@@ -8,7 +8,7 @@ use crate::pipeline::draw_indexed_geometry;
 use crate::renderer::preparation::{self, InstanceTextureData};
 use crate::shape::{CachedShapeDrawData, CachedShapeHandle, ShapeTextureBinding};
 use crate::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
-use crate::ShapeDrawCommandOptions;
+use crate::{ShapeDrawCommandOptions, Size};
 use bytemuck::{Pod, Zeroable};
 use lyon::tessellation::VertexBuffers;
 use std::hash::{Hash, Hasher};
@@ -125,11 +125,11 @@ pub(super) fn compute_shape_effect_raster_rect(
         return None;
     }
 
-    let full_resolution_size = (physical_width as u32, physical_height as u32);
+    let full_resolution_size = Size::new(physical_width as u32, physical_height as u32);
     let texture_size = compute_downsampled_dimensions(full_resolution_size, config.downsample);
     Some(ShapeEffectRasterRect {
         local_physical_origin,
-        texture_size: [texture_size.0, texture_size.1],
+        texture_size: texture_size.to_array(),
         local_bounds: [
             (
                 physical_minimum_x as f32 / scale_factor as f32,
