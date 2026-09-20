@@ -635,16 +635,9 @@ fn main_scene_pixel_expectations() {
     let expectations = build_main_scene(&mut renderer);
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
-
-    let failures = check_pixels(&pixel_buffer, CANVAS_WIDTH, CANVAS_HEIGHT, &expectations);
-    if !failures.is_empty() {
-        let message = format!(
-            "{} pixel expectation(s) failed:\n{}",
-            failures.len(),
-            failures.join("\n"),
-        );
-        panic!("{message}");
+    for _ in 0..2 {
+        renderer.render_to_buffer(&mut pixel_buffer).unwrap();
+        assert_pixels_match(&pixel_buffer, &expectations);
     }
 }
 

@@ -144,8 +144,161 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_69_gradient_automatic_stop_after_decreasing_stop(
         renderer,
     ));
+    expectations.extend(tile_70_stencil_restoration_across_empty_and_overflow_parents(renderer));
 
     expectations
+}
+
+/// Red stays inside yellow; blue escapes green but stays inside purple.
+/// Orange inherits the outer clip after both subtrees; the dark circle crosses it.
+fn tile_70_stencil_restoration_across_empty_and_overflow_parents(
+    renderer: &mut Renderer,
+) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(70);
+    let outer_id = renderer
+        .add_shape(
+            Shape::rounded_rect(
+                [
+                    (origin_x + 5.0, origin_y + 5.0),
+                    (origin_x + 75.0, origin_y + 75.0),
+                ],
+                BorderRadii::new(8.0),
+                Stroke::default(),
+            ),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(180, 180, 220)),
+        )
+        .unwrap();
+
+    // Empty geometry leaves the inherited stencil unchanged for its descendants.
+    let empty_parent_id = renderer
+        .add_shape(
+            Shape::builder().build(),
+            Some(outer_id),
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    let nested_clip_id = renderer
+        .add_shape(
+            Shape::rounded_rect(
+                [
+                    (origin_x + 12.0, origin_y + 12.0),
+                    (origin_x + 50.0, origin_y + 39.0),
+                ],
+                BorderRadii::new(6.0),
+                Stroke::default(),
+            ),
+            Some(empty_parent_id),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(245, 215, 120)),
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rounded_rect(
+                [
+                    (origin_x + 27.0, origin_y + 11.0),
+                    (origin_x + 59.0, origin_y + 43.0),
+                ],
+                BorderRadii::new(16.0),
+                Stroke::default(),
+            ),
+            Some(nested_clip_id),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 60, 60)),
+        )
+        .unwrap();
+
+    let overflow_parent_id = renderer
+        .add_shape(
+            Shape::rounded_rect(
+                [
+                    (origin_x + 12.0, origin_y + 43.0),
+                    (origin_x + 38.0, origin_y + 66.0),
+                ],
+                BorderRadii::new(4.0),
+                Stroke::default(),
+            ),
+            Some(outer_id),
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgb(100, 200, 120))
+                .clips_children(false),
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::builder()
+                .begin((origin_x + 20.0, origin_y + 42.0))
+                .line_to((origin_x + 43.0, origin_y + 57.0))
+                .line_to((origin_x + 20.0, origin_y + 72.0))
+                .line_to((origin_x - 5.0, origin_y + 57.0))
+                .close()
+                .build(),
+            Some(overflow_parent_id),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(70, 80, 220)),
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rounded_rect(
+                [
+                    (origin_x + 60.0, origin_y + 38.0),
+                    (origin_x + 82.0, origin_y + 60.0),
+                ],
+                BorderRadii::new(11.0),
+                Stroke::default(),
+            ),
+            Some(outer_id),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(230, 140, 40)),
+        )
+        .unwrap();
+    // This sibling crosses the outer clip, which must have been decremented.
+    renderer
+        .add_shape(
+            Shape::rounded_rect(
+                [
+                    (origin_x + 58.0, origin_y + 65.0),
+                    (origin_x + 72.0, origin_y + 79.0),
+                ],
+                BorderRadii::new(7.0),
+                Stroke::default(),
+            ),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(70, 70, 70)),
+        )
+        .unwrap();
+
+    [
+        (18, 24, 245, 215, 120, "t70_visible_nested_clip_below_empty_parent"),
+        (40, 26, 220, 60, 60, "t70_red_disc_inside_nested_clip"),
+        (54, 26, 180, 180, 220, "t70_nested_clip_cuts_red_disc"),
+        (35, 45, 100, 200, 120, "t70_visible_non_clipping_parent"),
+        (22, 57, 70, 80, 220, "t70_blue_diamond_inside_green_parent"),
+        (8, 56, 70, 80, 220, "t70_blue_diamond_escapes_green_parent"),
+        (2, 56, 255, 255, 255, "t70_outer_clip_cuts_blue_diamond"),
+        (71, 49, 230, 140, 40, "t70_orange_sibling_after_nested_parents"),
+        (77, 49, 255, 255, 255, "t70_orange_sibling_remains_clipped"),
+        (65, 70, 70, 70, 70, "t70_dark_sibling_inside_restored_outer_clip"),
+        (65, 77, 70, 70, 70, "t70_dark_sibling_outside_restored_outer_clip"),
+    ]
+    .into_iter()
+    .map(|(x, y, red, green, blue, label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+    })
+    .collect()
 }
 
 fn tile_68_gradient_transition_hints(renderer: &mut Renderer) -> Vec<PixelExpectation> {

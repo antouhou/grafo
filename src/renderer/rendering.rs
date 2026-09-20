@@ -361,13 +361,6 @@ impl<'a> Renderer<'a> {
         textures_to_recycle.append(&mut effect_output_textures);
         state.texture_pool.recycle(&mut textures_to_recycle);
 
-        state
-            .draw_tree
-            .iter_mut()
-            .for_each(|(_node_id, draw_command)| {
-                draw_command.clear_frame_state();
-            });
-
         state.scratch.shape_effect_leaves.clear();
 
         state.scratch.traversal_scratch = traversal_scratch;
