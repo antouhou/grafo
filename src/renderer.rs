@@ -35,6 +35,7 @@ mod effects;
 #[cfg(feature = "render_metrics")]
 pub mod metrics;
 mod passes;
+mod plan;
 mod preparation;
 mod readback;
 mod rect_utils;
@@ -44,8 +45,6 @@ mod state;
 mod surface;
 mod traversal;
 pub(crate) mod types;
-
-pub type MathRect = lyon::math::Box2D;
 
 /// Texture layers for a shape. Background is layer 0, foreground is layer 1.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
