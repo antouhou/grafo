@@ -156,10 +156,12 @@ hierarchical clipping, texture layers, transforms, and shader effects.
 
 ### Background and foreground textures
 
-Shapes composite up to two texture layers over the instance color using premultiplied alpha:
+Shapes composite up to two texture layers over the instance color using premultiplied alpha.
 
-1. `TextureLayer::Background` uses index 0.
-2. `TextureLayer::Foreground` uses index 1.
+Set the layers with `ShapeDrawCommandOptions::background_texture` and
+`ShapeDrawCommandOptions::foreground_texture`. Each accepts `ShapeTextureOptions`
+with a texture ID and fit mode. Use `background_texture_id` and `foreground_texture_id`
+to set just the IDs.
 
 Composition from bottom to top:
 

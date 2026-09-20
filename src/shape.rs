@@ -924,10 +924,9 @@ pub enum ShapeTextureFitMode {
     /// Preserve the texture's aspect ratio and center it inside the shape bounds.
     Contain,
     /// Treat one texture texel as one physical pixel before the shape transform is applied.
-    /// Translation does not affect the mapping, while scale, rotation, and perspective affect
-    /// the texture together with the shape. Outside the original texture footprint, sampling does
-    /// not crop to transparency; the unclipped area instead shows the underlying fill/background
-    /// according to normal compositing.
+    /// The texture moves and transforms with the shape.
+    /// Outside the texture footprint, this layer contributes no color.
+    /// The fill and other texture layer remain visible.
     OriginalSize,
 }
 

@@ -11,8 +11,9 @@
 //! ```
 use futures::executor::block_on;
 use grafo::wgpu::SurfaceError;
-use grafo::RenderError;
-use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke, TransformInstance};
+use grafo::{
+    Color, RenderError, Renderer, Shape, ShapeDrawCommandOptions, Stroke, TransformInstance,
+};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
@@ -223,6 +224,17 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
     }
 
     total_shapes
+}
+
+fn handle_render_error(renderer: &mut Renderer<'_>, window: &Window, error: RenderError) {
+    match error {
+        RenderError::Surface(SurfaceError::Timeout) => {}
+        RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated) => {
+            renderer.resize(renderer.size());
+        }
+        error => panic!("render failed: {error:?}"),
+    }
+    window.request_redraw();
 }
 
 fn print_results(label: &str, frame_times: &mut [Duration], total_elapsed: Duration) {
@@ -489,22 +501,9 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                 match self.phase {
                     Phase::WarmupStatic => {
                         let renderer = self.renderer.as_mut().unwrap();
-                        match renderer.render() {
-                            Ok(_) => {}
-                            Err(RenderError::Surface(SurfaceError::Timeout)) => {
-                                // Exclude failed renders from the warmup count.
-                                window.request_redraw();
-                                return;
-                            }
-                            Err(RenderError::Surface(
-                                SurfaceError::Lost | SurfaceError::Outdated,
-                            )) => {
-                                let size = renderer.size();
-                                renderer.resize(size);
-                                window.request_redraw();
-                                return;
-                            }
-                            Err(e) => panic!("render failed: {e:?}"),
+                        if let Err(error) = renderer.render() {
+                            handle_render_error(renderer, &window, error);
+                            return;
                         }
                         self.frame_counter += 1;
                         if self.frame_counter >= WARMUP_FRAMES {
@@ -521,22 +520,9 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                         {
                             let renderer = self.renderer.as_mut().unwrap();
                             let frame_start = Instant::now();
-                            match renderer.render() {
-                                Ok(_) => {}
-                                Err(RenderError::Surface(SurfaceError::Timeout)) => {
-                                    // Exclude failed renders from render samples.
-                                    window.request_redraw();
-                                    return;
-                                }
-                                Err(RenderError::Surface(
-                                    SurfaceError::Lost | SurfaceError::Outdated,
-                                )) => {
-                                    let size = renderer.size();
-                                    renderer.resize(size);
-                                    window.request_redraw();
-                                    return;
-                                }
-                                Err(e) => panic!("render failed: {e:?}"),
+                            if let Err(error) = renderer.render() {
+                                handle_render_error(renderer, &window, error);
+                                return;
                             }
                             self.static_frame_times.push(frame_start.elapsed());
 
@@ -564,24 +550,10 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                     Phase::WarmupDynamic => {
                         let renderer = self.renderer.as_mut().unwrap();
                         build_scene(renderer);
-                        match renderer.render() {
-                            Ok(_) => {}
-                            Err(RenderError::Surface(SurfaceError::Timeout)) => {
-                                // Exclude failed renders from the warmup count.
-                                renderer.clear_draw_queue();
-                                window.request_redraw();
-                                return;
-                            }
-                            Err(RenderError::Surface(
-                                SurfaceError::Lost | SurfaceError::Outdated,
-                            )) => {
-                                renderer.clear_draw_queue();
-                                let size = renderer.size();
-                                renderer.resize(size);
-                                window.request_redraw();
-                                return;
-                            }
-                            Err(e) => panic!("render failed: {e:?}"),
+                        if let Err(error) = renderer.render() {
+                            renderer.clear_draw_queue();
+                            handle_render_error(renderer, &window, error);
+                            return;
                         }
                         renderer.clear_draw_queue();
                         self.frame_counter += 1;
@@ -603,24 +575,10 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                             let rebuild_duration = rebuild_start.elapsed();
 
                             let frame_start = Instant::now();
-                            match renderer.render() {
-                                Ok(_) => {}
-                                Err(RenderError::Surface(SurfaceError::Timeout)) => {
-                                    // Exclude failed renders from render samples.
-                                    renderer.clear_draw_queue();
-                                    window.request_redraw();
-                                    return;
-                                }
-                                Err(RenderError::Surface(
-                                    SurfaceError::Lost | SurfaceError::Outdated,
-                                )) => {
-                                    renderer.clear_draw_queue();
-                                    let size = renderer.size();
-                                    renderer.resize(size);
-                                    window.request_redraw();
-                                    return;
-                                }
-                                Err(e) => panic!("render failed: {e:?}"),
+                            if let Err(error) = renderer.render() {
+                                renderer.clear_draw_queue();
+                                handle_render_error(renderer, &window, error);
+                                return;
                             }
                             self.dynamic_rebuild_times.push(rebuild_duration);
                             self.dynamic_frame_times.push(frame_start.elapsed());

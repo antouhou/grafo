@@ -46,32 +46,6 @@ mod surface;
 mod traversal;
 pub(crate) mod types;
 
-/// Texture layers for a shape. Background is layer 0, foreground is layer 1.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub enum TextureLayer {
-    Background,
-    Foreground,
-}
-
-impl From<TextureLayer> for usize {
-    fn from(value: TextureLayer) -> Self {
-        match value {
-            TextureLayer::Background => 0,
-            TextureLayer::Foreground => 1,
-        }
-    }
-}
-
-/// Controls whether a shape clips descendants attached to it in the draw tree.
-#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
-pub enum ShapeOverflow {
-    /// Clip descendants to this shape. This is the default.
-    #[default]
-    Hidden,
-    /// Descendants can render outside this shape, while still inheriting ancestor clips.
-    Visible,
-}
-
 /// GPU resources shared by renderers.
 ///
 /// Create a context once and pass clones to renderers to share the GPU device, queue,

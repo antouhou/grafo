@@ -99,7 +99,7 @@ impl<'a> Renderer<'a> {
     /// Adds an axis-aligned scissor clipping rectangle without preparing geometry.
     ///
     /// This node clips its children when `clips_children` is true.
-    /// The transform setters reject rotation, skew, and perspective because the node
+    /// This method rejects rotation, skew, and perspective because the node
     /// has no geometry for stencil clipping.
     ///
     /// When `parent_shape_id` is `Some`, the clipping rectangle is attached as a child of

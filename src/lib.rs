@@ -69,11 +69,11 @@ pub use gradient::types::{
     ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
     GradientDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
     HueComponent, HueInterpolationMethod, LinearGradientDesc, LinearGradientLine,
-    RadialGradientDesc, RadialGradientShape, RadialGradientSize, SpreadMode,
+    RadialGradientDesc, RadialGradientSize, SpreadMode,
 };
 pub use renderer::{
     types::{DrawCommandError, GeometryBufferError, RenderError},
-    ReadbackError, Renderer, RendererContext, RendererCreationError, ShapeOverflow, TextureLayer,
+    ReadbackError, Renderer, RendererContext, RendererCreationError,
 };
 pub use shape::*;
 pub use stroke::Stroke;

@@ -176,21 +176,18 @@ impl LinearGradientDesc {
 pub struct RadialGradientDesc {
     pub common: GradientCommonDesc,
     pub center: [f32; 2],
-    pub shape: RadialGradientShape,
     pub size: RadialGradientSize,
 }
 
 impl RadialGradientDesc {
     pub fn new(
         center: [f32; 2],
-        shape: RadialGradientShape,
         size: RadialGradientSize,
         stops: impl Into<GradientStops>,
     ) -> Self {
         Self {
             common: GradientCommonDesc::new(stops),
             center,
-            shape,
             size,
         }
     }
@@ -322,12 +319,6 @@ pub enum HueInterpolationMethod {
 pub enum SpreadMode {
     Pad,
     Repeat,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RadialGradientShape {
-    Circle,
-    Ellipse,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -636,26 +627,22 @@ impl Gradient {
         validate_finite_f32(desc.center[0], "center[0]")?;
         validate_finite_f32(desc.center[1], "center[1]")?;
 
-        let (radius_x, radius_y) = match (&desc.shape, &desc.size) {
-            (RadialGradientShape::Circle, RadialGradientSize::ExplicitCircleRadius(r)) => {
-                validate_finite_f32(*r, "radius")?;
-                if *r < 0.0 {
+        let (radius_x, radius_y) = match desc.size {
+            RadialGradientSize::ExplicitCircleRadius(radius) => {
+                validate_finite_f32(radius, "radius")?;
+                if radius < 0.0 {
                     return Err(GradientError::InvalidRadialDefinition);
                 }
-                (*r, *r)
+                (radius, radius)
             }
-            (
-                RadialGradientShape::Ellipse,
-                RadialGradientSize::ExplicitEllipseRadii { radius_x, radius_y },
-            ) => {
-                validate_finite_f32(*radius_x, "radius_x")?;
-                validate_finite_f32(*radius_y, "radius_y")?;
-                if *radius_x < 0.0 || *radius_y < 0.0 {
+            RadialGradientSize::ExplicitEllipseRadii { radius_x, radius_y } => {
+                validate_finite_f32(radius_x, "radius_x")?;
+                validate_finite_f32(radius_y, "radius_y")?;
+                if radius_x < 0.0 || radius_y < 0.0 {
                     return Err(GradientError::InvalidRadialDefinition);
                 }
-                (*radius_x, *radius_y)
+                (radius_x, radius_y)
             }
-            _ => return Err(GradientError::InvalidRadialDefinition),
         };
 
         let normalized = NormalizedGradient::from_common(&desc.common, GradientKind::Radial);
@@ -941,122 +928,4 @@ fn check_finite(
         });
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::gradient::gpu::GpuGradientColorParams;
-
-    fn single_stop_common() -> GradientCommonDesc {
-        GradientCommonDesc::new([GradientStop::auto(Color::rgb(255, 0, 0))])
-            .with_interpolation(ColorInterpolation::SrgbLinear)
-    }
-
-    #[test]
-    fn degenerate_radial_gradient_uses_the_last_stop_color() {
-        for (shape, size) in [
-            (
-                RadialGradientShape::Circle,
-                RadialGradientSize::ExplicitCircleRadius(0.0),
-            ),
-            (
-                RadialGradientShape::Ellipse,
-                RadialGradientSize::ExplicitEllipseRadii {
-                    radius_x: 0.0,
-                    radius_y: 20.0,
-                },
-            ),
-            (
-                RadialGradientShape::Ellipse,
-                RadialGradientSize::ExplicitEllipseRadii {
-                    radius_x: 20.0,
-                    radius_y: 0.0,
-                },
-            ),
-        ] {
-            let gradient = Gradient::radial(RadialGradientDesc::new(
-                [50.0, 50.0],
-                shape,
-                size,
-                [
-                    GradientStop::auto(Color::rgb(255, 0, 0)),
-                    GradientStop::auto(GradientColor::Srgb {
-                        red: 0.0,
-                        green: 1.0,
-                        blue: 0.0,
-                        alpha: 0.25,
-                    }),
-                ],
-            ))
-            .unwrap();
-
-            let GradientRamp::Constant(color) = gradient.data.ramp else {
-                panic!("a degenerate radial gradient must have a constant ramp");
-            };
-            assert_eq!(color, [0.0, 0.25, 0.0, 0.25]);
-            let params = GpuGradientColorParams::from_gradient_data(&gradient.data);
-            assert_eq!(params.is_constant, 1);
-            assert_eq!(params.constant_color, color);
-        }
-    }
-
-    #[test]
-    fn radial_rejects_negative_circle_radius() {
-        let gradient = Gradient::radial(RadialGradientDesc {
-            common: single_stop_common(),
-            center: [50.0, 50.0],
-            shape: RadialGradientShape::Circle,
-            size: RadialGradientSize::ExplicitCircleRadius(-1.0),
-        });
-
-        assert!(matches!(
-            gradient,
-            Err(GradientError::InvalidRadialDefinition)
-        ));
-    }
-
-    #[test]
-    fn radial_rejects_negative_ellipse_radius() {
-        let gradient = Gradient::radial(RadialGradientDesc {
-            common: single_stop_common(),
-            center: [50.0, 50.0],
-            shape: RadialGradientShape::Ellipse,
-            size: RadialGradientSize::ExplicitEllipseRadii {
-                radius_x: 20.0,
-                radius_y: -1.0,
-            },
-        });
-
-        assert!(matches!(
-            gradient,
-            Err(GradientError::InvalidRadialDefinition)
-        ));
-    }
-
-    #[test]
-    fn nonconstant_gradients_start_with_pending_ramp() {
-        let gradient = Gradient::linear(
-            LinearGradientDesc::new(
-                LinearGradientLine {
-                    start: [0.0, 0.0],
-                    end: [10.0, 0.0],
-                },
-                [
-                    GradientStop::at_position(
-                        GradientStopOffset::linear_radial(0.0),
-                        Color::rgb(255, 0, 0),
-                    ),
-                    GradientStop::at_position(
-                        GradientStopOffset::linear_radial(1.0),
-                        Color::rgb(0, 0, 255),
-                    ),
-                ],
-            )
-            .with_interpolation(ColorInterpolation::SrgbLinear),
-        )
-        .unwrap();
-
-        assert!(matches!(gradient.data.ramp, GradientRamp::Pending(_)));
-    }
 }

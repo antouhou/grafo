@@ -2,8 +2,8 @@ use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
     ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
     GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
-    LinearGradientLine, RadialGradientDesc, RadialGradientShape, RadialGradientSize, Renderer,
-    Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
+    LinearGradientLine, RadialGradientDesc, RadialGradientSize, Renderer, Shape,
+    ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
     SpreadMode, Stroke, TransformInstance,
 };
 
@@ -2709,7 +2709,6 @@ fn tile_40_radial_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let gradient = Gradient::radial(RadialGradientDesc {
         common: two_stop_common((240, 240, 30), (30, 180, 30), SpreadMode::Pad),
         center: [ox + 40.0, oy + 40.0],
-        shape: RadialGradientShape::Circle,
         size: RadialGradientSize::ExplicitCircleRadius(30.0),
     })
     .expect("valid gradient");

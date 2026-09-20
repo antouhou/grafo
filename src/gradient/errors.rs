@@ -18,7 +18,7 @@ pub enum GradientError {
     #[error("hint offset at index {stop_index} uses wrong scalar kind for this gradient type")]
     InvalidHintOffsetKind { stop_index: usize },
 
-    #[error("invalid radial gradient definition (shape/size mismatch)")]
+    #[error("radial gradient radii must be non-negative")]
     InvalidRadialDefinition,
 
     #[error("invalid conic gradient definition")]
