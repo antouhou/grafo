@@ -150,17 +150,6 @@ impl DrawCommand {
             DrawCommand::ClipRect(clip_rect) => Some(clip_rect.rect_bounds),
         }
     }
-
-    pub(super) fn clear_frame_state(&mut self) {
-        match self {
-            DrawCommand::CachedShape(cached_shape) => {
-                // Geometry ranges are stable across frames until the draw queue is rebuilt.
-                // Clearing them here makes the next frame silently skip the shape.
-                cached_shape.stencil_ref = None;
-            }
-            DrawCommand::ClipRect(_) => {}
-        }
-    }
 }
 
 /// Geometry cannot be addressed by an indexed draw command.

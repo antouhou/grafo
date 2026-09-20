@@ -52,11 +52,7 @@ impl<'a> Renderer<'a> {
             self.ensure_effect_sampler();
         }
         if has_backdrop_effects {
-            self.ensure_texture_blit_pipeline();
-            self.ensure_backdrop_layer_composite_pipeline();
-            self.ensure_stencil_only_pipeline();
-            self.ensure_backdrop_color_pipeline();
-            self.ensure_backdrop_color_gradient_pipeline();
+            self.ensure_backdrop_pipelines();
         }
 
         if self.depth_stencil_view.is_none() {
@@ -81,26 +77,21 @@ impl<'a> Renderer<'a> {
 
         let pipeline_resources = &self.pipeline_resources;
         let backdrop_context = if has_backdrop_effects {
-            let backdrop_composite = pipeline_resources
-                .backdrop_layer_composite_resources
+            let backdrops = pipeline_resources
+                .backdrops
                 .as_ref()
-                .unwrap();
+                .expect("backdrop pipelines were initialized above");
+            let backdrop_composite = &backdrops.layer_composite_resources;
             Some(types::BackdropContext {
                 loaded_effects: &self.loaded_effects,
                 effect_sampler: pipeline_resources.effect_sampler.as_ref().unwrap(),
                 gradient_ramp_sampler: &pipeline_resources.shapes.gradient_ramp_sampler,
-                texture_blit_pipeline: pipeline_resources.texture_blit_pipeline.as_ref().unwrap(),
+                texture_blit_pipeline: &backdrops.texture_blit_pipeline,
                 backdrop_layer_composite_pipeline: &backdrop_composite.pipeline,
                 backdrop_layer_composite_bind_group_layout: &backdrop_composite.bind_group_layout,
-                stencil_only_pipeline: pipeline_resources.stencil_only_pipeline.as_ref().unwrap(),
-                backdrop_color_pipeline: pipeline_resources
-                    .backdrop_color_pipeline
-                    .as_ref()
-                    .unwrap(),
-                backdrop_color_gradient_pipeline: pipeline_resources
-                    .backdrop_color_gradient_pipeline
-                    .as_ref()
-                    .unwrap(),
+                stencil_only_pipeline: &backdrops.stencil_only_pipeline,
+                backdrop_color_pipeline: &backdrops.color_pipeline,
+                backdrop_color_gradient_pipeline: &backdrops.color_gradient_pipeline,
                 device: &self.device,
                 queue: &self.queue,
                 config_format: self.config.format,
@@ -369,13 +360,6 @@ impl<'a> Renderer<'a> {
         effect_output_textures.append(&mut state.scratch.backdrop_work_textures);
         textures_to_recycle.append(&mut effect_output_textures);
         state.texture_pool.recycle(&mut textures_to_recycle);
-
-        state
-            .draw_tree
-            .iter_mut()
-            .for_each(|(_node_id, draw_command)| {
-                draw_command.clear_frame_state();
-            });
 
         state.scratch.shape_effect_leaves.clear();
 

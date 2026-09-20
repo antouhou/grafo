@@ -1045,9 +1045,6 @@ pub(crate) struct CachedShapeDrawData {
     /// Assigned when geometry is appended to the shared buffers.
     pub(crate) geometry_buffer_range: Option<GeometryBufferRange>,
     pub(crate) is_empty: bool,
-    /// Stencil reference used by this shape during traversal. Cleared after rendering.
-    /// Stencil clips increment the inherited reference; ordinary leaf draws inherit it.
-    pub(crate) stencil_ref: Option<u32>,
     /// Assigned when instance data is appended to the shared buffers.
     pub(crate) instance_index: Option<usize>,
     /// Optional per-shape transform applied in pixel space before clip-space normalization.
@@ -1100,7 +1097,6 @@ impl CachedShapeDrawData {
             },
             fill: options.fill.clone(),
             instance_index: None,
-            stencil_ref: None,
             gradient_bind_group: None,
             backdrop_material_params_buffer: None,
             backdrop_gradient_bind_group: None,

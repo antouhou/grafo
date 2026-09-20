@@ -1,5 +1,5 @@
 use super::types::DrawCommand;
-use crate::effect::EffectInstance;
+use crate::effect::{BackdropEffectInstance, EffectInstance};
 use crate::vertex::InstanceTransform;
 use crate::{MathRect, PhysicalRect, Size, UnsignedPhysicalRect};
 use ahash::HashMap;
@@ -33,7 +33,7 @@ pub(super) fn should_skip_visible_rect_draw(
     node_id: usize,
     draw_command: &DrawCommand,
     group_effects: &HashMap<usize, EffectInstance>,
-    backdrop_effects: &HashMap<usize, EffectInstance>,
+    backdrop_effects: &HashMap<usize, BackdropEffectInstance>,
 ) -> bool {
     if !draw_command.is_rect() {
         return false;

@@ -3,7 +3,7 @@ use super::{
     transform_point_to_logical_screen, transformed_bounds_to_logical_screen_rect,
     try_scissor_for_rect,
 };
-use crate::effect::EffectInstance;
+use crate::effect::{BackdropEffectConfig, BackdropEffectInstance, EffectInstance};
 use crate::gradient::types::{
     ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset, LinearGradientDesc,
     LinearGradientLine,
@@ -100,11 +100,6 @@ fn skip_visible_rect_draw_rejects_effect_nodes() {
             effect_id: 1,
             params: Vec::new(),
             parameter_resources: None,
-            backdrop_config: None,
-            backdrop_material_params_buffer: None,
-            backdrop_layer_params_buffer: None,
-            backdrop_texture_bind_group: None,
-            backdrop_texture_id: None,
         },
     );
 
@@ -118,16 +113,14 @@ fn skip_visible_rect_draw_rejects_effect_nodes() {
     let mut backdrop_effects = HashMap::new();
     backdrop_effects.insert(
         node_id,
-        EffectInstance {
-            effect_id: 2,
-            params: Vec::new(),
-            parameter_resources: None,
-            backdrop_config: None,
-            backdrop_material_params_buffer: None,
-            backdrop_layer_params_buffer: None,
-            backdrop_texture_bind_group: None,
-            backdrop_texture_id: None,
-        },
+        BackdropEffectInstance::new(
+            EffectInstance {
+                effect_id: 2,
+                params: Vec::new(),
+                parameter_resources: None,
+            },
+            BackdropEffectConfig::default(),
+        ),
     );
 
     assert!(!should_skip_visible_rect_draw(
