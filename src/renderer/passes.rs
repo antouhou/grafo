@@ -1009,7 +1009,7 @@ pub(super) fn render_segments(
                     .backdrop_effects
                     .get_mut(&backdrop_node_id)
                     .expect("backdrop node must have an attached effect instance");
-                let backdrop_config = effect_instance.backdrop_config.unwrap_or_default();
+                let backdrop_config = effect_instance.config;
 
                 if let Some(capture_region) = compute_backdrop_capture_region(
                     draw_command,
@@ -1115,7 +1115,7 @@ pub(super) fn render_segments(
 
                     let loaded_effect = bctx
                         .loaded_effects
-                        .get(&effect_instance.effect_id)
+                        .get(&effect_instance.effect.effect_id)
                         .expect("loaded backdrop effect must exist");
                     let effect_output = apply_effect_passes(
                         bctx.device,
@@ -1124,6 +1124,7 @@ pub(super) fn render_segments(
                         EffectPassRunConfig {
                             loaded_effect,
                             params_bind_group: effect_instance
+                                .effect
                                 .parameter_resources
                                 .as_ref()
                                 .map(|resources| &resources.bind_group),

@@ -1,9 +1,6 @@
+use super::state::BackdropPipelineResources;
 use super::*;
-use crate::effect::EffectParameterResources;
-use crate::pipeline::{
-    create_backdrop_gradient_stencil_keep_color_pipeline,
-    create_backdrop_stencil_keep_color_pipeline, create_stencil_only_pipeline,
-};
+use crate::effect::{BackdropEffectInstance, EffectParameterResources};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 fn overwrite_effect_params(storage: &mut Vec<u8>, params: &[u8]) {
@@ -130,7 +127,6 @@ fn build_effect_instance(
     loaded_effect: &LoadedEffect,
     effect_id: u64,
     params: &[u8],
-    backdrop_config: Option<effect::BackdropEffectConfig>,
     params_buffer_label: &'static str,
 ) -> EffectInstance {
     let parameter_resources = loaded_effect
@@ -143,11 +139,6 @@ fn build_effect_instance(
         effect_id,
         params: params.to_vec(),
         parameter_resources,
-        backdrop_config,
-        backdrop_material_params_buffer: None,
-        backdrop_layer_params_buffer: None,
-        backdrop_texture_bind_group: None,
-        backdrop_texture_id: None,
     }
 }
 
@@ -259,8 +250,12 @@ impl<'a> Renderer<'a> {
                 || refresh_effect_instance_after_reload(&self.device, loaded_effect, instance)
         });
         self.state.backdrop_effects.retain(|_, instance| {
-            instance.effect_id != effect_id
-                || refresh_effect_instance_after_reload(&self.device, loaded_effect, instance)
+            instance.effect.effect_id != effect_id
+                || refresh_effect_instance_after_reload(
+                    &self.device,
+                    loaded_effect,
+                    &mut instance.effect,
+                )
         });
         self.state.shape_effects.retain(|_, instance| {
             instance.effect_id != effect_id
@@ -305,7 +300,6 @@ impl<'a> Renderer<'a> {
             loaded_effect,
             effect_id,
             params,
-            None,
             "effect_params_buffer",
         );
 
@@ -371,11 +365,13 @@ impl<'a> Renderer<'a> {
             loaded_effect,
             effect_id,
             params,
-            Some(backdrop_config),
             "backdrop_effect_params_buffer",
         );
 
-        self.state.backdrop_effects.insert(node_id, instance);
+        self.state.backdrop_effects.insert(
+            node_id,
+            BackdropEffectInstance::new(instance, backdrop_config),
+        );
         Ok(())
     }
 
@@ -391,7 +387,7 @@ impl<'a> Renderer<'a> {
             .backdrop_effects
             .get_mut(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
-        instance.backdrop_config = Some(backdrop_config);
+        instance.config = backdrop_config;
         instance.backdrop_texture_bind_group = None;
         instance.backdrop_texture_id = None;
         Ok(())
@@ -407,6 +403,7 @@ impl<'a> Renderer<'a> {
             .backdrop_effects
             .get_mut(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
+        let instance = &mut instance.effect;
 
         let loaded_effect =
             find_effect_and_validate_params(&self.loaded_effects, instance.effect_id, params)?;
@@ -463,16 +460,13 @@ impl<'a> Renderer<'a> {
         node_id: usize,
         params: &[u8],
     ) -> Result<(), EffectError> {
-        let effect_id = self
+        let instance = self
             .state
             .shape_effects
-            .get(&node_id)
-            .ok_or(EffectError::NodeNotFound(node_id))?
-            .effect_id;
-        find_effect_and_validate_params(&self.loaded_effects, effect_id, params)?;
-        if let Some(instance) = self.state.shape_effects.get_mut(&node_id) {
-            instance.params = Arc::from(params);
-        }
+            .get_mut(&node_id)
+            .ok_or(EffectError::NodeNotFound(node_id))?;
+        find_effect_and_validate_params(&self.loaded_effects, instance.effect_id, params)?;
+        instance.params = Arc::from(params);
         Ok(())
     }
 
@@ -503,7 +497,7 @@ impl<'a> Renderer<'a> {
             .retain(|_, instance| instance.effect_id != effect_id);
         self.state
             .backdrop_effects
-            .retain(|_, instance| instance.effect_id != effect_id);
+            .retain(|_, instance| instance.effect.effect_id != effect_id);
         self.state
             .shape_effects
             .retain(|_, instance| instance.effect_id != effect_id);
@@ -518,28 +512,24 @@ impl<'a> Renderer<'a> {
             .get_or_insert_with(|| compile_composite_pipeline(&self.device, self.config.format))
     }
 
-    pub(super) fn ensure_texture_blit_pipeline(&mut self) {
-        if self.pipeline_resources.texture_blit_pipeline.is_some() {
+    pub(super) fn ensure_backdrop_pipelines(&mut self) {
+        if self.pipeline_resources.backdrops.is_some() {
             return;
         }
 
-        let device = Arc::clone(&self.device);
-        let format = self.config.format;
-        let composite_resources = self.ensure_composite_pipeline();
-        self.pipeline_resources.texture_blit_pipeline =
-            Some(effect::compile_texture_blit_pipeline(
-                &device,
-                format,
-                &composite_resources.bind_group_layout,
-            ));
-    }
-
-    pub(super) fn ensure_backdrop_layer_composite_pipeline(&mut self) {
-        self.pipeline_resources
-            .backdrop_layer_composite_resources
-            .get_or_insert_with(|| {
-                effect::compile_backdrop_layer_composite_pipeline(&self.device, self.config.format)
-            });
+        self.ensure_composite_pipeline();
+        let resources = &self.pipeline_resources;
+        let composite = resources
+            .composite_resources
+            .as_ref()
+            .expect("composite resources were initialized above");
+        self.pipeline_resources.backdrops = Some(BackdropPipelineResources::new(
+            &self.device,
+            self.config.format,
+            self.msaa_sample_count,
+            &resources.shapes,
+            &composite.bind_group_layout,
+        ));
     }
 
     pub(super) fn ensure_effect_sampler(&mut self) {
@@ -555,72 +545,6 @@ impl<'a> Renderer<'a> {
                     ..Default::default()
                 }));
         }
-    }
-
-    pub(super) fn ensure_stencil_only_pipeline(&mut self) {
-        if self.pipeline_resources.stencil_only_pipeline.is_some() {
-            return;
-        }
-
-        let pipelines = &self.pipeline_resources.shapes;
-        let uniform_bind_group_layout = pipelines.and_pipeline.get_bind_group_layout(0);
-        let pipeline = create_stencil_only_pipeline(
-            &self.device,
-            self.config.format,
-            self.msaa_sample_count,
-            &uniform_bind_group_layout,
-            &pipelines.shape_texture_bind_group_layout_background,
-            &pipelines.shape_texture_bind_group_layout_foreground,
-        );
-        self.pipeline_resources.stencil_only_pipeline = Some(pipeline);
-    }
-
-    pub(super) fn ensure_backdrop_color_pipeline(&mut self) {
-        if self.pipeline_resources.backdrop_color_pipeline.is_some() {
-            return;
-        }
-
-        let pipelines = &self.pipeline_resources.shapes;
-        let uniform_bind_group_layout = pipelines.and_pipeline.get_bind_group_layout(0);
-        let pipeline = create_backdrop_stencil_keep_color_pipeline(
-            &self.device,
-            self.config.format,
-            self.msaa_sample_count,
-            &uniform_bind_group_layout,
-            &pipelines.shape_texture_bind_group_layout_background,
-            &pipelines.shape_texture_bind_group_layout_foreground,
-            &self
-                .pipeline_resources
-                .shapes
-                .backdrop_texture_bind_group_layout,
-        );
-        self.pipeline_resources.backdrop_color_pipeline = Some(pipeline);
-    }
-
-    pub(super) fn ensure_backdrop_color_gradient_pipeline(&mut self) {
-        if self
-            .pipeline_resources
-            .backdrop_color_gradient_pipeline
-            .is_some()
-        {
-            return;
-        }
-
-        let pipelines = &self.pipeline_resources.shapes;
-        let uniform_bind_group_layout = pipelines.and_pipeline.get_bind_group_layout(0);
-        let pipeline = create_backdrop_gradient_stencil_keep_color_pipeline(
-            &self.device,
-            self.config.format,
-            self.msaa_sample_count,
-            &uniform_bind_group_layout,
-            &pipelines.shape_texture_bind_group_layout_background,
-            &pipelines.shape_texture_bind_group_layout_foreground,
-            &self
-                .pipeline_resources
-                .shapes
-                .backdrop_gradient_bind_group_layout,
-        );
-        self.pipeline_resources.backdrop_color_gradient_pipeline = Some(pipeline);
     }
 }
 

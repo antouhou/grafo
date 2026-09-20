@@ -1,19 +1,25 @@
 use super::shape_effects::ShapeEffectRendererResources;
-use super::state::{Buffers, ShapePipelines};
+use super::state::{BackdropPipelineResources, Buffers, ShapePipelines};
 use super::types::DrawCommand;
 use super::*;
 use crate::cache::FrameCache;
 use crate::gradient::gpu::GpuMaterialParams;
 use crate::pipeline::{
-    create_backdrop_gradient_bind_group_layout, create_backdrop_texture_bind_group_layout,
+    create_backdrop_gradient_bind_group_layout,
+    create_backdrop_gradient_stencil_keep_color_pipeline,
+    create_backdrop_stencil_keep_color_pipeline, create_backdrop_texture_bind_group_layout,
     create_gradient_bind_group_layout, create_gradient_increment_pipeline,
     create_gradient_stencil_keep_color_pipeline, create_stencil_keep_color_pipeline,
+    create_stencil_only_pipeline,
 };
 use crate::vertex::CustomVertex;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 use tracing::{error, info, warn};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
-use wgpu::{DownlevelFlags, InstanceDescriptor, SurfaceConfiguration};
+use wgpu::{
+    BindGroupLayout, Device, DownlevelFlags, InstanceDescriptor, SurfaceConfiguration,
+    TextureFormat,
+};
 
 fn create_transparent_texture_view_and_sampler(
     device: &wgpu::Device,
@@ -246,6 +252,56 @@ impl ShapePipelines {
     }
 }
 
+impl BackdropPipelineResources {
+    pub(super) fn new(
+        device: &Device,
+        format: TextureFormat,
+        sample_count: u32,
+        shapes: &ShapePipelines,
+        composite_layout: &BindGroupLayout,
+    ) -> Self {
+        let uniform_layout = shapes.and_pipeline.get_bind_group_layout(0);
+        let background_layout = &shapes.shape_texture_bind_group_layout_background;
+        let foreground_layout = &shapes.shape_texture_bind_group_layout_foreground;
+        Self {
+            texture_blit_pipeline: effect::compile_texture_blit_pipeline(
+                device,
+                format,
+                composite_layout,
+            ),
+            layer_composite_resources: effect::compile_backdrop_layer_composite_pipeline(
+                device, format,
+            ),
+            stencil_only_pipeline: create_stencil_only_pipeline(
+                device,
+                format,
+                sample_count,
+                &uniform_layout,
+                background_layout,
+                foreground_layout,
+            ),
+            color_pipeline: create_backdrop_stencil_keep_color_pipeline(
+                device,
+                format,
+                sample_count,
+                &uniform_layout,
+                background_layout,
+                foreground_layout,
+                &shapes.backdrop_texture_bind_group_layout,
+            ),
+            color_gradient_pipeline: create_backdrop_gradient_stencil_keep_color_pipeline(
+                device,
+                format,
+                sample_count,
+                &uniform_layout,
+                background_layout,
+                foreground_layout,
+                &shapes.backdrop_gradient_bind_group_layout,
+            ),
+        }
+    }
+}
+
 /// Errors from creating a [`RendererContext`] or [`Renderer`].
 #[derive(Debug, thiserror::Error)]
 pub enum RendererCreationError {
@@ -456,11 +512,7 @@ impl<'a> Renderer<'a> {
                 shape_effects: shape_effect_resources,
                 effect_sampler: None,
                 composite_resources: None,
-                texture_blit_pipeline: None,
-                backdrop_layer_composite_resources: None,
-                stencil_only_pipeline: None,
-                backdrop_color_pipeline: None,
-                backdrop_color_gradient_pipeline: None,
+                backdrops: None,
             },
             temp_vertices: Vec::new(),
             temp_indices: Vec::new(),
@@ -811,11 +863,7 @@ impl<'a> Renderer<'a> {
             .recreate_pipeline(&self.device, self.config.format);
 
         // Reset lazily-created pipelines so they pick up the new layout
-        self.pipeline_resources.texture_blit_pipeline = None;
-        self.pipeline_resources.backdrop_layer_composite_resources = None;
-        self.pipeline_resources.stencil_only_pipeline = None;
-        self.pipeline_resources.backdrop_color_pipeline = None;
-        self.pipeline_resources.backdrop_color_gradient_pipeline = None;
+        self.pipeline_resources.backdrops = None;
 
         // Refresh per-shape gradient bind groups against the new layout so the
         // next render does not allocate gradient resources on the render path.

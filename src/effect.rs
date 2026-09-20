@@ -239,7 +239,7 @@ pub(crate) struct CompositePipelineResources {
     pub bind_group_layout: wgpu::BindGroupLayout,
 }
 
-/// An effect attachment stored by node ID in the renderer.
+/// Parameters shared by group and backdrop effect attachments.
 pub(crate) struct EffectInstance {
     /// The loaded effect's ID.
     pub effect_id: u64,
@@ -248,8 +248,12 @@ pub(crate) struct EffectInstance {
     pub params: Vec<u8>,
     /// Created when attaching a parameterized effect; updated when its parameters change.
     pub parameter_resources: Option<EffectParameterResources>,
-    /// Optional backdrop capture configuration. Only used for backdrop effects.
-    pub backdrop_config: Option<BackdropEffectConfig>,
+}
+
+/// A backdrop attachment and its cached capture bindings.
+pub(crate) struct BackdropEffectInstance {
+    pub effect: EffectInstance,
+    pub config: BackdropEffectConfig,
     /// Persistent uniform buffer for backdrop material params bound at group 3 binding 0.
     pub backdrop_material_params_buffer: Option<wgpu::Buffer>,
     /// Persistent uniform buffer for compositing a group subtree into its backdrop capture.
@@ -258,6 +262,19 @@ pub(crate) struct EffectInstance {
     pub backdrop_texture_bind_group: Option<wgpu::BindGroup>,
     /// Stable id of the pooled texture currently referenced by `backdrop_texture_bind_group`.
     pub backdrop_texture_id: Option<u64>,
+}
+
+impl BackdropEffectInstance {
+    pub(crate) fn new(effect: EffectInstance, config: BackdropEffectConfig) -> Self {
+        Self {
+            effect,
+            config,
+            backdrop_material_params_buffer: None,
+            backdrop_layer_params_buffer: None,
+            backdrop_texture_bind_group: None,
+            backdrop_texture_id: None,
+        }
+    }
 }
 
 pub(crate) fn backdrop_layer_params(

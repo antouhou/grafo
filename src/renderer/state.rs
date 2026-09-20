@@ -5,7 +5,8 @@ use super::shape_effects::{
 };
 use super::types::{DrawCommand, RendererScratch};
 use crate::effect::{
-    CompositePipelineResources, EffectInstance, OffscreenTexturePool, ShapeEffectInstance,
+    BackdropEffectInstance, CompositePipelineResources, EffectInstance, OffscreenTexturePool,
+    ShapeEffectInstance,
 };
 use crate::pipeline::{self, Uniforms};
 use crate::texture_manager::TextureManager;
@@ -101,21 +102,26 @@ pub(super) struct ShapePipelines {
     pub(super) gradient_ramp_sampler: Sampler,
 }
 
+/// Pipelines created together when rendering first needs a backdrop effect.
+pub(super) struct BackdropPipelineResources {
+    /// Downsamples captured backdrop pixels before applying an effect.
+    pub(super) texture_blit_pipeline: RenderPipeline,
+    /// Layers a transparent group prefix over the scene behind the group.
+    pub(super) layer_composite_resources: CompositePipelineResources,
+    /// Clips the backdrop to its shape without drawing color.
+    pub(super) stencil_only_pipeline: RenderPipeline,
+    /// Draws the shape over its backdrop without incrementing stencil again.
+    pub(super) color_pipeline: RenderPipeline,
+    pub(super) color_gradient_pipeline: RenderPipeline,
+}
+
 /// Built-in shape and effect resources, borrowed separately from mutable draw state.
 pub(super) struct RendererPipelineResources {
     pub(super) shapes: ShapePipelines,
     pub(super) shape_effects: ShapeEffectRendererResources,
     pub(super) effect_sampler: Option<Sampler>,
     pub(super) composite_resources: Option<CompositePipelineResources>,
-    /// Downsamples captured backdrop pixels before applying an effect.
-    pub(super) texture_blit_pipeline: Option<RenderPipeline>,
-    /// Layers a transparent group prefix over the scene behind the group.
-    pub(super) backdrop_layer_composite_resources: Option<CompositePipelineResources>,
-    /// Clips the backdrop to its shape without drawing color.
-    pub(super) stencil_only_pipeline: Option<RenderPipeline>,
-    /// Draws the shape over its backdrop without incrementing stencil again.
-    pub(super) backdrop_color_pipeline: Option<RenderPipeline>,
-    pub(super) backdrop_color_gradient_pipeline: Option<RenderPipeline>,
+    pub(super) backdrops: Option<BackdropPipelineResources>,
 }
 
 /// Draw commands, effect attachments and caches, and reusable rendering storage.
@@ -123,7 +129,7 @@ pub(super) struct RendererState {
     pub(super) draw_tree: Tree<DrawCommand>,
     pub(super) shape_resources: ShapeResources,
     pub(super) group_effects: HashMap<usize, EffectInstance>,
-    pub(super) backdrop_effects: HashMap<usize, EffectInstance>,
+    pub(super) backdrop_effects: HashMap<usize, BackdropEffectInstance>,
     pub(super) shape_effects: HashMap<usize, ShapeEffectInstance>,
     /// Effect results retained while referenced by consecutive rendered frames.
     pub(super) shape_effect_cache: ShapeEffectResultCache,

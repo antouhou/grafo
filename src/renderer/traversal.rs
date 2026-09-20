@@ -1,5 +1,6 @@
 use super::types::{trim_vector_if_needed, TraversalEvent};
 use super::*;
+use crate::effect::BackdropEffectInstance;
 
 const MAX_TRAVERSAL_EVENTS_CAPACITY: usize = 32_768;
 const MAX_TRAVERSAL_STACK_CAPACITY: usize = 16_384;
@@ -34,7 +35,7 @@ impl TraversalScratch {
 
 pub(super) fn subtree_has_backdrop_effects(
     tree: &easy_tree::Tree<DrawCommand>,
-    backdrop_effects: &HashMap<usize, EffectInstance>,
+    backdrop_effects: &HashMap<usize, BackdropEffectInstance>,
     root_id: usize,
 ) -> bool {
     if backdrop_effects.is_empty() {
@@ -46,7 +47,7 @@ pub(super) fn subtree_has_backdrop_effects(
 
     fn scan(
         tree: &easy_tree::Tree<DrawCommand>,
-        backdrop_effects: &HashMap<usize, EffectInstance>,
+        backdrop_effects: &HashMap<usize, BackdropEffectInstance>,
         node_id: usize,
     ) -> bool {
         for &child_id in tree.children(node_id) {
@@ -150,7 +151,7 @@ mod tests {
         compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects, TraversalScratch,
     };
     use crate::cache::CachedTessellation;
-    use crate::effect::EffectInstance;
+    use crate::effect::{BackdropEffectConfig, BackdropEffectInstance, EffectInstance};
     use crate::renderer::types::{DrawCommand, TraversalEvent};
     use crate::shape::{CachedShapeDrawData, CachedShapeHandle};
     use crate::vertex::CustomVertex;
@@ -330,16 +331,14 @@ mod tests {
         let mut backdrop_effects = HashMap::new();
         backdrop_effects.insert(
             grandchild,
-            EffectInstance {
-                effect_id: 1,
-                params: Vec::new(),
-                parameter_resources: None,
-                backdrop_config: None,
-                backdrop_material_params_buffer: None,
-                backdrop_layer_params_buffer: None,
-                backdrop_texture_bind_group: None,
-                backdrop_texture_id: None,
-            },
+            BackdropEffectInstance::new(
+                EffectInstance {
+                    effect_id: 1,
+                    params: Vec::new(),
+                    parameter_resources: None,
+                },
+                BackdropEffectConfig::default(),
+            ),
         );
 
         assert!(subtree_has_backdrop_effects(&tree, &backdrop_effects, root));
