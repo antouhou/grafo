@@ -150,13 +150,13 @@ fn compute_vertex_bounds(vertices: &[CustomVertex]) -> [(f32, f32); 2] {
     [(min_x, min_y), (max_x, max_y)]
 }
 
-/// A rectangle or a path made of lines and Bézier curves.
+/// A rectangle or a path made of lines and Bezier curves.
 ///
 /// Use [`Self::rect`] or [`Self::rounded_rect`] for rectangles, or [`Self::builder`]
 /// for a custom path. Set the fill when queueing the shape with [`ShapeDrawCommandOptions`].
 #[derive(Debug, Clone)]
 pub enum Shape {
-    /// A custom path shape defined using Bézier curves and lines.
+    /// A custom path shape defined using Bezier curves and lines.
     Path(PathShape),
     /// An axis-aligned rectangle with square corners.
     Rect(RectShape),
@@ -324,7 +324,6 @@ impl AsRef<Shape> for Shape {
 pub struct RectShape {
     /// Top-left and bottom-right coordinates.
     pub(crate) rect: [(f32, f32); 2],
-    /// The stroke properties of the rectangle.
     #[allow(unused)]
     pub(crate) stroke: Stroke,
 }
@@ -341,9 +340,7 @@ impl RectShape {
 /// [`Shape::builder`] constructs this and wraps it in [`Shape::Path`].
 #[derive(Clone, Debug)]
 pub struct PathShape {
-    /// The geometric path defining the shape.
     pub(crate) path: lyon::path::Path,
-    /// The stroke properties of the shape.
     #[allow(unused)]
     pub(crate) stroke: Stroke,
 }
@@ -1265,7 +1262,7 @@ impl ShapeBuilder {
         self
     }
 
-    /// Draws a cubic Bézier curve to `to`, using `ctrl` and `ctrl2` as the first
+    /// Draws a cubic Bezier curve to `to`, using `ctrl` and `ctrl2` as the first
     /// and second control points.
     pub fn cubic_bezier_to(mut self, ctrl: (f32, f32), ctrl2: (f32, f32), to: (f32, f32)) -> Self {
         self.path_builder
@@ -1273,7 +1270,7 @@ impl ShapeBuilder {
         self
     }
 
-    /// Draws a quadratic Bézier curve to `to`, using `ctrl` as the control point.
+    /// Draws a quadratic Bezier curve to `to`, using `ctrl` as the control point.
     pub fn quadratic_bezier_to(mut self, ctrl: (f32, f32), to: (f32, f32)) -> Self {
         self.path_builder
             .quadratic_bezier_to(ctrl.into(), to.into());

@@ -188,7 +188,7 @@ impl InstanceTransform {
 
     /// Composes transforms by applying `self` first, then `rhs`.
     ///
-    /// The resulting matrix is `rhs × self`.
+    /// The resulting matrix is `rhs * self`.
     pub fn multiply(&self, rhs: &Self) -> Self {
         // Dot product of a column from self with a row from rhs.
         fn dot(col: [f32; 4], mat: &InstanceTransform, row_index: usize) -> f32 {

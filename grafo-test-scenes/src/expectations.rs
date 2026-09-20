@@ -71,7 +71,7 @@ pub fn check_pixels(
     for expectation in expectations {
         if expectation.x >= width || expectation.y >= height {
             failures.push(format!(
-                "[{}] pixel ({},{}) is outside canvas {}×{}",
+                "[{}] pixel ({},{}) is outside canvas {}x{}",
                 expectation.label, expectation.x, expectation.y, width, height,
             ));
             continue;
@@ -103,7 +103,7 @@ pub fn check_pixels(
 
         if !matches {
             failures.push(format!(
-                "[{}] pixel ({},{}) expected rgba({},{},{},{}) ±{} but got rgba({},{},{},{})",
+                "[{}] pixel ({},{}) expected rgba({},{},{},{}) +/-{} but got rgba({},{},{},{})",
                 expectation.label,
                 expectation.x,
                 expectation.y,

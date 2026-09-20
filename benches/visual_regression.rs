@@ -43,6 +43,22 @@ fn benchmark_visual_regression_scene(criterion: &mut Criterion) {
                 .unwrap()
         });
     });
+
+    let mut argb_pixels = vec![0; (CANVAS_WIDTH * CANVAS_HEIGHT) as usize];
+    renderer.render_to_argb32(&mut argb_pixels).unwrap();
+    let argb_bytes: Vec<u8> = argb_pixels
+        .iter()
+        .flat_map(|pixel| pixel.to_le_bytes())
+        .collect();
+    assert_eq!(argb_bytes, pixel_buffer);
+
+    criterion.bench_function("visual_regression/argb_readback", |bencher| {
+        bencher.iter(|| {
+            renderer
+                .render_to_argb32(black_box(&mut argb_pixels))
+                .unwrap()
+        });
+    });
 }
 
 criterion_group!(visual_regression_benches, benchmark_visual_regression_scene);

@@ -27,7 +27,7 @@ const BENCH_HEIGHT: u32 = 1600;
 const WARMUP_FRAMES: u64 = 100;
 const BENCH_FRAMES: u64 = 2000;
 
-/// Scene layout: CONTAINERS × ROWS_PER_CONTAINER × CELLS_PER_ROW leaf shapes,
+/// Scene layout: CONTAINERS * ROWS_PER_CONTAINER * CELLS_PER_ROW leaf shapes,
 /// plus container and row shapes as interior nodes.
 const CONTAINERS: usize = 5;
 const ROWS_PER_CONTAINER: usize = 4;
@@ -79,7 +79,7 @@ fn load_textures_and_shapes(renderer: &mut grafo::Renderer<'_>) {
             .unwrap();
     }
 
-    // A 250×250 textured rectangle.
+    // A 250x250 textured rectangle.
     let textured_rect = Shape::rect(
         [(0.0, 0.0), (TEXTURE_SIZE as f32, TEXTURE_SIZE as f32)],
         Stroke::default(),

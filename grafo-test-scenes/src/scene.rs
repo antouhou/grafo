@@ -293,7 +293,7 @@ fn load_shared_resources(renderer: &mut Renderer) {
         )
         .expect("Failed to compile downsampled drop shadow effect");
 
-    // A 4×4 RGBA checkerboard of alternating white and black pixels.
+    // A 4x4 RGBA checkerboard of alternating white and black pixels.
     let mut checkerboard = [0u8; 4 * 4 * 4];
     for row in 0..4u32 {
         for col in 0..4u32 {
@@ -904,7 +904,7 @@ fn tile_12_stencil_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectat
         .unwrap(); // lavender
 
     // L1 extends past the right and bottom of L0.
-    // Visible (L0∩L1) ≈ (20,20)→(60,60).
+    // Visible (L0 & L1) ~ (20,20) -> (60,60).
     let level1 = Shape::rounded_rect(
         [(ox + 20.0, oy + 20.0), (ox + 75.0, oy + 75.0)],
         BorderRadii::new(8.0),
@@ -920,7 +920,7 @@ fn tile_12_stencil_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectat
         .unwrap(); // green
 
     // L2 extends left of L1 and below L0.
-    // Visible (L0∩L1∩L2) ≈ (20,35)→(50,60).
+    // Visible (L0 & L1 & L2) ~ (20,35) -> (50,60).
     let level2 = Shape::rounded_rect(
         [(ox + 10.0, oy + 35.0), (ox + 50.0, oy + 75.0)],
         BorderRadii::new(8.0),
@@ -936,7 +936,7 @@ fn tile_12_stencil_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectat
         .unwrap(); // blue
 
     vec![
-        // Inside all three → L2 blue
+        // L2 is blue inside all three clips.
         PixelExpectation::opaque(
             ox as u32 + 35,
             oy as u32 + 47,
@@ -1027,7 +1027,7 @@ fn tile_13_rotated_rect_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             "t13_child_center",
         ),
         // The parent remains visible between its edge and the child edge.
-        // Parent diamond tip is at ~(40, 40±28), child diamond tip at ~(40, 40±17)
+        // Parent diamond tip is at ~(40, 40+/-28), child diamond tip at ~(40, 40+/-17)
         PixelExpectation::opaque(
             ox as u32 + 40,
             oy as u32 + 17,
@@ -1068,7 +1068,7 @@ fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation
         .unwrap(); // gray
 
     // L1 uses stencil clipping and extends past the right and bottom of L0.
-    // Visible (L0∩L1) ≈ (20,20)→(60,60).
+    // Visible (L0 & L1) ~ (20,20) -> (60,60).
     let level1 = Shape::rounded_rect(
         [(ox + 20.0, oy + 20.0), (ox + 75.0, oy + 75.0)],
         BorderRadii::new(10.0),
@@ -1084,7 +1084,7 @@ fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation
         .unwrap(); // green
 
     // The leaf extends left of L1 and below L0.
-    // Visible (L0∩L1∩leaf) ≈ (20,35)→(50,60).
+    // Visible (L0 & L1 & leaf) ~ (20,35) -> (50,60).
     let leaf = Shape::rect(
         [(ox + 10.0, oy + 35.0), (ox + 50.0, oy + 75.0)],
         Stroke::default(),
@@ -1099,7 +1099,7 @@ fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation
         .unwrap(); // blue
 
     vec![
-        // Inside all three → leaf blue
+        // The leaf is blue inside all three clips.
         PixelExpectation::opaque(
             ox as u32 + 35,
             oy as u32 + 47,
@@ -1168,7 +1168,7 @@ fn tile_15_stencil_then_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation
         .unwrap(); // pink
 
     // L1 uses scissor clipping and extends past the right and bottom of L0.
-    // Visible (L0∩L1) ≈ (20,20)→(60,60).
+    // Visible (L0 & L1) ~ (20,20) -> (60,60).
     let level1 = Shape::rect(
         [(ox + 20.0, oy + 20.0), (ox + 75.0, oy + 75.0)],
         Stroke::default(),
@@ -1183,7 +1183,7 @@ fn tile_15_stencil_then_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation
         .unwrap(); // green
 
     // The leaf extends left of L1 and below L0.
-    // Visible (L0∩L1∩leaf) ≈ (20,35)→(50,60).
+    // Visible (L0 & L1 & leaf) ~ (20,35) -> (50,60).
     let leaf = Shape::rect(
         [(ox + 10.0, oy + 35.0), (ox + 50.0, oy + 75.0)],
         Stroke::default(),
@@ -1198,7 +1198,7 @@ fn tile_15_stencil_then_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation
         .unwrap(); // bright green
 
     vec![
-        // Inside all three → leaf green
+        // The leaf is green inside all three clips.
         PixelExpectation::opaque(
             ox as u32 + 35,
             oy as u32 + 47,
@@ -1237,7 +1237,7 @@ fn tile_15_stencil_then_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation
             "t15_l1_clips_leaf",
         ),
         // The canvas shows inside L0's bounding box but outside its rounded corner.
-        // TL corner center (17,17) r=12, dist((7,7),(17,17)) ≈ 14.1 > 12.
+        // TL corner center (17,17) r=12, dist((7,7),(17,17)) ~ 14.1 > 12.
         PixelExpectation::opaque(
             ox as u32 + 7,
             oy as u32 + 7,
@@ -1267,7 +1267,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
         .unwrap(); // light gray
 
     // L1 uses scissor clipping and extends right of L0.
-    // Visible (L0∩L1) = (20,5)→(55,55).
+    // Visible (L0 & L1) = (20,5) -> (55,55).
     let l1 = Shape::rect(
         [(ox + 20.0, oy + 5.0), (ox + 75.0, oy + 55.0)],
         Stroke::default(),
@@ -1282,7 +1282,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
         .unwrap(); // blue-gray
 
     // L2 uses stencil clipping and extends below L1.
-    // Visible (L0∩L1∩L2) ≈ (20,20)→(50,55).
+    // Visible (L0 & L1 & L2) ~ (20,20) -> (50,55).
     let l2 = Shape::rounded_rect(
         [(ox + 15.0, oy + 20.0), (ox + 50.0, oy + 70.0)],
         BorderRadii::new(10.0),
@@ -1298,7 +1298,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
         .unwrap(); // green
 
     // L3 uses scissor clipping and extends right of and above L2.
-    // Visible (L0∩L1∩L2∩L3) ≈ (25,20)→(50,50).
+    // Visible (L0 & L1 & L2 & L3) ~ (25,20) -> (50,50).
     let l3 = Shape::rect(
         [(ox + 25.0, oy + 10.0), (ox + 70.0, oy + 50.0)],
         Stroke::default(),
@@ -1313,7 +1313,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
         .unwrap(); // purple
 
     // L4 extends left of and below L3.
-    // Visible (all 5) ≈ (25,30)→(45,50).
+    // Visible (all 5) ~ (25,30) -> (45,50).
     let l4 = Shape::rect(
         [(ox + 10.0, oy + 30.0), (ox + 45.0, oy + 65.0)],
         Stroke::default(),
@@ -1328,7 +1328,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
         .unwrap(); // blue
 
     vec![
-        // Center of 5-way intersection → L4 blue
+        // L4 is blue inside all five clips.
         PixelExpectation::opaque(ox as u32 + 35, oy as u32 + 40, 50, 50, 200, "t16_leaf"),
         // At x=47, L3 is visible inside all ancestor clips and beyond L4's right edge at x=45.
         PixelExpectation::opaque(
@@ -1428,8 +1428,8 @@ fn tile_17_translated_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 
 fn tile_18_scaled_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(18);
-    // 60×60 rect, scaled to 0.5× horizontally and 1.0× vertically around tile center.
-    // The resulting 30×60 rectangle stays centered in the tile.
+    // 60x60 rect, scaled to 0.5x horizontally and 1.0x vertically around tile center.
+    // The resulting 30x60 rectangle stays centered in the tile.
     let shape = Shape::rect(
         [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
         Stroke::default(),
@@ -1469,7 +1469,7 @@ fn tile_18_scaled_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
             255,
             "t18_right_scaled_away",
         ),
-        // Vertically still full → colored at y=15
+        // The height stays unchanged, so y=15 remains colored.
         PixelExpectation::opaque(
             ox as u32 + 40,
             oy as u32 + 15,
@@ -1664,7 +1664,7 @@ fn tile_23_fully_transparent(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         )
         .unwrap();
 
-    // Transparent shape over white canvas root → shows white
+    // The transparent shape leaves the white canvas visible.
     vec![PixelExpectation::opaque(
         ox as u32 + 40,
         oy as u32 + 40,
@@ -2822,7 +2822,7 @@ fn tile_41_conic_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         .unwrap();
 
     vec![
-        // At 0°, right of center, sample the red end of the gradient.
+        // At 0 degrees, right of center, sample the red end of the gradient.
         PixelExpectation::opaque_approx(
             ox as u32 + 65,
             oy as u32 + 40,

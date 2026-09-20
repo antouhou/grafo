@@ -416,7 +416,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let green_tx = Transform3D::scale(0.5, 0.5, 1.0)
                     .then(&Transform3D::translation(400.0, 100.0, 0.0));
 
-                // Add mouse-driven yaw to the blue shape's base 45° Y rotation. Mouse
+                // Add mouse-driven yaw to the blue shape's base 45 degrees Y rotation. Mouse
                 // movement also sets its X rotation and shifts the perspective origin
                 let d = self.blue_perspective_d; // Larger distances weaken the perspective
                 let blue_pos = self.blue_pos;

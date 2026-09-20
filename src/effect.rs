@@ -192,7 +192,7 @@ impl ShapeEffectConfig {
 
 /// Draws a fullscreen triangle from three vertex indices, without a vertex buffer.
 /// Effect and composite passes share this shader.
-pub(crate) const FULLSCREEN_TRIANGLE_VS: &str = include_str!("shaders/fullscreen_quad_vs.wgsl");
+pub(crate) const FULLSCREEN_TRIANGLE_VS: &str = include_str!("shaders/fullscreen_triangle_vs.wgsl");
 
 /// Input texture bindings prepended to the user's effect fragment shader.
 pub(crate) const EFFECT_FS_PREAMBLE: &str = include_str!("shaders/effect_fs_preamble.wgsl");
