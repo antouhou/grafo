@@ -35,6 +35,7 @@ mod effects;
 #[cfg(feature = "render_metrics")]
 pub mod metrics;
 mod passes;
+mod plan;
 mod preparation;
 mod readback;
 mod rect_utils;

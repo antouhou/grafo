@@ -1,4 +1,5 @@
-use super::passes::{apply_effect_passes, compute_downsampled_dimensions, EffectPassRunConfig};
+use super::passes::{apply_effect_passes, EffectPassRunConfig};
+use super::rect_utils::compute_downsampled_dimensions;
 use super::types::{DrawCommand, GeometryBufferError};
 use super::Renderer;
 use crate::cache::{CachedTessellation, FrameCache};
