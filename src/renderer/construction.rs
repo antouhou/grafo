@@ -68,7 +68,7 @@ fn create_transparent_texture_view_and_sampler(
     (view, sampler)
 }
 
-fn pick_surface_format(surface_formats: &[wgpu::TextureFormat]) -> wgpu::TextureFormat {
+fn pick_surface_format(surface_formats: &[wgpu::TextureFormat]) -> Option<wgpu::TextureFormat> {
     const PREFERRED_SURFACE_FORMATS: [wgpu::TextureFormat; 4] = [
         wgpu::TextureFormat::Bgra8UnormSrgb,
         wgpu::TextureFormat::Rgba8UnormSrgb,
@@ -79,12 +79,7 @@ fn pick_surface_format(surface_formats: &[wgpu::TextureFormat]) -> wgpu::Texture
     PREFERRED_SURFACE_FORMATS
         .into_iter()
         .find(|surface_format| surface_formats.contains(surface_format))
-        .unwrap_or_else(|| {
-            surface_formats
-                .first()
-                .copied()
-                .unwrap_or(wgpu::TextureFormat::Bgra8UnormSrgb)
-        })
+        .or_else(|| surface_formats.first().copied())
 }
 
 fn pick_alpha_mode(alpha_modes: &[CompositeAlphaMode], transparent: bool) -> CompositeAlphaMode {
@@ -389,10 +384,8 @@ impl<'a> Renderer<'a> {
         let surface = context.inner.instance.create_surface(window)?;
 
         let surface_caps = surface.get_capabilities(&context.inner.adapter);
-        if surface_caps.formats.is_empty() {
-            return Err(RendererCreationError::UnsupportedSurface);
-        }
-        let swapchain_format = pick_surface_format(&surface_caps.formats);
+        let swapchain_format = pick_surface_format(&surface_caps.formats)
+            .ok_or(RendererCreationError::UnsupportedSurface)?;
         let alpha_mode = pick_alpha_mode(&surface_caps.alpha_modes, transparent);
 
         let config = wgpu::SurfaceConfiguration {

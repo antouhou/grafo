@@ -1,9 +1,8 @@
 use super::*;
+use crate::renderer::execution::effects::{apply_effect_passes, EffectPassRunConfig};
 #[cfg(feature = "render_metrics")]
 use crate::renderer::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
-use crate::renderer::passes::{
-    apply_effect_passes, render_segments, EffectPassRunConfig, SegmentRenderTarget,
-};
+use crate::renderer::passes::{render_segments, SegmentRenderTarget};
 use crate::renderer::traversal::{
     compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects,
 };
