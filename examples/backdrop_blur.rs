@@ -6,7 +6,7 @@ use grafo::wgpu::SurfaceError;
 use grafo::RenderError;
 use grafo::{BackdropEffectConfig, BorderRadii, Shape};
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
-use grafo_test_scenes::shaders::{HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
+use grafo_test_scenes::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -14,14 +14,6 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
 const BLUR_EFFECT: u64 = 1;
-
-/// Parameters shared by both blur passes.
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct BlurParams {
-    radius: f32,
-    _pad: f32,
-}
 
 #[derive(Default)]
 struct App<'a> {
@@ -177,10 +169,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                let blur_params = BlurParams {
-                    radius: 12.0,
-                    _pad: 0.0,
-                };
+                let blur_params = BlurParams::new(12.0);
                 renderer
                     .set_shape_backdrop_effect(
                         panel_id,
@@ -204,10 +193,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                let blur_params2 = BlurParams {
-                    radius: 20.0,
-                    _pad: 0.0,
-                };
+                let blur_params2 = BlurParams::new(20.0);
                 renderer
                     .set_shape_backdrop_effect(
                         panel2_id,

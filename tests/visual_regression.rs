@@ -9,6 +9,7 @@ use grafo::{
     Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
     Stroke, TransformInstance,
 };
+use grafo_test_scenes::shaders::{PASSTHROUGH_WGSL, SHAPE_DROP_WGSL};
 use grafo_test_scenes::{
     build_main_scene, check_pixels, PixelExpectation, CANVAS_HEIGHT, CANVAS_WIDTH,
 };
@@ -52,10 +53,10 @@ fn shape_effect_is_resolved_before_backdrop_capture_with_msaa() {
     };
     renderer.set_msaa_samples(4);
     renderer
-        .load_effect(9_101, &[CACHED_SHAPE_EFFECT_BLUE_DROP])
+        .load_effect(9_101, &[SHAPE_DROP_WGSL])
         .expect("to load the MSAA shape effect");
     renderer
-        .load_effect(9_102, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
+        .load_effect(9_102, &[PASSTHROUGH_WGSL])
         .expect("to load the MSAA backdrop effect");
 
     renderer
@@ -99,22 +100,6 @@ fn read_pixel_rgba(pixel_buffer: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
         pixel_buffer[offset + 3],
     ]
 }
-
-const CACHED_SHAPE_EFFECT_PASSTHROUGH: &str = r#"
-@fragment
-fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    return textureSample(t_input, s_input, uv);
-}
-"#;
-
-const CACHED_SHAPE_EFFECT_BLUE_DROP: &str = r#"
-@fragment
-fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let dimensions = vec2<f32>(textureDimensions(t_input));
-    let coverage = textureSample(t_input, s_input, uv - vec2<f32>(8.0) / dimensions).a;
-    return vec4<f32>(0.0, 0.0, coverage, coverage);
-}
-"#;
 
 #[cfg(feature = "render_metrics")]
 const CACHED_SHAPE_EFFECT_RED_MASK: &str = r#"
@@ -256,7 +241,7 @@ fn group_and_backdrop_effect_params_survive_updates_and_reload() {
     }
 
     renderer
-        .load_effect(effect_id, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
+        .load_effect(effect_id, &[PASSTHROUGH_WGSL])
         .unwrap();
     renderer.render_to_buffer(&mut pixel_buffer).unwrap();
     assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [255; 4]);
@@ -302,9 +287,7 @@ fn invalid_effect_can_be_replaced_with_a_valid_shader() {
             Err(EffectError::InvalidShader { pass_index: 0, .. })
         ));
     }
-    renderer
-        .load_effect(9_201, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
-        .unwrap();
+    renderer.load_effect(9_201, &[PASSTHROUGH_WGSL]).unwrap();
     let shape_id = renderer
         .add_shape(
             Shape::rect([(8.0, 8.0), (24.0, 24.0)], Stroke::default()),
@@ -321,7 +304,7 @@ fn invalid_effect_can_be_replaced_with_a_valid_shader() {
 
     for _ in 0..2 {
         assert!(matches!(
-            renderer.load_effect(9_201, &[CACHED_SHAPE_EFFECT_PASSTHROUGH, ""]),
+            renderer.load_effect(9_201, &[PASSTHROUGH_WGSL, ""]),
             Err(EffectError::InvalidShader { pass_index: 1, .. })
         ));
         renderer.render_to_buffer(&mut pixel_buffer).unwrap();
@@ -335,9 +318,7 @@ fn unchanged_shape_effect_reuses_exact_gpu_result_and_collects_when_unused() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
         return;
     };
-    renderer
-        .load_effect(8_001, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
-        .unwrap();
+    renderer.load_effect(8_001, &[PASSTHROUGH_WGSL]).unwrap();
     let shape_id = renderer
         .add_shape(
             Shape::rect([(16.0, 16.0), (48.0, 48.0)], Stroke::default()),
@@ -358,9 +339,7 @@ fn unchanged_shape_effect_reuses_exact_gpu_result_and_collects_when_unused() {
     assert_eq!(first_frame.generated_masks, 1);
     assert_eq!(first_frame.executed_passes, 1);
 
-    renderer
-        .load_effect(8_001, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
-        .unwrap();
+    renderer.load_effect(8_001, &[PASSTHROUGH_WGSL]).unwrap();
     renderer.render_to_buffer(&mut pixels).unwrap();
     let second_frame = renderer.last_shape_effect_cache_metrics();
     assert_eq!(second_frame.hits, 1);
@@ -391,9 +370,7 @@ fn cached_shape_effect_is_shared_by_instances_and_survives_queue_rebuild() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 48), 1.0) else {
         return;
     };
-    renderer
-        .load_effect(8_101, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
-        .unwrap();
+    renderer.load_effect(8_101, &[PASSTHROUGH_WGSL]).unwrap();
     renderer.load_shape(
         Shape::rect([(0.0, 0.0), (24.0, 24.0)], Stroke::default()),
         8_102,
@@ -465,9 +442,7 @@ fn cached_shape_effects_share_the_normal_texture_pipeline() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 48), 1.0) else {
         return;
     };
-    renderer
-        .load_effect(8_151, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
-        .unwrap();
+    renderer.load_effect(8_151, &[PASSTHROUGH_WGSL]).unwrap();
     renderer.load_shape(
         Shape::rect([(0.0, 0.0), (24.0, 24.0)], Stroke::default()),
         8_152,
@@ -520,9 +495,7 @@ fn cached_shape_effect_is_invalidated_by_normal_pipeline_recreation() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
         return;
     };
-    renderer
-        .load_effect(8_161, &[CACHED_SHAPE_EFFECT_BLUE_DROP])
-        .unwrap();
+    renderer.load_effect(8_161, &[SHAPE_DROP_WGSL]).unwrap();
     let shape_id = renderer
         .add_shape(
             Shape::rect([(16.0, 16.0), (48.0, 48.0)], Stroke::default()),
@@ -552,9 +525,7 @@ fn shape_effect_scale_change_rebuilds_leaf_and_invalidates_cached_texture() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 96), 1.0) else {
         return;
     };
-    renderer
-        .load_effect(8_171, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
-        .unwrap();
+    renderer.load_effect(8_171, &[PASSTHROUGH_WGSL]).unwrap();
     let shape_id = renderer
         .add_shape(
             Shape::rect([(8.0, 8.0), (32.0, 32.0)], Stroke::default()),
