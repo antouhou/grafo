@@ -21,9 +21,6 @@ pub enum GradientError {
     #[error("radial gradient radii must be non-negative")]
     InvalidRadialDefinition,
 
-    #[error("invalid conic gradient definition")]
-    InvalidConicDefinition,
-
     #[error("non-finite stop offset at index {stop_index}")]
     NonFiniteStopOffset { stop_index: usize },
 

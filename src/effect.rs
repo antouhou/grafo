@@ -128,15 +128,12 @@ impl BackdropEffectConfig {
 }
 
 /// Padding around a shape's local bounds for a cached shape effect.
+/// Outsets are measured in logical pixels.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct ShapeEffectConfig {
-    /// Logical-space distance added to the left of the shape's local bounds.
     pub left_outset: f32,
-    /// Logical-space distance added above the shape's local bounds.
     pub top_outset: f32,
-    /// Logical-space distance added to the right of the shape's local bounds.
     pub right_outset: f32,
-    /// Logical-space distance added below the shape's local bounds.
     pub bottom_outset: f32,
     /// Scale factor applied to the mask and effect textures before running the
     /// effect. `1.0` keeps full resolution, `0.5` halves each axis, and so on.

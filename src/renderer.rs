@@ -74,7 +74,6 @@ pub struct Renderer<'a> {
     /// Outward AA fringe width in physical pixels.
     fringe_width: f32,
 
-    // WGPU components
     context: RendererContext,
     instance: Arc<wgpu::Instance>,
     surface: Option<wgpu::Surface<'a>>,
@@ -107,13 +106,11 @@ pub struct Renderer<'a> {
 
     /// The multisampled color texture. `None` when MSAA is disabled.
     msaa_color_texture: Option<wgpu::Texture>,
-    /// View of the MSAA color texture.
     msaa_color_texture_view: Option<wgpu::TextureView>,
 
     /// Cached depth/stencil texture, reused across frames.
     /// Recreated on resize or MSAA sample count change.
     depth_stencil_texture: Option<wgpu::Texture>,
-    /// View of the cached depth/stencil texture.
     depth_stencil_view: Option<wgpu::TextureView>,
 
     /// Reuses validation scratch storage across effect loads.
@@ -121,7 +118,6 @@ pub struct Renderer<'a> {
     /// Compiled effects keyed by the user-provided `effect_id`.
     loaded_effects: HashMap<u64, LoadedEffect>,
     #[cfg(feature = "render_metrics")]
-    /// Tracking for cumulative render-loop timing metrics.
     render_loop_metrics_tracker: RenderLoopMetricsTracker,
 
     #[cfg(feature = "render_metrics")]
