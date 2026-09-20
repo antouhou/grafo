@@ -32,6 +32,7 @@ use wgpu::{BufferUsages, CompositeAlphaMode, SurfaceTarget};
 mod construction;
 mod draw_queue;
 mod effects;
+mod execution;
 #[cfg(feature = "render_metrics")]
 pub mod metrics;
 mod passes;
