@@ -1,8 +1,9 @@
 use super::Renderer;
 use crate::pipeline::{
-    compute_padded_bytes_per_row, create_argb_params_buffer, create_argb_swizzle_bind_group,
-    create_argb_swizzle_pipeline, create_offscreen_color_texture, create_readback_buffer,
-    encode_copy_texture_to_buffer, ArgbParams,
+    compute_padded_bytes_per_row, create_argb_row_packing_bind_group,
+    create_argb_row_packing_params_buffer, create_argb_row_packing_pipeline,
+    create_offscreen_color_texture, create_readback_buffer, encode_copy_texture_to_buffer,
+    ArgbRowPackingParams,
 };
 #[cfg(feature = "render_metrics")]
 use crate::renderer::metrics::PhaseTimings;
@@ -112,16 +113,16 @@ impl ArgbReadbackTarget {
         });
         let readback_buffer =
             create_readback_buffer(device, Some("argb_output_u32_readback"), output_buffer_size);
-        let params_buffer = create_argb_params_buffer(
+        let params_buffer = create_argb_row_packing_params_buffer(
             device,
-            &ArgbParams {
+            &ArgbRowPackingParams {
                 width,
                 height,
-                padded_bpr: padded_bytes_per_row,
+                padded_bytes_per_row,
                 _pad: 0,
             },
         );
-        let bind_group = create_argb_swizzle_bind_group(
+        let bind_group = create_argb_row_packing_bind_group(
             device,
             bind_group_layout,
             &input_buffer,
@@ -147,7 +148,7 @@ pub(super) struct ArgbReadbackResources {
 
 impl ArgbReadbackResources {
     fn new(device: &Device, physical_size: (u32, u32), format: TextureFormat) -> Self {
-        let (bind_group_layout, pipeline) = create_argb_swizzle_pipeline(device);
+        let (bind_group_layout, pipeline) = create_argb_row_packing_pipeline(device);
         let target = ArgbReadbackTarget::new(device, &bind_group_layout, physical_size, format);
         Self {
             pipeline,
@@ -332,7 +333,7 @@ impl<'a> Renderer<'a> {
             });
         {
             let mut pass = compute_encoder.begin_compute_pass(&ComputePassDescriptor {
-                label: Some("argb_swizzle_pass"),
+                label: Some("argb_row_packing_pass"),
                 timestamp_writes: None,
             });
             pass.set_pipeline(&resources.pipeline);

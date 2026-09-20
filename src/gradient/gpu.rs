@@ -200,7 +200,7 @@ pub(crate) fn create_ramp_texture(
         bytemuck::cast_slice(&upload_ramp),
         wgpu::TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: Some(width * 8), // 4 × f16 = 8 bytes per texel
+            bytes_per_row: Some(width * 8), // Four f16 channels take eight bytes per texel.
             rows_per_image: None,
         },
         wgpu::Extent3d {

@@ -3,9 +3,11 @@
 
 use futures::executor::block_on;
 use grafo::{
-    BackdropEffectConfig, BorderRadii, Color, ColorInterpolation, EffectError, Fill, Gradient,
-    GradientStop, GradientStopOffset, LinearGradientDesc, LinearGradientLine, Shape,
-    ShapeDrawCommandOptions, Stroke,
+    BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color, ColorInterpolation,
+    DrawCommandError, EffectError, Fill, Gradient, GradientStop, GradientStopOffset,
+    LinearGradientDesc, LinearGradientLine, Renderer, RendererContext, RendererCreationError,
+    Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
+    Stroke, TransformInstance,
 };
 use grafo_test_scenes::{
     build_main_scene, check_pixels, PixelExpectation, CANVAS_HEIGHT, CANVAS_WIDTH,
@@ -13,20 +15,17 @@ use grafo_test_scenes::{
 
 /// Creates a headless renderer. If no suitable GPU adapter is available,
 /// prints a skip message and returns `None`.
-fn create_headless_renderer() -> Option<grafo::Renderer<'static>> {
+fn create_headless_renderer() -> Option<Renderer<'static>> {
     create_headless_renderer_with_size_and_scale((CANVAS_WIDTH, CANVAS_HEIGHT), 1.0)
 }
 
 fn create_headless_renderer_with_size_and_scale(
     physical_size: (u32, u32),
     scale_factor: f64,
-) -> Option<grafo::Renderer<'static>> {
-    match block_on(grafo::Renderer::try_new_headless(
-        physical_size,
-        scale_factor,
-    )) {
+) -> Option<Renderer<'static>> {
+    match block_on(Renderer::try_new_headless(physical_size, scale_factor)) {
         Ok(r) => Some(r),
-        Err(grafo::RendererCreationError::AdapterNotAvailable(_)) => {
+        Err(RendererCreationError::AdapterNotAvailable(_)) => {
             println!("Skipping test: no suitable GPU adapter available.");
             None
         }
@@ -34,7 +33,7 @@ fn create_headless_renderer_with_size_and_scale(
     }
 }
 
-fn assert_pixels_match(pixel_buffer: &[u8], expectations: &[grafo_test_scenes::PixelExpectation]) {
+fn assert_pixels_match(pixel_buffer: &[u8], expectations: &[PixelExpectation]) {
     let failures = check_pixels(pixel_buffer, CANVAS_WIDTH, CANVAS_HEIGHT, expectations);
     if !failures.is_empty() {
         let message = format!(
@@ -61,30 +60,25 @@ fn shape_effect_is_resolved_before_backdrop_capture_with_msaa() {
 
     renderer
         .add_shape(
-            grafo::Shape::rect([(0.0, 0.0), (64.0, 64.0)], grafo::Stroke::default()),
+            Shape::rect([(0.0, 0.0), (64.0, 64.0)], Stroke::default()),
             None,
             None,
-            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(220, 200, 50)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 50)),
         )
         .unwrap();
     let panel_id = renderer
         .add_shape(
-            grafo::Shape::rect([(16.0, 16.0), (48.0, 48.0)], grafo::Stroke::default()),
+            Shape::rect([(16.0, 16.0), (48.0, 48.0)], Stroke::default()),
             None,
             Some(9_103),
-            grafo::ShapeDrawCommandOptions::new(),
+            ShapeDrawCommandOptions::new(),
         )
         .unwrap();
     renderer
-        .set_shape_effect(
-            panel_id,
-            9_101,
-            &[],
-            grafo::ShapeEffectConfig::new().outset(12.0),
-        )
+        .set_shape_effect(panel_id, 9_101, &[], ShapeEffectConfig::new().outset(12.0))
         .expect("to attach the MSAA shape effect");
     renderer
-        .set_shape_backdrop_effect(panel_id, 9_102, &[], grafo::BackdropEffectConfig::default())
+        .set_shape_backdrop_effect(panel_id, 9_102, &[], BackdropEffectConfig::default())
         .expect("to attach the MSAA backdrop effect");
 
     let mut pixel_buffer = Vec::new();
@@ -346,19 +340,14 @@ fn unchanged_shape_effect_reuses_exact_gpu_result_and_collects_when_unused() {
         .unwrap();
     let shape_id = renderer
         .add_shape(
-            grafo::Shape::rect([(16.0, 16.0), (48.0, 48.0)], grafo::Stroke::default()),
+            Shape::rect([(16.0, 16.0), (48.0, 48.0)], Stroke::default()),
             None,
             Some(8_002),
-            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(220, 50, 50)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
         )
         .unwrap();
     renderer
-        .set_shape_effect(
-            shape_id,
-            8_001,
-            &[],
-            grafo::ShapeEffectConfig::new().outset(4.0),
-        )
+        .set_shape_effect(shape_id, 8_001, &[], ShapeEffectConfig::new().outset(4.0))
         .unwrap();
 
     let mut pixels = Vec::new();
@@ -406,16 +395,16 @@ fn cached_shape_effect_is_shared_by_instances_and_survives_queue_rebuild() {
         .load_effect(8_101, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
         .unwrap();
     renderer.load_shape(
-        grafo::Shape::rect([(0.0, 0.0), (24.0, 24.0)], grafo::Stroke::default()),
+        Shape::rect([(0.0, 0.0), (24.0, 24.0)], Stroke::default()),
         8_102,
         Some(8_103),
     );
     let root_id = renderer
         .add_shape(
-            grafo::Shape::rect([(0.0, 0.0), (96.0, 48.0)], grafo::Stroke::default()),
+            Shape::rect([(0.0, 0.0), (96.0, 48.0)], Stroke::default()),
             None,
             None,
-            grafo::ShapeDrawCommandOptions::new().clips_children(false),
+            ShapeDrawCommandOptions::new().clips_children(false),
         )
         .unwrap();
 
@@ -423,27 +412,21 @@ fn cached_shape_effect_is_shared_by_instances_and_survives_queue_rebuild() {
         .add_cached_shape_to_the_render_queue(
             8_102,
             Some(root_id),
-            grafo::ShapeDrawCommandOptions::new()
+            ShapeDrawCommandOptions::new()
                 .clips_children(false)
-                .transform(grafo::TransformInstance::translation(4.0, 12.0)),
+                .transform(TransformInstance::translation(4.0, 12.0)),
         )
         .unwrap();
     let second_node = renderer
         .add_cached_shape_to_the_render_queue(
             8_102,
             Some(root_id),
-            grafo::ShapeDrawCommandOptions::new()
-                .transform(grafo::TransformInstance::translation(36.0, 12.0)),
+            ShapeDrawCommandOptions::new().transform(TransformInstance::translation(36.0, 12.0)),
         )
         .unwrap();
     for node_id in [first_node, second_node] {
         renderer
-            .set_shape_effect(
-                node_id,
-                8_101,
-                &[],
-                grafo::ShapeEffectConfig::new().outset(3.0),
-            )
+            .set_shape_effect(node_id, 8_101, &[], ShapeEffectConfig::new().outset(3.0))
             .unwrap();
     }
 
@@ -458,8 +441,7 @@ fn cached_shape_effect_is_shared_by_instances_and_survives_queue_rebuild() {
         .add_cached_shape_to_the_render_queue(
             8_102,
             None,
-            grafo::ShapeDrawCommandOptions::new()
-                .transform(grafo::TransformInstance::translation(68.0, 12.0)),
+            ShapeDrawCommandOptions::new().transform(TransformInstance::translation(68.0, 12.0)),
         )
         .unwrap();
     renderer
@@ -467,7 +449,7 @@ fn cached_shape_effect_is_shared_by_instances_and_survives_queue_rebuild() {
             rebuilt_node,
             8_101,
             &[],
-            grafo::ShapeEffectConfig::new().outset(3.0),
+            ShapeEffectConfig::new().outset(3.0),
         )
         .unwrap();
     renderer.render_to_buffer(&mut pixels).unwrap();
@@ -487,39 +469,34 @@ fn cached_shape_effects_share_the_normal_texture_pipeline() {
         .load_effect(8_151, &[CACHED_SHAPE_EFFECT_PASSTHROUGH])
         .unwrap();
     renderer.load_shape(
-        grafo::Shape::rect([(0.0, 0.0), (24.0, 24.0)], grafo::Stroke::default()),
+        Shape::rect([(0.0, 0.0), (24.0, 24.0)], Stroke::default()),
         8_152,
         Some(8_153),
     );
     let root_id = renderer
         .add_shape(
-            grafo::Shape::rect([(0.0, 0.0), (96.0, 48.0)], grafo::Stroke::default()),
+            Shape::rect([(0.0, 0.0), (96.0, 48.0)], Stroke::default()),
             None,
             None,
-            grafo::ShapeDrawCommandOptions::new().clips_children(false),
+            ShapeDrawCommandOptions::new().clips_children(false),
         )
         .unwrap();
 
     for (translation_x, color) in [
-        (8.0, grafo::Color::rgb(220, 50, 50)),
-        (48.0, grafo::Color::rgb(50, 90, 220)),
+        (8.0, Color::rgb(220, 50, 50)),
+        (48.0, Color::rgb(50, 90, 220)),
     ] {
         let node_id = renderer
             .add_cached_shape_to_the_render_queue(
                 8_152,
                 Some(root_id),
-                grafo::ShapeDrawCommandOptions::new()
+                ShapeDrawCommandOptions::new()
                     .color(color)
-                    .transform(grafo::TransformInstance::translation(translation_x, 12.0)),
+                    .transform(TransformInstance::translation(translation_x, 12.0)),
             )
             .unwrap();
         renderer
-            .set_shape_effect(
-                node_id,
-                8_151,
-                &[],
-                grafo::ShapeEffectConfig::new().outset(3.0),
-            )
+            .set_shape_effect(node_id, 8_151, &[], ShapeEffectConfig::new().outset(3.0))
             .unwrap();
     }
 
@@ -548,19 +525,14 @@ fn cached_shape_effect_is_invalidated_by_normal_pipeline_recreation() {
         .unwrap();
     let shape_id = renderer
         .add_shape(
-            grafo::Shape::rect([(16.0, 16.0), (48.0, 48.0)], grafo::Stroke::default()),
+            Shape::rect([(16.0, 16.0), (48.0, 48.0)], Stroke::default()),
             None,
             Some(8_162),
-            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(220, 200, 50)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 50)),
         )
         .unwrap();
     renderer
-        .set_shape_effect(
-            shape_id,
-            8_161,
-            &[],
-            grafo::ShapeEffectConfig::new().outset(12.0),
-        )
+        .set_shape_effect(shape_id, 8_161, &[], ShapeEffectConfig::new().outset(12.0))
         .unwrap();
 
     let mut pixels = Vec::new();
@@ -585,19 +557,14 @@ fn shape_effect_scale_change_rebuilds_leaf_and_invalidates_cached_texture() {
         .unwrap();
     let shape_id = renderer
         .add_shape(
-            grafo::Shape::rect([(8.0, 8.0), (32.0, 32.0)], grafo::Stroke::default()),
+            Shape::rect([(8.0, 8.0), (32.0, 32.0)], Stroke::default()),
             None,
             Some(8_172),
-            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(220, 80, 40)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 80, 40)),
         )
         .unwrap();
     renderer
-        .set_shape_effect(
-            shape_id,
-            8_171,
-            &[],
-            grafo::ShapeEffectConfig::new().outset(4.0),
-        )
+        .set_shape_effect(shape_id, 8_171, &[], ShapeEffectConfig::new().outset(4.0))
         .unwrap();
 
     let mut pixels = Vec::new();
@@ -627,11 +594,10 @@ fn cached_shape_effect_uses_exact_parameter_bytes_on_transparent_shape() {
         .unwrap();
     let shape_id = renderer
         .add_shape(
-            grafo::Shape::rect([(12.0, 12.0), (36.0, 36.0)], grafo::Stroke::default()),
+            Shape::rect([(12.0, 12.0), (36.0, 36.0)], Stroke::default()),
             None,
             Some(8_202),
-            grafo::ShapeDrawCommandOptions::new()
-                .transform(grafo::TransformInstance::translation(6.0, 4.0)),
+            ShapeDrawCommandOptions::new().transform(TransformInstance::translation(6.0, 4.0)),
         )
         .unwrap();
     let blue = [0.0f32, 0.0, 1.0, 1.0];
@@ -640,7 +606,7 @@ fn cached_shape_effect_uses_exact_parameter_bytes_on_transparent_shape() {
             shape_id,
             8_201,
             bytemuck::bytes_of(&blue),
-            grafo::ShapeEffectConfig::default(),
+            ShapeEffectConfig::default(),
         )
         .unwrap();
 
@@ -745,18 +711,18 @@ fn empty_frame_resets_pipeline_switch_counts() {
 /// resources such as textures.
 #[test]
 fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent() {
-    let context = match block_on(grafo::RendererContext::try_new()) {
+    let context = match block_on(RendererContext::try_new()) {
         Ok(context) => context,
-        Err(grafo::RendererCreationError::AdapterNotAvailable(_)) => {
+        Err(RendererCreationError::AdapterNotAvailable(_)) => {
             println!("Skipping test: no suitable GPU adapter available.");
             return;
         }
         Err(error) => panic!("Failed to create renderer context: {error}"),
     };
 
-    let mut first = grafo::Renderer::try_new_headless_with_context(context.clone(), (16, 16), 1.0)
+    let mut first = Renderer::try_new_headless_with_context(context.clone(), (16, 16), 1.0)
         .expect("to create first headless renderer");
-    let mut second = grafo::Renderer::try_new_headless_with_context(context, (16, 16), 1.0)
+    let mut second = Renderer::try_new_headless_with_context(context, (16, 16), 1.0)
         .expect("to create second headless renderer");
 
     first
@@ -765,7 +731,7 @@ fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent()
     assert!(second.texture_manager().is_texture_loaded(42));
 
     first.load_shape(
-        grafo::Shape::rect([(0.0, 0.0), (16.0, 16.0)], grafo::Stroke::default()),
+        Shape::rect([(0.0, 0.0), (16.0, 16.0)], Stroke::default()),
         99,
         Some(99),
     );
@@ -773,19 +739,19 @@ fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent()
         .add_cached_shape_to_the_render_queue(
             99,
             None,
-            grafo::ShapeDrawCommandOptions::new()
-                .color(grafo::Color::rgb(0, 255, 0))
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgb(0, 255, 0))
                 .foreground_texture_id(42),
         )
         .expect("to add shape loaded by first renderer");
 
     first
         .add_shape(
-            grafo::Shape::rect([(0.0, 0.0), (16.0, 16.0)], grafo::Stroke::default()),
+            Shape::rect([(0.0, 0.0), (16.0, 16.0)], Stroke::default()),
             None,
             None,
-            grafo::ShapeDrawCommandOptions::new()
-                .color(grafo::Color::rgb(255, 0, 0))
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgb(255, 0, 0))
                 .background_texture_id(42),
         )
         .expect("to add shape to first renderer");
@@ -838,13 +804,13 @@ fn single_root_no_children() {
         return;
     };
 
-    let shape = grafo::Shape::rect([(10.0, 10.0), (100.0, 100.0)], grafo::Stroke::default());
+    let shape = Shape::rect([(10.0, 10.0), (100.0, 100.0)], Stroke::default());
     renderer
         .add_shape(
             shape,
             None,
             None,
-            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(200, 50, 50)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(200, 50, 50)),
         )
         .unwrap();
 
@@ -852,8 +818,8 @@ fn single_root_no_children() {
     renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
     let expectations = vec![
-        grafo_test_scenes::PixelExpectation::opaque(55, 55, 200, 50, 50, "center_red"),
-        grafo_test_scenes::PixelExpectation::transparent(5, 5, "outside_rect"),
+        PixelExpectation::opaque(55, 55, 200, 50, 50, "center_red"),
+        PixelExpectation::transparent(5, 5, "outside_rect"),
     ];
 
     assert_pixels_match(&pixel_buffer, &expectations);
@@ -887,18 +853,18 @@ fn original_size_texture_fit_uses_physical_pixels_on_hidpi() {
         &green_texture_with_transparent_border_20x20,
     );
 
-    let shape = grafo::Shape::rect([(10.0, 10.0), (70.0, 70.0)], grafo::Stroke::default());
+    let shape = Shape::rect([(10.0, 10.0), (70.0, 70.0)], Stroke::default());
     renderer
         .add_shape(
             shape,
             None,
             None,
-            grafo::ShapeDrawCommandOptions::new()
+            ShapeDrawCommandOptions::new()
                 .background_texture(
-                    grafo::ShapeTextureOptions::new(green_texture_id)
-                        .fit_mode(grafo::ShapeTextureFitMode::OriginalSize),
+                    ShapeTextureOptions::new(green_texture_id)
+                        .fit_mode(ShapeTextureFitMode::OriginalSize),
                 )
-                .color(grafo::Color::WHITE),
+                .color(Color::WHITE),
         )
         .unwrap();
 
@@ -906,23 +872,9 @@ fn original_size_texture_fit_uses_physical_pixels_on_hidpi() {
     renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
     let expectations = vec![
-        grafo_test_scenes::PixelExpectation::opaque(
-            30,
-            30,
-            0,
-            255,
-            0,
-            "inside_20px_physical_texture_region",
-        ),
-        grafo_test_scenes::PixelExpectation::opaque(
-            60,
-            30,
-            255,
-            255,
-            255,
-            "outside_texture_region_inside_shape",
-        ),
-        grafo_test_scenes::PixelExpectation::transparent(5, 5, "outside_shape"),
+        PixelExpectation::opaque(30, 30, 0, 255, 0, "inside_20px_physical_texture_region"),
+        PixelExpectation::opaque(60, 30, 255, 255, 255, "outside_texture_region_inside_shape"),
+        PixelExpectation::transparent(5, 5, "outside_shape"),
     ];
 
     let failures = check_pixels(
@@ -969,29 +921,27 @@ fn cover_and_contain_texture_fit_preserve_aspect_ratio() {
 
     renderer
         .add_shape(
-            grafo::Shape::rect([(8.0, 8.0), (56.0, 56.0)], grafo::Stroke::default()),
+            Shape::rect([(8.0, 8.0), (56.0, 56.0)], Stroke::default()),
             None,
             None,
-            grafo::ShapeDrawCommandOptions::new()
+            ShapeDrawCommandOptions::new()
                 .clips_children(false)
                 .background_texture(
-                    grafo::ShapeTextureOptions::new(texture_id)
-                        .fit_mode(grafo::ShapeTextureFitMode::Cover),
+                    ShapeTextureOptions::new(texture_id).fit_mode(ShapeTextureFitMode::Cover),
                 )
-                .color(grafo::Color::WHITE),
+                .color(Color::WHITE),
         )
         .unwrap();
     renderer
         .add_shape(
-            grafo::Shape::rect([(88.0, 8.0), (136.0, 56.0)], grafo::Stroke::default()),
+            Shape::rect([(88.0, 8.0), (136.0, 56.0)], Stroke::default()),
             None,
             None,
-            grafo::ShapeDrawCommandOptions::new()
+            ShapeDrawCommandOptions::new()
                 .background_texture(
-                    grafo::ShapeTextureOptions::new(texture_id)
-                        .fit_mode(grafo::ShapeTextureFitMode::Contain),
+                    ShapeTextureOptions::new(texture_id).fit_mode(ShapeTextureFitMode::Contain),
                 )
-                .color(grafo::Color::WHITE),
+                .color(Color::WHITE),
         )
         .unwrap();
 
@@ -1040,17 +990,17 @@ fn clipping_rect_clips_child_without_visible_surface() {
         .add_clipping_rect(
             [(20.0, 20.0), (80.0, 80.0)],
             None,
-            None::<grafo::TransformInstance>,
+            None::<TransformInstance>,
             true,
         )
         .unwrap();
-    let child = grafo::Shape::rect([(0.0, 0.0), (100.0, 100.0)], grafo::Stroke::default());
+    let child = Shape::rect([(0.0, 0.0), (100.0, 100.0)], Stroke::default());
     renderer
         .add_shape(
             child,
             Some(clip_rect_id),
             None,
-            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(200, 50, 50)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(200, 50, 50)),
         )
         .unwrap();
 
@@ -1058,11 +1008,11 @@ fn clipping_rect_clips_child_without_visible_surface() {
     renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
     let expectations = vec![
-        grafo_test_scenes::PixelExpectation::opaque(50, 50, 200, 50, 50, "inside_clip_rect"),
-        grafo_test_scenes::PixelExpectation::transparent(10, 50, "left_of_clip_rect"),
-        grafo_test_scenes::PixelExpectation::transparent(50, 10, "above_clip_rect"),
-        grafo_test_scenes::PixelExpectation::transparent(90, 50, "right_of_clip_rect"),
-        grafo_test_scenes::PixelExpectation::transparent(50, 90, "below_clip_rect"),
+        PixelExpectation::opaque(50, 50, 200, 50, 50, "inside_clip_rect"),
+        PixelExpectation::transparent(10, 50, "left_of_clip_rect"),
+        PixelExpectation::transparent(50, 10, "above_clip_rect"),
+        PixelExpectation::transparent(90, 50, "right_of_clip_rect"),
+        PixelExpectation::transparent(50, 90, "below_clip_rect"),
     ];
 
     assert_pixels_match(&pixel_buffer, &expectations);
@@ -1096,14 +1046,13 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
         )
         .expect("Failed to compile deterministic backdrop test effect");
 
-    let seeded_blue_panel =
-        grafo::Shape::rect([(20.0, 20.0), (60.0, 60.0)], grafo::Stroke::default());
+    let seeded_blue_panel = Shape::rect([(20.0, 20.0), (60.0, 60.0)], Stroke::default());
     renderer
         .add_shape(
             seeded_blue_panel.clone(),
             None,
             None,
-            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(40, 40, 220)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(40, 40, 220)),
         )
         .unwrap();
     let seeded_blue_panel_id = renderer
@@ -1111,7 +1060,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
             seeded_blue_panel,
             None,
             None,
-            grafo::ShapeDrawCommandOptions::new(),
+            ShapeDrawCommandOptions::new(),
         )
         .unwrap();
     renderer
@@ -1119,9 +1068,10 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
             seeded_blue_panel_id,
             AVERAGE_WITH_RIGHT_NEIGHBOR_EFFECT_ID,
             &[],
-            grafo::BackdropEffectConfig::new().capture_area(
-                grafo::BackdropCaptureArea::ScreenRect([(20.0, 20.0), (60.0, 60.0)]),
-            ),
+            BackdropEffectConfig::new().capture_area(BackdropCaptureArea::ScreenRect([
+                (20.0, 20.0),
+                (60.0, 60.0),
+            ])),
         )
         .unwrap();
 
@@ -1130,25 +1080,23 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 
     renderer.clear_draw_queue();
 
-    let visible_red_source =
-        grafo::Shape::rect([(70.0, 20.0), (100.0, 60.0)], grafo::Stroke::default());
+    let visible_red_source = Shape::rect([(70.0, 20.0), (100.0, 60.0)], Stroke::default());
     renderer
         .add_shape(
             visible_red_source,
             None,
             None,
-            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(220, 40, 40)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 40, 40)),
         )
         .unwrap();
 
-    let partially_offscreen_panel =
-        grafo::Shape::rect([(70.0, 20.0), (100.0, 60.0)], grafo::Stroke::default());
+    let partially_offscreen_panel = Shape::rect([(70.0, 20.0), (100.0, 60.0)], Stroke::default());
     let partially_offscreen_panel_id = renderer
         .add_shape(
             partially_offscreen_panel,
             None,
             None,
-            grafo::ShapeDrawCommandOptions::new(),
+            ShapeDrawCommandOptions::new(),
         )
         .unwrap();
     renderer
@@ -1156,8 +1104,8 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
             partially_offscreen_panel_id,
             AVERAGE_WITH_RIGHT_NEIGHBOR_EFFECT_ID,
             &[],
-            grafo::BackdropEffectConfig::new()
-                .capture_area(grafo::BackdropCaptureArea::ScreenRect([
+            BackdropEffectConfig::new()
+                .capture_area(BackdropCaptureArea::ScreenRect([
                     (80.0, 30.0),
                     (100.0, 50.0),
                 ]))
@@ -1192,7 +1140,7 @@ fn standalone_clipping_rect_does_not_panic() {
         .add_clipping_rect(
             [(20.0, 20.0), (80.0, 80.0)],
             None,
-            None::<grafo::TransformInstance>,
+            None::<TransformInstance>,
             true,
         )
         .unwrap();
@@ -1216,7 +1164,7 @@ fn clipping_rect_rejects_non_axis_aligned_transform() {
         .add_clipping_rect(
             [(20.0, 20.0), (80.0, 80.0)],
             None,
-            None::<grafo::TransformInstance>,
+            None::<TransformInstance>,
             true,
         )
         .unwrap();
@@ -1224,19 +1172,19 @@ fn clipping_rect_rejects_non_axis_aligned_transform() {
         renderer.add_clipping_rect(
             [(20.0, 20.0), (80.0, 80.0)],
             None,
-            Some(grafo::TransformInstance::rotation_z_deg(45.0)),
+            Some(TransformInstance::rotation_z_deg(45.0)),
             true,
         ),
-        Err(grafo::DrawCommandError::UnsupportedClipRectTransform)
+        Err(DrawCommandError::UnsupportedClipRectTransform)
     ));
 
-    let child = grafo::Shape::rect([(0.0, 0.0), (100.0, 100.0)], grafo::Stroke::default());
+    let child = Shape::rect([(0.0, 0.0), (100.0, 100.0)], Stroke::default());
     renderer
         .add_shape(
             child,
             Some(clip_rect_id),
             None,
-            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(200, 50, 50)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(200, 50, 50)),
         )
         .unwrap();
 
@@ -1244,15 +1192,8 @@ fn clipping_rect_rejects_non_axis_aligned_transform() {
     renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
     let expectations = vec![
-        grafo_test_scenes::PixelExpectation::opaque(
-            50,
-            50,
-            200,
-            50,
-            50,
-            "inside_unrotated_clip_rect",
-        ),
-        grafo_test_scenes::PixelExpectation::transparent(10, 50, "outside_unrotated_clip_rect"),
+        PixelExpectation::opaque(50, 50, 200, 50, 50, "inside_unrotated_clip_rect"),
+        PixelExpectation::transparent(10, 50, "outside_unrotated_clip_rect"),
     ];
 
     assert_pixels_match(&pixel_buffer, &expectations);
@@ -1469,20 +1410,20 @@ fn multi_subpath_fill_has_no_internal_seam() {
         return;
     };
 
-    let canvas_root = grafo::Shape::rect(
+    let canvas_root = Shape::rect(
         [(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)],
-        grafo::Stroke::default(),
+        Stroke::default(),
     );
     let canvas_root_id = renderer
         .add_shape(
             canvas_root,
             None,
             None,
-            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::WHITE),
+            ShapeDrawCommandOptions::new().color(Color::WHITE),
         )
         .unwrap();
 
-    let shape = grafo::Shape::builder()
+    let shape = Shape::builder()
         .begin((10.0, 10.0))
         .line_to((100.0, 10.0))
         .line_to((100.0, 100.0))
@@ -1497,17 +1438,17 @@ fn multi_subpath_fill_has_no_internal_seam() {
             shape,
             Some(canvas_root_id),
             None,
-            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(200, 50, 50)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(200, 50, 50)),
         )
         .unwrap();
 
-    let rect = grafo::Shape::rect([(140.0, 10.0), (230.0, 100.0)], grafo::Stroke::default());
+    let rect = Shape::rect([(140.0, 10.0), (230.0, 100.0)], Stroke::default());
     renderer
         .add_shape(
             rect,
             Some(canvas_root_id),
             None,
-            grafo::ShapeDrawCommandOptions::new().color(grafo::Color::rgb(200, 50, 50)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(200, 50, 50)),
         )
         .unwrap();
 
@@ -1515,13 +1456,13 @@ fn multi_subpath_fill_has_no_internal_seam() {
     renderer.render_to_buffer(&mut pixel_buffer).unwrap();
 
     let expectations = vec![
-        grafo_test_scenes::PixelExpectation::opaque(30, 30, 200, 50, 50, "diag_top_left"),
-        grafo_test_scenes::PixelExpectation::opaque(55, 55, 200, 50, 50, "diag_center"),
-        grafo_test_scenes::PixelExpectation::opaque(80, 80, 200, 50, 50, "diag_bottom_right"),
-        grafo_test_scenes::PixelExpectation::opaque(5, 5, 255, 255, 255, "outside_shape"),
-        grafo_test_scenes::PixelExpectation::opaque(185, 55, 200, 50, 50, "rect_center"),
-        grafo_test_scenes::PixelExpectation::opaque(145, 15, 200, 50, 50, "rect_near_corner"),
-        grafo_test_scenes::PixelExpectation::opaque(235, 55, 255, 255, 255, "outside_rect"),
+        PixelExpectation::opaque(30, 30, 200, 50, 50, "diag_top_left"),
+        PixelExpectation::opaque(55, 55, 200, 50, 50, "diag_center"),
+        PixelExpectation::opaque(80, 80, 200, 50, 50, "diag_bottom_right"),
+        PixelExpectation::opaque(5, 5, 255, 255, 255, "outside_shape"),
+        PixelExpectation::opaque(185, 55, 200, 50, 50, "rect_center"),
+        PixelExpectation::opaque(145, 15, 200, 50, 50, "rect_near_corner"),
+        PixelExpectation::opaque(235, 55, 255, 255, 255, "outside_rect"),
     ];
 
     assert_pixels_match(&pixel_buffer, &expectations);

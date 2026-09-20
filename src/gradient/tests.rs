@@ -1,14 +1,21 @@
+use super::errors::GradientError;
 use super::gpu::{GpuGradientColorParams, GradientCache};
 use super::normalize::NormalizedGradient;
 use super::sampling::bake_gradient_ramp;
 use super::types::{
     ColorInterpolation, ConicGradientDesc, Gradient, GradientColor, GradientCommonDesc,
     GradientKind, GradientRamp, GradientRampSource, GradientStop, GradientStopOffset,
-    GradientUnits, LinearGradientDesc, LinearGradientLine, SpreadMode,
+    GradientUnits, LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientSize,
+    SpreadMode,
 };
 use crate::Color;
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use std::sync::Arc;
+
+fn single_stop_common() -> GradientCommonDesc {
+    GradientCommonDesc::new([GradientStop::auto(Color::rgb(255, 0, 0))])
+        .with_interpolation(ColorInterpolation::SrgbLinear)
+}
 
 #[test]
 fn gradient_ramps_are_reused_within_each_cache() {
@@ -140,4 +147,99 @@ fn conic_gpu_parameters_use_turns_for_stops_and_radians_for_the_start_angle() {
     assert_eq!(params.period_len, 0.5);
     assert_eq!(params.ramp_start, 0.5);
     assert_eq!(params.ramp_end, 1.0);
+}
+
+#[test]
+fn degenerate_radial_gradient_uses_the_last_stop_color() {
+    for size in [
+        RadialGradientSize::ExplicitCircleRadius(0.0),
+        RadialGradientSize::ExplicitEllipseRadii {
+            radius_x: 0.0,
+            radius_y: 20.0,
+        },
+        RadialGradientSize::ExplicitEllipseRadii {
+            radius_x: 20.0,
+            radius_y: 0.0,
+        },
+    ] {
+        let gradient = Gradient::radial(RadialGradientDesc::new(
+            [50.0, 50.0],
+            size,
+            [
+                GradientStop::auto(Color::rgb(255, 0, 0)),
+                GradientStop::auto(GradientColor::Srgb {
+                    red: 0.0,
+                    green: 1.0,
+                    blue: 0.0,
+                    alpha: 0.25,
+                }),
+            ],
+        ))
+        .unwrap();
+
+        let GradientRamp::Constant(color) = gradient.data.ramp else {
+            panic!("a degenerate radial gradient must have a constant ramp");
+        };
+        assert_eq!(color, [0.0, 0.25, 0.0, 0.25]);
+        let params = GpuGradientColorParams::from_gradient_data(&gradient.data);
+        assert_eq!(params.is_constant, 1);
+        assert_eq!(params.constant_color, color);
+    }
+}
+
+#[test]
+fn radial_rejects_negative_circle_radius() {
+    let gradient = Gradient::radial(RadialGradientDesc {
+        common: single_stop_common(),
+        center: [50.0, 50.0],
+        size: RadialGradientSize::ExplicitCircleRadius(-1.0),
+    });
+
+    assert!(matches!(
+        gradient,
+        Err(GradientError::InvalidRadialDefinition)
+    ));
+}
+
+#[test]
+fn radial_rejects_negative_ellipse_radius() {
+    let gradient = Gradient::radial(RadialGradientDesc {
+        common: single_stop_common(),
+        center: [50.0, 50.0],
+        size: RadialGradientSize::ExplicitEllipseRadii {
+            radius_x: 20.0,
+            radius_y: -1.0,
+        },
+    });
+
+    assert!(matches!(
+        gradient,
+        Err(GradientError::InvalidRadialDefinition)
+    ));
+}
+
+#[test]
+fn nonconstant_gradients_start_with_pending_ramp() {
+    let gradient = Gradient::linear(
+        LinearGradientDesc::new(
+            LinearGradientLine {
+                start: [0.0, 0.0],
+                end: [10.0, 0.0],
+            },
+            [
+                GradientStop::at_position(
+                    GradientStopOffset::linear_radial(0.0),
+                    Color::rgb(255, 0, 0),
+                ),
+                GradientStop::at_position(
+                    GradientStopOffset::linear_radial(1.0),
+                    Color::rgb(0, 0, 255),
+                ),
+            ],
+        )
+        .with_interpolation(ColorInterpolation::SrgbLinear),
+    )
+    .unwrap();
+
+    assert!(matches!(gradient.data.ramp, GradientRamp::Pending(_)));
 }

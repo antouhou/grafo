@@ -3,6 +3,7 @@ use super::normalize::NormalizedGradient;
 use crate::Color;
 use smallvec::SmallVec;
 use std::ops::{Deref, DerefMut};
+use std::slice::{Iter, IterMut};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,18 +62,6 @@ pub struct GradientStops {
 impl GradientStops {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn len(&self) -> usize {
-        self.stops.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.stops.is_empty()
-    }
-
-    pub fn iter(&self) -> std::slice::Iter<'_, GradientStop> {
-        self.stops.iter()
     }
 
     pub fn as_slice(&self) -> &[GradientStop] {
@@ -135,7 +124,7 @@ impl IntoIterator for GradientStops {
 
 impl<'a> IntoIterator for &'a GradientStops {
     type Item = &'a GradientStop;
-    type IntoIter = std::slice::Iter<'a, GradientStop>;
+    type IntoIter = Iter<'a, GradientStop>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -144,7 +133,7 @@ impl<'a> IntoIterator for &'a GradientStops {
 
 impl<'a> IntoIterator for &'a mut GradientStops {
     type Item = &'a mut GradientStop;
-    type IntoIter = std::slice::IterMut<'a, GradientStop>;
+    type IntoIter = IterMut<'a, GradientStop>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.stops.iter_mut()
@@ -187,21 +176,18 @@ impl LinearGradientDesc {
 pub struct RadialGradientDesc {
     pub common: GradientCommonDesc,
     pub center: [f32; 2],
-    pub shape: RadialGradientShape,
     pub size: RadialGradientSize,
 }
 
 impl RadialGradientDesc {
     pub fn new(
         center: [f32; 2],
-        shape: RadialGradientShape,
         size: RadialGradientSize,
         stops: impl Into<GradientStops>,
     ) -> Self {
         Self {
             common: GradientCommonDesc::new(stops),
             center,
-            shape,
             size,
         }
     }
@@ -333,12 +319,6 @@ pub enum HueInterpolationMethod {
 pub enum SpreadMode {
     Pad,
     Repeat,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RadialGradientShape {
-    Circle,
-    Ellipse,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -647,26 +627,22 @@ impl Gradient {
         validate_finite_f32(desc.center[0], "center[0]")?;
         validate_finite_f32(desc.center[1], "center[1]")?;
 
-        let (radius_x, radius_y) = match (&desc.shape, &desc.size) {
-            (RadialGradientShape::Circle, RadialGradientSize::ExplicitCircleRadius(r)) => {
-                validate_finite_f32(*r, "radius")?;
-                if *r < 0.0 {
+        let (radius_x, radius_y) = match desc.size {
+            RadialGradientSize::ExplicitCircleRadius(radius) => {
+                validate_finite_f32(radius, "radius")?;
+                if radius < 0.0 {
                     return Err(GradientError::InvalidRadialDefinition);
                 }
-                (*r, *r)
+                (radius, radius)
             }
-            (
-                RadialGradientShape::Ellipse,
-                RadialGradientSize::ExplicitEllipseRadii { radius_x, radius_y },
-            ) => {
-                validate_finite_f32(*radius_x, "radius_x")?;
-                validate_finite_f32(*radius_y, "radius_y")?;
-                if *radius_x < 0.0 || *radius_y < 0.0 {
+            RadialGradientSize::ExplicitEllipseRadii { radius_x, radius_y } => {
+                validate_finite_f32(radius_x, "radius_x")?;
+                validate_finite_f32(radius_y, "radius_y")?;
+                if radius_x < 0.0 || radius_y < 0.0 {
                     return Err(GradientError::InvalidRadialDefinition);
                 }
-                (*radius_x, *radius_y)
+                (radius_x, radius_y)
             }
-            _ => return Err(GradientError::InvalidRadialDefinition),
         };
 
         let normalized = NormalizedGradient::from_common(&desc.common, GradientKind::Radial);
@@ -952,98 +928,4 @@ fn check_finite(
         });
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn single_stop_common() -> GradientCommonDesc {
-        GradientCommonDesc::new([GradientStop::auto(Color::rgb(255, 0, 0))])
-            .with_interpolation(ColorInterpolation::SrgbLinear)
-    }
-
-    #[test]
-    fn degenerate_linear_has_nonempty_ramp() {
-        let g = Gradient::linear(LinearGradientDesc {
-            common: single_stop_common(),
-            line: LinearGradientLine {
-                start: [0.0, 0.0],
-                end: [0.0, 0.0], // zero-length → degenerate
-            },
-        })
-        .unwrap();
-        assert!(matches!(g.data.ramp, GradientRamp::Constant(_)));
-    }
-
-    #[test]
-    fn degenerate_radial_has_nonempty_ramp() {
-        let g = Gradient::radial(RadialGradientDesc {
-            common: single_stop_common(),
-            center: [50.0, 50.0],
-            shape: RadialGradientShape::Circle,
-            size: RadialGradientSize::ExplicitCircleRadius(0.0), // zero radius → degenerate
-        })
-        .unwrap();
-        assert!(matches!(g.data.ramp, GradientRamp::Constant(_)));
-    }
-
-    #[test]
-    fn radial_rejects_negative_circle_radius() {
-        let gradient = Gradient::radial(RadialGradientDesc {
-            common: single_stop_common(),
-            center: [50.0, 50.0],
-            shape: RadialGradientShape::Circle,
-            size: RadialGradientSize::ExplicitCircleRadius(-1.0),
-        });
-
-        assert!(matches!(
-            gradient,
-            Err(GradientError::InvalidRadialDefinition)
-        ));
-    }
-
-    #[test]
-    fn radial_rejects_negative_ellipse_radius() {
-        let gradient = Gradient::radial(RadialGradientDesc {
-            common: single_stop_common(),
-            center: [50.0, 50.0],
-            shape: RadialGradientShape::Ellipse,
-            size: RadialGradientSize::ExplicitEllipseRadii {
-                radius_x: 20.0,
-                radius_y: -1.0,
-            },
-        });
-
-        assert!(matches!(
-            gradient,
-            Err(GradientError::InvalidRadialDefinition)
-        ));
-    }
-
-    #[test]
-    fn nonconstant_gradients_start_with_pending_ramp() {
-        let gradient = Gradient::linear(
-            LinearGradientDesc::new(
-                LinearGradientLine {
-                    start: [0.0, 0.0],
-                    end: [10.0, 0.0],
-                },
-                [
-                    GradientStop::at_position(
-                        GradientStopOffset::linear_radial(0.0),
-                        Color::rgb(255, 0, 0),
-                    ),
-                    GradientStop::at_position(
-                        GradientStopOffset::linear_radial(1.0),
-                        Color::rgb(0, 0, 255),
-                    ),
-                ],
-            )
-            .with_interpolation(ColorInterpolation::SrgbLinear),
-        )
-        .unwrap();
-
-        assert!(matches!(gradient.data.ramp, GradientRamp::Pending(_)));
-    }
 }

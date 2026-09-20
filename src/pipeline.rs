@@ -565,7 +565,7 @@ pub fn create_offscreen_color_texture(
     format: wgpu::TextureFormat,
 ) -> Texture {
     device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("offscreen_render_texture_argb"),
+        label: Some("offscreen_render_texture"),
         size: wgpu::Extent3d {
             width: size.0,
             height: size.1,
@@ -580,15 +580,15 @@ pub fn create_offscreen_color_texture(
     })
 }
 
-/// Create compute bind group layout and pipeline for ARGB swizzle from BGRA bytes buffer to ARGB u32s.
-pub fn create_argb_swizzle_pipeline(device: &Device) -> (BindGroupLayout, ComputePipeline) {
+/// Creates the GPU pipeline that removes row padding from ARGB readback data.
+pub fn create_argb_row_packing_pipeline(device: &Device) -> (BindGroupLayout, ComputePipeline) {
     let cs_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("argb_swizzle_cs"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/argb_swizzle.wgsl").into()),
+        label: Some("argb_row_packing_cs"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/argb_row_packing.wgsl").into()),
     });
 
     let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("argb_swizzle_bgl"),
+        label: Some("argb_row_packing_bgl"),
         entries: &[
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -624,13 +624,13 @@ pub fn create_argb_swizzle_pipeline(device: &Device) -> (BindGroupLayout, Comput
     });
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("argb_swizzle_pl"),
+        label: Some("argb_row_packing_pl"),
         bind_group_layouts: &[&bgl],
         push_constant_ranges: &[],
     });
 
     let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("argb_swizzle_pipeline"),
+        label: Some("argb_row_packing_pipeline"),
         layout: Some(&pipeline_layout),
         module: &cs_module,
         entry_point: Some("cs_main"),
@@ -642,7 +642,7 @@ pub fn create_argb_swizzle_pipeline(device: &Device) -> (BindGroupLayout, Comput
 }
 
 /// Binds the ARGB input, output, and parameter buffers.
-pub fn create_argb_swizzle_bind_group(
+pub fn create_argb_row_packing_bind_group(
     device: &Device,
     bgl: &BindGroupLayout,
     input_bytes: &wgpu::Buffer,
@@ -650,7 +650,7 @@ pub fn create_argb_swizzle_bind_group(
     params: &wgpu::Buffer,
 ) -> BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("argb_swizzle_bg"),
+        label: Some("argb_row_packing_bg"),
         layout: bgl,
         entries: &[
             wgpu::BindGroupEntry {
@@ -720,18 +720,21 @@ pub fn create_readback_buffer(device: &Device, label: Option<&str>, size: u64) -
     })
 }
 
-/// Parameters for ARGB compute swizzle, shared between modules.
+/// Image dimensions and source row stride for GPU readback packing.
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ArgbParams {
+pub struct ArgbRowPackingParams {
     pub width: u32,
     pub height: u32,
-    pub padded_bpr: u32,
+    pub padded_bytes_per_row: u32,
     pub _pad: u32,
 }
 
-/// Creates a uniform buffer initialized with `ArgbParams`.
-pub fn create_argb_params_buffer(device: &Device, params: &ArgbParams) -> wgpu::Buffer {
+/// Creates a uniform buffer initialized with `ArgbRowPackingParams`.
+pub fn create_argb_row_packing_params_buffer(
+    device: &Device,
+    params: &ArgbRowPackingParams,
+) -> wgpu::Buffer {
     device.create_buffer_init(&BufferInitDescriptor {
         label: Some("argb_params"),
         contents: bytemuck::bytes_of(params),

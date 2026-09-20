@@ -190,8 +190,6 @@ pub enum DrawCommandError {
     InvalidShapeId(usize),
     #[error("Shape with id {0} has not been loaded yet")]
     ShapeNotLoaded(u64),
-    #[error("Texture layer {0} is invalid; expected 0 or 1.")]
-    InvalidTextureLayer(usize),
     #[error("Clip rect node only supports axis-aligned transforms.")]
     UnsupportedClipRectTransform,
     #[error("Clip rect node {0} does not support {1}.")]

@@ -17,7 +17,6 @@ use crate::Color;
 pub struct Stroke {
     /// The width of the stroke in pixels.
     pub width: f32,
-    /// The color of the stroke.
     pub color: Color,
 }
 

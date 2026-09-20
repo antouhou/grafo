@@ -329,7 +329,7 @@ impl<'a> Renderer<'a> {
                 &mut traversal_scratch,
             );
 
-            let (phase2_color_view, phase2_resolve_target) =
+            let (output_color_view, output_resolve_target) =
                 if let Some(msaa_view) = self.msaa_color_texture_view.as_ref() {
                     (
                         msaa_view as &wgpu::TextureView,
@@ -352,8 +352,8 @@ impl<'a> Renderer<'a> {
                 traversal_scratch.events(),
                 &effect_results,
                 SegmentRenderTarget {
-                    color_view: phase2_color_view,
-                    color_resolve_target: phase2_resolve_target,
+                    color_view: output_color_view,
+                    color_resolve_target: output_resolve_target,
                     depth_stencil_view: depth_texture_view,
                     backdrop_source,
                     backdrop_context: backdrop_context.as_ref(),
