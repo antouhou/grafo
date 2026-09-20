@@ -275,17 +275,45 @@ fn tile_70_stencil_restoration_across_empty_and_overflow_parents(
         .unwrap();
 
     [
-        (18, 24, 245, 215, 120, "t70_visible_nested_clip_below_empty_parent"),
+        (
+            18,
+            24,
+            245,
+            215,
+            120,
+            "t70_visible_nested_clip_below_empty_parent",
+        ),
         (40, 26, 220, 60, 60, "t70_red_disc_inside_nested_clip"),
         (54, 26, 180, 180, 220, "t70_nested_clip_cuts_red_disc"),
         (35, 45, 100, 200, 120, "t70_visible_non_clipping_parent"),
         (22, 57, 70, 80, 220, "t70_blue_diamond_inside_green_parent"),
         (8, 56, 70, 80, 220, "t70_blue_diamond_escapes_green_parent"),
         (2, 56, 255, 255, 255, "t70_outer_clip_cuts_blue_diamond"),
-        (71, 49, 230, 140, 40, "t70_orange_sibling_after_nested_parents"),
+        (
+            71,
+            49,
+            230,
+            140,
+            40,
+            "t70_orange_sibling_after_nested_parents",
+        ),
         (77, 49, 255, 255, 255, "t70_orange_sibling_remains_clipped"),
-        (65, 70, 70, 70, 70, "t70_dark_sibling_inside_restored_outer_clip"),
-        (65, 77, 70, 70, 70, "t70_dark_sibling_outside_restored_outer_clip"),
+        (
+            65,
+            70,
+            70,
+            70,
+            70,
+            "t70_dark_sibling_inside_restored_outer_clip",
+        ),
+        (
+            65,
+            77,
+            70,
+            70,
+            70,
+            "t70_dark_sibling_outside_restored_outer_clip",
+        ),
     ]
     .into_iter()
     .map(|(x, y, red, green, blue, label)| {
