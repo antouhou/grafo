@@ -7,12 +7,14 @@ use super::types::{
 };
 use super::*;
 use crate::effect::PooledTexture;
-use crate::pipeline::{begin_render_pass_with_load_ops, RenderPassLoadOperations};
+use crate::pipeline::{
+    begin_render_pass_with_load_ops, BackdropSamplingUniform, RenderPassLoadOperations,
+};
 use crate::renderer::rect_utils::{
     compute_downsampled_dimensions, should_skip_visible_rect_draw, try_scissor_for_rect,
 };
 use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
-use crate::{Size, UnsignedPhysicalRect};
+use crate::{MathRect, Size, UnsignedPhysicalRect};
 
 fn cached_shape(draw_command: &DrawCommand) -> &CachedShapeDrawData {
     match draw_command {
@@ -998,16 +1000,21 @@ pub(super) fn render_segments(
                     .get_mut(&backdrop_node_id)
                     .expect("backdrop node must have an attached effect instance");
                 let backdrop_config = effect_instance.config;
+                let local_bounds = draw_command.local_bounds();
 
                 if let Some(capture_region) = compute_backdrop_capture_region(
-                    draw_command,
+                    MathRect::new(local_bounds[0].into(), local_bounds[1].into()),
+                    draw_command.transform(),
                     backdrop_config,
                     state.scale_factor,
                     state.physical_size.into(),
                     bctx.max_texture_dimension_2d,
                 ) {
-                    let backdrop_sampling_uniform = capture_region.sample_uniform();
                     let capture_size = capture_region.bounds.size().to_u32();
+                    let backdrop_sampling_uniform = BackdropSamplingUniform::new(
+                        capture_region.bounds.min.to_tuple(),
+                        capture_size.to_tuple(),
+                    );
                     let backdrop_source =
                         backdrop_source.expect("backdrop source required for backdrop effects");
                     let backdrop_capture_texture = state.texture_pool.acquire_color_only(

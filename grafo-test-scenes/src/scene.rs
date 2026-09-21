@@ -9,10 +9,8 @@ use grafo::{
 
 use crate::expectations::PixelExpectation;
 use crate::shaders::{
-    BlurParams, DOWNSAMPLED_DROP_SHADOW_HORIZONTAL_BLUR_WGSL,
-    DOWNSAMPLED_DROP_SHADOW_VERTICAL_TINT_WGSL, DROP_SHADOW_HORIZONTAL_BLUR_WGSL,
-    DROP_SHADOW_VERTICAL_TINT_WGSL, HORIZONTAL_BLUR_WGSL, PASSTHROUGH_WGSL, SHAPE_DROP_WGSL,
-    VERTICAL_BLUR_WGSL,
+    BlurParams, DropShadowParams, HORIZONTAL_BLUR_WGSL, PASSTHROUGH_WGSL, SHADOW_TINT_WGSL,
+    SHAPE_DROP_WGSL, VERTICAL_BLUR_WGSL,
 };
 
 // Grid layout
@@ -28,7 +26,6 @@ const BLUR_EFFECT_ID: u64 = 1;
 const PASSTHROUGH_EFFECT_ID: u64 = 2;
 const SHAPE_DROP_EFFECT_ID: u64 = 3;
 const DROP_SHADOW_EFFECT_ID: u64 = 4;
-const DOWNSAMPLED_DROP_SHADOW_EFFECT_ID: u64 = 5;
 const CHECKERBOARD_TEXTURE_ID: u64 = 100;
 const SOLID_GREEN_TEXTURE_ID: u64 = 101;
 const SOLID_GREEN_20X20_TEXTURE_ID: u64 = 102;
@@ -458,21 +455,9 @@ fn load_shared_resources(renderer: &mut Renderer) {
     renderer
         .load_effect(
             DROP_SHADOW_EFFECT_ID,
-            &[
-                DROP_SHADOW_HORIZONTAL_BLUR_WGSL,
-                DROP_SHADOW_VERTICAL_TINT_WGSL,
-            ],
+            &[HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL, SHADOW_TINT_WGSL],
         )
         .expect("Failed to compile visual drop shadow effect");
-    renderer
-        .load_effect(
-            DOWNSAMPLED_DROP_SHADOW_EFFECT_ID,
-            &[
-                DOWNSAMPLED_DROP_SHADOW_HORIZONTAL_BLUR_WGSL,
-                DOWNSAMPLED_DROP_SHADOW_VERTICAL_TINT_WGSL,
-            ],
-        )
-        .expect("Failed to compile downsampled drop shadow effect");
 
     // A 4x4 RGBA checkerboard of alternating white and black pixels.
     let mut checkerboard = [0u8; 4 * 4 * 4];
@@ -2039,10 +2024,7 @@ fn tile_27_group_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         )
         .unwrap(); // semi-transparent red
 
-    let blur_params = BlurParams {
-        radius: 8.0,
-        _pad: 0.0,
-    };
+    let blur_params = BlurParams::new(8.0);
     renderer
         .set_group_effect(id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
         .expect("Failed to set group effect");
@@ -2116,10 +2098,7 @@ fn tile_28_group_blur_with_children(renderer: &mut Renderer) -> Vec<PixelExpecta
         )
         .unwrap();
 
-    let blur_params = BlurParams {
-        radius: 6.0,
-        _pad: 0.0,
-    };
+    let blur_params = BlurParams::new(6.0);
     renderer
         .set_group_effect(parent_id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
         .expect("Failed to set group effect");
@@ -2209,10 +2188,7 @@ fn tile_29_backdrop_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> 
         )
         .unwrap();
 
-    let blur_params = BlurParams {
-        radius: 10.0,
-        _pad: 0.0,
-    };
+    let blur_params = BlurParams::new(10.0);
     renderer
         .set_shape_backdrop_effect(
             panel_id,
@@ -2305,10 +2281,7 @@ fn tile_30_backdrop_blur_nonleaf(renderer: &mut Renderer) -> Vec<PixelExpectatio
         )
         .unwrap();
 
-    let blur_params = BlurParams {
-        radius: 8.0,
-        _pad: 0.0,
-    };
+    let blur_params = BlurParams::new(8.0);
     renderer
         .set_shape_backdrop_effect(
             panel_id,
@@ -2420,10 +2393,7 @@ fn tile_31_backdrop_under_scissor(renderer: &mut Renderer) -> Vec<PixelExpectati
         )
         .unwrap();
 
-    let blur_params = BlurParams {
-        radius: 6.0,
-        _pad: 0.0,
-    };
+    let blur_params = BlurParams::new(6.0);
     renderer
         .set_shape_backdrop_effect(
             panel_id,
@@ -3314,10 +3284,7 @@ fn tile_45_gradient_group_blur(renderer: &mut Renderer) -> Vec<PixelExpectation>
         )
         .unwrap();
 
-    let blur_params = BlurParams {
-        radius: 8.0,
-        _pad: 0.0,
-    };
+    let blur_params = BlurParams::new(8.0);
     renderer
         .set_group_effect(id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
         .expect("Failed to set group effect");
@@ -3415,10 +3382,7 @@ fn tile_46_gradient_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectati
         )
         .unwrap();
 
-    let blur_params = BlurParams {
-        radius: 10.0,
-        _pad: 0.0,
-    };
+    let blur_params = BlurParams::new(10.0);
     renderer
         .set_shape_backdrop_effect(
             panel_id,
@@ -3917,10 +3881,7 @@ fn tile_52_backdrop_overflow_visible_children(renderer: &mut Renderer) -> Vec<Pi
         )
         .unwrap();
 
-    let blur_params = BlurParams {
-        radius: 5.0,
-        _pad: 0.0,
-    };
+    let blur_params = BlurParams::new(5.0);
     renderer
         .set_shape_backdrop_effect(
             panel_id,
@@ -4783,18 +4744,21 @@ fn tile_64_drop_shadow_with_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelE
             ShapeDrawCommandOptions::new().color(Color::rgba(75, 125, 235, 150)),
         )
         .unwrap();
+    let shadow_params = DropShadowParams {
+        radius: 5.0,
+        sigma: 2.0,
+        offset: [7.0, 8.0],
+        color: [0.0, 0.0, 0.0, 0.65],
+    };
     renderer
         .set_shape_effect(
             card_id,
             DROP_SHADOW_EFFECT_ID,
-            &[],
+            bytemuck::bytes_of(&shadow_params),
             ShapeEffectConfig::new().outsets(8.0, 8.0, 20.0, 22.0),
         )
         .expect("Failed to attach visual drop shadow effect");
-    let backdrop_blur_params = BlurParams {
-        radius: 5.0,
-        _pad: 0.0,
-    };
+    let backdrop_blur_params = BlurParams::new(5.0);
     renderer
         .set_shape_backdrop_effect(
             card_id,
@@ -5095,20 +5059,23 @@ fn tile_67_downsampled_drop_shadow_with_backdrop_blur(
             ShapeDrawCommandOptions::new().color(Color::rgba(75, 125, 235, 150)),
         )
         .unwrap();
+    let shadow_params = DropShadowParams {
+        radius: 5.0,
+        sigma: 1.0,
+        offset: [3.5, 4.0],
+        color: [0.0, 0.0, 0.0, 0.65],
+    };
     renderer
         .set_shape_effect(
             card_id,
-            DOWNSAMPLED_DROP_SHADOW_EFFECT_ID,
-            &[],
+            DROP_SHADOW_EFFECT_ID,
+            bytemuck::bytes_of(&shadow_params),
             ShapeEffectConfig::new()
                 .outsets(8.0, 8.0, 20.0, 22.0)
                 .downsample(0.5),
         )
         .expect("Failed to attach downsampled drop shadow effect");
-    let backdrop_blur_params = BlurParams {
-        radius: 5.0,
-        _pad: 0.0,
-    };
+    let backdrop_blur_params = BlurParams::new(5.0);
     renderer
         .set_shape_backdrop_effect(
             card_id,

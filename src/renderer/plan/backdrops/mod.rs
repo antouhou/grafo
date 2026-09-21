@@ -1,9 +1,8 @@
 use crate::effect::{BackdropCaptureArea, BackdropEffectConfig};
-use crate::pipeline::BackdropSamplingUniform;
 use crate::renderer::rect_utils::{
     logical_rect_to_physical_rect, transformed_bounds_to_logical_screen_rect,
 };
-use crate::renderer::types::DrawCommand;
+use crate::vertex::InstanceTransform;
 use crate::{MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
 use tracing::warn;
 
@@ -34,15 +33,6 @@ pub(in crate::renderer) struct BackdropCaptureRegion {
     pub(in crate::renderer) copy_destination_origin: UnsignedPhysicalPoint,
 }
 
-impl BackdropCaptureRegion {
-    pub(in crate::renderer) fn sample_uniform(self) -> BackdropSamplingUniform {
-        BackdropSamplingUniform::new(
-            self.bounds.min.to_tuple(),
-            self.bounds.size().to_u32().to_tuple(),
-        )
-    }
-}
-
 fn resolve_capture_region_to_viewport(
     requested_rect: PhysicalRect,
     physical_size: Size,
@@ -68,7 +58,8 @@ fn resolve_capture_region_to_viewport(
 
 /// Resolves the requested bounds and viewport overlap before allocating capture textures.
 pub(in crate::renderer) fn compute_backdrop_capture_region(
-    draw_command: &DrawCommand,
+    local_bounds: MathRect,
+    transform: Option<InstanceTransform>,
     backdrop_config: BackdropEffectConfig,
     scale_factor: f64,
     physical_size: Size,
@@ -76,11 +67,7 @@ pub(in crate::renderer) fn compute_backdrop_capture_region(
 ) -> Option<BackdropCaptureRegion> {
     let logical_rect = match backdrop_config.capture_area {
         BackdropCaptureArea::NodeBounds => {
-            let bounds = draw_command.local_bounds();
-            transformed_bounds_to_logical_screen_rect(
-                MathRect::new(bounds[0].into(), bounds[1].into()),
-                draw_command.transform(),
-            )
+            transformed_bounds_to_logical_screen_rect(local_bounds, transform)
         }
         BackdropCaptureArea::FullScene => {
             // Match capture rounding in f32; to_logical's f64 division can add a pixel.

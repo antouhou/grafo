@@ -6,7 +6,7 @@ use grafo::wgpu::SurfaceError;
 use grafo::RenderError;
 use grafo::Shape;
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
-use grafo_test_scenes::shaders::{HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
+use grafo_test_scenes::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -14,14 +14,6 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
 const BLUR_EFFECT: u64 = 1;
-
-/// Parameters shared by both blur passes.
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct BlurParams {
-    radius: f32,
-    _pad: f32,
-}
 
 #[derive(Default)]
 struct App<'a> {
@@ -108,8 +100,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Blurred group
-                // Parent shape defines the group boundary
                 let group_bg = Shape::rect(
                     [(80.0, 80.0), (500.0, 400.0)],
                     Stroke::new(0.0_f32, Color::TRANSPARENT),
@@ -123,7 +113,6 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                // Child shapes inside the group
                 let child1 = Shape::rect(
                     [(100.0, 100.0), (300.0, 280.0)],
                     Stroke::new(3.0_f32, Color::rgb(0, 0, 0)),
@@ -150,10 +139,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                let blur_params = BlurParams {
-                    radius: 8.0,
-                    _pad: 0.0,
-                };
+                let blur_params = BlurParams::new(8.0);
                 renderer
                     .set_group_effect(group, BLUR_EFFECT, bytemuck::bytes_of(&blur_params))
                     .expect("Failed to set blur effect");

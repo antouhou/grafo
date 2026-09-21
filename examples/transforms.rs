@@ -100,7 +100,7 @@ fn build_rect_path(w: f32, h: f32) -> Path {
 }
 
 fn build_heart_path() -> Path {
-    // A heart centered at (0,0) and extending mostly in +Y.
+    // Symmetric about x=0, with its tip at y=92.
     let mut hb = Path::builder();
     hb.begin(point(0.0, 30.0));
     hb.cubic_bezier_to(point(0.0, 0.0), point(50.0, 0.0), point(50.0, 30.0));
@@ -128,7 +128,7 @@ struct App<'a> {
     renderer: Option<grafo::Renderer<'a>>,
     redraw_retry: RedrawRetry,
     angle: f32,
-    // Last mouse position in physical window pixels.
+    // Last mouse position in logical window coordinates.
     last_mouse_pos: Option<(f32, f32)>,
     // Orbit angles from mouse movement, in degrees.
     orbit_yaw_deg: f32,
@@ -144,7 +144,7 @@ struct App<'a> {
     blue_size: (f32, f32),   // local size of blue rect
     // Window scale factor
     scale_factor: f64,
-    // Rectangle paths in local space, with origin at (0,0).
+    // Shape paths in local coordinates.
     red_path: Path,
     green_path: Path,
     blue_path: Path,
