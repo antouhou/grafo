@@ -1,4 +1,6 @@
-use super::execution::effects::{apply_effect_passes, EffectPassRunConfig, EffectRegistry};
+use super::execution::effects::{
+    apply_effect_passes, create_texture_sample_bind_group, EffectPassRunConfig, EffectRegistry,
+};
 use super::execution::effects::{OffscreenTexturePool, PooledTexture};
 use super::execution::shapes::ShapeDrawResources;
 use super::execution::textures::{
@@ -593,7 +595,14 @@ impl<'a> Renderer<'a> {
                         effect_id: shape_effect_instance.effect_id,
                         params: &shape_effect_instance.params,
                         parameter_resources: None,
-                        source_view: &cached_mask.texture.color_view,
+                        source_bind_group: &create_texture_sample_bind_group(
+                            &self.device,
+                            self.effect_registry
+                                .input_bind_group_layout(shape_effect_instance.effect_id),
+                            &cached_mask.texture.color_view,
+                            effect_sampler,
+                            Some("shape_effect_mask_input"),
+                        ),
                         effect_sampler,
                         composite_bind_group_layout: &self
                             .pipeline_resources

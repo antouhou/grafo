@@ -8,15 +8,18 @@ use crate::pipeline::{
 #[cfg(feature = "render_metrics")]
 use crate::renderer::metrics::PhaseTimings;
 use crate::renderer::types::GeometryBufferError;
+use mapping::ReadbackMapping;
+use std::iter;
 #[cfg(feature = "render_metrics")]
 use std::time::{Duration, Instant};
-use std::{iter, sync::mpsc};
 use thiserror::Error;
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferAsyncError, BufferDescriptor, BufferUsages,
     CommandEncoderDescriptor, ComputePassDescriptor, ComputePipeline, Device, MapMode, PollError,
-    PollType, Texture, TextureFormat, TextureViewDescriptor,
+    PollType, Texture, TextureFormat, TextureView, TextureViewDescriptor,
 };
+
+mod mapping;
 
 /// An offscreen render could not prepare geometry or read its pixels back from the GPU.
 #[derive(Error, Debug)]
@@ -62,14 +65,20 @@ fn copy_padded_readback_rows(
 
 pub(super) struct BgraReadbackResources {
     pub(super) texture: Texture,
+    view: TextureView,
+    mapping: ReadbackMapping,
     pub(super) buffer: Buffer,
 }
 
 impl BgraReadbackResources {
     fn new(device: &Device, physical_size: (u32, u32), format: TextureFormat) -> Self {
         let (_, padded_bytes_per_row) = compute_padded_bytes_per_row(physical_size.0, 4);
+        let texture = create_offscreen_color_texture(device, physical_size, format);
+        let view = texture.create_view(&TextureViewDescriptor::default());
         Self {
-            texture: create_offscreen_color_texture(device, physical_size, format),
+            texture,
+            view,
+            mapping: ReadbackMapping::new(),
             buffer: create_readback_buffer(
                 device,
                 Some("rtb_readback_buffer"),
@@ -82,6 +91,8 @@ impl BgraReadbackResources {
 /// The texture, buffers, and bindings for one ARGB readback size.
 pub(super) struct ArgbReadbackTarget {
     pub(super) texture: Texture,
+    view: TextureView,
+    mapping: ReadbackMapping,
     pub(super) input_buffer: Buffer,
     pub(super) output_buffer: Buffer,
     pub(super) readback_buffer: Buffer,
@@ -129,8 +140,12 @@ impl ArgbReadbackTarget {
             &output_buffer,
             &params_buffer,
         );
+        let texture = create_offscreen_color_texture(device, physical_size, format);
+        let view = texture.create_view(&TextureViewDescriptor::default());
         Self {
-            texture: create_offscreen_color_texture(device, physical_size, format),
+            texture,
+            view,
+            mapping: ReadbackMapping::new(),
             input_buffer,
             output_buffer,
             readback_buffer,
@@ -190,23 +205,23 @@ impl<'a> Renderer<'a> {
     fn map_readback_buffer_into(
         device: &Device,
         buffer: &Buffer,
+        mapping: &ReadbackMapping,
         mapped_bytes: &mut Vec<u8>,
     ) -> Result<(), ReadbackError> {
         mapped_bytes.clear();
 
         let buffer_slice = buffer.slice(..);
-        let (sender, receiver) = mpsc::channel();
+        let completion = mapping.completion();
         buffer_slice.map_async(MapMode::Read, move |result| {
-            let _ = sender.send(result);
+            completion.finish(result);
         });
 
+        // A failed target is dropped so its late callback cannot reach a later mapping.
         if let Err(error) = device.poll(PollType::Wait) {
             buffer.unmap();
             return Err(error.into());
         }
-        receiver
-            .recv()
-            .map_err(|_| ReadbackError::MapCallbackDropped)??;
+        mapping.wait()?;
 
         let mapped_range = buffer_slice.get_mapped_range();
         mapped_bytes.extend_from_slice(&mapped_range);
@@ -238,10 +253,7 @@ impl<'a> Renderer<'a> {
             }
             _ => BgraReadbackResources::new(&self.device, physical_size, self.config.format),
         };
-        let texture_view = resources
-            .texture
-            .create_view(&TextureViewDescriptor::default());
-        self.render_to_texture_view(&texture_view, Some(&resources.texture));
+        self.render_to_texture_view(&resources.view, Some(&resources.texture));
 
         let (unpadded_bytes_per_row, padded_bytes_per_row) = compute_padded_bytes_per_row(width, 4);
 
@@ -266,10 +278,13 @@ impl<'a> Renderer<'a> {
         let submission_finished_at = Instant::now();
 
         let readback_bytes = &mut self.state.scratch.readback_bytes;
-        let readback_result =
-            Self::map_readback_buffer_into(&self.device, &resources.buffer, readback_bytes);
+        Self::map_readback_buffer_into(
+            &self.device,
+            &resources.buffer,
+            &resources.mapping,
+            readback_bytes,
+        )?;
         self.bgra_readback = Some(resources);
-        readback_result?;
         copy_padded_readback_rows(
             readback_bytes,
             height,
@@ -313,10 +328,7 @@ impl<'a> Renderer<'a> {
         });
         resources.resize(&self.device, (width, height), self.config.format);
         let target = &resources.target;
-        let texture_view = target
-            .texture
-            .create_view(&TextureViewDescriptor::default());
-        self.render_to_texture_view(&texture_view, Some(&target.texture));
+        self.render_to_texture_view(&target.view, Some(&target.texture));
 
         let (_, padded_bytes_per_row) = compute_padded_bytes_per_row(width, 4);
         let mut encoder = self
@@ -371,10 +383,13 @@ impl<'a> Renderer<'a> {
         let submission_finished_at = Instant::now();
 
         let readback_bytes = &mut self.state.scratch.readback_bytes;
-        let readback_result =
-            Self::map_readback_buffer_into(&self.device, &target.readback_buffer, readback_bytes);
+        Self::map_readback_buffer_into(
+            &self.device,
+            &target.readback_buffer,
+            &target.mapping,
+            readback_bytes,
+        )?;
         self.argb_readback = Some(resources);
-        readback_result?;
 
         let src_words: &[u32] = bytemuck::cast_slice(readback_bytes);
         out_pixels[..needed_len].copy_from_slice(&src_words[..needed_len]);

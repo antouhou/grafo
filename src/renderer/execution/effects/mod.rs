@@ -8,7 +8,8 @@ pub(crate) use composite::{
     compile_texture_blit_pipeline, CompositePipelineResources,
 };
 pub(crate) use parameters::{
-    BackdropEffectResources, EffectExecutionResources, EffectParameterResources,
+    BackdropEffectResources, BackdropTextureBinding, EffectExecutionResources,
+    EffectParameterResources,
 };
 pub(crate) use registry::EffectRegistry;
 pub(crate) use textures::{OffscreenTexturePool, PooledTexture};
@@ -65,7 +66,7 @@ pub(crate) struct EffectPassRunConfig<'a> {
     pub(crate) effect_id: u64,
     pub(crate) params: &'a [u8],
     pub(crate) parameter_resources: Option<&'a EffectParameterResources>,
-    pub(crate) source_view: &'a TextureView,
+    pub(crate) source_bind_group: &'a BindGroup,
     pub(crate) effect_sampler: &'a Sampler,
     pub(crate) composite_bind_group_layout: &'a BindGroupLayout,
     pub(crate) create_composite_bind_group: bool,
@@ -99,7 +100,7 @@ pub(crate) fn apply_effect_passes(
     };
     let parameter_resources = config.parameter_resources.or(transient_parameters.as_ref());
 
-    let effect_texture_a = texture_pool.acquire_color_only(
+    let mut effect_texture_a = texture_pool.acquire_color_only(
         device,
         config.width,
         config.height,
@@ -107,7 +108,7 @@ pub(crate) fn apply_effect_passes(
         1,
     );
 
-    let effect_texture_b = if number_of_passes > 1 {
+    let mut effect_texture_b = if number_of_passes > 1 {
         Some(texture_pool.acquire_color_only(
             device,
             config.width,
@@ -119,22 +120,28 @@ pub(crate) fn apply_effect_passes(
         None
     };
 
-    let mut previous_input_view: &TextureView = config.source_view;
-
     for (pass_index, effect_pass) in loaded_effect.passes.iter().enumerate() {
-        let output_view = if pass_index % 2 == 0 {
-            &effect_texture_a.color_view
+        let (input_bind_group, output_view) = if pass_index == 0 {
+            (config.source_bind_group, &effect_texture_a.color_view)
+        } else if pass_index % 2 == 0 {
+            (
+                effect_texture_b.as_mut().unwrap().input_bind_group(
+                    device,
+                    &loaded_effect.input_bind_group_layout,
+                    config.effect_sampler,
+                ),
+                &effect_texture_a.color_view,
+            )
         } else {
-            &effect_texture_b.as_ref().unwrap().color_view
+            (
+                effect_texture_a.input_bind_group(
+                    device,
+                    &loaded_effect.input_bind_group_layout,
+                    config.effect_sampler,
+                ),
+                &effect_texture_b.as_ref().unwrap().color_view,
+            )
         };
-
-        let input_bind_group = create_texture_sample_bind_group(
-            device,
-            &loaded_effect.input_bind_group_layout,
-            previous_input_view,
-            config.effect_sampler,
-            Some(config.label),
-        );
 
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some(config.label),
@@ -152,7 +159,7 @@ pub(crate) fn apply_effect_passes(
         });
 
         pass.set_pipeline(&effect_pass.pipeline);
-        pass.set_bind_group(0, &input_bind_group, &[]);
+        pass.set_bind_group(0, input_bind_group, &[]);
 
         if effect_pass.has_params {
             if let Some(resources) = parameter_resources {
@@ -161,20 +168,9 @@ pub(crate) fn apply_effect_passes(
         }
 
         pass.draw(0..3, 0..1);
-        previous_input_view = output_view;
     }
 
-    let composite_bind_group = config.create_composite_bind_group.then(|| {
-        create_texture_sample_bind_group(
-            device,
-            config.composite_bind_group_layout,
-            previous_input_view,
-            config.effect_sampler,
-            Some(config.label),
-        )
-    });
-
-    let (final_output_texture, recyclable_texture) = if number_of_passes % 2 == 1 {
+    let (mut final_output_texture, recyclable_texture) = if number_of_passes % 2 == 1 {
         (effect_texture_a, effect_texture_b)
     } else {
         (
@@ -182,6 +178,16 @@ pub(crate) fn apply_effect_passes(
             Some(effect_texture_a),
         )
     };
+
+    let composite_bind_group = config.create_composite_bind_group.then(|| {
+        final_output_texture
+            .composite_bind_group(
+                device,
+                config.composite_bind_group_layout,
+                config.effect_sampler,
+            )
+            .clone()
+    });
 
     AppliedEffectOutput {
         composite_bind_group,

@@ -299,6 +299,7 @@ pub(super) struct BackdropContext<'a> {
     pub(super) effect_sampler: &'a wgpu::Sampler,
     pub(super) gradient_ramp_sampler: &'a wgpu::Sampler,
     pub(super) texture_blit_pipeline: &'a wgpu::RenderPipeline,
+    pub(super) composite_bind_group_layout: &'a wgpu::BindGroupLayout,
     pub(super) backdrop_layer_composite_pipeline: &'a wgpu::RenderPipeline,
     pub(super) backdrop_layer_composite_bind_group_layout: &'a wgpu::BindGroupLayout,
     pub(super) stencil_only_pipeline: &'a wgpu::RenderPipeline,

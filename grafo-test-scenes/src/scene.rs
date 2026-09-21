@@ -2,8 +2,8 @@
 //  visual regression tiles that way
 use crate::expectations::PixelExpectation;
 use crate::shaders::{
-    BlurParams, DropShadowParams, HORIZONTAL_BLUR_WGSL, PASSTHROUGH_WGSL, SHADOW_TINT_WGSL,
-    SHAPE_DROP_WGSL, VERTICAL_BLUR_WGSL,
+    BlurParams, DropShadowParams, HORIZONTAL_BLUR_WGSL, PADDED_BACKDROP_SAMPLING_WGSL,
+    PASSTHROUGH_WGSL, SHADOW_TINT_WGSL, SHAPE_DROP_WGSL, VERTICAL_BLUR_WGSL,
 };
 use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
@@ -17,8 +17,8 @@ use grafo::{
 // Grid layout
 
 const TILE_SIZE: u32 = 80;
-const COLUMNS: u32 = 6;
-const ROWS: u32 = 12;
+const COLUMNS: u32 = 10;
+const ROWS: u32 = 8;
 
 pub const CANVAS_WIDTH: u32 = TILE_SIZE * COLUMNS;
 pub const CANVAS_HEIGHT: u32 = TILE_SIZE * ROWS;
@@ -146,6 +146,7 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 
     expectations.extend(tile_71_shared_geometry_material_batches(renderer));
     expectations.extend(tile_72_nested_group_textures(renderer));
+    expectations.extend(tile_73_padded_layered_backdrops(renderer));
 
     expectations
 }
@@ -5172,7 +5173,8 @@ fn tile_67_downsampled_drop_shadow_with_backdrop_blur(
 
 /// Shared geometry crosses solid, texture, and gradient pipeline boundaries.
 fn tile_71_shared_geometry_material_batches(renderer: &mut Renderer) -> Vec<PixelExpectation> {
-    let (origin_x, origin_y) = tile_origin(71);
+    // Leave the left viewport edge for the padded backdrop capture.
+    let (origin_x, origin_y) = tile_origin(73);
     let shape_key = 71_001;
     renderer.load_shape(
         Shape::rect([(0.0, 0.0), (18.0, 18.0)], Stroke::default()),
@@ -5335,6 +5337,124 @@ fn tile_72_nested_group_textures(renderer: &mut Renderer) -> Vec<PixelExpectatio
         ),
         (12, 12, [255, 255, 255], "t72_transparent_group_area"),
         (60, 32, [255, 255, 255], "t72_outside_cached_shape_texture"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            2,
+            label,
+        )
+    })
+    .collect()
+}
+
+/// Both materials sample a padded, downsampled capture of the scene and transparent group prefix.
+fn tile_73_padded_layered_backdrops(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(71);
+    let effect_id = 73_001;
+    renderer
+        .load_effect(effect_id, &[PADDED_BACKDROP_SAMPLING_WGSL])
+        .unwrap();
+    let group_bounds = [
+        (origin_x, origin_y + 4.0),
+        (origin_x + 76.0, origin_y + 76.0),
+    ];
+    renderer
+        .add_shape(
+            Shape::rect(group_bounds, Stroke::default()),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+        )
+        .unwrap();
+    let group = renderer
+        .add_shape(
+            Shape::rect(group_bounds, Stroke::default()),
+            None,
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    renderer
+        .set_group_effect(group, PASSTHROUGH_EFFECT_ID, &[])
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x + 44.0, origin_y + 4.0),
+                    (origin_x + 60.0, origin_y + 76.0),
+                ],
+                Stroke::default(),
+            ),
+            Some(group),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgba(0, 255, 0, 128)),
+        )
+        .unwrap();
+
+    let gradient = Gradient::linear(LinearGradientDesc {
+        common: GradientCommonDesc::new([
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(0.0),
+                Color::rgba(0, 0, 0, 128),
+            ),
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(1.0),
+                Color::rgba(0, 0, 0, 128),
+            ),
+        ]),
+        line: LinearGradientLine {
+            start: [origin_x + 4.0, origin_y + 50.0],
+            end: [origin_x + 44.0, origin_y + 50.0],
+        },
+    })
+    .unwrap();
+    for (top, options) in [
+        (10.0, ShapeDrawCommandOptions::new()),
+        (
+            50.0,
+            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+        ),
+    ] {
+        let panel = renderer
+            .add_shape(
+                Shape::rect(
+                    [
+                        (origin_x + 4.0, origin_y + top),
+                        (origin_x + 44.0, origin_y + top + 20.0),
+                    ],
+                    Stroke::default(),
+                ),
+                Some(group),
+                None,
+                options,
+            )
+            .unwrap();
+        renderer
+            .set_shape_backdrop_effect(
+                panel,
+                effect_id,
+                &[],
+                BackdropEffectConfig::new().padding(8.0).downsample(0.5),
+            )
+            .unwrap();
+    }
+
+    [
+        (6, 20, [0, 0, 0], "t73_solid_offscreen_padding_is_clear"),
+        (12, 20, [255, 0, 0], "t73_solid_captures_base_scene"),
+        (36, 20, [187, 188, 0], "t73_solid_captures_layer_in_padding"),
+        (6, 60, [0, 0, 0], "t73_gradient_offscreen_padding_is_clear"),
+        (12, 60, [187, 0, 0], "t73_gradient_tints_base_scene"),
+        (36, 60, [137, 137, 0], "t73_gradient_tints_layer_in_padding"),
+        (50, 40, [187, 188, 0], "t73_foreground_remains_translucent"),
+        (70, 40, [255, 0, 0], "t73_outside_panels_keeps_base_scene"),
     ]
     .into_iter()
     .map(|(x, y, [red, green, blue], label)| {

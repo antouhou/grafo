@@ -1,6 +1,4 @@
-use super::execution::effects;
-use super::execution::effects::PooledTexture;
-use super::execution::effects::{apply_effect_passes, EffectPassRunConfig};
+use super::execution::backdrops;
 use super::execution::shapes::ShapeDrawResources;
 use super::execution::textures::IntermediateTextureResources;
 use super::plan::backdrops::compute_backdrop_capture_region;
@@ -10,12 +8,8 @@ use super::types::{
     TraversalEvent,
 };
 use super::*;
-use crate::pipeline::{
-    begin_render_pass_with_load_ops, BackdropSamplingUniform, RenderPassLoadOperations,
-};
-use crate::renderer::rect_utils::{
-    compute_downsampled_dimensions, should_skip_visible_rect_draw, try_scissor_for_rect,
-};
+use crate::pipeline::{begin_render_pass_with_load_ops, RenderPassLoadOperations};
+use crate::renderer::rect_utils::{should_skip_visible_rect_draw, try_scissor_for_rect};
 use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
 use crate::{MathRect, Size, UnsignedPhysicalRect};
 
@@ -418,99 +412,6 @@ fn queue_or_draw_leaf(
         buffers,
         textures,
     );
-}
-
-fn clear_texture_to_transparent(
-    encoder: &mut wgpu::CommandEncoder,
-    output_view: &wgpu::TextureView,
-    label: &str,
-) {
-    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some(label),
-        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            view: output_view,
-            resolve_target: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                store: wgpu::StoreOp::Store,
-            },
-        })],
-        depth_stencil_attachment: None,
-        timestamp_writes: None,
-        occlusion_query_set: None,
-    });
-}
-
-#[allow(clippy::too_many_arguments)]
-fn blit_texture_to_texture(
-    device: &wgpu::Device,
-    encoder: &mut wgpu::CommandEncoder,
-    pipeline: &wgpu::RenderPipeline,
-    bind_group_layout: &wgpu::BindGroupLayout,
-    input_view: &wgpu::TextureView,
-    output_view: &wgpu::TextureView,
-    sampler: &wgpu::Sampler,
-    label: &str,
-) {
-    let bind_group = effects::create_texture_sample_bind_group(
-        device,
-        bind_group_layout,
-        input_view,
-        sampler,
-        Some(label),
-    );
-
-    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some(label),
-        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            view: output_view,
-            resolve_target: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                store: wgpu::StoreOp::Store,
-            },
-        })],
-        depth_stencil_attachment: None,
-        timestamp_writes: None,
-        occlusion_query_set: None,
-    });
-    render_pass.set_pipeline(pipeline);
-    render_pass.set_bind_group(0, &bind_group, &[]);
-    render_pass.draw(0..3, 0..1);
-}
-
-fn composite_backdrop_foreground_layer(
-    device: &wgpu::Device,
-    encoder: &mut wgpu::CommandEncoder,
-    pipeline: &wgpu::RenderPipeline,
-    bind_group_layout: &wgpu::BindGroupLayout,
-    foreground_view: &wgpu::TextureView,
-    output_view: &wgpu::TextureView,
-    params_buffer: &wgpu::Buffer,
-) {
-    let bind_group = effects::create_backdrop_layer_composite_bind_group(
-        device,
-        bind_group_layout,
-        foreground_view,
-        params_buffer,
-    );
-    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("backdrop_layer_composite_pass"),
-        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            view: output_view,
-            resolve_target: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Load,
-                store: wgpu::StoreOp::Store,
-            },
-        })],
-        depth_stencil_attachment: None,
-        timestamp_writes: None,
-        occlusion_query_set: None,
-    });
-    render_pass.set_pipeline(pipeline);
-    render_pass.set_bind_group(0, &bind_group, &[]);
-    render_pass.draw(0..3, 0..1);
 }
 
 /// Attachments and backdrop inputs for one traversal's output.
@@ -940,23 +841,18 @@ pub(super) fn render_segments(
         }
 
         if let Some(backdrop_node_id) = backdrop_node_id {
-            let bctx = backdrop_context.unwrap();
-            let composite_bind_group_layout = &pipeline_resources
-                .composite_resources
-                .as_ref()
-                .expect("backdrop rendering requires composite resources")
-                .bind_group_layout;
+            let backdrop_context =
+                backdrop_context.expect("backdrop rendering requires its context");
             // Ancestors clipped by scissor retain the nearest stencil-writing ancestor's value.
             let parent_stencil = scratch.stencil_stack.last().copied().unwrap_or(0);
             let this_stencil = parent_stencil + 1;
 
-            let mut solid_backdrop_bind_group: Option<wgpu::BindGroup> = None;
-            let mut gradient_backdrop_bind_group: Option<wgpu::BindGroup> = None;
+            let mut backdrop_material = None;
 
             if let Some(draw_tree_node) = state.draw_tree.get_mut(backdrop_node_id) {
                 let effect_instance = state
                     .backdrop_effects
-                    .get_mut(&backdrop_node_id)
+                    .get(&backdrop_node_id)
                     .expect("backdrop node must have an attached effect instance");
                 let backdrop_config = effect_instance.config;
                 let effect_resources = state
@@ -972,188 +868,32 @@ pub(super) fn render_segments(
                     backdrop_config,
                     state.scale_factor,
                     state.physical_size.into(),
-                    bctx.max_texture_dimension_2d,
+                    backdrop_context.max_texture_dimension_2d,
                 ) {
-                    let capture_size = capture_region.bounds.size().to_u32();
-                    let backdrop_sampling_uniform = BackdropSamplingUniform::new(
-                        capture_region.bounds.min.to_tuple(),
-                        capture_size.to_tuple(),
-                    );
-                    let backdrop_source =
-                        backdrop_source.expect("backdrop source required for backdrop effects");
-                    let backdrop_capture_texture = state.textures.pool.acquire_color_only(
-                        bctx.device,
-                        capture_size.width,
-                        capture_size.height,
-                        bctx.config_format,
-                        1,
-                    );
-                    if capture_region.source_rect.map(|rect| rect.size()) != Some(capture_size) {
-                        clear_texture_to_transparent(
-                            encoder,
-                            &backdrop_capture_texture.color_view,
-                            "backdrop_capture_clear",
-                        );
-                    }
-                    if let Some(source_rect) = capture_region.source_rect {
-                        encoder.copy_texture_to_texture(
-                            wgpu::TexelCopyTextureInfo {
-                                texture: backdrop_source.base_texture(),
-                                mip_level: 0,
-                                origin: wgpu::Origin3d {
-                                    x: source_rect.min.x,
-                                    y: source_rect.min.y,
-                                    z: 0,
-                                },
-                                aspect: wgpu::TextureAspect::All,
-                            },
-                            wgpu::TexelCopyTextureInfo {
-                                texture: &backdrop_capture_texture.color_texture,
-                                mip_level: 0,
-                                origin: wgpu::Origin3d {
-                                    x: capture_region.copy_destination_origin.x,
-                                    y: capture_region.copy_destination_origin.y,
-                                    z: 0,
-                                },
-                                aspect: wgpu::TextureAspect::All,
-                            },
-                            wgpu::Extent3d {
-                                width: source_rect.width(),
-                                height: source_rect.height(),
-                                depth_or_array_layers: 1,
-                            },
-                        );
-                    }
-
-                    if let Some(foreground_view) = backdrop_source.foreground_view() {
-                        let layer_params = effects::backdrop_layer_params(
-                            capture_region.bounds.min.to_tuple(),
-                            state.physical_size,
-                        );
-                        let layer_params_buffer = effects::prepare_backdrop_layer_params_buffer(
-                            bctx.device,
-                            bctx.queue,
-                            &mut effect_resources.backdrop_layer_params_buffer,
-                            layer_params,
-                        );
-                        composite_backdrop_foreground_layer(
-                            bctx.device,
-                            encoder,
-                            bctx.backdrop_layer_composite_pipeline,
-                            bctx.backdrop_layer_composite_bind_group_layout,
-                            foreground_view,
-                            &backdrop_capture_texture.color_view,
-                            layer_params_buffer,
-                        );
-                    }
-
-                    let effect_input_size =
-                        compute_downsampled_dimensions(capture_size, backdrop_config.downsample);
-                    let mut downsampled_capture_texture: Option<PooledTexture> = None;
-
-                    if effect_input_size != capture_size {
-                        let downsampled_capture_target = state.textures.pool.acquire_color_only(
-                            bctx.device,
-                            effect_input_size.width,
-                            effect_input_size.height,
-                            bctx.config_format,
-                            1,
-                        );
-                        blit_texture_to_texture(
-                            bctx.device,
-                            encoder,
-                            bctx.texture_blit_pipeline,
-                            composite_bind_group_layout,
-                            &backdrop_capture_texture.color_view,
-                            &downsampled_capture_target.color_view,
-                            bctx.effect_sampler,
-                            "backdrop_capture_downsample",
-                        );
-                        downsampled_capture_texture = Some(downsampled_capture_target);
-                    }
-
-                    let effect_output = apply_effect_passes(
-                        bctx.effect_registry,
-                        bctx.device,
+                    let effect_output = backdrops::apply_backdrop_effect(
                         encoder,
-                        &mut state.textures.pool,
-                        EffectPassRunConfig {
-                            effect_id: effect_instance.effect.effect_id,
-                            params: &effect_instance.effect.params,
-                            parameter_resources: effect_resources.parameters.as_ref(),
-                            source_view: downsampled_capture_texture
-                                .as_ref()
-                                .map(|texture| &texture.color_view)
-                                .unwrap_or(&backdrop_capture_texture.color_view),
-                            effect_sampler: bctx.effect_sampler,
-                            composite_bind_group_layout,
-                            create_composite_bind_group: false,
-                            width: effect_input_size.width,
-                            height: effect_input_size.height,
-                            texture_format: bctx.config_format,
-                            label: "backdrop_effect",
-                        },
+                        backdrop_context,
+                        backdrop_source.expect("backdrop source required for backdrop effects"),
+                        capture_region,
+                        effect_instance,
+                        effect_resources,
+                        &mut state.textures,
                     );
-
-                    let uses_gradient_backdrop = draw_tree_node.has_gradient_fill();
                     if let DrawTreeNode::CachedShape(cached_shape) = draw_tree_node {
-                        if uses_gradient_backdrop {
-                            let resources = state
-                                .shape_execution
-                                .draws
-                                .get_mut(&backdrop_node_id)
-                                .expect("backdrop shapes have execution resources");
-                            let backdrop_view = effect_output.final_output_view();
-                            gradient_backdrop_bind_group = resources
-                                .prepare_backdrop_gradient_bind_group(
-                                    &mut cached_shape.fill,
-                                    &mut state.shape_execution.gradient_cache,
-                                    bctx.device,
-                                    bctx.queue,
-                                    bctx.backdrop_gradient_bind_group_layout,
-                                    backdrop_sampling_uniform,
-                                    bctx.gradient_ramp_sampler,
-                                    effect_output.final_output_texture_id(),
-                                    backdrop_view,
-                                    bctx.effect_sampler,
-                                )
-                                .cloned();
-                        } else {
-                            let solid_backdrop_material_params_buffer =
-                                effects::prepare_solid_backdrop_material_params_buffer(
-                                    bctx.device,
-                                    bctx.queue,
-                                    &mut effect_resources.backdrop_material_params_buffer,
-                                    backdrop_sampling_uniform,
-                                );
-
-                            if effect_resources.backdrop_texture_id
-                                != Some(effect_output.final_output_texture_id())
-                            {
-                                effect_resources.backdrop_texture_bind_group =
-                                    Some(effects::create_backdrop_texture_sample_bind_group(
-                                        bctx.device,
-                                        bctx.backdrop_texture_bind_group_layout,
-                                        solid_backdrop_material_params_buffer,
-                                        effect_output.final_output_view(),
-                                        bctx.effect_sampler,
-                                        Some("backdrop_shape_background_bind_group"),
-                                    ));
-                                effect_resources.backdrop_texture_id =
-                                    Some(effect_output.final_output_texture_id());
-                            }
-
-                            solid_backdrop_bind_group =
-                                effect_resources.backdrop_texture_bind_group.clone();
-                        }
-                    }
-
-                    state.textures.work_textures.push(backdrop_capture_texture);
-                    if let Some(downsampled_capture_texture) = downsampled_capture_texture {
-                        state
-                            .textures
-                            .work_textures
-                            .push(downsampled_capture_texture);
+                        let shape_resources = state
+                            .shape_execution
+                            .draws
+                            .get_mut(&backdrop_node_id)
+                            .expect("backdrop shapes have execution resources");
+                        backdrop_material = backdrops::prepare_backdrop_material(
+                            backdrop_context,
+                            capture_region,
+                            &effect_output,
+                            &mut cached_shape.fill,
+                            effect_resources,
+                            shape_resources,
+                            &mut state.shape_execution.gradient_cache,
+                        );
                     }
                     effect_output.push_work_textures_into(&mut state.textures.work_textures);
                 }
@@ -1190,7 +930,7 @@ pub(super) fn render_segments(
 
             // Increment the stencil inside the backdrop shape before drawing its color.
             if state.draw_tree.get(backdrop_node_id).is_some() {
-                render_pass.set_pipeline(bctx.stencil_only_pipeline);
+                render_pass.set_pipeline(backdrop_context.stencil_only_pipeline);
                 render_pass.set_bind_group(0, &pipelines.and_bind_group, &[]);
                 render_pass.set_bind_group(
                     1,
@@ -1228,14 +968,13 @@ pub(super) fn render_segments(
             // Draw the color where the stencil matches, leaving its value unchanged.
             if let Some(draw_tree_node) = state.draw_tree.get(backdrop_node_id) {
                 let uses_gradient = draw_tree_node.has_gradient_fill();
-                let use_backdrop_gradient_pipeline =
-                    uses_gradient && gradient_backdrop_bind_group.is_some();
+                let use_backdrop_gradient_pipeline = uses_gradient && backdrop_material.is_some();
                 render_pass.set_pipeline(if use_backdrop_gradient_pipeline {
-                    bctx.backdrop_color_gradient_pipeline
+                    backdrop_context.backdrop_color_gradient_pipeline
                 } else if uses_gradient {
                     &pipelines.leaf_draw_gradient_pipeline
                 } else {
-                    bctx.backdrop_color_pipeline
+                    backdrop_context.backdrop_color_pipeline
                 });
                 render_pass.set_bind_group(0, &pipelines.and_bind_group, &[]);
                 render_pass.set_bind_group(
@@ -1259,9 +998,7 @@ pub(super) fn render_segments(
                 let shape_geometry_range = resources.geometry_buffer_range;
 
                 if uses_gradient {
-                    if let Some(gradient_backdrop_bind_group) =
-                        gradient_backdrop_bind_group.as_ref()
-                    {
+                    if let Some(gradient_backdrop_bind_group) = backdrop_material.as_ref() {
                         render_pass.set_bind_group(3, gradient_backdrop_bind_group, &[]);
                     } else {
                         let gradient_bind_group = resources
@@ -1272,9 +1009,9 @@ pub(super) fn render_segments(
                 } else {
                     render_pass.set_bind_group(
                         3,
-                        solid_backdrop_bind_group
+                        backdrop_material
                             .as_ref()
-                            .unwrap_or(bctx.default_backdrop_texture_bind_group),
+                            .unwrap_or(backdrop_context.default_backdrop_texture_bind_group),
                         &[],
                     );
                 }

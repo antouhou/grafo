@@ -65,6 +65,17 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// Samples padded capture edges and makes transparent offscreen pixels visible as black.
+pub const PADDED_BACKDROP_SAMPLING_WGSL: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let width = f32(textureDimensions(t_input).x);
+    let offset = select(7.0, -7.0, uv.x < 0.25) / width;
+    let sampled = textureSample(t_input, s_input, uv + vec2<f32>(offset, 0.0));
+    return vec4<f32>(sampled.rgb, 1.0);
+}
+"#;
+
 /// Opaque blue eight-pixel drop used by cached shape-effect regression tiles.
 pub const SHAPE_DROP_WGSL: &str = r#"
 @fragment

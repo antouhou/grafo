@@ -223,7 +223,7 @@ impl<'a> Renderer<'a> {
             .backdrops
             .get_mut(&node_id)
             .expect("backdrop attachments have execution resources")
-            .invalidate_capture_binding();
+            .invalidate_material_binding();
         Ok(())
     }
 

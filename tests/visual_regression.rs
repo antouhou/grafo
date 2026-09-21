@@ -1558,3 +1558,135 @@ fn multi_subpath_fill_has_no_internal_seam() {
 
     assert_pixels_match(&pixel_buffer, &expectations);
 }
+
+fn assert_layered_backdrop_pixels(renderer: &mut Renderer, pixels: &mut Vec<u8>) {
+    renderer.render_to_buffer(pixels).unwrap();
+    let width = renderer.size().0;
+    assert_eq!(read_pixel_rgba(pixels, width, 24, 32), [255, 0, 0, 255]);
+    assert_eq!(read_pixel_rgba(pixels, width, 40, 32), [0, 255, 0, 255]);
+}
+
+#[test]
+fn layered_backdrop_survives_capture_and_resource_changes() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
+        return;
+    };
+    let effect_id = 9_301;
+    renderer
+        .load_effect(
+            effect_id,
+            &[PASSTHROUGH_WGSL, PASSTHROUGH_WGSL, PASSTHROUGH_WGSL],
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect([(0.0, 0.0), (64.0, 64.0)], Stroke::default()),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+        )
+        .unwrap();
+    let group = renderer
+        .add_shape(
+            Shape::rect([(4.0, 4.0), (60.0, 60.0)], Stroke::default()),
+            None,
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    renderer.set_group_effect(group, effect_id, &[]).unwrap();
+    renderer
+        .add_shape(
+            Shape::rect([(32.0, 4.0), (60.0, 60.0)], Stroke::default()),
+            Some(group),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(0, 255, 0)),
+        )
+        .unwrap();
+    let panel = renderer
+        .add_shape(
+            Shape::rect([(16.0, 16.0), (48.0, 48.0)], Stroke::default()),
+            Some(group),
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    renderer
+        .set_shape_backdrop_effect(
+            panel,
+            effect_id,
+            &[],
+            BackdropEffectConfig::new().padding(4.0).downsample(0.5),
+        )
+        .unwrap();
+
+    let mut pixels = Vec::new();
+    for _ in 0..4 {
+        assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
+    }
+
+    let moved_capture = BackdropEffectConfig::new()
+        .capture_area(BackdropCaptureArea::ScreenRect([
+            (24.0, 16.0),
+            (56.0, 48.0),
+        ]))
+        .padding(4.0)
+        .downsample(0.5);
+    renderer
+        .update_backdrop_effect_config(panel, moved_capture)
+        .unwrap();
+    assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
+
+    for samples in [4, 1] {
+        renderer.set_msaa_samples(samples);
+        for _ in 0..2 {
+            assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
+        }
+    }
+
+    renderer.resize((80, 64));
+    for _ in 0..2 {
+        assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
+    }
+
+    renderer
+        .update_backdrop_effect_config(panel, moved_capture.downsample(1.0))
+        .unwrap();
+    assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
+
+    renderer.remove_backdrop_effect(panel);
+    renderer
+        .set_shape_backdrop_effect(panel, effect_id, &[], moved_capture)
+        .unwrap();
+    assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
+}
+
+#[test]
+fn readback_targets_survive_alternating_formats_and_resize() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((65, 7), 1.0) else {
+        return;
+    };
+    renderer
+        .add_shape(
+            Shape::rect([(0.0, 0.0), (130.0, 10.0)], Stroke::default()),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(51, 102, 153)),
+        )
+        .unwrap();
+    let mut bgra_pixels = Vec::new();
+    let mut argb_pixels = Vec::new();
+    for size in [(65, 7), (129, 5), (65, 7)] {
+        renderer.resize(size);
+        argb_pixels.resize((size.0 * size.1) as usize, 0);
+        for _ in 0..3 {
+            renderer.render_to_buffer(&mut bgra_pixels).unwrap();
+            renderer.render_to_argb32(&mut argb_pixels).unwrap();
+            assert_eq!(bgra_pixels.len(), argb_pixels.len() * 4);
+            for (bytes, pixel) in bgra_pixels.as_chunks::<4>().0.iter().zip(&argb_pixels) {
+                assert_eq!(*bytes, [153, 102, 51, 255]);
+                assert_eq!(*pixel, 0xff33_6699);
+            }
+        }
+    }
+}
