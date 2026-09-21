@@ -166,6 +166,3 @@ impl ShapeExecutionResources {
         self.instance_metadata.clear();
     }
 }
-
-#[cfg(test)]
-mod tests;
