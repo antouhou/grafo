@@ -166,6 +166,27 @@ impl ArgbReadbackResources {
 }
 
 impl<'a> Renderer<'a> {
+    #[cfg(feature = "render_metrics")]
+    fn record_readback_metrics(
+        &mut self,
+        render_started_at: Instant,
+        preparation_finished_at: Instant,
+        submission_finished_at: Instant,
+    ) {
+        let readback_finished_at = Instant::now();
+        self.last_phase_timings = PhaseTimings {
+            prepare: preparation_finished_at.saturating_duration_since(render_started_at),
+            encode_and_submit: submission_finished_at
+                .saturating_duration_since(preparation_finished_at),
+            present_or_readback: readback_finished_at
+                .saturating_duration_since(submission_finished_at),
+            gpu_wait: Duration::ZERO, // GPU wait is included in readback time.
+            total: readback_finished_at.saturating_duration_since(render_started_at),
+        };
+        self.render_loop_metrics_tracker
+            .record_presented_frame(render_started_at, readback_finished_at);
+    }
+
     fn map_readback_buffer_into(
         device: &Device,
         buffer: &Buffer,
@@ -199,12 +220,12 @@ impl<'a> Renderer<'a> {
     /// On error, `buffer` retains its previous contents.
     pub fn render_to_buffer(&mut self, buffer: &mut Vec<u8>) -> Result<(), ReadbackError> {
         #[cfg(feature = "render_metrics")]
-        let frame_render_loop_started_at = Instant::now();
+        let render_started_at = Instant::now();
 
         self.prepare_render()?;
 
         #[cfg(feature = "render_metrics")]
-        let after_prepare = Instant::now();
+        let preparation_finished_at = Instant::now();
 
         let (width, height) = self.state.physical_size;
 
@@ -242,7 +263,7 @@ impl<'a> Renderer<'a> {
         self.queue.submit(iter::once(encoder.finish()));
 
         #[cfg(feature = "render_metrics")]
-        let after_submit = Instant::now();
+        let submission_finished_at = Instant::now();
 
         let readback_bytes = &mut self.state.scratch.readback_bytes;
         let readback_result =
@@ -258,23 +279,11 @@ impl<'a> Renderer<'a> {
         );
 
         #[cfg(feature = "render_metrics")]
-        {
-            let frame_presented_at = Instant::now();
-            let prepare_dur = after_prepare.saturating_duration_since(frame_render_loop_started_at);
-            let encode_submit_dur = after_submit.saturating_duration_since(after_prepare);
-            let readback_dur = frame_presented_at.saturating_duration_since(after_submit);
-            let total_dur =
-                frame_presented_at.saturating_duration_since(frame_render_loop_started_at);
-            self.last_phase_timings = PhaseTimings {
-                prepare: prepare_dur,
-                encode_and_submit: encode_submit_dur,
-                present_or_readback: readback_dur,
-                gpu_wait: Duration::ZERO, // GPU wait is included in readback time.
-                total: total_dur,
-            };
-            self.render_loop_metrics_tracker
-                .record_presented_frame(frame_render_loop_started_at, frame_presented_at);
-        }
+        self.record_readback_metrics(
+            render_started_at,
+            preparation_finished_at,
+            submission_finished_at,
+        );
         Ok(())
     }
 
@@ -292,12 +301,12 @@ impl<'a> Renderer<'a> {
         }
 
         #[cfg(feature = "render_metrics")]
-        let frame_render_loop_started_at = Instant::now();
+        let render_started_at = Instant::now();
 
         self.prepare_render()?;
 
         #[cfg(feature = "render_metrics")]
-        let after_prepare = Instant::now();
+        let preparation_finished_at = Instant::now();
 
         let mut resources = self.argb_readback.take().unwrap_or_else(|| {
             ArgbReadbackResources::new(&self.device, (width, height), self.config.format)
@@ -359,7 +368,7 @@ impl<'a> Renderer<'a> {
         self.queue.submit(iter::once(readback_encoder.finish()));
 
         #[cfg(feature = "render_metrics")]
-        let after_submit = Instant::now();
+        let submission_finished_at = Instant::now();
 
         let readback_bytes = &mut self.state.scratch.readback_bytes;
         let readback_result =
@@ -371,23 +380,11 @@ impl<'a> Renderer<'a> {
         out_pixels[..needed_len].copy_from_slice(&src_words[..needed_len]);
 
         #[cfg(feature = "render_metrics")]
-        {
-            let frame_presented_at = Instant::now();
-            let prepare_dur = after_prepare.saturating_duration_since(frame_render_loop_started_at);
-            let encode_submit_dur = after_submit.saturating_duration_since(after_prepare);
-            let readback_dur = frame_presented_at.saturating_duration_since(after_submit);
-            let total_dur =
-                frame_presented_at.saturating_duration_since(frame_render_loop_started_at);
-            self.last_phase_timings = PhaseTimings {
-                prepare: prepare_dur,
-                encode_and_submit: encode_submit_dur,
-                present_or_readback: readback_dur,
-                gpu_wait: Duration::ZERO, // GPU wait is included in readback time.
-                total: total_dur,
-            };
-            self.render_loop_metrics_tracker
-                .record_presented_frame(frame_render_loop_started_at, frame_presented_at);
-        }
+        self.record_readback_metrics(
+            render_started_at,
+            preparation_finished_at,
+            submission_finished_at,
+        );
         Ok(())
     }
 }
