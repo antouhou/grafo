@@ -1,4 +1,6 @@
-use super::execution::effects::{apply_effect_passes, EffectPassRunConfig, EffectRegistry};
+use super::execution::effects::{
+    apply_effect_passes, create_texture_sample_bind_group, EffectPassRunConfig, EffectRegistry,
+};
 use super::execution::effects::{OffscreenTexturePool, PooledTexture};
 use super::execution::shapes::ShapeDrawResources;
 use super::execution::textures::{
@@ -405,9 +407,9 @@ fn render_shape_effect(
 impl<'a> Renderer<'a> {
     pub(super) fn prepare_shape_effect_leaves(&mut self) -> Result<(), GeometryBufferError> {
         let maximum_texture_dimension = self.device.limits().max_texture_dimension_2d;
-        let maximum_texel_count = u64::from(self.state.physical_size.0)
-            .saturating_mul(u64::from(self.state.physical_size.1))
-            .saturating_mul(4);
+        let viewport_texel_count =
+            u64::from(self.state.physical_size.0) * u64::from(self.state.physical_size.1);
+        let maximum_texel_count = viewport_texel_count.saturating_mul(4);
         let mut quad_geometry_range = None;
         for (&node_id, shape_effect) in &self.state.shape_effects {
             let Some(draw_tree_node) = self.state.draw_tree.get(node_id) else {
@@ -432,7 +434,7 @@ impl<'a> Renderer<'a> {
                 continue;
             };
             let [width, height] = raster_rect.texture_size;
-            let texel_count = u64::from(width).saturating_mul(u64::from(height));
+            let texel_count = u64::from(width) * u64::from(height);
             if width > maximum_texture_dimension
                 || height > maximum_texture_dimension
                 || texel_count > maximum_texel_count
@@ -593,7 +595,14 @@ impl<'a> Renderer<'a> {
                         effect_id: shape_effect_instance.effect_id,
                         params: &shape_effect_instance.params,
                         parameter_resources: None,
-                        source_view: &cached_mask.texture.color_view,
+                        source_bind_group: &create_texture_sample_bind_group(
+                            &self.device,
+                            self.effect_registry
+                                .input_bind_group_layout(shape_effect_instance.effect_id),
+                            &cached_mask.texture.color_view,
+                            effect_sampler,
+                            Some("shape_effect_mask_input"),
+                        ),
                         effect_sampler,
                         composite_bind_group_layout: &self
                             .pipeline_resources

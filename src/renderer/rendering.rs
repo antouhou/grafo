@@ -18,6 +18,7 @@ impl<'a> Renderer<'a> {
         let render_to_texture_view_started_at = std::time::Instant::now();
 
         if self.state.draw_tree.is_empty() {
+            self.state.textures.pool.clear();
             self.state.scratch.shape_effect_leaves.clear();
             let (_collected_shape_effect_results, _collected_shape_effect_masks) =
                 self.state.textures.collect_unused_shape_effects();
@@ -85,6 +86,11 @@ impl<'a> Renderer<'a> {
                 effect_sampler: pipeline_resources.effect_sampler.as_ref().unwrap(),
                 gradient_ramp_sampler: &pipeline_resources.shapes.gradient_ramp_sampler,
                 texture_blit_pipeline: &backdrops.texture_blit_pipeline,
+                composite_bind_group_layout: &pipeline_resources
+                    .composite_resources
+                    .as_ref()
+                    .expect("backdrop rendering requires composite resources")
+                    .bind_group_layout,
                 backdrop_layer_composite_pipeline: &backdrop_composite.pipeline,
                 backdrop_layer_composite_bind_group_layout: &backdrop_composite.bind_group_layout,
                 stencil_only_pipeline: &backdrops.stencil_only_pipeline,
@@ -123,7 +129,7 @@ impl<'a> Renderer<'a> {
             let (width, height) = state.physical_size;
 
             for &(node_id, _depth) in &effect_node_ids {
-                let subtree_texture = state.textures.pool.acquire_with_depth(
+                let mut subtree_texture = state.textures.pool.acquire_with_depth(
                     &self.device,
                     width,
                     height,
@@ -139,21 +145,13 @@ impl<'a> Renderer<'a> {
 
                 // Backdrops inside the group need the scene painted before the group.
                 let behind_texture = if subtree_needs_backdrop_effects {
-                    let behind_tex = state.textures.pool.acquire_color_only(
+                    let behind_tex = state.textures.pool.acquire_with_depth(
                         &self.device,
                         width,
                         height,
                         self.config.format,
                         self.msaa_sample_count,
                     );
-                    let behind_depth = create_and_depth_texture(
-                        &self.device,
-                        (width, height),
-                        self.msaa_sample_count,
-                    );
-                    let behind_depth_view =
-                        behind_depth.create_view(&wgpu::TextureViewDescriptor::default());
-
                     let (behind_color_view, behind_resolve_target) = if behind_tex.sample_count > 1
                     {
                         (
@@ -179,7 +177,10 @@ impl<'a> Renderer<'a> {
                         SegmentRenderTarget {
                             color_view: behind_color_view,
                             color_resolve_target: behind_resolve_target,
-                            depth_stencil_view: &behind_depth_view,
+                            depth_stencil_view: behind_tex
+                                .depth_stencil_view
+                                .as_ref()
+                                .expect("group backdrop targets include depth/stencil"),
                             backdrop_source: None,
                             backdrop_context: None,
                         },
@@ -251,12 +252,6 @@ impl<'a> Renderer<'a> {
                     state.textures.work_textures.push(behind_tex);
                 }
 
-                let source_view = if subtree_texture.sample_count > 1 {
-                    subtree_texture.resolve_view.as_ref().unwrap()
-                } else {
-                    &subtree_texture.color_view
-                };
-
                 let effect_instance = state
                     .group_effects
                     .get(&node_id)
@@ -270,7 +265,12 @@ impl<'a> Renderer<'a> {
                         effect_id: effect_instance.effect_id,
                         params: &effect_instance.params,
                         parameter_resources: state.effect_execution.group_parameters.get(&node_id),
-                        source_view,
+                        source_bind_group: subtree_texture.input_bind_group(
+                            &self.device,
+                            self.effect_registry
+                                .input_bind_group_layout(effect_instance.effect_id),
+                            pipeline_resources.effect_sampler.as_ref().unwrap(),
+                        ),
                         effect_sampler: pipeline_resources.effect_sampler.as_ref().unwrap(),
                         composite_bind_group_layout: &pipeline_resources
                             .composite_resources

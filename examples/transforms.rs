@@ -1,7 +1,9 @@
 use euclid::{default::Transform3D, Angle};
 use futures::executor::block_on;
-use grafo::{premultiply_rgba8_srgb_inplace, Shape};
-use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use grafo::{
+    premultiply_rgba8_srgb_inplace, Color, Shape, ShapeDrawCommandOptions, Stroke,
+    TransformInstance,
+};
 use lyon::algorithms::hit_test::hit_test_path;
 use lyon::algorithms::math::point as algo_point;
 use lyon::geom::point;
@@ -16,68 +18,50 @@ use winit::window::{Window, WindowId};
 
 mod window_rendering;
 
-// Local converter from euclid to grafo's GPU instance layout so we keep euclid out of the main crate.
-fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstance {
+fn transform_instance_from_euclid(transform: Transform3D<f32>) -> TransformInstance {
     // Euclid's packed vectors become columns in the GPU's matrix convention.
-    grafo::TransformInstance::from_cols(m.to_arrays())
+    TransformInstance::from_cols(transform.to_arrays())
 }
 
 // Map a world point back to the shape's z=0 plane through the inverse homography.
 // Return None for a nearly singular transform or a point with near-zero homogeneous w.
-fn world_to_local_2d(tx: &Transform3D<f32>, world: (f32, f32)) -> Option<(f32, f32)> {
+fn world_to_local_2d(transform: &Transform3D<f32>, world: (f32, f32)) -> Option<(f32, f32)> {
     // On the z=0 plane, GPU multiplication gives [px, py, pw]^T = H * [x, y, 1]^T:
     //   H = [[m11, m21, m41],
     //        [m12, m22, m42],
     //        [m14, m24, m44]].
-    // To hit-test, invert H and map [mx, my, 1] back to local, then divide by w.
-    let m = tx;
-    let h11 = m.m11;
-    let h12 = m.m21;
-    let h13 = m.m41;
-    let h21 = m.m12;
-    let h22 = m.m22;
-    let h23 = m.m42;
-    let h31 = m.m14;
-    let h32 = m.m24;
-    let h33 = m.m44;
-
-    // Compute inverse of 3x3 H using adjugate/determinant
-    let c11 = h22 * h33 - h23 * h32;
-    let c12 = h23 * h31 - h21 * h33;
-    let c13 = h21 * h32 - h22 * h31;
-    let c21 = h13 * h32 - h12 * h33;
-    let c22 = h11 * h33 - h13 * h31;
-    let c23 = h12 * h31 - h11 * h32;
-    let c31 = h12 * h23 - h13 * h22;
-    let c32 = h13 * h21 - h11 * h23;
-    let c33 = h11 * h22 - h12 * h21;
-
-    let det = h11 * c11 + h12 * c12 + h13 * c13;
-    if det.abs() < 1e-6 {
+    let adjugate = [
+        [
+            transform.m22 * transform.m44 - transform.m42 * transform.m24,
+            transform.m41 * transform.m24 - transform.m21 * transform.m44,
+            transform.m21 * transform.m42 - transform.m41 * transform.m22,
+        ],
+        [
+            transform.m42 * transform.m14 - transform.m12 * transform.m44,
+            transform.m11 * transform.m44 - transform.m41 * transform.m14,
+            transform.m41 * transform.m12 - transform.m11 * transform.m42,
+        ],
+        [
+            transform.m12 * transform.m24 - transform.m22 * transform.m14,
+            transform.m21 * transform.m14 - transform.m11 * transform.m24,
+            transform.m11 * transform.m22 - transform.m21 * transform.m12,
+        ],
+    ];
+    let determinant = transform.m11 * adjugate[0][0]
+        + transform.m21 * adjugate[1][0]
+        + transform.m41 * adjugate[2][0];
+    if determinant.abs() < 1e-6 {
         return None;
     }
-    let inv_det = 1.0 / det;
-
-    // Transpose the cofactor matrix and divide by the determinant.
-    let i11 = c11 * inv_det;
-    let i12 = c21 * inv_det;
-    let i13 = c31 * inv_det;
-    let i21 = c12 * inv_det;
-    let i22 = c22 * inv_det;
-    let i23 = c32 * inv_det;
-    let i31 = c13 * inv_det;
-    let i32 = c23 * inv_det;
-    let i33 = c33 * inv_det;
-
-    let mx = world.0;
-    let my = world.1;
-    let lx = i11 * mx + i12 * my + i13 * 1.0;
-    let ly = i21 * mx + i22 * my + i23 * 1.0;
-    let lw = i31 * mx + i32 * my + i33 * 1.0;
-    if lw.abs() < 1e-6 {
+    let inverse_determinant = 1.0 / determinant;
+    let [local_x, local_y, local_w] = adjugate.map(|row| {
+        let [x_coefficient, y_coefficient, offset] = row.map(|value| value * inverse_determinant);
+        x_coefficient * world.0 + y_coefficient * world.1 + offset
+    });
+    if local_w.abs() < 1e-6 {
         return None;
     }
-    Some((lx / lw, ly / lw))
+    Some((local_x / local_w, local_y / local_w))
 }
 const RED_SHAPE_CACHE_KEY: u64 = 1;
 const GREEN_SHAPE_CACHE_KEY: u64 = 2;

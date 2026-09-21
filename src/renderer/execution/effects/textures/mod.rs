@@ -1,55 +1,134 @@
+use super::bindings::create_texture_sample_bind_group;
+use ahash::{HashMap, HashMapExt};
+use bucket::TextureBucket;
 use wgpu::{
-    Device, Extent3d, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
-    TextureView, TextureViewDescriptor,
+    BindGroup, BindGroupLayout, Device, Extent3d, Sampler, Texture, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor,
 };
+mod bucket;
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct TextureDescriptorKey {
+    width: u32,
+    height: u32,
+    format: TextureFormat,
+    sample_count: u32,
+    with_depth: bool,
+}
+
+struct TextureSampleBinding {
+    layout: BindGroupLayout,
+    sampler: Sampler,
+    bind_group: BindGroup,
+}
+
+fn prepare_sample_binding<'a>(
+    binding: &'a mut Option<TextureSampleBinding>,
+    device: &Device,
+    layout: &BindGroupLayout,
+    view: &TextureView,
+    sampler: &Sampler,
+) -> &'a BindGroup {
+    if binding
+        .as_ref()
+        .is_none_or(|binding| binding.layout != *layout || binding.sampler != *sampler)
+    {
+        *binding = Some(TextureSampleBinding {
+            layout: layout.clone(),
+            sampler: sampler.clone(),
+            bind_group: create_texture_sample_bind_group(
+                device,
+                layout,
+                view,
+                sampler,
+                Some("pooled_texture_sample"),
+            ),
+        });
+    }
+    &binding
+        .as_ref()
+        .expect("texture sampling binding was prepared")
+        .bind_group
+}
+
 /// A pooled offscreen texture with color, optional depth/stencil, and optional MSAA resolve
 /// resources.
 pub(crate) struct PooledTexture {
     pub texture_id: u64,
+    descriptor: TextureDescriptorKey,
+    input_binding: Option<TextureSampleBinding>,
+    composite_binding: Option<TextureSampleBinding>,
     pub color_texture: Texture,
     pub color_view: TextureView,
     pub depth_stencil_view: Option<TextureView>,
     pub resolve_texture: Option<Texture>,
     pub resolve_view: Option<TextureView>,
-    pub width: u32,
-    pub height: u32,
     pub sample_count: u32,
 }
 
-/// Pool of reusable offscreen textures for effect compositing.
-/// Textures return to the pool after render submission.
-pub(crate) struct OffscreenTexturePool {
-    available: Vec<PooledTexture>,
-    next_texture_id: u64,
+impl PooledTexture {
+    pub(crate) fn input_bind_group(
+        &mut self,
+        device: &Device,
+        layout: &BindGroupLayout,
+        sampler: &Sampler,
+    ) -> &BindGroup {
+        prepare_sample_binding(
+            &mut self.input_binding,
+            device,
+            layout,
+            self.resolve_view.as_ref().unwrap_or(&self.color_view),
+            sampler,
+        )
+    }
+
+    pub(crate) fn composite_bind_group(
+        &mut self,
+        device: &Device,
+        layout: &BindGroupLayout,
+        sampler: &Sampler,
+    ) -> &BindGroup {
+        prepare_sample_binding(
+            &mut self.composite_binding,
+            device,
+            layout,
+            &self.color_view,
+            sampler,
+        )
+    }
 }
 
-/// Maximum number of textures to keep in the pool.
-const MAX_POOL_SIZE: usize = 8;
+/// Textures return after submission; descriptor buckets avoid a full texture scan.
+pub(crate) struct OffscreenTexturePool {
+    available: HashMap<TextureDescriptorKey, TextureBucket<PooledTexture>>,
+    next_texture_id: u64,
+}
 
 impl OffscreenTexturePool {
     pub fn new() -> Self {
         Self {
-            available: Vec::new(),
+            available: HashMap::new(),
             next_texture_id: 1,
         }
     }
 
-    /// Return textures to the pool and discard entries beyond `MAX_POOL_SIZE`.
+    /// Retain the submitted working set and release surplus textures from earlier renders.
     pub fn recycle(&mut self, textures: &mut Vec<PooledTexture>) {
-        self.available.append(textures);
-        self.available.truncate(MAX_POOL_SIZE);
+        for bucket in self.available.values_mut() {
+            bucket.discard_unused();
+        }
+        for texture in textures.drain(..) {
+            self.available
+                .entry(texture.descriptor)
+                .or_default()
+                .recycle(texture.texture_id, texture);
+        }
+        self.available.retain(|_, bucket| !bucket.is_empty());
     }
 
-    /// Retain textures matching the dimensions and sample count, capped at `MAX_POOL_SIZE`.
-    pub fn trim(&mut self, width: u32, height: u32, sample_count: u32) {
-        self.available.retain(|texture| {
-            texture.width == width
-                && texture.height == height
-                && texture.sample_count == sample_count
-        });
-        if self.available.len() > MAX_POOL_SIZE {
-            self.available.truncate(MAX_POOL_SIZE);
-        }
+    /// Viewport or MSAA changes invalidate transient target sizes and bindings.
+    pub fn clear(&mut self) {
+        self.available.clear();
     }
 
     /// Acquire a texture matching the given dimensions and sample count, plus a depth/stencil
@@ -86,15 +165,19 @@ impl OffscreenTexturePool {
         sample_count: u32,
         with_depth: bool,
     ) -> PooledTexture {
-        let found = self.available.iter().position(|texture| {
-            texture.width == width
-                && texture.height == height
-                && texture.sample_count == sample_count
-                && texture.depth_stencil_view.is_some() == with_depth
-        });
-
-        if let Some(texture_index) = found {
-            self.available.swap_remove(texture_index)
+        let descriptor = TextureDescriptorKey {
+            width,
+            height,
+            format,
+            sample_count,
+            with_depth,
+        };
+        if let Some(texture) = self
+            .available
+            .get_mut(&descriptor)
+            .and_then(TextureBucket::acquire)
+        {
+            texture
         } else {
             self.create_pooled_texture(device, width, height, format, sample_count, with_depth)
         }
@@ -176,14 +259,24 @@ impl OffscreenTexturePool {
 
         PooledTexture {
             texture_id,
+            descriptor: TextureDescriptorKey {
+                width,
+                height,
+                format,
+                sample_count,
+                with_depth,
+            },
+            input_binding: None,
+            composite_binding: None,
             color_texture,
             color_view,
             depth_stencil_view,
             resolve_texture,
             resolve_view,
-            width,
-            height,
             sample_count,
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

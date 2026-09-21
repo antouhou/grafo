@@ -888,7 +888,7 @@ impl<'a> Renderer<'a> {
         }
 
         for resources in self.state.effect_execution.backdrops.values_mut() {
-            resources.invalidate_capture_binding();
+            resources.invalidate_bindings();
         }
     }
 }

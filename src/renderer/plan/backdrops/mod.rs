@@ -13,14 +13,12 @@ fn does_capture_size_exceeds_limits(capture_size: Size, max_capture_dimension: u
 }
 
 fn max_backdrop_capture_texels(physical_size: Size) -> u64 {
-    u64::from(physical_size.width)
-        .saturating_mul(u64::from(physical_size.height))
-        .saturating_mul(MAX_BACKDROP_CAPTURE_VIEWPORT_TEXEL_MULTIPLIER)
+    let viewport_texels = u64::from(physical_size.width) * u64::from(physical_size.height);
+    viewport_texels.saturating_mul(MAX_BACKDROP_CAPTURE_VIEWPORT_TEXEL_MULTIPLIER)
 }
 
 fn does_capture_size_exceeds_budget(capture_size: Size, physical_size: Size) -> bool {
-    let capture_texels =
-        u64::from(capture_size.width).saturating_mul(u64::from(capture_size.height));
+    let capture_texels = u64::from(capture_size.width) * u64::from(capture_size.height);
     capture_texels > max_backdrop_capture_texels(physical_size)
 }
 
@@ -98,8 +96,7 @@ pub(in crate::renderer) fn compute_backdrop_capture_region(
             warn!(
                 requested_width = capture_size.width,
                 requested_height = capture_size.height,
-                requested_texels =
-                    u64::from(capture_size.width).saturating_mul(u64::from(capture_size.height)),
+                requested_texels = u64::from(capture_size.width) * u64::from(capture_size.height),
                 max_capture_texels = max_backdrop_capture_texels(physical_size),
                 viewport_width = physical_size.width,
                 viewport_height = physical_size.height,

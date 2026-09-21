@@ -107,11 +107,7 @@ impl<'a> Renderer<'a> {
             self.msaa_color_texture_view = None;
         }
 
-        self.state.textures.pool.trim(
-            self.state.physical_size.0,
-            self.state.physical_size.1,
-            self.msaa_sample_count,
-        );
+        self.state.textures.pool.clear();
         self.trim_scratch_storage();
     }
 

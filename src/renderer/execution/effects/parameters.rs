@@ -2,7 +2,7 @@ use super::bindings::create_params_bind_group;
 use crate::effect::EffectError;
 use ahash::{HashMap, HashMapExt};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
-use wgpu::{BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, Queue};
+use wgpu::{BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, Queue, TextureView};
 
 /// Uploaded parameters. The attachment owns the only retained CPU copy.
 pub(crate) struct EffectParameterResources {
@@ -41,20 +41,35 @@ impl EffectParameterResources {
     }
 }
 
+/// The view handle identifies the resource already retained by the bind group.
+pub(crate) struct BackdropTextureBinding {
+    pub(crate) texture_view: TextureView,
+    pub(crate) bind_group: BindGroup,
+}
+
 /// Capture bindings and uploaded parameters for one backdrop attachment.
 #[derive(Default)]
 pub(crate) struct BackdropEffectResources {
     pub(crate) parameters: Option<EffectParameterResources>,
     pub(crate) backdrop_material_params_buffer: Option<Buffer>,
     pub(crate) backdrop_layer_params_buffer: Option<Buffer>,
+    pub(crate) layer_composite_binding: Option<BackdropTextureBinding>,
+    pub(crate) downsample_binding: Option<BackdropTextureBinding>,
     pub(crate) backdrop_texture_bind_group: Option<BindGroup>,
     pub(crate) backdrop_texture_id: Option<u64>,
 }
 
 impl BackdropEffectResources {
-    pub(crate) fn invalidate_capture_binding(&mut self) {
+    pub(crate) fn invalidate_material_binding(&mut self) {
         self.backdrop_texture_bind_group = None;
         self.backdrop_texture_id = None;
+    }
+
+    /// Pipeline recreation replaces layouts; parameter buffers remain attachment-owned.
+    pub(crate) fn invalidate_bindings(&mut self) {
+        self.invalidate_material_binding();
+        self.layer_composite_binding = None;
+        self.downsample_binding = None;
     }
 }
 

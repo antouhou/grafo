@@ -18,6 +18,32 @@ enum CylSpace {
     Hwb,
 }
 
+fn normalize_hue(hue: HueComponent) -> f32 {
+    match hue {
+        HueComponent::Degrees(degrees) => degrees.rem_euclid(360.0),
+        HueComponent::Missing => 0.0,
+    }
+}
+
+fn normalize_hsl(hue: HueComponent, saturation: f32, lightness: f32) -> (f32, f32, f32) {
+    (
+        normalize_hue(hue),
+        saturation.clamp(0.0, 1.0),
+        lightness.clamp(0.0, 1.0),
+    )
+}
+
+fn normalize_hwb(hue: HueComponent, whiteness: f32, blackness: f32) -> (f32, f32, f32) {
+    let mut whiteness = whiteness.max(0.0);
+    let mut blackness = blackness.max(0.0);
+    let sum = whiteness + blackness;
+    if sum > 1.0 {
+        whiteness /= sum;
+        blackness /= sum;
+    }
+    (normalize_hue(hue), whiteness, blackness)
+}
+
 fn bake_segments<Interpolator: Fn(f32) -> [f32; 4]>(
     normalized: &NormalizedGradient,
     prepare_colors: impl Fn(&GradientColor, &GradientColor) -> Interpolator,
@@ -256,17 +282,12 @@ fn to_cylindrical(color: &GradientColor, space: CylSpace) -> (f32, f32, f32, f32
             },
             CylSpace::Hsl,
         ) => {
-            let s_clamped = saturation.clamp(0.0, 1.0);
-            let l_clamped = lightness.clamp(0.0, 1.0);
-            let (h_deg, is_powerless) = match hue {
-                HueComponent::Degrees(deg) => {
-                    let h = deg.rem_euclid(360.0);
-                    let powerless = s_clamped == 0.0 || l_clamped == 0.0 || l_clamped == 1.0;
-                    (h, powerless)
-                }
-                HueComponent::Missing => (0.0, true),
-            };
-            (h_deg, s_clamped, l_clamped, *alpha, is_powerless)
+            let (hue_degrees, saturation, lightness) = normalize_hsl(*hue, *saturation, *lightness);
+            let is_powerless = matches!(hue, HueComponent::Missing)
+                || saturation == 0.0
+                || lightness == 0.0
+                || lightness == 1.0;
+            (hue_degrees, saturation, lightness, *alpha, is_powerless)
         }
         (
             GradientColor::Hwb {
@@ -277,22 +298,9 @@ fn to_cylindrical(color: &GradientColor, space: CylSpace) -> (f32, f32, f32, f32
             },
             CylSpace::Hwb,
         ) => {
-            let mut w = whiteness.max(0.0);
-            let mut b = blackness.max(0.0);
-            if w + b > 1.0 {
-                let sum = w + b;
-                w /= sum;
-                b /= sum;
-            }
-            let (h_deg, is_powerless) = match hue {
-                HueComponent::Degrees(deg) => {
-                    let h = deg.rem_euclid(360.0);
-                    let powerless = w + b >= 1.0;
-                    (h, powerless)
-                }
-                HueComponent::Missing => (0.0, true),
-            };
-            (h_deg, w, b, *alpha, is_powerless)
+            let (hue_degrees, whiteness, blackness) = normalize_hwb(*hue, *whiteness, *blackness);
+            let is_powerless = matches!(hue, HueComponent::Missing) || whiteness + blackness >= 1.0;
+            (hue_degrees, whiteness, blackness, *alpha, is_powerless)
         }
         // Convert any other color space to HSL or HWB through sRGB
         (_, cyl_space) => {
@@ -393,13 +401,8 @@ fn gradient_color_to_srgb(color: &GradientColor) -> (f32, f32, f32, f32) {
             lightness,
             alpha,
         } => {
-            let s_clamped = saturation.clamp(0.0, 1.0);
-            let l_clamped = lightness.clamp(0.0, 1.0);
-            let h_deg = match hue {
-                HueComponent::Degrees(deg) => deg.rem_euclid(360.0),
-                HueComponent::Missing => 0.0,
-            };
-            let (r, g, b) = hsl_to_srgb(h_deg, s_clamped, l_clamped);
+            let (hue_degrees, saturation, lightness) = normalize_hsl(*hue, *saturation, *lightness);
+            let (r, g, b) = hsl_to_srgb(hue_degrees, saturation, lightness);
             (r, g, b, *alpha)
         }
         GradientColor::Hwb {
@@ -408,18 +411,8 @@ fn gradient_color_to_srgb(color: &GradientColor) -> (f32, f32, f32, f32) {
             blackness,
             alpha,
         } => {
-            let mut w = whiteness.max(0.0);
-            let mut bk = blackness.max(0.0);
-            if w + bk > 1.0 {
-                let sum = w + bk;
-                w /= sum;
-                bk /= sum;
-            }
-            let h_deg = match hue {
-                HueComponent::Degrees(deg) => deg.rem_euclid(360.0),
-                HueComponent::Missing => 0.0,
-            };
-            let (r, g, b) = hwb_to_srgb(h_deg, w, bk);
+            let (hue_degrees, whiteness, blackness) = normalize_hwb(*hue, *whiteness, *blackness);
+            let (r, g, b) = hwb_to_srgb(hue_degrees, whiteness, blackness);
             (r, g, b, *alpha)
         }
     }
