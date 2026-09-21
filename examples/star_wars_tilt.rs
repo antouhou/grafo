@@ -1,13 +1,13 @@
 use euclid::{Point2D, UnknownUnit};
 use futures::executor::block_on;
-use grafo::wgpu::SurfaceError;
-use grafo::RenderError;
 use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
+
+mod window_rendering;
 
 struct App<'a> {
     window: Option<Arc<Window>>,
@@ -219,19 +219,7 @@ impl<'a> ApplicationHandler for App<'a> {
                         )
                         .unwrap();
 
-                    match renderer.render() {
-                        Ok(_) => {}
-                        Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
-                            let size = renderer.size();
-                            renderer.resize(size);
-                        }
-                        Err(RenderError::Surface(SurfaceError::Timeout)) => {
-                            if let Some(window) = &self.window {
-                                window.request_redraw();
-                            }
-                        }
-                        Err(e) => eprintln!("{e:?}"),
-                    }
+                    window_rendering::render(renderer, event_loop);
                 }
             }
             WindowEvent::Resized(new_size) => {

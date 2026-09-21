@@ -3,14 +3,14 @@
 //! rendered shadow while the geometry and effect parameters stay unchanged.
 
 use futures::executor::block_on;
-use grafo::wgpu::SurfaceError;
-use grafo::RenderError;
 use grafo::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, Stroke};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
+
+mod window_rendering;
 
 const BOX_SHADOW_EFFECT: u64 = 1;
 
@@ -212,6 +212,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                renderer.clear_draw_queue();
                 let (pw, ph) = renderer.size();
                 let pw = pw as f32;
                 let ph = ph as f32;
@@ -290,20 +291,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     },
                 );
 
-                match renderer.render() {
-                    Ok(_) => {
-                        renderer.clear_draw_queue();
-                    }
-                    Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
-                        renderer.resize(renderer.size())
-                    }
-
-                    Err(RenderError::Surface(SurfaceError::Timeout)) => {
-                        renderer.clear_draw_queue();
-                        window.request_redraw();
-                    }
-                    Err(e) => eprintln!("{e:?}"),
-                }
+                window_rendering::render(renderer, event_loop);
             }
             _ => {}
         }

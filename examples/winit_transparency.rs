@@ -1,6 +1,4 @@
 use futures::executor::block_on;
-use grafo::wgpu::SurfaceError;
-use grafo::RenderError;
 use grafo::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, Stroke};
 use std::sync::Arc;
 use std::time::Instant;
@@ -8,6 +6,8 @@ use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
+
+mod window_rendering;
 
 #[derive(Default)]
 struct App<'a> {
@@ -67,6 +67,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                renderer.clear_draw_queue();
                 let timer = Instant::now();
 
                 let rect = Shape::rect(
@@ -96,20 +97,8 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                match renderer.render() {
-                    Ok(_) => {
-                        renderer.clear_draw_queue();
-                        println!("Render time: {:?}", timer.elapsed());
-                    }
-                    Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
-                        println!("Surface lost or outdated, resizing...");
-                        renderer.resize(renderer.size())
-                    }
-                    Err(RenderError::Surface(SurfaceError::Timeout)) => {
-                        renderer.clear_draw_queue();
-                        window.request_redraw();
-                    }
-                    Err(e) => eprintln!("Render error: {e:?}"),
+                if window_rendering::render(renderer, event_loop) {
+                    println!("Render time: {:?}", timer.elapsed());
                 }
             }
             _ => {}

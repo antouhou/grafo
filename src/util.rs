@@ -1,5 +1,4 @@
 use crate::cache::Cache;
-use crate::gradient::gpu::GradientCache;
 use crate::shape::AaFringeScratch;
 
 /// Converts an sRGB byte to a linear channel value between 0.0 and 1.0.
@@ -24,7 +23,6 @@ pub fn normalize_rgba_color(color: &[u8; 4]) -> [f32; 4] {
 pub(crate) struct ShapeResources {
     pub tessellation_cache: Cache,
     pub aa_fringe_scratch: AaFringeScratch,
-    pub gradient_cache: GradientCache,
 }
 
 impl ShapeResources {
@@ -32,13 +30,11 @@ impl ShapeResources {
         Self {
             tessellation_cache: Cache::new(),
             aa_fringe_scratch: AaFringeScratch::new(),
-            gradient_cache: GradientCache::new(),
         }
     }
 
     pub fn print_sizes(&self) {
         println!("Tessellations: {}", self.tessellation_cache.len());
-        self.gradient_cache.print_sizes();
     }
 }
 

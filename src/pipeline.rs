@@ -2,7 +2,7 @@
 use crate::vertex::{
     CustomVertex, GeometryBufferRange, InstanceColor, InstanceMetadata, InstanceTransform,
 };
-use std::{mem, ops::Range};
+use std::ops::Range;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, ComputePipeline, Device,
@@ -524,8 +524,7 @@ pub(crate) fn draw_indexed_geometry(
     let base_vertex = if supports_base_vertex {
         geometry_range.vertex_start
     } else {
-        let vertex_offset =
-            geometry_range.vertex_start as u64 * mem::size_of::<CustomVertex>() as u64;
+        let vertex_offset = geometry_range.vertex_start as u64 * CustomVertex::STRIDE;
         render_pass.set_vertex_buffer(0, vertex_buffer.slice(vertex_offset..));
         0
     };

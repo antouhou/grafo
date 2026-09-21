@@ -2,19 +2,16 @@
 //! The child covers the same area and blurs the colored rectangles behind it.
 
 use futures::executor::block_on;
-use grafo::wgpu::SurfaceError;
-use grafo::RenderError;
 use grafo::{BackdropEffectConfig, BorderRadii, Shape};
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use grafo_test_scenes::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
-use redraw_retry::RedrawRetry;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
-use winit::event::{StartCause, WindowEvent};
+use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
-mod redraw_retry;
+mod window_rendering;
 
 const BOX_SHADOW_EFFECT: u64 = 1;
 const BLUR_EFFECT: u64 = 2;
@@ -92,15 +89,9 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
-    redraw_retry: RedrawRetry,
 }
 
 impl<'a> ApplicationHandler for App<'a> {
-    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
-        self.redraw_retry
-            .new_events(event_loop, cause, self.window.as_deref());
-    }
-
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
@@ -157,6 +148,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                renderer.clear_draw_queue();
                 let (pw, ph) = renderer.size();
                 let pw = pw as f32;
                 let ph = ph as f32;
@@ -289,21 +281,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .expect("Failed to set backdrop blur effect");
 
-                match renderer.render() {
-                    Ok(_) => {
-                        self.redraw_retry.cancel(event_loop);
-                        renderer.clear_draw_queue();
-                    }
-                    Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
-                        renderer.resize(renderer.size())
-                    }
-
-                    Err(RenderError::Surface(SurfaceError::Timeout)) => {
-                        renderer.clear_draw_queue();
-                        self.redraw_retry.schedule(event_loop);
-                    }
-                    Err(e) => eprintln!("{e:?}"),
-                }
+                window_rendering::render(renderer, event_loop);
             }
             _ => {}
         }

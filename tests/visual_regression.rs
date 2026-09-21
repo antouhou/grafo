@@ -386,7 +386,7 @@ fn cached_shape_effect_is_shared_by_instances_and_survives_queue_rebuild() {
         .unwrap();
 
     let first_node = renderer
-        .add_cached_shape_to_the_render_queue(
+        .add_cached_shape(
             8_102,
             Some(root_id),
             ShapeDrawCommandOptions::new()
@@ -395,7 +395,7 @@ fn cached_shape_effect_is_shared_by_instances_and_survives_queue_rebuild() {
         )
         .unwrap();
     let second_node = renderer
-        .add_cached_shape_to_the_render_queue(
+        .add_cached_shape(
             8_102,
             Some(root_id),
             ShapeDrawCommandOptions::new().transform(TransformInstance::translation(36.0, 12.0)),
@@ -415,7 +415,7 @@ fn cached_shape_effect_is_shared_by_instances_and_survives_queue_rebuild() {
 
     renderer.clear_draw_queue();
     let rebuilt_node = renderer
-        .add_cached_shape_to_the_render_queue(
+        .add_cached_shape(
             8_102,
             None,
             ShapeDrawCommandOptions::new().transform(TransformInstance::translation(68.0, 12.0)),
@@ -462,7 +462,7 @@ fn cached_shape_effects_share_the_normal_texture_pipeline() {
         (48.0, Color::rgb(50, 90, 220)),
     ] {
         let node_id = renderer
-            .add_cached_shape_to_the_render_queue(
+            .add_cached_shape(
                 8_152,
                 Some(root_id),
                 ShapeDrawCommandOptions::new()
@@ -606,7 +606,8 @@ fn main_scene_pixel_expectations() {
     let expectations = build_main_scene(&mut renderer);
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    for _ in 0..2 {
+    for sample_count in [1, 1, 4, 1] {
+        renderer.set_msaa_samples(sample_count);
         renderer.render_to_buffer(&mut pixel_buffer).unwrap();
         assert_pixels_match(&pixel_buffer, &expectations);
     }
@@ -700,7 +701,7 @@ fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent()
         Some(99),
     );
     second
-        .add_cached_shape_to_the_render_queue(
+        .add_cached_shape(
             99,
             None,
             ShapeDrawCommandOptions::new()

@@ -28,19 +28,15 @@ pub(crate) struct GpuGradientColorParams {
     // Constant color for degenerate gradients.
     pub constant_color: [f32; 4],
 
-    // Linear params: start_x, start_y, end_x, end_y
     pub linear_start: [f32; 2],
     pub linear_end: [f32; 2],
 
-    // Radial params: center_x, center_y, radius_x, radius_y
     pub radial_center: [f32; 2],
     pub radial_radius: [f32; 2],
 
-    // Conic params: center_x, center_y, start_angle
     pub conic_center: [f32; 2],
     pub conic_start_angle: f32,
 
-    // Period info for repeating
     pub period_start: f32,
     pub period_len: f32,
 

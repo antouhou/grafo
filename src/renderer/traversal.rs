@@ -1,3 +1,4 @@
+use super::shape_effects::PreparedShapeEffectLeaf;
 use super::types::{trim_vector_if_needed, TraversalEvent};
 use super::*;
 use crate::effect::BackdropEffectInstance;
@@ -34,7 +35,7 @@ impl TraversalScratch {
 }
 
 pub(super) fn subtree_has_backdrop_effects(
-    tree: &easy_tree::Tree<DrawCommand>,
+    tree: &easy_tree::Tree<DrawTreeNode>,
     backdrop_effects: &HashMap<usize, BackdropEffectInstance>,
     root_id: usize,
 ) -> bool {
@@ -46,7 +47,7 @@ pub(super) fn subtree_has_backdrop_effects(
     }
 
     fn scan(
-        tree: &easy_tree::Tree<DrawCommand>,
+        tree: &easy_tree::Tree<DrawTreeNode>,
         backdrop_effects: &HashMap<usize, BackdropEffectInstance>,
         node_id: usize,
     ) -> bool {
@@ -65,9 +66,9 @@ pub(super) fn subtree_has_backdrop_effects(
 }
 
 pub(super) fn plan_traversal_in_place(
-    draw_tree: &mut easy_tree::Tree<DrawCommand>,
+    draw_tree: &mut easy_tree::Tree<DrawTreeNode>,
     effect_results: &HashMap<usize, wgpu::BindGroup>,
-    prepared_shape_effect_leaves: &HashMap<usize, CachedShapeDrawData>,
+    prepared_shape_effect_leaves: &HashMap<usize, PreparedShapeEffectLeaf>,
     subtree_root: Option<usize>,
     exclude_subtree_id: Option<usize>,
     traversal_scratch: &mut TraversalScratch,
@@ -76,35 +77,36 @@ pub(super) fn plan_traversal_in_place(
 
     let exclude_id = exclude_subtree_id;
 
-    let pre_fn = |node_id: usize, _draw_command: &mut DrawCommand, state: &mut TraversalScratch| {
-        // Skip the excluded node and its descendants
-        if state.excluded_depth > 0 {
-            state.excluded_depth += 1;
-            return;
-        }
-        if exclude_id == Some(node_id) {
-            state.excluded_depth = 1;
-            return;
-        }
+    let pre_fn =
+        |node_id: usize, _draw_tree_node: &mut DrawTreeNode, state: &mut TraversalScratch| {
+            // Skip the excluded node and its descendants
+            if state.excluded_depth > 0 {
+                state.excluded_depth += 1;
+                return;
+            }
+            if exclude_id == Some(node_id) {
+                state.excluded_depth = 1;
+                return;
+            }
 
-        if effect_results.contains_key(&node_id) {
-            state.skipped_stack.push(node_id);
-        }
+            if effect_results.contains_key(&node_id) {
+                state.skipped_stack.push(node_id);
+            }
 
-        if !state.skipped_stack.is_empty() && !effect_results.contains_key(&node_id) {
-            return;
-        }
+            if !state.skipped_stack.is_empty() && !effect_results.contains_key(&node_id) {
+                return;
+            }
 
-        if !effect_results.contains_key(&node_id)
-            && prepared_shape_effect_leaves.contains_key(&node_id)
-        {
-            state.events.push(TraversalEvent::PreparedLeaf(node_id));
-        }
-        state.events.push(TraversalEvent::Pre(node_id));
-    };
+            if !effect_results.contains_key(&node_id)
+                && prepared_shape_effect_leaves.contains_key(&node_id)
+            {
+                state.events.push(TraversalEvent::PreparedLeaf(node_id));
+            }
+            state.events.push(TraversalEvent::Pre(node_id));
+        };
 
     let post_fn =
-        |node_id: usize, _draw_command: &mut DrawCommand, state: &mut TraversalScratch| {
+        |node_id: usize, _draw_tree_node: &mut DrawTreeNode, state: &mut TraversalScratch| {
             if state.excluded_depth > 0 {
                 state.excluded_depth -= 1;
                 return;
@@ -133,7 +135,7 @@ pub(super) fn plan_traversal_in_place(
     }
 }
 
-pub(super) fn compute_node_depth(tree: &easy_tree::Tree<DrawCommand>, node_id: usize) -> usize {
+pub(super) fn compute_node_depth(tree: &easy_tree::Tree<DrawTreeNode>, node_id: usize) -> usize {
     let mut depth = 0;
     let mut current = node_id;
 
@@ -152,7 +154,8 @@ mod tests {
     };
     use crate::cache::CachedTessellation;
     use crate::effect::{BackdropEffectConfig, BackdropEffectInstance, EffectInstance};
-    use crate::renderer::types::{DrawCommand, TraversalEvent};
+    use crate::renderer::shape_effects::{PreparedShapeEffectLeaf, ShapeEffectRasterRect};
+    use crate::renderer::types::{DrawTreeNode, TraversalEvent};
     use crate::shape::{CachedShapeDrawData, CachedShapeHandle};
     use crate::vertex::CustomVertex;
     use crate::ShapeDrawCommandOptions;
@@ -176,16 +179,27 @@ mod tests {
         )
     }
 
+    fn prepared_shape_effect_leaf() -> PreparedShapeEffectLeaf {
+        PreparedShapeEffectLeaf {
+            draw_data: cached_draw_data(),
+            raster_rect: ShapeEffectRasterRect {
+                local_physical_origin: [0, 0],
+                texture_size: [1, 1],
+                local_bounds: [(0.0, 0.0), (1.0, 1.0)],
+            },
+        }
+    }
+
     #[test]
     fn compute_node_depth_counts_ancestors_across_uneven_branches() {
         let mut tree = easy_tree::Tree::new();
-        let root = tree.add_node(DrawCommand::CachedShape(cached_draw_data()));
-        let child = tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
-        let grandchild = tree.add_child(child, DrawCommand::CachedShape(cached_draw_data()));
+        let root = tree.add_node(DrawTreeNode::CachedShape(cached_draw_data()));
+        let child = tree.add_child(root, DrawTreeNode::CachedShape(cached_draw_data()));
+        let grandchild = tree.add_child(child, DrawTreeNode::CachedShape(cached_draw_data()));
         let great_grandchild =
-            tree.add_child(grandchild, DrawCommand::CachedShape(cached_draw_data()));
-        let sibling = tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
-        let sibling_child = tree.add_child(sibling, DrawCommand::CachedShape(cached_draw_data()));
+            tree.add_child(grandchild, DrawTreeNode::CachedShape(cached_draw_data()));
+        let sibling = tree.add_child(root, DrawTreeNode::CachedShape(cached_draw_data()));
+        let sibling_child = tree.add_child(sibling, DrawTreeNode::CachedShape(cached_draw_data()));
 
         for (node_id, expected_depth) in [
             (root, 0),
@@ -202,10 +216,10 @@ mod tests {
     #[test]
     fn plan_traversal_produces_balanced_events() {
         let mut tree = easy_tree::Tree::new();
-        let root = tree.add_node(DrawCommand::CachedShape(cached_draw_data()));
-        let child = tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
-        let grandchild = tree.add_child(child, DrawCommand::CachedShape(cached_draw_data()));
-        let sibling = tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
+        let root = tree.add_node(DrawTreeNode::CachedShape(cached_draw_data()));
+        let child = tree.add_child(root, DrawTreeNode::CachedShape(cached_draw_data()));
+        let grandchild = tree.add_child(child, DrawTreeNode::CachedShape(cached_draw_data()));
+        let sibling = tree.add_child(root, DrawTreeNode::CachedShape(cached_draw_data()));
 
         let effect_results: HashMap<usize, wgpu::BindGroup> = HashMap::new();
         let mut traversal_scratch = TraversalScratch::new();
@@ -236,9 +250,9 @@ mod tests {
     #[test]
     fn plan_traversal_inserts_prepared_leaf_before_source_node() {
         let mut tree = easy_tree::Tree::new();
-        let root = tree.add_node(DrawCommand::CachedShape(cached_draw_data()));
+        let root = tree.add_node(DrawTreeNode::CachedShape(cached_draw_data()));
         let mut prepared_leaves = HashMap::new();
-        prepared_leaves.insert(root, cached_draw_data());
+        prepared_leaves.insert(root, prepared_shape_effect_leaf());
         let effect_results: HashMap<usize, wgpu::BindGroup> = HashMap::new();
         let mut traversal_scratch = TraversalScratch::new();
 
@@ -264,11 +278,11 @@ mod tests {
     #[test]
     fn plan_traversal_inserts_prepared_leaf_before_node_with_children() {
         let mut tree = easy_tree::Tree::new();
-        let root = tree.add_node(DrawCommand::CachedShape(cached_draw_data()));
+        let root = tree.add_node(DrawTreeNode::CachedShape(cached_draw_data()));
         tree.get_mut(root).unwrap().set_not_leaf();
-        let child = tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
+        let child = tree.add_child(root, DrawTreeNode::CachedShape(cached_draw_data()));
         let mut prepared_leaves = HashMap::new();
-        prepared_leaves.insert(root, cached_draw_data());
+        prepared_leaves.insert(root, prepared_shape_effect_leaf());
         let effect_results: HashMap<usize, wgpu::BindGroup> = HashMap::new();
         let mut traversal_scratch = TraversalScratch::new();
 
@@ -296,9 +310,9 @@ mod tests {
     #[test]
     fn plan_traversal_preserves_reserved_event_storage() {
         let mut tree = easy_tree::Tree::new();
-        let root = tree.add_node(DrawCommand::CachedShape(cached_draw_data()));
-        let child = tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
-        tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
+        let root = tree.add_node(DrawTreeNode::CachedShape(cached_draw_data()));
+        let child = tree.add_child(root, DrawTreeNode::CachedShape(cached_draw_data()));
+        tree.add_child(root, DrawTreeNode::CachedShape(cached_draw_data()));
 
         let effect_results: HashMap<usize, wgpu::BindGroup> = HashMap::new();
         let mut traversal_scratch = TraversalScratch::new();
@@ -324,9 +338,9 @@ mod tests {
     #[test]
     fn subtree_has_backdrop_effects_detects_descendants() {
         let mut tree = easy_tree::Tree::new();
-        let root = tree.add_node(DrawCommand::CachedShape(cached_draw_data()));
-        let child = tree.add_child(root, DrawCommand::CachedShape(cached_draw_data()));
-        let grandchild = tree.add_child(child, DrawCommand::CachedShape(cached_draw_data()));
+        let root = tree.add_node(DrawTreeNode::CachedShape(cached_draw_data()));
+        let child = tree.add_child(root, DrawTreeNode::CachedShape(cached_draw_data()));
+        let grandchild = tree.add_child(child, DrawTreeNode::CachedShape(cached_draw_data()));
 
         let mut backdrop_effects = HashMap::new();
         backdrop_effects.insert(

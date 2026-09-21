@@ -2,8 +2,6 @@
 //! Both passes use the same radius and sample in input texture pixels.
 
 use futures::executor::block_on;
-use grafo::wgpu::SurfaceError;
-use grafo::RenderError;
 use grafo::Shape;
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use grafo_test_scenes::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
@@ -12,6 +10,8 @@ use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
+
+mod window_rendering;
 
 const BLUR_EFFECT: u64 = 1;
 
@@ -73,6 +73,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                renderer.clear_draw_queue();
                 // Background without an effect
                 let bg = Shape::rect(
                     [(30.0, 30.0), (770.0, 570.0)],
@@ -184,20 +185,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                match renderer.render() {
-                    Ok(_) => {
-                        renderer.clear_draw_queue();
-                    }
-                    Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
-                        renderer.resize(renderer.size())
-                    }
-
-                    Err(RenderError::Surface(SurfaceError::Timeout)) => {
-                        renderer.clear_draw_queue();
-                        window.request_redraw();
-                    }
-                    Err(e) => eprintln!("{e:?}"),
-                }
+                window_rendering::render(renderer, event_loop);
             }
             _ => {}
         }

@@ -66,18 +66,18 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn set_msaa_samples(&mut self, samples: u32) {
-        let validated = Self::validate_sample_count_static(samples);
-        if validated == self.msaa_sample_count {
+        let sample_count = Self::normalize_msaa_sample_count(samples);
+        if sample_count == self.msaa_sample_count {
             return;
         }
 
-        self.msaa_sample_count = validated;
+        self.msaa_sample_count = sample_count;
         self.recreate_pipelines();
         self.recreate_msaa_texture();
         self.recreate_depth_stencil_texture();
     }
 
-    pub(super) fn validate_sample_count_static(requested: u32) -> u32 {
+    pub(super) fn normalize_msaa_sample_count(requested: u32) -> u32 {
         match requested {
             0 | 1 => 1,
             2..=4 => 4,

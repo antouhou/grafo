@@ -1,20 +1,19 @@
 #[cfg(feature = "render_metrics")]
 use super::metrics::PipelineSwitchCounts;
+use super::shape_effects::PreparedShapeEffectLeaf;
 use super::traversal::TraversalScratch;
 use crate::effect::{self, LoadedEffect};
-use crate::gradient::gpu::GradientCache;
 use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
 use crate::vertex::InstanceTransform;
 use crate::UnsignedPhysicalRect;
 use ahash::{HashMap, HashMapExt};
-use std::sync::Arc;
 use thiserror::Error;
 use wgpu::SurfaceError;
 
 // TODO: probably some parts of it also can be cached, so we don't need to copy it all the time.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
-pub(super) enum DrawCommand {
+pub(super) enum DrawTreeNode {
     CachedShape(CachedShapeDrawData),
     ClipRect(ClipRectDrawData),
 }
@@ -42,112 +41,85 @@ impl ClipRectDrawData {
     }
 }
 
-impl DrawCommand {
+impl DrawTreeNode {
     /// Whether this node has no children in the draw tree
     /// Starts as `true`; set to `false` when a child is added.
     pub(super) fn is_leaf(&self) -> bool {
         match self {
-            DrawCommand::CachedShape(s) => s.is_leaf,
-            DrawCommand::ClipRect(clip_rect) => clip_rect.is_leaf,
+            DrawTreeNode::CachedShape(s) => s.is_leaf,
+            DrawTreeNode::ClipRect(clip_rect) => clip_rect.is_leaf,
         }
     }
 
     pub(super) fn set_not_leaf(&mut self) {
         match self {
-            DrawCommand::CachedShape(s) => s.is_leaf = false,
-            DrawCommand::ClipRect(clip_rect) => clip_rect.is_leaf = false,
+            DrawTreeNode::CachedShape(s) => s.is_leaf = false,
+            DrawTreeNode::ClipRect(clip_rect) => clip_rect.is_leaf = false,
         }
     }
 
     pub(super) fn is_clip_rect(&self) -> bool {
-        matches!(self, DrawCommand::ClipRect(_))
+        matches!(self, DrawTreeNode::ClipRect(_))
     }
 }
 
-impl DrawCommand {
+impl DrawTreeNode {
     pub(super) fn transform(&self) -> Option<InstanceTransform> {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.transform,
-            DrawCommand::ClipRect(clip_rect) => clip_rect.transform,
+            DrawTreeNode::CachedShape(cached_shape) => cached_shape.transform,
+            DrawTreeNode::ClipRect(clip_rect) => clip_rect.transform,
         }
     }
 
     pub(super) fn texture_id(&self, layer: usize) -> Option<u64> {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape
+            DrawTreeNode::CachedShape(cached_shape) => cached_shape
                 .texture_bindings
                 .get(layer)
                 .and_then(ShapeTextureBinding::managed_texture_id),
-            DrawCommand::ClipRect(_) => None,
+            DrawTreeNode::ClipRect(_) => None,
         }
     }
 
     pub(super) fn local_bounds(&self) -> [(f32, f32); 2] {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.cached_shape.local_bounds(),
-            DrawCommand::ClipRect(clip_rect) => clip_rect.rect_bounds,
+            DrawTreeNode::CachedShape(cached_shape) => cached_shape.cached_shape.local_bounds(),
+            DrawTreeNode::ClipRect(clip_rect) => clip_rect.rect_bounds,
         }
     }
 
     pub(super) fn instance_color_override(&self) -> Option<[f32; 4]> {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.color_override,
-            DrawCommand::ClipRect(_) => None,
+            DrawTreeNode::CachedShape(cached_shape) => cached_shape.color_override,
+            DrawTreeNode::ClipRect(_) => None,
         }
     }
 
     pub(super) fn has_gradient_fill(&self) -> bool {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.has_gradient_fill(),
-            DrawCommand::ClipRect(_) => false,
-        }
-    }
-
-    pub(super) fn gradient_bind_group(&self) -> Option<&Arc<wgpu::BindGroup>> {
-        match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.gradient_bind_group.as_ref(),
-            DrawCommand::ClipRect(_) => None,
-        }
-    }
-
-    pub(super) fn refresh_gradient_bind_group(
-        &mut self,
-        gradient_cache: &mut GradientCache,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        layout: &wgpu::BindGroupLayout,
-        sampler: &wgpu::Sampler,
-    ) {
-        match self {
-            DrawCommand::ClipRect(_) => {}
-            DrawCommand::CachedShape(cached_shape) => cached_shape.refresh_gradient_bind_group(
-                gradient_cache,
-                device,
-                queue,
-                layout,
-                sampler,
-            ),
+            DrawTreeNode::CachedShape(cached_shape) => cached_shape.has_gradient_fill(),
+            DrawTreeNode::ClipRect(_) => false,
         }
     }
 
     pub(super) fn clips_children(&self) -> bool {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.clips_children,
-            DrawCommand::ClipRect(clip_rect) => clip_rect.clips_children,
+            DrawTreeNode::CachedShape(cached_shape) => cached_shape.clips_children,
+            DrawTreeNode::ClipRect(clip_rect) => clip_rect.clips_children,
         }
     }
 
     pub(super) fn is_rect(&self) -> bool {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.cached_shape.is_rect,
-            DrawCommand::ClipRect(_) => true,
+            DrawTreeNode::CachedShape(cached_shape) => cached_shape.cached_shape.is_rect,
+            DrawTreeNode::ClipRect(_) => true,
         }
     }
 
     pub(super) fn rect_bounds(&self) -> Option<[(f32, f32); 2]> {
         match self {
-            DrawCommand::CachedShape(cached_shape) => cached_shape.cached_shape.rect_bounds,
-            DrawCommand::ClipRect(clip_rect) => Some(clip_rect.rect_bounds),
+            DrawTreeNode::CachedShape(cached_shape) => cached_shape.cached_shape.rect_bounds,
+            DrawTreeNode::ClipRect(clip_rect) => Some(clip_rect.rect_bounds),
         }
     }
 }
@@ -341,7 +313,7 @@ pub(super) struct BackdropContext<'a> {
 }
 
 const MAX_EFFECT_RESULTS_CAPACITY: usize = 4_096;
-const MAX_SHAPE_EFFECT_LEAVES_CAPACITY: usize = 4_096;
+pub(super) const MAX_SHAPE_EFFECT_LEAVES_CAPACITY: usize = 4_096;
 const MAX_EFFECT_NODE_IDS_CAPACITY: usize = 4_096;
 const MAX_TEXTURE_RECYCLE_CAPACITY: usize = 1_024;
 const MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY: usize = 2_048;
@@ -351,7 +323,7 @@ const MAX_READBACK_BYTES_CAPACITY: usize = 64 * 1024 * 1024;
 
 pub(super) struct RendererScratch {
     pub(super) effect_results: HashMap<usize, wgpu::BindGroup>,
-    pub(super) shape_effect_leaves: HashMap<usize, CachedShapeDrawData>,
+    pub(super) shape_effect_leaves: HashMap<usize, PreparedShapeEffectLeaf>,
     pub(super) effect_node_ids: Vec<(usize, usize)>,
     pub(super) textures_to_recycle: Vec<effect::PooledTexture>,
     pub(super) effect_output_textures: Vec<effect::PooledTexture>,
