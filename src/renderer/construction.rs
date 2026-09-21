@@ -1,3 +1,5 @@
+use super::execution::effects;
+use super::execution::effects::EffectExecutionResources;
 use super::execution::shapes::ShapeExecutionResources;
 use super::shape_effects::ShapeEffectRendererResources;
 use super::state::{BackdropPipelineResources, Buffers, ShapePipelines};
@@ -14,7 +16,6 @@ use crate::pipeline::{
     create_stencil_only_pipeline,
 };
 use crate::vertex::CustomVertex;
-use naga::valid::{Capabilities, ValidationFlags, Validator};
 use std::mem;
 use tracing::{error, info, warn};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
@@ -268,12 +269,12 @@ impl BackdropPipelineResources {
         let background_layout = &shapes.shape_texture_bind_group_layout_background;
         let foreground_layout = &shapes.shape_texture_bind_group_layout_foreground;
         Self {
-            texture_blit_pipeline: effect::compile_texture_blit_pipeline(
+            texture_blit_pipeline: effects::compile_texture_blit_pipeline(
                 device,
                 format,
                 composite_layout,
             ),
-            layer_composite_resources: effect::compile_backdrop_layer_composite_pipeline(
+            layer_composite_resources: effects::compile_backdrop_layer_composite_pipeline(
                 device, format,
             ),
             stencil_only_pipeline: create_stencil_only_pipeline(
@@ -525,11 +526,7 @@ impl<'a> Renderer<'a> {
             msaa_color_texture_view: None,
             depth_stencil_texture: None,
             depth_stencil_view: None,
-            effect_shader_validator: Validator::new(
-                ValidationFlags::all(),
-                Capabilities::default(),
-            ),
-            loaded_effects: HashMap::new(),
+            effect_registry: EffectRegistry::new(),
             #[cfg(feature = "render_metrics")]
             render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),
             #[cfg(feature = "render_metrics")]
@@ -539,6 +536,7 @@ impl<'a> Renderer<'a> {
                 draw_tree: easy_tree::Tree::new(),
                 shape_resources: ShapeResources::new(),
                 shape_execution: ShapeExecutionResources::new(),
+                effect_execution: EffectExecutionResources::new(),
                 group_effects: HashMap::new(),
                 backdrop_effects: HashMap::new(),
                 shape_effects: HashMap::new(),
@@ -892,9 +890,8 @@ impl<'a> Renderer<'a> {
             );
         }
 
-        for effect_instance in self.state.backdrop_effects.values_mut() {
-            effect_instance.backdrop_texture_bind_group = None;
-            effect_instance.backdrop_texture_id = None;
+        for resources in self.state.effect_execution.backdrops.values_mut() {
+            resources.invalidate_capture_binding();
         }
     }
 }

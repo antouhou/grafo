@@ -99,7 +99,6 @@ fn skip_visible_rect_draw_rejects_effect_nodes() {
         EffectInstance {
             effect_id: 1,
             params: Vec::new(),
-            parameter_resources: None,
         },
     );
 
@@ -117,7 +116,6 @@ fn skip_visible_rect_draw_rejects_effect_nodes() {
             EffectInstance {
                 effect_id: 2,
                 params: Vec::new(),
-                parameter_resources: None,
             },
             BackdropEffectConfig::default(),
         ),

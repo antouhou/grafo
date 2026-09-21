@@ -1,13 +1,13 @@
 //! Renderer for the Grafo library.
+use self::execution::effects::{
+    compile_composite_pipeline, CompositePipelineResources, EffectRegistry, OffscreenTexturePool,
+};
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
 use self::readback::{ArgbReadbackResources, BgraReadbackResources};
 use self::state::{RendererPipelineResources, RendererState};
 use self::types::{DrawTreeNode, RendererScratch};
-use crate::effect::{
-    self, compile_composite_pipeline, compile_effect_pipeline, create_params_bind_group,
-    CompositePipelineResources, EffectError, EffectInstance, LoadedEffect, OffscreenTexturePool,
-};
+use crate::effect::{EffectError, EffectInstance};
 use crate::pipeline::{
     create_and_depth_texture, create_msaa_color_texture, create_pipeline, PipelineType,
 };
@@ -21,7 +21,6 @@ use crate::CachedShapeHandle;
 use ahash::{HashMap, HashMapExt};
 pub use construction::RendererCreationError;
 use lyon::tessellation::FillTessellator;
-use naga::valid::Validator;
 pub use readback::ReadbackError;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -100,10 +99,7 @@ pub struct Renderer<'a> {
     depth_stencil_texture: Option<wgpu::Texture>,
     depth_stencil_view: Option<wgpu::TextureView>,
 
-    /// Reuses validation scratch storage across effect loads.
-    effect_shader_validator: Validator,
-    /// Compiled effects keyed by the user-provided `effect_id`.
-    loaded_effects: HashMap<u64, LoadedEffect>,
+    effect_registry: EffectRegistry,
     #[cfg(feature = "render_metrics")]
     render_loop_metrics_tracker: RenderLoopMetricsTracker,
 

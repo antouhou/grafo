@@ -174,6 +174,7 @@ impl<'a> Renderer<'a> {
 
     pub fn clear_draw_queue(&mut self) {
         self.state.draw_tree.clear();
+        self.state.effect_execution.clear();
         self.state.group_effects.clear();
         self.state.backdrop_effects.clear();
         self.state.shape_effects.clear();

@@ -83,7 +83,7 @@ impl<'a> Renderer<'a> {
                 .expect("backdrop pipelines were initialized above");
             let backdrop_composite = &backdrops.layer_composite_resources;
             Some(types::BackdropContext {
-                loaded_effects: &self.loaded_effects,
+                effect_registry: &self.effect_registry,
                 effect_sampler: pipeline_resources.effect_sampler.as_ref().unwrap(),
                 gradient_ramp_sampler: &pipeline_resources.shapes.gradient_ramp_sampler,
                 texture_blit_pipeline: &backdrops.texture_blit_pipeline,
@@ -125,15 +125,6 @@ impl<'a> Renderer<'a> {
             let (width, height) = state.physical_size;
 
             for &(node_id, _depth) in &effect_node_ids {
-                let effect_instance = match state.group_effects.get(&node_id) {
-                    Some(instance) => instance,
-                    None => continue,
-                };
-                let effect_id = effect_instance.effect_id;
-                if !self.loaded_effects.contains_key(&effect_id) {
-                    continue;
-                }
-
                 let subtree_texture = state.texture_pool.acquire_with_depth(
                     &self.device,
                     width,
@@ -269,21 +260,19 @@ impl<'a> Renderer<'a> {
                     &subtree_texture.color_view
                 };
 
-                let loaded_effect = self.loaded_effects.get(&effect_id).unwrap();
                 let effect_instance = state
                     .group_effects
                     .get(&node_id)
                     .expect("group effect remains attached during rendering");
                 let effect_output = apply_effect_passes(
+                    &self.effect_registry,
                     &self.device,
                     &mut encoder,
                     &mut state.texture_pool,
                     EffectPassRunConfig {
-                        loaded_effect,
-                        params_bind_group: effect_instance
-                            .parameter_resources
-                            .as_ref()
-                            .map(|resources| &resources.bind_group),
+                        effect_id: effect_instance.effect_id,
+                        params: &effect_instance.params,
+                        parameter_resources: state.effect_execution.group_parameters.get(&node_id),
                         source_view,
                         effect_sampler: pipeline_resources.effect_sampler.as_ref().unwrap(),
                         composite_bind_group_layout: &pipeline_resources
