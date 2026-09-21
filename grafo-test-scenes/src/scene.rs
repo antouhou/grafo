@@ -145,6 +145,7 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_70_stencil_restoration_across_empty_and_overflow_parents(renderer));
 
     expectations.extend(tile_71_shared_geometry_material_batches(renderer));
+    expectations.extend(tile_72_nested_group_textures(renderer));
 
     expectations
 }
@@ -5230,6 +5231,120 @@ fn tile_71_shared_geometry_material_batches(renderer: &mut Renderer) -> Vec<Pixe
             red,
             green,
             blue,
+            label,
+        )
+    })
+    .collect()
+}
+
+/// The outer tint must include each nested group and cached shape texture exactly once.
+fn tile_72_nested_group_textures(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(72);
+    let tint_effect_id = 72_001;
+    let nested_effect_id = 72_002;
+    renderer
+        .load_effect(tint_effect_id, &[SHADOW_TINT_WGSL])
+        .unwrap();
+    renderer
+        .load_effect(nested_effect_id, &[PASSTHROUGH_WGSL, PASSTHROUGH_WGSL])
+        .unwrap();
+
+    let outer = renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x + 4.0, origin_y + 4.0),
+                    (origin_x + 76.0, origin_y + 76.0),
+                ],
+                Stroke::default(),
+            ),
+            None,
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    let nested = renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x + 8.0, origin_y + 8.0),
+                    (origin_x + 64.0, origin_y + 64.0),
+                ],
+                Stroke::default(),
+            ),
+            Some(outer),
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    let shape = renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x + 16.0, origin_y + 16.0),
+                    (origin_x + 44.0, origin_y + 44.0),
+                ],
+                Stroke::default(),
+            ),
+            Some(nested),
+            Some(72_003),
+            ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            shape,
+            SHAPE_DROP_EFFECT_ID,
+            &[],
+            ShapeEffectConfig::new().outset(12.0),
+        )
+        .unwrap();
+    renderer
+        .set_shape_backdrop_effect(
+            shape,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::default(),
+        )
+        .unwrap();
+    renderer
+        .set_group_effect(nested, nested_effect_id, &[])
+        .unwrap();
+    let tint = DropShadowParams {
+        radius: 0.0,
+        sigma: 1.0,
+        offset: [0.0, 0.0],
+        color: [0.5, 0.0, 0.0, 0.5],
+    };
+    renderer
+        .set_group_effect(outer, tint_effect_id, bytemuck::bytes_of(&tint))
+        .unwrap();
+
+    [
+        (
+            30,
+            30,
+            [255, 187, 187],
+            "t72_tinted_source_texture_inside_nested_group",
+        ),
+        (
+            48,
+            32,
+            [255, 187, 187],
+            "t72_tinted_cached_shape_texture_outside_source",
+        ),
+        (12, 12, [255, 255, 255], "t72_transparent_group_area"),
+        (60, 32, [255, 255, 255], "t72_outside_cached_shape_texture"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            2,
             label,
         )
     })

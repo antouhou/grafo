@@ -4,6 +4,7 @@
 
 use crate::cache::CachedTessellation;
 use crate::gradient::types::Fill;
+use crate::renderer::IntermediateTextureId;
 use crate::util::ShapeResources;
 use crate::vertex::{CustomVertex, InstanceTransform};
 use crate::{Color, Stroke};
@@ -27,15 +28,12 @@ pub struct CachedShapeHandle {
     pub(crate) geometry_id: Option<u64>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum ShapeTextureBinding {
     #[default]
     None,
     Managed(u64),
-    Direct {
-        texture_id: u64,
-        bind_group: Arc<wgpu::BindGroup>,
-    },
+    Intermediate(IntermediateTextureId),
 }
 
 impl ShapeTextureBinding {
@@ -46,30 +44,10 @@ impl ShapeTextureBinding {
     pub(crate) fn managed_texture_id(&self) -> Option<u64> {
         match self {
             Self::Managed(texture_id) => Some(*texture_id),
-            Self::None | Self::Direct { .. } => None,
+            Self::None | Self::Intermediate(_) => None,
         }
     }
 }
-
-impl PartialEq for ShapeTextureBinding {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::None, Self::None) => true,
-            (Self::Managed(left), Self::Managed(right)) => left == right,
-            (
-                Self::Direct {
-                    texture_id: left, ..
-                },
-                Self::Direct {
-                    texture_id: right, ..
-                },
-            ) => left == right,
-            _ => false,
-        }
-    }
-}
-
-impl Eq for ShapeTextureBinding {}
 
 impl CachedShapeHandle {
     /// Caches tessellation under `geometry_id` and reuses it during buffer aggregation.

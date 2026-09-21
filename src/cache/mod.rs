@@ -2,6 +2,7 @@ use crate::vertex::CustomVertex;
 use ahash::{HashMap, HashMapExt};
 use lyon::tessellation::VertexBuffers;
 use std::hash::Hash;
+use std::mem;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -60,15 +61,13 @@ where
         self.current_frame.clear();
     }
 
-    pub(crate) fn end_frame(&mut self) -> usize {
-        let collected_entry_count = self
-            .previous_frame
-            .keys()
-            .filter(|cache_key| !self.current_frame.contains_key(*cache_key))
-            .count();
-        std::mem::swap(&mut self.previous_frame, &mut self.current_frame);
-        self.current_frame.clear();
-        collected_entry_count
+    /// Yields unused entries. Dropping the iterator discards the remainder.
+    pub(crate) fn end_frame(&mut self) -> impl Iterator<Item = (K, V)> + '_ {
+        mem::swap(&mut self.previous_frame, &mut self.current_frame);
+        let retained_entries = &self.previous_frame;
+        self.current_frame
+            .drain()
+            .filter(move |(cache_key, _)| !retained_entries.contains_key(cache_key))
     }
 }
 
@@ -110,7 +109,7 @@ impl Cache {
     }
 
     pub(crate) fn end_frame(&mut self) {
-        self.entries.end_frame();
+        drop(self.entries.end_frame());
     }
 }
 

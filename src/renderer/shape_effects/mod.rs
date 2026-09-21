@@ -1,11 +1,15 @@
 use super::execution::effects::{apply_effect_passes, EffectPassRunConfig, EffectRegistry};
 use super::execution::effects::{OffscreenTexturePool, PooledTexture};
 use super::execution::shapes::ShapeDrawResources;
+use super::execution::textures::{
+    CachedShapeEffectMask, SampledTexture, ShapeEffectCacheKey, ShapeEffectMaskCache,
+    ShapeEffectMaskCacheKey,
+};
 use super::rect_utils::compute_downsampled_dimensions;
 use super::state::Buffers;
 use super::types::{DrawTreeNode, GeometryBufferError};
 use super::Renderer;
-use crate::cache::{CachedTessellation, FrameCache};
+use crate::cache::CachedTessellation;
 use crate::effect::ShapeEffectConfig;
 use crate::renderer::preparation::{self, InstanceTextureData};
 use crate::shape::{CachedShapeDrawData, CachedShapeHandle, ShapeTextureBinding};
@@ -13,7 +17,6 @@ use crate::vertex::{CustomVertex, GeometryBufferRange, InstanceTransform, Textur
 use crate::{ShapeDrawCommandOptions, Size};
 use bytemuck::{Pod, Zeroable};
 use lyon::tessellation::VertexBuffers;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
@@ -153,68 +156,6 @@ pub(super) struct PreparedShapeEffectLeaf {
     pub(super) draw_data: CachedShapeDrawData,
     pub(super) raster_rect: ShapeEffectRasterRect,
 }
-
-/// Identifies a mask by geometry and rasterization settings, allowing reuse across
-/// effects and parameter changes.
-#[derive(Clone)]
-pub(super) struct ShapeEffectMaskCacheKey {
-    pub tessellation: Arc<CachedTessellation>,
-    /// Local raster origin from [`ShapeEffectRasterRect::local_physical_origin`].
-    /// Node transforms do not invalidate this entry.
-    pub local_raster_origin: [i32; 2],
-    pub raster_size: [u32; 2],
-    pub scale_factor_bits: u64,
-    pub fringe_width_bits: u32,
-    pub downsample_bits: u32,
-    pub texture_format: wgpu::TextureFormat,
-}
-
-impl PartialEq for ShapeEffectMaskCacheKey {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.tessellation, &other.tessellation)
-            && self.local_raster_origin == other.local_raster_origin
-            && self.raster_size == other.raster_size
-            && self.scale_factor_bits == other.scale_factor_bits
-            && self.fringe_width_bits == other.fringe_width_bits
-            && self.downsample_bits == other.downsample_bits
-            && self.texture_format == other.texture_format
-    }
-}
-
-impl Eq for ShapeEffectMaskCacheKey {}
-
-impl Hash for ShapeEffectMaskCacheKey {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        (Arc::as_ptr(&self.tessellation) as usize).hash(state);
-        self.local_raster_origin.hash(state);
-        self.raster_size.hash(state);
-        self.scale_factor_bits.hash(state);
-        self.fringe_width_bits.hash(state);
-        self.downsample_bits.hash(state);
-        self.texture_format.hash(state);
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub(super) struct ShapeEffectCacheKey {
-    pub mask_key: ShapeEffectMaskCacheKey,
-    pub effect_id: u64,
-    pub params: Arc<[u8]>,
-}
-
-pub(super) struct CachedShapeEffectMask {
-    pub texture: PooledTexture,
-}
-
-pub(super) type ShapeEffectMaskCache =
-    FrameCache<ShapeEffectMaskCacheKey, Arc<CachedShapeEffectMask>>;
-
-pub(super) struct CachedShapeEffect {
-    pub texture: PooledTexture,
-    pub texture_bind_group: Arc<wgpu::BindGroup>,
-}
-
-pub(super) type ShapeEffectResultCache = FrameCache<ShapeEffectCacheKey, Arc<CachedShapeEffect>>;
 
 struct ShapeEffectMaskDraw {
     cache_key: ShapeEffectMaskCacheKey,
@@ -451,15 +392,14 @@ fn render_shape_effect(
     texture_pool: &mut OffscreenTexturePool,
     config: EffectPassRunConfig<'_>,
     textures_to_recycle: &mut Vec<PooledTexture>,
-) -> Arc<CachedShapeEffect> {
+) -> SampledTexture {
     let effect_output = apply_effect_passes(registry, device, encoder, texture_pool, config);
     let (final_texture, texture_bind_group) = effect_output.into_final_output(textures_to_recycle);
-    Arc::new(CachedShapeEffect {
+    SampledTexture {
         texture: final_texture,
-        texture_bind_group: Arc::new(
-            texture_bind_group.expect("shape effect generation must create a texture bind group"),
-        ),
-    })
+        bind_group: texture_bind_group
+            .expect("shape effect generation must create a texture bind group"),
+    }
 }
 
 impl<'a> Renderer<'a> {
@@ -561,11 +501,7 @@ impl<'a> Renderer<'a> {
         Ok(())
     }
 
-    pub(super) fn resolve_shape_effects(
-        &mut self,
-        encoder: &mut wgpu::CommandEncoder,
-        textures_to_recycle: &mut Vec<PooledTexture>,
-    ) {
+    pub(super) fn resolve_shape_effects(&mut self, encoder: &mut wgpu::CommandEncoder) {
         if self.state.buffers.aggregated_vertex_buffer.is_none()
             || self.state.buffers.aggregated_index_buffer.is_none()
         {
@@ -611,82 +547,81 @@ impl<'a> Renderer<'a> {
                 effect_id: shape_effect_instance.effect_id,
                 params: Arc::clone(&shape_effect_instance.params),
             };
-            let cached_result =
-                if let Some(cached_result) = self.state.shape_effect_cache.get(&cache_key) {
-                    // Keep the mask alive too, so parameter changes can reuse it next frame.
-                    self.state.shape_effect_mask_cache.get(&mask_cache_key);
-                    #[cfg(feature = "render_metrics")]
-                    {
-                        metrics.hits += 1;
-                    }
-                    cached_result
+            let texture_id = if let Some(texture_id) =
+                self.state.textures.shape_effect_results.get(&cache_key)
+            {
+                // Keep the mask alive too, so parameter changes can reuse it next frame.
+                self.state.textures.shape_effect_masks.get(&mask_cache_key);
+                #[cfg(feature = "render_metrics")]
+                {
+                    metrics.hits += 1;
+                }
+                texture_id
+            } else {
+                #[cfg(feature = "render_metrics")]
+                {
+                    metrics.misses += 1;
+                }
+
+                let (cached_mask, _mask_was_cached) = resolve_shape_effect_mask(
+                    &self.device,
+                    encoder,
+                    &self.pipeline_resources.shape_effects,
+                    &self.state.buffers,
+                    &mut self.state.textures.pool,
+                    &mut self.state.textures.shape_effect_masks,
+                    ShapeEffectMaskDraw {
+                        cache_key: mask_cache_key,
+                        geometry_range,
+                        uniform: raster_rect
+                            .mask_uniform(self.state.scale_factor, self.fringe_width),
+                    },
+                );
+                #[cfg(feature = "render_metrics")]
+                if _mask_was_cached {
+                    metrics.mask_hits += 1;
                 } else {
-                    #[cfg(feature = "render_metrics")]
-                    {
-                        metrics.misses += 1;
-                    }
+                    metrics.generated_masks += 1;
+                }
 
-                    let (cached_mask, _mask_was_cached) = resolve_shape_effect_mask(
-                        &self.device,
-                        encoder,
-                        &self.pipeline_resources.shape_effects,
-                        &self.state.buffers,
-                        &mut self.state.texture_pool,
-                        &mut self.state.shape_effect_mask_cache,
-                        ShapeEffectMaskDraw {
-                            cache_key: mask_cache_key,
-                            geometry_range,
-                            uniform: raster_rect
-                                .mask_uniform(self.state.scale_factor, self.fringe_width),
-                        },
-                    );
-                    #[cfg(feature = "render_metrics")]
-                    if _mask_was_cached {
-                        metrics.mask_hits += 1;
-                    } else {
-                        metrics.generated_masks += 1;
-                    }
-
-                    let cached_result = render_shape_effect(
-                        &self.effect_registry,
-                        &self.device,
-                        encoder,
-                        &mut self.state.texture_pool,
-                        EffectPassRunConfig {
-                            effect_id: shape_effect_instance.effect_id,
-                            params: &shape_effect_instance.params,
-                            parameter_resources: None,
-                            source_view: &cached_mask.texture.color_view,
-                            effect_sampler,
-                            composite_bind_group_layout: &self
-                                .pipeline_resources
-                                .shapes
-                                .shape_texture_bind_group_layout_background,
-                            create_composite_bind_group: true,
-                            width,
-                            height,
-                            texture_format: self.config.format,
-                            label: "shape_effect",
-                        },
-                        textures_to_recycle,
-                    );
-                    self.state
-                        .shape_effect_cache
-                        .insert(cache_key, Arc::clone(&cached_result));
-                    #[cfg(feature = "render_metrics")]
-                    {
-                        metrics.executed_passes += self
-                            .effect_registry
-                            .pass_count(shape_effect_instance.effect_id)
-                            as u64;
-                    }
-                    cached_result
-                };
-
-            leaf.draw_data.texture_bindings[0] = ShapeTextureBinding::Direct {
-                texture_id: cached_result.texture.texture_id,
-                bind_group: Arc::clone(&cached_result.texture_bind_group),
+                let sampled_texture = render_shape_effect(
+                    &self.effect_registry,
+                    &self.device,
+                    encoder,
+                    &mut self.state.textures.pool,
+                    EffectPassRunConfig {
+                        effect_id: shape_effect_instance.effect_id,
+                        params: &shape_effect_instance.params,
+                        parameter_resources: None,
+                        source_view: &cached_mask.texture.color_view,
+                        effect_sampler,
+                        composite_bind_group_layout: &self
+                            .pipeline_resources
+                            .shapes
+                            .shape_texture_bind_group_layout_background,
+                        create_composite_bind_group: true,
+                        width,
+                        height,
+                        texture_format: self.config.format,
+                        label: "shape_effect",
+                    },
+                    &mut self.state.textures.work_textures,
+                );
+                let texture_id = self
+                    .state
+                    .textures
+                    .insert_cached(cache_key, sampled_texture);
+                #[cfg(feature = "render_metrics")]
+                {
+                    metrics.executed_passes += self
+                        .effect_registry
+                        .pass_count(shape_effect_instance.effect_id)
+                        as u64;
+                }
+                texture_id
             };
+
+            leaf.draw_data.texture_bindings[0] = ShapeTextureBinding::Intermediate(texture_id);
         }
 
         shape_effect_leaves.retain(|_, leaf| leaf.draw_data.texture_bindings[0].is_present());

@@ -20,14 +20,14 @@ fn frame_cache_promotes_live_values_and_collects_unreferenced_values() {
     drop(value);
 
     assert!(cache.get(&7).is_some());
-    cache.end_frame();
+    drop(cache.end_frame());
     assert!(cache.get(&7).is_some());
-    cache.end_frame();
+    drop(cache.end_frame());
     assert!(cache.get(&7).is_some());
-    cache.end_frame();
+    drop(cache.end_frame());
 
     assert_eq!(cache.len(), 1);
-    cache.end_frame();
+    drop(cache.end_frame());
     assert_eq!(cache.len(), 0);
     assert_eq!(*drops.lock().unwrap(), 1);
 }
@@ -36,13 +36,62 @@ fn frame_cache_promotes_live_values_and_collects_unreferenced_values() {
 fn frame_cache_retain_filters_both_generations() {
     let mut cache = FrameCache::new();
     cache.insert(1, "one");
-    cache.end_frame();
+    drop(cache.end_frame());
     cache.insert(2, "two");
 
     cache.retain(|cache_key, _| *cache_key == 2);
 
     assert!(cache.get(&1).is_none());
     assert_eq!(cache.get(&2), Some("two"));
+}
+
+#[test]
+fn eviction_yields_only_unused_entries_once() {
+    let mut cache = FrameCache::new();
+    cache.insert("shared", 1);
+    cache.insert("unused", 2);
+    assert!(cache.end_frame().eq([]));
+
+    assert_eq!(cache.get(&"shared"), Some(1));
+    assert_eq!(cache.get(&"shared"), Some(1));
+    assert!(cache.end_frame().eq([("unused", 2)]));
+
+    assert_eq!(cache.get(&"shared"), Some(1));
+    assert!(cache.end_frame().eq([]));
+    assert!(cache.end_frame().eq([("shared", 1)]));
+    assert!(cache.end_frame().eq([]));
+}
+
+#[test]
+fn dropping_partial_eviction_keeps_live_entries_and_reuses_storage() {
+    let drops = Arc::new(Mutex::new(0));
+    let mut cache = FrameCache::new();
+    for key in 0..3 {
+        cache.insert(key, Arc::new(DropCounter(Arc::clone(&drops))));
+    }
+    let initial_capacity = cache.current_frame.capacity();
+    drop(cache.end_frame());
+    assert!(cache.get(&0).is_some());
+    let retained_capacity = cache.current_frame.capacity();
+
+    let mut evicted = cache.end_frame();
+    let (key, value) = evicted.next().unwrap();
+    assert_ne!(key, 0);
+    drop(value);
+    assert_eq!(*drops.lock().unwrap(), 1);
+    drop(evicted);
+
+    assert_eq!(*drops.lock().unwrap(), 2);
+    assert_eq!(cache.len(), 1);
+    assert_eq!(cache.previous_frame.capacity(), retained_capacity);
+    assert_eq!(cache.current_frame.capacity(), initial_capacity);
+    assert!(cache.get(&0).is_some());
+    assert!(cache.get(&1).is_none());
+    assert!(cache.get(&2).is_none());
+
+    drop(cache.end_frame());
+    drop(cache.end_frame());
+    assert_eq!(*drops.lock().unwrap(), 3);
 }
 
 #[test]

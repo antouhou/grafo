@@ -107,7 +107,7 @@ impl<'a> Renderer<'a> {
             self.msaa_color_texture_view = None;
         }
 
-        self.state.texture_pool.trim(
+        self.state.textures.pool.trim(
             self.state.physical_size.0,
             self.state.physical_size.1,
             self.msaa_sample_count,

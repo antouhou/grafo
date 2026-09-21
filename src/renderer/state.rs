@@ -1,12 +1,9 @@
-use super::execution::effects::{
-    CompositePipelineResources, EffectExecutionResources, OffscreenTexturePool,
-};
+use super::execution::effects::{CompositePipelineResources, EffectExecutionResources};
 use super::execution::shapes::ShapeExecutionResources;
+use super::execution::textures::IntermediateTextureResources;
 #[cfg(feature = "render_metrics")]
 use super::metrics::{PipelineSwitchCounts, ShapeEffectCacheMetrics};
-use super::shape_effects::{
-    ShapeEffectMaskCache, ShapeEffectRendererResources, ShapeEffectResultCache,
-};
+use super::shape_effects::ShapeEffectRendererResources;
 use super::types::{DrawTreeNode, RendererScratch};
 use crate::effect::{BackdropEffectInstance, EffectInstance, ShapeEffectInstance};
 use crate::pipeline::{self, Uniforms};
@@ -132,14 +129,10 @@ pub(super) struct RendererState {
     pub(super) group_effects: HashMap<usize, EffectInstance>,
     pub(super) backdrop_effects: HashMap<usize, BackdropEffectInstance>,
     pub(super) shape_effects: HashMap<usize, ShapeEffectInstance>,
-    /// Effect results retained while referenced by consecutive rendered frames.
-    pub(super) shape_effect_cache: ShapeEffectResultCache,
-    /// Masks depend on geometry and rasterization settings, independently of effect parameters.
-    pub(super) shape_effect_mask_cache: ShapeEffectMaskCache,
     pub(super) buffers: Buffers,
     pub(super) shape_execution: ShapeExecutionResources,
     pub(super) effect_execution: EffectExecutionResources,
-    pub(super) texture_pool: OffscreenTexturePool,
+    pub(super) textures: IntermediateTextureResources,
     pub(super) scratch: RendererScratch,
     /// Converts logical coordinates to physical pixels.
     pub(super) scale_factor: f64,

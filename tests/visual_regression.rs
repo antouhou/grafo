@@ -728,11 +728,14 @@ fn main_scene_pixel_expectations() {
     let expectations = build_main_scene(&mut renderer);
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    // Start with MSAA so a rejected submission cannot reuse a prior valid image.
+    // Start with MSAA so a rejected submission cannot reuse a prior valid output.
     for sample_count in [4, 1, 4, 1] {
         renderer.set_msaa_samples(sample_count);
-        renderer.render_to_buffer(&mut pixel_buffer).unwrap();
-        assert_pixels_match(&pixel_buffer, &expectations);
+        // Repeat without reconfiguration to exercise cached textures and recycled group targets.
+        for _ in 0..2 {
+            renderer.render_to_buffer(&mut pixel_buffer).unwrap();
+            assert_pixels_match(&pixel_buffer, &expectations);
+        }
     }
 }
 

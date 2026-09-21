@@ -2,6 +2,7 @@ use super::execution::effects;
 use super::execution::effects::PooledTexture;
 use super::execution::effects::{apply_effect_passes, EffectPassRunConfig};
 use super::execution::shapes::ShapeDrawResources;
+use super::execution::textures::IntermediateTextureResources;
 use super::plan::backdrops::compute_backdrop_capture_region;
 use super::state::{Buffers, RendererPipelineResources, RendererState, ShapePipelines};
 use super::types::{
@@ -22,67 +23,6 @@ fn cached_shape(draw_tree_node: &DrawTreeNode) -> &CachedShapeDrawData {
     match draw_tree_node {
         DrawTreeNode::CachedShape(shape) => shape,
         DrawTreeNode::ClipRect(_) => unreachable!("clip rectangles do not own shape geometry"),
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn bind_shape_texture_layers(
-    render_pass: &mut wgpu::RenderPass<'_>,
-    texture_bindings: &[ShapeTextureBinding; 2],
-    texture_manager: &TextureManager,
-    shape_texture_bind_group_layout_background: &wgpu::BindGroupLayout,
-    shape_texture_bind_group_layout_foreground: &wgpu::BindGroupLayout,
-    default_shape_texture_bind_groups: &[Arc<wgpu::BindGroup>; 2],
-    bound_texture_state: &mut BoundTextureState,
-) {
-    for (layer, texture_binding) in texture_bindings.iter().enumerate() {
-        let effective_binding = match texture_binding {
-            ShapeTextureBinding::Managed(texture_id)
-                if !texture_manager.is_texture_loaded(*texture_id) =>
-            {
-                ShapeTextureBinding::None
-            }
-            texture_binding => texture_binding.clone(),
-        };
-        if !bound_texture_state.needs_rebind(layer, &effective_binding) {
-            continue;
-        }
-        match &effective_binding {
-            ShapeTextureBinding::Managed(texture_id) => {
-                match texture_manager.get_or_create_shape_bind_group(
-                    if layer == 0 {
-                        shape_texture_bind_group_layout_background
-                    } else {
-                        shape_texture_bind_group_layout_foreground
-                    },
-                    *texture_id,
-                ) {
-                    Ok(bind_group) => {
-                        render_pass.set_bind_group(1 + layer as u32, &*bind_group, &[]);
-                    }
-                    Err(_) => {
-                        render_pass.set_bind_group(
-                            1 + layer as u32,
-                            &*default_shape_texture_bind_groups[layer],
-                            &[],
-                        );
-                        bound_texture_state.mark_bound(layer, ShapeTextureBinding::None);
-                        continue;
-                    }
-                }
-            }
-            ShapeTextureBinding::Direct { bind_group, .. } => {
-                render_pass.set_bind_group(1 + layer as u32, bind_group.as_ref(), &[]);
-            }
-            ShapeTextureBinding::None => {
-                render_pass.set_bind_group(
-                    1 + layer as u32,
-                    &*default_shape_texture_bind_groups[layer],
-                    &[],
-                );
-            }
-        }
-        bound_texture_state.mark_bound(layer, effective_binding);
     }
 }
 
@@ -147,6 +87,7 @@ pub(super) fn handle_increment_pass<'rp>(
     resources: &ShapeDrawResources,
     pipelines: &ShapePipelines,
     buffers: &Buffers,
+    textures: &IntermediateTextureResources,
 ) {
     if let Some(geometry_range) = resources.geometry_buffer_range {
         let uses_gradient = shape.has_gradient_fill();
@@ -175,7 +116,7 @@ pub(super) fn handle_increment_pass<'rp>(
             currently_set_pipeline.switch_to(target_pipeline);
         }
 
-        bind_shape_texture_layers(
+        textures.bind_shape_texture_layers(
             render_pass,
             &shape.texture_bindings,
             &pipelines.texture_manager,
@@ -248,6 +189,7 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
     resources: &ShapeDrawResources,
     pipelines: &ShapePipelines,
     buffers: &Buffers,
+    textures: &IntermediateTextureResources,
 ) {
     if let Some(geometry_range) = resources.geometry_buffer_range {
         let uses_gradient = shape.has_gradient_fill();
@@ -276,7 +218,7 @@ pub(super) fn handle_leaf_draw_pass<'rp>(
             currently_set_pipeline.switch_to(target_pipeline);
         }
 
-        bind_shape_texture_layers(
+        textures.bind_shape_texture_layers(
             render_pass,
             &shape.texture_bindings,
             &pipelines.texture_manager,
@@ -338,6 +280,7 @@ pub(super) fn flush_pending_leaf_batch(
     bound_texture_state: &mut BoundTextureState,
     pipelines: &ShapePipelines,
     buffers: &Buffers,
+    textures: &IntermediateTextureResources,
 ) {
     if batch.is_empty() {
         return;
@@ -354,7 +297,7 @@ pub(super) fn flush_pending_leaf_batch(
     }
 
     bind_aggregated_geometry_buffers(render_pass, buffers);
-    bind_shape_texture_layers(
+    textures.bind_shape_texture_layers(
         render_pass,
         &batch.texture_bindings,
         &pipelines.texture_manager,
@@ -413,7 +356,7 @@ pub(super) fn try_batch_leaf(
 
     if batch.is_empty() {
         batch.geometry_range = geometry_range;
-        batch.texture_bindings = texture_bindings.clone();
+        batch.texture_bindings = *texture_bindings;
         batch.parent_stencil = parent_stencil;
         batch.first_instance_index = instance_index;
         batch.instance_count = 1;
@@ -445,6 +388,7 @@ fn queue_or_draw_leaf(
     bound_texture_state: &mut BoundTextureState,
     pipelines: &ShapePipelines,
     buffers: &Buffers,
+    textures: &IntermediateTextureResources,
 ) {
     if try_batch_leaf(pending_leaf_batch, shape, resources, parent_stencil) {
         return;
@@ -457,6 +401,7 @@ fn queue_or_draw_leaf(
         bound_texture_state,
         pipelines,
         buffers,
+        textures,
     );
     if try_batch_leaf(pending_leaf_batch, shape, resources, parent_stencil) {
         return;
@@ -471,6 +416,7 @@ fn queue_or_draw_leaf(
         resources,
         pipelines,
         buffers,
+        textures,
     );
 }
 
@@ -583,7 +529,7 @@ pub(super) struct SegmentRenderTarget<'a> {
 pub(super) fn render_segments(
     encoder: &mut wgpu::CommandEncoder,
     events: &[TraversalEvent],
-    effect_results: &HashMap<usize, wgpu::BindGroup>,
+    effect_results: &HashMap<usize, IntermediateTextureId>,
     target: SegmentRenderTarget<'_>,
     pipeline_resources: &RendererPipelineResources,
     state: &mut RendererState,
@@ -608,7 +554,6 @@ pub(super) fn render_segments(
     scratch.stencil_stack.clear();
     scratch.scissor_stack.clear();
     scratch.scissor_stack.push(viewport_scissor);
-    scratch.backdrop_work_textures.clear();
     scratch.clip_kind_stack.clear();
 
     while event_idx < events.len() {
@@ -692,6 +637,7 @@ pub(super) fn render_segments(
                             &mut bound_texture_state,
                             pipelines,
                             buffers,
+                            &state.textures,
                         );
                         #[cfg(feature = "render_metrics")]
                         {
@@ -701,7 +647,7 @@ pub(super) fn render_segments(
                     TraversalEvent::Pre(node_id) => {
                         let node_id = *node_id;
 
-                        if let Some(result_bind_group) = effect_results.get(&node_id) {
+                        if let Some(&texture_id) = effect_results.get(&node_id) {
                             flush_pending_leaf_batch(
                                 &mut pending_leaf_batch,
                                 &mut render_pass,
@@ -709,12 +655,17 @@ pub(super) fn render_segments(
                                 &mut bound_texture_state,
                                 pipelines,
                                 buffers,
+                                &state.textures,
                             );
                             if let Some(resources) = &pipeline_resources.composite_resources {
                                 let parent_stencil =
                                     scratch.stencil_stack.last().copied().unwrap_or(0);
                                 render_pass.set_pipeline(&resources.pipeline);
-                                render_pass.set_bind_group(0, result_bind_group, &[]);
+                                render_pass.set_bind_group(
+                                    0,
+                                    state.textures.bind_group(texture_id),
+                                    &[],
+                                );
                                 render_pass.set_stencil_reference(parent_stencil);
                                 render_pass.draw(0..3, 0..1);
                                 currently_set_pipeline.switch_to(types::Pipeline::None);
@@ -752,6 +703,7 @@ pub(super) fn render_segments(
                                     &mut bound_texture_state,
                                     pipelines,
                                     buffers,
+                                    &state.textures,
                                 );
                                 continue;
                             }
@@ -763,6 +715,7 @@ pub(super) fn render_segments(
                                 &mut bound_texture_state,
                                 pipelines,
                                 buffers,
+                                &state.textures,
                             );
 
                             if !draw_tree_node.clips_children() {
@@ -780,6 +733,7 @@ pub(super) fn render_segments(
                                             &state.shape_execution.draws[&node_id],
                                             pipelines,
                                             buffers,
+                                            &state.textures,
                                         );
                                     }
                                 }
@@ -823,6 +777,7 @@ pub(super) fn render_segments(
                                             &state.shape_execution.draws[&node_id],
                                             pipelines,
                                             buffers,
+                                            &state.textures,
                                         );
                                     }
                                 }
@@ -850,6 +805,7 @@ pub(super) fn render_segments(
                                         resources,
                                         pipelines,
                                         buffers,
+                                        &state.textures,
                                     );
                                     scratch.stencil_stack.push(parent_stencil + 1);
                                 }
@@ -883,6 +839,7 @@ pub(super) fn render_segments(
                                         &mut bound_texture_state,
                                         pipelines,
                                         buffers,
+                                        &state.textures,
                                     );
                                     scratch.scissor_stack.pop();
                                     let prev = scratch
@@ -906,6 +863,7 @@ pub(super) fn render_segments(
                                         &mut bound_texture_state,
                                         pipelines,
                                         buffers,
+                                        &state.textures,
                                     );
                                     let resources = &state.shape_execution.draws[&node_id];
                                     if resources.geometry_buffer_range.is_some() {
@@ -942,6 +900,7 @@ pub(super) fn render_segments(
                 &mut bound_texture_state,
                 pipelines,
                 buffers,
+                &state.textures,
             );
 
             is_first_segment = false;
@@ -1022,7 +981,7 @@ pub(super) fn render_segments(
                     );
                     let backdrop_source =
                         backdrop_source.expect("backdrop source required for backdrop effects");
-                    let backdrop_capture_texture = state.texture_pool.acquire_color_only(
+                    let backdrop_capture_texture = state.textures.pool.acquire_color_only(
                         bctx.device,
                         capture_size.width,
                         capture_size.height,
@@ -1093,7 +1052,7 @@ pub(super) fn render_segments(
                     let mut downsampled_capture_texture: Option<PooledTexture> = None;
 
                     if effect_input_size != capture_size {
-                        let downsampled_capture_target = state.texture_pool.acquire_color_only(
+                        let downsampled_capture_target = state.textures.pool.acquire_color_only(
                             bctx.device,
                             effect_input_size.width,
                             effect_input_size.height,
@@ -1117,7 +1076,7 @@ pub(super) fn render_segments(
                         bctx.effect_registry,
                         bctx.device,
                         encoder,
-                        &mut state.texture_pool,
+                        &mut state.textures.pool,
                         EffectPassRunConfig {
                             effect_id: effect_instance.effect.effect_id,
                             params: &effect_instance.effect.params,
@@ -1189,15 +1148,14 @@ pub(super) fn render_segments(
                         }
                     }
 
-                    scratch
-                        .backdrop_work_textures
-                        .push(backdrop_capture_texture);
+                    state.textures.work_textures.push(backdrop_capture_texture);
                     if let Some(downsampled_capture_texture) = downsampled_capture_texture {
-                        scratch
-                            .backdrop_work_textures
+                        state
+                            .textures
+                            .work_textures
                             .push(downsampled_capture_texture);
                     }
-                    effect_output.push_work_textures_into(&mut scratch.backdrop_work_textures);
+                    effect_output.push_work_textures_into(&mut state.textures.work_textures);
                 }
             }
 
@@ -1297,7 +1255,7 @@ pub(super) fn render_segments(
                 let shape = cached_shape(draw_tree_node);
                 let resources = &state.shape_execution.draws[&backdrop_node_id];
                 bind_instance_buffers(&mut render_pass, resources, buffers);
-                let texture_bindings = shape.texture_bindings.clone();
+                let texture_bindings = shape.texture_bindings;
                 let shape_geometry_range = resources.geometry_buffer_range;
 
                 if uses_gradient {
@@ -1321,7 +1279,7 @@ pub(super) fn render_segments(
                     );
                 }
 
-                bind_shape_texture_layers(
+                state.textures.bind_shape_texture_layers(
                     &mut render_pass,
                     &texture_bindings,
                     &pipelines.texture_manager,

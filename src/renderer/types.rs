@@ -1,8 +1,9 @@
-use super::execution::effects::{EffectRegistry, PooledTexture};
+use super::execution::effects::EffectRegistry;
 #[cfg(feature = "render_metrics")]
 use super::metrics::PipelineSwitchCounts;
 use super::shape_effects::PreparedShapeEffectLeaf;
 use super::traversal::TraversalScratch;
+use super::IntermediateTextureId;
 use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
 use crate::vertex::InstanceTransform;
 use crate::UnsignedPhysicalRect;
@@ -315,18 +316,14 @@ pub(super) struct BackdropContext<'a> {
 const MAX_EFFECT_RESULTS_CAPACITY: usize = 4_096;
 pub(super) const MAX_SHAPE_EFFECT_LEAVES_CAPACITY: usize = 4_096;
 const MAX_EFFECT_NODE_IDS_CAPACITY: usize = 4_096;
-const MAX_TEXTURE_RECYCLE_CAPACITY: usize = 1_024;
-const MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY: usize = 2_048;
 const MAX_STENCIL_STACK_CAPACITY: usize = 16_384;
 const MAX_SCISSOR_STACK_CAPACITY: usize = 16_384;
 const MAX_READBACK_BYTES_CAPACITY: usize = 64 * 1024 * 1024;
 
 pub(super) struct RendererScratch {
-    pub(super) effect_results: HashMap<usize, wgpu::BindGroup>,
+    pub(super) effect_results: HashMap<usize, IntermediateTextureId>,
     pub(super) shape_effect_leaves: HashMap<usize, PreparedShapeEffectLeaf>,
     pub(super) effect_node_ids: Vec<(usize, usize)>,
-    pub(super) textures_to_recycle: Vec<PooledTexture>,
-    pub(super) effect_output_textures: Vec<PooledTexture>,
     pub(super) stencil_stack: Vec<u32>,
     /// Stack of intersected scissor rectangles in physical pixels.
     /// Used to replace stencil clipping for axis-aligned rect parents.
@@ -334,7 +331,6 @@ pub(super) struct RendererScratch {
     /// Clip strategies for the parents in `stencil_stack`.
     /// `Post` uses them to restore each parent's clip state.
     pub(super) clip_kind_stack: Vec<ClipKind>,
-    pub(super) backdrop_work_textures: Vec<PooledTexture>,
     /// CPU storage reused for mapped readback data.
     pub(super) readback_bytes: Vec<u8>,
     pub(super) traversal_scratch: TraversalScratch,
@@ -346,12 +342,9 @@ impl RendererScratch {
             effect_results: HashMap::new(),
             shape_effect_leaves: HashMap::new(),
             effect_node_ids: Vec::new(),
-            textures_to_recycle: Vec::new(),
-            effect_output_textures: Vec::new(),
             stencil_stack: Vec::new(),
             scissor_stack: Vec::new(),
             clip_kind_stack: Vec::new(),
-            backdrop_work_textures: Vec::new(),
             readback_bytes: Vec::new(),
             traversal_scratch: TraversalScratch::new(),
         }
@@ -361,12 +354,9 @@ impl RendererScratch {
         self.effect_results.clear();
         self.shape_effect_leaves.clear();
         self.effect_node_ids.clear();
-        self.textures_to_recycle.clear();
-        self.effect_output_textures.clear();
         self.stencil_stack.clear();
         self.scissor_stack.clear();
         self.clip_kind_stack.clear();
-        self.backdrop_work_textures.clear();
         self.readback_bytes.clear();
         self.traversal_scratch.begin();
     }
@@ -378,18 +368,9 @@ impl RendererScratch {
             MAX_SHAPE_EFFECT_LEAVES_CAPACITY,
         );
         trim_vector_if_needed(&mut self.effect_node_ids, MAX_EFFECT_NODE_IDS_CAPACITY);
-        trim_vector_if_needed(&mut self.textures_to_recycle, MAX_TEXTURE_RECYCLE_CAPACITY);
-        trim_vector_if_needed(
-            &mut self.effect_output_textures,
-            MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY,
-        );
         trim_vector_if_needed(&mut self.stencil_stack, MAX_STENCIL_STACK_CAPACITY);
         trim_vector_if_needed(&mut self.scissor_stack, MAX_SCISSOR_STACK_CAPACITY);
         trim_vector_if_needed(&mut self.clip_kind_stack, MAX_SCISSOR_STACK_CAPACITY);
-        trim_vector_if_needed(
-            &mut self.backdrop_work_textures,
-            MAX_EFFECT_OUTPUT_TEXTURES_CAPACITY,
-        );
         if self.readback_bytes.len() > MAX_READBACK_BYTES_CAPACITY {
             self.readback_bytes.truncate(MAX_READBACK_BYTES_CAPACITY);
         }

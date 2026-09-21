@@ -1,5 +1,6 @@
 use super::*;
 use crate::renderer::execution::effects::{apply_effect_passes, EffectPassRunConfig};
+use crate::renderer::execution::textures::SampledTexture;
 #[cfg(feature = "render_metrics")]
 use crate::renderer::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
 use crate::renderer::passes::{render_segments, SegmentRenderTarget};
@@ -18,8 +19,8 @@ impl<'a> Renderer<'a> {
 
         if self.state.draw_tree.is_empty() {
             self.state.scratch.shape_effect_leaves.clear();
-            let _collected_shape_effect_results = self.state.shape_effect_cache.end_frame();
-            let _collected_shape_effect_masks = self.state.shape_effect_mask_cache.end_frame();
+            let (_collected_shape_effect_results, _collected_shape_effect_masks) =
+                self.state.textures.collect_unused_shape_effects();
             #[cfg(feature = "render_metrics")]
             {
                 self.state.pipeline_switch_counts = PipelineSwitchCounts::default();
@@ -37,9 +38,6 @@ impl<'a> Renderer<'a> {
         let mut traversal_scratch = std::mem::take(&mut self.state.scratch.traversal_scratch);
         let mut effect_results = std::mem::take(&mut self.state.scratch.effect_results);
         let mut effect_node_ids = std::mem::take(&mut self.state.scratch.effect_node_ids);
-        let mut textures_to_recycle = std::mem::take(&mut self.state.scratch.textures_to_recycle);
-        let mut effect_output_textures =
-            std::mem::take(&mut self.state.scratch.effect_output_textures);
 
         let has_group_effects = !self.state.group_effects.is_empty();
         let has_backdrop_effects = !self.state.backdrop_effects.is_empty();
@@ -72,7 +70,7 @@ impl<'a> Renderer<'a> {
             });
 
         if has_shape_effects {
-            self.resolve_shape_effects(&mut encoder, &mut textures_to_recycle);
+            self.resolve_shape_effects(&mut encoder);
         }
 
         let pipeline_resources = &self.pipeline_resources;
@@ -125,7 +123,7 @@ impl<'a> Renderer<'a> {
             let (width, height) = state.physical_size;
 
             for &(node_id, _depth) in &effect_node_ids {
-                let subtree_texture = state.texture_pool.acquire_with_depth(
+                let subtree_texture = state.textures.pool.acquire_with_depth(
                     &self.device,
                     width,
                     height,
@@ -141,7 +139,7 @@ impl<'a> Renderer<'a> {
 
                 // Backdrops inside the group need the scene painted before the group.
                 let behind_texture = if subtree_needs_backdrop_effects {
-                    let behind_tex = state.texture_pool.acquire_color_only(
+                    let behind_tex = state.textures.pool.acquire_color_only(
                         &self.device,
                         width,
                         height,
@@ -249,9 +247,8 @@ impl<'a> Renderer<'a> {
                     state,
                 );
 
-                effect_output_textures.append(&mut state.scratch.backdrop_work_textures);
                 if let Some(behind_tex) = behind_texture {
-                    textures_to_recycle.push(behind_tex);
+                    state.textures.work_textures.push(behind_tex);
                 }
 
                 let source_view = if subtree_texture.sample_count > 1 {
@@ -268,7 +265,7 @@ impl<'a> Renderer<'a> {
                     &self.effect_registry,
                     &self.device,
                     &mut encoder,
-                    &mut state.texture_pool,
+                    &mut state.textures.pool,
                     EffectPassRunConfig {
                         effect_id: effect_instance.effect_id,
                         params: &effect_instance.params,
@@ -288,11 +285,15 @@ impl<'a> Renderer<'a> {
                     },
                 );
 
-                let composite_bind_group = effect_output
-                    .push_work_textures_into(&mut effect_output_textures)
-                    .expect("group effects must create a composite bind group");
-                effect_results.insert(node_id, composite_bind_group);
-                textures_to_recycle.push(subtree_texture);
+                let (texture, bind_group) =
+                    effect_output.into_final_output(&mut state.textures.work_textures);
+                let texture_id = state.textures.insert_transient(SampledTexture {
+                    texture,
+                    bind_group: bind_group
+                        .expect("group effects must create a composite bind group"),
+                });
+                effect_results.insert(node_id, texture_id);
+                state.textures.work_textures.push(subtree_texture);
             }
         }
 
@@ -346,19 +347,17 @@ impl<'a> Renderer<'a> {
 
         self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
 
-        effect_output_textures.append(&mut state.scratch.backdrop_work_textures);
-        textures_to_recycle.append(&mut effect_output_textures);
-        state.texture_pool.recycle(&mut textures_to_recycle);
+        state
+            .textures
+            .recycle_submitted(effect_results.drain().map(|(_, texture_id)| texture_id));
 
         state.scratch.shape_effect_leaves.clear();
 
         state.scratch.traversal_scratch = traversal_scratch;
         state.scratch.effect_results = effect_results;
         state.scratch.effect_node_ids = effect_node_ids;
-        state.scratch.textures_to_recycle = textures_to_recycle;
-        state.scratch.effect_output_textures = effect_output_textures;
-        let _collected_shape_effect_results = state.shape_effect_cache.end_frame();
-        let _collected_shape_effect_masks = state.shape_effect_mask_cache.end_frame();
+        let (_collected_shape_effect_results, _collected_shape_effect_masks) =
+            state.textures.collect_unused_shape_effects();
         state.shape_resources.tessellation_cache.end_frame();
 
         #[cfg(feature = "render_metrics")]
