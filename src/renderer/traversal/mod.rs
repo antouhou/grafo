@@ -4,12 +4,11 @@ use super::*;
 use crate::effect::BackdropEffectInstance;
 
 const MAX_TRAVERSAL_EVENTS_CAPACITY: usize = 32_768;
-const MAX_TRAVERSAL_STACK_CAPACITY: usize = 16_384;
 
 #[derive(Default)]
 pub(super) struct TraversalScratch {
     events: Vec<TraversalEvent>,
-    skipped_stack: Vec<usize>,
+    substituted_subtree: Option<usize>,
     excluded_depth: usize,
 }
 
@@ -20,13 +19,12 @@ impl TraversalScratch {
 
     pub(super) fn begin(&mut self) {
         self.events.clear();
-        self.skipped_stack.clear();
+        self.substituted_subtree = None;
         self.excluded_depth = 0;
     }
 
     pub(super) fn trim_to_policy(&mut self) {
         trim_vector_if_needed(&mut self.events, MAX_TRAVERSAL_EVENTS_CAPACITY);
-        trim_vector_if_needed(&mut self.skipped_stack, MAX_TRAVERSAL_STACK_CAPACITY);
     }
 
     pub(super) fn events(&self) -> &[TraversalEvent] {
@@ -67,7 +65,7 @@ pub(super) fn subtree_has_backdrop_effects(
 
 pub(super) fn plan_traversal_in_place(
     draw_tree: &mut easy_tree::Tree<DrawTreeNode>,
-    effect_results: &HashMap<usize, wgpu::BindGroup>,
+    effect_results: &HashMap<usize, IntermediateTextureId>,
     prepared_shape_effect_leaves: &HashMap<usize, PreparedShapeEffectLeaf>,
     subtree_root: Option<usize>,
     exclude_subtree_id: Option<usize>,
@@ -89,17 +87,13 @@ pub(super) fn plan_traversal_in_place(
                 return;
             }
 
-            if effect_results.contains_key(&node_id) {
-                state.skipped_stack.push(node_id);
-            }
-
-            if !state.skipped_stack.is_empty() && !effect_results.contains_key(&node_id) {
+            if state.substituted_subtree.is_some() {
                 return;
             }
 
-            if !effect_results.contains_key(&node_id)
-                && prepared_shape_effect_leaves.contains_key(&node_id)
-            {
+            if effect_results.contains_key(&node_id) {
+                state.substituted_subtree = Some(node_id);
+            } else if prepared_shape_effect_leaves.contains_key(&node_id) {
                 state.events.push(TraversalEvent::PreparedLeaf(node_id));
             }
             state.events.push(TraversalEvent::Pre(node_id));
@@ -112,13 +106,13 @@ pub(super) fn plan_traversal_in_place(
                 return;
             }
 
-            if state.skipped_stack.last().copied() == Some(node_id) {
-                state.skipped_stack.pop();
+            if state.substituted_subtree == Some(node_id) {
+                state.substituted_subtree = None;
                 state.events.push(TraversalEvent::Post(node_id));
                 return;
             }
 
-            if !state.skipped_stack.is_empty() {
+            if state.substituted_subtree.is_some() {
                 return;
             }
 

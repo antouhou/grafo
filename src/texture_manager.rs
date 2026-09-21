@@ -127,12 +127,7 @@ impl TextureManager {
         texture_data: &[u8],
     ) {
         let texture = self.create_texture(texture_dimensions);
-        self.write_image_bytes_to_texture(
-            &texture,
-            texture_dimensions,
-            texture.size(),
-            texture_data,
-        );
+        self.write_pixels_to_texture(&texture, texture_dimensions, texture.size(), texture_data);
         self.insert_texture(texture_id, texture);
     }
 
@@ -161,12 +156,7 @@ impl TextureManager {
             depth_or_array_layers: 1,
         };
 
-        self.write_image_bytes_to_texture(
-            texture,
-            texture_dimensions,
-            texture_extent,
-            texture_data,
-        );
+        self.write_pixels_to_texture(texture, texture_dimensions, texture_extent, texture_data);
 
         Ok(())
     }
@@ -179,7 +169,7 @@ impl TextureManager {
         texture_storage.remove(&texture_id);
     }
 
-    fn write_image_bytes_to_texture(
+    fn write_pixels_to_texture(
         &self,
         texture: &wgpu::Texture,
         texture_dimensions: (u32, u32),

@@ -693,7 +693,7 @@ pub fn create_readback_buffer(device: &Device, label: Option<&str>, size: u64) -
     })
 }
 
-/// Image dimensions and source row stride for GPU readback packing.
+/// Texture dimensions and source row stride for GPU readback packing.
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ArgbRowPackingParams {

@@ -1,9 +1,10 @@
 //! Renderer for the Grafo library.
 use self::execution::effects::{
-    compile_composite_pipeline, CompositePipelineResources, EffectRegistry, OffscreenTexturePool,
+    compile_composite_pipeline, CompositePipelineResources, EffectRegistry,
 };
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
+pub(crate) use self::plan::textures::IntermediateTextureId;
 use self::readback::{ArgbReadbackResources, BgraReadbackResources};
 use self::state::{RendererPipelineResources, RendererState};
 use self::types::{DrawTreeNode, RendererScratch};
@@ -66,7 +67,7 @@ pub(crate) struct RendererContextInner {
     pub(crate) shape_cache: RwLock<HashMap<u64, CachedShapeHandle>>,
 }
 
-/// Renders shapes and images with its own draw queue and an optional window surface.
+/// Renders filled and textured shapes with its own draw queue and an optional window surface.
 ///
 /// Multiple renderers can share GPU resources through a [`RendererContext`].
 pub struct Renderer<'a> {
@@ -131,6 +132,7 @@ impl<'a> Renderer<'a> {
     pub(super) fn trim_scratch_storage(&mut self) {
         self.state.shape_resources.aa_fringe_scratch.trim();
         self.state.scratch.trim_to_policy();
+        self.state.textures.trim_to_policy();
         types::trim_hash_map_if_needed(
             &mut self.state.shape_execution.effect_leaves,
             types::MAX_SHAPE_EFFECT_LEAVES_CAPACITY,

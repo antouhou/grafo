@@ -360,9 +360,7 @@ impl<'a> Renderer<'a> {
             }
             true
         });
-        self.state
-            .shape_effect_cache
-            .retain(|cache_key, _| cache_key.effect_id != effect_id);
+        self.state.textures.invalidate_shape_effect(effect_id);
     }
 
     pub(super) fn ensure_composite_pipeline(&mut self) -> &CompositePipelineResources {

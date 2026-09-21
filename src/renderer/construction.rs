@@ -1,11 +1,11 @@
 use super::execution::effects;
 use super::execution::effects::EffectExecutionResources;
 use super::execution::shapes::ShapeExecutionResources;
+use super::execution::textures::IntermediateTextureResources;
 use super::shape_effects::ShapeEffectRendererResources;
 use super::state::{BackdropPipelineResources, Buffers, ShapePipelines};
 use super::types::DrawTreeNode;
 use super::*;
-use crate::cache::FrameCache;
 use crate::gradient::gpu::GpuMaterialParams;
 use crate::pipeline::{
     create_backdrop_gradient_bind_group_layout,
@@ -540,12 +540,10 @@ impl<'a> Renderer<'a> {
                 group_effects: HashMap::new(),
                 backdrop_effects: HashMap::new(),
                 shape_effects: HashMap::new(),
-                shape_effect_cache: FrameCache::new(),
-                shape_effect_mask_cache: FrameCache::new(),
                 scratch: RendererScratch::new(),
                 scale_factor,
                 physical_size,
-                texture_pool: OffscreenTexturePool::new(),
+                textures: IntermediateTextureResources::new(),
                 #[cfg(feature = "render_metrics")]
                 pipeline_switch_counts: Default::default(),
                 #[cfg(feature = "render_metrics")]
@@ -855,8 +853,7 @@ impl<'a> Renderer<'a> {
         );
         self.pipeline_resources.shapes = resources;
 
-        self.state.shape_effect_cache.clear();
-        self.state.shape_effect_mask_cache.clear();
+        self.state.textures.clear_shape_effects();
         self.pipeline_resources.composite_resources = None;
         self.pipeline_resources
             .shape_effects
