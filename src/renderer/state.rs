@@ -1,3 +1,6 @@
+use super::execution::effects::{
+    CompositePipelineResources, EffectExecutionResources, OffscreenTexturePool,
+};
 use super::execution::shapes::ShapeExecutionResources;
 #[cfg(feature = "render_metrics")]
 use super::metrics::{PipelineSwitchCounts, ShapeEffectCacheMetrics};
@@ -5,10 +8,7 @@ use super::shape_effects::{
     ShapeEffectMaskCache, ShapeEffectRendererResources, ShapeEffectResultCache,
 };
 use super::types::{DrawTreeNode, RendererScratch};
-use crate::effect::{
-    BackdropEffectInstance, CompositePipelineResources, EffectInstance, OffscreenTexturePool,
-    ShapeEffectInstance,
-};
+use crate::effect::{BackdropEffectInstance, EffectInstance, ShapeEffectInstance};
 use crate::pipeline::{self, Uniforms};
 use crate::texture_manager::TextureManager;
 use crate::util::ShapeResources;
@@ -138,6 +138,7 @@ pub(super) struct RendererState {
     pub(super) shape_effect_mask_cache: ShapeEffectMaskCache,
     pub(super) buffers: Buffers,
     pub(super) shape_execution: ShapeExecutionResources,
+    pub(super) effect_execution: EffectExecutionResources,
     pub(super) texture_pool: OffscreenTexturePool,
     pub(super) scratch: RendererScratch,
     /// Converts logical coordinates to physical pixels.

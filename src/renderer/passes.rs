@@ -1,3 +1,5 @@
+use super::execution::effects;
+use super::execution::effects::PooledTexture;
 use super::execution::effects::{apply_effect_passes, EffectPassRunConfig};
 use super::execution::shapes::ShapeDrawResources;
 use super::plan::backdrops::compute_backdrop_capture_region;
@@ -7,7 +9,6 @@ use super::types::{
     TraversalEvent,
 };
 use super::*;
-use crate::effect::PooledTexture;
 use crate::pipeline::{
     begin_render_pass_with_load_ops, BackdropSamplingUniform, RenderPassLoadOperations,
 };
@@ -505,7 +506,7 @@ fn blit_texture_to_texture(
     sampler: &wgpu::Sampler,
     label: &str,
 ) {
-    let bind_group = effect::create_texture_sample_bind_group(
+    let bind_group = effects::create_texture_sample_bind_group(
         device,
         bind_group_layout,
         input_view,
@@ -541,7 +542,7 @@ fn composite_backdrop_foreground_layer(
     output_view: &wgpu::TextureView,
     params_buffer: &wgpu::Buffer,
 ) {
-    let bind_group = effect::create_backdrop_layer_composite_bind_group(
+    let bind_group = effects::create_backdrop_layer_composite_bind_group(
         device,
         bind_group_layout,
         foreground_view,
@@ -999,6 +1000,11 @@ pub(super) fn render_segments(
                     .get_mut(&backdrop_node_id)
                     .expect("backdrop node must have an attached effect instance");
                 let backdrop_config = effect_instance.config;
+                let effect_resources = state
+                    .effect_execution
+                    .backdrops
+                    .get_mut(&backdrop_node_id)
+                    .expect("backdrop attachments have execution resources");
                 let local_bounds = draw_tree_node.local_bounds();
 
                 if let Some(capture_region) = compute_backdrop_capture_region(
@@ -1061,14 +1067,14 @@ pub(super) fn render_segments(
                     }
 
                     if let Some(foreground_view) = backdrop_source.foreground_view() {
-                        let layer_params = effect::backdrop_layer_params(
+                        let layer_params = effects::backdrop_layer_params(
                             capture_region.bounds.min.to_tuple(),
                             state.physical_size,
                         );
-                        let layer_params_buffer = effect::prepare_backdrop_layer_params_buffer(
+                        let layer_params_buffer = effects::prepare_backdrop_layer_params_buffer(
                             bctx.device,
                             bctx.queue,
-                            &mut effect_instance.backdrop_layer_params_buffer,
+                            &mut effect_resources.backdrop_layer_params_buffer,
                             layer_params,
                         );
                         composite_backdrop_foreground_layer(
@@ -1078,7 +1084,7 @@ pub(super) fn render_segments(
                             bctx.backdrop_layer_composite_bind_group_layout,
                             foreground_view,
                             &backdrop_capture_texture.color_view,
-                            &layer_params_buffer,
+                            layer_params_buffer,
                         );
                     }
 
@@ -1107,21 +1113,15 @@ pub(super) fn render_segments(
                         downsampled_capture_texture = Some(downsampled_capture_target);
                     }
 
-                    let loaded_effect = bctx
-                        .loaded_effects
-                        .get(&effect_instance.effect.effect_id)
-                        .expect("loaded backdrop effect must exist");
                     let effect_output = apply_effect_passes(
+                        bctx.effect_registry,
                         bctx.device,
                         encoder,
                         &mut state.texture_pool,
                         EffectPassRunConfig {
-                            loaded_effect,
-                            params_bind_group: effect_instance
-                                .effect
-                                .parameter_resources
-                                .as_ref()
-                                .map(|resources| &resources.bind_group),
+                            effect_id: effect_instance.effect.effect_id,
+                            params: &effect_instance.effect.params,
+                            parameter_resources: effect_resources.parameters.as_ref(),
                             source_view: downsampled_capture_texture
                                 .as_ref()
                                 .map(|texture| &texture.color_view)
@@ -1144,16 +1144,6 @@ pub(super) fn render_segments(
                                 .draws
                                 .get_mut(&backdrop_node_id)
                                 .expect("backdrop shapes have execution resources");
-                            let gradient_backdrop_material_params_buffer = resources
-                                .prepare_gradient_backdrop_material_params_buffer(
-                                    &cached_shape.fill,
-                                    bctx.device,
-                                    bctx.queue,
-                                    backdrop_sampling_uniform,
-                                )
-                                .expect(
-                                    "gradient backdrop shapes must prepare a backdrop material params buffer",
-                                );
                             let backdrop_view = effect_output.final_output_view();
                             gradient_backdrop_bind_group = resources
                                 .prepare_backdrop_gradient_bind_group(
@@ -1162,7 +1152,7 @@ pub(super) fn render_segments(
                                     bctx.device,
                                     bctx.queue,
                                     bctx.backdrop_gradient_bind_group_layout,
-                                    &gradient_backdrop_material_params_buffer,
+                                    backdrop_sampling_uniform,
                                     bctx.gradient_ramp_sampler,
                                     effect_output.final_output_texture_id(),
                                     backdrop_view,
@@ -1171,31 +1161,31 @@ pub(super) fn render_segments(
                                 .cloned();
                         } else {
                             let solid_backdrop_material_params_buffer =
-                                effect::prepare_solid_backdrop_material_params_buffer(
+                                effects::prepare_solid_backdrop_material_params_buffer(
                                     bctx.device,
                                     bctx.queue,
-                                    &mut effect_instance.backdrop_material_params_buffer,
+                                    &mut effect_resources.backdrop_material_params_buffer,
                                     backdrop_sampling_uniform,
                                 );
 
-                            if effect_instance.backdrop_texture_id
+                            if effect_resources.backdrop_texture_id
                                 != Some(effect_output.final_output_texture_id())
                             {
-                                effect_instance.backdrop_texture_bind_group =
-                                    Some(effect::create_backdrop_texture_sample_bind_group(
+                                effect_resources.backdrop_texture_bind_group =
+                                    Some(effects::create_backdrop_texture_sample_bind_group(
                                         bctx.device,
                                         bctx.backdrop_texture_bind_group_layout,
-                                        &solid_backdrop_material_params_buffer,
+                                        solid_backdrop_material_params_buffer,
                                         effect_output.final_output_view(),
                                         bctx.effect_sampler,
                                         Some("backdrop_shape_background_bind_group"),
                                     ));
-                                effect_instance.backdrop_texture_id =
+                                effect_resources.backdrop_texture_id =
                                     Some(effect_output.final_output_texture_id());
                             }
 
                             solid_backdrop_bind_group =
-                                effect_instance.backdrop_texture_bind_group.clone();
+                                effect_resources.backdrop_texture_bind_group.clone();
                         }
                     }
 

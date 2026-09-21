@@ -1,11 +1,12 @@
-use super::execution::effects::{apply_effect_passes, EffectPassRunConfig};
+use super::execution::effects::{apply_effect_passes, EffectPassRunConfig, EffectRegistry};
+use super::execution::effects::{OffscreenTexturePool, PooledTexture};
 use super::execution::shapes::ShapeDrawResources;
 use super::rect_utils::compute_downsampled_dimensions;
 use super::state::Buffers;
 use super::types::{DrawTreeNode, GeometryBufferError};
 use super::Renderer;
 use crate::cache::{CachedTessellation, FrameCache};
-use crate::effect::{self, OffscreenTexturePool, PooledTexture, ShapeEffectConfig};
+use crate::effect::ShapeEffectConfig;
 use crate::renderer::preparation::{self, InstanceTextureData};
 use crate::shape::{CachedShapeDrawData, CachedShapeHandle, ShapeTextureBinding};
 use crate::vertex::{CustomVertex, GeometryBufferRange, InstanceTransform, TextureUvTransform};
@@ -444,36 +445,14 @@ fn resolve_shape_effect_mask(
 }
 
 fn render_shape_effect(
+    registry: &EffectRegistry,
     device: &Device,
     encoder: &mut CommandEncoder,
     texture_pool: &mut OffscreenTexturePool,
-    params: &[u8],
     config: EffectPassRunConfig<'_>,
     textures_to_recycle: &mut Vec<PooledTexture>,
 ) -> Arc<CachedShapeEffect> {
-    let parameter_buffer = (!params.is_empty()).then(|| {
-        device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("shape_effect_params_buffer"),
-            contents: params,
-            usage: BufferUsages::UNIFORM,
-        })
-    });
-    let parameter_bind_group = parameter_buffer.as_ref().and_then(|buffer| {
-        config
-            .loaded_effect
-            .params_bind_group_layout
-            .as_ref()
-            .map(|layout| effect::create_params_bind_group(device, layout, buffer))
-    });
-    let effect_output = apply_effect_passes(
-        device,
-        encoder,
-        texture_pool,
-        EffectPassRunConfig {
-            params_bind_group: parameter_bind_group.as_ref(),
-            ..config
-        },
-    );
+    let effect_output = apply_effect_passes(registry, device, encoder, texture_pool, config);
     let (final_texture, texture_bind_group) = effect_output.into_final_output(textures_to_recycle);
     Arc::new(CachedShapeEffect {
         texture: final_texture,
@@ -632,78 +611,77 @@ impl<'a> Renderer<'a> {
                 effect_id: shape_effect_instance.effect_id,
                 params: Arc::clone(&shape_effect_instance.params),
             };
-            let cached_result = if let Some(cached_result) =
-                self.state.shape_effect_cache.get(&cache_key)
-            {
-                // Keep the mask alive too, so parameter changes can reuse it next frame.
-                self.state.shape_effect_mask_cache.get(&mask_cache_key);
-                #[cfg(feature = "render_metrics")]
-                {
-                    metrics.hits += 1;
-                }
-                cached_result
-            } else {
-                let Some(loaded_effect) = self.loaded_effects.get(&shape_effect_instance.effect_id)
-                else {
-                    continue;
-                };
-                #[cfg(feature = "render_metrics")]
-                {
-                    metrics.misses += 1;
-                }
-
-                let (cached_mask, _mask_was_cached) = resolve_shape_effect_mask(
-                    &self.device,
-                    encoder,
-                    &self.pipeline_resources.shape_effects,
-                    &self.state.buffers,
-                    &mut self.state.texture_pool,
-                    &mut self.state.shape_effect_mask_cache,
-                    ShapeEffectMaskDraw {
-                        cache_key: mask_cache_key,
-                        geometry_range,
-                        uniform: raster_rect
-                            .mask_uniform(self.state.scale_factor, self.fringe_width),
-                    },
-                );
-                #[cfg(feature = "render_metrics")]
-                if _mask_was_cached {
-                    metrics.mask_hits += 1;
+            let cached_result =
+                if let Some(cached_result) = self.state.shape_effect_cache.get(&cache_key) {
+                    // Keep the mask alive too, so parameter changes can reuse it next frame.
+                    self.state.shape_effect_mask_cache.get(&mask_cache_key);
+                    #[cfg(feature = "render_metrics")]
+                    {
+                        metrics.hits += 1;
+                    }
+                    cached_result
                 } else {
-                    metrics.generated_masks += 1;
-                }
+                    #[cfg(feature = "render_metrics")]
+                    {
+                        metrics.misses += 1;
+                    }
 
-                let cached_result = render_shape_effect(
-                    &self.device,
-                    encoder,
-                    &mut self.state.texture_pool,
-                    &shape_effect_instance.params,
-                    EffectPassRunConfig {
-                        loaded_effect,
-                        params_bind_group: None,
-                        source_view: &cached_mask.texture.color_view,
-                        effect_sampler,
-                        composite_bind_group_layout: &self
-                            .pipeline_resources
-                            .shapes
-                            .shape_texture_bind_group_layout_background,
-                        create_composite_bind_group: true,
-                        width,
-                        height,
-                        texture_format: self.config.format,
-                        label: "shape_effect",
-                    },
-                    textures_to_recycle,
-                );
-                self.state
-                    .shape_effect_cache
-                    .insert(cache_key, Arc::clone(&cached_result));
-                #[cfg(feature = "render_metrics")]
-                {
-                    metrics.executed_passes += loaded_effect.passes.len() as u64;
-                }
-                cached_result
-            };
+                    let (cached_mask, _mask_was_cached) = resolve_shape_effect_mask(
+                        &self.device,
+                        encoder,
+                        &self.pipeline_resources.shape_effects,
+                        &self.state.buffers,
+                        &mut self.state.texture_pool,
+                        &mut self.state.shape_effect_mask_cache,
+                        ShapeEffectMaskDraw {
+                            cache_key: mask_cache_key,
+                            geometry_range,
+                            uniform: raster_rect
+                                .mask_uniform(self.state.scale_factor, self.fringe_width),
+                        },
+                    );
+                    #[cfg(feature = "render_metrics")]
+                    if _mask_was_cached {
+                        metrics.mask_hits += 1;
+                    } else {
+                        metrics.generated_masks += 1;
+                    }
+
+                    let cached_result = render_shape_effect(
+                        &self.effect_registry,
+                        &self.device,
+                        encoder,
+                        &mut self.state.texture_pool,
+                        EffectPassRunConfig {
+                            effect_id: shape_effect_instance.effect_id,
+                            params: &shape_effect_instance.params,
+                            parameter_resources: None,
+                            source_view: &cached_mask.texture.color_view,
+                            effect_sampler,
+                            composite_bind_group_layout: &self
+                                .pipeline_resources
+                                .shapes
+                                .shape_texture_bind_group_layout_background,
+                            create_composite_bind_group: true,
+                            width,
+                            height,
+                            texture_format: self.config.format,
+                            label: "shape_effect",
+                        },
+                        textures_to_recycle,
+                    );
+                    self.state
+                        .shape_effect_cache
+                        .insert(cache_key, Arc::clone(&cached_result));
+                    #[cfg(feature = "render_metrics")]
+                    {
+                        metrics.executed_passes += self
+                            .effect_registry
+                            .pass_count(shape_effect_instance.effect_id)
+                            as u64;
+                    }
+                    cached_result
+                };
 
             leaf.draw_data.texture_bindings[0] = ShapeTextureBinding::Direct {
                 texture_id: cached_result.texture.texture_id,

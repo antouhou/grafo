@@ -200,7 +200,6 @@ fn subtree_has_backdrop_effects_detects_descendants() {
             EffectInstance {
                 effect_id: 1,
                 params: Vec::new(),
-                parameter_resources: None,
             },
             BackdropEffectConfig::default(),
         ),

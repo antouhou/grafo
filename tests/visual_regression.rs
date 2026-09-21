@@ -125,8 +125,8 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 "#;
 
 #[test]
-fn group_and_backdrop_effect_params_survive_updates_and_reload() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((32, 32), 1.0) else {
+fn effect_reload_removes_every_attachment_and_accepts_fresh_parameters() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((48, 32), 1.0) else {
         return;
     };
     let effect_id = 9_204;
@@ -135,7 +135,7 @@ fn group_and_backdrop_effect_params_survive_updates_and_reload() {
         .unwrap();
     let background = renderer
         .add_shape(
-            Shape::rect([(0.0, 0.0), (32.0, 32.0)], Stroke::default()),
+            Shape::rect([(0.0, 0.0), (48.0, 32.0)], Stroke::default()),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::WHITE),
@@ -157,6 +157,22 @@ fn group_and_backdrop_effect_params_survive_updates_and_reload() {
             ShapeDrawCommandOptions::new(),
         )
         .unwrap();
+    let shape = renderer
+        .add_shape(
+            Shape::rect([(32.0, 0.0), (48.0, 32.0)], Stroke::default()),
+            Some(background),
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            shape,
+            effect_id,
+            bytemuck::cast_slice(&[1.0_f32, 0.0, 1.0, 1.0]),
+            ShapeEffectConfig::default(),
+        )
+        .unwrap();
     renderer
         .set_group_effect(
             group,
@@ -174,6 +190,8 @@ fn group_and_backdrop_effect_params_survive_updates_and_reload() {
         .unwrap();
 
     for result in [
+        renderer.set_shape_effect(shape, effect_id, &[], ShapeEffectConfig::default()),
+        renderer.update_shape_effect_params(shape, &[]),
         renderer.set_group_effect(group, effect_id, &[]),
         renderer.set_shape_backdrop_effect(
             backdrop,
@@ -189,8 +207,12 @@ fn group_and_backdrop_effect_params_survive_updates_and_reload() {
 
     let mut pixel_buffer = Vec::new();
     renderer.render_to_buffer(&mut pixel_buffer).unwrap();
-    assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [255, 0, 0, 255]);
-    assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 24, 16), [0, 0, 255, 255]);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 48, 8, 16), [255, 0, 0, 255]);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 48, 24, 16), [0, 0, 255, 255]);
+    assert_eq!(
+        read_pixel_rgba(&pixel_buffer, 48, 40, 16),
+        [255, 0, 255, 255]
+    );
 
     renderer
         .update_group_effect_params(group, bytemuck::cast_slice(&[0.0_f32, 1.0, 0.0, 1.0]))
@@ -198,11 +220,19 @@ fn group_and_backdrop_effect_params_survive_updates_and_reload() {
     renderer
         .update_backdrop_effect_params(backdrop, bytemuck::cast_slice(&[1.0_f32, 1.0, 0.0, 1.0]))
         .unwrap();
+    renderer
+        .update_shape_effect_params(shape, bytemuck::cast_slice(&[0.0_f32, 1.0, 1.0, 1.0]))
+        .unwrap();
     renderer.render_to_buffer(&mut pixel_buffer).unwrap();
-    assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [0, 255, 0, 255]);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 48, 8, 16), [0, 255, 0, 255]);
     assert_eq!(
-        read_pixel_rgba(&pixel_buffer, 32, 24, 16),
+        read_pixel_rgba(&pixel_buffer, 48, 24, 16),
         [255, 255, 0, 255]
+    );
+
+    assert_eq!(
+        read_pixel_rgba(&pixel_buffer, 48, 40, 16),
+        [0, 255, 255, 255]
     );
 
     for params in [&[1.0_f32, 0.0, 1.0][..], &[1.0_f32, 0.0, 1.0, 1.0, 0.0][..]] {
@@ -221,40 +251,94 @@ fn group_and_backdrop_effect_params_survive_updates_and_reload() {
             ));
         }
         renderer.render_to_buffer(&mut pixel_buffer).unwrap();
-        assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [0, 255, 0, 255]);
+        assert_eq!(read_pixel_rgba(&pixel_buffer, 48, 8, 16), [0, 255, 0, 255]);
         assert_eq!(
-            read_pixel_rgba(&pixel_buffer, 32, 24, 16),
+            read_pixel_rgba(&pixel_buffer, 48, 24, 16),
             [255, 255, 0, 255]
         );
     }
 
-    let reloaded_source = format!("{PARAMETERIZED_COLOR_EFFECT}\n");
-    renderer
-        .load_effect(effect_id, &[&reloaded_source])
-        .unwrap();
-    for samples in [1, 4, 1] {
-        renderer.set_msaa_samples(samples);
+    let reloaded_source =
+        PARAMETERIZED_COLOR_EFFECT.replace("params.color *", "params.color.gbra *");
+    let larger_uniform = PARAMETERIZED_COLOR_EFFECT
+        .replace("color: vec4<f32>,", "color: vec4<f32>, extra: vec4<f32>,")
+        .replace("params.color *", "params.extra *");
+    for (pass_sources, params, expected) in [
+        (
+            &[PASSTHROUGH_WGSL, &reloaded_source, PASSTHROUGH_WGSL][..],
+            &[0.0_f32, 1.0, 0.0, 1.0][..],
+            [255, 0, 0, 255],
+        ),
+        (
+            &[PASSTHROUGH_WGSL, &larger_uniform][..],
+            &[0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0][..],
+            [0, 255, 255, 255],
+        ),
+        (
+            &[PARAMETERIZED_COLOR_EFFECT][..],
+            &[1.0, 1.0, 0.0, 1.0][..],
+            [255, 255, 0, 255],
+        ),
+    ] {
+        renderer.load_effect(effect_id, pass_sources).unwrap();
+        let params = bytemuck::cast_slice(params);
+        for result in [
+            renderer.update_group_effect_params(group, params),
+            renderer.update_backdrop_effect_params(backdrop, params),
+            renderer.update_shape_effect_params(shape, params),
+        ] {
+            assert!(matches!(result, Err(EffectError::NodeNotFound(_))));
+        }
         renderer.render_to_buffer(&mut pixel_buffer).unwrap();
-        assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [0, 255, 0, 255]);
-        assert_eq!(
-            read_pixel_rgba(&pixel_buffer, 32, 24, 16),
-            [255, 255, 0, 255]
-        );
+        for x in [8, 24, 40] {
+            assert_eq!(read_pixel_rgba(&pixel_buffer, 48, x, 16), [255; 4]);
+        }
+
+        renderer.set_group_effect(group, effect_id, params).unwrap();
+        renderer
+            .set_shape_backdrop_effect(backdrop, effect_id, params, BackdropEffectConfig::default())
+            .unwrap();
+        renderer
+            .set_shape_effect(shape, effect_id, params, ShapeEffectConfig::default())
+            .unwrap();
+        assert!(matches!(
+            renderer.load_effect(effect_id, &[pass_sources[0], ""]),
+            Err(EffectError::InvalidShader { pass_index: 1, .. })
+        ));
+        for samples in [4, 1] {
+            renderer.load_effect(effect_id, pass_sources).unwrap();
+            renderer.set_msaa_samples(samples);
+            renderer.render_to_buffer(&mut pixel_buffer).unwrap();
+            for x in [8, 24, 40] {
+                assert_eq!(read_pixel_rgba(&pixel_buffer, 48, x, 16), expected);
+            }
+        }
     }
 
     renderer
         .load_effect(effect_id, &[PASSTHROUGH_WGSL])
         .unwrap();
     renderer.render_to_buffer(&mut pixel_buffer).unwrap();
-    assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [255; 4]);
-    assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 24, 16), [255; 4]);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 48, 8, 16), [255; 4]);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 48, 24, 16), [255; 4]);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 48, 40, 16), [255; 4]);
 
     renderer.set_group_effect(group, effect_id, &[]).unwrap();
     renderer
         .set_shape_backdrop_effect(backdrop, effect_id, &[], BackdropEffectConfig::default())
         .unwrap();
+    renderer
+        .set_shape_effect(shape, effect_id, &[], ShapeEffectConfig::default())
+        .unwrap();
     let unexpected_params = bytemuck::cast_slice(&[1.0_f32, 0.0, 0.0, 1.0]);
     for result in [
+        renderer.set_shape_effect(
+            shape,
+            effect_id,
+            unexpected_params,
+            ShapeEffectConfig::default(),
+        ),
+        renderer.update_shape_effect_params(shape, unexpected_params),
         renderer.set_group_effect(group, effect_id, unexpected_params),
         renderer.set_shape_backdrop_effect(
             backdrop,
@@ -268,8 +352,41 @@ fn group_and_backdrop_effect_params_survive_updates_and_reload() {
         assert!(matches!(result, Err(EffectError::InvalidParams(_))));
     }
     renderer.render_to_buffer(&mut pixel_buffer).unwrap();
-    assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 8, 16), [255; 4]);
-    assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 24, 16), [255; 4]);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 48, 8, 16), [255; 4]);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 48, 24, 16), [255; 4]);
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 48, 40, 16), [255; 4]);
+
+    renderer
+        .load_effect(effect_id, &[PARAMETERIZED_COLOR_EFFECT])
+        .unwrap();
+    let red = bytemuck::cast_slice(&[1.0_f32, 0.0, 0.0, 1.0]);
+    let green = bytemuck::cast_slice(&[0.0_f32, 1.0, 0.0, 1.0]);
+    let blue = bytemuck::cast_slice(&[0.0_f32, 0.0, 1.0, 1.0]);
+    renderer.set_group_effect(backdrop, effect_id, red).unwrap();
+    renderer
+        .set_shape_backdrop_effect(backdrop, effect_id, green, BackdropEffectConfig::default())
+        .unwrap();
+    renderer
+        .set_shape_effect(backdrop, effect_id, blue, ShapeEffectConfig::default())
+        .unwrap();
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 48, 24, 16), [255, 0, 0, 255]);
+    renderer.remove_group_effect(backdrop);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 48, 24, 16), [0, 255, 0, 255]);
+    renderer.remove_backdrop_effect(backdrop);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 48, 24, 16), [0, 0, 255, 255]);
+    renderer.set_group_effect(backdrop, effect_id, red).unwrap();
+    renderer
+        .set_shape_backdrop_effect(backdrop, effect_id, green, BackdropEffectConfig::default())
+        .unwrap();
+    renderer.unload_effect(effect_id);
+    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
+    assert_eq!(read_pixel_rgba(&pixel_buffer, 48, 24, 16), [255; 4]);
+    assert!(
+        matches!(renderer.set_group_effect(backdrop, effect_id, red), Err(EffectError::EffectNotLoaded(id)) if id == effect_id)
+    );
 }
 
 #[test]
@@ -351,6 +468,9 @@ fn unchanged_shape_effect_reuses_exact_gpu_result_and_collects_when_unused() {
 
     renderer
         .load_effect(8_001, &[CACHED_SHAPE_EFFECT_RED_MASK])
+        .unwrap();
+    renderer
+        .set_shape_effect(shape_id, 8_001, &[], ShapeEffectConfig::new().outset(4.0))
         .unwrap();
     renderer.render_to_buffer(&mut pixels).unwrap();
     let replaced_effect_frame = renderer.last_shape_effect_cache_metrics();
@@ -608,7 +728,8 @@ fn main_scene_pixel_expectations() {
     let expectations = build_main_scene(&mut renderer);
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    for sample_count in [1, 1, 4, 1] {
+    // Start with MSAA so a rejected submission cannot reuse a prior valid image.
+    for sample_count in [4, 1, 4, 1] {
         renderer.set_msaa_samples(sample_count);
         renderer.render_to_buffer(&mut pixel_buffer).unwrap();
         assert_pixels_match(&pixel_buffer, &expectations);

@@ -1,8 +1,8 @@
+use super::execution::effects::{EffectRegistry, PooledTexture};
 #[cfg(feature = "render_metrics")]
 use super::metrics::PipelineSwitchCounts;
 use super::shape_effects::PreparedShapeEffectLeaf;
 use super::traversal::TraversalScratch;
-use crate::effect::{self, LoadedEffect};
 use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
 use crate::vertex::InstanceTransform;
 use crate::UnsignedPhysicalRect;
@@ -294,7 +294,7 @@ impl<'a> BackdropSource<'a> {
 /// Backdrop-specific rendering resources. Only needed when backdrop effects exist.
 /// Callers pass shared pipelines, buffers, and textures separately.
 pub(super) struct BackdropContext<'a> {
-    pub(super) loaded_effects: &'a HashMap<u64, LoadedEffect>,
+    pub(super) effect_registry: &'a EffectRegistry,
     pub(super) effect_sampler: &'a wgpu::Sampler,
     pub(super) gradient_ramp_sampler: &'a wgpu::Sampler,
     pub(super) texture_blit_pipeline: &'a wgpu::RenderPipeline,
@@ -325,8 +325,8 @@ pub(super) struct RendererScratch {
     pub(super) effect_results: HashMap<usize, wgpu::BindGroup>,
     pub(super) shape_effect_leaves: HashMap<usize, PreparedShapeEffectLeaf>,
     pub(super) effect_node_ids: Vec<(usize, usize)>,
-    pub(super) textures_to_recycle: Vec<effect::PooledTexture>,
-    pub(super) effect_output_textures: Vec<effect::PooledTexture>,
+    pub(super) textures_to_recycle: Vec<PooledTexture>,
+    pub(super) effect_output_textures: Vec<PooledTexture>,
     pub(super) stencil_stack: Vec<u32>,
     /// Stack of intersected scissor rectangles in physical pixels.
     /// Used to replace stencil clipping for axis-aligned rect parents.
@@ -334,7 +334,7 @@ pub(super) struct RendererScratch {
     /// Clip strategies for the parents in `stencil_stack`.
     /// `Post` uses them to restore each parent's clip state.
     pub(super) clip_kind_stack: Vec<ClipKind>,
-    pub(super) backdrop_work_textures: Vec<effect::PooledTexture>,
+    pub(super) backdrop_work_textures: Vec<PooledTexture>,
     /// CPU storage reused for mapped readback data.
     pub(super) readback_bytes: Vec<u8>,
     pub(super) traversal_scratch: TraversalScratch,
