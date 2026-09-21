@@ -1,8 +1,6 @@
 use super::types::{ClipRectDrawData, DrawCommandError};
 use super::*;
-use crate::shape::ShapeTextureBinding;
 use crate::ShapeDrawCommandOptions;
-use crate::ShapeTextureFitMode;
 
 fn clip_rect_supports_transform(transform: InstanceTransform) -> bool {
     rect_utils::extract_axis_aligned_rect_transform(Some(transform)).is_some()
@@ -49,7 +47,7 @@ impl<'a> Renderer<'a> {
     /// When `parent_shape_id` is `Some`, the cached shape is attached as a child of that node.
     /// Children are clipped to their parent unless the parent was queued with
     /// [`ShapeDrawCommandOptions::clips_children(false)`].
-    pub fn add_cached_shape_to_the_render_queue(
+    pub fn add_cached_shape(
         &mut self,
         cache_key: u64,
         parent_shape_id: Option<usize>,
@@ -67,12 +65,15 @@ impl<'a> Renderer<'a> {
         } else {
             return Err(DrawCommandError::ShapeNotLoaded(cache_key));
         };
-        self.append_buffers_for_shape(&mut draw_data, &options)?;
-        self.add_draw_command(DrawCommand::CachedShape(draw_data), parent_shape_id)
+        let resources = self.append_shape_resources(&mut draw_data)?;
+        let node_id =
+            self.add_draw_tree_node(DrawTreeNode::CachedShape(draw_data), parent_shape_id)?;
+        self.state.shape_execution.draws.insert(node_id, resources);
+        Ok(node_id)
     }
 
     /// Adds a shape to the draw tree without retaining it in the loaded-shape cache.
-    /// To reuse a loaded shape, call [`load_shape`] and [`add_cached_shape_to_the_render_queue`].
+    /// To reuse a loaded shape, call [`load_shape`] and [`add_cached_shape`].
     ///
     /// When `parent_shape_id` is `Some`, the new shape is attached as a child of that node.
     /// Children are clipped to their parent unless the parent was queued with
@@ -92,8 +93,11 @@ impl<'a> Renderer<'a> {
         );
         let mut draw_data = CachedShapeDrawData::new(cached_shape, &options);
 
-        self.append_buffers_for_shape(&mut draw_data, &options)?;
-        self.add_draw_command(DrawCommand::CachedShape(draw_data), parent_shape_id)
+        let resources = self.append_shape_resources(&mut draw_data)?;
+        let node_id =
+            self.add_draw_tree_node(DrawTreeNode::CachedShape(draw_data), parent_shape_id)?;
+        self.state.shape_execution.draws.insert(node_id, resources);
+        Ok(node_id)
     }
 
     /// Adds an axis-aligned scissor clipping rectangle without preparing geometry.
@@ -117,8 +121,8 @@ impl<'a> Renderer<'a> {
                 return Err(DrawCommandError::UnsupportedClipRectTransform);
             }
         }
-        self.add_draw_command(
-            DrawCommand::ClipRect(ClipRectDrawData::new(
+        self.add_draw_tree_node(
+            DrawTreeNode::ClipRect(ClipRectDrawData::new(
                 rect_bounds,
                 transform,
                 clips_children,
@@ -127,63 +131,13 @@ impl<'a> Renderer<'a> {
         )
     }
 
-    fn append_buffers_for_shape(
+    fn add_draw_tree_node(
         &mut self,
-        cached_shape_data: &mut CachedShapeDrawData,
-        draw_options: &ShapeDrawCommandOptions,
-    ) -> Result<(), DrawCommandError> {
-        self.refresh_geometry_cache(cached_shape_data);
-        cached_shape_data.refresh_gradient_bind_group(
-            &mut self.state.shape_resources.gradient_cache,
-            &self.device,
-            &self.queue,
-            &self.pipeline_resources.shapes.gradient_bind_group_layout,
-            &self.pipeline_resources.shapes.gradient_ramp_sampler,
-        );
-        let geometry_range = preparation::append_aggregated_geometry_for_shape(
-            cached_shape_data,
-            &mut self.temp_vertices,
-            &mut self.temp_indices,
-            &mut self.geometry_dedup_map,
-        )?;
-        if let Some(geometry_range) = geometry_range {
-            cached_shape_data.geometry_buffer_range = Some(geometry_range);
-            cached_shape_data.is_empty = false;
-            let texture_uv_transforms = self.compute_texture_uv_transforms(
-                cached_shape_data.cached_shape.texture_mapping_size(),
-                draw_options,
-            );
-            let instance_index = preparation::append_instance_data(
-                &mut self.temp_instance_transforms,
-                &mut self.temp_instance_colors,
-                &mut self.temp_instance_metadata,
-                draw_options.transform,
-                match &draw_options.fill {
-                    None => None,
-                    Some(fill) => fill.to_normalized_solid(),
-                },
-                preparation::InstanceTextureData {
-                    texture_presence: cached_shape_data
-                        .texture_bindings
-                        .each_ref()
-                        .map(ShapeTextureBinding::is_present),
-                    texture_uv_transforms,
-                },
-            );
-            cached_shape_data.instance_index = Some(instance_index);
-        } else {
-            cached_shape_data.is_empty = true;
-        }
-        Ok(())
-    }
-
-    fn add_draw_command(
-        &mut self,
-        draw_command: DrawCommand,
+        draw_tree_node: DrawTreeNode,
         parent_shape_id: Option<usize>,
     ) -> Result<usize, DrawCommandError> {
         if self.state.draw_tree.is_empty() {
-            let node_id = self.state.draw_tree.add_node(draw_command);
+            let node_id = self.state.draw_tree.add_node(draw_tree_node);
             Ok(node_id)
         } else if let Some(parent_shape_id) = parent_shape_id {
             if let Some(parent) = self.state.draw_tree.get_mut(parent_shape_id) {
@@ -191,7 +145,7 @@ impl<'a> Renderer<'a> {
                 let node_id = self
                     .state
                     .draw_tree
-                    .add_child(parent_shape_id, draw_command);
+                    .add_child(parent_shape_id, draw_tree_node);
                 Ok(node_id)
             } else {
                 Err(DrawCommandError::InvalidShapeId(parent_shape_id))
@@ -200,12 +154,12 @@ impl<'a> Renderer<'a> {
             if let Some(root) = self.state.draw_tree.get_mut(0) {
                 root.set_not_leaf();
             }
-            let node_id = self.state.draw_tree.add_child_to_root(draw_command);
+            let node_id = self.state.draw_tree.add_child_to_root(draw_tree_node);
             Ok(node_id)
         }
     }
 
-    fn refresh_geometry_cache(&mut self, cached_shape_data: &CachedShapeDrawData) {
+    pub(super) fn refresh_geometry_cache(&mut self, cached_shape_data: &CachedShapeDrawData) {
         if let Some(geometry_id) = cached_shape_data.cached_shape.geometry_id {
             self.state
                 .shape_resources
@@ -223,97 +177,7 @@ impl<'a> Renderer<'a> {
         self.state.group_effects.clear();
         self.state.backdrop_effects.clear();
         self.state.shape_effects.clear();
-        self.clear_buffers();
-    }
-
-    fn compute_texture_uv_transforms(
-        &self,
-        texture_mapping_size: [f32; 2],
-        draw_options: &ShapeDrawCommandOptions,
-    ) -> [TextureUvTransform; 2] {
-        [
-            self.compute_texture_uv_transform_for_layer(
-                draw_options.background_texture.texture_id,
-                draw_options.background_texture.fit_mode,
-                texture_mapping_size,
-            ),
-            self.compute_texture_uv_transform_for_layer(
-                draw_options.foreground_texture.texture_id,
-                draw_options.foreground_texture.fit_mode,
-                texture_mapping_size,
-            ),
-        ]
-    }
-
-    fn compute_texture_uv_transform_for_layer(
-        &self,
-        texture_id: Option<u64>,
-        texture_fit_mode: ShapeTextureFitMode,
-        texture_mapping_size: [f32; 2],
-    ) -> TextureUvTransform {
-        if texture_fit_mode == ShapeTextureFitMode::Stretch {
-            return TextureUvTransform::IDENTITY;
-        }
-
-        let Some(texture_id) = texture_id else {
-            return TextureUvTransform::IDENTITY;
-        };
-
-        let Some((texture_width, texture_height)) = self
-            .pipeline_resources
-            .shapes
-            .texture_manager
-            .texture_dimensions(texture_id)
-        else {
-            return TextureUvTransform::IDENTITY;
-        };
-
-        let original_size_uv_scale = self.compute_texture_uv_scale_from_dimensions(
-            texture_mapping_size,
-            (texture_width, texture_height),
-        );
-
-        let normalization_factor = match texture_fit_mode {
-            ShapeTextureFitMode::Stretch => return TextureUvTransform::IDENTITY,
-            ShapeTextureFitMode::Cover => {
-                f32::max(original_size_uv_scale[0], original_size_uv_scale[1])
-            }
-            ShapeTextureFitMode::Contain => {
-                f32::min(original_size_uv_scale[0], original_size_uv_scale[1])
-            }
-            ShapeTextureFitMode::OriginalSize => {
-                return TextureUvTransform {
-                    scale: original_size_uv_scale,
-                    offset: [0.0, 0.0],
-                };
-            }
-        };
-
-        if !normalization_factor.is_finite() || normalization_factor <= f32::EPSILON {
-            return TextureUvTransform::IDENTITY;
-        }
-
-        let scale = [
-            original_size_uv_scale[0] / normalization_factor,
-            original_size_uv_scale[1] / normalization_factor,
-        ];
-
-        TextureUvTransform {
-            scale,
-            offset: [(1.0 - scale[0]) / 2.0, (1.0 - scale[1]) / 2.0],
-        }
-    }
-
-    pub(super) fn compute_texture_uv_scale_from_dimensions(
-        &self,
-        texture_mapping_size: [f32; 2],
-        texture_dimensions: (u32, u32),
-    ) -> [f32; 2] {
-        [
-            texture_mapping_size[0] * self.state.scale_factor as f32
-                / texture_dimensions.0.max(1) as f32,
-            texture_mapping_size[1] * self.state.scale_factor as f32
-                / texture_dimensions.1.max(1) as f32,
-        ]
+        self.state.shape_execution.clear_draw_queue();
+        self.state.scratch.shape_effect_leaves.clear();
     }
 }

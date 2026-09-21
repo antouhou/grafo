@@ -1,6 +1,9 @@
+use super::execution::shapes::ShapeDrawResources;
 use super::*;
 use crate::renderer::types::GeometryBufferError;
+use crate::shape::ShapeTextureBinding;
 use crate::vertex::CustomVertex;
+use crate::ShapeTextureFitMode;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{BufferDescriptor, COPY_BUFFER_ALIGNMENT};
 
@@ -120,6 +123,143 @@ pub(crate) fn append_instance_data(
 }
 
 impl<'a> Renderer<'a> {
+    /// Appends shape data to shared buffers and resolves material bindings.
+    pub(super) fn append_shape_resources(
+        &mut self,
+        cached_shape_data: &mut CachedShapeDrawData,
+    ) -> Result<ShapeDrawResources, GeometryBufferError> {
+        let mut resources = ShapeDrawResources::default();
+        self.refresh_geometry_cache(cached_shape_data);
+        resources.refresh_gradient_bind_group(
+            &mut cached_shape_data.fill,
+            &mut self.state.shape_execution.gradient_cache,
+            &self.device,
+            &self.queue,
+            &self.pipeline_resources.shapes.gradient_bind_group_layout,
+            &self.pipeline_resources.shapes.gradient_ramp_sampler,
+        );
+        let geometry_range = append_aggregated_geometry_for_shape(
+            cached_shape_data,
+            &mut self.state.shape_execution.vertices,
+            &mut self.state.shape_execution.indices,
+            &mut self.state.shape_execution.geometry_ranges,
+        )?;
+        if let Some(geometry_range) = geometry_range {
+            resources.geometry_buffer_range = Some(geometry_range);
+            let texture_uv_transforms = self.compute_texture_uv_transforms(
+                cached_shape_data.cached_shape.texture_mapping_size(),
+                cached_shape_data,
+            );
+            let instance_index = append_instance_data(
+                &mut self.state.shape_execution.instance_transforms,
+                &mut self.state.shape_execution.instance_colors,
+                &mut self.state.shape_execution.instance_metadata,
+                cached_shape_data.transform,
+                cached_shape_data.color_override,
+                InstanceTextureData {
+                    texture_presence: cached_shape_data
+                        .texture_bindings
+                        .each_ref()
+                        .map(ShapeTextureBinding::is_present),
+                    texture_uv_transforms,
+                },
+            );
+            resources.instance_index = Some(instance_index);
+        }
+        Ok(resources)
+    }
+
+    fn compute_texture_uv_transforms(
+        &self,
+        texture_mapping_size: [f32; 2],
+        shape: &CachedShapeDrawData,
+    ) -> [TextureUvTransform; 2] {
+        [
+            self.compute_texture_uv_transform_for_layer(
+                shape.texture_bindings[0].managed_texture_id(),
+                shape.texture_fit_modes[0],
+                texture_mapping_size,
+            ),
+            self.compute_texture_uv_transform_for_layer(
+                shape.texture_bindings[1].managed_texture_id(),
+                shape.texture_fit_modes[1],
+                texture_mapping_size,
+            ),
+        ]
+    }
+
+    fn compute_texture_uv_transform_for_layer(
+        &self,
+        texture_id: Option<u64>,
+        texture_fit_mode: ShapeTextureFitMode,
+        texture_mapping_size: [f32; 2],
+    ) -> TextureUvTransform {
+        if texture_fit_mode == ShapeTextureFitMode::Stretch {
+            return TextureUvTransform::IDENTITY;
+        }
+
+        let Some(texture_id) = texture_id else {
+            return TextureUvTransform::IDENTITY;
+        };
+
+        let Some((texture_width, texture_height)) = self
+            .pipeline_resources
+            .shapes
+            .texture_manager
+            .texture_dimensions(texture_id)
+        else {
+            return TextureUvTransform::IDENTITY;
+        };
+
+        let original_size_uv_scale = self.compute_texture_uv_scale_from_dimensions(
+            texture_mapping_size,
+            (texture_width, texture_height),
+        );
+
+        let normalization_factor = match texture_fit_mode {
+            ShapeTextureFitMode::Stretch => return TextureUvTransform::IDENTITY,
+            ShapeTextureFitMode::Cover => {
+                f32::max(original_size_uv_scale[0], original_size_uv_scale[1])
+            }
+            ShapeTextureFitMode::Contain => {
+                f32::min(original_size_uv_scale[0], original_size_uv_scale[1])
+            }
+            ShapeTextureFitMode::OriginalSize => {
+                return TextureUvTransform {
+                    scale: original_size_uv_scale,
+                    offset: [0.0, 0.0],
+                };
+            }
+        };
+
+        if !normalization_factor.is_finite() || normalization_factor <= f32::EPSILON {
+            return TextureUvTransform::IDENTITY;
+        }
+
+        let scale = [
+            original_size_uv_scale[0] / normalization_factor,
+            original_size_uv_scale[1] / normalization_factor,
+        ];
+
+        TextureUvTransform {
+            scale,
+            offset: [(1.0 - scale[0]) / 2.0, (1.0 - scale[1]) / 2.0],
+        }
+    }
+
+    fn compute_texture_uv_scale_from_dimensions(
+        &self,
+        texture_mapping_size: [f32; 2],
+        texture_dimensions: (u32, u32),
+    ) -> [f32; 2] {
+        [
+            texture_mapping_size[0] * self.state.scale_factor as f32
+                / texture_dimensions.0.max(1) as f32,
+            texture_mapping_size[1] * self.state.scale_factor as f32
+                / texture_dimensions.1.max(1) as f32,
+        ]
+    }
+
     fn ensure_identity_instance_buffers(&mut self) {
         let buffers = &mut self.state.buffers;
         if buffers.identity_instance_transform_buffer.is_none() {
@@ -153,35 +293,30 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    pub(super) fn clear_buffers(&mut self) {
-        self.temp_vertices.clear();
-        self.temp_indices.clear();
-        self.temp_instance_transforms.clear();
-        self.temp_instance_colors.clear();
-        self.temp_instance_metadata.clear();
-        self.geometry_dedup_map.clear();
-    }
-
     pub(super) fn upload_buffers_for_frame(&mut self) {
         let buffers = &mut self.state.buffers;
-        if !self.temp_vertices.is_empty() || buffers.aggregated_vertex_buffer.is_none() {
+        if !self.state.shape_execution.vertices.is_empty()
+            || buffers.aggregated_vertex_buffer.is_none()
+        {
             upsert_gpu_buffer(
                 &self.device,
                 &self.queue,
                 &mut buffers.aggregated_vertex_buffer,
                 "Aggregated Vertex Buffer",
-                bytemuck::cast_slice(&self.temp_vertices),
+                bytemuck::cast_slice(&self.state.shape_execution.vertices),
                 BufferUsages::VERTEX | BufferUsages::COPY_DST,
             );
         }
 
-        if !self.temp_indices.is_empty() || buffers.aggregated_index_buffer.is_none() {
+        if !self.state.shape_execution.indices.is_empty()
+            || buffers.aggregated_index_buffer.is_none()
+        {
             upsert_gpu_buffer(
                 &self.device,
                 &self.queue,
                 &mut buffers.aggregated_index_buffer,
                 "Aggregated Index Buffer",
-                bytemuck::cast_slice(&self.temp_indices),
+                bytemuck::cast_slice(&self.state.shape_execution.indices),
                 BufferUsages::INDEX | BufferUsages::COPY_DST,
             );
         }
@@ -189,35 +324,35 @@ impl<'a> Renderer<'a> {
         self.ensure_identity_instance_buffers();
         let buffers = &mut self.state.buffers;
 
-        if !self.temp_instance_transforms.is_empty() {
+        if !self.state.shape_execution.instance_transforms.is_empty() {
             upsert_gpu_buffer(
                 &self.device,
                 &self.queue,
                 &mut buffers.aggregated_instance_transform_buffer,
                 "Aggregated Instance Transform Buffer",
-                bytemuck::cast_slice(&self.temp_instance_transforms),
+                bytemuck::cast_slice(&self.state.shape_execution.instance_transforms),
                 BufferUsages::VERTEX | BufferUsages::COPY_DST,
             );
         }
 
-        if !self.temp_instance_colors.is_empty() {
+        if !self.state.shape_execution.instance_colors.is_empty() {
             upsert_gpu_buffer(
                 &self.device,
                 &self.queue,
                 &mut buffers.aggregated_instance_color_buffer,
                 "Aggregated Instance Color Buffer",
-                bytemuck::cast_slice(&self.temp_instance_colors),
+                bytemuck::cast_slice(&self.state.shape_execution.instance_colors),
                 BufferUsages::VERTEX | BufferUsages::COPY_DST,
             );
         }
 
-        if !self.temp_instance_metadata.is_empty() {
+        if !self.state.shape_execution.instance_metadata.is_empty() {
             upsert_gpu_buffer(
                 &self.device,
                 &self.queue,
                 &mut buffers.aggregated_instance_metadata_buffer,
                 "Aggregated Instance Metadata Buffer",
-                bytemuck::cast_slice(&self.temp_instance_metadata),
+                bytemuck::cast_slice(&self.state.shape_execution.instance_metadata),
                 BufferUsages::VERTEX | BufferUsages::COPY_DST,
             );
         }
@@ -227,16 +362,17 @@ impl<'a> Renderer<'a> {
         self.begin_frame_scratch();
         // Include prepared effect leaves in this upload without making them part
         // of the durable user draw queue.
-        let base_vertex_count = self.temp_vertices.len();
-        let base_index_count = self.temp_indices.len();
-        let base_instance_count = self.temp_instance_transforms.len();
+        let base_vertex_count = self.state.shape_execution.vertices.len();
+        let base_index_count = self.state.shape_execution.indices.len();
+        let base_instance_count = self.state.shape_execution.instance_transforms.len();
         self.prepare_shape_effect_leaves()?;
         self.upload_buffers_for_frame();
-        self.temp_vertices.truncate(base_vertex_count);
-        self.temp_indices.truncate(base_index_count);
-        self.temp_instance_transforms.truncate(base_instance_count);
-        self.temp_instance_colors.truncate(base_instance_count);
-        self.temp_instance_metadata.truncate(base_instance_count);
+        let execution = &mut self.state.shape_execution;
+        execution.vertices.truncate(base_vertex_count);
+        execution.indices.truncate(base_index_count);
+        execution.instance_transforms.truncate(base_instance_count);
+        execution.instance_colors.truncate(base_instance_count);
+        execution.instance_metadata.truncate(base_instance_count);
         Ok(())
     }
 }

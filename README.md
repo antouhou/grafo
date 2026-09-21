@@ -83,7 +83,7 @@ Draw calls added to one renderer never appear in another renderer's draw queue.
 
 Loaded shapes are also shared by the context. A `cache_key` passed to `load_shape` is scoped to
 the `RendererContext`, so another renderer can reuse that shape through
-`add_cached_shape_to_the_render_queue`. Use a content-derived key when the same geometry should
+`add_cached_shape`. Use a content-derived key when the same geometry should
 be shared; loading a different shape with the same key replaces the shared entry, and
 `remove_shape` removes it for every renderer using the context.
 

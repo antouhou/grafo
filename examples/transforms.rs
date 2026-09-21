@@ -1,7 +1,5 @@
 use euclid::{default::Transform3D, Angle};
 use futures::executor::block_on;
-use grafo::wgpu::SurfaceError;
-use grafo::RenderError;
 use grafo::{premultiply_rgba8_srgb_inplace, Shape};
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use lyon::algorithms::hit_test::hit_test_path;
@@ -9,15 +7,14 @@ use lyon::algorithms::math::point as algo_point;
 use lyon::geom::point;
 use lyon::path::FillRule;
 use lyon::path::Path;
-use redraw_retry::RedrawRetry;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
-use winit::event::{StartCause, WindowEvent};
+use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
-mod redraw_retry;
+mod window_rendering;
 
 // Local converter from euclid to grafo's GPU instance layout so we keep euclid out of the main crate.
 fn transform_instance_from_euclid(m: Transform3D<f32>) -> grafo::TransformInstance {
@@ -126,7 +123,6 @@ fn build_perspective_demo_path() -> Path {
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
-    redraw_retry: RedrawRetry,
     angle: f32,
     // Last mouse position in logical window coordinates.
     last_mouse_pos: Option<(f32, f32)>,
@@ -172,11 +168,6 @@ struct App<'a> {
 // - R resets yaw and pitch to zero
 
 impl<'a> ApplicationHandler for App<'a> {
-    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
-        self.redraw_retry
-            .new_events(event_loop, cause, self.window.as_deref());
-    }
-
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
@@ -395,6 +386,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                renderer.clear_draw_queue();
                 // The renderer uses logical canvas coordinates for the background
                 let logical_w = window.inner_size().width as f32 / self.scale_factor as f32;
                 let logical_h = window.inner_size().height as f32 / self.scale_factor as f32;
@@ -514,7 +506,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 let perspective_hover = is_hover(&self.perspective_path, &perspective_tx, mouse);
 
                 renderer
-                    .add_cached_shape_to_the_render_queue(
+                    .add_cached_shape(
                         RED_SHAPE_CACHE_KEY,
                         None,
                         ShapeDrawCommandOptions::new()
@@ -527,7 +519,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
                 renderer
-                    .add_cached_shape_to_the_render_queue(
+                    .add_cached_shape(
                         GREEN_SHAPE_CACHE_KEY,
                         None,
                         ShapeDrawCommandOptions::new()
@@ -540,7 +532,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
                 renderer
-                    .add_cached_shape_to_the_render_queue(
+                    .add_cached_shape(
                         BLUE_SHAPE_CACHE_KEY,
                         None,
                         ShapeDrawCommandOptions::new()
@@ -554,7 +546,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
                 renderer
-                    .add_cached_shape_to_the_render_queue(
+                    .add_cached_shape(
                         JELLY_SHAPE_CACHE_KEY,
                         None,
                         ShapeDrawCommandOptions::new()
@@ -567,7 +559,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
                 renderer
-                    .add_cached_shape_to_the_render_queue(
+                    .add_cached_shape(
                         HEART_SHAPE_CACHE_KEY,
                         None,
                         ShapeDrawCommandOptions::new()
@@ -580,7 +572,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
                 renderer
-                    .add_cached_shape_to_the_render_queue(
+                    .add_cached_shape(
                         PERSPECTIVE_SHAPE_CACHE_KEY,
                         None,
                         ShapeDrawCommandOptions::new()
@@ -595,21 +587,8 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 self.angle = (self.angle + 0.02) % (std::f32::consts::TAU);
 
-                match renderer.render() {
-                    Ok(_) => {
-                        self.redraw_retry.cancel(event_loop);
-                        renderer.clear_draw_queue();
-                        window.request_redraw();
-                    }
-                    Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
-                        renderer.resize(renderer.size())
-                    }
-
-                    Err(RenderError::Surface(SurfaceError::Timeout)) => {
-                        renderer.clear_draw_queue();
-                        self.redraw_retry.schedule(event_loop);
-                    }
-                    Err(e) => eprintln!("{e:?}"),
+                if window_rendering::render(renderer, event_loop) {
+                    window.request_redraw();
                 }
             }
             _ => {}
@@ -624,7 +603,6 @@ pub fn main() {
     let mut app = App {
         window: None,
         renderer: None,
-        redraw_retry: RedrawRetry::default(),
         angle: 0.0,
         last_mouse_pos: None,
         orbit_yaw_deg: 0.0,

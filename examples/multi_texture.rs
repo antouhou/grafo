@@ -1,24 +1,20 @@
 //! Composites a background texture and a foreground texture on one shape.
 //! Run with `cargo run --example multi_texture`.
 
-use grafo::wgpu::SurfaceError;
-use grafo::RenderError;
 use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke};
-use redraw_retry::RedrawRetry;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
-use winit::event::{StartCause, WindowEvent};
+use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::Window;
 
-mod redraw_retry;
+mod window_rendering;
 
 struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer<'static>>,
     bg_tex_id: u64,
     fg_tex_id: u64,
-    redraw_retry: RedrawRetry,
 }
 
 impl Default for App {
@@ -28,17 +24,11 @@ impl Default for App {
             renderer: None,
             bg_tex_id: 100,
             fg_tex_id: 101,
-            redraw_retry: RedrawRetry::default(),
         }
     }
 }
 
 impl ApplicationHandler for App {
-    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
-        self.redraw_retry
-            .new_events(event_loop, cause, self.window.as_deref());
-    }
-
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
@@ -135,19 +125,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 // The draw queue is populated once in `resumed` and persists across frames.
-                match renderer.render() {
-                    Ok(_) => {
-                        self.redraw_retry.cancel(event_loop);
-                    }
-                    Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
-                        let size = renderer.size();
-                        renderer.resize(size);
-                    }
-                    Err(RenderError::Surface(SurfaceError::Timeout)) => {
-                        self.redraw_retry.schedule(event_loop);
-                    }
-                    Err(e) => eprintln!("{e:?}"),
-                }
+                window_rendering::render(renderer, event_loop);
             }
             _ => {}
         }

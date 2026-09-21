@@ -1,25 +1,21 @@
 //! Press Space to toggle 4x MSAA and compare straight, diagonal, and curved edges.
 
 use futures::executor::block_on;
-use grafo::wgpu::SurfaceError;
-use grafo::RenderError;
 use grafo::{BorderRadii, Shape};
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
-use redraw_retry::RedrawRetry;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, KeyEvent, StartCause, WindowEvent};
+use winit::event::{ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
-mod redraw_retry;
+mod window_rendering;
 
 struct App<'a> {
     window: Option<Arc<Window>>,
     renderer: Option<grafo::Renderer<'a>>,
     msaa_enabled: bool,
-    redraw_retry: RedrawRetry,
 }
 
 impl<'a> Default for App<'a> {
@@ -28,17 +24,11 @@ impl<'a> Default for App<'a> {
             window: None,
             renderer: None,
             msaa_enabled: true,
-            redraw_retry: RedrawRetry::default(),
         }
     }
 }
 
 impl<'a> ApplicationHandler for App<'a> {
-    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
-        self.redraw_retry
-            .new_events(event_loop, cause, self.window.as_deref());
-    }
-
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
@@ -107,6 +97,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                renderer.clear_draw_queue();
                 let background = Shape::rect(
                     [(0.0, 0.0), (800.0, 600.0)],
                     Stroke::new(2.0_f32, Color::rgb(255, 0, 0)),
@@ -180,21 +171,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                match renderer.render() {
-                    Ok(_) => {
-                        self.redraw_retry.cancel(event_loop);
-                        renderer.clear_draw_queue();
-                    }
-                    Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
-                        renderer.resize(renderer.size())
-                    }
-
-                    Err(RenderError::Surface(SurfaceError::Timeout)) => {
-                        renderer.clear_draw_queue();
-                        self.redraw_retry.schedule(event_loop);
-                    }
-                    Err(e) => eprintln!("{e:?}"),
-                }
+                window_rendering::render(renderer, event_loop);
             }
             _ => {}
         }

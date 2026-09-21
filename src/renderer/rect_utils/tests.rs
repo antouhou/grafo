@@ -8,7 +8,7 @@ use crate::gradient::types::{
     ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset, LinearGradientDesc,
     LinearGradientLine,
 };
-use crate::renderer::types::DrawCommand;
+use crate::renderer::types::DrawTreeNode;
 use crate::shape::CachedShapeDrawData;
 use crate::util::ShapeResources;
 use crate::{
@@ -42,7 +42,7 @@ fn create_test_gradient() -> Gradient {
     .expect("valid test gradient")
 }
 
-fn rect_draw_command_with_options(options: ShapeDrawCommandOptions) -> DrawCommand {
+fn rect_draw_tree_node_with_options(options: ShapeDrawCommandOptions) -> DrawTreeNode {
     let mut tessellator = FillTessellator::new();
     let mut shape_resources = ShapeResources::new();
     let shape_handle = CachedShapeHandle::new(
@@ -51,11 +51,11 @@ fn rect_draw_command_with_options(options: ShapeDrawCommandOptions) -> DrawComma
         &mut shape_resources,
         None,
     );
-    DrawCommand::CachedShape(CachedShapeDrawData::new(shape_handle, &options))
+    DrawTreeNode::CachedShape(CachedShapeDrawData::new(shape_handle, &options))
 }
 
-fn rect_draw_command() -> DrawCommand {
-    rect_draw_command_with_options(ShapeDrawCommandOptions::new())
+fn rect_draw_tree_node() -> DrawTreeNode {
+    rect_draw_tree_node_with_options(ShapeDrawCommandOptions::new())
 }
 
 #[test]
@@ -80,17 +80,17 @@ fn axis_aligned_rect_transform_accepts_translation_and_scale() {
 
 #[test]
 fn scissor_rejects_non_axis_aligned_transform() {
-    let draw_command = rect_draw_command_with_options(
+    let draw_tree_node = rect_draw_tree_node_with_options(
         ShapeDrawCommandOptions::new()
             .transform(TransformInstance::affine_2d(1.0, 0.0, 0.5, 1.0, 5.0, 5.0)),
     );
 
-    assert!(try_scissor_for_rect(&draw_command, 1.0, Size::new(100, 100)).is_none());
+    assert!(try_scissor_for_rect(&draw_tree_node, 1.0, Size::new(100, 100)).is_none());
 }
 
 #[test]
 fn skip_visible_rect_draw_rejects_effect_nodes() {
-    let draw_command = rect_draw_command();
+    let draw_tree_node = rect_draw_tree_node();
     let node_id = 7usize;
 
     let mut group_effects = HashMap::new();
@@ -105,7 +105,7 @@ fn skip_visible_rect_draw_rejects_effect_nodes() {
 
     assert!(!should_skip_visible_rect_draw(
         node_id,
-        &draw_command,
+        &draw_tree_node,
         &group_effects,
         &HashMap::new(),
     ));
@@ -125,7 +125,7 @@ fn skip_visible_rect_draw_rejects_effect_nodes() {
 
     assert!(!should_skip_visible_rect_draw(
         node_id,
-        &draw_command,
+        &draw_tree_node,
         &HashMap::new(),
         &backdrop_effects,
     ));
@@ -133,11 +133,11 @@ fn skip_visible_rect_draw_rejects_effect_nodes() {
 
 #[test]
 fn skip_visible_rect_draw_accepts_untextured_none_color_rect() {
-    let draw_command = rect_draw_command();
+    let draw_tree_node = rect_draw_tree_node();
 
     assert!(should_skip_visible_rect_draw(
         1,
-        &draw_command,
+        &draw_tree_node,
         &HashMap::new(),
         &HashMap::new(),
     ));
@@ -145,22 +145,22 @@ fn skip_visible_rect_draw_accepts_untextured_none_color_rect() {
 
 #[test]
 fn skip_visible_rect_draw_rejects_opaque_color_and_textures() {
-    let opaque_draw_command =
-        rect_draw_command_with_options(ShapeDrawCommandOptions::new().color(Color::WHITE));
+    let opaque_draw_tree_node =
+        rect_draw_tree_node_with_options(ShapeDrawCommandOptions::new().color(Color::WHITE));
 
     assert!(!should_skip_visible_rect_draw(
         1,
-        &opaque_draw_command,
+        &opaque_draw_tree_node,
         &HashMap::new(),
         &HashMap::new(),
     ));
 
-    let textured_draw_command =
-        rect_draw_command_with_options(ShapeDrawCommandOptions::new().background_texture_id(9));
+    let textured_draw_tree_node =
+        rect_draw_tree_node_with_options(ShapeDrawCommandOptions::new().background_texture_id(9));
 
     assert!(!should_skip_visible_rect_draw(
         2,
-        &textured_draw_command,
+        &textured_draw_tree_node,
         &HashMap::new(),
         &HashMap::new(),
     ));
@@ -168,10 +168,10 @@ fn skip_visible_rect_draw_rejects_opaque_color_and_textures() {
 
 #[test]
 fn skip_visible_rect_draw_rejects_gradient_rects() {
-    let mut draw_command = rect_draw_command();
+    let mut draw_tree_node = rect_draw_tree_node();
 
-    match &mut draw_command {
-        DrawCommand::CachedShape(shape) => {
+    match &mut draw_tree_node {
+        DrawTreeNode::CachedShape(shape) => {
             shape.fill = Some(Fill::Gradient(create_test_gradient()));
         }
         _ => unreachable!(),
@@ -179,7 +179,7 @@ fn skip_visible_rect_draw_rejects_gradient_rects() {
 
     assert!(!should_skip_visible_rect_draw(
         3,
-        &draw_command,
+        &draw_tree_node,
         &HashMap::new(),
         &HashMap::new(),
     ));

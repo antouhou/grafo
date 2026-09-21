@@ -1,6 +1,7 @@
+use super::execution::shapes::ShapeExecutionResources;
 use super::shape_effects::ShapeEffectRendererResources;
 use super::state::{BackdropPipelineResources, Buffers, ShapePipelines};
-use super::types::DrawCommand;
+use super::types::DrawTreeNode;
 use super::*;
 use crate::cache::FrameCache;
 use crate::gradient::gpu::GpuMaterialParams;
@@ -14,12 +15,15 @@ use crate::pipeline::{
 };
 use crate::vertex::CustomVertex;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
+use std::mem;
 use tracing::{error, info, warn};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
     BindGroupLayout, Device, DownlevelFlags, InstanceDescriptor, SurfaceConfiguration,
     TextureFormat,
 };
+
+const INDEX_ELEMENT_SIZE: usize = mem::size_of::<u16>();
 
 fn create_transparent_texture_view_and_sampler(
     device: &wgpu::Device,
@@ -460,7 +464,7 @@ impl<'a> Renderer<'a> {
         };
         surface.configure(&context.inner.device, &config);
 
-        let msaa_sample_count = Self::validate_sample_count_static(msaa_samples);
+        let msaa_sample_count = Self::normalize_msaa_sample_count(msaa_samples);
 
         Self::build_from_context(
             context,
@@ -514,12 +518,6 @@ impl<'a> Renderer<'a> {
                 composite_resources: None,
                 backdrops: None,
             },
-            temp_vertices: Vec::new(),
-            temp_indices: Vec::new(),
-            geometry_dedup_map: HashMap::new(),
-            temp_instance_transforms: Vec::new(),
-            temp_instance_colors: Vec::new(),
-            temp_instance_metadata: Vec::new(),
             argb_readback: None,
             bgra_readback: None,
             msaa_sample_count,
@@ -540,6 +538,7 @@ impl<'a> Renderer<'a> {
             state: RendererState {
                 draw_tree: easy_tree::Tree::new(),
                 shape_resources: ShapeResources::new(),
+                shape_execution: ShapeExecutionResources::new(),
                 group_effects: HashMap::new(),
                 backdrop_effects: HashMap::new(),
                 shape_effects: HashMap::new(),
@@ -589,33 +588,35 @@ impl<'a> Renderer<'a> {
         println!("\n--- Temporary Vectors ---");
         println!(
             "Temp vertices: {} items, {} capacity, ~{} bytes",
-            self.temp_vertices.len(),
-            self.temp_vertices.capacity(),
-            self.temp_vertices.capacity() * std::mem::size_of::<CustomVertex>()
+            self.state.shape_execution.vertices.len(),
+            self.state.shape_execution.vertices.capacity(),
+            self.state.shape_execution.vertices.capacity() * CustomVertex::STRIDE as usize
         );
         println!(
             "Temp indices: {} items, {} capacity, ~{} bytes",
-            self.temp_indices.len(),
-            self.temp_indices.capacity(),
-            self.temp_indices.capacity() * std::mem::size_of::<u16>()
+            self.state.shape_execution.indices.len(),
+            self.state.shape_execution.indices.capacity(),
+            self.state.shape_execution.indices.capacity() * INDEX_ELEMENT_SIZE
         );
         println!(
             "Temp instance transforms: {} items, {} capacity, ~{} bytes",
-            self.temp_instance_transforms.len(),
-            self.temp_instance_transforms.capacity(),
-            self.temp_instance_transforms.capacity() * std::mem::size_of::<InstanceTransform>()
+            self.state.shape_execution.instance_transforms.len(),
+            self.state.shape_execution.instance_transforms.capacity(),
+            self.state.shape_execution.instance_transforms.capacity()
+                * InstanceTransform::STRIDE as usize
         );
         println!(
             "Temp instance colors: {} items, {} capacity, ~{} bytes",
-            self.temp_instance_colors.len(),
-            self.temp_instance_colors.capacity(),
-            self.temp_instance_colors.capacity() * std::mem::size_of::<InstanceColor>()
+            self.state.shape_execution.instance_colors.len(),
+            self.state.shape_execution.instance_colors.capacity(),
+            self.state.shape_execution.instance_colors.capacity() * InstanceColor::STRIDE as usize
         );
         println!(
             "Temp instance metadata: {} items, {} capacity, ~{} bytes",
-            self.temp_instance_metadata.len(),
-            self.temp_instance_metadata.capacity(),
-            self.temp_instance_metadata.capacity() * std::mem::size_of::<InstanceMetadata>()
+            self.state.shape_execution.instance_metadata.len(),
+            self.state.shape_execution.instance_metadata.capacity(),
+            self.state.shape_execution.instance_metadata.capacity()
+                * InstanceMetadata::STRIDE as usize
         );
 
         println!("\n--- GPU Buffers ---");
@@ -696,6 +697,7 @@ impl<'a> Renderer<'a> {
 
         println!("\n--- Shape Resources ---");
         self.state.shape_resources.print_sizes();
+        self.state.shape_execution.gradient_cache.print_sizes();
 
         println!("=========================");
     }
@@ -865,25 +867,29 @@ impl<'a> Renderer<'a> {
         // Reset lazily-created pipelines so they pick up the new layout
         self.pipeline_resources.backdrops = None;
 
-        // Refresh per-shape gradient bind groups against the new layout so the
-        // next render does not allocate gradient resources on the render path.
         self.state
-            .shape_resources
+            .shape_execution
             .gradient_cache
             .clear_bind_groups();
-        for (_node_id, draw_command) in self.state.draw_tree.iter_mut() {
-            draw_command.refresh_gradient_bind_group(
-                &mut self.state.shape_resources.gradient_cache,
+        for (node_id, draw_tree_node) in self.state.draw_tree.iter_mut() {
+            let DrawTreeNode::CachedShape(shape) = draw_tree_node else {
+                continue;
+            };
+            let resources = self
+                .state
+                .shape_execution
+                .draws
+                .get_mut(&node_id)
+                .expect("queued shapes have execution resources");
+            resources.invalidate_material_bindings();
+            resources.refresh_gradient_bind_group(
+                &mut shape.fill,
+                &mut self.state.shape_execution.gradient_cache,
                 &self.device,
                 &self.queue,
                 &self.pipeline_resources.shapes.gradient_bind_group_layout,
                 &self.pipeline_resources.shapes.gradient_ramp_sampler,
             );
-
-            if let DrawCommand::CachedShape(cached_shape) = draw_command {
-                cached_shape.backdrop_gradient_bind_group = None;
-                cached_shape.backdrop_gradient_texture_id = None;
-            }
         }
 
         for effect_instance in self.state.backdrop_effects.values_mut() {

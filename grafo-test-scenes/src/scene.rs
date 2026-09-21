@@ -1,3 +1,8 @@
+use crate::expectations::PixelExpectation;
+use crate::shaders::{
+    BlurParams, DropShadowParams, HORIZONTAL_BLUR_WGSL, PASSTHROUGH_WGSL, SHADOW_TINT_WGSL,
+    SHAPE_DROP_WGSL, VERTICAL_BLUR_WGSL,
+};
 use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
     ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
@@ -5,12 +10,6 @@ use grafo::{
     LinearGradientLine, RadialGradientDesc, RadialGradientSize, Renderer, Shape,
     ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
     SpreadMode, Stroke, TransformInstance,
-};
-
-use crate::expectations::PixelExpectation;
-use crate::shaders::{
-    BlurParams, DropShadowParams, HORIZONTAL_BLUR_WGSL, PASSTHROUGH_WGSL, SHADOW_TINT_WGSL,
-    SHAPE_DROP_WGSL, VERTICAL_BLUR_WGSL,
 };
 
 // Grid layout
@@ -142,6 +141,8 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         renderer,
     ));
     expectations.extend(tile_70_stencil_restoration_across_empty_and_overflow_parents(renderer));
+
+    expectations.extend(tile_71_shared_geometry_material_batches(renderer));
 
     expectations
 }
@@ -2540,7 +2541,7 @@ fn tile_34_cached_shape(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let cache_key = 9999;
     renderer.load_shape(shape, cache_key, None);
     renderer
-        .add_cached_shape_to_the_render_queue(
+        .add_cached_shape(
             cache_key,
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(50, 180, 220)),
@@ -5164,4 +5165,71 @@ fn tile_67_downsampled_drop_shadow_with_backdrop_blur(
             "t67_shadow_outsets_remain_transparent",
         ),
     ]
+}
+
+/// Shared geometry crosses solid, texture, and gradient pipeline boundaries.
+fn tile_71_shared_geometry_material_batches(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(71);
+    let shape_key = 71_001;
+    renderer.load_shape(
+        Shape::rect([(0.0, 0.0), (18.0, 18.0)], Stroke::default()),
+        shape_key,
+        Some(shape_key),
+    );
+    let gradient = Gradient::linear(LinearGradientDesc {
+        common: two_stop_common((255, 0, 0), (0, 0, 255), SpreadMode::Pad),
+        line: LinearGradientLine {
+            start: [0.0, 0.0],
+            end: [18.0, 0.0],
+        },
+    })
+    .expect("valid material batch gradient");
+    let options = [
+        ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+        ShapeDrawCommandOptions::new().color(Color::rgb(0, 0, 255)),
+        ShapeDrawCommandOptions::new().color(Color::rgb(255, 255, 0)),
+        ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
+        ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
+        ShapeDrawCommandOptions::new().foreground_texture_id(SOLID_GREEN_TEXTURE_ID),
+        ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+        ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 255)),
+        ShapeDrawCommandOptions::new().color(Color::rgb(0, 255, 255)),
+    ];
+    for (index, options) in options.into_iter().enumerate() {
+        let x = origin_x + 8.0 + (index % 3) as f32 * 23.0;
+        let y = origin_y + 8.0 + (index / 3) as f32 * 23.0;
+        renderer
+            .add_cached_shape(
+                shape_key,
+                None,
+                options.transform(TransformInstance::translation(x, y)),
+            )
+            .expect("queue material batch shape");
+    }
+
+    [
+        (12, 16, [255, 0, 0], "t71_batched_red"),
+        (35, 16, [0, 0, 255], "t71_batched_blue"),
+        (58, 16, [255, 255, 0], "t71_batched_yellow"),
+        (12, 39, [0, 255, 0], "t71_batched_background_texture_first"),
+        (35, 39, [0, 255, 0], "t71_batched_background_texture_second"),
+        (58, 39, [0, 255, 0], "t71_foreground_texture"),
+        (12, 62, [191, 0, 64], "t71_gradient_left"),
+        (21, 62, [64, 0, 191], "t71_gradient_right"),
+        (35, 62, [255, 0, 255], "t71_batched_magenta_after_gradient"),
+        (58, 62, [0, 255, 255], "t71_batched_cyan_after_gradient"),
+        (29, 39, [255, 255, 255], "t71_between_instances"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+    })
+    .collect()
 }

@@ -10,10 +10,7 @@
 //! cargo run --example bench_render_loop --features render_metrics --release
 //! ```
 use futures::executor::block_on;
-use grafo::wgpu::SurfaceError;
-use grafo::{
-    Color, RenderError, Renderer, Shape, ShapeDrawCommandOptions, Stroke, TransformInstance,
-};
+use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke, TransformInstance};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
@@ -21,6 +18,8 @@ use winit::dpi::PhysicalSize;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
+
+mod window_rendering;
 
 /// Fixed benchmark parameters
 const BENCH_WIDTH: u32 = 2560;
@@ -135,7 +134,7 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
     for c in 0..CONTAINERS {
         let cx = 10.0 + c as f32 * 250.0;
         let container_id = renderer
-            .add_cached_shape_to_the_render_queue(
+            .add_cached_shape(
                 CACHE_KEY_CONTAINER,
                 None,
                 ShapeDrawCommandOptions::new()
@@ -148,7 +147,7 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
         for r in 0..ROWS_PER_CONTAINER {
             let ry = 10.0 + r as f32 * 120.0;
             let row_id = renderer
-                .add_cached_shape_to_the_render_queue(
+                .add_cached_shape(
                     CACHE_KEY_ROW,
                     Some(container_id),
                     ShapeDrawCommandOptions::new()
@@ -163,7 +162,7 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
                 let cellx = cx + 20.0 + cell as f32 * 42.0;
                 let celly = 20.0 + ry + 10.0;
                 renderer
-                    .add_cached_shape_to_the_render_queue(
+                    .add_cached_shape(
                         CACHE_KEY_CELL,
                         Some(row_id),
                         ShapeDrawCommandOptions::new()
@@ -179,7 +178,7 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
     // Sidebar with circles
     let sidebar_x = 10.0 + CONTAINERS as f32 * 250.0;
     let sidebar_id = renderer
-        .add_cached_shape_to_the_render_queue(
+        .add_cached_shape(
             CACHE_KEY_SIDEBAR,
             None,
             ShapeDrawCommandOptions::new()
@@ -191,7 +190,7 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
 
     for i in 0..CIRCLES_IN_SIDEBAR {
         renderer
-            .add_cached_shape_to_the_render_queue(
+            .add_cached_shape(
                 CACHE_KEY_CIRCLE,
                 Some(sidebar_id),
                 ShapeDrawCommandOptions::new()
@@ -212,7 +211,7 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
         let tx = 10.0 + col as f32 * 220.0;
         let ty = 520.0 + row as f32 * 220.0;
         renderer
-            .add_cached_shape_to_the_render_queue(
+            .add_cached_shape(
                 CACHE_KEY_TEXTURED,
                 None,
                 ShapeDrawCommandOptions::new()
@@ -226,15 +225,14 @@ fn build_scene(renderer: &mut grafo::Renderer<'_>) -> usize {
     total_shapes
 }
 
-fn handle_render_error(renderer: &mut Renderer<'_>, window: &Window, error: RenderError) {
-    match error {
-        RenderError::Surface(SurfaceError::Timeout) => {}
-        RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated) => {
-            renderer.resize(renderer.size());
-        }
-        error => panic!("render failed: {error:?}"),
+fn render_benchmark_frame(renderer: &mut Renderer<'_>, event_loop: &ActiveEventLoop) -> bool {
+    if window_rendering::render(renderer, event_loop) {
+        return true;
     }
-    window.request_redraw();
+
+    eprintln!("Stopping benchmark after a failed redraw.");
+    event_loop.exit();
+    false
 }
 
 fn print_results(label: &str, frame_times: &mut [Duration], total_elapsed: Duration) {
@@ -501,8 +499,7 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                 match self.phase {
                     Phase::WarmupStatic => {
                         let renderer = self.renderer.as_mut().unwrap();
-                        if let Err(error) = renderer.render() {
-                            handle_render_error(renderer, &window, error);
+                        if !render_benchmark_frame(renderer, event_loop) {
                             return;
                         }
                         self.frame_counter += 1;
@@ -520,8 +517,7 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                         {
                             let renderer = self.renderer.as_mut().unwrap();
                             let frame_start = Instant::now();
-                            if let Err(error) = renderer.render() {
-                                handle_render_error(renderer, &window, error);
+                            if !render_benchmark_frame(renderer, event_loop) {
                                 return;
                             }
                             self.static_frame_times.push(frame_start.elapsed());
@@ -550,9 +546,8 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                     Phase::WarmupDynamic => {
                         let renderer = self.renderer.as_mut().unwrap();
                         build_scene(renderer);
-                        if let Err(error) = renderer.render() {
+                        if !render_benchmark_frame(renderer, event_loop) {
                             renderer.clear_draw_queue();
-                            handle_render_error(renderer, &window, error);
                             return;
                         }
                         renderer.clear_draw_queue();
@@ -575,9 +570,8 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
                             let rebuild_duration = rebuild_start.elapsed();
 
                             let frame_start = Instant::now();
-                            if let Err(error) = renderer.render() {
+                            if !render_benchmark_frame(renderer, event_loop) {
                                 renderer.clear_draw_queue();
-                                handle_render_error(renderer, &window, error);
                                 return;
                             }
                             self.dynamic_rebuild_times.push(rebuild_duration);

@@ -1,18 +1,15 @@
 use futures::executor::block_on;
-use grafo::wgpu::SurfaceError;
-use grafo::RenderError;
 use grafo::{BorderRadii, Shape};
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use image::ImageReader;
-use redraw_retry::RedrawRetry;
 use std::sync::Arc;
 use std::time::Instant;
 use winit::application::ApplicationHandler;
-use winit::event::{StartCause, WindowEvent};
+use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
-mod redraw_retry;
+mod window_rendering;
 
 const RUST_LOGO_TEXTURE_ID: u64 = 100;
 
@@ -21,7 +18,6 @@ struct App<'a> {
     renderer: Option<grafo::Renderer<'a>>,
     rust_logo_png_bytes: Vec<u8>,
     rust_logo_png_dimensions: (u32, u32),
-    redraw_retry: RedrawRetry,
 }
 
 impl<'a> Default for App<'a> {
@@ -41,17 +37,11 @@ impl<'a> Default for App<'a> {
             renderer: None,
             rust_logo_png_bytes,
             rust_logo_png_dimensions,
-            redraw_retry: RedrawRetry::default(),
         }
     }
 }
 
 impl<'a> ApplicationHandler for App<'a> {
-    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
-        self.redraw_retry
-            .new_events(event_loop, cause, self.window.as_deref());
-    }
-
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
@@ -104,6 +94,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                renderer.clear_draw_queue();
                 let window_size = window.inner_size();
 
                 // Background
@@ -142,21 +133,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     .unwrap();
 
                 let timer = Instant::now();
-                match renderer.render() {
-                    Ok(_) => {
-                        self.redraw_retry.cancel(event_loop);
-                        renderer.clear_draw_queue();
-                    }
-                    Err(RenderError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
-                        renderer.resize(renderer.size())
-                    }
-
-                    Err(RenderError::Surface(SurfaceError::Timeout)) => {
-                        renderer.clear_draw_queue();
-                        self.redraw_retry.schedule(event_loop);
-                    }
-                    Err(e) => eprintln!("{e:?}"),
-                }
+                window_rendering::render(renderer, event_loop);
                 println!("Render time: {:?}", timer.elapsed());
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {

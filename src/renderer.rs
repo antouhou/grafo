@@ -3,7 +3,7 @@
 use self::metrics::RenderLoopMetricsTracker;
 use self::readback::{ArgbReadbackResources, BgraReadbackResources};
 use self::state::{RendererPipelineResources, RendererState};
-use self::types::{DrawCommand, RendererScratch};
+use self::types::{DrawTreeNode, RendererScratch};
 use crate::effect::{
     self, compile_composite_pipeline, compile_effect_pipeline, create_params_bind_group,
     CompositePipelineResources, EffectError, EffectInstance, LoadedEffect, OffscreenTexturePool,
@@ -15,8 +15,7 @@ use crate::shape::{CachedShapeDrawData, Shape};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, ShapeResources};
 use crate::vertex::{
-    CustomVertex, GeometryBufferRange, InstanceColor, InstanceMetadata, InstanceTransform,
-    TextureUvTransform,
+    GeometryBufferRange, InstanceColor, InstanceMetadata, InstanceTransform, TextureUvTransform,
 };
 use crate::CachedShapeHandle;
 use ahash::{HashMap, HashMapExt};
@@ -86,19 +85,6 @@ pub struct Renderer<'a> {
 
     pipeline_resources: RendererPipelineResources,
 
-    temp_vertices: Vec<CustomVertex>,
-    temp_indices: Vec<u16>,
-
-    /// Shared buffer locations for each uploaded geometry ID.
-    geometry_dedup_map: HashMap<u64, GeometryBufferRange>,
-
-    /// Per-frame instance transforms for shapes.
-    temp_instance_transforms: Vec<InstanceTransform>,
-    /// Per-frame instance colors for shapes.
-    temp_instance_colors: Vec<InstanceColor>,
-    /// Per-frame instance metadata, including draw order.
-    temp_instance_metadata: Vec<InstanceMetadata>,
-
     argb_readback: Option<ArgbReadbackResources>,
     bgra_readback: Option<BgraReadbackResources>,
 
@@ -143,11 +129,16 @@ impl<'a> Renderer<'a> {
 
     pub(super) fn begin_frame_scratch(&mut self) {
         self.state.scratch.begin_frame();
+        self.state.shape_execution.effect_leaves.clear();
     }
 
     pub(super) fn trim_scratch_storage(&mut self) {
         self.state.shape_resources.aa_fringe_scratch.trim();
         self.state.scratch.trim_to_policy();
+        types::trim_hash_map_if_needed(
+            &mut self.state.shape_execution.effect_leaves,
+            types::MAX_SHAPE_EFFECT_LEAVES_CAPACITY,
+        );
     }
 
     /// Returns the wall-clock CPU time spent in the most recent `render_to_texture_view()` call.

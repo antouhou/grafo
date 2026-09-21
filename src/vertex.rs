@@ -1,5 +1,6 @@
 use bytemuck::{Pod, Zeroable};
-use std::ops::Range;
+use std::{mem, ops::Range};
+use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode};
 
 /// Locations of one geometry's vertices and local indices in the shared buffers.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
@@ -27,36 +28,40 @@ pub struct CustomVertex {
 }
 
 impl CustomVertex {
-    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<CustomVertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                // Position
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x2,
-                    offset: 0,
-                    shader_location: 0,
-                },
-                // Tex Coords
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x2,
-                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
-                    shader_location: 2,
-                },
-                // Outward model-space normal for the AA fringe.
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x2,
-                    offset: (std::mem::size_of::<[f32; 2]>() * 2) as wgpu::BufferAddress,
-                    shader_location: 8,
-                },
-                // AA coverage, from 1.0 at the interior to 0.0 at the outer fringe.
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32,
-                    offset: (std::mem::size_of::<[f32; 2]>() * 3) as wgpu::BufferAddress,
-                    shader_location: 9,
-                },
-            ],
+    pub(crate) const STRIDE: BufferAddress = mem::size_of::<Self>() as BufferAddress;
+
+    const ATTRIBUTES: [VertexAttribute; 4] = [
+        // Position
+        VertexAttribute {
+            format: VertexFormat::Float32x2,
+            offset: 0,
+            shader_location: 0,
+        },
+        // Tex Coords
+        VertexAttribute {
+            format: VertexFormat::Float32x2,
+            offset: mem::size_of::<[f32; 2]>() as BufferAddress,
+            shader_location: 2,
+        },
+        // Outward model-space normal for the AA fringe.
+        VertexAttribute {
+            format: VertexFormat::Float32x2,
+            offset: (mem::size_of::<[f32; 2]>() * 2) as BufferAddress,
+            shader_location: 8,
+        },
+        // AA coverage, from 1.0 at the interior to 0.0 at the outer fringe.
+        VertexAttribute {
+            format: VertexFormat::Float32,
+            offset: (mem::size_of::<[f32; 2]>() * 3) as BufferAddress,
+            shader_location: 9,
+        },
+    ];
+
+    pub fn desc<'a>() -> VertexBufferLayout<'a> {
+        VertexBufferLayout {
+            array_stride: Self::STRIDE,
+            step_mode: VertexStepMode::Vertex,
+            attributes: &Self::ATTRIBUTES,
         }
     }
 }
@@ -69,21 +74,25 @@ pub struct InstanceColor {
 }
 
 impl InstanceColor {
+    pub(crate) const STRIDE: BufferAddress = mem::size_of::<Self>() as BufferAddress;
+
+    const ATTRIBUTES: [VertexAttribute; 1] = [VertexAttribute {
+        format: VertexFormat::Float32x4,
+        offset: 0,
+        shader_location: 1,
+    }];
+
     pub fn transparent() -> Self {
         Self {
             color: [0.0, 0.0, 0.0, 0.0],
         }
     }
 
-    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<InstanceColor>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[wgpu::VertexAttribute {
-                format: wgpu::VertexFormat::Float32x4,
-                offset: 0,
-                shader_location: 1,
-            }],
+    pub fn desc<'a>() -> VertexBufferLayout<'a> {
+        VertexBufferLayout {
+            array_stride: Self::STRIDE,
+            step_mode: VertexStepMode::Instance,
+            attributes: &Self::ATTRIBUTES,
         }
     }
 }
@@ -98,6 +107,31 @@ pub struct InstanceTransform {
 }
 
 impl InstanceTransform {
+    pub(crate) const STRIDE: BufferAddress = mem::size_of::<Self>() as BufferAddress;
+
+    const ATTRIBUTES: [VertexAttribute; 4] = [
+        VertexAttribute {
+            format: VertexFormat::Float32x4,
+            offset: 0,
+            shader_location: 3,
+        },
+        VertexAttribute {
+            format: VertexFormat::Float32x4,
+            offset: 16,
+            shader_location: 4,
+        },
+        VertexAttribute {
+            format: VertexFormat::Float32x4,
+            offset: 32,
+            shader_location: 5,
+        },
+        VertexAttribute {
+            format: VertexFormat::Float32x4,
+            offset: 48,
+            shader_location: 6,
+        },
+    ];
+
     pub fn identity() -> Self {
         Self {
             col0: [1.0, 0.0, 0.0, 0.0],
@@ -255,33 +289,11 @@ impl InstanceTransform {
         }
     }
 
-    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        let stride = std::mem::size_of::<InstanceTransform>() as wgpu::BufferAddress;
-        wgpu::VertexBufferLayout {
-            array_stride: stride,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x4,
-                    offset: 0,
-                    shader_location: 3,
-                },
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x4,
-                    offset: 16,
-                    shader_location: 4,
-                },
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x4,
-                    offset: 32,
-                    shader_location: 5,
-                },
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x4,
-                    offset: 48,
-                    shader_location: 6,
-                },
-            ],
+    pub fn desc<'a>() -> VertexBufferLayout<'a> {
+        VertexBufferLayout {
+            array_stride: Self::STRIDE,
+            step_mode: VertexStepMode::Instance,
+            attributes: &Self::ATTRIBUTES,
         }
     }
 }
@@ -327,34 +339,37 @@ impl Default for InstanceMetadata {
 }
 
 impl InstanceMetadata {
-    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<InstanceMetadata>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32,
-                    offset: 0,
-                    shader_location: 7,
-                },
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32,
-                    offset: std::mem::size_of::<f32>() as wgpu::BufferAddress,
-                    shader_location: 10,
-                },
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x4,
-                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
-                    shader_location: 11,
-                },
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x4,
-                    offset: (std::mem::size_of::<[f32; 2]>()
-                        + std::mem::size_of::<TextureUvTransform>())
-                        as wgpu::BufferAddress,
-                    shader_location: 12,
-                },
-            ],
+    pub(crate) const STRIDE: BufferAddress = mem::size_of::<Self>() as BufferAddress;
+
+    const ATTRIBUTES: [VertexAttribute; 4] = [
+        VertexAttribute {
+            format: VertexFormat::Float32,
+            offset: 0,
+            shader_location: 7,
+        },
+        VertexAttribute {
+            format: VertexFormat::Float32,
+            offset: mem::size_of::<f32>() as BufferAddress,
+            shader_location: 10,
+        },
+        VertexAttribute {
+            format: VertexFormat::Float32x4,
+            offset: mem::size_of::<[f32; 2]>() as BufferAddress,
+            shader_location: 11,
+        },
+        VertexAttribute {
+            format: VertexFormat::Float32x4,
+            offset: (mem::size_of::<[f32; 2]>() + mem::size_of::<TextureUvTransform>())
+                as BufferAddress,
+            shader_location: 12,
+        },
+    ];
+
+    pub fn desc<'a>() -> VertexBufferLayout<'a> {
+        VertexBufferLayout {
+            array_stride: Self::STRIDE,
+            step_mode: VertexStepMode::Instance,
+            attributes: &Self::ATTRIBUTES,
         }
     }
 }

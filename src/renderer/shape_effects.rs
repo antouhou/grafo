@@ -1,7 +1,8 @@
 use super::execution::effects::{apply_effect_passes, EffectPassRunConfig};
+use super::execution::shapes::ShapeDrawResources;
 use super::rect_utils::compute_downsampled_dimensions;
 use super::state::Buffers;
-use super::types::{DrawCommand, GeometryBufferError};
+use super::types::{DrawTreeNode, GeometryBufferError};
 use super::Renderer;
 use crate::cache::{CachedTessellation, FrameCache};
 use crate::effect::{self, OffscreenTexturePool, PooledTexture, ShapeEffectConfig};
@@ -145,6 +146,11 @@ pub(super) fn compute_shape_effect_raster_rect(
             ),
         ],
     })
+}
+
+pub(super) struct PreparedShapeEffectLeaf {
+    pub(super) draw_data: CachedShapeDrawData,
+    pub(super) raster_rect: ShapeEffectRasterRect,
 }
 
 /// Identifies a mask by geometry and rasterization settings, allowing reuse across
@@ -486,10 +492,10 @@ impl<'a> Renderer<'a> {
             .saturating_mul(4);
         let mut quad_geometry_range = None;
         for (&node_id, shape_effect) in &self.state.shape_effects {
-            let Some(draw_command) = self.state.draw_tree.get(node_id) else {
+            let Some(draw_tree_node) = self.state.draw_tree.get(node_id) else {
                 continue;
             };
-            let DrawCommand::CachedShape(source_shape) = draw_command else {
+            let DrawTreeNode::CachedShape(source_shape) = draw_tree_node else {
                 continue;
             };
             let local_bounds = source_shape.cached_shape.tessellation.local_bounds;
@@ -540,9 +546,9 @@ impl<'a> Renderer<'a> {
                 None => {
                     let Some(geometry_range) = preparation::append_aggregated_geometry_for_shape(
                         &leaf,
-                        &mut self.temp_vertices,
-                        &mut self.temp_indices,
-                        &mut self.geometry_dedup_map,
+                        &mut self.state.shape_execution.vertices,
+                        &mut self.state.shape_execution.indices,
+                        &mut self.state.shape_execution.geometry_ranges,
                     )?
                     else {
                         continue;
@@ -551,19 +557,28 @@ impl<'a> Renderer<'a> {
                     geometry_range
                 }
             };
-            leaf.geometry_buffer_range = Some(geometry_range);
-            leaf.instance_index = Some(preparation::append_instance_data(
-                &mut self.temp_instance_transforms,
-                &mut self.temp_instance_colors,
-                &mut self.temp_instance_metadata,
+            let instance_index = preparation::append_instance_data(
+                &mut self.state.shape_execution.instance_transforms,
+                &mut self.state.shape_execution.instance_colors,
+                &mut self.state.shape_execution.instance_metadata,
                 Some(transform),
                 None,
                 InstanceTextureData {
                     texture_presence: [true, false],
                     texture_uv_transforms: [TextureUvTransform::IDENTITY; 2],
                 },
-            ));
-            self.state.scratch.shape_effect_leaves.insert(node_id, leaf);
+            );
+            self.state.shape_execution.effect_leaves.insert(
+                node_id,
+                ShapeDrawResources::new(geometry_range, instance_index),
+            );
+            self.state.scratch.shape_effect_leaves.insert(
+                node_id,
+                PreparedShapeEffectLeaf {
+                    draw_data: leaf,
+                    raster_rect,
+                },
+            );
         }
         Ok(())
     }
@@ -592,25 +607,17 @@ impl<'a> Renderer<'a> {
             let Some(leaf) = shape_effect_leaves.get_mut(&node_id) else {
                 continue;
             };
-            let Some(DrawCommand::CachedShape(cached_shape)) = self.state.draw_tree.get(node_id)
+            let Some(DrawTreeNode::CachedShape(cached_shape)) = self.state.draw_tree.get(node_id)
             else {
                 continue;
             };
-            let Some(geometry_range) = cached_shape.geometry_buffer_range else {
+            let Some(geometry_range) =
+                self.state.shape_execution.draws[&node_id].geometry_buffer_range
+            else {
                 continue;
             };
-            if cached_shape.is_empty {
-                continue;
-            }
 
-            let Some(raster_rect) = compute_shape_effect_raster_rect(
-                cached_shape.cached_shape.tessellation.local_bounds,
-                shape_effect_instance.config,
-                self.state.scale_factor,
-                self.fringe_width,
-            ) else {
-                continue;
-            };
+            let raster_rect = leaf.raster_rect;
             let [width, height] = raster_rect.texture_size;
             let mask_cache_key = ShapeEffectMaskCacheKey {
                 tessellation: Arc::clone(&cached_shape.cached_shape.tessellation),
@@ -699,13 +706,13 @@ impl<'a> Renderer<'a> {
                 cached_result
             };
 
-            leaf.texture_bindings[0] = ShapeTextureBinding::Direct {
+            leaf.draw_data.texture_bindings[0] = ShapeTextureBinding::Direct {
                 texture_id: cached_result.texture.texture_id,
                 bind_group: Arc::clone(&cached_result.texture_bind_group),
             };
         }
 
-        shape_effect_leaves.retain(|_, leaf| leaf.texture_bindings[0].is_present());
+        shape_effect_leaves.retain(|_, leaf| leaf.draw_data.texture_bindings[0].is_present());
     }
 }
 

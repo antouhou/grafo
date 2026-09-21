@@ -278,12 +278,12 @@ impl<'a> Renderer<'a> {
         effect_id: u64,
         params: &[u8],
     ) -> Result<(), EffectError> {
-        let draw_command = self
+        let draw_tree_node = self
             .state
             .draw_tree
             .get(node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
-        if draw_command.is_clip_rect() {
+        if draw_tree_node.is_clip_rect() {
             return Err(EffectError::InvalidParams(
                 "clip rectangles do not support group effects".to_string(),
             ));
@@ -339,12 +339,12 @@ impl<'a> Renderer<'a> {
         params: &[u8],
         backdrop_config: effect::BackdropEffectConfig,
     ) -> Result<(), EffectError> {
-        let draw_command = self
+        let draw_tree_node = self
             .state
             .draw_tree
             .get(node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
-        if draw_command.is_clip_rect() {
+        if draw_tree_node.is_clip_rect() {
             return Err(EffectError::InvalidParams(
                 "clip rectangles do not support backdrop effects".to_string(),
             ));
@@ -424,12 +424,12 @@ impl<'a> Renderer<'a> {
         params: &[u8],
         config: effect::ShapeEffectConfig,
     ) -> Result<(), EffectError> {
-        let draw_command = self
+        let draw_tree_node = self
             .state
             .draw_tree
             .get(node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
-        if draw_command.is_clip_rect() {
+        if draw_tree_node.is_clip_rect() {
             return Err(EffectError::InvalidParams(
                 "clip rectangles do not support shape effects".to_string(),
             ));

@@ -1,4 +1,4 @@
-use super::types::DrawCommand;
+use super::types::DrawTreeNode;
 use crate::effect::{BackdropEffectInstance, EffectInstance};
 use crate::vertex::InstanceTransform;
 use crate::{MathRect, PhysicalRect, Size, UnsignedPhysicalRect};
@@ -31,11 +31,11 @@ pub(super) fn extract_axis_aligned_rect_transform(
 
 pub(super) fn should_skip_visible_rect_draw(
     node_id: usize,
-    draw_command: &DrawCommand,
+    draw_tree_node: &DrawTreeNode,
     group_effects: &HashMap<usize, EffectInstance>,
     backdrop_effects: &HashMap<usize, BackdropEffectInstance>,
 ) -> bool {
-    if !draw_command.is_rect() {
+    if !draw_tree_node.is_rect() {
         return false;
     }
 
@@ -43,23 +43,23 @@ pub(super) fn should_skip_visible_rect_draw(
         return false;
     }
 
-    if draw_command.texture_id(0).is_some() || draw_command.texture_id(1).is_some() {
+    if draw_tree_node.texture_id(0).is_some() || draw_tree_node.texture_id(1).is_some() {
         return false;
     }
 
     // Gradient-filled shapes are visually active even before GPU prep creates bind groups.
-    if draw_command.has_gradient_fill() {
+    if draw_tree_node.has_gradient_fill() {
         return false;
     }
 
-    if draw_command
+    if draw_tree_node
         .instance_color_override()
         .is_some_and(|color| color[3] != 0.0)
     {
         return false;
     }
 
-    extract_axis_aligned_rect_transform(draw_command.transform()).is_some()
+    extract_axis_aligned_rect_transform(draw_tree_node.transform()).is_some()
 }
 
 /// Resolves an axis-aligned rectangle to an outward-rounded viewport scissor.
@@ -83,18 +83,23 @@ pub(super) fn compute_scissor_rect(
         .try_cast()
 }
 
-/// Returns a scissor rect when the draw command's transform preserves axis alignment.
+/// Returns a scissor rect when the draw tree node's transform preserves axis alignment.
 pub(super) fn try_scissor_for_rect(
-    draw_command: &DrawCommand,
+    draw_tree_node: &DrawTreeNode,
     scale_factor: f64,
     physical_size: Size,
 ) -> Option<UnsignedPhysicalRect> {
-    if !draw_command.is_rect() {
+    if !draw_tree_node.is_rect() {
         return None;
     }
-    let rect_bounds = draw_command.rect_bounds()?;
+    let rect_bounds = draw_tree_node.rect_bounds()?;
     let rect = MathRect::new(rect_bounds[0].into(), rect_bounds[1].into());
-    compute_scissor_rect(rect, draw_command.transform(), scale_factor, physical_size)
+    compute_scissor_rect(
+        rect,
+        draw_tree_node.transform(),
+        scale_factor,
+        physical_size,
+    )
 }
 
 fn transform_point_to_logical_screen(point: Point, transform: Option<InstanceTransform>) -> Point {
