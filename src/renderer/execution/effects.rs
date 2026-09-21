@@ -11,12 +11,12 @@ pub(in crate::renderer) struct AppliedEffectOutput {
 }
 
 impl AppliedEffectOutput {
-    pub(in crate::renderer) fn into_final_and_recyclable(
+    pub(in crate::renderer) fn into_final_output(
         self,
-        recyclable: &mut Vec<PooledTexture>,
+        textures_to_recycle: &mut Vec<PooledTexture>,
     ) -> (PooledTexture, Option<BindGroup>) {
         if let Some(recyclable_texture) = self.recyclable_texture {
-            recyclable.push(recyclable_texture);
+            textures_to_recycle.push(recyclable_texture);
         }
         (self.final_output_texture, self.composite_bind_group)
     }

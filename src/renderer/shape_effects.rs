@@ -474,8 +474,7 @@ fn render_shape_effect(
             ..config
         },
     );
-    let (final_texture, texture_bind_group) =
-        effect_output.into_final_and_recyclable(textures_to_recycle);
+    let (final_texture, texture_bind_group) = effect_output.into_final_output(textures_to_recycle);
     Arc::new(CachedShapeEffect {
         texture: final_texture,
         texture_bind_group: Arc::new(
