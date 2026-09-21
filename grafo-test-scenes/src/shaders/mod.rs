@@ -30,13 +30,13 @@ pub struct DropShadowParams {
 /// Horizontal Gaussian blur pass with direction `(1,0)`
 pub const HORIZONTAL_BLUR_WGSL: &str = concat!(
     "const DIRECTION: vec2<f32> = vec2<f32>(1.0, 0.0);\n",
-    include_str!("shaders/gaussian_blur.wgsl"),
+    include_str!("gaussian_blur.wgsl"),
 );
 
 /// Vertical Gaussian blur pass with direction `(0,1)`
 pub const VERTICAL_BLUR_WGSL: &str = concat!(
     "const DIRECTION: vec2<f32> = vec2<f32>(0.0, 1.0);\n",
-    include_str!("shaders/gaussian_blur.wgsl"),
+    include_str!("gaussian_blur.wgsl"),
 );
 
 /// Offsets and colors the alpha mask produced by the blur passes.

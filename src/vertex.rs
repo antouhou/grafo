@@ -267,7 +267,11 @@ impl InstanceTransform {
     ///
     /// Alias for [`multiply`](Self::multiply) that mirrors euclid's `Transform3D::then()`.
     ///
-    /// ```ignore
+    /// ```rust
+    /// use grafo::TransformInstance;
+    ///
+    /// let rotation = TransformInstance::rotation_z_deg(45.0);
+    /// let translation = TransformInstance::translation(10.0, 20.0);
     /// let composed = rotation.then(&translation); // rotate first, translate second
     /// ```
     pub fn then(&self, next: &Self) -> Self {
