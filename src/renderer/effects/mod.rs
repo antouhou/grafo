@@ -75,76 +75,22 @@ impl<'a> Renderer<'a> {
     ///
     /// Naga validates every pass before GPU resources are created. Invalid WGSL,
     /// missing fragment entry points, and unsupported bindings return an error
-    /// without replacing an existing effect. Device-specific WGPU errors are
-    /// logged through `tracing`.
+    /// without replacing an existing effect. Identical sources leave it unchanged.
+    /// Replacing changed sources removes all existing attachments, parameter resources,
+    /// and cached results for this ID. Attach the new effect with fresh parameters
+    /// through the `set_*_effect` methods. Device-specific WGPU errors are logged
+    /// through `tracing`.
     pub fn load_effect(
         &mut self,
         effect_id: u64,
         pass_sources: &[&str],
     ) -> Result<(), EffectError> {
-        if !self
+        if self
             .effect_registry
             .load(&self.device, self.config.format, effect_id, pass_sources)?
         {
-            return Ok(());
+            self.remove_effect_attachments(effect_id);
         }
-        self.state.group_effects.retain(|node_id, instance| {
-            if instance.effect_id != effect_id {
-                return true;
-            }
-            if self
-                .effect_registry
-                .validate_params(effect_id, &instance.params)
-                .is_err()
-            {
-                self.state.effect_execution.group_parameters.remove(node_id);
-                return false;
-            }
-            if let Some(resources) = self
-                .state
-                .effect_execution
-                .group_parameters
-                .get_mut(node_id)
-            {
-                self.effect_registry
-                    .rebind_parameters(&self.device, effect_id, resources);
-            }
-            true
-        });
-        self.state.backdrop_effects.retain(|node_id, instance| {
-            if instance.effect.effect_id != effect_id {
-                return true;
-            }
-            if self
-                .effect_registry
-                .validate_params(effect_id, &instance.effect.params)
-                .is_err()
-            {
-                self.state.effect_execution.backdrops.remove(node_id);
-                return false;
-            }
-            if let Some(resources) = self
-                .state
-                .effect_execution
-                .backdrops
-                .get_mut(node_id)
-                .and_then(|resources| resources.parameters.as_mut())
-            {
-                self.effect_registry
-                    .rebind_parameters(&self.device, effect_id, resources);
-            }
-            true
-        });
-        self.state.shape_effects.retain(|_, instance| {
-            instance.effect_id != effect_id
-                || self
-                    .effect_registry
-                    .validate_params(effect_id, &instance.params)
-                    .is_ok()
-        });
-        self.state
-            .shape_effect_cache
-            .retain(|cache_key, _| cache_key.effect_id != effect_id);
         Ok(())
     }
 
@@ -384,9 +330,14 @@ impl<'a> Renderer<'a> {
 
     pub fn unload_effect(&mut self, effect_id: u64) {
         self.effect_registry.unload(effect_id);
+        self.remove_effect_attachments(effect_id);
+    }
+
+    fn remove_effect_attachments(&mut self, effect_id: u64) {
         self.state.group_effects.retain(|node_id, instance| {
             if instance.effect_id == effect_id {
                 self.state.effect_execution.group_parameters.remove(node_id);
+                self.state.scratch.effect_results.remove(node_id);
                 return false;
             }
             true
@@ -394,13 +345,21 @@ impl<'a> Renderer<'a> {
         self.state.backdrop_effects.retain(|node_id, instance| {
             if instance.effect.effect_id == effect_id {
                 self.state.effect_execution.backdrops.remove(node_id);
+                if let Some(resources) = self.state.shape_execution.draws.get_mut(node_id) {
+                    resources.clear_backdrop_resources();
+                }
                 return false;
             }
             true
         });
-        self.state
-            .shape_effects
-            .retain(|_, instance| instance.effect_id != effect_id);
+        self.state.shape_effects.retain(|node_id, instance| {
+            if instance.effect_id == effect_id {
+                self.state.scratch.shape_effect_leaves.remove(node_id);
+                self.state.shape_execution.effect_leaves.remove(node_id);
+                return false;
+            }
+            true
+        });
         self.state
             .shape_effect_cache
             .retain(|cache_key, _| cache_key.effect_id != effect_id);
@@ -409,7 +368,9 @@ impl<'a> Renderer<'a> {
     pub(super) fn ensure_composite_pipeline(&mut self) -> &CompositePipelineResources {
         self.pipeline_resources
             .composite_resources
-            .get_or_insert_with(|| compile_composite_pipeline(&self.device, self.config.format))
+            .get_or_insert_with(|| {
+                compile_composite_pipeline(&self.device, self.config.format, self.msaa_sample_count)
+            })
     }
 
     pub(super) fn ensure_backdrop_pipelines(&mut self) {

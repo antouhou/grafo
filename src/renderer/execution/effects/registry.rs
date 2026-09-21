@@ -6,13 +6,13 @@ use naga::valid::{Capabilities, ValidationFlags, Validator};
 use wgpu::{Device, TextureFormat};
 
 /// Registered shaders and reusable validation storage, owned by execution.
-pub(in crate::renderer) struct EffectRegistry {
+pub(crate) struct EffectRegistry {
     pub(super) loaded: HashMap<u64, LoadedEffect>,
     validator: Validator,
 }
 
 impl EffectRegistry {
-    pub(in crate::renderer) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             loaded: HashMap::new(),
             validator: Validator::new(ValidationFlags::all(), Capabilities::default()),
@@ -20,7 +20,7 @@ impl EffectRegistry {
     }
 
     /// Returns whether compilation replaced the registration. Failure preserves it.
-    pub(in crate::renderer) fn load(
+    pub(crate) fn load(
         &mut self,
         device: &Device,
         format: TextureFormat,
@@ -42,20 +42,16 @@ impl EffectRegistry {
         Ok(true)
     }
 
-    pub(in crate::renderer) fn unload(&mut self, effect_id: u64) {
+    pub(crate) fn unload(&mut self, effect_id: u64) {
         self.loaded.remove(&effect_id);
     }
 
     #[cfg(feature = "render_metrics")]
-    pub(in crate::renderer) fn pass_count(&self, effect_id: u64) -> usize {
+    pub(crate) fn pass_count(&self, effect_id: u64) -> usize {
         self.loaded[&effect_id].passes.len()
     }
 
-    pub(in crate::renderer) fn validate_params(
-        &self,
-        effect_id: u64,
-        params: &[u8],
-    ) -> Result<(), EffectError> {
+    pub(crate) fn validate_params(&self, effect_id: u64, params: &[u8]) -> Result<(), EffectError> {
         let effect = self
             .loaded
             .get(&effect_id)
@@ -75,7 +71,7 @@ impl EffectRegistry {
         Ok(())
     }
 
-    pub(in crate::renderer) fn create_parameters(
+    pub(crate) fn create_parameters(
         &self,
         device: &Device,
         effect_id: u64,
@@ -85,19 +81,5 @@ impl EffectRegistry {
             .params_bind_group_layout
             .as_ref()
             .map(|layout| EffectParameterResources::new(device, layout, params))
-    }
-
-    /// A shader reload changes layouts, but compatible attachments retain their buffers.
-    pub(in crate::renderer) fn rebind_parameters(
-        &self,
-        device: &Device,
-        effect_id: u64,
-        resources: &mut EffectParameterResources,
-    ) {
-        let layout = self.loaded[&effect_id]
-            .params_bind_group_layout
-            .as_ref()
-            .expect("parameterized attachments have a parameter layout");
-        resources.rebind(device, layout);
     }
 }

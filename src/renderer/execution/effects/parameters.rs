@@ -5,7 +5,7 @@ use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, Queue};
 
 /// Uploaded parameters. The attachment owns the only retained CPU copy.
-pub(in crate::renderer) struct EffectParameterResources {
+pub(crate) struct EffectParameterResources {
     buffer: Buffer,
     pub(super) bind_group: BindGroup,
 }
@@ -21,7 +21,7 @@ impl EffectParameterResources {
         Self { buffer, bind_group }
     }
 
-    pub(in crate::renderer) fn update(
+    pub(crate) fn update(
         &self,
         queue: &Queue,
         effect_id: u64,
@@ -39,44 +39,40 @@ impl EffectParameterResources {
         queue.write_buffer(&self.buffer, 0, params);
         Ok(())
     }
-
-    pub(super) fn rebind(&mut self, device: &Device, layout: &BindGroupLayout) {
-        self.bind_group = create_params_bind_group(device, layout, &self.buffer);
-    }
 }
 
 /// Capture bindings and uploaded parameters for one backdrop attachment.
 #[derive(Default)]
-pub(in crate::renderer) struct BackdropEffectResources {
-    pub(in crate::renderer) parameters: Option<EffectParameterResources>,
-    pub(in crate::renderer) backdrop_material_params_buffer: Option<Buffer>,
-    pub(in crate::renderer) backdrop_layer_params_buffer: Option<Buffer>,
-    pub(in crate::renderer) backdrop_texture_bind_group: Option<BindGroup>,
-    pub(in crate::renderer) backdrop_texture_id: Option<u64>,
+pub(crate) struct BackdropEffectResources {
+    pub(crate) parameters: Option<EffectParameterResources>,
+    pub(crate) backdrop_material_params_buffer: Option<Buffer>,
+    pub(crate) backdrop_layer_params_buffer: Option<Buffer>,
+    pub(crate) backdrop_texture_bind_group: Option<BindGroup>,
+    pub(crate) backdrop_texture_id: Option<u64>,
 }
 
 impl BackdropEffectResources {
-    pub(in crate::renderer) fn invalidate_capture_binding(&mut self) {
+    pub(crate) fn invalidate_capture_binding(&mut self) {
         self.backdrop_texture_bind_group = None;
         self.backdrop_texture_id = None;
     }
 }
 
 /// Resources follow attachment mutations; rendering never scans for parameter changes.
-pub(in crate::renderer) struct EffectExecutionResources {
-    pub(in crate::renderer) group_parameters: HashMap<usize, EffectParameterResources>,
-    pub(in crate::renderer) backdrops: HashMap<usize, BackdropEffectResources>,
+pub(crate) struct EffectExecutionResources {
+    pub(crate) group_parameters: HashMap<usize, EffectParameterResources>,
+    pub(crate) backdrops: HashMap<usize, BackdropEffectResources>,
 }
 
 impl EffectExecutionResources {
-    pub(in crate::renderer) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             group_parameters: HashMap::new(),
             backdrops: HashMap::new(),
         }
     }
 
-    pub(in crate::renderer) fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.group_parameters.clear();
         self.backdrops.clear();
     }

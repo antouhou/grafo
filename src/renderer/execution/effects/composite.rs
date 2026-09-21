@@ -9,26 +9,26 @@ use wgpu::{
     StencilState, TextureFormat, TextureSampleType, TextureViewDimension, VertexState,
 };
 /// Samples effect results for compositing into the parent target.
-pub(in crate::renderer) const COMPOSITE_FS: &str =
-    include_str!("../../../shaders/composite_fs.wgsl");
+pub(crate) const COMPOSITE_FS: &str = include_str!("../../../shaders/composite_fs.wgsl");
 
 const BACKDROP_LAYER_COMPOSITE_FS: &str =
     include_str!("../../../shaders/backdrop_layer_composite_fs.wgsl");
 
-pub(in crate::renderer) struct CompositePipelineResources {
+pub(crate) struct CompositePipelineResources {
     pub pipeline: RenderPipeline,
     pub bind_group_layout: BindGroupLayout,
 }
 
 /// Combines the fullscreen vertex shader and passthrough fragment shader.
-pub(in crate::renderer) fn build_composite_wgsl() -> String {
+pub(crate) fn build_composite_wgsl() -> String {
     format!("{FULLSCREEN_TRIANGLE_VS}\n{COMPOSITE_FS}")
 }
 
 /// Compiles the composite pipeline, which samples the effect result and respects the parent clip.
-pub(in crate::renderer) fn compile_composite_pipeline(
+pub(crate) fn compile_composite_pipeline(
     device: &Device,
     format: TextureFormat,
+    msaa_sample_count: u32,
 ) -> CompositePipelineResources {
     let wgsl = build_composite_wgsl();
 
@@ -88,7 +88,10 @@ pub(in crate::renderer) fn compile_composite_pipeline(
             },
             bias: DepthBiasState::default(),
         }),
-        multisample: MultisampleState::default(),
+        multisample: MultisampleState {
+            count: msaa_sample_count,
+            ..Default::default()
+        },
         multiview: None,
         cache: None,
     });
@@ -101,7 +104,7 @@ pub(in crate::renderer) fn compile_composite_pipeline(
 
 /// Compile a fullscreen texture-sampling pipeline without stencil/depth usage.
 /// Used for capture downsampling before running the user effect shader.
-pub(in crate::renderer) fn compile_texture_blit_pipeline(
+pub(crate) fn compile_texture_blit_pipeline(
     device: &Device,
     format: TextureFormat,
     input_bind_group_layout: &BindGroupLayout,
@@ -151,7 +154,7 @@ pub(in crate::renderer) fn compile_texture_blit_pipeline(
 
 /// Compile a fullscreen pipeline that overlays an already-rendered transparent group prefix
 /// onto a backdrop capture using premultiplied-alpha blending.
-pub(in crate::renderer) fn compile_backdrop_layer_composite_pipeline(
+pub(crate) fn compile_backdrop_layer_composite_pipeline(
     device: &Device,
     format: TextureFormat,
 ) -> CompositePipelineResources {

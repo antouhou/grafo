@@ -1084,7 +1084,7 @@ pub(super) fn render_segments(
                             bctx.backdrop_layer_composite_bind_group_layout,
                             foreground_view,
                             &backdrop_capture_texture.color_view,
-                            &layer_params_buffer,
+                            layer_params_buffer,
                         );
                     }
 
@@ -1144,16 +1144,6 @@ pub(super) fn render_segments(
                                 .draws
                                 .get_mut(&backdrop_node_id)
                                 .expect("backdrop shapes have execution resources");
-                            let gradient_backdrop_material_params_buffer = resources
-                                .prepare_gradient_backdrop_material_params_buffer(
-                                    &cached_shape.fill,
-                                    bctx.device,
-                                    bctx.queue,
-                                    backdrop_sampling_uniform,
-                                )
-                                .expect(
-                                    "gradient backdrop shapes must prepare a backdrop material params buffer",
-                                );
                             let backdrop_view = effect_output.final_output_view();
                             gradient_backdrop_bind_group = resources
                                 .prepare_backdrop_gradient_bind_group(
@@ -1162,7 +1152,7 @@ pub(super) fn render_segments(
                                     bctx.device,
                                     bctx.queue,
                                     bctx.backdrop_gradient_bind_group_layout,
-                                    &gradient_backdrop_material_params_buffer,
+                                    backdrop_sampling_uniform,
                                     bctx.gradient_ramp_sampler,
                                     effect_output.final_output_texture_id(),
                                     backdrop_view,
@@ -1185,7 +1175,7 @@ pub(super) fn render_segments(
                                     Some(effects::create_backdrop_texture_sample_bind_group(
                                         bctx.device,
                                         bctx.backdrop_texture_bind_group_layout,
-                                        &solid_backdrop_material_params_buffer,
+                                        solid_backdrop_material_params_buffer,
                                         effect_output.final_output_view(),
                                         bctx.effect_sampler,
                                         Some("backdrop_shape_background_bind_group"),

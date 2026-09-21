@@ -1,17 +1,17 @@
-pub(in crate::renderer) use self::bindings::{
+pub(crate) use bindings::{
     backdrop_layer_params, create_backdrop_layer_composite_bind_group,
     create_backdrop_texture_sample_bind_group, create_texture_sample_bind_group,
     prepare_backdrop_layer_params_buffer, prepare_solid_backdrop_material_params_buffer,
 };
-pub(in crate::renderer) use self::composite::{
+pub(crate) use composite::{
     compile_backdrop_layer_composite_pipeline, compile_composite_pipeline,
     compile_texture_blit_pipeline, CompositePipelineResources,
 };
-pub(in crate::renderer) use self::parameters::{
+pub(crate) use parameters::{
     BackdropEffectResources, EffectExecutionResources, EffectParameterResources,
 };
-pub(in crate::renderer) use self::registry::EffectRegistry;
-pub(in crate::renderer) use self::textures::{OffscreenTexturePool, PooledTexture};
+pub(crate) use registry::EffectRegistry;
+pub(crate) use textures::{OffscreenTexturePool, PooledTexture};
 use wgpu::{
     BindGroup, BindGroupLayout, Color, CommandEncoder, Device, LoadOp, Operations,
     RenderPassColorAttachment, RenderPassDescriptor, Sampler, StoreOp, TextureFormat, TextureView,
@@ -24,14 +24,14 @@ mod registry;
 mod shaders;
 mod textures;
 
-pub(in crate::renderer) struct AppliedEffectOutput {
-    pub(in crate::renderer) composite_bind_group: Option<BindGroup>,
-    pub(in crate::renderer) final_output_texture: PooledTexture,
-    pub(in crate::renderer) recyclable_texture: Option<PooledTexture>,
+pub(crate) struct AppliedEffectOutput {
+    pub(crate) composite_bind_group: Option<BindGroup>,
+    pub(crate) final_output_texture: PooledTexture,
+    pub(crate) recyclable_texture: Option<PooledTexture>,
 }
 
 impl AppliedEffectOutput {
-    pub(in crate::renderer) fn into_final_output(
+    pub(crate) fn into_final_output(
         self,
         textures_to_recycle: &mut Vec<PooledTexture>,
     ) -> (PooledTexture, Option<BindGroup>) {
@@ -41,7 +41,7 @@ impl AppliedEffectOutput {
         (self.final_output_texture, self.composite_bind_group)
     }
 
-    pub(in crate::renderer) fn push_work_textures_into(
+    pub(crate) fn push_work_textures_into(
         self,
         output_textures: &mut Vec<PooledTexture>,
     ) -> Option<BindGroup> {
@@ -52,30 +52,30 @@ impl AppliedEffectOutput {
         self.composite_bind_group
     }
 
-    pub(in crate::renderer) fn final_output_view(&self) -> &TextureView {
+    pub(crate) fn final_output_view(&self) -> &TextureView {
         &self.final_output_texture.color_view
     }
 
-    pub(in crate::renderer) fn final_output_texture_id(&self) -> u64 {
+    pub(crate) fn final_output_texture_id(&self) -> u64 {
         self.final_output_texture.texture_id
     }
 }
 
-pub(in crate::renderer) struct EffectPassRunConfig<'a> {
-    pub(in crate::renderer) effect_id: u64,
-    pub(in crate::renderer) params: &'a [u8],
-    pub(in crate::renderer) parameter_resources: Option<&'a EffectParameterResources>,
-    pub(in crate::renderer) source_view: &'a TextureView,
-    pub(in crate::renderer) effect_sampler: &'a Sampler,
-    pub(in crate::renderer) composite_bind_group_layout: &'a BindGroupLayout,
-    pub(in crate::renderer) create_composite_bind_group: bool,
-    pub(in crate::renderer) width: u32,
-    pub(in crate::renderer) height: u32,
-    pub(in crate::renderer) texture_format: TextureFormat,
-    pub(in crate::renderer) label: &'static str,
+pub(crate) struct EffectPassRunConfig<'a> {
+    pub(crate) effect_id: u64,
+    pub(crate) params: &'a [u8],
+    pub(crate) parameter_resources: Option<&'a EffectParameterResources>,
+    pub(crate) source_view: &'a TextureView,
+    pub(crate) effect_sampler: &'a Sampler,
+    pub(crate) composite_bind_group_layout: &'a BindGroupLayout,
+    pub(crate) create_composite_bind_group: bool,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) texture_format: TextureFormat,
+    pub(crate) label: &'static str,
 }
 
-pub(in crate::renderer) fn apply_effect_passes(
+pub(crate) fn apply_effect_passes(
     registry: &EffectRegistry,
     device: &Device,
     encoder: &mut CommandEncoder,

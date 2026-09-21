@@ -12,15 +12,15 @@ use wgpu::{
 };
 /// Draws a fullscreen triangle from three vertex indices, without a vertex buffer.
 /// Effect and composite passes share this shader.
-pub(in crate::renderer) const FULLSCREEN_TRIANGLE_VS: &str =
+pub(crate) const FULLSCREEN_TRIANGLE_VS: &str =
     include_str!("../../../../shaders/fullscreen_triangle_vs.wgsl");
 
 /// Input texture bindings prepended to the user's effect fragment shader.
-pub(in crate::renderer) const EFFECT_FS_PREAMBLE: &str =
+pub(crate) const EFFECT_FS_PREAMBLE: &str =
     include_str!("../../../../shaders/effect_fs_preamble.wgsl");
 
 /// A single compiled pass within a multi-pass effect.
-pub(in crate::renderer) struct LoadedEffectPass {
+pub(crate) struct LoadedEffectPass {
     /// The compiled render pipeline for this pass's fullscreen triangle.
     pub pipeline: RenderPipeline,
     /// Whether this pass references user parameters at `@group(1)`.
@@ -28,7 +28,7 @@ pub(in crate::renderer) struct LoadedEffectPass {
 }
 
 /// Compiled effect passes cached by `effect_id` and shared across nodes.
-pub(in crate::renderer) struct LoadedEffect {
+pub(crate) struct LoadedEffect {
     /// Exact pass sources used to compile this effect.
     pub pass_sources: Box<[Box<str>]>,
     /// Compiled passes, executed sequentially with ping-pong textures.
@@ -41,7 +41,7 @@ pub(in crate::renderer) struct LoadedEffect {
 }
 
 /// Combines the built-in vertex shader, input bindings, and user fragment shader into one module.
-pub(in crate::renderer) fn build_effect_wgsl(user_fragment_source: &str) -> String {
+pub(crate) fn build_effect_wgsl(user_fragment_source: &str) -> String {
     format!("{FULLSCREEN_TRIANGLE_VS}\n{EFFECT_FS_PREAMBLE}\n{user_fragment_source}")
 }
 
@@ -90,7 +90,7 @@ fn validate_effect_shader(
 /// Passes that use user parameters share the uniform layout at group 1.
 ///
 /// For single-pass effects, pass a one-element slice.
-pub(in crate::renderer) fn compile_effect_pipeline(
+pub(crate) fn compile_effect_pipeline(
     device: &Device,
     pass_sources: &[&str],
     format: TextureFormat,

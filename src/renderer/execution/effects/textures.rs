@@ -4,7 +4,7 @@ use wgpu::{
 };
 /// A pooled offscreen texture with color, optional depth/stencil, and optional MSAA resolve
 /// resources.
-pub(in crate::renderer) struct PooledTexture {
+pub(crate) struct PooledTexture {
     pub texture_id: u64,
     pub color_texture: Texture,
     pub color_view: TextureView,
@@ -18,7 +18,7 @@ pub(in crate::renderer) struct PooledTexture {
 
 /// Pool of reusable offscreen textures for effect compositing.
 /// Textures return to the pool after render submission.
-pub(in crate::renderer) struct OffscreenTexturePool {
+pub(crate) struct OffscreenTexturePool {
     available: Vec<PooledTexture>,
     next_texture_id: u64,
 }
