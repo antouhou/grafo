@@ -48,6 +48,8 @@ fn assert_pixels_match(pixel_buffer: &[u8], expectations: &[PixelExpectation]) {
 
 #[test]
 fn shape_effect_is_resolved_before_backdrop_capture_with_msaa() {
+    // This test passes when no GPU present on purpose: I don't have a GPU on my CI just yet, so I'm
+    //  running this test and the visual regression example manually before commiting changes
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
         return;
     };

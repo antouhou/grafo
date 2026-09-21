@@ -1,3 +1,5 @@
+// I know I'm against very large files, but this particular one is fine. Easier to track all
+//  visual regression tiles that way
 use crate::expectations::PixelExpectation;
 use crate::shaders::{
     BlurParams, DropShadowParams, HORIZONTAL_BLUR_WGSL, PASSTHROUGH_WGSL, SHADOW_TINT_WGSL,
