@@ -16,6 +16,10 @@ pub(super) fn execute_draw_instructions(
         }
         targets::set_scissor(draw_pass.render_pass, instruction.clip.scissor);
         match instruction.operation {
+            DrawOperation::IncrementStencil(id) => draw_pass.increment_stencil(
+                instruction.clip.stencil_reference,
+                shapes.draw_resources(id),
+            ),
             DrawOperation::DrawShapeAndIncrementStencil(draw) => draw_pass
                 .draw_shape_and_increment_stencil(
                     instruction.clip.stencil_reference,

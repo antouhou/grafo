@@ -1,16 +1,17 @@
-use super::backdrops::compute_backdrop_capture_region;
 use crate::effect::{BackdropEffectInstance, EffectInstance};
 use crate::renderer::commands::{
-    BackdropDraw, DrawClip, DrawInstruction, DrawOperation, DrawPlan, DrawSegment,
+    BackdropCaptureSource, DrawClip, DrawInstruction, DrawOperation, DrawPlan,
     IntermediateTextureId, ShapeDraw, ShapeDrawId,
 };
 use crate::renderer::plan::shape_effects::PreparedShapeEffectLeaf;
 use crate::renderer::rect_utils::{should_skip_visible_rect_draw, try_scissor_for_rect};
 use crate::renderer::types::{DrawTreeNode, TraversalEvent};
 use crate::shape::CachedShapeDrawData;
-use crate::{MathRect, Size, UnsignedPhysicalRect};
+use crate::{Size, UnsignedPhysicalRect};
 use ahash::HashMap;
 use easy_tree::Tree;
+
+mod backdrops;
 
 fn has_geometry(shape: &CachedShapeDrawData) -> bool {
     let geometry = shape.cached_shape.vertex_buffers();
@@ -31,6 +32,7 @@ pub(in crate::renderer) struct DrawPlanningInput<'a> {
     pub(in crate::renderer) backdrop_effects: &'a HashMap<usize, BackdropEffectInstance>,
     pub(in crate::renderer) scale_factor: f64,
     pub(in crate::renderer) physical_size: Size,
+    pub(in crate::renderer) backdrop_source: Option<BackdropCaptureSource>,
     /// None disables captures when rendering a group's backdrop source.
     pub(in crate::renderer) max_capture_dimension: Option<u32>,
 }
@@ -58,97 +60,19 @@ impl DrawPlanner {
             },
             decrements_stencil: false,
         };
-        output.instructions.clear();
-        output.segments.clear();
-        output.effect_parameters.clear();
-        #[cfg(feature = "render_metrics")]
-        {
-            output.scissor_clip_count = 0;
-        }
-        let mut segment_start = 0;
+        output.clear();
         for &event in events {
-            if let Some(backdrop) = self.backdrop(event, &input, output) {
-                Self::finish_segment(output, segment_start);
-                output.segments.push(DrawSegment::Backdrop(backdrop));
-                segment_start = output.instructions.len();
-            } else if let Some(instruction) = self.plan_event(event, &input, output) {
-                output.instructions.push(instruction);
+            if self.plan_backdrop(event, &input, output) {
+                continue;
+            }
+            if let Some(instruction) = self.plan_event(event, &input, output) {
+                output.push_draw(instruction);
             }
         }
-        Self::finish_segment(output, segment_start);
         debug_assert!(
             self.parents.is_empty(),
             "draw traversal must balance parent clips"
         );
-    }
-
-    fn finish_segment(output: &mut DrawPlan, start: usize) {
-        let end = output.instructions.len();
-        if start < end {
-            output.segments.push(DrawSegment::Draws(start..end));
-        }
-    }
-
-    fn backdrop(
-        &mut self,
-        event: TraversalEvent,
-        input: &DrawPlanningInput<'_>,
-        output: &mut DrawPlan,
-    ) -> Option<BackdropDraw> {
-        let TraversalEvent::Pre(node_id) = event else {
-            return None;
-        };
-        let max_dimension = input.max_capture_dimension?;
-        if input.effect_results.contains_key(&node_id) {
-            return None;
-        }
-        let effect = input.backdrop_effects.get(&node_id)?;
-        let node = input.tree.get(node_id)?;
-        let DrawTreeNode::CachedShape(description) = node else {
-            return None;
-        };
-        if !has_geometry(description) {
-            return None;
-        }
-        let parent_clip = self.current.clip;
-        let shape_clip = DrawClip {
-            stencil_reference: parent_clip.stencil_reference + 1,
-            ..parent_clip
-        };
-        if !node.is_leaf() {
-            self.parents.push(self.current);
-            self.current.decrements_stencil = node.clips_children();
-            if node.clips_children() {
-                self.current.clip = shape_clip;
-            }
-        }
-        let bounds = node.local_bounds();
-        Some(BackdropDraw {
-            draw: ShapeDraw {
-                id: ShapeDrawId::Shape(node_id),
-                material: description.material(),
-            },
-            effect_id: effect.effect.effect_id,
-            parameter_start: output.effect_parameters.len(),
-            parameter_end: {
-                output
-                    .effect_parameters
-                    .extend_from_slice(&effect.effect.params);
-                output.effect_parameters.len()
-            },
-            downsample: effect.config.downsample,
-            capture: compute_backdrop_capture_region(
-                MathRect::new(bounds[0].into(), bounds[1].into()),
-                node.transform(),
-                effect.config,
-                input.scale_factor,
-                input.physical_size,
-                max_dimension,
-            ),
-            parent_clip,
-            shape_clip,
-            decrements_stencil: node.is_leaf() || !node.clips_children(),
-        })
     }
 
     fn plan_event(

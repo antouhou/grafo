@@ -63,10 +63,17 @@ pub(crate) struct PooledTexture {
     pub depth_stencil_view: Option<TextureView>,
     pub resolve_texture: Option<Texture>,
     pub resolve_view: Option<TextureView>,
-    pub sample_count: u32,
 }
 
 impl PooledTexture {
+    pub(crate) fn prepared_composite_bind_group(&self) -> &BindGroup {
+        &self
+            .composite_binding
+            .as_ref()
+            .expect("this texture was prepared for direct sampling")
+            .bind_group
+    }
+
     /// All effect inputs use the registry's fixed layout and the renderer's shared sampler.
     pub(crate) fn input_bind_group(
         &mut self,
@@ -276,7 +283,6 @@ impl OffscreenTexturePool {
             depth_stencil_view,
             resolve_texture,
             resolve_view,
-            sample_count,
         }
     }
 }

@@ -13,6 +13,7 @@ use wgpu::{
 
 mod bindings;
 mod composite;
+pub(in crate::renderer::execution) mod instructions;
 mod parameters;
 mod registry;
 mod shaders;

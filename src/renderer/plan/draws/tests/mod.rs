@@ -1,7 +1,8 @@
 use super::{DrawPlanner, DrawPlanningInput};
 use crate::effect::{BackdropEffectConfig, BackdropEffectInstance, EffectInstance};
 use crate::renderer::commands::{
-    DrawInstruction, DrawOperation, DrawPlan, DrawSegment, IntermediateTextureId, ShapeDrawId,
+    BackdropCaptureSource, DrawInstruction, DrawOperation, DrawPlan, DrawSegment,
+    IntermediateTextureId, ShapeDrawId,
 };
 use crate::renderer::plan::shape_effects::{PreparedShapeEffectLeaf, ShapeEffectRasterRect};
 use crate::renderer::traversal::{plan_traversal_in_place, TraversalScratch};
@@ -18,6 +19,7 @@ use lyon::tessellation::FillTessellator;
 #[derive(Debug, PartialEq)]
 enum Operation {
     Draw(ShapeDrawId),
+    Increment(ShapeDrawId),
     DrawAndIncrement(ShapeDrawId),
     Decrement(ShapeDrawId),
     Composite(IntermediateTextureId),
@@ -29,6 +31,7 @@ fn snapshot(plan: &DrawPlan) -> Vec<(Operation, u32, UnsignedPhysicalRect)> {
         .map(|instruction| {
             let operation = match instruction.operation {
                 DrawOperation::DrawShape(draw) => Operation::Draw(draw.id),
+                DrawOperation::IncrementStencil(id) => Operation::Increment(id),
                 DrawOperation::DrawShapeAndIncrementStencil(draw) => {
                     Operation::DrawAndIncrement(draw.id)
                 }
@@ -89,6 +92,7 @@ struct Scene {
     groups: HashMap<usize, EffectInstance>,
     backdrops: HashMap<usize, BackdropEffectInstance>,
     traversal: TraversalScratch,
+    backdrop_source: Option<BackdropCaptureSource>,
 }
 
 impl Scene {
@@ -100,6 +104,7 @@ impl Scene {
             groups: HashMap::new(),
             backdrops: HashMap::new(),
             traversal: TraversalScratch::new(),
+            backdrop_source: Some(BackdropCaptureSource::Target),
         }
     }
 
@@ -132,6 +137,7 @@ impl Scene {
                 scale_factor: 1.0,
                 physical_size: Size::new(100, 100),
                 max_capture_dimension: Some(1024),
+                backdrop_source: self.backdrop_source,
             },
             output,
         );
@@ -242,8 +248,8 @@ fn effect_composites_and_prepared_leaves_carry_only_ids_and_resolved_clips() {
     scene.add(Some(group), shape(true));
     let source = scene.add(Some(scissor), shape(true));
     let child = scene.add(Some(source), shape(true));
-    let group_texture = IntermediateTextureId(5);
-    let leaf_texture = IntermediateTextureId(6);
+    let group_texture = IntermediateTextureId::Registered(5);
+    let leaf_texture = IntermediateTextureId::Registered(6);
     scene.results.insert(group, group_texture);
     let mut description = shape_description(
         Shape::rect([(0.0, 0.0), (20.0, 20.0)], Stroke::default()),
@@ -329,63 +335,6 @@ fn offscreen_scissor_and_transparent_parent_restore_the_visible_sibling() {
 }
 
 #[test]
-fn backdrop_boundaries_are_complete_before_execution_and_preserve_clips() {
-    for clips_children in [false, true] {
-        let mut scene = Scene::new();
-        let root = scene.add(None, shape(true));
-        let scissor = scene.add(Some(root), clip((10.0, 10.0), (60.0, 60.0)));
-        let backdrop = scene.add(Some(scissor), shape(clips_children));
-        let child = scene.add(Some(backdrop), shape(true));
-        let sibling = scene.add(Some(root), shape(true));
-        scene.attach_backdrop(backdrop);
-        let mut output = DrawPlan::default();
-        scene.plan(&mut DrawPlanner::default(), &mut output);
-        assert_eq!(output.segments.len(), 3);
-        let DrawSegment::Draws(prefix) = &output.segments[0] else {
-            panic!("draw prefix")
-        };
-        assert_eq!(prefix, &(0..1));
-        let DrawSegment::Backdrop(command) = &output.segments[1] else {
-            panic!("backdrop boundary")
-        };
-        assert_eq!(command.parent_clip.stencil_reference, 1);
-        assert_eq!(command.shape_clip.stencil_reference, 2);
-        assert_eq!(command.shape_clip.scissor, rect((10, 10), (60, 60)));
-        assert_eq!(command.decrements_stencil, !clips_children);
-        assert_eq!(command.effect_id, 42);
-        assert_eq!(
-            &output.effect_parameters[command.parameter_start..command.parameter_end],
-            &[1, 2, 3, 4]
-        );
-        let viewport = rect((0, 0), (100, 100));
-        let mut expected = vec![
-            (
-                Operation::DrawAndIncrement(ShapeDrawId::Shape(root)),
-                0,
-                viewport,
-            ),
-            (
-                Operation::Draw(ShapeDrawId::Shape(child)),
-                if clips_children { 2 } else { 1 },
-                rect((10, 10), (60, 60)),
-            ),
-        ];
-        if clips_children {
-            expected.push((
-                Operation::Decrement(ShapeDrawId::Shape(backdrop)),
-                2,
-                rect((10, 10), (60, 60)),
-            ));
-        }
-        expected.extend([
-            (Operation::Draw(ShapeDrawId::Shape(sibling)), 1, viewport),
-            (Operation::Decrement(ShapeDrawId::Shape(root)), 1, viewport),
-        ]);
-        assert_eq!(snapshot(&output), expected);
-    }
-}
-
-#[test]
 fn empty_backdrop_parent_preserves_ancestor_clips_without_capture() {
     let mut scene = Scene::new();
     let root = scene.add(None, shape(true));
@@ -418,74 +367,4 @@ fn empty_backdrop_parent_preserves_ancestor_clips_without_capture() {
     assert!(output.effect_parameters.is_empty());
 }
 
-#[test]
-fn commands_remain_complete_after_planner_and_scene_are_dropped() {
-    let mut output = DrawPlan::default();
-    {
-        let mut scene = Scene::new();
-        let root = scene.add(None, shape(true));
-        let panel = scene.add(Some(root), shape(true));
-        scene.attach_backdrop(panel);
-        scene.plan(&mut DrawPlanner::default(), &mut output);
-    }
-    assert_eq!(output.instructions.len(), 2);
-    assert_eq!(output.segments.len(), 3);
-    let DrawSegment::Backdrop(command) = &output.segments[1] else {
-        panic!("backdrop command")
-    };
-    assert_eq!(command.effect_id, 42);
-    assert_eq!(
-        &output.effect_parameters[command.parameter_start..command.parameter_end],
-        &[1, 2, 3, 4]
-    );
-    assert_eq!(command.draw.id, ShapeDrawId::Shape(1));
-    assert_eq!(
-        command.draw.material.texture_bindings,
-        [ShapeTextureBinding::None; 2]
-    );
-    let _: DrawInstruction = output.instructions[0];
-}
-
-#[test]
-fn rebuilt_queues_reuse_storage_and_replace_all_commands_and_parameters() {
-    let mut scene = Scene::new();
-    let mut planner = DrawPlanner::default();
-    let mut output = DrawPlan::default();
-    planner.parents.reserve(8);
-    output.instructions.reserve(16);
-    output.segments.reserve(8);
-    output.effect_parameters.reserve(32);
-    let allocations = (
-        planner.parents.as_ptr(),
-        output.instructions.as_ptr(),
-        output.segments.as_ptr(),
-        output.effect_parameters.as_ptr(),
-    );
-    for has_backdrop in [true, false, true] {
-        scene.tree.clear();
-        scene.backdrops.clear();
-        let root = scene.add(None, shape(true));
-        let leaf = scene.add(Some(root), shape(true));
-        if has_backdrop {
-            scene.attach_backdrop(leaf);
-        }
-        scene.plan(&mut planner, &mut output);
-        assert_eq!(
-            allocations,
-            (
-                planner.parents.as_ptr(),
-                output.instructions.as_ptr(),
-                output.segments.as_ptr(),
-                output.effect_parameters.as_ptr()
-            )
-        );
-        assert_eq!(output.effect_parameters.is_empty(), !has_backdrop);
-        assert_eq!(output.segments.len(), if has_backdrop { 3 } else { 1 });
-    }
-    scene.tree.clear();
-    scene.backdrops.clear();
-    scene.plan(&mut planner, &mut output);
-    assert!(output.instructions.is_empty());
-    assert!(output.segments.is_empty());
-    assert!(output.effect_parameters.is_empty());
-}
+mod backdrops;

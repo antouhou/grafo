@@ -19,6 +19,8 @@ pub(crate) struct IntermediateTexture {
 /// Persistent cached textures and transient resources retained through submission.
 pub(crate) struct IntermediateTextureResources {
     sampled_textures: HashMap<IntermediateTextureId, IntermediateTexture>,
+    /// Maps each planner-assigned texture ID to its index in work_textures.
+    pub(in crate::renderer::execution) texture_id_to_work_textures_index: Vec<usize>,
     pub(crate) pool: OffscreenTexturePool,
     pub(crate) work_textures: Vec<PooledTexture>,
     pub(crate) shape_effect_results: FrameCache<ShapeEffectCacheKey, IntermediateTextureId>,
@@ -29,6 +31,7 @@ impl IntermediateTextureResources {
     pub(crate) fn new() -> Self {
         Self {
             sampled_textures: HashMap::new(),
+            texture_id_to_work_textures_index: Vec::new(),
             pool: OffscreenTexturePool::new(),
             work_textures: Vec::new(),
             shape_effect_results: FrameCache::new(),
@@ -42,7 +45,7 @@ impl IntermediateTextureResources {
         cache_key: ShapeEffectCacheKey,
         sampled_texture: IntermediateTexture,
     ) -> IntermediateTextureId {
-        let texture_id = IntermediateTextureId(sampled_texture.texture.texture_id);
+        let texture_id = IntermediateTextureId::Registered(sampled_texture.texture.texture_id);
         self.sampled_textures.insert(texture_id, sampled_texture);
         self.shape_effect_results.insert(cache_key, texture_id);
         texture_id
@@ -52,20 +55,53 @@ impl IntermediateTextureResources {
         &mut self,
         sampled_texture: IntermediateTexture,
     ) -> IntermediateTextureId {
-        let texture_id = IntermediateTextureId(sampled_texture.texture.texture_id);
+        let texture_id = IntermediateTextureId::Registered(sampled_texture.texture.texture_id);
         self.sampled_textures.insert(texture_id, sampled_texture);
         texture_id
     }
 
     pub(crate) fn bind_group(&self, texture_id: IntermediateTextureId) -> &BindGroup {
-        self.sampled_textures[&texture_id]
-            .bind_group
-            .as_ref()
-            .expect("this texture was prepared for direct sampling")
+        match texture_id {
+            IntermediateTextureId::Registered(_) => self.sampled_textures[&texture_id]
+                .bind_group
+                .as_ref()
+                .expect("this texture was prepared for direct sampling"),
+            IntermediateTextureId::Planned(index) => self.work_textures
+                [self.texture_id_to_work_textures_index[index]]
+                .prepared_composite_bind_group(),
+        }
     }
 
     pub(crate) fn texture(&self, texture_id: IntermediateTextureId) -> &Texture {
-        &self.sampled_textures[&texture_id].texture.color_texture
+        let texture = match texture_id {
+            IntermediateTextureId::Registered(_) => &self.sampled_textures[&texture_id].texture,
+            IntermediateTextureId::Planned(index) => {
+                &self.work_textures[self.texture_id_to_work_textures_index[index]]
+            }
+        };
+        texture
+            .resolve_texture
+            .as_ref()
+            .unwrap_or(&texture.color_texture)
+    }
+
+    pub(in crate::renderer::execution) fn insert_planned(
+        &mut self,
+        texture_id: IntermediateTextureId,
+        texture: PooledTexture,
+    ) {
+        assert_eq!(
+            texture_id,
+            IntermediateTextureId::Planned(self.texture_id_to_work_textures_index.len())
+        );
+        self.texture_id_to_work_textures_index
+            .push(self.work_textures.len());
+        self.work_textures.push(texture);
+    }
+
+    /// Clears logical references in constant time; allocations survive through submission.
+    pub(in crate::renderer::execution) fn finish_plan(&mut self) {
+        self.texture_id_to_work_textures_index.clear();
     }
 
     /// Ends a command reference while keeping the GPU allocation alive through submission.
