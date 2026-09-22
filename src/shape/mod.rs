@@ -14,8 +14,11 @@ use lyon::lyon_tessellation::{
 };
 use lyon::path::Winding;
 use lyon::tessellation::FillVertexConstructor;
+pub(crate) use material::{ShapeDrawMaterial, ShapeTextureLayer, TextureSampling};
 use smallvec::SmallVec;
 use std::sync::Arc;
+
+mod material;
 
 #[derive(Debug, Clone)]
 pub struct CachedShapeHandle {
@@ -1014,6 +1017,14 @@ pub(crate) struct CachedShapeDrawData {
 }
 
 impl CachedShapeDrawData {
+    pub(crate) fn material(&self) -> ShapeDrawMaterial<'_> {
+        ShapeDrawMaterial {
+            fill: self.fill.as_ref(),
+            texture_bindings: &self.texture_bindings,
+            under_fill_texture: None,
+        }
+    }
+
     pub(crate) fn has_gradient_fill(&self) -> bool {
         matches!(&self.fill, Some(Fill::Gradient(_)))
     }

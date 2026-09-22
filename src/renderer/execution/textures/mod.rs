@@ -6,7 +6,7 @@ use ahash::{HashMap, HashMapExt};
 pub(crate) use shape_effects::{
     CachedShapeEffectMask, ShapeEffectCacheKey, ShapeEffectMaskCache, ShapeEffectMaskCacheKey,
 };
-use wgpu::BindGroup;
+use wgpu::{BindGroup, Texture};
 
 mod bindings;
 mod shape_effects;
@@ -15,14 +15,14 @@ const MAX_SAMPLED_TEXTURES_CAPACITY: usize = 4_096;
 const MAX_WORK_TEXTURES_CAPACITY: usize = 2_048;
 
 /// The texture and its sampling binding have one owner in execution storage.
-pub(crate) struct SampledTexture {
+pub(crate) struct IntermediateTexture {
     pub(crate) texture: PooledTexture,
-    pub(crate) bind_group: BindGroup,
+    pub(crate) bind_group: Option<BindGroup>,
 }
 
 /// Persistent cached textures and transient resources retained through submission.
 pub(crate) struct IntermediateTextureResources {
-    sampled_textures: HashMap<IntermediateTextureId, SampledTexture>,
+    sampled_textures: HashMap<IntermediateTextureId, IntermediateTexture>,
     pub(crate) pool: OffscreenTexturePool,
     pub(crate) work_textures: Vec<PooledTexture>,
     pub(crate) shape_effect_results: FrameCache<ShapeEffectCacheKey, IntermediateTextureId>,
@@ -44,7 +44,7 @@ impl IntermediateTextureResources {
     pub(crate) fn insert_cached(
         &mut self,
         cache_key: ShapeEffectCacheKey,
-        sampled_texture: SampledTexture,
+        sampled_texture: IntermediateTexture,
     ) -> IntermediateTextureId {
         let texture_id = IntermediateTextureId(sampled_texture.texture.texture_id);
         self.sampled_textures.insert(texture_id, sampled_texture);
@@ -54,7 +54,7 @@ impl IntermediateTextureResources {
 
     pub(crate) fn insert_transient(
         &mut self,
-        sampled_texture: SampledTexture,
+        sampled_texture: IntermediateTexture,
     ) -> IntermediateTextureId {
         let texture_id = IntermediateTextureId(sampled_texture.texture.texture_id);
         self.sampled_textures.insert(texture_id, sampled_texture);
@@ -62,7 +62,23 @@ impl IntermediateTextureResources {
     }
 
     pub(crate) fn bind_group(&self, texture_id: IntermediateTextureId) -> &BindGroup {
-        &self.sampled_textures[&texture_id].bind_group
+        self.sampled_textures[&texture_id]
+            .bind_group
+            .as_ref()
+            .expect("this texture was prepared for direct sampling")
+    }
+
+    pub(crate) fn texture(&self, texture_id: IntermediateTextureId) -> &Texture {
+        &self.sampled_textures[&texture_id].texture.color_texture
+    }
+
+    /// Ends a command reference while keeping the GPU allocation alive through submission.
+    pub(crate) fn finish_transient(&mut self, texture_id: IntermediateTextureId) {
+        let texture = self
+            .sampled_textures
+            .remove(&texture_id)
+            .expect("transient texture references remain registered until their last draw");
+        self.work_textures.push(texture.texture);
     }
 
     /// All transient textures remain live until the commands that sample them are submitted.
@@ -71,11 +87,7 @@ impl IntermediateTextureResources {
         transient_texture_ids: impl Iterator<Item = IntermediateTextureId>,
     ) {
         for texture_id in transient_texture_ids {
-            let sampled_texture = self
-                .sampled_textures
-                .remove(&texture_id)
-                .expect("transient textures remain registered until submission");
-            self.work_textures.push(sampled_texture.texture);
+            self.finish_transient(texture_id);
         }
         self.pool.recycle(&mut self.work_textures);
     }

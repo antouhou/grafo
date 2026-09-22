@@ -1,6 +1,7 @@
 use crate::util::srgb_u8_to_linear;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use wgpu::Texture;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TextureManagerError {
@@ -244,6 +245,14 @@ impl TextureManager {
             .read()
             .unwrap()
             .contains_key(&texture_id)
+    }
+
+    pub(crate) fn texture(&self, texture_id: u64) -> Option<Texture> {
+        self.texture_storage
+            .read()
+            .expect("texture storage lock poisoned")
+            .get(&texture_id)
+            .cloned()
     }
 
     pub(crate) fn texture_dimensions(&self, texture_id: u64) -> Option<(u32, u32)> {

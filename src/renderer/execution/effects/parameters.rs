@@ -51,23 +51,14 @@ pub(crate) struct BackdropTextureBinding {
 #[derive(Default)]
 pub(crate) struct BackdropEffectResources {
     pub(crate) parameters: Option<EffectParameterResources>,
-    pub(crate) backdrop_material_params_buffer: Option<Buffer>,
     pub(crate) backdrop_layer_params_buffer: Option<Buffer>,
     pub(crate) layer_composite_binding: Option<BackdropTextureBinding>,
     pub(crate) downsample_binding: Option<BackdropTextureBinding>,
-    pub(crate) backdrop_texture_bind_group: Option<BindGroup>,
-    pub(crate) backdrop_texture_id: Option<u64>,
 }
 
 impl BackdropEffectResources {
-    pub(crate) fn invalidate_material_binding(&mut self) {
-        self.backdrop_texture_bind_group = None;
-        self.backdrop_texture_id = None;
-    }
-
     /// Pipeline recreation replaces layouts; parameter buffers remain attachment-owned.
     pub(crate) fn invalidate_bindings(&mut self) {
-        self.invalidate_material_binding();
         self.layer_composite_binding = None;
         self.downsample_binding = None;
     }

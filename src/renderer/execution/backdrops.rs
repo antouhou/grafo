@@ -1,16 +1,13 @@
 use super::effects::{
-    self, AppliedEffectOutput, BackdropEffectResources, BackdropTextureBinding,
-    EffectPassRunConfig, OffscreenTexturePool, PooledTexture,
+    self, BackdropEffectResources, BackdropTextureBinding, EffectPassRunConfig,
+    OffscreenTexturePool, PooledTexture,
 };
-use super::shapes::ShapeDrawResources;
-use super::textures::IntermediateTextureResources;
+use super::textures::{IntermediateTexture, IntermediateTextureResources};
 use crate::effect::BackdropEffectInstance;
-use crate::gradient::gpu::GradientCache;
-use crate::gradient::types::Fill;
-use crate::pipeline::BackdropSamplingUniform;
 use crate::renderer::plan::backdrops::BackdropCaptureRegion;
 use crate::renderer::rect_utils;
 use crate::renderer::types::{BackdropContext, BackdropSource};
+use crate::shape::{ShapeTextureBinding, ShapeTextureLayer, TextureSampling};
 use crate::Size;
 use wgpu::{
     BindGroup, Color, CommandEncoder, Extent3d, LoadOp, Operations, Origin3d,
@@ -224,7 +221,7 @@ pub(in crate::renderer) fn apply_backdrop_effect(
     effect: &BackdropEffectInstance,
     resources: &mut BackdropEffectResources,
     textures: &mut IntermediateTextureResources,
-) -> AppliedEffectOutput {
+) -> ShapeTextureLayer {
     let mut capture_texture = capture_backdrop(
         encoder,
         context,
@@ -282,58 +279,13 @@ pub(in crate::renderer) fn apply_backdrop_effect(
     if let Some(downsampled_texture) = downsampled_texture {
         textures.work_textures.push(downsampled_texture);
     }
-    effect_output
-}
-
-/// Reuses material buffers and returns a handle to the cached sampling binding.
-pub(in crate::renderer) fn prepare_backdrop_material(
-    context: &BackdropContext<'_>,
-    region: BackdropCaptureRegion,
-    effect_output: &AppliedEffectOutput,
-    fill: &mut Option<Fill>,
-    resources: &mut BackdropEffectResources,
-    shape_resources: &mut ShapeDrawResources,
-    gradient_cache: &mut GradientCache,
-) -> Option<BindGroup> {
-    // Sampling stays in full-resolution pixels even when the effect is downsampled.
-    let sampling_uniform = BackdropSamplingUniform::new(
-        region.bounds.min.to_tuple(),
-        region.bounds.size().to_u32().to_tuple(),
-    );
-    if matches!(fill, Some(Fill::Gradient(_))) {
-        return shape_resources
-            .prepare_backdrop_gradient_bind_group(
-                fill,
-                gradient_cache,
-                context.device,
-                context.queue,
-                context.backdrop_gradient_bind_group_layout,
-                sampling_uniform,
-                context.gradient_ramp_sampler,
-                effect_output.final_output_texture_id(),
-                effect_output.final_output_view(),
-                context.effect_sampler,
-            )
-            .cloned();
+    let (texture, bind_group) = effect_output.into_final_output(&mut textures.work_textures);
+    let texture_id = textures.insert_transient(IntermediateTexture {
+        texture,
+        bind_group,
+    });
+    ShapeTextureLayer {
+        texture: ShapeTextureBinding::Intermediate(texture_id),
+        sampling: TextureSampling::TargetPixels(region.bounds),
     }
-
-    let params_buffer = effects::prepare_solid_backdrop_material_params_buffer(
-        context.device,
-        context.queue,
-        &mut resources.backdrop_material_params_buffer,
-        sampling_uniform,
-    );
-    if resources.backdrop_texture_id != Some(effect_output.final_output_texture_id()) {
-        resources.backdrop_texture_bind_group =
-            Some(effects::create_backdrop_texture_sample_bind_group(
-                context.device,
-                context.backdrop_texture_bind_group_layout,
-                params_buffer,
-                effect_output.final_output_view(),
-                context.effect_sampler,
-                Some("backdrop_shape_background_bind_group"),
-            ));
-        resources.backdrop_texture_id = Some(effect_output.final_output_texture_id());
-    }
-    resources.backdrop_texture_bind_group.clone()
 }

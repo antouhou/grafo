@@ -2,6 +2,7 @@
 use self::execution::effects::{
     compile_composite_pipeline, CompositePipelineResources, EffectRegistry,
 };
+pub(crate) use self::execution::shapes::TextureSamplingUniform;
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
 pub(crate) use self::plan::textures::IntermediateTextureId;

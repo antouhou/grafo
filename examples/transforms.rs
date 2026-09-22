@@ -116,13 +116,11 @@ struct App<'a> {
     // Update yaw and pitch only while dragging.
     orbit_dragging: bool,
     orbit_last_mouse_pos: Option<(f32, f32)>,
-    // User-tweakable settings
     orbit_sensitivity: f32,  // degrees per logical pixel
     blue_perspective_d: f32, // perspective distance for blue shape
-    blue_follow_mouse: bool, // whether perspective origin follows mouse
-    blue_pos: (f32, f32),    // top-left world position of the blue rectangle
-    blue_size: (f32, f32),   // local size of blue rect
-    // Window scale factor
+    blue_follow_mouse: bool,
+    blue_pos: (f32, f32),  // top-left world position of the blue rectangle
+    blue_size: (f32, f32), // local size of blue rect
     scale_factor: f64,
     // Shape paths in local coordinates.
     red_path: Path,
@@ -135,7 +133,6 @@ struct App<'a> {
     green_color: (Color, Color),
     blue_color: (Color, Color),
     heart_color: (Color, Color),
-    // Jelly wobble demo
     jelly_path: Path,
     jelly_color: (Color, Color),
     rust_logo_png_dimensions: (u32, u32),

@@ -85,3 +85,12 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(0.0, 0.0, coverage, coverage);
 }
 "#;
+
+/// Makes a captured texture distinguishable from the unchanged scene behind it.
+pub const ROTATE_COLOR_CHANNELS_WGSL: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let color = textureSample(t_input, s_input, uv);
+    return vec4<f32>(color.b, color.r, color.g, color.a);
+}
+"#;

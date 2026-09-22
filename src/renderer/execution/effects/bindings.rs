@@ -1,6 +1,4 @@
 use super::super::uniforms;
-use crate::gradient::gpu::GpuMaterialParams;
-use crate::pipeline::BackdropSamplingUniform;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType, Device, Queue,
@@ -107,50 +105,6 @@ pub(crate) fn create_texture_sample_bind_group(
             },
         ],
     })
-}
-
-pub(crate) fn create_backdrop_texture_sample_bind_group(
-    device: &Device,
-    layout: &BindGroupLayout,
-    material_params_buffer: &Buffer,
-    texture_view: &TextureView,
-    sampler: &Sampler,
-    label: Option<&str>,
-) -> BindGroup {
-    device.create_bind_group(&BindGroupDescriptor {
-        label,
-        layout,
-        entries: &[
-            BindGroupEntry {
-                binding: 0,
-                resource: material_params_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 3,
-                resource: BindingResource::TextureView(texture_view),
-            },
-            BindGroupEntry {
-                binding: 4,
-                resource: BindingResource::Sampler(sampler),
-            },
-        ],
-    })
-}
-
-pub(crate) fn prepare_solid_backdrop_material_params_buffer<'a>(
-    device: &Device,
-    queue: &Queue,
-    backdrop_material_params_buffer: &'a mut Option<Buffer>,
-    sampling_uniform: BackdropSamplingUniform,
-) -> &'a Buffer {
-    let material_params = GpuMaterialParams::for_backdrop_sampling(sampling_uniform);
-    uniforms::prepare_buffer(
-        backdrop_material_params_buffer,
-        device,
-        queue,
-        &material_params,
-        "solid_backdrop_material_params_buffer",
-    )
 }
 
 pub(crate) fn prepare_backdrop_layer_params_buffer<'a>(

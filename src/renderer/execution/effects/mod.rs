@@ -1,7 +1,6 @@
 pub(crate) use bindings::{
     backdrop_layer_params, create_backdrop_layer_composite_bind_group,
-    create_backdrop_texture_sample_bind_group, create_texture_sample_bind_group,
-    prepare_backdrop_layer_params_buffer, prepare_solid_backdrop_material_params_buffer,
+    create_texture_sample_bind_group, prepare_backdrop_layer_params_buffer,
 };
 pub(crate) use composite::{
     compile_backdrop_layer_composite_pipeline, compile_composite_pipeline,
@@ -15,7 +14,7 @@ pub(crate) use registry::EffectRegistry;
 pub(crate) use textures::{OffscreenTexturePool, PooledTexture};
 use wgpu::{
     BindGroup, BindGroupLayout, Color, CommandEncoder, Device, LoadOp, Operations,
-    RenderPassColorAttachment, RenderPassDescriptor, Sampler, StoreOp, TextureFormat, TextureView,
+    RenderPassColorAttachment, RenderPassDescriptor, Sampler, StoreOp, TextureFormat,
 };
 
 mod bindings;
@@ -40,25 +39,6 @@ impl AppliedEffectOutput {
             textures_to_recycle.push(recyclable_texture);
         }
         (self.final_output_texture, self.composite_bind_group)
-    }
-
-    pub(crate) fn push_work_textures_into(
-        self,
-        output_textures: &mut Vec<PooledTexture>,
-    ) -> Option<BindGroup> {
-        output_textures.push(self.final_output_texture);
-        if let Some(recyclable_texture) = self.recyclable_texture {
-            output_textures.push(recyclable_texture);
-        }
-        self.composite_bind_group
-    }
-
-    pub(crate) fn final_output_view(&self) -> &TextureView {
-        &self.final_output_texture.color_view
-    }
-
-    pub(crate) fn final_output_texture_id(&self) -> u64 {
-        self.final_output_texture.texture_id
     }
 }
 

@@ -1,23 +1,28 @@
-use super::uniforms;
-use crate::gradient::gpu::{GpuMaterialParams, GradientCache};
+use crate::gradient::gpu::{GradientCache, GradientMaterial};
 use crate::gradient::types::Fill;
-use crate::pipeline::BackdropSamplingUniform;
+#[cfg(feature = "render_metrics")]
+use crate::renderer::metrics::TextureMaterialMetrics;
 use crate::vertex::{
     CustomVertex, GeometryBufferRange, InstanceColor, InstanceMetadata, InstanceTransform,
 };
 use ahash::{HashMap, HashMapExt};
+use materials::TextureMaterialPool;
+pub(in crate::renderer) use pipelines::TextureMaterialPipelines;
+pub(crate) use sampling::TextureSamplingUniform;
 use std::sync::Arc;
-use wgpu::{BindGroup, BindGroupLayout, Buffer, Device, Queue, Sampler, TextureView};
+use wgpu::{BindGroup, BindGroupLayout, Device, Queue, Sampler};
+
+mod materials;
+mod pipelines;
+mod sampling;
 
 /// GPU locations and material bindings for one CPU shape description.
 #[derive(Debug, Default)]
 pub(crate) struct ShapeDrawResources {
     pub(crate) geometry_buffer_range: Option<GeometryBufferRange>,
     pub(crate) instance_index: Option<usize>,
-    pub(crate) gradient_bind_group: Option<Arc<BindGroup>>,
-    backdrop_material_params_buffer: Option<Buffer>,
-    backdrop_gradient_bind_group: Option<BindGroup>,
-    backdrop_gradient_texture_id: Option<u64>,
+    gradient_material: Option<Arc<GradientMaterial>>,
+    texture_material_bind_group: Option<BindGroup>,
 }
 
 impl ShapeDrawResources {
@@ -31,18 +36,15 @@ impl ShapeDrawResources {
 
     /// Discards material bindings tied to a replaced pipeline layout.
     pub(crate) fn invalidate_material_bindings(&mut self) {
-        self.gradient_bind_group = None;
-        self.backdrop_gradient_bind_group = None;
-        self.backdrop_gradient_texture_id = None;
+        self.gradient_material = None;
+        self.texture_material_bind_group = None;
     }
 
-    pub(crate) fn clear_backdrop_resources(&mut self) {
-        self.backdrop_material_params_buffer = None;
-        self.backdrop_gradient_bind_group = None;
-        self.backdrop_gradient_texture_id = None;
+    pub(crate) fn clear_under_fill_binding(&mut self) {
+        self.texture_material_bind_group = None;
     }
 
-    pub(crate) fn refresh_gradient_bind_group(
+    pub(crate) fn refresh_gradient_material(
         &mut self,
         fill: &mut Option<Fill>,
         gradient_cache: &mut GradientCache,
@@ -51,8 +53,8 @@ impl ShapeDrawResources {
         layout: &BindGroupLayout,
         sampler: &Sampler,
     ) {
-        self.gradient_bind_group = match fill.as_mut() {
-            Some(Fill::Gradient(gradient)) => Some(gradient_cache.get_or_create_bind_group(
+        self.gradient_material = match fill.as_mut() {
+            Some(Fill::Gradient(gradient)) => Some(gradient_cache.get_or_create_material(
                 &mut gradient.data,
                 device,
                 queue,
@@ -62,55 +64,13 @@ impl ShapeDrawResources {
             _ => None,
         };
     }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn prepare_backdrop_gradient_bind_group(
-        &mut self,
-        fill: &mut Option<Fill>,
-        gradient_cache: &mut GradientCache,
-        device: &Device,
-        queue: &Queue,
-        layout: &BindGroupLayout,
-        backdrop_sampling_uniform: BackdropSamplingUniform,
-        gradient_sampler: &Sampler,
-        backdrop_texture_id: u64,
-        backdrop_view: &TextureView,
-        backdrop_sampler: &Sampler,
-    ) -> Option<&BindGroup> {
-        let Some(Fill::Gradient(gradient)) = fill.as_mut() else {
-            return None;
-        };
-        let params = GpuMaterialParams::from_gradient_data(&gradient.data)
-            .with_backdrop_sampling(backdrop_sampling_uniform);
-        let material_params_buffer = uniforms::prepare_buffer(
-            &mut self.backdrop_material_params_buffer,
-            device,
-            queue,
-            &params,
-            "gradient_backdrop_material_params_buffer",
-        );
-
-        if self.backdrop_gradient_texture_id != Some(backdrop_texture_id) {
-            self.backdrop_gradient_bind_group =
-                Some(gradient_cache.create_backdrop_gradient_bind_group(
-                    &mut gradient.data,
-                    device,
-                    queue,
-                    layout,
-                    material_params_buffer,
-                    gradient_sampler,
-                    backdrop_view,
-                    backdrop_sampler,
-                ));
-            self.backdrop_gradient_texture_id = Some(backdrop_texture_id);
-        }
-
-        self.backdrop_gradient_bind_group.as_ref()
-    }
 }
 
 /// Reusable execution storage, separate from draw descriptions and their tree.
 pub(crate) struct ShapeExecutionResources {
+    pub(in crate::renderer) texture_materials: TextureMaterialPool,
+    #[cfg(feature = "render_metrics")]
+    pub(crate) texture_material_metrics: TextureMaterialMetrics,
     pub(crate) draws: HashMap<usize, ShapeDrawResources>,
     pub(crate) effect_leaves: HashMap<usize, ShapeDrawResources>,
     pub(crate) gradient_cache: GradientCache,
@@ -125,6 +85,9 @@ pub(crate) struct ShapeExecutionResources {
 impl ShapeExecutionResources {
     pub(crate) fn new() -> Self {
         Self {
+            texture_materials: TextureMaterialPool::default(),
+            #[cfg(feature = "render_metrics")]
+            texture_material_metrics: TextureMaterialMetrics::default(),
             draws: HashMap::new(),
             effect_leaves: HashMap::new(),
             gradient_cache: GradientCache::new(),
@@ -137,7 +100,7 @@ impl ShapeExecutionResources {
         }
     }
 
-    /// Releases queued resources while retaining allocation capacity and shared gradients.
+    /// Drops draw references while retaining GPU material slots, gradients, and CPU capacity.
     pub(crate) fn clear_draw_queue(&mut self) {
         self.draws.clear();
         self.effect_leaves.clear();

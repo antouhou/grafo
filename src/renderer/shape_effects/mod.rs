@@ -1,10 +1,11 @@
+use super::execution::draws;
 use super::execution::effects::{
     apply_effect_passes, create_texture_sample_bind_group, EffectPassRunConfig, EffectRegistry,
 };
 use super::execution::effects::{OffscreenTexturePool, PooledTexture};
 use super::execution::shapes::ShapeDrawResources;
 use super::execution::textures::{
-    CachedShapeEffectMask, SampledTexture, ShapeEffectCacheKey, ShapeEffectMaskCache,
+    CachedShapeEffectMask, IntermediateTexture, ShapeEffectCacheKey, ShapeEffectMaskCache,
     ShapeEffectMaskCacheKey,
 };
 use super::rect_utils::compute_downsampled_dimensions;
@@ -22,8 +23,8 @@ use lyon::tessellation::VertexBuffers;
 use std::sync::Arc;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
-    BufferUsages, Color, CommandEncoder, Device, IndexFormat, LoadOp, Operations,
-    RenderPassColorAttachment, RenderPassDescriptor, StoreOp, TextureView,
+    BufferUsages, Color, CommandEncoder, Device, LoadOp, Operations, RenderPassColorAttachment,
+    RenderPassDescriptor, StoreOp, TextureView,
 };
 
 const SHAPE_EFFECT_MASK_SHADER: &str = include_str!("../../shaders/shape_effect_mask.wgsl");
@@ -351,11 +352,13 @@ fn render_shape_effect_mask(
         timestamp_writes: None,
         occlusion_query_set: None,
     });
-    render_pass.set_pipeline(&resources.mask_pipeline);
-    render_pass.set_bind_group(0, &bind_group, &[]);
-    render_pass.set_vertex_buffer(0, buffers.vertex_buffer().slice(..));
-    render_pass.set_index_buffer(buffers.index_buffer().slice(..), IndexFormat::Uint16);
-    buffers.draw_indexed(&mut render_pass, draw.geometry_range, 0..1);
+    draws::draw_shape_mask(
+        &mut render_pass,
+        draw.geometry_range,
+        &resources.mask_pipeline,
+        &bind_group,
+        buffers,
+    );
 }
 
 fn resolve_shape_effect_mask(
@@ -394,13 +397,12 @@ fn render_shape_effect(
     texture_pool: &mut OffscreenTexturePool,
     config: EffectPassRunConfig<'_>,
     textures_to_recycle: &mut Vec<PooledTexture>,
-) -> SampledTexture {
+) -> IntermediateTexture {
     let effect_output = apply_effect_passes(registry, device, encoder, texture_pool, config);
     let (final_texture, texture_bind_group) = effect_output.into_final_output(textures_to_recycle);
-    SampledTexture {
+    IntermediateTexture {
         texture: final_texture,
-        bind_group: texture_bind_group
-            .expect("shape effect generation must create a texture bind group"),
+        bind_group: texture_bind_group,
     }
 }
 

@@ -1,4 +1,5 @@
 use super::execution::effects::BackdropEffectResources;
+use super::execution::shapes::TextureMaterialPipelines;
 use super::state::BackdropPipelineResources;
 use super::*;
 use crate::effect::{
@@ -218,12 +219,6 @@ impl<'a> Renderer<'a> {
             .get_mut(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
         instance.config = backdrop_config;
-        self.state
-            .effect_execution
-            .backdrops
-            .get_mut(&node_id)
-            .expect("backdrop attachments have execution resources")
-            .invalidate_material_binding();
         Ok(())
     }
 
@@ -257,6 +252,9 @@ impl<'a> Renderer<'a> {
     pub fn remove_backdrop_effect(&mut self, node_id: usize) {
         self.state.backdrop_effects.remove(&node_id);
         self.state.effect_execution.backdrops.remove(&node_id);
+        if let Some(resources) = self.state.shape_execution.draws.get_mut(&node_id) {
+            resources.clear_under_fill_binding();
+        }
     }
 
     /// Attaches a cached shader effect generated from the node's local coverage mask.
@@ -346,7 +344,7 @@ impl<'a> Renderer<'a> {
             if instance.effect.effect_id == effect_id {
                 self.state.effect_execution.backdrops.remove(node_id);
                 if let Some(resources) = self.state.shape_execution.draws.get_mut(node_id) {
-                    resources.clear_backdrop_resources();
+                    resources.clear_under_fill_binding();
                 }
                 return false;
             }
@@ -377,6 +375,20 @@ impl<'a> Renderer<'a> {
         }
 
         self.ensure_composite_pipeline();
+        if self
+            .pipeline_resources
+            .shapes
+            .under_fill_pipelines
+            .is_none()
+        {
+            let under_fill_pipelines = TextureMaterialPipelines::new(
+                &self.device,
+                self.config.format,
+                self.msaa_sample_count,
+                &self.pipeline_resources.shapes,
+            );
+            self.pipeline_resources.shapes.under_fill_pipelines = Some(under_fill_pipelines);
+        }
         let resources = &self.pipeline_resources;
         let composite = resources
             .composite_resources
@@ -385,8 +397,6 @@ impl<'a> Renderer<'a> {
         self.pipeline_resources.backdrops = Some(BackdropPipelineResources::new(
             &self.device,
             self.config.format,
-            self.msaa_sample_count,
-            &resources.shapes,
             &composite.bind_group_layout,
         ));
     }

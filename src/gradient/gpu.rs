@@ -2,7 +2,7 @@ use super::sampling::bake_gradient_ramp;
 use super::types::{
     GradientData, GradientGeometry, GradientRamp, GradientRampCacheKey, GradientUnits, SpreadMode,
 };
-use crate::pipeline::BackdropSamplingUniform;
+use crate::renderer::TextureSamplingUniform;
 use lru::LruCache;
 use std::f32::consts::TAU;
 use std::num::NonZeroUsize;
@@ -10,7 +10,7 @@ use std::sync::Arc;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 const MAX_GRADIENT_RAMP_CACHE_SIZE: usize = 256;
-const MAX_GRADIENT_BIND_GROUP_CACHE_SIZE: usize = 1024;
+const MAX_GRADIENT_MATERIAL_CACHE_SIZE: usize = 1024;
 
 /// Gradient parameters laid out for a GPU uniform buffer.
 /// Matches the WGSL `GradientColorParams` struct in shader.wgsl.
@@ -121,20 +121,19 @@ impl GpuGradientColorParams {
 
 /// GPU-side material parameters bound at group 3 binding 0.
 ///
-/// Gradient fills and backdrop pipelines share this uniform layout.
-/// Solid backdrop draws disable the gradient and populate only `backdrop_sampling`.
+/// Gradient fills and under-fill textures share this uniform layout.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct GpuMaterialParams {
     pub gradient: GpuGradientColorParams,
-    pub backdrop_sampling: BackdropSamplingUniform,
+    pub texture_sampling: TextureSamplingUniform,
 }
 
 impl Default for GpuMaterialParams {
     fn default() -> Self {
         Self {
             gradient: GpuGradientColorParams::none(),
-            backdrop_sampling: BackdropSamplingUniform::default(),
+            texture_sampling: TextureSamplingUniform::default(),
         }
     }
 }
@@ -143,17 +142,17 @@ impl GpuMaterialParams {
     pub fn from_gradient_data(data: &GradientData) -> Self {
         Self {
             gradient: GpuGradientColorParams::from_gradient_data(data),
-            backdrop_sampling: BackdropSamplingUniform::default(),
+            texture_sampling: TextureSamplingUniform::default(),
         }
     }
 
-    pub fn with_backdrop_sampling(mut self, sampling_uniform: BackdropSamplingUniform) -> Self {
-        self.backdrop_sampling = sampling_uniform;
+    pub fn with_texture_sampling(mut self, sampling_uniform: TextureSamplingUniform) -> Self {
+        self.texture_sampling = sampling_uniform;
         self
     }
 
-    pub fn for_backdrop_sampling(sampling_uniform: BackdropSamplingUniform) -> Self {
-        Self::default().with_backdrop_sampling(sampling_uniform)
+    pub fn for_texture_sampling(sampling_uniform: TextureSamplingUniform) -> Self {
+        Self::default().with_texture_sampling(sampling_uniform)
     }
 }
 
@@ -263,7 +262,7 @@ impl GpuGradientColorParamsKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct GradientBindGroupCacheKey {
+struct GradientMaterialCacheKey {
     params: GpuGradientColorParamsKey,
     ramp_key: GradientRampCacheKey,
 }
@@ -273,10 +272,16 @@ struct CachedGradientRampTexture {
     view: Arc<wgpu::TextureView>,
 }
 
+#[derive(Debug)]
+pub(crate) struct GradientMaterial {
+    pub(crate) bind_group: wgpu::BindGroup,
+    pub(crate) ramp_view: Arc<wgpu::TextureView>,
+}
+
 pub(crate) struct GradientCache {
     ramps: LruCache<GradientRampCacheKey, GradientRamp>,
     ramp_textures: LruCache<GradientRampCacheKey, Arc<CachedGradientRampTexture>>,
-    bind_groups: LruCache<GradientBindGroupCacheKey, Arc<wgpu::BindGroup>>,
+    materials: LruCache<GradientMaterialCacheKey, Arc<GradientMaterial>>,
     default_ramp_texture: Option<Arc<CachedGradientRampTexture>>,
 }
 
@@ -291,16 +296,16 @@ impl GradientCache {
                 NonZeroUsize::new(MAX_GRADIENT_RAMP_CACHE_SIZE)
                     .expect("gradient ramp cache size must be greater than 0"),
             ),
-            bind_groups: LruCache::new(
-                NonZeroUsize::new(MAX_GRADIENT_BIND_GROUP_CACHE_SIZE)
-                    .expect("gradient bind group cache size must be greater than 0"),
+            materials: LruCache::new(
+                NonZeroUsize::new(MAX_GRADIENT_MATERIAL_CACHE_SIZE)
+                    .expect("gradient material cache size must be greater than 0"),
             ),
             default_ramp_texture: None,
         }
     }
 
-    pub(crate) fn clear_bind_groups(&mut self) {
-        self.bind_groups.clear();
+    pub(crate) fn clear_materials(&mut self) {
+        self.materials.clear();
     }
 
     fn get_or_create_default_ramp_texture(
@@ -322,22 +327,16 @@ impl GradientCache {
     }
 
     pub(super) fn get_or_create_ramp(&mut self, gradient_data: &mut GradientData) -> GradientRamp {
-        match &gradient_data.ramp {
-            GradientRamp::Constant(_) | GradientRamp::Sampled(_) => {
-                return gradient_data.ramp.clone();
-            }
-            GradientRamp::Pending(_) => {}
-        }
+        let GradientRamp::Pending(ramp_source) = &gradient_data.ramp else {
+            return gradient_data.ramp.clone();
+        };
 
         if let Some(ramp) = self.ramps.get(&gradient_data.ramp_cache_key).cloned() {
             gradient_data.ramp = ramp.clone();
             return ramp;
         }
 
-        let baked_ramp = match &gradient_data.ramp {
-            GradientRamp::Pending(ramp_source) => bake_gradient_ramp(ramp_source),
-            GradientRamp::Constant(_) | GradientRamp::Sampled(_) => unreachable!(),
-        };
+        let baked_ramp = bake_gradient_ramp(ramp_source);
 
         self.ramps
             .put(gradient_data.ramp_cache_key.clone(), baked_ramp.clone());
@@ -366,22 +365,22 @@ impl GradientCache {
         ramp_texture
     }
 
-    pub(crate) fn get_or_create_bind_group(
+    pub(crate) fn get_or_create_material(
         &mut self,
         gradient_data: &mut GradientData,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         layout: &wgpu::BindGroupLayout,
         sampler: &wgpu::Sampler,
-    ) -> Arc<wgpu::BindGroup> {
+    ) -> Arc<GradientMaterial> {
         let material_params = GpuMaterialParams::from_gradient_data(gradient_data);
-        let cache_key = GradientBindGroupCacheKey {
+        let cache_key = GradientMaterialCacheKey {
             params: GpuGradientColorParamsKey::from_params(material_params.gradient),
             ramp_key: gradient_data.ramp_cache_key.clone(),
         };
 
-        if let Some(bind_group) = self.bind_groups.get(&cache_key) {
-            return bind_group.clone();
+        if let Some(material) = self.materials.get(&cache_key) {
+            return material.clone();
         }
 
         let ramp_texture = if matches!(gradient_data.ramp, GradientRamp::Constant(_)) {
@@ -396,7 +395,7 @@ impl GradientCache {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Gradient Bind Group"),
             layout,
             entries: &[
@@ -413,61 +412,18 @@ impl GradientCache {
                     resource: wgpu::BindingResource::Sampler(sampler),
                 },
             ],
-        }));
-
-        self.bind_groups.put(cache_key, bind_group.clone());
-        bind_group
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn create_backdrop_gradient_bind_group(
-        &mut self,
-        gradient_data: &mut GradientData,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        layout: &wgpu::BindGroupLayout,
-        material_params_buffer: &wgpu::Buffer,
-        gradient_sampler: &wgpu::Sampler,
-        backdrop_view: &wgpu::TextureView,
-        backdrop_sampler: &wgpu::Sampler,
-    ) -> wgpu::BindGroup {
-        let ramp_texture = if matches!(gradient_data.ramp, GradientRamp::Constant(_)) {
-            self.get_or_create_default_ramp_texture(device, queue)
-        } else {
-            self.get_or_create_ramp_texture(gradient_data, device, queue)
-        };
-
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Backdrop Gradient Material Bind Group"),
-            layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: material_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(ramp_texture.view.as_ref()),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(gradient_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(backdrop_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::Sampler(backdrop_sampler),
-                },
-            ],
-        })
+        });
+        let material = Arc::new(GradientMaterial {
+            bind_group,
+            ramp_view: Arc::clone(&ramp_texture.view),
+        });
+        self.materials.put(cache_key, material.clone());
+        material
     }
 
     pub(crate) fn print_sizes(&self) {
         println!("Gradient ramps: {}", self.ramps.len());
         println!("Gradient ramp textures: {}", self.ramp_textures.len());
-        println!("Gradient bind groups: {}", self.bind_groups.len());
+        println!("Gradient materials: {}", self.materials.len());
     }
 }

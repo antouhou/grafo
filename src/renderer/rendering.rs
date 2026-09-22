@@ -1,6 +1,6 @@
 use super::*;
 use crate::renderer::execution::effects::{apply_effect_passes, EffectPassRunConfig};
-use crate::renderer::execution::textures::SampledTexture;
+use crate::renderer::execution::textures::IntermediateTexture;
 #[cfg(feature = "render_metrics")]
 use crate::renderer::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
 use crate::renderer::passes::{render_segments, SegmentRenderTarget};
@@ -16,8 +16,14 @@ impl<'a> Renderer<'a> {
         output_texture: Option<&wgpu::Texture>,
     ) {
         let render_to_texture_view_started_at = std::time::Instant::now();
+        self.state.shape_execution.texture_materials.begin_render();
+        #[cfg(feature = "render_metrics")]
+        {
+            self.state.shape_execution.texture_material_metrics = Default::default();
+        }
 
         if self.state.draw_tree.is_empty() {
+            self.state.shape_execution.texture_materials.finish_render();
             self.state.textures.pool.clear();
             self.state.scratch.shape_effect_leaves.clear();
             let (_collected_shape_effect_results, _collected_shape_effect_masks) =
@@ -84,7 +90,6 @@ impl<'a> Renderer<'a> {
             Some(types::BackdropContext {
                 effect_registry: &self.effect_registry,
                 effect_sampler: pipeline_resources.effect_sampler.as_ref().unwrap(),
-                gradient_ramp_sampler: &pipeline_resources.shapes.gradient_ramp_sampler,
                 texture_blit_pipeline: &backdrops.texture_blit_pipeline,
                 composite_bind_group_layout: &pipeline_resources
                     .composite_resources
@@ -93,22 +98,10 @@ impl<'a> Renderer<'a> {
                     .bind_group_layout,
                 backdrop_layer_composite_pipeline: &backdrop_composite.pipeline,
                 backdrop_layer_composite_bind_group_layout: &backdrop_composite.bind_group_layout,
-                stencil_only_pipeline: &backdrops.stencil_only_pipeline,
-                backdrop_color_pipeline: &backdrops.color_pipeline,
-                backdrop_color_gradient_pipeline: &backdrops.color_gradient_pipeline,
                 device: &self.device,
                 queue: &self.queue,
                 config_format: self.config.format,
                 max_texture_dimension_2d: self.device.limits().max_texture_dimension_2d,
-                backdrop_texture_bind_group_layout: &pipeline_resources
-                    .shapes
-                    .backdrop_texture_bind_group_layout,
-                default_backdrop_texture_bind_group: &pipeline_resources
-                    .shapes
-                    .default_backdrop_texture_bind_group,
-                backdrop_gradient_bind_group_layout: &pipeline_resources
-                    .shapes
-                    .backdrop_gradient_bind_group_layout,
             })
         } else {
             None
@@ -287,10 +280,9 @@ impl<'a> Renderer<'a> {
 
                 let (texture, bind_group) =
                     effect_output.into_final_output(&mut state.textures.work_textures);
-                let texture_id = state.textures.insert_transient(SampledTexture {
+                let texture_id = state.textures.insert_transient(IntermediateTexture {
                     texture,
-                    bind_group: bind_group
-                        .expect("group effects must create a composite bind group"),
+                    bind_group,
                 });
                 effect_results.insert(node_id, texture_id);
                 state.textures.work_textures.push(subtree_texture);
@@ -344,6 +336,7 @@ impl<'a> Renderer<'a> {
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
+        state.shape_execution.texture_materials.finish_render();
 
         self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
 
