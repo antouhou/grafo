@@ -1,5 +1,6 @@
 use super::*;
 use crate::renderer::execution::effects::{apply_effect_passes, EffectPassRunConfig};
+use crate::renderer::execution::targets::RenderTarget;
 use crate::renderer::execution::textures::IntermediateTexture;
 #[cfg(feature = "render_metrics")]
 use crate::renderer::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
@@ -144,16 +145,6 @@ impl<'a> Renderer<'a> {
                         self.config.format,
                         self.msaa_sample_count,
                     );
-                    let (behind_color_view, behind_resolve_target) = if behind_tex.sample_count > 1
-                    {
-                        (
-                            &behind_tex.color_view,
-                            Some(behind_tex.resolve_view.as_ref().unwrap() as &wgpu::TextureView),
-                        )
-                    } else {
-                        (&behind_tex.color_view as &wgpu::TextureView, None)
-                    };
-
                     plan_traversal_in_place(
                         &mut state.draw_tree,
                         &effect_results,
@@ -167,12 +158,7 @@ impl<'a> Renderer<'a> {
                         traversal_scratch.events(),
                         &effect_results,
                         SegmentRenderTarget {
-                            color_view: behind_color_view,
-                            color_resolve_target: behind_resolve_target,
-                            depth_stencil_view: behind_tex
-                                .depth_stencil_view
-                                .as_ref()
-                                .expect("group backdrop targets include depth/stencil"),
+                            output: RenderTarget::for_texture(&behind_tex),
                             backdrop_source: None,
                             backdrop_context: None,
                         },
@@ -192,17 +178,6 @@ impl<'a> Renderer<'a> {
                     None,
                     &mut traversal_scratch,
                 );
-
-                let (subtree_color_view, subtree_resolve_target) = if subtree_texture.sample_count
-                    > 1
-                {
-                    (
-                        &subtree_texture.color_view,
-                        Some(subtree_texture.resolve_view.as_ref().unwrap() as &wgpu::TextureView),
-                    )
-                } else {
-                    (&subtree_texture.color_view, None)
-                };
 
                 let backdrop_source = behind_texture.as_ref().map(|texture| {
                     let base_texture = if texture.sample_count > 1 {
@@ -226,11 +201,7 @@ impl<'a> Renderer<'a> {
                     traversal_scratch.events(),
                     &effect_results,
                     SegmentRenderTarget {
-                        color_view: subtree_color_view,
-                        color_resolve_target: subtree_resolve_target,
-                        depth_stencil_view: subtree_texture.depth_stencil_view.as_ref().expect(
-                            "subtree render targets must include a depth/stencil attachment",
-                        ),
+                        output: RenderTarget::for_texture(&subtree_texture),
                         backdrop_source,
                         backdrop_context: backdrop_context
                             .as_ref()
@@ -301,16 +272,6 @@ impl<'a> Renderer<'a> {
                 &mut traversal_scratch,
             );
 
-            let (output_color_view, output_resolve_target) =
-                if let Some(msaa_view) = self.msaa_color_texture_view.as_ref() {
-                    (
-                        msaa_view as &wgpu::TextureView,
-                        Some(texture_view as &wgpu::TextureView),
-                    )
-                } else {
-                    (texture_view as &wgpu::TextureView, None)
-                };
-
             let backdrop_source = if has_backdrop_effects {
                 Some(types::BackdropSource::Flattened {
                     texture: output_texture.expect("output_texture required for backdrop effects"),
@@ -324,9 +285,12 @@ impl<'a> Renderer<'a> {
                 traversal_scratch.events(),
                 &effect_results,
                 SegmentRenderTarget {
-                    color_view: output_color_view,
-                    color_resolve_target: output_resolve_target,
-                    depth_stencil_view: depth_texture_view,
+                    output: RenderTarget::for_output(
+                        texture_view,
+                        self.msaa_color_texture_view.as_ref(),
+                        depth_texture_view,
+                        state.physical_size,
+                    ),
                     backdrop_source,
                     backdrop_context: backdrop_context.as_ref(),
                 },

@@ -65,6 +65,20 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// Warps the backdrop with sharp waves that a later capture can blur.
+pub const WAVE_DISTORTION_WGSL: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let dimensions = vec2<f32>(textureDimensions(t_input));
+    let position = uv * dimensions;
+    let displacement = vec2<f32>(
+        4.0 * sin(position.y * 0.45),
+        2.0 * sin(position.x * 0.35),
+    );
+    return textureSample(t_input, s_input, uv + displacement / dimensions);
+}
+"#;
+
 /// Samples padded capture edges and makes transparent offscreen pixels visible as black.
 pub const PADDED_BACKDROP_SAMPLING_WGSL: &str = r#"
 @fragment

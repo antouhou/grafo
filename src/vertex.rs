@@ -82,12 +82,6 @@ impl InstanceColor {
         shader_location: 1,
     }];
 
-    pub fn transparent() -> Self {
-        Self {
-            color: [0.0, 0.0, 0.0, 0.0],
-        }
-    }
-
     pub fn desc<'a>() -> VertexBufferLayout<'a> {
         VertexBufferLayout {
             array_stride: Self::STRIDE,

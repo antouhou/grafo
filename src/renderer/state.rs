@@ -21,9 +21,6 @@ pub(super) struct Buffers {
     pub(super) supports_base_vertex: bool,
     pub(super) aggregated_vertex_buffer: Option<Buffer>,
     pub(super) aggregated_index_buffer: Option<Buffer>,
-    pub(super) identity_instance_transform_buffer: Option<Buffer>,
-    pub(super) identity_instance_color_buffer: Option<Buffer>,
-    pub(super) identity_instance_metadata_buffer: Option<Buffer>,
     pub(super) aggregated_instance_transform_buffer: Option<Buffer>,
     pub(super) aggregated_instance_color_buffer: Option<Buffer>,
     pub(super) aggregated_instance_metadata_buffer: Option<Buffer>,
@@ -42,22 +39,22 @@ impl Buffers {
             .expect("aggregated index buffer is initialized during render preparation")
     }
 
-    pub(super) fn identity_transform_buffer(&self) -> &Buffer {
-        self.identity_instance_transform_buffer
+    pub(super) fn instance_transform_buffer(&self) -> &Buffer {
+        self.aggregated_instance_transform_buffer
             .as_ref()
-            .expect("identity instance transform buffer is initialized during render preparation")
+            .expect("drawable shapes have an uploaded instance transform buffer")
     }
 
-    pub(super) fn identity_color_buffer(&self) -> &Buffer {
-        self.identity_instance_color_buffer
+    pub(super) fn instance_color_buffer(&self) -> &Buffer {
+        self.aggregated_instance_color_buffer
             .as_ref()
-            .expect("identity instance color buffer is initialized during render preparation")
+            .expect("drawable shapes have an uploaded instance color buffer")
     }
 
-    pub(super) fn identity_metadata_buffer(&self) -> &Buffer {
-        self.identity_instance_metadata_buffer
+    pub(super) fn instance_metadata_buffer(&self) -> &Buffer {
+        self.aggregated_instance_metadata_buffer
             .as_ref()
-            .expect("identity instance metadata buffer is initialized during render preparation")
+            .expect("drawable shapes have an uploaded instance metadata buffer")
     }
 
     pub(super) fn draw_indexed(

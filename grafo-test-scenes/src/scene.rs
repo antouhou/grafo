@@ -4,7 +4,7 @@ use crate::expectations::PixelExpectation;
 use crate::shaders::{
     BlurParams, DropShadowParams, HORIZONTAL_BLUR_WGSL, PADDED_BACKDROP_SAMPLING_WGSL,
     PASSTHROUGH_WGSL, ROTATE_COLOR_CHANNELS_WGSL, SHADOW_TINT_WGSL, SHAPE_DROP_WGSL,
-    VERTICAL_BLUR_WGSL,
+    VERTICAL_BLUR_WGSL, WAVE_DISTORTION_WGSL,
 };
 use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
@@ -29,6 +29,7 @@ const PASSTHROUGH_EFFECT_ID: u64 = 2;
 const SHAPE_DROP_EFFECT_ID: u64 = 3;
 const DROP_SHADOW_EFFECT_ID: u64 = 4;
 const COLOR_CHANNEL_EFFECT_ID: u64 = 5;
+const WAVE_DISTORTION_EFFECT_ID: u64 = 6;
 const CHECKERBOARD_TEXTURE_ID: u64 = 100;
 const SOLID_GREEN_TEXTURE_ID: u64 = 101;
 const SOLID_GREEN_20X20_TEXTURE_ID: u64 = 102;
@@ -154,6 +155,13 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_74_backdrop_stencil_ordering(renderer));
     expectations.extend(tile_75_under_fill_with_user_textures(renderer));
     expectations.extend(tile_76_rotated_under_fill_sampling(renderer));
+    expectations.extend(tile_consecutive_captures_under_inherited_clips(
+        renderer, 77, false,
+    ));
+    expectations.extend(tile_consecutive_captures_under_inherited_clips(
+        renderer, 78, true,
+    ));
+    expectations.extend(tile_79_capture_before_first_group_draw(renderer));
 
     expectations
 }
@@ -605,6 +613,9 @@ fn tile_69_gradient_automatic_stop_after_decreasing_stop(
 // Shared resource setup
 
 fn load_shared_resources(renderer: &mut Renderer) {
+    renderer
+        .load_effect(WAVE_DISTORTION_EFFECT_ID, &[WAVE_DISTORTION_WGSL])
+        .expect("Failed to compile wave distortion effect");
     renderer
         .load_effect(COLOR_CHANNEL_EFFECT_ID, &[ROTATE_COLOR_CHANNELS_WGSL])
         .unwrap();
@@ -5810,6 +5821,405 @@ fn tile_76_rotated_under_fill_sampling(renderer: &mut Renderer) -> Vec<PixelExpe
         (52, 40, [255, 0, 0], "t76_right_capture"),
         (12, 12, [255, 0, 0], "t76_outside_rotated_shape_left"),
         (68, 12, [0, 0, 255], "t76_outside_rotated_shape_right"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+    })
+    .collect()
+}
+
+/// Sharp checks remain visible around the frosted panels.
+fn add_backdrop_checkerboard(renderer: &mut Renderer, origin: (f32, f32)) {
+    let (origin_x, origin_y) = origin;
+    for row in 0..7 {
+        for column in 0..7 {
+            let left = origin_x + 5.0 + column as f32 * 10.0;
+            let top = origin_y + 5.0 + row as f32 * 10.0;
+            let color = if (row + column) % 2 == 0 {
+                Color::rgb(40, 90, 170)
+            } else {
+                Color::rgb(245, 190, 70)
+            };
+            renderer
+                .add_shape(
+                    Shape::rect([(left, top), (left + 10.0, top + 10.0)], Stroke::default()),
+                    None,
+                    None,
+                    ShapeDrawCommandOptions::new().color(color),
+                )
+                .unwrap();
+        }
+    }
+}
+
+/// The red foreground panel blurs the pale panel's sharp distortion in their overlap.
+fn tile_consecutive_captures_under_inherited_clips(
+    renderer: &mut Renderer,
+    tile_number: u32,
+    has_group_effect: bool,
+) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(tile_number);
+    add_backdrop_checkerboard(renderer, (origin_x, origin_y));
+    let container = renderer
+        .add_shape(
+            Shape::rect(
+                [(origin_x, origin_y), (origin_x + 80.0, origin_y + 80.0)],
+                Stroke::default(),
+            ),
+            None,
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    if has_group_effect {
+        renderer
+            .set_group_effect(container, PASSTHROUGH_EFFECT_ID, &[])
+            .unwrap();
+    }
+    let stencil_parent = renderer
+        .add_shape(
+            Shape::rounded_rect(
+                [
+                    (origin_x + 5.0, origin_y + 5.0),
+                    (origin_x + 75.0, origin_y + 75.0),
+                ],
+                BorderRadii::new(35.0),
+                Stroke::default(),
+            ),
+            Some(container),
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    let outer_scissor = renderer
+        .add_clipping_rect(
+            [
+                (origin_x + 10.0, origin_y + 10.0),
+                (origin_x + 70.0, origin_y + 70.0),
+            ],
+            Some(stencil_parent),
+            None::<TransformInstance>,
+            true,
+        )
+        .unwrap();
+    let inner_scissor = renderer
+        .add_clipping_rect(
+            [
+                (origin_x + 16.0, origin_y + 10.0),
+                (origin_x + 64.0, origin_y + 60.0),
+            ],
+            Some(outer_scissor),
+            None::<TransformInstance>,
+            true,
+        )
+        .unwrap();
+
+    // Shared geometry and consecutive instances leave a batch pending before capture.
+    for left in [20.0, 52.0] {
+        renderer
+            .add_shape(
+                Shape::rect([(0.0, 0.0), (8.0, 8.0)], Stroke::default()),
+                Some(inner_scissor),
+                Some(7_701),
+                ShapeDrawCommandOptions::new()
+                    .color(Color::rgb(20, 35, 55))
+                    .transform(TransformInstance::translation(
+                        origin_x + left,
+                        origin_y + 32.0,
+                    )),
+            )
+            .unwrap();
+    }
+    let blur_parameters = BlurParams::new(6.0);
+    for (left, top, bottom, tint, effect_id) in [
+        (
+            10.0,
+            8.0,
+            42.0,
+            Color::rgba(255, 255, 255, 40),
+            WAVE_DISTORTION_EFFECT_ID,
+        ),
+        (
+            32.0,
+            24.0,
+            52.0,
+            Color::rgba(255, 80, 90, 85),
+            BLUR_EFFECT_ID,
+        ),
+    ] {
+        let panel = renderer
+            .add_shape(
+                Shape::rounded_rect(
+                    [
+                        (origin_x + left, origin_y + top),
+                        (origin_x + left + 38.0, origin_y + bottom),
+                    ],
+                    BorderRadii::new(5.0),
+                    Stroke::default(),
+                ),
+                Some(inner_scissor),
+                None,
+                ShapeDrawCommandOptions::new().color(tint),
+            )
+            .unwrap();
+        let parameters = if effect_id == BLUR_EFFECT_ID {
+            bytemuck::bytes_of(&blur_parameters)
+        } else {
+            &[]
+        };
+        renderer
+            .set_shape_backdrop_effect(
+                panel,
+                effect_id,
+                parameters,
+                BackdropEffectConfig::new().padding(6.0),
+            )
+            .unwrap();
+    }
+
+    for (parent, top, color) in [
+        (inner_scissor, 52.0, Color::rgb(30, 45, 65)),
+        (outer_scissor, 56.0, Color::rgb(210, 220, 235)),
+        (container, 72.0, Color::rgb(30, 45, 65)),
+    ] {
+        renderer
+            .add_shape(
+                Shape::rect(
+                    [
+                        (origin_x, origin_y + top),
+                        (origin_x + 80.0, origin_y + top + 4.0),
+                    ],
+                    Stroke::default(),
+                ),
+                Some(parent),
+                None,
+                ShapeDrawCommandOptions::new().color(color),
+            )
+            .unwrap();
+    }
+
+    [
+        (
+            24,
+            20,
+            [247, 202, 126],
+            "consecutive_captures_back_panel_distorts_checks",
+        ),
+        (
+            34,
+            20,
+            [116, 135, 187],
+            "consecutive_captures_back_panel_keeps_warped_edges_sharp",
+        ),
+        (
+            37,
+            35,
+            [232, 160, 131],
+            "consecutive_captures_foreground_blurs_previous_distortion",
+        ),
+        (
+            56,
+            44,
+            [205, 128, 123],
+            "consecutive_captures_second_panel_blurs_checks",
+        ),
+        (
+            24,
+            36,
+            [112, 115, 120],
+            "consecutive_captures_distort_first_batched_square",
+        ),
+        (
+            56,
+            36,
+            [162, 65, 78],
+            "consecutive_captures_blur_second_batched_square",
+        ),
+        (
+            12,
+            32,
+            [40, 90, 170],
+            "consecutive_captures_inherit_left_scissor",
+        ),
+        (
+            68,
+            32,
+            [40, 90, 170],
+            "consecutive_captures_inherit_right_scissor",
+        ),
+        (
+            16,
+            10,
+            [245, 190, 70],
+            "consecutive_captures_inherit_stencil",
+        ),
+        (
+            40,
+            12,
+            [247, 202, 126],
+            "consecutive_captures_distort_inside_stencil",
+        ),
+        (
+            62,
+            20,
+            [40, 90, 170],
+            "consecutive_captures_keep_blue_check_sharp",
+        ),
+        (
+            62,
+            10,
+            [245, 190, 70],
+            "consecutive_captures_keep_gold_check_sharp",
+        ),
+        (
+            20,
+            54,
+            [30, 45, 65],
+            "consecutive_captures_resume_ordinary_draws",
+        ),
+        (
+            12,
+            53,
+            [40, 90, 170],
+            "consecutive_captures_restore_inner_scissor",
+        ),
+        (
+            12,
+            58,
+            [210, 220, 235],
+            "consecutive_captures_pop_inner_scissor",
+        ),
+        (
+            68,
+            58,
+            [210, 220, 235],
+            "consecutive_captures_restore_outer_scissor",
+        ),
+        (2, 74, [30, 45, 65], "consecutive_captures_pop_all_clips"),
+        (
+            40,
+            74,
+            [30, 45, 65],
+            "consecutive_captures_decrement_stencil",
+        ),
+        (
+            2,
+            40,
+            [255, 255, 255],
+            "consecutive_captures_preserve_outside",
+        ),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+    })
+    .collect()
+}
+
+/// A backdrop on the group root captures before any ordinary segment initializes its target.
+fn tile_79_capture_before_first_group_draw(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(79);
+    add_backdrop_checkerboard(renderer, (origin_x, origin_y));
+    let group = renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x + 10.0, origin_y + 10.0),
+                    (origin_x + 70.0, origin_y + 70.0),
+                ],
+                Stroke::default(),
+            ),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgba(255, 255, 255, 40)),
+        )
+        .unwrap();
+    renderer
+        .set_group_effect(group, PASSTHROUGH_EFFECT_ID, &[])
+        .unwrap();
+    renderer
+        .set_shape_backdrop_effect(
+            group,
+            WAVE_DISTORTION_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::new().padding(6.0),
+        )
+        .unwrap();
+    let child = renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x + 40.0, origin_y),
+                    (origin_x + 80.0, origin_y + 60.0),
+                ],
+                Stroke::default(),
+            ),
+            Some(group),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgba(255, 80, 90, 85)),
+        )
+        .unwrap();
+    renderer
+        .set_shape_backdrop_effect(
+            child,
+            BLUR_EFFECT_ID,
+            bytemuck::bytes_of(&BlurParams::new(6.0)),
+            BackdropEffectConfig::new().padding(6.0),
+        )
+        .unwrap();
+
+    [
+        (
+            24,
+            32,
+            [120, 137, 186],
+            "t79_first_capture_distorts_checks_on_cleared_target",
+        ),
+        (
+            57,
+            42,
+            [229, 158, 134],
+            "t79_child_blurs_previously_distorted_checks",
+        ),
+        (
+            72,
+            32,
+            [40, 90, 170],
+            "t79_child_preserves_sharp_checks_outside_parent",
+        ),
+        (
+            56,
+            62,
+            [116, 135, 187],
+            "t79_target_load_preserves_parent_distortion",
+        ),
+        (
+            8,
+            32,
+            [40, 90, 170],
+            "t79_preserve_sharp_blue_check_behind_group",
+        ),
+        (
+            8,
+            22,
+            [245, 190, 70],
+            "t79_preserve_sharp_gold_check_behind_group",
+        ),
     ]
     .into_iter()
     .map(|(x, y, [red, green, blue], label)| {

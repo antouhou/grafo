@@ -6,7 +6,7 @@ use std::ops::Range;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, ComputePipeline, Device,
-    RenderPass, RenderPipeline, StoreOp, Texture, TextureView,
+    RenderPass, RenderPipeline, Texture,
 };
 
 struct ShapePipelineDescriptor<'a> {
@@ -107,6 +107,27 @@ pub fn create_equal_decrement_depth_state() -> wgpu::DepthStencilState {
         depth_write_enabled: false,
         depth_compare: wgpu::CompareFunction::Always,
         stencil: create_equal_decrement_stencil_state(),
+        bias: wgpu::DepthBiasState::default(),
+    }
+}
+
+fn create_equal_keep_depth_state() -> wgpu::DepthStencilState {
+    let stencil_face = wgpu::StencilFaceState {
+        compare: wgpu::CompareFunction::Equal,
+        fail_op: wgpu::StencilOperation::Keep,
+        depth_fail_op: wgpu::StencilOperation::Keep,
+        pass_op: wgpu::StencilOperation::Keep,
+    };
+    wgpu::DepthStencilState {
+        format: wgpu::TextureFormat::Depth24PlusStencil8,
+        depth_write_enabled: true,
+        depth_compare: wgpu::CompareFunction::Always,
+        stencil: wgpu::StencilState {
+            front: stencil_face,
+            back: stencil_face,
+            read_mask: 0xff,
+            write_mask: 0,
+        },
         bias: wgpu::DepthBiasState::default(),
     }
 }
@@ -424,46 +445,6 @@ pub fn create_gradient_increment_pipeline(
     )
 }
 
-pub struct RenderPassLoadOperations {
-    pub color_load_op: wgpu::LoadOp<wgpu::Color>,
-    pub depth_load_op: wgpu::LoadOp<f32>,
-    pub stencil_load_op: wgpu::LoadOp<u32>,
-}
-
-pub fn begin_render_pass_with_load_ops<'a, 'b: 'a>(
-    encoder: &'a mut wgpu::CommandEncoder,
-    label: Option<&'a str>,
-    color_texture_view: &'b TextureView,
-    resolve_target: Option<&'b TextureView>,
-    depth_texture_view: &'b TextureView,
-    load_operations: RenderPassLoadOperations,
-) -> RenderPass<'a> {
-    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label,
-        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            view: color_texture_view,
-            resolve_target,
-            ops: wgpu::Operations {
-                load: load_operations.color_load_op,
-                store: StoreOp::Store,
-            },
-        })],
-        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-            view: depth_texture_view,
-            depth_ops: Some(wgpu::Operations {
-                load: load_operations.depth_load_op,
-                store: StoreOp::Store,
-            }),
-            stencil_ops: Some(wgpu::Operations {
-                load: load_operations.stencil_load_op,
-                store: StoreOp::Store,
-            }),
-        }),
-        timestamp_writes: None,
-        occlusion_query_set: None,
-    })
-}
-
 pub fn create_and_depth_texture(device: &Device, size: (u32, u32), sample_count: u32) -> Texture {
     let size = wgpu::Extent3d {
         width: size.0,
@@ -751,13 +732,6 @@ fn create_color_pipeline_with_stencil_keep(
     fragment_entry_point: &str,
     label: &str,
 ) -> RenderPipeline {
-    let stencil_face = wgpu::StencilFaceState {
-        compare: wgpu::CompareFunction::Equal,
-        fail_op: wgpu::StencilOperation::Keep,
-        depth_fail_op: wgpu::StencilOperation::Keep,
-        pass_op: wgpu::StencilOperation::Keep,
-    };
-
     create_shape_pipeline(
         device,
         ShapePipelineDescriptor {
@@ -770,18 +744,7 @@ fn create_color_pipeline_with_stencil_keep(
                 blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                 write_mask: wgpu::ColorWrites::ALL,
             },
-            depth_stencil: wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth24PlusStencil8,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Always,
-                stencil: wgpu::StencilState {
-                    front: stencil_face,
-                    back: stencil_face,
-                    read_mask: 0xff,
-                    write_mask: 0x00,
-                },
-                bias: wgpu::DepthBiasState::default(),
-            },
+            depth_stencil: create_equal_keep_depth_state(),
             sample_count,
         },
     )
@@ -844,24 +807,7 @@ pub(crate) fn create_texture_material_pipeline(
     let depth_stencil = if increments_stencil {
         create_equal_increment_depth_state()
     } else {
-        let stencil_face = wgpu::StencilFaceState {
-            compare: wgpu::CompareFunction::Equal,
-            fail_op: wgpu::StencilOperation::Keep,
-            depth_fail_op: wgpu::StencilOperation::Keep,
-            pass_op: wgpu::StencilOperation::Keep,
-        };
-        wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth24PlusStencil8,
-            depth_write_enabled: true,
-            depth_compare: wgpu::CompareFunction::Always,
-            stencil: wgpu::StencilState {
-                front: stencil_face,
-                back: stencil_face,
-                read_mask: 0xff,
-                write_mask: 0,
-            },
-            bias: wgpu::DepthBiasState::default(),
-        }
+        create_equal_keep_depth_state()
     };
     create_shape_pipeline(
         device,

@@ -541,9 +541,7 @@ impl<'a> Renderer<'a> {
             else {
                 continue;
             };
-            let Some(geometry_range) =
-                self.state.shape_execution.draws[&node_id].geometry_buffer_range
-            else {
+            let Some(location) = self.state.shape_execution.draws[&node_id].location else {
                 continue;
             };
 
@@ -591,7 +589,7 @@ impl<'a> Renderer<'a> {
                     &mut self.state.textures.shape_effect_masks,
                     ShapeEffectMaskDraw {
                         cache_key: mask_cache_key,
-                        geometry_range,
+                        geometry_range: location.geometry_range,
                         uniform: raster_rect
                             .mask_uniform(self.state.scale_factor, self.fringe_width),
                     },
