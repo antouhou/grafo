@@ -56,5 +56,4 @@ pub(crate) struct CachedShapeEffectMask {
     pub texture: PooledTexture,
 }
 
-pub(crate) type ShapeEffectMaskCache =
-    FrameCache<ShapeEffectMaskCacheKey, Arc<CachedShapeEffectMask>>;
+pub(crate) type ShapeEffectMaskCache = FrameCache<ShapeEffectMaskCacheKey, CachedShapeEffectMask>;

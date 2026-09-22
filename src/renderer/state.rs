@@ -1,5 +1,5 @@
 use super::execution::effects::{CompositePipelineResources, EffectExecutionResources};
-use super::execution::shapes::ShapeExecutionResources;
+use super::execution::shapes::{ShapeExecutionResources, TextureMaterialPipelines};
 use super::execution::textures::IntermediateTextureResources;
 #[cfg(feature = "render_metrics")]
 use super::metrics::{PipelineSwitchCounts, ShapeEffectCacheMetrics};
@@ -93,11 +93,10 @@ pub(super) struct ShapePipelines {
     pub(super) and_uniform_buffer: Buffer,
     pub(super) decrementing_uniforms: Uniforms,
     pub(super) decrementing_uniform_buffer: Buffer,
-    pub(super) backdrop_texture_bind_group_layout: Arc<BindGroupLayout>,
-    pub(super) default_backdrop_texture_bind_group: Arc<BindGroup>,
+    pub(super) under_fill_pipelines: Option<TextureMaterialPipelines>,
+    pub(super) stencil_only_pipeline: RenderPipeline,
     pub(super) gradient_bind_group_layout: BindGroupLayout,
-    pub(super) backdrop_gradient_bind_group_layout: BindGroupLayout,
-    pub(super) gradient_ramp_sampler: Sampler,
+    pub(super) linear_clamp_sampler: Sampler,
 }
 
 /// Pipelines created together when rendering first needs a backdrop effect.
@@ -106,11 +105,6 @@ pub(super) struct BackdropPipelineResources {
     pub(super) texture_blit_pipeline: RenderPipeline,
     /// Layers a transparent group prefix over the scene behind the group.
     pub(super) layer_composite_resources: CompositePipelineResources,
-    /// Clips the backdrop to its shape without drawing color.
-    pub(super) stencil_only_pipeline: RenderPipeline,
-    /// Draws the shape over its backdrop without incrementing stencil again.
-    pub(super) color_pipeline: RenderPipeline,
-    pub(super) color_gradient_pipeline: RenderPipeline,
 }
 
 /// Built-in shape and effect resources, borrowed separately from mutable draw state.

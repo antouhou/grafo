@@ -130,13 +130,13 @@ impl<'a> Renderer<'a> {
     ) -> Result<ShapeDrawResources, GeometryBufferError> {
         let mut resources = ShapeDrawResources::default();
         self.refresh_geometry_cache(cached_shape_data);
-        resources.refresh_gradient_bind_group(
+        resources.refresh_gradient_material(
             &mut cached_shape_data.fill,
             &mut self.state.shape_execution.gradient_cache,
             &self.device,
             &self.queue,
             &self.pipeline_resources.shapes.gradient_bind_group_layout,
-            &self.pipeline_resources.shapes.gradient_ramp_sampler,
+            &self.pipeline_resources.shapes.linear_clamp_sampler,
         );
         let geometry_range = append_aggregated_geometry_for_shape(
             cached_shape_data,

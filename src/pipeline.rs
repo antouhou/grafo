@@ -40,34 +40,6 @@ impl Uniforms {
     }
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct BackdropSamplingUniform {
-    pub capture_origin: [f32; 2],
-    pub inverse_capture_size: [f32; 2],
-}
-
-impl BackdropSamplingUniform {
-    pub fn new(capture_origin: (i32, i32), capture_size: (u32, u32)) -> Self {
-        Self {
-            capture_origin: [capture_origin.0 as f32, capture_origin.1 as f32],
-            inverse_capture_size: [
-                1.0 / capture_size.0.max(1) as f32,
-                1.0 / capture_size.1.max(1) as f32,
-            ],
-        }
-    }
-}
-
-impl Default for BackdropSamplingUniform {
-    fn default() -> Self {
-        Self {
-            capture_origin: [0.0, 0.0],
-            inverse_capture_size: [1.0, 1.0],
-        }
-    }
-}
-
 fn create_equal_increment_stencil_state() -> wgpu::StencilState {
     // Increment matching stencil values; leave other values unchanged.
     let face_state = wgpu::StencilFaceState {
@@ -250,7 +222,7 @@ pub fn create_gradient_bind_group_layout(device: &Device) -> BindGroupLayout {
     })
 }
 
-pub fn create_backdrop_texture_bind_group_layout(device: &Device) -> BindGroupLayout {
+pub fn create_texture_material_bind_group_layout(device: &Device) -> BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[
             wgpu::BindGroupLayoutEntry {
@@ -280,11 +252,11 @@ pub fn create_backdrop_texture_bind_group_layout(device: &Device) -> BindGroupLa
                 count: None,
             },
         ],
-        label: Some("backdrop_texture_bind_group_layout"),
+        label: Some("texture_material_bind_group_layout"),
     })
 }
 
-pub fn create_backdrop_gradient_bind_group_layout(device: &Device) -> BindGroupLayout {
+pub fn create_gradient_texture_material_bind_group_layout(device: &Device) -> BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[
             wgpu::BindGroupLayoutEntry {
@@ -330,7 +302,7 @@ pub fn create_backdrop_gradient_bind_group_layout(device: &Device) -> BindGroupL
                 count: None,
             },
         ],
-        label: Some("backdrop_gradient_bind_group_layout"),
+        label: Some("gradient_texture_material_bind_group_layout"),
     })
 }
 
@@ -739,8 +711,7 @@ pub fn create_msaa_color_texture(
     })
 }
 
-/// Creates a pipeline that increments stencil without writing color, clipping
-/// subsequent backdrop compositing to the shape.
+/// Creates a pipeline that increments stencil without writing color.
 pub fn create_stencil_only_pipeline(
     device: &Device,
     format: wgpu::TextureFormat,
@@ -836,31 +807,6 @@ pub fn create_stencil_keep_color_pipeline(
     )
 }
 
-pub fn create_backdrop_stencil_keep_color_pipeline(
-    device: &Device,
-    format: wgpu::TextureFormat,
-    sample_count: u32,
-    uniform_bgl: &wgpu::BindGroupLayout,
-    texture_bgl_layer0: &wgpu::BindGroupLayout,
-    texture_bgl_layer1: &wgpu::BindGroupLayout,
-    backdrop_texture_bgl: &wgpu::BindGroupLayout,
-) -> RenderPipeline {
-    create_color_pipeline_with_stencil_keep(
-        device,
-        format,
-        sample_count,
-        &[
-            uniform_bgl,
-            texture_bgl_layer0,
-            texture_bgl_layer1,
-            backdrop_texture_bgl,
-        ],
-        "vs_main",
-        "fs_backdrop_passthrough",
-        "backdrop_stencil_keep_color_pipeline",
-    )
-}
-
 pub fn create_gradient_stencil_keep_color_pipeline(
     device: &Device,
     format: wgpu::TextureFormat,
@@ -886,27 +832,59 @@ pub fn create_gradient_stencil_keep_color_pipeline(
     )
 }
 
-pub fn create_backdrop_gradient_stencil_keep_color_pipeline(
+/// Compiles a shape material with a texture below its fill.
+pub(crate) fn create_texture_material_pipeline(
     device: &Device,
     format: wgpu::TextureFormat,
     sample_count: u32,
-    uniform_bgl: &wgpu::BindGroupLayout,
-    texture_bgl_layer0: &wgpu::BindGroupLayout,
-    texture_bgl_layer1: &wgpu::BindGroupLayout,
-    backdrop_gradient_bgl: &wgpu::BindGroupLayout,
+    layouts: &[&BindGroupLayout],
+    uses_gradient: bool,
+    increments_stencil: bool,
 ) -> RenderPipeline {
-    create_color_pipeline_with_stencil_keep(
+    let depth_stencil = if increments_stencil {
+        create_equal_increment_depth_state()
+    } else {
+        let stencil_face = wgpu::StencilFaceState {
+            compare: wgpu::CompareFunction::Equal,
+            fail_op: wgpu::StencilOperation::Keep,
+            depth_fail_op: wgpu::StencilOperation::Keep,
+            pass_op: wgpu::StencilOperation::Keep,
+        };
+        wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth24PlusStencil8,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::Always,
+            stencil: wgpu::StencilState {
+                front: stencil_face,
+                back: stencil_face,
+                read_mask: 0xff,
+                write_mask: 0,
+            },
+            bias: wgpu::DepthBiasState::default(),
+        }
+    };
+    create_shape_pipeline(
         device,
-        format,
-        sample_count,
-        &[
-            uniform_bgl,
-            texture_bgl_layer0,
-            texture_bgl_layer1,
-            backdrop_gradient_bgl,
-        ],
-        "vs_main_gradient",
-        "fs_backdrop_passthrough_gradient",
-        "backdrop_gradient_stencil_keep_color_pipeline",
+        ShapePipelineDescriptor {
+            label: Some("shape_texture_material_pipeline"),
+            bind_group_layouts: layouts,
+            vertex_entry_point: if uses_gradient {
+                "vs_main_gradient"
+            } else {
+                "vs_main"
+            },
+            fragment_entry_point: if uses_gradient {
+                "fs_texture_material_gradient"
+            } else {
+                "fs_texture_material"
+            },
+            color_target: wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            },
+            depth_stencil,
+            sample_count,
+        },
     )
 }

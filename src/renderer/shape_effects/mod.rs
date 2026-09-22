@@ -1,10 +1,11 @@
+use super::execution::draws;
 use super::execution::effects::{
-    apply_effect_passes, create_texture_sample_bind_group, EffectPassRunConfig, EffectRegistry,
+    apply_effect_passes, EffectParameterPool, EffectPassRunConfig, EffectRegistry,
 };
 use super::execution::effects::{OffscreenTexturePool, PooledTexture};
 use super::execution::shapes::ShapeDrawResources;
 use super::execution::textures::{
-    CachedShapeEffectMask, SampledTexture, ShapeEffectCacheKey, ShapeEffectMaskCache,
+    CachedShapeEffectMask, IntermediateTexture, ShapeEffectCacheKey, ShapeEffectMaskCache,
     ShapeEffectMaskCacheKey,
 };
 use super::rect_utils::compute_downsampled_dimensions;
@@ -22,7 +23,7 @@ use lyon::tessellation::VertexBuffers;
 use std::sync::Arc;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
-    BufferUsages, Color, CommandEncoder, Device, IndexFormat, LoadOp, Operations,
+    BufferUsages, Color, CommandEncoder, Device, LoadOp, Operations, Queue,
     RenderPassColorAttachment, RenderPassDescriptor, StoreOp, TextureView,
 };
 
@@ -351,56 +352,69 @@ fn render_shape_effect_mask(
         timestamp_writes: None,
         occlusion_query_set: None,
     });
-    render_pass.set_pipeline(&resources.mask_pipeline);
-    render_pass.set_bind_group(0, &bind_group, &[]);
-    render_pass.set_vertex_buffer(0, buffers.vertex_buffer().slice(..));
-    render_pass.set_index_buffer(buffers.index_buffer().slice(..), IndexFormat::Uint16);
-    buffers.draw_indexed(&mut render_pass, draw.geometry_range, 0..1);
+    draws::draw_shape_mask(
+        &mut render_pass,
+        draw.geometry_range,
+        &resources.mask_pipeline,
+        &bind_group,
+        buffers,
+    );
 }
 
-fn resolve_shape_effect_mask(
+fn resolve_shape_effect_mask<'a>(
     device: &Device,
     encoder: &mut CommandEncoder,
     resources: &ShapeEffectRendererResources,
     buffers: &Buffers,
     texture_pool: &mut OffscreenTexturePool,
-    cache: &mut ShapeEffectMaskCache,
+    cache: &'a mut ShapeEffectMaskCache,
     draw: ShapeEffectMaskDraw,
-) -> (Arc<CachedShapeEffectMask>, bool) {
-    if let Some(mask) = cache.get(&draw.cache_key) {
-        return (mask, true);
-    }
-
-    let [width, height] = draw.cache_key.raster_size;
-    let texture =
-        texture_pool.acquire_color_only(device, width, height, draw.cache_key.texture_format, 1);
-    render_shape_effect_mask(
-        device,
-        encoder,
-        resources,
-        buffers,
-        &texture.color_view,
-        &draw,
-    );
-    let mask = Arc::new(CachedShapeEffectMask { texture });
-    cache.insert(draw.cache_key, Arc::clone(&mask));
-    (mask, false)
+) -> (&'a mut CachedShapeEffectMask, bool) {
+    cache.get_or_insert_with(draw.cache_key.clone(), || {
+        let [width, height] = draw.cache_key.raster_size;
+        let texture = texture_pool.acquire_color_only(
+            device,
+            width,
+            height,
+            draw.cache_key.texture_format,
+            1,
+        );
+        render_shape_effect_mask(
+            device,
+            encoder,
+            resources,
+            buffers,
+            &texture.color_view,
+            &draw,
+        );
+        CachedShapeEffectMask { texture }
+    })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_shape_effect(
     registry: &EffectRegistry,
     device: &Device,
+    queue: &Queue,
+    parameters: &mut EffectParameterPool,
     encoder: &mut CommandEncoder,
     texture_pool: &mut OffscreenTexturePool,
     config: EffectPassRunConfig<'_>,
     textures_to_recycle: &mut Vec<PooledTexture>,
-) -> SampledTexture {
-    let effect_output = apply_effect_passes(registry, device, encoder, texture_pool, config);
+) -> IntermediateTexture {
+    let effect_output = apply_effect_passes(
+        registry,
+        device,
+        queue,
+        parameters,
+        encoder,
+        texture_pool,
+        config,
+    );
     let (final_texture, texture_bind_group) = effect_output.into_final_output(textures_to_recycle);
-    SampledTexture {
+    IntermediateTexture {
         texture: final_texture,
-        bind_group: texture_bind_group
-            .expect("shape effect generation must create a texture bind group"),
+        bind_group: texture_bind_group,
     }
 }
 
@@ -553,7 +567,10 @@ impl<'a> Renderer<'a> {
                 self.state.textures.shape_effect_results.get(&cache_key)
             {
                 // Keep the mask alive too, so parameter changes can reuse it next frame.
-                self.state.textures.shape_effect_masks.get(&mask_cache_key);
+                self.state
+                    .textures
+                    .shape_effect_masks
+                    .get_mut(&mask_cache_key);
                 #[cfg(feature = "render_metrics")]
                 {
                     metrics.hits += 1;
@@ -586,23 +603,22 @@ impl<'a> Renderer<'a> {
                     metrics.generated_masks += 1;
                 }
 
+                let source_bind_group = cached_mask.texture.input_bind_group(
+                    &self.device,
+                    self.effect_registry.input_bind_group_layout(),
+                    effect_sampler,
+                );
                 let sampled_texture = render_shape_effect(
                     &self.effect_registry,
                     &self.device,
+                    &self.queue,
+                    &mut self.state.effect_execution.parameters,
                     encoder,
                     &mut self.state.textures.pool,
                     EffectPassRunConfig {
                         effect_id: shape_effect_instance.effect_id,
                         params: &shape_effect_instance.params,
-                        parameter_resources: None,
-                        source_bind_group: &create_texture_sample_bind_group(
-                            &self.device,
-                            self.effect_registry
-                                .input_bind_group_layout(shape_effect_instance.effect_id),
-                            &cached_mask.texture.color_view,
-                            effect_sampler,
-                            Some("shape_effect_mask_input"),
-                        ),
+                        source_bind_group,
                         effect_sampler,
                         composite_bind_group_layout: &self
                             .pipeline_resources

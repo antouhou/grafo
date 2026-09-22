@@ -1,16 +1,12 @@
 use super::effects::{
-    self, AppliedEffectOutput, BackdropEffectResources, BackdropTextureBinding,
-    EffectPassRunConfig, OffscreenTexturePool, PooledTexture,
+    self, EffectExecutionResources, EffectPassRunConfig, OffscreenTexturePool, PooledTexture,
 };
-use super::shapes::ShapeDrawResources;
-use super::textures::IntermediateTextureResources;
+use super::textures::{IntermediateTexture, IntermediateTextureResources};
 use crate::effect::BackdropEffectInstance;
-use crate::gradient::gpu::GradientCache;
-use crate::gradient::types::Fill;
-use crate::pipeline::BackdropSamplingUniform;
 use crate::renderer::plan::backdrops::BackdropCaptureRegion;
 use crate::renderer::rect_utils;
 use crate::renderer::types::{BackdropContext, BackdropSource};
+use crate::shape::{ShapeTextureBinding, ShapeTextureLayer, TextureSampling};
 use crate::Size;
 use wgpu::{
     BindGroup, Color, CommandEncoder, Extent3d, LoadOp, Operations, Origin3d,
@@ -33,40 +29,6 @@ fn clear_capture(encoder: &mut CommandEncoder, output_view: &TextureView) {
         timestamp_writes: None,
         occlusion_query_set: None,
     });
-}
-
-fn prepare_layer_composite_binding<'a>(
-    resources: &'a mut BackdropEffectResources,
-    context: &BackdropContext<'_>,
-    foreground_view: &TextureView,
-    layer_params: [i32; 4],
-) -> &'a BindGroup {
-    let layer_params_buffer = effects::prepare_backdrop_layer_params_buffer(
-        context.device,
-        context.queue,
-        &mut resources.backdrop_layer_params_buffer,
-        layer_params,
-    );
-    if resources
-        .layer_composite_binding
-        .as_ref()
-        .is_none_or(|binding| binding.texture_view != *foreground_view)
-    {
-        resources.layer_composite_binding = Some(BackdropTextureBinding {
-            texture_view: foreground_view.clone(),
-            bind_group: effects::create_backdrop_layer_composite_bind_group(
-                context.device,
-                context.backdrop_layer_composite_bind_group_layout,
-                foreground_view,
-                layer_params_buffer,
-            ),
-        });
-    }
-    let binding = resources
-        .layer_composite_binding
-        .as_ref()
-        .expect("the foreground view has a prepared capture binding");
-    &binding.bind_group
 }
 
 fn composite_foreground_layer(
@@ -100,7 +62,7 @@ fn capture_backdrop(
     context: &BackdropContext<'_>,
     source: BackdropSource<'_>,
     region: BackdropCaptureRegion,
-    resources: &mut BackdropEffectResources,
+    resources: &mut EffectExecutionResources,
     texture_pool: &mut OffscreenTexturePool,
 ) -> PooledTexture {
     let capture_size = region.bounds.size().to_u32();
@@ -150,11 +112,14 @@ fn capture_backdrop(
             region.bounds.min.to_tuple(),
             (base_texture.width(), base_texture.height()),
         );
-        let bind_group =
-            prepare_layer_composite_binding(resources, context, foreground_view, layer_params);
+        let bind_group = resources.backdrop_composites.prepare(
+            context.device,
+            context.queue,
+            context.backdrop_layer_composite_bind_group_layout,
+            foreground_view,
+            layer_params,
+        );
         composite_foreground_layer(encoder, context, &capture_texture.color_view, bind_group);
-    } else {
-        resources.layer_composite_binding = None;
     }
     capture_texture
 }
@@ -162,9 +127,8 @@ fn capture_backdrop(
 fn downsample_capture(
     encoder: &mut CommandEncoder,
     context: &BackdropContext<'_>,
-    input_view: &TextureView,
+    input: &mut PooledTexture,
     output_size: Size,
-    resources: &mut BackdropEffectResources,
     texture_pool: &mut OffscreenTexturePool,
 ) -> PooledTexture {
     let output_texture = texture_pool.acquire_color_only(
@@ -174,26 +138,11 @@ fn downsample_capture(
         context.config_format,
         1,
     );
-    if resources
-        .downsample_binding
-        .as_ref()
-        .is_none_or(|binding| binding.texture_view != *input_view)
-    {
-        resources.downsample_binding = Some(BackdropTextureBinding {
-            texture_view: input_view.clone(),
-            bind_group: effects::create_texture_sample_bind_group(
-                context.device,
-                context.composite_bind_group_layout,
-                input_view,
-                context.effect_sampler,
-                Some("backdrop_capture_downsample"),
-            ),
-        });
-    }
-    let binding = resources
-        .downsample_binding
-        .as_ref()
-        .expect("the capture view has a prepared downsample binding");
+    let binding = input.composite_bind_group(
+        context.device,
+        context.composite_bind_group_layout,
+        context.effect_sampler,
+    );
     let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
         label: Some("backdrop_capture_downsample"),
         color_attachments: &[Some(RenderPassColorAttachment {
@@ -209,7 +158,7 @@ fn downsample_capture(
         occlusion_query_set: None,
     });
     render_pass.set_pipeline(context.texture_blit_pipeline);
-    render_pass.set_bind_group(0, &binding.bind_group, &[]);
+    render_pass.set_bind_group(0, binding, &[]);
     render_pass.draw(0..3, 0..1);
     drop(render_pass);
     output_texture
@@ -222,9 +171,9 @@ pub(in crate::renderer) fn apply_backdrop_effect(
     source: BackdropSource<'_>,
     region: BackdropCaptureRegion,
     effect: &BackdropEffectInstance,
-    resources: &mut BackdropEffectResources,
+    resources: &mut EffectExecutionResources,
     textures: &mut IntermediateTextureResources,
-) -> AppliedEffectOutput {
+) -> ShapeTextureLayer {
     let mut capture_texture = capture_backdrop(
         encoder,
         context,
@@ -240,34 +189,32 @@ pub(in crate::renderer) fn apply_backdrop_effect(
         Some(downsample_capture(
             encoder,
             context,
-            &capture_texture.color_view,
+            &mut capture_texture,
             effect_input_size,
-            resources,
             &mut textures.pool,
         ))
     } else {
-        resources.downsample_binding = None;
         None
     };
+    let source_bind_group = downsampled_texture
+        .as_mut()
+        .unwrap_or(&mut capture_texture)
+        .input_bind_group(
+            context.device,
+            context.effect_registry.input_bind_group_layout(),
+            context.effect_sampler,
+        );
     let effect_output = effects::apply_effect_passes(
         context.effect_registry,
         context.device,
+        context.queue,
+        &mut resources.parameters,
         encoder,
         &mut textures.pool,
         EffectPassRunConfig {
             effect_id: effect.effect.effect_id,
             params: &effect.effect.params,
-            parameter_resources: resources.parameters.as_ref(),
-            source_bind_group: downsampled_texture
-                .as_mut()
-                .unwrap_or(&mut capture_texture)
-                .input_bind_group(
-                    context.device,
-                    context
-                        .effect_registry
-                        .input_bind_group_layout(effect.effect.effect_id),
-                    context.effect_sampler,
-                ),
+            source_bind_group,
             effect_sampler: context.effect_sampler,
             composite_bind_group_layout: context.composite_bind_group_layout,
             create_composite_bind_group: false,
@@ -282,58 +229,13 @@ pub(in crate::renderer) fn apply_backdrop_effect(
     if let Some(downsampled_texture) = downsampled_texture {
         textures.work_textures.push(downsampled_texture);
     }
-    effect_output
-}
-
-/// Reuses material buffers and returns a handle to the cached sampling binding.
-pub(in crate::renderer) fn prepare_backdrop_material(
-    context: &BackdropContext<'_>,
-    region: BackdropCaptureRegion,
-    effect_output: &AppliedEffectOutput,
-    fill: &mut Option<Fill>,
-    resources: &mut BackdropEffectResources,
-    shape_resources: &mut ShapeDrawResources,
-    gradient_cache: &mut GradientCache,
-) -> Option<BindGroup> {
-    // Sampling stays in full-resolution pixels even when the effect is downsampled.
-    let sampling_uniform = BackdropSamplingUniform::new(
-        region.bounds.min.to_tuple(),
-        region.bounds.size().to_u32().to_tuple(),
-    );
-    if matches!(fill, Some(Fill::Gradient(_))) {
-        return shape_resources
-            .prepare_backdrop_gradient_bind_group(
-                fill,
-                gradient_cache,
-                context.device,
-                context.queue,
-                context.backdrop_gradient_bind_group_layout,
-                sampling_uniform,
-                context.gradient_ramp_sampler,
-                effect_output.final_output_texture_id(),
-                effect_output.final_output_view(),
-                context.effect_sampler,
-            )
-            .cloned();
+    let (texture, bind_group) = effect_output.into_final_output(&mut textures.work_textures);
+    let texture_id = textures.insert_transient(IntermediateTexture {
+        texture,
+        bind_group,
+    });
+    ShapeTextureLayer {
+        texture: ShapeTextureBinding::Intermediate(texture_id),
+        sampling: TextureSampling::TargetPixels(region.bounds),
     }
-
-    let params_buffer = effects::prepare_solid_backdrop_material_params_buffer(
-        context.device,
-        context.queue,
-        &mut resources.backdrop_material_params_buffer,
-        sampling_uniform,
-    );
-    if resources.backdrop_texture_id != Some(effect_output.final_output_texture_id()) {
-        resources.backdrop_texture_bind_group =
-            Some(effects::create_backdrop_texture_sample_bind_group(
-                context.device,
-                context.backdrop_texture_bind_group_layout,
-                params_buffer,
-                effect_output.final_output_view(),
-                context.effect_sampler,
-                Some("backdrop_shape_background_bind_group"),
-            ));
-        resources.backdrop_texture_id = Some(effect_output.final_output_texture_id());
-    }
-    resources.backdrop_texture_bind_group.clone()
 }

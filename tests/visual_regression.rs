@@ -725,16 +725,127 @@ fn main_scene_pixel_expectations() {
         return;
     };
 
-    let expectations = build_main_scene(&mut renderer);
-
     let mut pixel_buffer: Vec<u8> = Vec::new();
     // Start with MSAA so a rejected submission cannot reuse a prior valid output.
     for sample_count in [4, 1, 4, 1] {
         renderer.set_msaa_samples(sample_count);
-        // Repeat without reconfiguration to exercise cached textures and recycled group targets.
+        // Rebuild the queue on every render, including when MSAA remains unchanged.
         for _ in 0..2 {
+            renderer.clear_draw_queue();
+            let expectations = build_main_scene(&mut renderer);
             renderer.render_to_buffer(&mut pixel_buffer).unwrap();
             assert_pixels_match(&pixel_buffer, &expectations);
+        }
+    }
+}
+
+fn rebuild_texture_material_scene(
+    renderer: &mut Renderer,
+    gradient_color: Color,
+    offset: f32,
+    swaps_fills: bool,
+) {
+    renderer.clear_draw_queue();
+    renderer
+        .add_shape(
+            Shape::rect([(0.0, 0.0), (64.0, 32.0)], Stroke::default()),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::WHITE),
+        )
+        .unwrap();
+    for left in [14.0, 46.0] {
+        renderer
+            .add_shape(
+                Shape::rect([(left, 0.0), (left + 4.0, 32.0)], Stroke::default()),
+                None,
+                None,
+                ShapeDrawCommandOptions::new().color(Color::BLACK),
+            )
+            .unwrap();
+    }
+    for panel_index in 0..2 {
+        let left = panel_index as f32 * 32.0 + offset;
+        let fill = if (panel_index == 1) != swaps_fills {
+            Fill::Gradient(
+                Gradient::linear(LinearGradientDesc::new(
+                    LinearGradientLine {
+                        start: [left, 0.0],
+                        end: [left + 24.0, 0.0],
+                    },
+                    [
+                        GradientStop::at_position(
+                            GradientStopOffset::linear_radial(0.0),
+                            gradient_color,
+                        ),
+                        GradientStop::at_position(
+                            GradientStopOffset::linear_radial(1.0),
+                            Color::rgba(0, 0, 0, 0),
+                        ),
+                    ],
+                ))
+                .unwrap(),
+            )
+        } else {
+            Fill::Solid(Color::rgba(0, 0, 255, 128))
+        };
+        let panel = renderer
+            .add_shape(
+                Shape::rect([(left, 4.0), (left + 24.0, 28.0)], Stroke::default()),
+                None,
+                None,
+                ShapeDrawCommandOptions::new().fill(fill),
+            )
+            .unwrap();
+        renderer
+            .set_shape_backdrop_effect(panel, 9_301, &[], BackdropEffectConfig::default())
+            .unwrap();
+    }
+}
+
+#[test]
+fn texture_materials_follow_scene_changes_across_queue_rebuilds() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 32), 1.0) else {
+        return;
+    };
+    renderer.load_effect(9_301, &[PASSTHROUGH_WGSL]).unwrap();
+    let mut pixels = Vec::new();
+    for samples in [1, 4, 1] {
+        renderer.set_msaa_samples(samples);
+        for _ in 0..2 {
+            rebuild_texture_material_scene(&mut renderer, Color::rgba(255, 0, 0, 128), 2.0, false);
+            renderer.render_to_buffer(&mut pixels).unwrap();
+            assert_eq!(read_pixel_rgba(&pixels, 64, 63, 16), [255; 4]);
+            let solid = read_pixel_rgba(&pixels, 64, 10, 16);
+            assert!(solid[0] < 200 && solid[2] == 255);
+            let gradient = read_pixel_rgba(&pixels, 64, 38, 16);
+            assert!(gradient[0] > gradient[1] + 20);
+        }
+    }
+
+    for (color, offset, swaps_fills) in [
+        (Color::rgba(255, 0, 0, 128), 6.0, false),
+        (Color::rgba(0, 255, 0, 128), 6.0, false),
+        (Color::rgba(0, 255, 0, 128), 6.0, false),
+        (Color::rgba(0, 255, 0, 128), 6.0, true),
+        (Color::rgba(0, 255, 0, 128), 6.0, true),
+    ] {
+        rebuild_texture_material_scene(&mut renderer, color, offset, swaps_fills);
+        renderer.render_to_buffer(&mut pixels).unwrap();
+        let solid_left = if swaps_fills { 32 } else { 0 };
+        let solid_over_black = read_pixel_rgba(&pixels, 64, solid_left + 16, 16);
+        assert_eq!(
+            &solid_over_black[..2],
+            &[0, 0],
+            "sampling must follow the moved capture"
+        );
+        assert!((187..=189).contains(&solid_over_black[2]));
+        let gradient_left = if swaps_fills { 0 } else { 32 };
+        let gradient = read_pixel_rgba(&pixels, 64, gradient_left + 10, 16);
+        if color == Color::rgba(255, 0, 0, 128) {
+            assert!(gradient[0] > gradient[1] + 20);
+        } else {
+            assert!(gradient[1] > gradient[0] + 20);
         }
     }
 }

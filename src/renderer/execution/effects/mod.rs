@@ -1,21 +1,14 @@
-pub(crate) use bindings::{
-    backdrop_layer_params, create_backdrop_layer_composite_bind_group,
-    create_backdrop_texture_sample_bind_group, create_texture_sample_bind_group,
-    prepare_backdrop_layer_params_buffer, prepare_solid_backdrop_material_params_buffer,
-};
+pub(crate) use bindings::backdrop_layer_params;
 pub(crate) use composite::{
     compile_backdrop_layer_composite_pipeline, compile_composite_pipeline,
     compile_texture_blit_pipeline, CompositePipelineResources,
 };
-pub(crate) use parameters::{
-    BackdropEffectResources, BackdropTextureBinding, EffectExecutionResources,
-    EffectParameterResources,
-};
+pub(crate) use parameters::{EffectExecutionResources, EffectParameterPool};
 pub(crate) use registry::EffectRegistry;
 pub(crate) use textures::{OffscreenTexturePool, PooledTexture};
 use wgpu::{
-    BindGroup, BindGroupLayout, Color, CommandEncoder, Device, LoadOp, Operations,
-    RenderPassColorAttachment, RenderPassDescriptor, Sampler, StoreOp, TextureFormat, TextureView,
+    BindGroup, BindGroupLayout, Color, CommandEncoder, Device, LoadOp, Operations, Queue,
+    RenderPassColorAttachment, RenderPassDescriptor, Sampler, StoreOp, TextureFormat,
 };
 
 mod bindings;
@@ -41,31 +34,11 @@ impl AppliedEffectOutput {
         }
         (self.final_output_texture, self.composite_bind_group)
     }
-
-    pub(crate) fn push_work_textures_into(
-        self,
-        output_textures: &mut Vec<PooledTexture>,
-    ) -> Option<BindGroup> {
-        output_textures.push(self.final_output_texture);
-        if let Some(recyclable_texture) = self.recyclable_texture {
-            output_textures.push(recyclable_texture);
-        }
-        self.composite_bind_group
-    }
-
-    pub(crate) fn final_output_view(&self) -> &TextureView {
-        &self.final_output_texture.color_view
-    }
-
-    pub(crate) fn final_output_texture_id(&self) -> u64 {
-        self.final_output_texture.texture_id
-    }
 }
 
 pub(crate) struct EffectPassRunConfig<'a> {
     pub(crate) effect_id: u64,
     pub(crate) params: &'a [u8],
-    pub(crate) parameter_resources: Option<&'a EffectParameterResources>,
     pub(crate) source_bind_group: &'a BindGroup,
     pub(crate) effect_sampler: &'a Sampler,
     pub(crate) composite_bind_group_layout: &'a BindGroupLayout,
@@ -79,6 +52,8 @@ pub(crate) struct EffectPassRunConfig<'a> {
 pub(crate) fn apply_effect_passes(
     registry: &EffectRegistry,
     device: &Device,
+    queue: &Queue,
+    parameters: &mut EffectParameterPool,
     encoder: &mut CommandEncoder,
     texture_pool: &mut OffscreenTexturePool,
     config: EffectPassRunConfig<'_>,
@@ -88,17 +63,10 @@ pub(crate) fn apply_effect_passes(
         .get(&config.effect_id)
         .expect("effect attachments reference registered effects");
     let number_of_passes = loaded_effect.passes.len();
-    // Cached shape effects upload only on a cache miss; attachments reuse their buffers.
-    let transient_parameters = if config.parameter_resources.is_none() && !config.params.is_empty()
-    {
-        loaded_effect
-            .params_bind_group_layout
-            .as_ref()
-            .map(|layout| EffectParameterResources::new(device, layout, config.params))
-    } else {
-        None
-    };
-    let parameter_resources = config.parameter_resources.or(transient_parameters.as_ref());
+    let parameter_binding = loaded_effect
+        .params_bind_group_layout
+        .as_ref()
+        .map(|layout| parameters.prepare(device, queue, layout, config.params));
 
     let mut effect_texture_a = texture_pool.acquire_color_only(
         device,
@@ -127,7 +95,7 @@ pub(crate) fn apply_effect_passes(
             (
                 effect_texture_b.as_mut().unwrap().input_bind_group(
                     device,
-                    &loaded_effect.input_bind_group_layout,
+                    registry.input_bind_group_layout(),
                     config.effect_sampler,
                 ),
                 &effect_texture_a.color_view,
@@ -136,7 +104,7 @@ pub(crate) fn apply_effect_passes(
             (
                 effect_texture_a.input_bind_group(
                     device,
-                    &loaded_effect.input_bind_group_layout,
+                    registry.input_bind_group_layout(),
                     config.effect_sampler,
                 ),
                 &effect_texture_b.as_ref().unwrap().color_view,
@@ -162,8 +130,8 @@ pub(crate) fn apply_effect_passes(
         pass.set_bind_group(0, input_bind_group, &[]);
 
         if effect_pass.has_params {
-            if let Some(resources) = parameter_resources {
-                pass.set_bind_group(1, &resources.bind_group, &[]);
+            if let Some(binding) = parameter_binding {
+                pass.set_bind_group(1, binding, &[]);
             }
         }
 

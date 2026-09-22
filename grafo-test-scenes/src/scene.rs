@@ -3,7 +3,8 @@
 use crate::expectations::PixelExpectation;
 use crate::shaders::{
     BlurParams, DropShadowParams, HORIZONTAL_BLUR_WGSL, PADDED_BACKDROP_SAMPLING_WGSL,
-    PASSTHROUGH_WGSL, SHADOW_TINT_WGSL, SHAPE_DROP_WGSL, VERTICAL_BLUR_WGSL,
+    PASSTHROUGH_WGSL, ROTATE_COLOR_CHANNELS_WGSL, SHADOW_TINT_WGSL, SHAPE_DROP_WGSL,
+    VERTICAL_BLUR_WGSL,
 };
 use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
@@ -27,11 +28,14 @@ const BLUR_EFFECT_ID: u64 = 1;
 const PASSTHROUGH_EFFECT_ID: u64 = 2;
 const SHAPE_DROP_EFFECT_ID: u64 = 3;
 const DROP_SHADOW_EFFECT_ID: u64 = 4;
+const COLOR_CHANNEL_EFFECT_ID: u64 = 5;
 const CHECKERBOARD_TEXTURE_ID: u64 = 100;
 const SOLID_GREEN_TEXTURE_ID: u64 = 101;
 const SOLID_GREEN_20X20_TEXTURE_ID: u64 = 102;
 const SOLID_RED_TEXTURE_ID: u64 = 103;
 const TRANSLUCENT_CHECKERBOARD_TEXTURE_ID: u64 = 104;
+const TRANSLUCENT_RED_TEXTURE_ID: u64 = 105;
+const HALF_GREEN_TEXTURE_ID: u64 = 106;
 
 /// Returns the top-left pixel of the tile. Tile numbers start at one.
 fn tile_origin(tile_number: u32) -> (f32, f32) {
@@ -147,7 +151,160 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_71_shared_geometry_material_batches(renderer));
     expectations.extend(tile_72_nested_group_textures(renderer));
     expectations.extend(tile_73_padded_layered_backdrops(renderer));
+    expectations.extend(tile_74_backdrop_stencil_ordering(renderer));
+    expectations.extend(tile_75_under_fill_with_user_textures(renderer));
+    expectations.extend(tile_76_rotated_under_fill_sampling(renderer));
 
+    expectations
+}
+
+/// Each row checks a backdrop's color, child clip, and following sibling.
+fn tile_74_backdrop_stencil_ordering(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(74);
+    let outer_id = renderer
+        .add_shape(
+            Shape::rounded_rect(
+                [
+                    (origin_x + 5.0, origin_y + 5.0),
+                    (origin_x + 75.0, origin_y + 75.0),
+                ],
+                BorderRadii::new(8.0),
+                Stroke::default(),
+            ),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(185, 185, 220)),
+        )
+        .unwrap();
+    let clip_id = renderer
+        .add_clipping_rect(
+            [
+                (origin_x + 10.0, origin_y + 10.0),
+                (origin_x + 70.0, origin_y + 70.0),
+            ],
+            Some(outer_id),
+            None::<TransformInstance>,
+            true,
+        )
+        .unwrap();
+    let mut expectations = Vec::new();
+
+    for (row, is_leaf, clips_children) in [(0, true, true), (1, false, true), (2, false, false)] {
+        let panel_top = origin_y + 12.0 + row as f32 * 20.0;
+        let panel_id = renderer
+            .add_shape(
+                Shape::rounded_rect(
+                    [
+                        (origin_x + 25.0, panel_top),
+                        (origin_x + 55.0, panel_top + 16.0),
+                    ],
+                    BorderRadii::new(4.0),
+                    Stroke::default(),
+                ),
+                Some(clip_id),
+                None,
+                ShapeDrawCommandOptions::new()
+                    .color(Color::rgb(50, 180, 50))
+                    .clips_children(clips_children),
+            )
+            .unwrap();
+        renderer
+            .set_shape_backdrop_effect(
+                panel_id,
+                PASSTHROUGH_EFFECT_ID,
+                &[],
+                BackdropEffectConfig::default(),
+            )
+            .unwrap();
+        renderer
+            .add_shape(
+                Shape::rect(
+                    [
+                        (origin_x, panel_top + 5.0),
+                        (origin_x + 80.0, panel_top + 9.0),
+                    ],
+                    Stroke::default(),
+                ),
+                Some(if is_leaf { clip_id } else { panel_id }),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(230, 70, 70)),
+            )
+            .unwrap();
+        renderer
+            .add_shape(
+                Shape::rect(
+                    [
+                        (origin_x, panel_top + 11.0),
+                        (origin_x + 80.0, panel_top + 14.0),
+                    ],
+                    Stroke::default(),
+                ),
+                Some(clip_id),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(230, 200, 50)),
+            )
+            .unwrap();
+
+        let outside_panel_color = if !is_leaf && clips_children {
+            [185, 185, 220]
+        } else {
+            [230, 70, 70]
+        };
+        for (x, y, color, label) in [
+            (40, 2, [50, 180, 50], "t74_backdrop_color_after_increment"),
+            (40, 6, [230, 70, 70], "t74_child_or_sibling_inside_backdrop"),
+            (
+                15,
+                6,
+                outside_panel_color,
+                "t74_child_or_sibling_outside_backdrop",
+            ),
+            (8, 6, [185, 185, 220], "t74_inherited_scissor_clips_child"),
+            (2, 6, [255, 255, 255], "t74_inherited_stencil_clips_child"),
+            (
+                40,
+                12,
+                [230, 200, 50],
+                "t74_sibling_after_backdrop_decrement",
+            ),
+            (15, 12, [230, 200, 50], "t74_sibling_outside_backdrop"),
+            (8, 12, [185, 185, 220], "t74_sibling_keeps_inherited_clip"),
+        ] {
+            expectations.push(PixelExpectation::opaque(
+                origin_x as u32 + x,
+                panel_top as u32 + y,
+                color[0],
+                color[1],
+                color[2],
+                label,
+            ));
+        }
+    }
+
+    renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x, origin_y + 71.0),
+                    (origin_x + 80.0, origin_y + 74.0),
+                ],
+                Stroke::default(),
+            ),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 120, 40)),
+        )
+        .unwrap();
+    for x in [2, 40] {
+        expectations.push(PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + 72,
+            220,
+            120,
+            40,
+            "t74_sibling_after_outer_clip_restoration",
+        ));
+    }
     expectations
 }
 
@@ -448,6 +605,20 @@ fn tile_69_gradient_automatic_stop_after_decreasing_stop(
 // Shared resource setup
 
 fn load_shared_resources(renderer: &mut Renderer) {
+    renderer
+        .load_effect(COLOR_CHANNEL_EFFECT_ID, &[ROTATE_COLOR_CHANNELS_WGSL])
+        .unwrap();
+    let mut red = [255, 0, 0, 128];
+    premultiply_rgba8_srgb_inplace(&mut red);
+    renderer
+        .texture_manager()
+        .allocate_texture_with_data(TRANSLUCENT_RED_TEXTURE_ID, (1, 1), &red);
+    let mut green = [0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 0, 128, 0, 255, 0, 128];
+    premultiply_rgba8_srgb_inplace(&mut green);
+    renderer
+        .texture_manager()
+        .allocate_texture_with_data(HALF_GREEN_TEXTURE_ID, (4, 1), &green);
+
     renderer
         .load_effect(BLUR_EFFECT_ID, &[HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL])
         .expect("Failed to compile blur effect");
@@ -5465,6 +5636,189 @@ fn tile_73_padded_layered_backdrops(renderer: &mut Renderer) -> Vec<PixelExpecta
             green,
             blue,
             2,
+            label,
+        )
+    })
+    .collect()
+}
+
+/// Solid and gradient fills combine with both user textures above the filtered layer.
+fn tile_75_under_fill_with_user_textures(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(75);
+    renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x + 4.0, origin_y + 4.0),
+                    (origin_x + 76.0, origin_y + 76.0),
+                ],
+                Stroke::default(),
+            ),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(0, 255, 0)),
+        )
+        .unwrap();
+    let mut expectations = Vec::new();
+    for (row, capture_is_rejected) in [(0, false), (1, true)] {
+        for (column, uses_gradient) in [(0, false), (1, true)] {
+            let left = origin_x + 8.0 + column as f32 * 36.0;
+            let top = origin_y + 8.0 + row as f32 * 36.0;
+            let fill = if uses_gradient {
+                Fill::Gradient(
+                    Gradient::linear(LinearGradientDesc {
+                        common: GradientCommonDesc::new([
+                            GradientStop::at_position(
+                                GradientStopOffset::linear_radial(0.0),
+                                Color::rgba(0, 0, 0, 128),
+                            ),
+                            GradientStop::at_position(
+                                GradientStopOffset::linear_radial(0.5),
+                                Color::rgba(0, 0, 0, 128),
+                            ),
+                            GradientStop::at_position(
+                                GradientStopOffset::linear_radial(0.5),
+                                Color::rgba(255, 255, 255, 128),
+                            ),
+                            GradientStop::at_position(
+                                GradientStopOffset::linear_radial(1.0),
+                                Color::rgba(255, 255, 255, 128),
+                            ),
+                        ]),
+                        line: LinearGradientLine {
+                            start: [left, top],
+                            end: [left + 28.0, top],
+                        },
+                    })
+                    .unwrap(),
+                )
+            } else {
+                Fill::Solid(Color::rgba(255, 255, 255, 128))
+            };
+            let panel = renderer
+                .add_shape(
+                    Shape::rounded_rect(
+                        [(left, top), (left + 28.0, top + 28.0)],
+                        BorderRadii::new(4.0),
+                        Stroke::default(),
+                    ),
+                    None,
+                    None,
+                    ShapeDrawCommandOptions::new()
+                        .fill(fill)
+                        .background_texture_id(TRANSLUCENT_RED_TEXTURE_ID)
+                        .foreground_texture_id(HALF_GREEN_TEXTURE_ID),
+                )
+                .unwrap();
+            let config = if capture_is_rejected {
+                BackdropEffectConfig::new().capture_area(BackdropCaptureArea::ScreenRect([
+                    (0.0, 0.0),
+                    (20_000.0, 20_000.0),
+                ]))
+            } else {
+                BackdropEffectConfig::new().padding(4.0).downsample(0.5)
+            };
+            renderer
+                .set_shape_backdrop_effect(panel, COLOR_CHANNEL_EFFECT_ID, &[], config)
+                .unwrap();
+            let left_color = match (capture_is_rejected, uses_gradient) {
+                (false, false) => [225, 137, 187],
+                (false, true) => [188, 0, 136],
+                (true, false) => [225, 187, 137],
+                (true, true) => [188, 136, 0],
+            };
+            let right_color = if capture_is_rejected {
+                [165, 225, 99]
+            } else {
+                [165, 207, 136]
+            };
+            for (x, [red, green, blue]) in [(7, left_color), (21, right_color)] {
+                expectations.push(PixelExpectation::opaque_approx(
+                    left as u32 + x,
+                    top as u32 + 14,
+                    red,
+                    green,
+                    blue,
+                    2,
+                    "t75_under_fill_fill_and_user_texture_order",
+                ));
+            }
+        }
+    }
+    expectations
+}
+
+/// The generated layer follows screen coordinates inside a rotated shape and a group.
+fn tile_76_rotated_under_fill_sampling(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(76);
+    let bounds = [
+        (origin_x + 5.0, origin_y + 5.0),
+        (origin_x + 75.0, origin_y + 75.0),
+    ];
+    renderer
+        .add_shape(
+            Shape::rect(bounds, Stroke::default()),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect(
+                [(origin_x + 40.0, origin_y + 5.0), bounds[1]],
+                Stroke::default(),
+            ),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(0, 0, 255)),
+        )
+        .unwrap();
+    let group = renderer
+        .add_shape(
+            Shape::rect(bounds, Stroke::default()),
+            None,
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    renderer
+        .set_group_effect(group, PASSTHROUGH_EFFECT_ID, &[])
+        .unwrap();
+    let rotation = TransformInstance::rotation_z_deg(45.0);
+    let translation = TransformInstance::translation(origin_x + 40.0, origin_y + 40.0);
+    let panel = renderer
+        .add_shape(
+            Shape::rect([(-20.0, -20.0), (20.0, 20.0)], Stroke::default()),
+            Some(group),
+            None,
+            ShapeDrawCommandOptions::new().transform(rotation.multiply(&translation)),
+        )
+        .unwrap();
+    renderer
+        .set_shape_backdrop_effect(
+            panel,
+            COLOR_CHANNEL_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::new().padding(6.0).downsample(0.5),
+        )
+        .unwrap();
+    [
+        (28, 40, [0, 255, 0], "t76_left_capture"),
+        (36, 56, [0, 255, 0], "t76_screen_sampling_below_center"),
+        (44, 24, [255, 0, 0], "t76_screen_sampling_above_center"),
+        (52, 40, [255, 0, 0], "t76_right_capture"),
+        (12, 12, [255, 0, 0], "t76_outside_rotated_shape_left"),
+        (68, 12, [0, 0, 255], "t76_outside_rotated_shape_right"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
             label,
         )
     })

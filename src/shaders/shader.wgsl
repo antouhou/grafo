@@ -31,6 +31,7 @@ struct VertexOutput {
     @location(2) layer1_tex_coords: vec2<f32>,
     @location(3) coverage: f32,
     @location(4) @interpolate(flat) texture_flags: f32,
+    @location(5) shape_tex_coords: vec2<f32>,
 };
 
 struct GradientVertexOutput {
@@ -44,6 +45,7 @@ struct GradientVertexOutput {
     @location(5) model_pos: vec2<f32>,
     // Screen position in pixels after the transform
     @location(6) screen_pos: vec2<f32>,
+    @location(7) shape_tex_coords: vec2<f32>,
 };
 
 // Viewport dimensions and antialiasing settings from the renderer.
@@ -82,22 +84,26 @@ struct GradientColorParams {
     _padding: f32,
 };
 
-struct BackdropSamplingParams {
-    capture_origin: vec2<f32>,
-    inverse_capture_size: vec2<f32>,
+struct TextureSamplingParams {
+    origin: vec2<f32>,
+    inverse_size: vec2<f32>,
+    uses_target_coordinates: u32,
+    _padding0: u32,
+    _padding1: u32,
+    _padding2: u32,
 };
 
 struct MaterialParams {
     gradient: GradientColorParams,
-    backdrop_sampling: BackdropSamplingParams,
+    texture_sampling: TextureSamplingParams,
 };
 
 @group(3) @binding(0) var<uniform> material_params: MaterialParams;
 @group(3) @binding(1) var t_gradient_ramp: texture_1d<f32>;
 @group(3) @binding(2) var s_gradient_ramp: sampler;
-// Specialized backdrop layer used only by backdrop color pipelines.
-@group(3) @binding(3) var t_backdrop_layer: texture_2d<f32>;
-@group(3) @binding(4) var s_backdrop_layer: sampler;
+// Optional material texture composited below the fill.
+@group(3) @binding(3) var t_under_fill: texture_2d<f32>;
+@group(3) @binding(4) var s_under_fill: sampler;
 
 const BAYER_4X4_THRESHOLDS: array<f32, 16> = array<f32, 16>(
     0.0, 8.0, 2.0, 10.0,
@@ -302,6 +308,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
         + input.texture_uv_transform_layer1.zw;
     output.coverage = input.coverage;
     output.texture_flags = input.texture_flags;
+    output.shape_tex_coords = input.tex_coords;
     return output;
 }
 
@@ -317,6 +324,7 @@ fn vs_main_gradient(input: VertexInput) -> GradientVertexOutput {
         + input.texture_uv_transform_layer1.zw;
     output.coverage = input.coverage;
     output.texture_flags = input.texture_flags;
+    output.shape_tex_coords = input.tex_coords;
     output.model_pos = input.position;
 
     output.screen_pos = position.screen_position;
@@ -395,46 +403,18 @@ fn compute_gradient_fragment_color(
     );
 }
 
-fn compute_fragment_color_with_backdrop(
+fn composite_under_fill_texture(
+    fill_pma: vec4<f32>,
     fragment_position: vec4<f32>,
-    color: vec4<f32>,
-    layer0_tex_coords: vec2<f32>,
-    layer1_tex_coords: vec2<f32>,
-    coverage: f32,
-    texture_flags: f32,
+    shape_tex_coords: vec2<f32>,
 ) -> vec4<f32> {
-    let fill_pma = vec4<f32>(color.rgb * color.a, color.a);
-    let backdrop_uv = (fragment_position.xy - material_params.backdrop_sampling.capture_origin)
-        * material_params.backdrop_sampling.inverse_capture_size;
-    let backdrop_pma = textureSampleLevel(t_backdrop_layer, s_backdrop_layer, backdrop_uv, 0.0);
-
-    let base_pma = fill_pma + backdrop_pma * (1.0 - fill_pma.a);
-    return composite_texture_layers(
-        base_pma, layer0_tex_coords, layer1_tex_coords, coverage, texture_flags,
-    );
-}
-
-fn compute_gradient_fragment_color_with_backdrop(
-    fragment_position: vec4<f32>,
-    layer0_tex_coords: vec2<f32>,
-    layer1_tex_coords: vec2<f32>,
-    coverage: f32,
-    texture_flags: f32,
-    model_pos: vec2<f32>,
-    screen_pos: vec2<f32>,
-) -> vec4<f32> {
-    let fill_pma = apply_gradient_bayer_dither(
-        evaluate_gradient(model_pos, screen_pos),
-        fragment_position.xy,
-    );
-    let backdrop_uv = (fragment_position.xy - material_params.backdrop_sampling.capture_origin)
-        * material_params.backdrop_sampling.inverse_capture_size;
-    let backdrop_pma = textureSampleLevel(t_backdrop_layer, s_backdrop_layer, backdrop_uv, 0.0);
-
-    let base_pma = fill_pma + backdrop_pma * (1.0 - fill_pma.a);
-    return composite_texture_layers(
-        base_pma, layer0_tex_coords, layer1_tex_coords, coverage, texture_flags,
-    );
+    let mapping = material_params.texture_sampling;
+    let uses_target_coordinates = mapping.uses_target_coordinates != 0u;
+    let position = select(shape_tex_coords, fragment_position.xy, uses_target_coordinates);
+    let texture_coordinates = (position - mapping.origin) * mapping.inverse_size;
+    let footprint = select(texture_footprint_coverage(texture_coordinates), 1.0, uses_target_coordinates);
+    let texture_pma = textureSampleLevel(t_under_fill, s_under_fill, texture_coordinates, 0.0) * footprint;
+    return fill_pma + texture_pma * (1.0 - fill_pma.a);
 }
 
 @fragment
@@ -527,26 +507,22 @@ fn fs_passthrough_gradient(
 }
 
 @fragment
-fn fs_backdrop_passthrough(
+fn fs_texture_material(
     @builtin(position) fragment_position: vec4<f32>,
     @location(0) color: vec4<f32>,
     @location(1) layer0_tex_coords: vec2<f32>,
     @location(2) layer1_tex_coords: vec2<f32>,
     @location(3) coverage: f32,
     @location(4) @interpolate(flat) texture_flags: f32,
+    @location(5) shape_tex_coords: vec2<f32>,
 ) -> @location(0) vec4<f32> {
-    return compute_fragment_color_with_backdrop(
-        fragment_position,
-        color,
-        layer0_tex_coords,
-        layer1_tex_coords,
-        coverage,
-        texture_flags,
-    );
+    let fill_pma = vec4<f32>(color.rgb * color.a, color.a);
+    let base_pma = composite_under_fill_texture(fill_pma, fragment_position, shape_tex_coords);
+    return composite_texture_layers(base_pma, layer0_tex_coords, layer1_tex_coords, coverage, texture_flags);
 }
 
 @fragment
-fn fs_backdrop_passthrough_gradient(
+fn fs_texture_material_gradient(
     @builtin(position) fragment_position: vec4<f32>,
     @location(0) color: vec4<f32>,
     @location(1) layer0_tex_coords: vec2<f32>,
@@ -555,14 +531,9 @@ fn fs_backdrop_passthrough_gradient(
     @location(4) @interpolate(flat) texture_flags: f32,
     @location(5) model_pos: vec2<f32>,
     @location(6) screen_pos: vec2<f32>,
+    @location(7) shape_tex_coords: vec2<f32>,
 ) -> @location(0) vec4<f32> {
-    return compute_gradient_fragment_color_with_backdrop(
-        fragment_position,
-        layer0_tex_coords,
-        layer1_tex_coords,
-        coverage,
-        texture_flags,
-        model_pos,
-        screen_pos,
-    );
+    let fill_pma = apply_gradient_bayer_dither(evaluate_gradient(model_pos, screen_pos), fragment_position.xy);
+    let base_pma = composite_under_fill_texture(fill_pma, fragment_position, shape_tex_coords);
+    return composite_texture_layers(base_pma, layer0_tex_coords, layer1_tex_coords, coverage, texture_flags);
 }

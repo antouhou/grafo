@@ -6,11 +6,7 @@ use super::shape_effects::ShapeEffectRendererResources;
 use super::state::{BackdropPipelineResources, Buffers, ShapePipelines};
 use super::types::DrawTreeNode;
 use super::*;
-use crate::gradient::gpu::GpuMaterialParams;
 use crate::pipeline::{
-    create_backdrop_gradient_bind_group_layout,
-    create_backdrop_gradient_stencil_keep_color_pipeline,
-    create_backdrop_stencil_keep_color_pipeline, create_backdrop_texture_bind_group_layout,
     create_gradient_bind_group_layout, create_gradient_increment_pipeline,
     create_gradient_stencil_keep_color_pipeline, create_stencil_keep_color_pipeline,
     create_stencil_only_pipeline,
@@ -18,7 +14,6 @@ use crate::pipeline::{
 use crate::vertex::CustomVertex;
 use std::mem;
 use tracing::{error, info, warn};
-use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
     BindGroupLayout, Device, DownlevelFlags, InstanceDescriptor, SurfaceConfiguration,
     TextureFormat,
@@ -168,9 +163,6 @@ impl ShapePipelines {
         );
 
         let gradient_bind_group_layout = create_gradient_bind_group_layout(device);
-        let backdrop_texture_bind_group_layout = create_backdrop_texture_bind_group_layout(device);
-        let backdrop_gradient_bind_group_layout =
-            create_backdrop_gradient_bind_group_layout(device);
         let and_gradient_pipeline = create_gradient_increment_pipeline(
             device,
             config.format,
@@ -199,8 +191,8 @@ impl ShapePipelines {
             &gradient_bind_group_layout,
         );
 
-        let gradient_ramp_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("gradient_ramp_sampler"),
+        let linear_clamp_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("linear_clamp_sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
@@ -222,12 +214,14 @@ impl ShapePipelines {
                 queue,
                 &foreground_texture_layout,
             );
-        let default_backdrop_texture_bind_group =
-            Renderer::create_default_backdrop_texture_bind_group(
-                device,
-                queue,
-                &backdrop_texture_bind_group_layout,
-            );
+        let stencil_only_pipeline = create_stencil_only_pipeline(
+            device,
+            config.format,
+            msaa_sample_count,
+            &and_pipeline.get_bind_group_layout(0),
+            &background_texture_layout,
+            &foreground_texture_layout,
+        );
 
         Self {
             and_pipeline: Arc::new(and_pipeline),
@@ -248,11 +242,10 @@ impl ShapePipelines {
             and_uniform_buffer,
             decrementing_uniforms,
             decrementing_uniform_buffer,
-            backdrop_texture_bind_group_layout: Arc::new(backdrop_texture_bind_group_layout),
-            default_backdrop_texture_bind_group: Arc::new(default_backdrop_texture_bind_group),
+            under_fill_pipelines: None,
+            stencil_only_pipeline,
             gradient_bind_group_layout,
-            backdrop_gradient_bind_group_layout,
-            gradient_ramp_sampler,
+            linear_clamp_sampler,
         }
     }
 }
@@ -261,13 +254,8 @@ impl BackdropPipelineResources {
     pub(super) fn new(
         device: &Device,
         format: TextureFormat,
-        sample_count: u32,
-        shapes: &ShapePipelines,
         composite_layout: &BindGroupLayout,
     ) -> Self {
-        let uniform_layout = shapes.and_pipeline.get_bind_group_layout(0);
-        let background_layout = &shapes.shape_texture_bind_group_layout_background;
-        let foreground_layout = &shapes.shape_texture_bind_group_layout_foreground;
         Self {
             texture_blit_pipeline: effects::compile_texture_blit_pipeline(
                 device,
@@ -276,32 +264,6 @@ impl BackdropPipelineResources {
             ),
             layer_composite_resources: effects::compile_backdrop_layer_composite_pipeline(
                 device, format,
-            ),
-            stencil_only_pipeline: create_stencil_only_pipeline(
-                device,
-                format,
-                sample_count,
-                &uniform_layout,
-                background_layout,
-                foreground_layout,
-            ),
-            color_pipeline: create_backdrop_stencil_keep_color_pipeline(
-                device,
-                format,
-                sample_count,
-                &uniform_layout,
-                background_layout,
-                foreground_layout,
-                &shapes.backdrop_texture_bind_group_layout,
-            ),
-            color_gradient_pipeline: create_backdrop_gradient_stencil_keep_color_pipeline(
-                device,
-                format,
-                sample_count,
-                &uniform_layout,
-                background_layout,
-                foreground_layout,
-                &shapes.backdrop_gradient_bind_group_layout,
             ),
         }
     }
@@ -501,6 +463,7 @@ impl<'a> Renderer<'a> {
         let instance = context.inner.instance.clone();
         let queue = context.inner.queue.clone();
         let shape_effect_resources = ShapeEffectRendererResources::new(&device, config.format);
+        let effect_registry = EffectRegistry::new(&device);
 
         let supports_base_vertex = context.inner.supports_base_vertex;
         let mut renderer = Self {
@@ -526,7 +489,7 @@ impl<'a> Renderer<'a> {
             msaa_color_texture_view: None,
             depth_stencil_texture: None,
             depth_stencil_view: None,
-            effect_registry: EffectRegistry::new(),
+            effect_registry,
             #[cfg(feature = "render_metrics")]
             render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),
             #[cfg(feature = "render_metrics")]
@@ -536,7 +499,7 @@ impl<'a> Renderer<'a> {
                 draw_tree: easy_tree::Tree::new(),
                 shape_resources: ShapeResources::new(),
                 shape_execution: ShapeExecutionResources::new(),
-                effect_execution: EffectExecutionResources::new(),
+                effect_execution: EffectExecutionResources::default(),
                 group_effects: HashMap::new(),
                 backdrop_effects: HashMap::new(),
                 shape_effects: HashMap::new(),
@@ -725,43 +688,6 @@ impl<'a> Renderer<'a> {
         })
     }
 
-    fn create_default_backdrop_texture_bind_group(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        backdrop_texture_bind_group_layout: &wgpu::BindGroupLayout,
-    ) -> wgpu::BindGroup {
-        let (view, sampler) = create_transparent_texture_view_and_sampler(
-            device,
-            queue,
-            "default_transparent_backdrop_texture",
-        );
-
-        let material_params_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("default_backdrop_material_params_buffer"),
-            contents: bytemuck::bytes_of(&GpuMaterialParams::default()),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: backdrop_texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: material_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-            label: Some("default_backdrop_texture_bind_group_transparent"),
-        })
-    }
-
     pub async fn new_transparent(
         window: impl Into<SurfaceTarget<'static>>,
         physical_size: (u32, u32),
@@ -852,6 +778,10 @@ impl<'a> Renderer<'a> {
             self.msaa_sample_count,
         );
         self.pipeline_resources.shapes = resources;
+        self.state
+            .shape_execution
+            .texture_materials
+            .invalidate_bindings();
 
         self.state.textures.clear_shape_effects();
         self.pipeline_resources.composite_resources = None;
@@ -862,10 +792,7 @@ impl<'a> Renderer<'a> {
         // Reset lazily-created pipelines so they pick up the new layout
         self.pipeline_resources.backdrops = None;
 
-        self.state
-            .shape_execution
-            .gradient_cache
-            .clear_bind_groups();
+        self.state.shape_execution.gradient_cache.clear_materials();
         for (node_id, draw_tree_node) in self.state.draw_tree.iter_mut() {
             let DrawTreeNode::CachedShape(shape) = draw_tree_node else {
                 continue;
@@ -877,18 +804,19 @@ impl<'a> Renderer<'a> {
                 .get_mut(&node_id)
                 .expect("queued shapes have execution resources");
             resources.invalidate_material_bindings();
-            resources.refresh_gradient_bind_group(
+            resources.refresh_gradient_material(
                 &mut shape.fill,
                 &mut self.state.shape_execution.gradient_cache,
                 &self.device,
                 &self.queue,
                 &self.pipeline_resources.shapes.gradient_bind_group_layout,
-                &self.pipeline_resources.shapes.gradient_ramp_sampler,
+                &self.pipeline_resources.shapes.linear_clamp_sampler,
             );
         }
 
-        for resources in self.state.effect_execution.backdrops.values_mut() {
-            resources.invalidate_bindings();
-        }
+        self.state
+            .effect_execution
+            .backdrop_composites
+            .invalidate_bindings();
     }
 }

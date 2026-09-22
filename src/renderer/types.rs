@@ -170,9 +170,14 @@ pub(super) enum Pipeline {
     None,
     StencilIncrement,
     StencilIncrementGradient,
+    StencilIncrementOnly,
+    StencilIncrementTexture,
+    StencilIncrementGradientTexture,
     StencilDecrement,
     LeafDraw,
     LeafDrawGradient,
+    LeafDrawTexture,
+    LeafDrawGradientTexture,
 }
 
 /// Records each parent's clip strategy during `Pre`.
@@ -217,11 +222,18 @@ impl PipelineTracker {
         {
             self.counts.total_switches += 1;
             match pipeline {
-                Pipeline::StencilIncrement | Pipeline::StencilIncrementGradient => {
+                Pipeline::StencilIncrement
+                | Pipeline::StencilIncrementGradient
+                | Pipeline::StencilIncrementOnly
+                | Pipeline::StencilIncrementTexture
+                | Pipeline::StencilIncrementGradientTexture => {
                     self.counts.to_stencil_increment += 1
                 }
                 Pipeline::StencilDecrement => self.counts.to_stencil_decrement += 1,
-                Pipeline::LeafDraw | Pipeline::LeafDrawGradient => self.counts.to_leaf_draw += 1,
+                Pipeline::LeafDraw
+                | Pipeline::LeafDrawGradient
+                | Pipeline::LeafDrawTexture
+                | Pipeline::LeafDrawGradientTexture => self.counts.to_leaf_draw += 1,
                 Pipeline::None => self.counts.to_composite += 1,
             }
         }
@@ -297,21 +309,14 @@ impl<'a> BackdropSource<'a> {
 pub(super) struct BackdropContext<'a> {
     pub(super) effect_registry: &'a EffectRegistry,
     pub(super) effect_sampler: &'a wgpu::Sampler,
-    pub(super) gradient_ramp_sampler: &'a wgpu::Sampler,
     pub(super) texture_blit_pipeline: &'a wgpu::RenderPipeline,
     pub(super) composite_bind_group_layout: &'a wgpu::BindGroupLayout,
     pub(super) backdrop_layer_composite_pipeline: &'a wgpu::RenderPipeline,
     pub(super) backdrop_layer_composite_bind_group_layout: &'a wgpu::BindGroupLayout,
-    pub(super) stencil_only_pipeline: &'a wgpu::RenderPipeline,
-    pub(super) backdrop_color_pipeline: &'a wgpu::RenderPipeline,
-    pub(super) backdrop_color_gradient_pipeline: &'a wgpu::RenderPipeline,
     pub(super) device: &'a wgpu::Device,
     pub(super) queue: &'a wgpu::Queue,
     pub(super) config_format: wgpu::TextureFormat,
     pub(super) max_texture_dimension_2d: u32,
-    pub(super) backdrop_texture_bind_group_layout: &'a wgpu::BindGroupLayout,
-    pub(super) default_backdrop_texture_bind_group: &'a wgpu::BindGroup,
-    pub(super) backdrop_gradient_bind_group_layout: &'a wgpu::BindGroupLayout,
 }
 
 const MAX_EFFECT_RESULTS_CAPACITY: usize = 4_096;
