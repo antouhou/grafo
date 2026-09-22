@@ -518,9 +518,6 @@ impl<'a> Renderer<'a> {
                     aggregated_instance_transform_buffer: None,
                     aggregated_instance_color_buffer: None,
                     aggregated_instance_metadata_buffer: None,
-                    identity_instance_transform_buffer: None,
-                    identity_instance_color_buffer: None,
-                    identity_instance_metadata_buffer: None,
                 },
             },
         };
@@ -594,15 +591,6 @@ impl<'a> Renderer<'a> {
         }
         if let Some(buf) = &buffers.aggregated_instance_metadata_buffer {
             println!("Aggregated instance metadata buffer: {} bytes", buf.size());
-        }
-        if let Some(buf) = &buffers.identity_instance_transform_buffer {
-            println!("Identity instance transform buffer: {} bytes", buf.size());
-        }
-        if let Some(buf) = &buffers.identity_instance_color_buffer {
-            println!("Identity instance color buffer: {} bytes", buf.size());
-        }
-        if let Some(buf) = &buffers.identity_instance_metadata_buffer {
-            println!("Identity instance metadata buffer: {} bytes", buf.size());
         }
 
         println!("\n--- ARGB Compute Buffers ---");

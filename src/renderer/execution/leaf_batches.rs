@@ -70,21 +70,9 @@ pub(in crate::renderer) fn flush_pending_leaf_batch(
         &pipelines.default_shape_texture_bind_groups,
         bound_texture_state,
     );
-    if let Some(instance_transform_buffer) = buffers.aggregated_instance_transform_buffer.as_ref() {
-        render_pass.set_vertex_buffer(1, instance_transform_buffer.slice(..));
-    } else {
-        render_pass.set_vertex_buffer(1, buffers.identity_transform_buffer().slice(..));
-    }
-    if let Some(instance_color_buffer) = buffers.aggregated_instance_color_buffer.as_ref() {
-        render_pass.set_vertex_buffer(2, instance_color_buffer.slice(..));
-    } else {
-        render_pass.set_vertex_buffer(2, buffers.identity_color_buffer().slice(..));
-    }
-    if let Some(instance_metadata_buffer) = buffers.aggregated_instance_metadata_buffer.as_ref() {
-        render_pass.set_vertex_buffer(3, instance_metadata_buffer.slice(..));
-    } else {
-        render_pass.set_vertex_buffer(3, buffers.identity_metadata_buffer().slice(..));
-    }
+    render_pass.set_vertex_buffer(1, buffers.instance_transform_buffer().slice(..));
+    render_pass.set_vertex_buffer(2, buffers.instance_color_buffer().slice(..));
+    render_pass.set_vertex_buffer(3, buffers.instance_metadata_buffer().slice(..));
 
     render_pass.set_stencil_reference(batch.stencil_reference);
     let first_instance_index = batch.first_instance_index;
@@ -104,22 +92,18 @@ fn try_batch_leaf(
     resources: &ShapeDrawResources,
     stencil_reference: u32,
 ) -> bool {
-    let geometry_range = match resources.geometry_buffer_range {
-        Some(range) => range,
-        None => return false,
+    let Some(location) = resources.location else {
+        return false;
     };
     // Shapes with per-shape gradient bind groups cannot be batched.
     if shape.has_gradient_fill() {
         return false;
     }
-    let instance_index = match resources.instance_index {
-        Some(index) => index as u32,
-        None => return false,
-    };
+    let instance_index = location.instance_index as u32;
     let texture_bindings = &shape.texture_bindings;
 
     if batch.is_empty() {
-        batch.geometry_range = geometry_range;
+        batch.geometry_range = location.geometry_range;
         batch.texture_bindings = *texture_bindings;
         batch.stencil_reference = stencil_reference;
         batch.first_instance_index = instance_index;
@@ -128,7 +112,7 @@ fn try_batch_leaf(
     }
 
     if batch.matches(
-        geometry_range,
+        location.geometry_range,
         texture_bindings,
         stencil_reference,
         instance_index,

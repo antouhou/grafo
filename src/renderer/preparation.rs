@@ -1,4 +1,4 @@
-use super::execution::shapes::ShapeDrawResources;
+use super::execution::shapes::{ShapeDrawLocation, ShapeDrawResources};
 use super::*;
 use crate::renderer::types::GeometryBufferError;
 use crate::shape::ShapeTextureBinding;
@@ -145,7 +145,6 @@ impl<'a> Renderer<'a> {
             &mut self.state.shape_execution.geometry_ranges,
         )?;
         if let Some(geometry_range) = geometry_range {
-            resources.geometry_buffer_range = Some(geometry_range);
             let texture_uv_transforms = self.compute_texture_uv_transforms(
                 cached_shape_data.cached_shape.texture_mapping_size(),
                 cached_shape_data,
@@ -164,7 +163,10 @@ impl<'a> Renderer<'a> {
                     texture_uv_transforms,
                 },
             );
-            resources.instance_index = Some(instance_index);
+            resources.location = Some(ShapeDrawLocation {
+                geometry_range,
+                instance_index,
+            });
         }
         Ok(resources)
     }
@@ -260,39 +262,6 @@ impl<'a> Renderer<'a> {
         ]
     }
 
-    fn ensure_identity_instance_buffers(&mut self) {
-        let buffers = &mut self.state.buffers;
-        if buffers.identity_instance_transform_buffer.is_none() {
-            let identity = InstanceTransform::identity();
-            buffers.identity_instance_transform_buffer =
-                Some(self.device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Identity Instance Transform Buffer"),
-                    contents: bytemuck::cast_slice(&[identity]),
-                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-                }));
-        }
-
-        if buffers.identity_instance_color_buffer.is_none() {
-            let transparent = InstanceColor::transparent();
-            buffers.identity_instance_color_buffer =
-                Some(self.device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Identity Instance Color Buffer"),
-                    contents: bytemuck::cast_slice(&[transparent]),
-                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-                }));
-        }
-
-        if buffers.identity_instance_metadata_buffer.is_none() {
-            let metadata = InstanceMetadata::default();
-            buffers.identity_instance_metadata_buffer =
-                Some(self.device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Identity Instance Metadata Buffer"),
-                    contents: bytemuck::cast_slice(&[metadata]),
-                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-                }));
-        }
-    }
-
     pub(super) fn upload_buffers_for_frame(&mut self) {
         let buffers = &mut self.state.buffers;
         if !self.state.shape_execution.vertices.is_empty()
@@ -320,9 +289,6 @@ impl<'a> Renderer<'a> {
                 BufferUsages::INDEX | BufferUsages::COPY_DST,
             );
         }
-
-        self.ensure_identity_instance_buffers();
-        let buffers = &mut self.state.buffers;
 
         if !self.state.shape_execution.instance_transforms.is_empty() {
             upsert_gpu_buffer(

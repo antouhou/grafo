@@ -10,43 +10,30 @@ use wgpu::{BindGroup, IndexFormat, RenderPass, RenderPipeline};
 
 fn bind_instance_buffers(
     render_pass: &mut RenderPass<'_>,
-    resources: &ShapeDrawResources,
+    instance_index: usize,
     buffers: &Buffers,
 ) {
-    if let Some(instance_index) = resources.instance_index {
-        if let Some(instance_transform_buffer) =
-            buffers.aggregated_instance_transform_buffer.as_ref()
-        {
-            let stride = InstanceTransform::STRIDE;
-            let offset = instance_index as u64 * stride;
-            render_pass
-                .set_vertex_buffer(1, instance_transform_buffer.slice(offset..offset + stride));
-        } else {
-            render_pass.set_vertex_buffer(1, buffers.identity_transform_buffer().slice(..));
-        }
-
-        if let Some(instance_color_buffer) = buffers.aggregated_instance_color_buffer.as_ref() {
-            let stride = InstanceColor::STRIDE;
-            let offset = instance_index as u64 * stride;
-            render_pass.set_vertex_buffer(2, instance_color_buffer.slice(offset..offset + stride));
-        } else {
-            render_pass.set_vertex_buffer(2, buffers.identity_color_buffer().slice(..));
-        }
-
-        if let Some(instance_metadata_buffer) = buffers.aggregated_instance_metadata_buffer.as_ref()
-        {
-            let stride = InstanceMetadata::STRIDE;
-            let offset = instance_index as u64 * stride;
-            render_pass
-                .set_vertex_buffer(3, instance_metadata_buffer.slice(offset..offset + stride));
-        } else {
-            render_pass.set_vertex_buffer(3, buffers.identity_metadata_buffer().slice(..));
-        }
-    } else {
-        render_pass.set_vertex_buffer(1, buffers.identity_transform_buffer().slice(..));
-        render_pass.set_vertex_buffer(2, buffers.identity_color_buffer().slice(..));
-        render_pass.set_vertex_buffer(3, buffers.identity_metadata_buffer().slice(..));
-    }
+    let transform_offset = instance_index as u64 * InstanceTransform::STRIDE;
+    render_pass.set_vertex_buffer(
+        1,
+        buffers
+            .instance_transform_buffer()
+            .slice(transform_offset..transform_offset + InstanceTransform::STRIDE),
+    );
+    let color_offset = instance_index as u64 * InstanceColor::STRIDE;
+    render_pass.set_vertex_buffer(
+        2,
+        buffers
+            .instance_color_buffer()
+            .slice(color_offset..color_offset + InstanceColor::STRIDE),
+    );
+    let metadata_offset = instance_index as u64 * InstanceMetadata::STRIDE;
+    render_pass.set_vertex_buffer(
+        3,
+        buffers
+            .instance_metadata_buffer()
+            .slice(metadata_offset..metadata_offset + InstanceMetadata::STRIDE),
+    );
 }
 
 fn pipeline_has_shared_geometry_bindings(pipeline: Pipeline) -> bool {
@@ -94,7 +81,7 @@ fn draw_material(
     textures: &IntermediateTextureResources,
     increments_stencil: bool,
 ) {
-    let Some(geometry_range) = resources.geometry_buffer_range else {
+    let Some(location) = resources.location else {
         return;
     };
     let (target_pipeline, pipeline) = pipelines.material_pipeline(material, increments_stencil);
@@ -122,9 +109,9 @@ fn draw_material(
     if let Some(binding) = resources.material_bind_group(material) {
         render_pass.set_bind_group(3, binding, &[]);
     }
-    bind_instance_buffers(render_pass, resources, buffers);
+    bind_instance_buffers(render_pass, location.instance_index, buffers);
     render_pass.set_stencil_reference(stencil_reference);
-    buffers.draw_indexed(render_pass, geometry_range, 0..1);
+    buffers.draw_indexed(render_pass, location.geometry_range, 0..1);
     #[cfg(feature = "render_metrics")]
     if increments_stencil {
         currently_set_pipeline.record_stencil_pass();
@@ -168,7 +155,7 @@ pub(in crate::renderer) fn decrement_stencil(
     pipelines: &ShapePipelines,
     buffers: &Buffers,
 ) {
-    let Some(geometry_range) = resources.geometry_buffer_range else {
+    let Some(location) = resources.location else {
         return;
     };
     if !matches!(currently_set_pipeline.current, Pipeline::StencilDecrement) {
@@ -183,13 +170,13 @@ pub(in crate::renderer) fn decrement_stencil(
         currently_set_pipeline.switch_to(Pipeline::StencilDecrement);
     }
 
-    bind_instance_buffers(render_pass, resources, buffers);
+    bind_instance_buffers(render_pass, location.instance_index, buffers);
 
     draw_stencil_geometry(
         render_pass,
         currently_set_pipeline,
         stencil_reference,
-        geometry_range,
+        location.geometry_range,
         buffers,
     );
 }
@@ -230,23 +217,24 @@ pub(in crate::renderer) fn increment_stencil(
     pipelines: &ShapePipelines,
     buffers: &Buffers,
 ) {
+    let Some(location) = resources.location else {
+        return;
+    };
     render_pass.set_pipeline(&pipelines.stencil_only_pipeline);
     currently_set_pipeline.switch_to(Pipeline::StencilIncrementOnly);
     render_pass.set_bind_group(0, &pipelines.and_bind_group, &[]);
     render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
     render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
     bind_aggregated_geometry_buffers(render_pass, buffers);
-    bind_instance_buffers(render_pass, resources, buffers);
+    bind_instance_buffers(render_pass, location.instance_index, buffers);
 
-    if let Some(geometry_range) = resources.geometry_buffer_range {
-        draw_stencil_geometry(
-            render_pass,
-            currently_set_pipeline,
-            stencil_reference,
-            geometry_range,
-            buffers,
-        );
-    }
+    draw_stencil_geometry(
+        render_pass,
+        currently_set_pipeline,
+        stencil_reference,
+        location.geometry_range,
+        buffers,
+    );
 }
 
 /// Decrements stencil using the geometry still bound by the preceding shape draw.
@@ -258,14 +246,14 @@ pub(in crate::renderer) fn decrement_bound_shape_stencil(
     pipelines: &ShapePipelines,
     buffers: &Buffers,
 ) {
-    if let Some(geometry_range) = resources.geometry_buffer_range {
+    if let Some(location) = resources.location {
         bind_decrement_pipeline(render_pass, pipelines);
         currently_set_pipeline.switch_to(Pipeline::StencilDecrement);
         draw_stencil_geometry(
             render_pass,
             currently_set_pipeline,
             stencil_reference,
-            geometry_range,
+            location.geometry_range,
             buffers,
         );
     }

@@ -1,18 +1,20 @@
 use super::execution::leaf_batches::{
     flush_pending_leaf_batch, queue_or_draw_leaf, PendingLeafBatch,
 };
+use super::execution::targets::{self, RenderTarget};
 use super::execution::{backdrops, draws};
 use super::plan::backdrops::compute_backdrop_capture_region;
 use super::state::{RendererPipelineResources, RendererState};
 use super::types::{
-    BackdropContext, BackdropSource, BoundTextureState, ClipKind, Pipeline, PipelineTracker,
-    TraversalEvent,
+    BackdropContext, BackdropSource, BoundTextureState, ClipKind, DrawTreeNode, Pipeline,
+    PipelineTracker, TraversalEvent,
 };
-use super::*;
-use crate::pipeline::{begin_render_pass_with_load_ops, RenderPassLoadOperations};
+use super::IntermediateTextureId;
 use crate::renderer::rect_utils::{should_skip_visible_rect_draw, try_scissor_for_rect};
 use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
-use crate::{MathRect, Size, UnsignedPhysicalRect};
+use crate::{MathRect, UnsignedPhysicalRect};
+use ahash::HashMap;
+use wgpu::CommandEncoder;
 
 fn cached_shape(draw_tree_node: &DrawTreeNode) -> &CachedShapeDrawData {
     match draw_tree_node {
@@ -23,9 +25,7 @@ fn cached_shape(draw_tree_node: &DrawTreeNode) -> &CachedShapeDrawData {
 
 /// Attachments and backdrop inputs for one traversal's output.
 pub(super) struct SegmentRenderTarget<'a> {
-    pub(super) color_view: &'a wgpu::TextureView,
-    pub(super) color_resolve_target: Option<&'a wgpu::TextureView>,
-    pub(super) depth_stencil_view: &'a wgpu::TextureView,
+    pub(super) output: RenderTarget<'a>,
     pub(super) backdrop_source: Option<BackdropSource<'a>>,
     pub(super) backdrop_context: Option<&'a BackdropContext<'a>>,
 }
@@ -35,7 +35,7 @@ pub(super) struct SegmentRenderTarget<'a> {
 /// Backdrop captures split passes. The clipping stacks preserve inherited stencil
 /// references and scissor rectangles across those passes.
 pub(super) fn render_segments(
-    encoder: &mut wgpu::CommandEncoder,
+    encoder: &mut CommandEncoder,
     events: &[TraversalEvent],
     effect_results: &HashMap<usize, IntermediateTextureId>,
     target: SegmentRenderTarget<'_>,
@@ -43,9 +43,7 @@ pub(super) fn render_segments(
     state: &mut RendererState,
 ) {
     let SegmentRenderTarget {
-        color_view,
-        color_resolve_target,
-        depth_stencil_view,
+        mut output,
         backdrop_source,
         backdrop_context,
     } = target;
@@ -53,11 +51,9 @@ pub(super) fn render_segments(
     let buffers = &state.buffers;
     let scratch = &mut state.scratch;
     let mut event_idx = 0;
-    let mut is_first_segment = true;
     let mut currently_set_pipeline = PipelineTracker::new();
     let mut bound_texture_state = BoundTextureState::default();
-    let (width, height) = state.physical_size;
-    let viewport_scissor = UnsignedPhysicalRect::from_size(Size::new(width, height));
+    let viewport_scissor = output.bounds();
     let mut pending_leaf_batch = PendingLeafBatch::default();
     scratch.stencil_stack.clear();
     scratch.scissor_stack.clear();
@@ -82,51 +78,13 @@ pub(super) fn render_segments(
             }
         }
 
-        let segment_has_events = event_idx < segment_end;
-        if segment_has_events {
-            let mut render_pass = begin_render_pass_with_load_ops(
-                encoder,
-                Some(if is_first_segment {
-                    "segment_clear_pass"
-                } else {
-                    "segment_load_pass"
-                }),
-                color_view,
-                color_resolve_target,
-                depth_stencil_view,
-                RenderPassLoadOperations {
-                    color_load_op: if is_first_segment {
-                        wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
-                    } else {
-                        wgpu::LoadOp::Load
-                    },
-                    depth_load_op: if is_first_segment {
-                        wgpu::LoadOp::Clear(1.0)
-                    } else {
-                        wgpu::LoadOp::Load
-                    },
-                    stencil_load_op: if is_first_segment {
-                        wgpu::LoadOp::Clear(0)
-                    } else {
-                        wgpu::LoadOp::Load
-                    },
-                },
-            );
-
-            // Each render pass starts with the full viewport, so restore the inherited scissor.
+        if event_idx < segment_end {
             let current_scissor = scratch
                 .scissor_stack
                 .last()
                 .copied()
                 .unwrap_or(viewport_scissor);
-            if current_scissor != viewport_scissor {
-                render_pass.set_scissor_rect(
-                    current_scissor.min.x,
-                    current_scissor.min.y,
-                    current_scissor.width(),
-                    current_scissor.height(),
-                );
-            }
+            let mut render_pass = output.begin_pass(encoder, "segment_pass", current_scissor);
 
             for event in events.iter().take(segment_end).skip(event_idx) {
                 match event {
@@ -261,12 +219,7 @@ pub(super) fn render_segments(
                                     .intersection(&scissor_rect)
                                     .unwrap_or_else(UnsignedPhysicalRect::zero);
                                 scratch.scissor_stack.push(clipped);
-                                render_pass.set_scissor_rect(
-                                    clipped.min.x,
-                                    clipped.min.y,
-                                    clipped.width(),
-                                    clipped.height(),
-                                );
+                                targets::set_scissor(&mut render_pass, clipped);
                                 #[cfg(feature = "render_metrics")]
                                 currently_set_pipeline.record_scissor_clip();
 
@@ -300,7 +253,7 @@ pub(super) fn render_segments(
                                 // Fall back to stencil increment.
                                 let shape = cached_shape(draw_tree_node);
                                 let resources = &state.shape_execution.draws[&node_id];
-                                if resources.geometry_buffer_range.is_some() {
+                                if resources.location.is_some() {
                                     let parent_stencil =
                                         scratch.stencil_stack.last().copied().unwrap_or(0);
                                     draws::draw_shape_and_increment_stencil(
@@ -349,17 +302,12 @@ pub(super) fn render_segments(
                                         &state.textures,
                                     );
                                     scratch.scissor_stack.pop();
-                                    let prev = scratch
+                                    let previous_scissor = scratch
                                         .scissor_stack
                                         .last()
                                         .copied()
                                         .unwrap_or(viewport_scissor);
-                                    render_pass.set_scissor_rect(
-                                        prev.min.x,
-                                        prev.min.y,
-                                        prev.width(),
-                                        prev.height(),
-                                    );
+                                    targets::set_scissor(&mut render_pass, previous_scissor);
                                     scratch.stencil_stack.pop();
                                 }
                                 Some(ClipKind::Stencil) => {
@@ -373,7 +321,7 @@ pub(super) fn render_segments(
                                         &state.textures,
                                     );
                                     let resources = &state.shape_execution.draws[&node_id];
-                                    if resources.geometry_buffer_range.is_some() {
+                                    if resources.location.is_some() {
                                         let stencil_reference =
                                             scratch.stencil_stack.last().copied().unwrap_or(0);
                                         draws::decrement_stencil(
@@ -409,44 +357,12 @@ pub(super) fn render_segments(
                 buffers,
                 &state.textures,
             );
-
-            is_first_segment = false;
         }
 
         event_idx = segment_end;
 
-        if !segment_has_events && is_first_segment {
-            let mut render_pass = begin_render_pass_with_load_ops(
-                encoder,
-                Some("backdrop_precapture_pass"),
-                color_view,
-                color_resolve_target,
-                depth_stencil_view,
-                RenderPassLoadOperations {
-                    color_load_op: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    depth_load_op: wgpu::LoadOp::Clear(1.0),
-                    stencil_load_op: wgpu::LoadOp::Clear(0),
-                },
-            );
-            let current_scissor = scratch
-                .scissor_stack
-                .last()
-                .copied()
-                .unwrap_or(viewport_scissor);
-            if current_scissor != viewport_scissor {
-                render_pass.set_scissor_rect(
-                    current_scissor.min.x,
-                    current_scissor.min.y,
-                    current_scissor.width(),
-                    current_scissor.height(),
-                );
-            }
-            is_first_segment = false;
-            currently_set_pipeline.switch_to(Pipeline::None);
-            bound_texture_state.invalidate();
-        }
-
         if let Some(backdrop_node_id) = backdrop_node_id {
+            output.clear_if_needed(encoder);
             let backdrop_context =
                 backdrop_context.expect("backdrop rendering requires its context");
             // Ancestors clipped by scissor retain the nearest stencil-writing ancestor's value.
@@ -499,34 +415,13 @@ pub(super) fn render_segments(
                 }
             }
 
-            // Preserve the scene while drawing the backdrop result inside this shape.
-            let mut render_pass = begin_render_pass_with_load_ops(
-                encoder,
-                Some("backdrop_shape_pass"),
-                color_view,
-                color_resolve_target,
-                depth_stencil_view,
-                RenderPassLoadOperations {
-                    color_load_op: wgpu::LoadOp::Load,
-                    depth_load_op: wgpu::LoadOp::Load,
-                    stencil_load_op: wgpu::LoadOp::Load,
-                },
-            );
-
-            // Restore scissor in the backdrop pass.
             let current_scissor = scratch
                 .scissor_stack
                 .last()
                 .copied()
                 .unwrap_or(viewport_scissor);
-            if current_scissor != viewport_scissor {
-                render_pass.set_scissor_rect(
-                    current_scissor.min.x,
-                    current_scissor.min.y,
-                    current_scissor.width(),
-                    current_scissor.height(),
-                );
-            }
+            let mut render_pass =
+                output.begin_pass(encoder, "backdrop_shape_pass", current_scissor);
 
             let backdrop_node = state.draw_tree.get(backdrop_node_id);
             let backdrop_is_leaf = backdrop_node.is_none_or(|node| node.is_leaf());
@@ -577,7 +472,6 @@ pub(super) fn render_segments(
             }
             currently_set_pipeline.switch_to(Pipeline::None);
             bound_texture_state.invalidate();
-            is_first_segment = false;
 
             if backdrop_is_leaf {
                 // The leaf is complete. Skip its Pre and Post events.

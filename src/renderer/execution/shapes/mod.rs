@@ -14,20 +14,27 @@ mod materials;
 mod pipelines;
 mod sampling;
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ShapeDrawLocation {
+    pub(crate) geometry_range: GeometryBufferRange,
+    pub(crate) instance_index: usize,
+}
+
 /// GPU locations and material bindings for one CPU shape description.
 #[derive(Debug, Default)]
 pub(crate) struct ShapeDrawResources {
-    pub(crate) geometry_buffer_range: Option<GeometryBufferRange>,
-    pub(crate) instance_index: Option<usize>,
+    pub(crate) location: Option<ShapeDrawLocation>,
     gradient_material: Option<Arc<GradientMaterial>>,
     texture_material_bind_group: Option<BindGroup>,
 }
 
 impl ShapeDrawResources {
-    pub(crate) fn new(geometry_buffer_range: GeometryBufferRange, instance_index: usize) -> Self {
+    pub(crate) fn new(geometry_range: GeometryBufferRange, instance_index: usize) -> Self {
         Self {
-            geometry_buffer_range: Some(geometry_buffer_range),
-            instance_index: Some(instance_index),
+            location: Some(ShapeDrawLocation {
+                geometry_range,
+                instance_index,
+            }),
             ..Self::default()
         }
     }
