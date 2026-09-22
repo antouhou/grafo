@@ -1,6 +1,5 @@
 use super::effects::{OffscreenTexturePool, PooledTexture};
 use crate::cache::FrameCache;
-use crate::renderer::types::{trim_hash_map_if_needed, trim_vector_if_needed};
 use crate::renderer::IntermediateTextureId;
 use ahash::{HashMap, HashMapExt};
 pub(crate) use shape_effects::{
@@ -10,9 +9,6 @@ use wgpu::{BindGroup, Texture};
 
 mod bindings;
 mod shape_effects;
-
-const MAX_SAMPLED_TEXTURES_CAPACITY: usize = 4_096;
-const MAX_WORK_TEXTURES_CAPACITY: usize = 2_048;
 
 /// The texture and its sampling binding have one owner in execution storage.
 pub(crate) struct IntermediateTexture {
@@ -126,11 +122,6 @@ impl IntermediateTextureResources {
             false
         });
         self.shape_effect_masks.clear();
-    }
-
-    pub(crate) fn trim_to_policy(&mut self) {
-        trim_hash_map_if_needed(&mut self.sampled_textures, MAX_SAMPLED_TEXTURES_CAPACITY);
-        trim_vector_if_needed(&mut self.work_textures, MAX_WORK_TEXTURES_CAPACITY);
     }
 }
 

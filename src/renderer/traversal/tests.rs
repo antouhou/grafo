@@ -3,7 +3,7 @@ use super::{
 };
 use crate::cache::CachedTessellation;
 use crate::effect::{BackdropEffectConfig, BackdropEffectInstance, EffectInstance};
-use crate::renderer::shape_effects::{PreparedShapeEffectLeaf, ShapeEffectRasterRect};
+use crate::renderer::plan::shape_effects::{PreparedShapeEffectLeaf, ShapeEffectRasterRect};
 use crate::renderer::types::{DrawTreeNode, TraversalEvent};
 use crate::renderer::IntermediateTextureId;
 use crate::shape::{CachedShapeDrawData, CachedShapeHandle};

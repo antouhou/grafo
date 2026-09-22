@@ -78,7 +78,7 @@ impl TextureMaterialPipelines {
 impl ShapePipelines {
     pub(in crate::renderer) fn material_pipeline(
         &self,
-        material: ShapeDrawMaterial<'_>,
+        material: ShapeDrawMaterial,
         increments_stencil: bool,
     ) -> (Pipeline, &RenderPipeline) {
         let uses_gradient = material.has_gradient_fill();

@@ -10,7 +10,6 @@ pub struct ShapeEffectCacheMetrics {
     pub generated_masks: u64,
     pub mask_hits: u64,
     pub executed_passes: u64,
-    pub composited_results: u64,
     pub collected_results: u64,
     pub collected_masks: u64,
 }

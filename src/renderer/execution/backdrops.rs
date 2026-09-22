@@ -2,8 +2,7 @@ use super::effects::{
     self, EffectExecutionResources, EffectPassRunConfig, OffscreenTexturePool, PooledTexture,
 };
 use super::textures::{IntermediateTexture, IntermediateTextureResources};
-use crate::effect::BackdropEffectInstance;
-use crate::renderer::plan::backdrops::BackdropCaptureRegion;
+use crate::renderer::commands::BackdropCaptureRegion;
 use crate::renderer::rect_utils;
 use crate::renderer::types::{BackdropContext, BackdropSource};
 use crate::shape::{ShapeTextureBinding, ShapeTextureLayer, TextureSampling};
@@ -13,6 +12,13 @@ use wgpu::{
     RenderPassColorAttachment, RenderPassDescriptor, StoreOp, TexelCopyTextureInfo, TextureAspect,
     TextureView,
 };
+
+/// Effect values borrowed from the completed command stream.
+pub(in crate::renderer) struct BackdropEffectParameters<'a> {
+    pub(in crate::renderer) effect_id: u64,
+    pub(in crate::renderer) params: &'a [u8],
+    pub(in crate::renderer) downsample: f32,
+}
 
 fn clear_capture(encoder: &mut CommandEncoder, output_view: &TextureView) {
     encoder.begin_render_pass(&RenderPassDescriptor {
@@ -170,7 +176,7 @@ pub(in crate::renderer) fn apply_backdrop_effect(
     context: &BackdropContext<'_>,
     source: BackdropSource<'_>,
     region: BackdropCaptureRegion,
-    effect: &BackdropEffectInstance,
+    effect: BackdropEffectParameters<'_>,
     resources: &mut EffectExecutionResources,
     textures: &mut IntermediateTextureResources,
 ) -> ShapeTextureLayer {
@@ -184,7 +190,7 @@ pub(in crate::renderer) fn apply_backdrop_effect(
     );
     let capture_size = region.bounds.size().to_u32();
     let effect_input_size =
-        rect_utils::compute_downsampled_dimensions(capture_size, effect.config.downsample);
+        rect_utils::compute_downsampled_dimensions(capture_size, effect.downsample);
     let mut downsampled_texture = if effect_input_size != capture_size {
         Some(downsample_capture(
             encoder,
@@ -212,8 +218,8 @@ pub(in crate::renderer) fn apply_backdrop_effect(
         encoder,
         &mut textures.pool,
         EffectPassRunConfig {
-            effect_id: effect.effect.effect_id,
-            params: &effect.effect.params,
+            effect_id: effect.effect_id,
+            params: effect.params,
             source_bind_group,
             effect_sampler: context.effect_sampler,
             composite_bind_group_layout: context.composite_bind_group_layout,

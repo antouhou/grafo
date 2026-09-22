@@ -108,7 +108,6 @@ impl<'a> Renderer<'a> {
         }
 
         self.state.textures.pool.clear();
-        self.trim_scratch_storage();
     }
 
     /// Recreate the cached depth/stencil texture to match current physical size and MSAA settings.

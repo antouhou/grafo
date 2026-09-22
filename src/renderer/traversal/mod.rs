@@ -1,9 +1,7 @@
-use super::shape_effects::PreparedShapeEffectLeaf;
-use super::types::{trim_vector_if_needed, TraversalEvent};
+use super::plan::shape_effects::PreparedShapeEffectLeaf;
+use super::types::TraversalEvent;
 use super::*;
 use crate::effect::BackdropEffectInstance;
-
-const MAX_TRAVERSAL_EVENTS_CAPACITY: usize = 32_768;
 
 #[derive(Default)]
 pub(super) struct TraversalScratch {
@@ -21,10 +19,6 @@ impl TraversalScratch {
         self.events.clear();
         self.substituted_subtree = None;
         self.excluded_depth = 0;
-    }
-
-    pub(super) fn trim_to_policy(&mut self) {
-        trim_vector_if_needed(&mut self.events, MAX_TRAVERSAL_EVENTS_CAPACITY);
     }
 
     pub(super) fn events(&self) -> &[TraversalEvent] {

@@ -1,5 +1,4 @@
 use super::ShapeTextureBinding;
-use crate::gradient::types::Fill;
 use crate::PhysicalRect;
 
 /// Coordinates used to sample a shape material's texture.
@@ -17,16 +16,16 @@ pub(crate) struct ShapeTextureLayer {
     pub(crate) sampling: TextureSampling,
 }
 
-/// Borrows scene materials and adds generated textures for one draw.
-#[derive(Clone, Copy)]
-pub(crate) struct ShapeDrawMaterial<'a> {
-    pub(crate) fill: Option<&'a Fill>,
-    pub(crate) texture_bindings: &'a [ShapeTextureBinding; 2],
+/// Value parameters and texture IDs for one draw. Material resources stay in execution.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ShapeDrawMaterial {
+    pub(crate) has_gradient_fill: bool,
+    pub(crate) texture_bindings: [ShapeTextureBinding; 2],
     pub(crate) under_fill_texture: Option<ShapeTextureLayer>,
 }
 
-impl ShapeDrawMaterial<'_> {
+impl ShapeDrawMaterial {
     pub(crate) fn has_gradient_fill(self) -> bool {
-        matches!(self.fill, Some(Fill::Gradient(_)))
+        self.has_gradient_fill
     }
 }

@@ -274,6 +274,7 @@ struct CachedGradientRampTexture {
 
 #[derive(Debug)]
 pub(crate) struct GradientMaterial {
+    pub(crate) params_buffer: wgpu::Buffer,
     pub(crate) bind_group: wgpu::BindGroup,
     pub(crate) ramp_view: Arc<wgpu::TextureView>,
 }
@@ -392,7 +393,7 @@ impl GradientCache {
         let params_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Material Params Buffer"),
             contents: bytemuck::cast_slice(&[material_params]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_SRC,
         });
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -414,6 +415,7 @@ impl GradientCache {
             ],
         });
         let material = Arc::new(GradientMaterial {
+            params_buffer,
             bind_group,
             ramp_view: Arc::clone(&ramp_texture.view),
         });

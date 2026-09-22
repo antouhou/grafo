@@ -4,7 +4,6 @@ use crate::renderer::types::RendererScratch;
 #[test]
 fn begin_frame_preserves_large_readback_storage() {
     let mut scratch = RendererScratch::new();
-    // Exceed the 64 MiB trimming threshold to detect accidental storage trimming.
     let readback_size = 65 * 1024 * 1024;
     scratch.readback_bytes.resize(readback_size, 0);
     let storage_pointer = scratch.readback_bytes.as_ptr();

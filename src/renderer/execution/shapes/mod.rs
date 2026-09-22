@@ -1,5 +1,6 @@
 use crate::gradient::gpu::{GradientCache, GradientMaterial};
 use crate::gradient::types::Fill;
+use crate::renderer::commands::ShapeDrawId;
 use crate::vertex::{
     CustomVertex, GeometryBufferRange, InstanceColor, InstanceMetadata, InstanceTransform,
 };
@@ -10,8 +11,10 @@ pub(crate) use sampling::TextureSamplingUniform;
 use std::sync::Arc;
 use wgpu::{BindGroup, BindGroupLayout, Device, Queue, Sampler};
 
+mod buffers;
 mod materials;
 mod pipelines;
+pub(in crate::renderer) mod preparation;
 mod sampling;
 
 #[derive(Debug, Clone, Copy)]
@@ -86,6 +89,13 @@ pub(crate) struct ShapeExecutionResources {
 }
 
 impl ShapeExecutionResources {
+    pub(in crate::renderer) fn draw_resources(&self, id: ShapeDrawId) -> &ShapeDrawResources {
+        match id {
+            ShapeDrawId::Shape(node_id) => &self.draws[&node_id],
+            ShapeDrawId::EffectLeaf(node_id) => &self.effect_leaves[&node_id],
+        }
+    }
+
     pub(crate) fn new() -> Self {
         Self {
             texture_materials: TextureMaterialPool::default(),

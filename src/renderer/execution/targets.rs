@@ -1,5 +1,5 @@
 use super::effects::PooledTexture;
-use crate::{Size, UnsignedPhysicalRect};
+use crate::UnsignedPhysicalRect;
 use wgpu::{
     Color, CommandEncoder, LoadOp, Operations, RenderPass, RenderPassColorAttachment,
     RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp, TextureView,
@@ -22,7 +22,6 @@ pub(in crate::renderer) struct RenderTarget<'a> {
     color_view: &'a TextureView,
     resolve_target: Option<&'a TextureView>,
     depth_stencil_view: &'a TextureView,
-    bounds: UnsignedPhysicalRect,
     needs_clear: bool,
 }
 
@@ -31,13 +30,11 @@ impl<'a> RenderTarget<'a> {
         output_view: &'a TextureView,
         multisample_view: Option<&'a TextureView>,
         depth_stencil_view: &'a TextureView,
-        physical_size: (u32, u32),
     ) -> Self {
         Self {
             color_view: multisample_view.unwrap_or(output_view),
             resolve_target: multisample_view.map(|_| output_view),
             depth_stencil_view,
-            bounds: UnsignedPhysicalRect::from_size(physical_size.into()),
             needs_clear: true,
         }
     }
@@ -50,34 +47,24 @@ impl<'a> RenderTarget<'a> {
                 .depth_stencil_view
                 .as_ref()
                 .expect("traversal targets include depth/stencil"),
-            bounds: UnsignedPhysicalRect::from_size(Size::new(
-                texture.color_texture.width(),
-                texture.color_texture.height(),
-            )),
             needs_clear: true,
         }
-    }
-
-    pub(in crate::renderer) fn bounds(&self) -> UnsignedPhysicalRect {
-        self.bounds
     }
 
     /// Initializes a capture source even when no draws precede the first capture.
     pub(in crate::renderer) fn clear_if_needed(&mut self, encoder: &mut CommandEncoder) {
         if self.needs_clear {
-            self.begin_pass(encoder, "backdrop_precapture_pass", self.bounds);
+            self.begin_pass(encoder, "backdrop_precapture_pass");
         }
     }
 
-    /// Clears once, then preserves all attachments and restores the inherited scissor.
-    /// The caller must flush pending draws before dropping the pass to capture its output.
+    /// Clears once, then preserves attachments. Each draw supplies its own scissor.
     pub(in crate::renderer) fn begin_pass<'pass>(
         &mut self,
         encoder: &'pass mut CommandEncoder,
         label: &'pass str,
-        scissor: UnsignedPhysicalRect,
     ) -> RenderPass<'pass> {
-        let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+        let render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some(label),
             color_attachments: &[Some(RenderPassColorAttachment {
                 view: self.color_view,
@@ -115,9 +102,6 @@ impl<'a> RenderTarget<'a> {
             occlusion_query_set: None,
         });
         self.needs_clear = false;
-        if scissor != self.bounds {
-            set_scissor(&mut render_pass, scissor);
-        }
         render_pass
     }
 }

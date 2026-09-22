@@ -1,7 +1,6 @@
-use super::effects::CompositePipelineResources;
 use super::shapes::ShapeDrawResources;
 use super::textures::IntermediateTextureResources;
-use crate::renderer::state::{Buffers, ShapePipelines};
+use crate::renderer::state::{Buffers, RendererPipelineResources, ShapePipelines};
 use crate::renderer::types::{BoundTextureState, Pipeline, PipelineTracker};
 use crate::renderer::IntermediateTextureId;
 use crate::shape::{ShapeDrawMaterial, ShapeTextureBinding};
@@ -55,226 +54,185 @@ fn bind_decrement_pipeline(render_pass: &mut RenderPass<'_>, pipelines: &ShapePi
     render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
 }
 
-fn draw_stencil_geometry(
-    render_pass: &mut RenderPass<'_>,
-    _pipeline_tracker: &mut PipelineTracker,
-    stencil_reference: u32,
-    geometry_range: GeometryBufferRange,
-    buffers: &Buffers,
-) {
-    render_pass.set_stencil_reference(stencil_reference);
-    buffers.draw_indexed(render_pass, geometry_range, 0..1);
-    #[cfg(feature = "render_metrics")]
-    _pipeline_tracker.record_stencil_pass();
+pub(super) struct DrawPass<'pass, 'encoder> {
+    pub(super) render_pass: &'pass mut RenderPass<'encoder>,
+    pub(super) pipeline_tracker: &'pass mut PipelineTracker,
+    pub(super) bound_textures: &'pass mut BoundTextureState,
+    pub(super) pipelines: &'pass RendererPipelineResources,
+    pub(super) buffers: &'pass Buffers,
+    pub(super) textures: &'pass IntermediateTextureResources,
 }
 
-#[allow(clippy::too_many_arguments)]
-fn draw_material(
-    render_pass: &mut RenderPass<'_>,
-    currently_set_pipeline: &mut PipelineTracker,
-    bound_texture_state: &mut BoundTextureState,
-    stencil_reference: u32,
-    material: ShapeDrawMaterial<'_>,
-    resources: &ShapeDrawResources,
-    pipelines: &ShapePipelines,
-    buffers: &Buffers,
-    textures: &IntermediateTextureResources,
-    increments_stencil: bool,
-) {
-    let Some(location) = resources.location else {
-        return;
-    };
-    let (target_pipeline, pipeline) = pipelines.material_pipeline(material, increments_stencil);
-    if currently_set_pipeline.current != target_pipeline {
-        render_pass.set_pipeline(pipeline);
-        render_pass.set_bind_group(0, &pipelines.and_bind_group, &[]);
-        render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
-        render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
-        bound_texture_state.mark_bound(0, ShapeTextureBinding::None);
-        bound_texture_state.mark_bound(1, ShapeTextureBinding::None);
-        if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current) {
-            bind_aggregated_geometry_buffers(render_pass, buffers);
+impl DrawPass<'_, '_> {
+    fn draw_stencil_geometry(
+        &mut self,
+        stencil_reference: u32,
+        geometry_range: GeometryBufferRange,
+    ) {
+        self.render_pass.set_stencil_reference(stencil_reference);
+        self.buffers
+            .draw_indexed(self.render_pass, geometry_range, 0..1);
+        #[cfg(feature = "render_metrics")]
+        self.pipeline_tracker.record_stencil_pass();
+    }
+
+    fn draw_material(
+        &mut self,
+        stencil_reference: u32,
+        material: ShapeDrawMaterial,
+        resources: &ShapeDrawResources,
+        increments_stencil: bool,
+    ) {
+        let pipelines = &self.pipelines.shapes;
+        let Some(location) = resources.location else {
+            return;
+        };
+        let (target_pipeline, pipeline) = pipelines.material_pipeline(material, increments_stencil);
+        if self.pipeline_tracker.current != target_pipeline {
+            self.render_pass.set_pipeline(pipeline);
+            self.render_pass
+                .set_bind_group(0, &pipelines.and_bind_group, &[]);
+            self.render_pass.set_bind_group(
+                1,
+                &*pipelines.default_shape_texture_bind_groups[0],
+                &[],
+            );
+            self.render_pass.set_bind_group(
+                2,
+                &*pipelines.default_shape_texture_bind_groups[1],
+                &[],
+            );
+            self.bound_textures.mark_bound(0, ShapeTextureBinding::None);
+            self.bound_textures.mark_bound(1, ShapeTextureBinding::None);
+            if !pipeline_has_shared_geometry_bindings(self.pipeline_tracker.current) {
+                bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
+            }
+            self.pipeline_tracker.switch_to(target_pipeline);
         }
-        currently_set_pipeline.switch_to(target_pipeline);
-    }
-    textures.bind_shape_texture_layers(
-        render_pass,
-        material.texture_bindings,
-        &pipelines.texture_manager,
-        &pipelines.shape_texture_bind_group_layout_background,
-        &pipelines.shape_texture_bind_group_layout_foreground,
-        &pipelines.default_shape_texture_bind_groups,
-        bound_texture_state,
-    );
-    if let Some(binding) = resources.material_bind_group(material) {
-        render_pass.set_bind_group(3, binding, &[]);
-    }
-    bind_instance_buffers(render_pass, location.instance_index, buffers);
-    render_pass.set_stencil_reference(stencil_reference);
-    buffers.draw_indexed(render_pass, location.geometry_range, 0..1);
-    #[cfg(feature = "render_metrics")]
-    if increments_stencil {
-        currently_set_pipeline.record_stencil_pass();
-    }
-}
-
-/// Draws color and increments stencil samples matching the supplied reference.
-#[allow(clippy::too_many_arguments)]
-pub(in crate::renderer) fn draw_shape_and_increment_stencil(
-    render_pass: &mut RenderPass<'_>,
-    currently_set_pipeline: &mut PipelineTracker,
-    bound_texture_state: &mut BoundTextureState,
-    stencil_reference: u32,
-    material: ShapeDrawMaterial<'_>,
-    resources: &ShapeDrawResources,
-    pipelines: &ShapePipelines,
-    buffers: &Buffers,
-    textures: &IntermediateTextureResources,
-) {
-    draw_material(
-        render_pass,
-        currently_set_pipeline,
-        bound_texture_state,
-        stencil_reference,
-        material,
-        resources,
-        pipelines,
-        buffers,
-        textures,
-        true,
-    );
-}
-
-/// Decrements stencil samples matching the supplied reference without drawing color.
-pub(in crate::renderer) fn decrement_stencil(
-    render_pass: &mut RenderPass<'_>,
-    currently_set_pipeline: &mut PipelineTracker,
-    bound_texture_state: &mut BoundTextureState,
-    stencil_reference: u32,
-    resources: &ShapeDrawResources,
-    pipelines: &ShapePipelines,
-    buffers: &Buffers,
-) {
-    let Some(location) = resources.location else {
-        return;
-    };
-    if !matches!(currently_set_pipeline.current, Pipeline::StencilDecrement) {
-        bind_decrement_pipeline(render_pass, pipelines);
-        bound_texture_state.mark_bound(0, ShapeTextureBinding::None);
-        bound_texture_state.mark_bound(1, ShapeTextureBinding::None);
-
-        if !pipeline_has_shared_geometry_bindings(currently_set_pipeline.current) {
-            bind_aggregated_geometry_buffers(render_pass, buffers);
-        }
-
-        currently_set_pipeline.switch_to(Pipeline::StencilDecrement);
-    }
-
-    bind_instance_buffers(render_pass, location.instance_index, buffers);
-
-    draw_stencil_geometry(
-        render_pass,
-        currently_set_pipeline,
-        stencil_reference,
-        location.geometry_range,
-        buffers,
-    );
-}
-
-/// Draws the material at the supplied reference without modifying stencil.
-#[allow(clippy::too_many_arguments)]
-pub(in crate::renderer) fn draw_shape(
-    render_pass: &mut RenderPass<'_>,
-    currently_set_pipeline: &mut PipelineTracker,
-    bound_texture_state: &mut BoundTextureState,
-    stencil_reference: u32,
-    material: ShapeDrawMaterial<'_>,
-    resources: &ShapeDrawResources,
-    pipelines: &ShapePipelines,
-    buffers: &Buffers,
-    textures: &IntermediateTextureResources,
-) {
-    draw_material(
-        render_pass,
-        currently_set_pipeline,
-        bound_texture_state,
-        stencil_reference,
-        material,
-        resources,
-        pipelines,
-        buffers,
-        textures,
-        false,
-    );
-}
-
-/// Increments stencil within the shape without drawing color.
-pub(in crate::renderer) fn increment_stencil(
-    render_pass: &mut RenderPass<'_>,
-    currently_set_pipeline: &mut PipelineTracker,
-    stencil_reference: u32,
-    resources: &ShapeDrawResources,
-    pipelines: &ShapePipelines,
-    buffers: &Buffers,
-) {
-    let Some(location) = resources.location else {
-        return;
-    };
-    render_pass.set_pipeline(&pipelines.stencil_only_pipeline);
-    currently_set_pipeline.switch_to(Pipeline::StencilIncrementOnly);
-    render_pass.set_bind_group(0, &pipelines.and_bind_group, &[]);
-    render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
-    render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
-    bind_aggregated_geometry_buffers(render_pass, buffers);
-    bind_instance_buffers(render_pass, location.instance_index, buffers);
-
-    draw_stencil_geometry(
-        render_pass,
-        currently_set_pipeline,
-        stencil_reference,
-        location.geometry_range,
-        buffers,
-    );
-}
-
-/// Decrements stencil using the geometry still bound by the preceding shape draw.
-pub(in crate::renderer) fn decrement_bound_shape_stencil(
-    render_pass: &mut RenderPass<'_>,
-    currently_set_pipeline: &mut PipelineTracker,
-    stencil_reference: u32,
-    resources: &ShapeDrawResources,
-    pipelines: &ShapePipelines,
-    buffers: &Buffers,
-) {
-    if let Some(location) = resources.location {
-        bind_decrement_pipeline(render_pass, pipelines);
-        currently_set_pipeline.switch_to(Pipeline::StencilDecrement);
-        draw_stencil_geometry(
-            render_pass,
-            currently_set_pipeline,
-            stencil_reference,
-            location.geometry_range,
-            buffers,
+        self.textures.bind_shape_texture_layers(
+            self.render_pass,
+            &material.texture_bindings,
+            &pipelines.texture_manager,
+            &pipelines.shape_texture_bind_group_layout_background,
+            &pipelines.shape_texture_bind_group_layout_foreground,
+            &pipelines.default_shape_texture_bind_groups,
+            self.bound_textures,
         );
+        if let Some(binding) = resources.material_bind_group(material) {
+            self.render_pass.set_bind_group(3, binding, &[]);
+        }
+        bind_instance_buffers(self.render_pass, location.instance_index, self.buffers);
+        self.render_pass.set_stencil_reference(stencil_reference);
+        self.buffers
+            .draw_indexed(self.render_pass, location.geometry_range, 0..1);
+        #[cfg(feature = "render_metrics")]
+        if increments_stencil {
+            self.pipeline_tracker.record_stencil_pass();
+        }
     }
-}
 
-/// Composites an intermediate texture under the active scissor and stencil reference.
-pub(in crate::renderer) fn composite_texture(
-    render_pass: &mut RenderPass<'_>,
-    currently_set_pipeline: &mut PipelineTracker,
-    bound_texture_state: &mut BoundTextureState,
-    stencil_reference: u32,
-    texture_id: IntermediateTextureId,
-    resources: &CompositePipelineResources,
-    textures: &IntermediateTextureResources,
-) {
-    render_pass.set_pipeline(&resources.pipeline);
-    render_pass.set_bind_group(0, textures.bind_group(texture_id), &[]);
-    render_pass.set_stencil_reference(stencil_reference);
-    render_pass.draw(0..3, 0..1);
-    currently_set_pipeline.switch_to(Pipeline::None);
-    bound_texture_state.invalidate();
+    /// Draws color and increments stencil samples matching the supplied reference.
+    pub(super) fn draw_shape_and_increment_stencil(
+        &mut self,
+        stencil_reference: u32,
+        material: ShapeDrawMaterial,
+        resources: &ShapeDrawResources,
+    ) {
+        self.draw_material(stencil_reference, material, resources, true);
+    }
+
+    /// Decrements stencil samples matching the supplied reference without drawing color.
+    pub(super) fn decrement_stencil(
+        &mut self,
+        stencil_reference: u32,
+        resources: &ShapeDrawResources,
+    ) {
+        let Some(location) = resources.location else {
+            return;
+        };
+        if !matches!(self.pipeline_tracker.current, Pipeline::StencilDecrement) {
+            bind_decrement_pipeline(self.render_pass, &self.pipelines.shapes);
+            self.bound_textures.mark_bound(0, ShapeTextureBinding::None);
+            self.bound_textures.mark_bound(1, ShapeTextureBinding::None);
+
+            if !pipeline_has_shared_geometry_bindings(self.pipeline_tracker.current) {
+                bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
+            }
+
+            self.pipeline_tracker.switch_to(Pipeline::StencilDecrement);
+        }
+
+        bind_instance_buffers(self.render_pass, location.instance_index, self.buffers);
+
+        self.draw_stencil_geometry(stencil_reference, location.geometry_range);
+    }
+
+    /// Draws the material at the supplied reference without modifying stencil.
+    pub(super) fn draw_shape(
+        &mut self,
+        stencil_reference: u32,
+        material: ShapeDrawMaterial,
+        resources: &ShapeDrawResources,
+    ) {
+        self.draw_material(stencil_reference, material, resources, false);
+    }
+
+    /// Increments stencil within the shape without drawing color.
+    pub(super) fn increment_stencil(
+        &mut self,
+        stencil_reference: u32,
+        resources: &ShapeDrawResources,
+    ) {
+        let pipelines = &self.pipelines.shapes;
+        let Some(location) = resources.location else {
+            return;
+        };
+        self.render_pass
+            .set_pipeline(&pipelines.stencil_only_pipeline);
+        self.pipeline_tracker
+            .switch_to(Pipeline::StencilIncrementOnly);
+        self.render_pass
+            .set_bind_group(0, &pipelines.and_bind_group, &[]);
+        self.render_pass
+            .set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
+        self.render_pass
+            .set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+        bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
+        bind_instance_buffers(self.render_pass, location.instance_index, self.buffers);
+
+        self.draw_stencil_geometry(stencil_reference, location.geometry_range);
+    }
+
+    /// Decrements stencil using the geometry still bound by the preceding shape draw.
+    pub(super) fn decrement_bound_shape_stencil(
+        &mut self,
+        stencil_reference: u32,
+        resources: &ShapeDrawResources,
+    ) {
+        if let Some(location) = resources.location {
+            bind_decrement_pipeline(self.render_pass, &self.pipelines.shapes);
+            self.pipeline_tracker.switch_to(Pipeline::StencilDecrement);
+            self.draw_stencil_geometry(stencil_reference, location.geometry_range);
+        }
+    }
+
+    /// Composites an intermediate texture under the active scissor and stencil reference.
+    pub(super) fn composite_texture(
+        &mut self,
+        stencil_reference: u32,
+        texture_id: IntermediateTextureId,
+    ) {
+        let Some(resources) = &self.pipelines.composite_resources else {
+            return;
+        };
+        self.render_pass.set_pipeline(&resources.pipeline);
+        self.render_pass
+            .set_bind_group(0, self.textures.bind_group(texture_id), &[]);
+        self.render_pass.set_stencil_reference(stencil_reference);
+        self.render_pass.draw(0..3, 0..1);
+        self.pipeline_tracker.switch_to(Pipeline::None);
+        self.bound_textures.invalidate();
+    }
 }
 
 /// Rasterizes the prepared shape-effect mask into the active target.

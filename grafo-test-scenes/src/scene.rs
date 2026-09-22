@@ -162,6 +162,7 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         renderer, 78, true,
     ));
     expectations.extend(tile_79_capture_before_first_group_draw(renderer));
+    expectations.extend(tile_80_group_composite_under_mixed_clips(renderer));
 
     expectations
 }
@@ -6219,6 +6220,147 @@ fn tile_79_capture_before_first_group_draw(renderer: &mut Renderer) -> Vec<Pixel
             22,
             [245, 190, 70],
             "t79_preserve_sharp_gold_check_behind_group",
+        ),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+    })
+    .collect()
+}
+
+/// Group composites and following draws share the resolved scissor and stencil clips.
+fn tile_80_group_composite_under_mixed_clips(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    // The canvas-edge test occupies the last slot, leaving slot 33 available.
+    let (origin_x, origin_y) = tile_origin(33);
+    let bounds = |left, top, right, bottom| {
+        [
+            (origin_x + left, origin_y + top),
+            (origin_x + right, origin_y + bottom),
+        ]
+    };
+    let outer = renderer
+        .add_shape(
+            Shape::rounded_rect(
+                bounds(4.0, 4.0, 76.0, 70.0),
+                BorderRadii::new(8.0),
+                Stroke::default(),
+            ),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(180, 180, 220)),
+        )
+        .unwrap();
+    let scissor = renderer
+        .add_clipping_rect(
+            bounds(12.0, 8.0, 65.0, 64.0),
+            Some(outer),
+            None::<TransformInstance>,
+            true,
+        )
+        .unwrap();
+    let group = renderer
+        .add_shape(
+            Shape::builder().build(),
+            Some(scissor),
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    let overflow = renderer
+        .add_shape(
+            Shape::rect(bounds(20.0, 15.0, 38.0, 35.0), Stroke::default()),
+            Some(group),
+            Some(80_001),
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgb(0, 200, 0))
+                .clips_children(false),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            overflow,
+            SHAPE_DROP_EFFECT_ID,
+            &[],
+            ShapeEffectConfig::new().outset(12.0),
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect(bounds(6.0, 20.0, 72.0, 42.0), Stroke::default()),
+            Some(overflow),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 0, 0)),
+        )
+        .unwrap();
+    renderer
+        .set_group_effect(group, PASSTHROUGH_EFFECT_ID, &[])
+        .unwrap();
+    let empty_backdrop = renderer
+        .add_shape(
+            Shape::builder().build(),
+            Some(scissor),
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    renderer
+        .set_shape_backdrop_effect(
+            empty_backdrop,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::default(),
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect(bounds(55.0, 44.0, 74.0, 58.0), Stroke::default()),
+            Some(empty_backdrop),
+            None,
+            ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect(bounds(8.0, 58.0, 72.0, 68.0), Stroke::default()),
+            Some(outer),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(230, 200, 50)),
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect(bounds(5.0, 70.0, 75.0, 78.0), Stroke::default()),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(70, 70, 70)),
+        )
+        .unwrap();
+
+    [
+        (10, 30, [180, 180, 220], "t80_scissor_clips_composite_left"),
+        (14, 30, [220, 0, 0], "t80_group_overflows_empty_parent"),
+        (62, 30, [220, 0, 0], "t80_group_overflows_visible_parent"),
+        (68, 30, [180, 180, 220], "t80_scissor_clips_composite_right"),
+        (28, 17, [0, 200, 0], "t80_visible_parent_in_composite"),
+        (42, 17, [180, 180, 220], "t80_transparent_composite_area"),
+        (60, 50, [0, 255, 0], "t80_texture_under_empty_backdrop"),
+        (68, 50, [180, 180, 220], "t80_sibling_keeps_scissor"),
+        (10, 62, [230, 200, 50], "t80_scissor_restored_left"),
+        (68, 62, [230, 200, 50], "t80_scissor_restored_right"),
+        (10, 74, [70, 70, 70], "t80_stencil_restored_after_composite"),
+        (
+            2,
+            30,
+            [255, 255, 255],
+            "t80_ancestor_stencil_clips_composite",
         ),
     ]
     .into_iter()
