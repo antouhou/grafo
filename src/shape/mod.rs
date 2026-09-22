@@ -432,19 +432,6 @@ impl AaFringeScratch {
         self.boundary_edges.clear();
         self.triangle_stack.clear();
     }
-
-    pub(crate) fn trim(&mut self) {
-        self.edge_use_counts.shrink_to_fit();
-        self.edge_owners.shrink_to_fit();
-        self.incident_triangles_by_vertex.shrink_to_fit();
-        self.triangle_adjacency.shrink_to_fit();
-        self.visited_triangles.shrink_to_fit();
-        self.triangle_component_map.shrink_to_fit();
-        self.boundary_corner_normals.shrink_to_fit();
-        self.outer_vertex_indices.shrink_to_fit();
-        self.boundary_edges.shrink_to_fit();
-        self.triangle_stack.shrink_to_fit();
-    }
 }
 
 fn normalized_float_bits(value: f32) -> u32 {
@@ -1017,10 +1004,10 @@ pub(crate) struct CachedShapeDrawData {
 }
 
 impl CachedShapeDrawData {
-    pub(crate) fn material(&self) -> ShapeDrawMaterial<'_> {
+    pub(crate) fn material(&self) -> ShapeDrawMaterial {
         ShapeDrawMaterial {
-            fill: self.fill.as_ref(),
-            texture_bindings: &self.texture_bindings,
+            has_gradient_fill: self.has_gradient_fill(),
+            texture_bindings: self.texture_bindings,
             under_fill_texture: None,
         }
     }

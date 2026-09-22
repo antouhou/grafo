@@ -1,7 +1,9 @@
 pub(super) mod backdrops;
 pub(super) mod draws;
 pub(super) mod effects;
+pub(super) mod instructions;
 pub(super) mod leaf_batches;
+pub(super) mod segments;
 pub(super) mod shapes;
 pub(super) mod targets;
 pub(super) mod textures;

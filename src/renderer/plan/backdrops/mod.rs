@@ -1,4 +1,5 @@
 use crate::effect::{BackdropCaptureArea, BackdropEffectConfig};
+use crate::renderer::commands::BackdropCaptureRegion;
 use crate::renderer::rect_utils::{
     logical_rect_to_physical_rect, transformed_bounds_to_logical_screen_rect,
 };
@@ -20,15 +21,6 @@ fn max_backdrop_capture_texels(physical_size: Size) -> u64 {
 fn does_capture_size_exceeds_budget(capture_size: Size, physical_size: Size) -> bool {
     let capture_texels = u64::from(capture_size.width) * u64::from(capture_size.height);
     capture_texels > max_backdrop_capture_texels(physical_size)
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub(in crate::renderer) struct BackdropCaptureRegion {
-    /// Requested bounds in full-resolution physical pixels, including offscreen padding.
-    pub(in crate::renderer) bounds: PhysicalRect,
-    /// Viewport overlap to copy, or None when the requested bounds are fully offscreen.
-    pub(in crate::renderer) source_rect: Option<UnsignedPhysicalRect>,
-    pub(in crate::renderer) copy_destination_origin: UnsignedPhysicalPoint,
 }
 
 fn resolve_capture_region_to_viewport(

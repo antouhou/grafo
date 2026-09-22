@@ -1,11 +1,11 @@
 //! Renderer for the Grafo library.
+pub(crate) use self::commands::IntermediateTextureId;
 use self::execution::effects::{
     compile_composite_pipeline, CompositePipelineResources, EffectRegistry,
 };
 pub(crate) use self::execution::shapes::TextureSamplingUniform;
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
-pub(crate) use self::plan::textures::IntermediateTextureId;
 use self::readback::{ArgbReadbackResources, BgraReadbackResources};
 use self::state::{RendererPipelineResources, RendererState};
 use self::types::{DrawTreeNode, RendererScratch};
@@ -16,9 +16,7 @@ use crate::pipeline::{
 use crate::shape::{CachedShapeDrawData, Shape};
 use crate::texture_manager::TextureManager;
 use crate::util::{to_logical, ShapeResources};
-use crate::vertex::{
-    GeometryBufferRange, InstanceColor, InstanceMetadata, InstanceTransform, TextureUvTransform,
-};
+use crate::vertex::{InstanceColor, InstanceMetadata, InstanceTransform};
 use crate::CachedShapeHandle;
 use ahash::{HashMap, HashMapExt};
 pub use construction::RendererCreationError;
@@ -27,15 +25,15 @@ pub use readback::ReadbackError;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tracing::warn;
-use wgpu::{BufferUsages, CompositeAlphaMode, SurfaceTarget};
+use wgpu::{CompositeAlphaMode, SurfaceTarget};
 
+mod commands;
 mod construction;
 mod draw_queue;
 mod effects;
 mod execution;
 #[cfg(feature = "render_metrics")]
 pub mod metrics;
-mod passes;
 mod plan;
 mod preparation;
 mod readback;
@@ -128,16 +126,6 @@ impl<'a> Renderer<'a> {
     pub(super) fn begin_frame_scratch(&mut self) {
         self.state.scratch.begin_frame();
         self.state.shape_execution.effect_leaves.clear();
-    }
-
-    pub(super) fn trim_scratch_storage(&mut self) {
-        self.state.shape_resources.aa_fringe_scratch.trim();
-        self.state.scratch.trim_to_policy();
-        self.state.textures.trim_to_policy();
-        types::trim_hash_map_if_needed(
-            &mut self.state.shape_execution.effect_leaves,
-            types::MAX_SHAPE_EFFECT_LEAVES_CAPACITY,
-        );
     }
 
     /// Returns the wall-clock CPU time spent in the most recent `render_to_texture_view()` call.

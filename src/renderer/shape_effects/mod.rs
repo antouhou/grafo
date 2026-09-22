@@ -8,13 +8,14 @@ use super::execution::textures::{
     CachedShapeEffectMask, IntermediateTexture, ShapeEffectCacheKey, ShapeEffectMaskCache,
     ShapeEffectMaskCacheKey,
 };
+use super::plan::shape_effects::{PreparedShapeEffectLeaf, ShapeEffectRasterRect};
 use super::rect_utils::compute_downsampled_dimensions;
 use super::state::Buffers;
 use super::types::{DrawTreeNode, GeometryBufferError};
 use super::Renderer;
 use crate::cache::CachedTessellation;
 use crate::effect::ShapeEffectConfig;
-use crate::renderer::preparation::{self, InstanceTextureData};
+use crate::renderer::execution::shapes::preparation::{self, InstanceTextureData};
 use crate::shape::{CachedShapeDrawData, CachedShapeHandle, ShapeTextureBinding};
 use crate::vertex::{CustomVertex, GeometryBufferRange, InstanceTransform, TextureUvTransform};
 use crate::{ShapeDrawCommandOptions, Size};
@@ -37,17 +38,6 @@ pub(super) struct ShapeEffectMaskUniform {
     scale_factor: f32,
     fringe_width: f32,
     padding: [f32; 2],
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub(super) struct ShapeEffectRasterRect {
-    /// Shape-local origin scaled to physical pixels. Node transforms apply later,
-    /// so moving the shape on screen does not change this value.
-    pub local_physical_origin: [i32; 2],
-    /// Mask/effect texture size in texels. Smaller than the full-resolution
-    /// physical extent when the effect config downsamples the rasterization.
-    pub texture_size: [u32; 2],
-    pub local_bounds: [(f32, f32); 2],
 }
 
 impl ShapeEffectRasterRect {
@@ -153,11 +143,6 @@ pub(super) fn compute_shape_effect_raster_rect(
             ),
         ],
     })
-}
-
-pub(super) struct PreparedShapeEffectLeaf {
-    pub(super) draw_data: CachedShapeDrawData,
-    pub(super) raster_rect: ShapeEffectRasterRect,
 }
 
 struct ShapeEffectMaskDraw {

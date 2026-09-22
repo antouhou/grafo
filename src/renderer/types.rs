@@ -1,12 +1,13 @@
+use super::commands::DrawPlan;
 use super::execution::effects::EffectRegistry;
 #[cfg(feature = "render_metrics")]
 use super::metrics::PipelineSwitchCounts;
-use super::shape_effects::PreparedShapeEffectLeaf;
+use super::plan::draws::DrawPlanner;
+use super::plan::shape_effects::PreparedShapeEffectLeaf;
 use super::traversal::TraversalScratch;
 use super::IntermediateTextureId;
 use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
 use crate::vertex::InstanceTransform;
-use crate::UnsignedPhysicalRect;
 use ahash::{HashMap, HashMapExt};
 use thiserror::Error;
 use wgpu::SurfaceError;
@@ -180,18 +181,6 @@ pub(super) enum Pipeline {
     LeafDrawGradientTexture,
 }
 
-/// Records each parent's clip strategy during `Pre`.
-/// `Post` uses it to restore the clip state without checking scissor eligibility again.
-#[derive(Clone, Copy)]
-pub(super) enum ClipKind {
-    /// Parent does not clip children
-    NonClipping,
-    /// Parent clips children via hardware scissor rect
-    Scissor,
-    /// Parent clips children via stencil increment/decrement
-    Stencil,
-}
-
 /// Wraps [`Pipeline`] tracking with optional per-frame switch counters.
 ///
 /// When the `render_metrics` feature is enabled the tracker also counts
@@ -237,12 +226,6 @@ impl PipelineTracker {
                 Pipeline::None => self.counts.to_composite += 1,
             }
         }
-    }
-
-    /// Record that a scissor clip was used instead of stencil increment/decrement.
-    #[cfg(feature = "render_metrics")]
-    pub(super) fn record_scissor_clip(&mut self) {
-        self.counts.scissor_clips += 1;
     }
 
     /// Record one draw pass that modifies the stencil buffer.
@@ -319,24 +302,12 @@ pub(super) struct BackdropContext<'a> {
     pub(super) max_texture_dimension_2d: u32,
 }
 
-const MAX_EFFECT_RESULTS_CAPACITY: usize = 4_096;
-pub(super) const MAX_SHAPE_EFFECT_LEAVES_CAPACITY: usize = 4_096;
-const MAX_EFFECT_NODE_IDS_CAPACITY: usize = 4_096;
-const MAX_STENCIL_STACK_CAPACITY: usize = 16_384;
-const MAX_SCISSOR_STACK_CAPACITY: usize = 16_384;
-const MAX_READBACK_BYTES_CAPACITY: usize = 64 * 1024 * 1024;
-
 pub(super) struct RendererScratch {
     pub(super) effect_results: HashMap<usize, IntermediateTextureId>,
     pub(super) shape_effect_leaves: HashMap<usize, PreparedShapeEffectLeaf>,
     pub(super) effect_node_ids: Vec<(usize, usize)>,
-    pub(super) stencil_stack: Vec<u32>,
-    /// Stack of intersected scissor rectangles in physical pixels.
-    /// Used to replace stencil clipping for axis-aligned rect parents.
-    pub(super) scissor_stack: Vec<UnsignedPhysicalRect>,
-    /// Clip strategies for the parents in `stencil_stack`.
-    /// `Post` uses them to restore each parent's clip state.
-    pub(super) clip_kind_stack: Vec<ClipKind>,
+    pub(super) draw_planner: DrawPlanner,
+    pub(super) draw_plan: DrawPlan,
     /// CPU storage reused for mapped readback data.
     pub(super) readback_bytes: Vec<u8>,
     pub(super) traversal_scratch: TraversalScratch,
@@ -348,54 +319,21 @@ impl RendererScratch {
             effect_results: HashMap::new(),
             shape_effect_leaves: HashMap::new(),
             effect_node_ids: Vec::new(),
-            stencil_stack: Vec::new(),
-            scissor_stack: Vec::new(),
-            clip_kind_stack: Vec::new(),
+            draw_planner: DrawPlanner::default(),
+            draw_plan: DrawPlan::default(),
             readback_bytes: Vec::new(),
             traversal_scratch: TraversalScratch::new(),
         }
     }
 
     pub(super) fn begin_frame(&mut self) {
+        self.draw_plan.instructions.clear();
+        self.draw_plan.segments.clear();
+        self.draw_plan.effect_parameters.clear();
         self.effect_results.clear();
         self.shape_effect_leaves.clear();
         self.effect_node_ids.clear();
-        self.stencil_stack.clear();
-        self.scissor_stack.clear();
-        self.clip_kind_stack.clear();
         self.readback_bytes.clear();
         self.traversal_scratch.begin();
-    }
-
-    pub(super) fn trim_to_policy(&mut self) {
-        trim_hash_map_if_needed(&mut self.effect_results, MAX_EFFECT_RESULTS_CAPACITY);
-        trim_hash_map_if_needed(
-            &mut self.shape_effect_leaves,
-            MAX_SHAPE_EFFECT_LEAVES_CAPACITY,
-        );
-        trim_vector_if_needed(&mut self.effect_node_ids, MAX_EFFECT_NODE_IDS_CAPACITY);
-        trim_vector_if_needed(&mut self.stencil_stack, MAX_STENCIL_STACK_CAPACITY);
-        trim_vector_if_needed(&mut self.scissor_stack, MAX_SCISSOR_STACK_CAPACITY);
-        trim_vector_if_needed(&mut self.clip_kind_stack, MAX_SCISSOR_STACK_CAPACITY);
-        if self.readback_bytes.len() > MAX_READBACK_BYTES_CAPACITY {
-            self.readback_bytes.truncate(MAX_READBACK_BYTES_CAPACITY);
-        }
-        trim_vector_if_needed(&mut self.readback_bytes, MAX_READBACK_BYTES_CAPACITY);
-        self.traversal_scratch.trim_to_policy();
-    }
-}
-
-pub(super) fn trim_vector_if_needed<T>(values: &mut Vec<T>, max_capacity: usize) {
-    if values.capacity() > max_capacity {
-        values.shrink_to(max_capacity);
-    }
-}
-
-pub(super) fn trim_hash_map_if_needed<K, V>(values: &mut HashMap<K, V>, max_capacity: usize)
-where
-    K: Eq + std::hash::Hash,
-{
-    if values.capacity() > max_capacity {
-        values.shrink_to(max_capacity);
     }
 }

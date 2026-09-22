@@ -1,13 +1,13 @@
 use super::{ShapeDrawResources, TextureSamplingUniform};
-use crate::gradient::gpu::GpuMaterialParams;
-use crate::gradient::types::Fill;
+use crate::gradient::gpu::{GpuGradientColorParams, GpuMaterialParams};
 use crate::renderer::execution::textures::IntermediateTextureResources;
 use crate::renderer::execution::uniforms;
 use crate::renderer::state::ShapePipelines;
 use crate::shape::{ShapeDrawMaterial, ShapeTextureBinding, ShapeTextureLayer};
+use std::mem;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer,
-    Device, Queue, Sampler, Texture, TextureView,
+    CommandEncoder, Device, Queue, Sampler, Texture, TextureView,
 };
 
 struct TextureMaterialBinding {
@@ -108,7 +108,8 @@ impl ShapeDrawResources {
     #[allow(clippy::too_many_arguments)]
     pub(in crate::renderer) fn prepare_texture_material(
         &mut self,
-        fill: Option<&Fill>,
+        has_gradient_fill: bool,
+        encoder: &mut CommandEncoder,
         layer: ShapeTextureLayer,
         materials: &mut TextureMaterialPool,
         device: &Device,
@@ -126,21 +127,13 @@ impl ShapeDrawResources {
             ShapeTextureBinding::Intermediate(texture_id) => textures.texture(texture_id),
         };
         let sampling = TextureSamplingUniform::from(layer.sampling);
-        let (params, gradient_view) = match fill {
-            Some(Fill::Gradient(gradient)) => (
-                GpuMaterialParams::from_gradient_data(&gradient.data)
-                    .with_texture_sampling(sampling),
-                Some(
-                    self.gradient_material
-                        .as_ref()
-                        .expect("gradient fills are prepared while queuing shapes")
-                        .ramp_view
-                        .as_ref()
-                        .clone(),
-                ),
-            ),
-            _ => (GpuMaterialParams::for_texture_sampling(sampling), None),
-        };
+        let gradient = has_gradient_fill.then(|| {
+            self.gradient_material
+                .as_ref()
+                .expect("gradient material was uploaded")
+        });
+        let params = GpuMaterialParams::for_texture_sampling(sampling);
+        let gradient_view = gradient.map(|material| material.ramp_view.as_ref().clone());
         let slot = materials.next_slot();
         let buffer = uniforms::prepare_buffer(
             &mut slot.params_buffer,
@@ -149,6 +142,15 @@ impl ShapeDrawResources {
             &params,
             "shape_texture_material_params",
         );
+        if let Some(gradient) = gradient {
+            encoder.copy_buffer_to_buffer(
+                &gradient.params_buffer,
+                0,
+                buffer,
+                0,
+                mem::size_of::<GpuGradientColorParams>() as u64,
+            );
+        }
         if let Some(binding) = slot
             .binding
             .as_ref()
@@ -187,7 +189,7 @@ impl ShapeDrawResources {
 
     pub(in crate::renderer) fn material_bind_group(
         &self,
-        material: ShapeDrawMaterial<'_>,
+        material: ShapeDrawMaterial,
     ) -> Option<&BindGroup> {
         if material.under_fill_texture.is_some() {
             Some(

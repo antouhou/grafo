@@ -1,14 +1,63 @@
 use super::*;
 use crate::renderer::execution::effects::{apply_effect_passes, EffectPassRunConfig};
+use crate::renderer::execution::segments::{
+    execute_segments, SegmentExecutionResources, SegmentRenderTarget,
+};
 use crate::renderer::execution::targets::RenderTarget;
 use crate::renderer::execution::textures::IntermediateTexture;
 #[cfg(feature = "render_metrics")]
 use crate::renderer::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
-use crate::renderer::passes::{render_segments, SegmentRenderTarget};
+use crate::renderer::plan::draws::DrawPlanningInput;
 use crate::renderer::traversal::{
     compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects,
 };
 use crate::renderer::types::RenderError;
+use crate::renderer::types::TraversalEvent;
+use wgpu::CommandEncoder;
+
+fn render_planned_draws(
+    encoder: &mut CommandEncoder,
+    events: &[TraversalEvent],
+    effect_results: &HashMap<usize, IntermediateTextureId>,
+    target: SegmentRenderTarget<'_>,
+    pipelines: &RendererPipelineResources,
+    state: &mut RendererState,
+) {
+    state.scratch.draw_planner.plan(
+        events,
+        DrawPlanningInput {
+            tree: &state.draw_tree,
+            effect_results,
+            effect_leaves: &state.scratch.shape_effect_leaves,
+            group_effects: &state.group_effects,
+            backdrop_effects: &state.backdrop_effects,
+            scale_factor: state.scale_factor,
+            physical_size: state.physical_size.into(),
+            max_capture_dimension: target
+                .backdrop_context
+                .map(|context| context.max_texture_dimension_2d),
+        },
+        &mut state.scratch.draw_plan,
+    );
+    let _metrics = execute_segments(
+        encoder,
+        &state.scratch.draw_plan,
+        target,
+        SegmentExecutionResources {
+            pipelines,
+            buffers: &state.buffers,
+            shapes: &mut state.shape_execution,
+            effects: &mut state.effect_execution,
+            textures: &mut state.textures,
+        },
+    );
+    #[cfg(feature = "render_metrics")]
+    {
+        state
+            .pipeline_switch_counts
+            .accumulate(&_metrics.pipeline_switches);
+    }
+}
 
 impl<'a> Renderer<'a> {
     pub(super) fn render_to_texture_view(
@@ -153,7 +202,7 @@ impl<'a> Renderer<'a> {
                         Some(node_id),
                         &mut traversal_scratch,
                     );
-                    render_segments(
+                    render_planned_draws(
                         &mut encoder,
                         traversal_scratch.events(),
                         &effect_results,
@@ -196,7 +245,7 @@ impl<'a> Renderer<'a> {
                     }
                 });
 
-                render_segments(
+                render_planned_draws(
                     &mut encoder,
                     traversal_scratch.events(),
                     &effect_results,
@@ -280,7 +329,7 @@ impl<'a> Renderer<'a> {
                 None
             };
 
-            render_segments(
+            render_planned_draws(
                 &mut encoder,
                 traversal_scratch.events(),
                 &effect_results,
@@ -289,7 +338,6 @@ impl<'a> Renderer<'a> {
                         texture_view,
                         self.msaa_color_texture_view.as_ref(),
                         depth_texture_view,
-                        state.physical_size,
                     ),
                     backdrop_source,
                     backdrop_context: backdrop_context.as_ref(),
