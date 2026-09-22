@@ -1,7 +1,5 @@
 use crate::gradient::gpu::{GradientCache, GradientMaterial};
 use crate::gradient::types::Fill;
-#[cfg(feature = "render_metrics")]
-use crate::renderer::metrics::TextureMaterialMetrics;
 use crate::vertex::{
     CustomVertex, GeometryBufferRange, InstanceColor, InstanceMetadata, InstanceTransform,
 };
@@ -69,8 +67,6 @@ impl ShapeDrawResources {
 /// Reusable execution storage, separate from draw descriptions and their tree.
 pub(crate) struct ShapeExecutionResources {
     pub(in crate::renderer) texture_materials: TextureMaterialPool,
-    #[cfg(feature = "render_metrics")]
-    pub(crate) texture_material_metrics: TextureMaterialMetrics,
     pub(crate) draws: HashMap<usize, ShapeDrawResources>,
     pub(crate) effect_leaves: HashMap<usize, ShapeDrawResources>,
     pub(crate) gradient_cache: GradientCache,
@@ -86,8 +82,6 @@ impl ShapeExecutionResources {
     pub(crate) fn new() -> Self {
         Self {
             texture_materials: TextureMaterialPool::default(),
-            #[cfg(feature = "render_metrics")]
-            texture_material_metrics: TextureMaterialMetrics::default(),
             draws: HashMap::new(),
             effect_leaves: HashMap::new(),
             gradient_cache: GradientCache::new(),

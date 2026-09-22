@@ -1,4 +1,3 @@
-use super::execution::effects::BackdropEffectResources;
 use super::execution::shapes::TextureMaterialPipelines;
 use super::state::BackdropPipelineResources;
 use super::*;
@@ -7,9 +6,16 @@ use crate::effect::{
     ShapeEffectInstance,
 };
 
-fn overwrite_effect_params(storage: &mut Vec<u8>, params: &[u8]) {
-    storage.clear();
-    storage.extend_from_slice(params);
+fn update_effect_params(instance: &mut EffectInstance, params: &[u8]) -> Result<(), EffectError> {
+    if instance.params.len() != params.len() {
+        return Err(EffectError::ParameterSizeMismatch {
+            effect_id: instance.effect_id,
+            expected_size: instance.params.len() as u64,
+            actual_size: params.len() as u64,
+        });
+    }
+    instance.params.copy_from_slice(params);
+    Ok(())
 }
 
 fn validate_backdrop_config(config: &BackdropEffectConfig) -> Result<(), EffectError> {
@@ -77,10 +83,10 @@ impl<'a> Renderer<'a> {
     /// Naga validates every pass before GPU resources are created. Invalid WGSL,
     /// missing fragment entry points, and unsupported bindings return an error
     /// without replacing an existing effect. Identical sources leave it unchanged.
-    /// Replacing changed sources removes all existing attachments, parameter resources,
-    /// and cached results for this ID. Attach the new effect with fresh parameters
-    /// through the `set_*_effect` methods. Device-specific WGPU errors are logged
-    /// through `tracing`.
+    /// Replacing changed sources removes all existing attachments and cached results
+    /// for this ID. GPU parameter storage remains reusable. Attach the new effect
+    /// with fresh parameters through the `set_*_effect` methods. Device-specific
+    /// WGPU errors are logged through `tracing`.
     pub fn load_effect(
         &mut self,
         effect_id: u64,
@@ -113,20 +119,6 @@ impl<'a> Renderer<'a> {
         }
 
         self.effect_registry.validate_params(effect_id, params)?;
-        let parameters = self
-            .effect_registry
-            .create_parameters(&self.device, effect_id, params);
-        if let Some(parameters) = parameters {
-            self.state
-                .effect_execution
-                .group_parameters
-                .insert(node_id, parameters);
-        } else {
-            self.state
-                .effect_execution
-                .group_parameters
-                .remove(&node_id);
-        }
         let instance = EffectInstance {
             effect_id,
             params: params.to_vec(),
@@ -149,19 +141,11 @@ impl<'a> Renderer<'a> {
 
         self.effect_registry
             .validate_params(instance.effect_id, params)?;
-        if let Some(resources) = self.state.effect_execution.group_parameters.get(&node_id) {
-            resources.update(&self.queue, instance.effect_id, params)?;
-        }
-        overwrite_effect_params(&mut instance.params, params);
-        Ok(())
+        update_effect_params(instance, params)
     }
 
     pub fn remove_group_effect(&mut self, node_id: usize) {
         self.state.group_effects.remove(&node_id);
-        self.state
-            .effect_execution
-            .group_parameters
-            .remove(&node_id);
     }
 
     pub fn set_shape_backdrop_effect(
@@ -184,16 +168,6 @@ impl<'a> Renderer<'a> {
 
         self.effect_registry.validate_params(effect_id, params)?;
         validate_backdrop_config(&backdrop_config)?;
-        let parameters = self
-            .effect_registry
-            .create_parameters(&self.device, effect_id, params);
-        self.state.effect_execution.backdrops.insert(
-            node_id,
-            BackdropEffectResources {
-                parameters,
-                ..Default::default()
-            },
-        );
         let instance = EffectInstance {
             effect_id,
             params: params.to_vec(),
@@ -236,22 +210,11 @@ impl<'a> Renderer<'a> {
 
         self.effect_registry
             .validate_params(instance.effect_id, params)?;
-        if let Some(resources) = self
-            .state
-            .effect_execution
-            .backdrops
-            .get(&node_id)
-            .and_then(|resources| resources.parameters.as_ref())
-        {
-            resources.update(&self.queue, instance.effect_id, params)?;
-        }
-        overwrite_effect_params(&mut instance.params, params);
-        Ok(())
+        update_effect_params(instance, params)
     }
 
     pub fn remove_backdrop_effect(&mut self, node_id: usize) {
         self.state.backdrop_effects.remove(&node_id);
-        self.state.effect_execution.backdrops.remove(&node_id);
         if let Some(resources) = self.state.shape_execution.draws.get_mut(&node_id) {
             resources.clear_under_fill_binding();
         }
@@ -334,7 +297,6 @@ impl<'a> Renderer<'a> {
     fn remove_effect_attachments(&mut self, effect_id: u64) {
         self.state.group_effects.retain(|node_id, instance| {
             if instance.effect_id == effect_id {
-                self.state.effect_execution.group_parameters.remove(node_id);
                 self.state.scratch.effect_results.remove(node_id);
                 return false;
             }
@@ -342,7 +304,6 @@ impl<'a> Renderer<'a> {
         });
         self.state.backdrop_effects.retain(|node_id, instance| {
             if instance.effect.effect_id == effect_id {
-                self.state.effect_execution.backdrops.remove(node_id);
                 if let Some(resources) = self.state.shape_execution.draws.get_mut(node_id) {
                     resources.clear_under_fill_binding();
                 }

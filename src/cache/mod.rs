@@ -1,6 +1,7 @@
 use crate::vertex::CustomVertex;
 use ahash::{HashMap, HashMapExt};
 use lyon::tessellation::VertexBuffers;
+use std::collections::hash_map::Entry;
 use std::hash::Hash;
 use std::mem;
 use std::sync::Arc;
@@ -20,7 +21,6 @@ pub(crate) struct FrameCache<K, V> {
 impl<K, V> FrameCache<K, V>
 where
     K: Eq + Hash + Clone,
-    V: Clone,
 {
     pub(crate) fn new() -> Self {
         Self {
@@ -33,19 +33,40 @@ where
         self.previous_frame.len() + self.current_frame.len()
     }
 
-    pub(crate) fn get(&mut self, cache_key: &K) -> Option<V> {
-        if let Some(value) = self.current_frame.get(cache_key) {
-            return Some(value.clone());
-        }
+    pub(crate) fn get(&mut self, cache_key: &K) -> Option<V>
+    where
+        V: Clone,
+    {
+        self.get_mut(cache_key).cloned()
+    }
 
-        let value = self.previous_frame.get(cache_key)?.clone();
-        self.current_frame
-            .entry(cache_key.clone())
-            .or_insert_with(|| value.clone());
-        Some(value)
+    pub(crate) fn get_mut(&mut self, cache_key: &K) -> Option<&mut V> {
+        match self.current_frame.entry(cache_key.clone()) {
+            Entry::Occupied(entry) => Some(entry.into_mut()),
+            Entry::Vacant(entry) => {
+                let value = self.previous_frame.remove(entry.key())?;
+                Some(entry.insert(value))
+            }
+        }
+    }
+
+    pub(crate) fn get_or_insert_with(
+        &mut self,
+        key: K,
+        create: impl FnOnce() -> V,
+    ) -> (&mut V, bool) {
+        match self.current_frame.entry(key) {
+            Entry::Occupied(entry) => (entry.into_mut(), true),
+            Entry::Vacant(entry) => {
+                let previous = self.previous_frame.remove(entry.key());
+                let was_cached = previous.is_some();
+                (entry.insert(previous.unwrap_or_else(create)), was_cached)
+            }
+        }
     }
 
     pub(crate) fn insert(&mut self, cache_key: K, value: V) {
+        self.previous_frame.remove(&cache_key);
         self.current_frame.insert(cache_key, value);
     }
 
@@ -64,10 +85,7 @@ where
     /// Yields unused entries. Dropping the iterator discards the remainder.
     pub(crate) fn end_frame(&mut self) -> impl Iterator<Item = (K, V)> + '_ {
         mem::swap(&mut self.previous_frame, &mut self.current_frame);
-        let retained_entries = &self.previous_frame;
-        self.current_frame
-            .drain()
-            .filter(move |(cache_key, _)| !retained_entries.contains_key(cache_key))
+        self.current_frame.drain()
     }
 }
 

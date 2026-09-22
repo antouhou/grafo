@@ -56,7 +56,7 @@ fn prepare_sample_binding<'a>(
 pub(crate) struct PooledTexture {
     pub texture_id: u64,
     descriptor: TextureDescriptorKey,
-    input_binding: Option<TextureSampleBinding>,
+    input_binding: Option<BindGroup>,
     composite_binding: Option<TextureSampleBinding>,
     pub color_texture: Texture,
     pub color_view: TextureView,
@@ -67,19 +67,22 @@ pub(crate) struct PooledTexture {
 }
 
 impl PooledTexture {
+    /// All effect inputs use the registry's fixed layout and the renderer's shared sampler.
     pub(crate) fn input_bind_group(
         &mut self,
         device: &Device,
         layout: &BindGroupLayout,
         sampler: &Sampler,
     ) -> &BindGroup {
-        prepare_sample_binding(
-            &mut self.input_binding,
-            device,
-            layout,
-            self.resolve_view.as_ref().unwrap_or(&self.color_view),
-            sampler,
-        )
+        self.input_binding.get_or_insert_with(|| {
+            create_texture_sample_bind_group(
+                device,
+                layout,
+                self.resolve_view.as_ref().unwrap_or(&self.color_view),
+                sampler,
+                Some("pooled_texture_input"),
+            )
+        })
     }
 
     pub(crate) fn composite_bind_group(

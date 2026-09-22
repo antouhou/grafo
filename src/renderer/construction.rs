@@ -463,6 +463,7 @@ impl<'a> Renderer<'a> {
         let instance = context.inner.instance.clone();
         let queue = context.inner.queue.clone();
         let shape_effect_resources = ShapeEffectRendererResources::new(&device, config.format);
+        let effect_registry = EffectRegistry::new(&device);
 
         let supports_base_vertex = context.inner.supports_base_vertex;
         let mut renderer = Self {
@@ -488,7 +489,7 @@ impl<'a> Renderer<'a> {
             msaa_color_texture_view: None,
             depth_stencil_texture: None,
             depth_stencil_view: None,
-            effect_registry: EffectRegistry::new(),
+            effect_registry,
             #[cfg(feature = "render_metrics")]
             render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),
             #[cfg(feature = "render_metrics")]
@@ -498,7 +499,7 @@ impl<'a> Renderer<'a> {
                 draw_tree: easy_tree::Tree::new(),
                 shape_resources: ShapeResources::new(),
                 shape_execution: ShapeExecutionResources::new(),
-                effect_execution: EffectExecutionResources::new(),
+                effect_execution: EffectExecutionResources::default(),
                 group_effects: HashMap::new(),
                 backdrop_effects: HashMap::new(),
                 shape_effects: HashMap::new(),
@@ -813,8 +814,9 @@ impl<'a> Renderer<'a> {
             );
         }
 
-        for resources in self.state.effect_execution.backdrops.values_mut() {
-            resources.invalidate_bindings();
-        }
+        self.state
+            .effect_execution
+            .backdrop_composites
+            .invalidate_bindings();
     }
 }

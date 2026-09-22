@@ -1,4 +1,4 @@
-use super::parameters::EffectParameterResources;
+use super::bindings::create_effect_input_bind_group_layout;
 use super::shaders::{compile_effect_pipeline, LoadedEffect};
 use crate::effect::EffectError;
 use ahash::{HashMap, HashMapExt};
@@ -8,13 +8,15 @@ use wgpu::{BindGroupLayout, Device, TextureFormat};
 /// Registered shaders and reusable validation storage, owned by execution.
 pub(crate) struct EffectRegistry {
     pub(super) loaded: HashMap<u64, LoadedEffect>,
+    input_bind_group_layout: BindGroupLayout,
     validator: Validator,
 }
 
 impl EffectRegistry {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(device: &Device) -> Self {
         Self {
             loaded: HashMap::new(),
+            input_bind_group_layout: create_effect_input_bind_group_layout(device),
             validator: Validator::new(ValidationFlags::all(), Capabilities::default()),
         }
     }
@@ -37,7 +39,13 @@ impl EffectRegistry {
         }) {
             return Ok(false);
         }
-        let effect = compile_effect_pipeline(device, pass_sources, format, &mut self.validator)?;
+        let effect = compile_effect_pipeline(
+            device,
+            pass_sources,
+            format,
+            &self.input_bind_group_layout,
+            &mut self.validator,
+        )?;
         self.loaded.insert(effect_id, effect);
         Ok(true)
     }
@@ -51,8 +59,8 @@ impl EffectRegistry {
         self.loaded[&effect_id].passes.len()
     }
 
-    pub(crate) fn input_bind_group_layout(&self, effect_id: u64) -> &BindGroupLayout {
-        &self.loaded[&effect_id].input_bind_group_layout
+    pub(crate) fn input_bind_group_layout(&self) -> &BindGroupLayout {
+        &self.input_bind_group_layout
     }
 
     pub(crate) fn validate_params(&self, effect_id: u64, params: &[u8]) -> Result<(), EffectError> {
@@ -73,17 +81,5 @@ impl EffectRegistry {
             )));
         }
         Ok(())
-    }
-
-    pub(crate) fn create_parameters(
-        &self,
-        device: &Device,
-        effect_id: u64,
-        params: &[u8],
-    ) -> Option<EffectParameterResources> {
-        self.loaded[&effect_id]
-            .params_bind_group_layout
-            .as_ref()
-            .map(|layout| EffectParameterResources::new(device, layout, params))
     }
 }

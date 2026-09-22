@@ -17,17 +17,16 @@ impl<'a> Renderer<'a> {
     ) {
         let render_to_texture_view_started_at = std::time::Instant::now();
         self.state.shape_execution.texture_materials.begin_render();
-        #[cfg(feature = "render_metrics")]
-        {
-            self.state.shape_execution.texture_material_metrics = Default::default();
-        }
+        self.state.effect_execution.begin_render();
 
         if self.state.draw_tree.is_empty() {
             self.state.shape_execution.texture_materials.finish_render();
-            self.state.textures.pool.clear();
+            self.state.effect_execution.finish_render();
             self.state.scratch.shape_effect_leaves.clear();
             let (_collected_shape_effect_results, _collected_shape_effect_masks) =
                 self.state.textures.collect_unused_shape_effects();
+            self.state.textures.work_textures.clear();
+            self.state.textures.pool.clear();
             #[cfg(feature = "render_metrics")]
             {
                 self.state.pipeline_switch_counts = PipelineSwitchCounts::default();
@@ -249,21 +248,22 @@ impl<'a> Renderer<'a> {
                     .group_effects
                     .get(&node_id)
                     .expect("group effect remains attached during rendering");
+                let source_bind_group = subtree_texture.input_bind_group(
+                    &self.device,
+                    self.effect_registry.input_bind_group_layout(),
+                    pipeline_resources.effect_sampler.as_ref().unwrap(),
+                );
                 let effect_output = apply_effect_passes(
                     &self.effect_registry,
                     &self.device,
+                    &self.queue,
+                    &mut state.effect_execution.parameters,
                     &mut encoder,
                     &mut state.textures.pool,
                     EffectPassRunConfig {
                         effect_id: effect_instance.effect_id,
                         params: &effect_instance.params,
-                        parameter_resources: state.effect_execution.group_parameters.get(&node_id),
-                        source_bind_group: subtree_texture.input_bind_group(
-                            &self.device,
-                            self.effect_registry
-                                .input_bind_group_layout(effect_instance.effect_id),
-                            pipeline_resources.effect_sampler.as_ref().unwrap(),
-                        ),
+                        source_bind_group,
                         effect_sampler: pipeline_resources.effect_sampler.as_ref().unwrap(),
                         composite_bind_group_layout: &pipeline_resources
                             .composite_resources
@@ -337,20 +337,20 @@ impl<'a> Renderer<'a> {
 
         self.queue.submit(std::iter::once(encoder.finish()));
         state.shape_execution.texture_materials.finish_render();
+        state.effect_execution.finish_render();
 
         self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
-
-        state
-            .textures
-            .recycle_submitted(effect_results.drain().map(|(_, texture_id)| texture_id));
 
         state.scratch.shape_effect_leaves.clear();
 
         state.scratch.traversal_scratch = traversal_scratch;
-        state.scratch.effect_results = effect_results;
         state.scratch.effect_node_ids = effect_node_ids;
         let (_collected_shape_effect_results, _collected_shape_effect_masks) =
             state.textures.collect_unused_shape_effects();
+        state
+            .textures
+            .recycle_submitted(effect_results.drain().map(|(_, texture_id)| texture_id));
+        state.scratch.effect_results = effect_results;
         state.shape_resources.tessellation_cache.end_frame();
 
         #[cfg(feature = "render_metrics")]

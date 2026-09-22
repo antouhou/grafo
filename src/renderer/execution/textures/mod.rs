@@ -95,17 +95,25 @@ impl IntermediateTextureResources {
     pub(crate) fn collect_unused_shape_effects(&mut self) -> (usize, usize) {
         let mut collected_results = 0;
         for (_, texture_id) in self.shape_effect_results.end_frame() {
-            self.sampled_textures.remove(&texture_id);
+            if let Some(texture) = self.sampled_textures.remove(&texture_id) {
+                self.work_textures.push(texture.texture);
+            }
             collected_results += 1;
         }
-        let collected_masks = self.shape_effect_masks.end_frame().count();
+        let mut collected_masks = 0;
+        for (_, mask) in self.shape_effect_masks.end_frame() {
+            self.work_textures.push(mask.texture);
+            collected_masks += 1;
+        }
         (collected_results, collected_masks)
     }
 
     pub(crate) fn invalidate_shape_effect(&mut self, effect_id: u64) {
         self.shape_effect_results.retain(|cache_key, texture_id| {
             if cache_key.effect_id == effect_id {
-                self.sampled_textures.remove(texture_id);
+                if let Some(texture) = self.sampled_textures.remove(texture_id) {
+                    self.work_textures.push(texture.texture);
+                }
                 return false;
             }
             true

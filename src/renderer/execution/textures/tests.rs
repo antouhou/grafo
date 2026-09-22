@@ -47,8 +47,7 @@ fn cache_key_differs_when_only_downsample_changes() {
     let shared_tessellation = tessellation();
     let full_resolution_key =
         cache_key(Arc::clone(&shared_tessellation), Arc::from([1u8, 2, 3, 4]));
-    let mut downsampled_key =
-        cache_key(Arc::clone(&shared_tessellation), Arc::from([1u8, 2, 3, 4]));
+    let mut downsampled_key = full_resolution_key.clone();
     downsampled_key.mask_key.downsample_bits = 0.5f32.to_bits();
 
     assert!(full_resolution_key != downsampled_key);

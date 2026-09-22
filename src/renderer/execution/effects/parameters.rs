@@ -1,85 +1,174 @@
-use super::bindings::create_params_bind_group;
-use crate::effect::EffectError;
-use ahash::{HashMap, HashMapExt};
+use super::bindings::{create_backdrop_layer_composite_bind_group, create_params_bind_group};
+use crate::renderer::execution::uniforms;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, Queue, TextureView};
 
-/// Uploaded parameters. The attachment owns the only retained CPU copy.
-pub(crate) struct EffectParameterResources {
-    buffer: Buffer,
-    pub(super) bind_group: BindGroup,
+struct ParameterBinding {
+    layout: BindGroupLayout,
+    bind_group: BindGroup,
 }
 
-impl EffectParameterResources {
-    pub(super) fn new(device: &Device, layout: &BindGroupLayout, params: &[u8]) -> Self {
-        let buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("effect_params_buffer"),
-            contents: params,
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-        });
-        let bind_group = create_params_bind_group(device, layout, &buffer);
-        Self { buffer, bind_group }
+#[derive(Default)]
+struct ParameterSlot {
+    buffer: Option<Buffer>,
+    binding: Option<ParameterBinding>,
+}
+
+/// Each execution before submission gets a distinct writable uniform buffer.
+#[derive(Default)]
+pub(crate) struct EffectParameterPool {
+    slots: Vec<ParameterSlot>,
+    used: usize,
+}
+
+impl EffectParameterPool {
+    fn begin_render(&mut self) {
+        self.used = 0;
     }
 
-    pub(crate) fn update(
-        &self,
+    fn finish_render(&mut self) {
+        self.slots.truncate(self.used);
+    }
+
+    pub(super) fn prepare(
+        &mut self,
+        device: &Device,
         queue: &Queue,
-        effect_id: u64,
+        layout: &BindGroupLayout,
         params: &[u8],
-    ) -> Result<(), EffectError> {
-        let expected_size = self.buffer.size();
-        let actual_size = params.len() as u64;
-        if actual_size != expected_size {
-            return Err(EffectError::ParameterSizeMismatch {
-                effect_id,
-                expected_size,
-                actual_size,
+    ) -> &BindGroup {
+        if self.used == self.slots.len() {
+            self.slots.push(ParameterSlot::default());
+        }
+        let slot = &mut self.slots[self.used];
+        self.used += 1;
+        if slot
+            .buffer
+            .as_ref()
+            .is_none_or(|buffer| buffer.size() < params.len() as u64)
+        {
+            slot.buffer = Some(device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("effect_params_buffer"),
+                contents: params,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            }));
+            slot.binding = None;
+        } else {
+            queue.write_buffer(
+                slot.buffer
+                    .as_ref()
+                    .expect("parameter buffer was allocated"),
+                0,
+                params,
+            );
+        }
+        if slot
+            .binding
+            .as_ref()
+            .is_none_or(|binding| binding.layout != *layout)
+        {
+            slot.binding = Some(ParameterBinding {
+                layout: layout.clone(),
+                bind_group: create_params_bind_group(
+                    device,
+                    layout,
+                    slot.buffer.as_ref().expect("parameter buffer was prepared"),
+                ),
             });
         }
-        queue.write_buffer(&self.buffer, 0, params);
-        Ok(())
+        &slot
+            .binding
+            .as_ref()
+            .expect("parameter binding was prepared")
+            .bind_group
     }
 }
 
-/// The view handle identifies the resource already retained by the bind group.
-pub(crate) struct BackdropTextureBinding {
-    pub(crate) texture_view: TextureView,
-    pub(crate) bind_group: BindGroup,
+struct BackdropCompositeBinding {
+    texture_view: TextureView,
+    layout: BindGroupLayout,
+    bind_group: BindGroup,
 }
 
-/// Capture bindings and uploaded parameters for one backdrop attachment.
 #[derive(Default)]
-pub(crate) struct BackdropEffectResources {
-    pub(crate) parameters: Option<EffectParameterResources>,
-    pub(crate) backdrop_layer_params_buffer: Option<Buffer>,
-    pub(crate) layer_composite_binding: Option<BackdropTextureBinding>,
-    pub(crate) downsample_binding: Option<BackdropTextureBinding>,
+struct BackdropCompositeSlot {
+    buffer: Option<Buffer>,
+    binding: Option<BackdropCompositeBinding>,
 }
 
-impl BackdropEffectResources {
-    /// Pipeline recreation replaces layouts; parameter buffers remain attachment-owned.
+/// Capture transforms cannot share writable storage until their commands are submitted.
+#[derive(Default)]
+pub(crate) struct BackdropCompositePool {
+    slots: Vec<BackdropCompositeSlot>,
+    used: usize,
+}
+
+impl BackdropCompositePool {
     pub(crate) fn invalidate_bindings(&mut self) {
-        self.layer_composite_binding = None;
-        self.downsample_binding = None;
+        for slot in &mut self.slots {
+            slot.binding = None;
+        }
+    }
+
+    pub(crate) fn prepare(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        layout: &BindGroupLayout,
+        foreground_view: &TextureView,
+        params: [i32; 4],
+    ) -> &BindGroup {
+        if self.used == self.slots.len() {
+            self.slots.push(BackdropCompositeSlot::default());
+        }
+        let slot = &mut self.slots[self.used];
+        self.used += 1;
+        let buffer = uniforms::prepare_buffer(
+            &mut slot.buffer,
+            device,
+            queue,
+            &params,
+            "backdrop_layer_params_buffer",
+        );
+        if slot.binding.as_ref().is_none_or(|binding| {
+            binding.texture_view != *foreground_view || binding.layout != *layout
+        }) {
+            slot.binding = Some(BackdropCompositeBinding {
+                texture_view: foreground_view.clone(),
+                layout: layout.clone(),
+                bind_group: create_backdrop_layer_composite_bind_group(
+                    device,
+                    layout,
+                    foreground_view,
+                    buffer,
+                ),
+            });
+        }
+        &slot
+            .binding
+            .as_ref()
+            .expect("capture binding was prepared")
+            .bind_group
     }
 }
 
-/// Resources follow attachment mutations; rendering never scans for parameter changes.
+/// Persistent GPU allocations, independent of draw queue attachment lifetimes.
+#[derive(Default)]
 pub(crate) struct EffectExecutionResources {
-    pub(crate) group_parameters: HashMap<usize, EffectParameterResources>,
-    pub(crate) backdrops: HashMap<usize, BackdropEffectResources>,
+    pub(crate) parameters: EffectParameterPool,
+    pub(crate) backdrop_composites: BackdropCompositePool,
 }
 
 impl EffectExecutionResources {
-    pub(crate) fn new() -> Self {
-        Self {
-            group_parameters: HashMap::new(),
-            backdrops: HashMap::new(),
-        }
+    pub(crate) fn begin_render(&mut self) {
+        self.parameters.begin_render();
+        self.backdrop_composites.used = 0;
     }
 
-    pub(crate) fn clear(&mut self) {
-        self.group_parameters.clear();
-        self.backdrops.clear();
+    pub(crate) fn finish_render(&mut self) {
+        self.parameters.finish_render();
+        self.backdrop_composites
+            .slots
+            .truncate(self.backdrop_composites.used);
     }
 }

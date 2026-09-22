@@ -86,5 +86,3 @@ pub use renderer::metrics::PhaseTimings;
 pub use renderer::metrics::PipelineSwitchCounts;
 #[cfg(feature = "render_metrics")]
 pub use renderer::metrics::ShapeEffectCacheMetrics;
-#[cfg(feature = "render_metrics")]
-pub use renderer::metrics::TextureMaterialMetrics;

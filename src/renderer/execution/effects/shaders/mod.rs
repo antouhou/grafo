@@ -1,6 +1,4 @@
-use super::bindings::{
-    create_effect_input_bind_group_layout, create_effect_params_bind_group_layout,
-};
+use super::bindings::create_effect_params_bind_group_layout;
 use crate::effect::{EffectError, EffectShaderError};
 use naga::front::wgsl;
 use naga::valid::Validator;
@@ -33,8 +31,6 @@ pub(crate) struct LoadedEffect {
     pub pass_sources: Box<[Box<str>]>,
     /// Compiled passes, executed sequentially with ping-pong textures.
     pub passes: Vec<LoadedEffectPass>,
-    /// The input texture and sampler layout at group 0.
-    pub input_bind_group_layout: BindGroupLayout,
     /// The user's parameter uniform layout at group 1.
     /// None if no pass uses user params. Shared across all passes that reference it.
     pub params_bind_group_layout: Option<BindGroupLayout>,
@@ -87,6 +83,7 @@ fn validate_effect_shader(
 ///
 /// Each entry in `pass_sources` is a WGSL fragment shader for one pass.
 /// Passes execute sequentially; each reads the previous pass's output via `t_input`.
+/// All registered effects use the same input layout at group 0.
 /// Passes that use user parameters share the uniform layout at group 1.
 ///
 /// For single-pass effects, pass a one-element slice.
@@ -94,6 +91,7 @@ pub(crate) fn compile_effect_pipeline(
     device: &Device,
     pass_sources: &[&str],
     format: TextureFormat,
+    input_bind_group_layout: &BindGroupLayout,
     validator: &mut Validator,
 ) -> Result<LoadedEffect, EffectError> {
     if pass_sources.is_empty() {
@@ -112,8 +110,6 @@ pub(crate) fn compile_effect_pipeline(
             Ok((source, has_params))
         })
         .collect::<Result<Vec<_>, EffectError>>()?;
-
-    let input_bind_group_layout = create_effect_input_bind_group_layout(device);
 
     // Passes using group 1 share the parameter layout.
     let any_has_params = validated_passes.iter().any(|(_, has_params)| *has_params);
@@ -136,7 +132,7 @@ pub(crate) fn compile_effect_pipeline(
         let layout_label = format!("effect_pass{pass_index}_layout");
         let pipeline_layout = if pass_has_params {
             let bind_group_layouts = [
-                &input_bind_group_layout,
+                input_bind_group_layout,
                 params_bind_group_layout.as_ref().unwrap(),
             ];
             device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -145,7 +141,7 @@ pub(crate) fn compile_effect_pipeline(
                 push_constant_ranges: &[],
             })
         } else {
-            let bind_group_layouts = [&input_bind_group_layout];
+            let bind_group_layouts = [input_bind_group_layout];
             device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some(&layout_label),
                 bind_group_layouts: &bind_group_layouts,
@@ -195,7 +191,6 @@ pub(crate) fn compile_effect_pipeline(
             .map(|source| Box::<str>::from(*source))
             .collect(),
         passes,
-        input_bind_group_layout,
         params_bind_group_layout,
     })
 }

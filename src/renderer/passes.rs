@@ -461,11 +461,6 @@ pub(super) fn render_segments(
                     .get(&backdrop_node_id)
                     .expect("backdrop node must have an attached effect instance");
                 let backdrop_config = effect_instance.config;
-                let effect_resources = state
-                    .effect_execution
-                    .backdrops
-                    .get_mut(&backdrop_node_id)
-                    .expect("backdrop attachments have execution resources");
                 let local_bounds = draw_tree_node.local_bounds();
 
                 if let Some(capture_region) = compute_backdrop_capture_region(
@@ -482,7 +477,7 @@ pub(super) fn render_segments(
                         backdrop_source.expect("backdrop source required for backdrop effects"),
                         capture_region,
                         effect_instance,
-                        effect_resources,
+                        &mut state.effect_execution,
                         &mut state.textures,
                     );
                     if let DrawTreeNode::CachedShape(cached_shape) = draw_tree_node {
@@ -499,8 +494,6 @@ pub(super) fn render_segments(
                             backdrop_context.queue,
                             pipelines,
                             &state.textures,
-                            #[cfg(feature = "render_metrics")]
-                            &mut state.shape_execution.texture_material_metrics,
                         );
                     }
                 }

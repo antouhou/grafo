@@ -1,9 +1,7 @@
-use super::super::uniforms;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType, Device, Queue,
-    Sampler, SamplerBindingType, ShaderStages, TextureSampleType, TextureView,
-    TextureViewDimension,
+    BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType, Device, Sampler,
+    SamplerBindingType, ShaderStages, TextureSampleType, TextureView, TextureViewDimension,
 };
 
 pub(crate) fn backdrop_layer_params(
@@ -105,21 +103,6 @@ pub(crate) fn create_texture_sample_bind_group(
             },
         ],
     })
-}
-
-pub(crate) fn prepare_backdrop_layer_params_buffer<'a>(
-    device: &Device,
-    queue: &Queue,
-    backdrop_layer_params_buffer: &'a mut Option<Buffer>,
-    layer_params: [i32; 4],
-) -> &'a Buffer {
-    uniforms::prepare_buffer(
-        backdrop_layer_params_buffer,
-        device,
-        queue,
-        &layer_params,
-        "backdrop_layer_params_buffer",
-    )
 }
 
 /// Create a bind group for effect parameter uniforms.

@@ -3,8 +3,6 @@ use crate::gradient::gpu::GpuMaterialParams;
 use crate::gradient::types::Fill;
 use crate::renderer::execution::textures::IntermediateTextureResources;
 use crate::renderer::execution::uniforms;
-#[cfg(feature = "render_metrics")]
-use crate::renderer::metrics::TextureMaterialMetrics;
 use crate::renderer::state::ShapePipelines;
 use crate::shape::{ShapeDrawMaterial, ShapeTextureBinding, ShapeTextureLayer};
 use wgpu::{
@@ -117,7 +115,6 @@ impl ShapeDrawResources {
         queue: &Queue,
         pipelines: &ShapePipelines,
         textures: &IntermediateTextureResources,
-        #[cfg(feature = "render_metrics")] metrics: &mut TextureMaterialMetrics,
     ) -> Option<ShapeTextureLayer> {
         let managed_texture;
         let texture = match layer.texture {
@@ -145,10 +142,6 @@ impl ShapeDrawResources {
             _ => (GpuMaterialParams::for_texture_sampling(sampling), None),
         };
         let slot = materials.next_slot();
-        #[cfg(feature = "render_metrics")]
-        if slot.params_buffer.is_none() {
-            metrics.created_buffers += 1;
-        }
         let buffer = uniforms::prepare_buffer(
             &mut slot.params_buffer,
             device,
@@ -162,10 +155,6 @@ impl ShapeDrawResources {
             .filter(|binding| binding.texture == *texture && binding.gradient_view == gradient_view)
         {
             self.texture_material_bind_group = Some(binding.bind_group.clone());
-            #[cfg(feature = "render_metrics")]
-            {
-                metrics.reused_bind_groups += 1;
-            }
             return Some(layer);
         }
 
@@ -193,10 +182,6 @@ impl ShapeDrawResources {
             gradient_view,
             bind_group: binding,
         });
-        #[cfg(feature = "render_metrics")]
-        {
-            metrics.created_bind_groups += 1;
-        }
         Some(layer)
     }
 
