@@ -26,6 +26,10 @@ pub(in crate::renderer) struct RenderTarget<'a> {
 }
 
 impl<'a> RenderTarget<'a> {
+    pub(in crate::renderer) fn resolved_view(&self) -> &'a TextureView {
+        self.resolve_target.unwrap_or(self.color_view)
+    }
+
     pub(in crate::renderer) fn for_output(
         output_view: &'a TextureView,
         multisample_view: Option<&'a TextureView>,

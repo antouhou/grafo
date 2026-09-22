@@ -1,24 +1,13 @@
-use super::effects::{
-    self, EffectExecutionResources, EffectPassRunConfig, OffscreenTexturePool, PooledTexture,
-};
-use super::textures::{IntermediateTexture, IntermediateTextureResources};
-use crate::renderer::commands::BackdropCaptureRegion;
-use crate::renderer::rect_utils;
+use super::effects::{self, EffectExecutionResources, OffscreenTexturePool, PooledTexture};
+use super::textures::IntermediateTextureResources;
+use crate::renderer::commands::{BackdropCapture, BackdropCaptureRegion};
 use crate::renderer::types::{BackdropContext, BackdropSource};
-use crate::shape::{ShapeTextureBinding, ShapeTextureLayer, TextureSampling};
 use crate::Size;
 use wgpu::{
     BindGroup, Color, CommandEncoder, Extent3d, LoadOp, Operations, Origin3d,
     RenderPassColorAttachment, RenderPassDescriptor, StoreOp, TexelCopyTextureInfo, TextureAspect,
     TextureView,
 };
-
-/// Effect values borrowed from the completed command stream.
-pub(in crate::renderer) struct BackdropEffectParameters<'a> {
-    pub(in crate::renderer) effect_id: u64,
-    pub(in crate::renderer) params: &'a [u8],
-    pub(in crate::renderer) downsample: f32,
-}
 
 fn clear_capture(encoder: &mut CommandEncoder, output_view: &TextureView) {
     encoder.begin_render_pass(&RenderPassDescriptor {
@@ -170,78 +159,33 @@ fn downsample_capture(
     output_texture
 }
 
-/// Executes an accepted capture without changing the traversal's target or clip state.
-pub(in crate::renderer) fn apply_backdrop_effect(
+/// Captures and resamples source pixels into the command's logical output.
+pub(in crate::renderer) fn execute_capture(
     encoder: &mut CommandEncoder,
     context: &BackdropContext<'_>,
     source: BackdropSource<'_>,
-    region: BackdropCaptureRegion,
-    effect: BackdropEffectParameters<'_>,
+    command: BackdropCapture,
     resources: &mut EffectExecutionResources,
     textures: &mut IntermediateTextureResources,
-) -> ShapeTextureLayer {
-    let mut capture_texture = capture_backdrop(
+) {
+    let mut texture = capture_backdrop(
         encoder,
         context,
         source,
-        region,
+        command.region,
         resources,
         &mut textures.pool,
     );
-    let capture_size = region.bounds.size().to_u32();
-    let effect_input_size =
-        rect_utils::compute_downsampled_dimensions(capture_size, effect.downsample);
-    let mut downsampled_texture = if effect_input_size != capture_size {
-        Some(downsample_capture(
+    if command.sampling_size != command.region.bounds.size().to_u32() {
+        let downsampled = downsample_capture(
             encoder,
             context,
-            &mut capture_texture,
-            effect_input_size,
+            &mut texture,
+            command.sampling_size,
             &mut textures.pool,
-        ))
-    } else {
-        None
-    };
-    let source_bind_group = downsampled_texture
-        .as_mut()
-        .unwrap_or(&mut capture_texture)
-        .input_bind_group(
-            context.device,
-            context.effect_registry.input_bind_group_layout(),
-            context.effect_sampler,
         );
-    let effect_output = effects::apply_effect_passes(
-        context.effect_registry,
-        context.device,
-        context.queue,
-        &mut resources.parameters,
-        encoder,
-        &mut textures.pool,
-        EffectPassRunConfig {
-            effect_id: effect.effect_id,
-            params: effect.params,
-            source_bind_group,
-            effect_sampler: context.effect_sampler,
-            composite_bind_group_layout: context.composite_bind_group_layout,
-            create_composite_bind_group: false,
-            width: effect_input_size.width,
-            height: effect_input_size.height,
-            texture_format: context.config_format,
-            label: "backdrop_effect",
-        },
-    );
-
-    textures.work_textures.push(capture_texture);
-    if let Some(downsampled_texture) = downsampled_texture {
-        textures.work_textures.push(downsampled_texture);
+        textures.work_textures.push(texture);
+        texture = downsampled;
     }
-    let (texture, bind_group) = effect_output.into_final_output(&mut textures.work_textures);
-    let texture_id = textures.insert_transient(IntermediateTexture {
-        texture,
-        bind_group,
-    });
-    ShapeTextureLayer {
-        texture: ShapeTextureBinding::Intermediate(texture_id),
-        sampling: TextureSampling::TargetPixels(region.bounds),
-    }
+    textures.insert_planned(command.output, texture);
 }

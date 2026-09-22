@@ -1,10 +1,12 @@
-use super::{ShapeDrawResources, TextureSamplingUniform};
+use super::{ShapeDrawResources, ShapeExecutionResources, TextureSamplingUniform};
 use crate::gradient::gpu::{GpuGradientColorParams, GpuMaterialParams};
+use crate::renderer::commands::{DrawOperation, DrawPlan, ShapeDrawId};
 use crate::renderer::execution::textures::IntermediateTextureResources;
 use crate::renderer::execution::uniforms;
 use crate::renderer::state::ShapePipelines;
 use crate::shape::{ShapeDrawMaterial, ShapeTextureBinding, ShapeTextureLayer};
 use std::mem;
+use std::ops::Range;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer,
     CommandEncoder, Device, Queue, Sampler, Texture, TextureView,
@@ -106,7 +108,7 @@ fn create_material_binding(
 impl ShapeDrawResources {
     /// Draws reference reusable bindings whose allocation lifetime survives queue clearing.
     #[allow(clippy::too_many_arguments)]
-    pub(in crate::renderer) fn prepare_texture_material(
+    fn prepare_texture_material(
         &mut self,
         has_gradient_fill: bool,
         encoder: &mut CommandEncoder,
@@ -116,12 +118,15 @@ impl ShapeDrawResources {
         queue: &Queue,
         pipelines: &ShapePipelines,
         textures: &IntermediateTextureResources,
-    ) -> Option<ShapeTextureLayer> {
+    ) {
         let managed_texture;
         let texture = match layer.texture {
-            ShapeTextureBinding::None => return None,
+            ShapeTextureBinding::None => unreachable!("under-fill materials have a texture"),
             ShapeTextureBinding::Managed(texture_id) => {
-                managed_texture = pipelines.texture_manager.texture(texture_id)?;
+                managed_texture = pipelines
+                    .texture_manager
+                    .texture(texture_id)
+                    .expect("material commands reference registered textures");
                 &managed_texture
             }
             ShapeTextureBinding::Intermediate(texture_id) => textures.texture(texture_id),
@@ -157,7 +162,7 @@ impl ShapeDrawResources {
             .filter(|binding| binding.texture == *texture && binding.gradient_view == gradient_view)
         {
             self.texture_material_bind_group = Some(binding.bind_group.clone());
-            return Some(layer);
+            return;
         }
 
         let layouts = pipelines
@@ -184,7 +189,6 @@ impl ShapeDrawResources {
             gradient_view,
             bind_group: binding,
         });
-        Some(layer)
     }
 
     pub(in crate::renderer) fn material_bind_group(
@@ -207,6 +211,47 @@ impl ShapeDrawResources {
             )
         } else {
             None
+        }
+    }
+}
+
+impl ShapeExecutionResources {
+    /// Prepares only indexed material draws, without scanning ordinary instructions.
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::renderer) fn prepare_texture_materials(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        commands: &DrawPlan,
+        material_range: Range<usize>,
+        device: &Device,
+        queue: &Queue,
+        pipelines: &ShapePipelines,
+        textures: &IntermediateTextureResources,
+    ) {
+        for &index in &commands.texture_material_draws[material_range] {
+            let (DrawOperation::DrawShape(draw)
+            | DrawOperation::DrawShapeAndIncrementStencil(draw)) =
+                commands.instructions[index].operation
+            else {
+                unreachable!("material preparation references shape draws");
+            };
+            let resources = match draw.id {
+                ShapeDrawId::Shape(id) => self.draws.get_mut(&id),
+                ShapeDrawId::EffectLeaf(id) => self.effect_leaves.get_mut(&id),
+            }
+            .expect("material draw was uploaded");
+            resources.prepare_texture_material(
+                draw.material.has_gradient_fill(),
+                encoder,
+                draw.material
+                    .under_fill_texture
+                    .expect("material draw has an under-fill texture"),
+                &mut self.texture_materials,
+                device,
+                queue,
+                pipelines,
+                textures,
+            );
         }
     }
 }

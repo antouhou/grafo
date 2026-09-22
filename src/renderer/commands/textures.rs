@@ -1,4 +1,7 @@
 /// Identifies an execution-owned texture, separately from registered source texture IDs.
-/// Cached textures retain their IDs; transient references end after submission.
+/// Planned IDs index outputs in one command stream; registered IDs address existing resources.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct IntermediateTextureId(pub(crate) u64);
+pub(crate) enum IntermediateTextureId {
+    Registered(u64),
+    Planned(usize),
+}

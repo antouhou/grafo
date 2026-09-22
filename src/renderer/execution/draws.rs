@@ -197,23 +197,12 @@ impl DrawPass<'_, '_> {
             .set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
         self.render_pass
             .set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
+        self.bound_textures.mark_bound(0, ShapeTextureBinding::None);
+        self.bound_textures.mark_bound(1, ShapeTextureBinding::None);
         bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
         bind_instance_buffers(self.render_pass, location.instance_index, self.buffers);
 
         self.draw_stencil_geometry(stencil_reference, location.geometry_range);
-    }
-
-    /// Decrements stencil using the geometry still bound by the preceding shape draw.
-    pub(super) fn decrement_bound_shape_stencil(
-        &mut self,
-        stencil_reference: u32,
-        resources: &ShapeDrawResources,
-    ) {
-        if let Some(location) = resources.location {
-            bind_decrement_pipeline(self.render_pass, &self.pipelines.shapes);
-            self.pipeline_tracker.switch_to(Pipeline::StencilDecrement);
-            self.draw_stencil_geometry(stencil_reference, location.geometry_range);
-        }
     }
 
     /// Composites an intermediate texture under the active scissor and stencil reference.

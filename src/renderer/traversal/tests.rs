@@ -195,8 +195,8 @@ fn group_texture_replaces_nested_results_and_prepared_leaves() {
     let child = tree.add_child(nested_group, DrawTreeNode::CachedShape(cached_draw_data()));
     let sibling = tree.add_child(root, DrawTreeNode::CachedShape(cached_draw_data()));
     let mut results = HashMap::new();
-    results.insert(group, IntermediateTextureId(1));
-    results.insert(nested_group, IntermediateTextureId(2));
+    results.insert(group, IntermediateTextureId::Registered(1));
+    results.insert(nested_group, IntermediateTextureId::Registered(2));
     let mut prepared_leaves = HashMap::new();
     for node_id in [group, nested_group, child, sibling] {
         prepared_leaves.insert(node_id, prepared_shape_effect_leaf());

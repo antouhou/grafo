@@ -1,4 +1,5 @@
 use super::*;
+use crate::renderer::commands::BackdropCaptureSource;
 use crate::renderer::execution::effects::{apply_effect_passes, EffectPassRunConfig};
 use crate::renderer::execution::segments::{
     execute_segments, SegmentExecutionResources, SegmentRenderTarget,
@@ -19,6 +20,7 @@ fn render_planned_draws(
     encoder: &mut CommandEncoder,
     events: &[TraversalEvent],
     effect_results: &HashMap<usize, IntermediateTextureId>,
+    backdrop_source: Option<BackdropCaptureSource>,
     target: SegmentRenderTarget<'_>,
     pipelines: &RendererPipelineResources,
     state: &mut RendererState,
@@ -31,6 +33,7 @@ fn render_planned_draws(
             effect_leaves: &state.scratch.shape_effect_leaves,
             group_effects: &state.group_effects,
             backdrop_effects: &state.backdrop_effects,
+            backdrop_source,
             scale_factor: state.scale_factor,
             physical_size: state.physical_size.into(),
             max_capture_dimension: target
@@ -206,15 +209,19 @@ impl<'a> Renderer<'a> {
                         &mut encoder,
                         traversal_scratch.events(),
                         &effect_results,
+                        None,
                         SegmentRenderTarget {
                             output: RenderTarget::for_texture(&behind_tex),
-                            backdrop_source: None,
+                            capture_texture: None,
                             backdrop_context: None,
                         },
                         pipeline_resources,
                         state,
                     );
-                    Some(behind_tex)
+                    Some(state.textures.insert_transient(IntermediateTexture {
+                        texture: behind_tex,
+                        bind_group: None,
+                    }))
                 } else {
                     None
                 };
@@ -228,30 +235,14 @@ impl<'a> Renderer<'a> {
                     &mut traversal_scratch,
                 );
 
-                let backdrop_source = behind_texture.as_ref().map(|texture| {
-                    let base_texture = if texture.sample_count > 1 {
-                        texture.resolve_texture.as_ref().unwrap()
-                    } else {
-                        &texture.color_texture
-                    };
-                    let foreground_view = if subtree_texture.sample_count > 1 {
-                        subtree_texture.resolve_view.as_ref().unwrap()
-                    } else {
-                        &subtree_texture.color_view
-                    };
-                    types::BackdropSource::Layered {
-                        base_texture,
-                        foreground_view,
-                    }
-                });
-
                 render_planned_draws(
                     &mut encoder,
                     traversal_scratch.events(),
                     &effect_results,
+                    behind_texture.map(|base| BackdropCaptureSource::Layered { base }),
                     SegmentRenderTarget {
                         output: RenderTarget::for_texture(&subtree_texture),
-                        backdrop_source,
+                        capture_texture: None,
                         backdrop_context: backdrop_context
                             .as_ref()
                             .filter(|_| subtree_needs_backdrop_effects),
@@ -261,7 +252,7 @@ impl<'a> Renderer<'a> {
                 );
 
                 if let Some(behind_tex) = behind_texture {
-                    state.textures.work_textures.push(behind_tex);
+                    state.textures.finish_transient(behind_tex);
                 }
 
                 let effect_instance = state
@@ -321,25 +312,18 @@ impl<'a> Renderer<'a> {
                 &mut traversal_scratch,
             );
 
-            let backdrop_source = if has_backdrop_effects {
-                Some(types::BackdropSource::Flattened {
-                    texture: output_texture.expect("output_texture required for backdrop effects"),
-                })
-            } else {
-                None
-            };
-
             render_planned_draws(
                 &mut encoder,
                 traversal_scratch.events(),
                 &effect_results,
+                has_backdrop_effects.then_some(BackdropCaptureSource::Target),
                 SegmentRenderTarget {
                     output: RenderTarget::for_output(
                         texture_view,
                         self.msaa_color_texture_view.as_ref(),
                         depth_texture_view,
                     ),
-                    backdrop_source,
+                    capture_texture: output_texture,
                     backdrop_context: backdrop_context.as_ref(),
                 },
                 pipeline_resources,

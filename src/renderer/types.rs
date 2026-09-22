@@ -327,9 +327,7 @@ impl RendererScratch {
     }
 
     pub(super) fn begin_frame(&mut self) {
-        self.draw_plan.instructions.clear();
-        self.draw_plan.segments.clear();
-        self.draw_plan.effect_parameters.clear();
+        self.draw_plan.clear();
         self.effect_results.clear();
         self.shape_effect_leaves.clear();
         self.effect_node_ids.clear();
