@@ -1,7 +1,7 @@
 use super::{compute_shape_effect_raster_rect, shape_effect_quad_transform, ShapeEffectPlan};
 use crate::effect::{ShapeEffectConfig, ShapeEffectInstance};
 use crate::renderer::commands::{
-    DrawSegment, IntermediateTextureId, ShapeDrawId, TexturePlacement,
+    DrawSegment, IntermediateTextureId, ShapeDrawId, Target, TexturePlacement,
 };
 use crate::renderer::types::DrawTreeNode;
 use crate::shape::{CachedShapeDrawData, CachedShapeHandle};
@@ -142,7 +142,7 @@ fn mask_scopes_and_effect_outputs_are_complete_without_the_scene() {
     }
     assert_eq!(plan.commands.segments.len(), 8);
     for (index, commands) in plan.commands.segments.as_chunks::<4>().0.iter().enumerate() {
-        let [DrawSegment::BeginTarget(target), DrawSegment::DrawShapeMask(mask), DrawSegment::EndTarget, DrawSegment::ApplyEffect(effect)] =
+        let [DrawSegment::BeginTarget(Target::Mask(target)), DrawSegment::DrawShapeMask(mask), DrawSegment::EndTarget, DrawSegment::ApplyEffect(effect)] =
             commands
         else {
             panic!("expected completed mask scope before the effect")

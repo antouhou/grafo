@@ -41,7 +41,6 @@ mod rect_utils;
 mod rendering;
 mod state;
 mod surface;
-mod traversal;
 pub(crate) mod types;
 
 /// GPU resources shared by renderers.
@@ -108,9 +107,9 @@ pub struct Renderer<'a> {
 
     /// Wall-clock CPU time spent inside the most recent `render_to_texture_view()` call.
     ///
-    /// This measures CPU-side traversal planning, render/effect pass encoding,
-    /// and `queue.submit`, but excludes presentation, readback mapping, and any
-    /// forced GPU waits after submission.
+    /// This measures render/effect pass encoding and `queue.submit`. Planning
+    /// and uploads run during preparation. Presentation, readback mapping, and
+    /// forced GPU waits after submission are also excluded.
     last_render_to_texture_view_cpu_time: Duration,
 
     state: RendererState,

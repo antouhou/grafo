@@ -62,10 +62,10 @@ fn capture_backdrop(
 ) -> PooledTexture {
     let capture_size = region.bounds.size().to_u32();
     let capture_texture = texture_pool.acquire_color_only(
-        context.device,
+        context.effects.device,
         capture_size.width,
         capture_size.height,
-        context.config_format,
+        context.effects.format,
         1,
     );
     if region.source_rect.map(|rect| rect.size()) != Some(capture_size) {
@@ -108,8 +108,8 @@ fn capture_backdrop(
             (base_texture.width(), base_texture.height()),
         );
         let bind_group = resources.backdrop_composites.prepare(
-            context.device,
-            context.queue,
+            context.effects.device,
+            context.effects.queue,
             context.backdrop_layer_composite_bind_group_layout,
             foreground_view,
             layer_params,
@@ -127,16 +127,16 @@ fn downsample_capture(
     texture_pool: &mut OffscreenTexturePool,
 ) -> PooledTexture {
     let output_texture = texture_pool.acquire_color_only(
-        context.device,
+        context.effects.device,
         output_size.width,
         output_size.height,
-        context.config_format,
+        context.effects.format,
         1,
     );
     let binding = input.composite_bind_group(
-        context.device,
-        context.composite_bind_group_layout,
-        context.effect_sampler,
+        context.effects.device,
+        context.effects.composite_layout,
+        context.effects.sampler,
     );
     let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
         label: Some("backdrop_capture_downsample"),

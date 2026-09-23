@@ -1,7 +1,7 @@
 use crate::effect::{ShapeEffectConfig, ShapeEffectInstance};
 use crate::renderer::commands::{
     DrawClip, DrawPlan, DrawSegment, EffectApplication, EffectParameters, IntermediateTextureId,
-    MaskTarget, ShapeDrawId, ShapeMaskDraw, TextureComposite, TexturePlacement,
+    MaskTarget, ShapeDrawId, ShapeMaskDraw, Target, TextureComposite, TexturePlacement,
 };
 use crate::renderer::rect_utils::compute_downsampled_dimensions;
 use crate::renderer::types::DrawTreeNode;
@@ -181,10 +181,10 @@ impl ShapeEffectPlan {
             let output = IntermediateTextureId::ShapeEffect(self.composites.len());
             self.commands
                 .segments
-                .push(DrawSegment::BeginTarget(MaskTarget {
+                .push(DrawSegment::BeginTarget(Target::Mask(MaskTarget {
                     texture: mask,
                     size: raster_rect.texture_size,
-                }));
+                })));
             self.commands
                 .segments
                 .push(DrawSegment::DrawShapeMask(ShapeMaskDraw {

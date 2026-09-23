@@ -116,6 +116,17 @@ pub(in crate::renderer) struct MaskTarget {
     pub size: [u32; 2],
 }
 
+/// Scene targets use transparent color and stencil zero at the start of each scope.
+#[derive(Clone, Copy, Debug)]
+pub(in crate::renderer) enum Target {
+    Surface,
+    Texture {
+        texture: IntermediateTextureId,
+        size: Size,
+    },
+    Mask(MaskTarget),
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(in crate::renderer) struct ShapeMaskDraw {
     pub shape: ShapeDrawId,
@@ -128,7 +139,7 @@ pub(in crate::renderer) struct ShapeMaskDraw {
 }
 
 pub(in crate::renderer) enum DrawSegment {
-    BeginTarget(MaskTarget),
+    BeginTarget(Target),
     DrawShapeMask(ShapeMaskDraw),
     EndTarget,
     Draws {
@@ -149,6 +160,7 @@ pub(in crate::renderer) struct DrawPlan {
     /// Instruction indices requiring texture bindings before their draw pass opens.
     pub(in crate::renderer) texture_material_draws: Vec<usize>,
     pub(in crate::renderer) texture_count: usize,
+    pub(in crate::renderer) has_backdrop_captures: bool,
     pub(in crate::renderer) composite_draws: Vec<usize>,
     pub(in crate::renderer) composites: Vec<TextureComposite>,
     #[cfg(feature = "render_metrics")]
@@ -162,6 +174,7 @@ impl DrawPlan {
         self.effect_parameters.clear();
         self.texture_material_draws.clear();
         self.texture_count = 0;
+        self.has_backdrop_captures = false;
         self.composite_draws.clear();
         self.composites.clear();
         #[cfg(feature = "render_metrics")]

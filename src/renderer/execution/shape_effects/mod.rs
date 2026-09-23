@@ -9,7 +9,7 @@ use super::textures::{
 use super::{draws, targets};
 use crate::renderer::commands::{
     DrawPlan, DrawSegment, EffectApplication, EffectParameters, IntermediateTextureId, MaskTarget,
-    ShapeMaskDraw,
+    ShapeMaskDraw, Target,
 };
 #[cfg(feature = "render_metrics")]
 use crate::renderer::metrics::ShapeEffectCacheMetrics;
@@ -235,7 +235,7 @@ pub(in crate::renderer) fn execute_shape_effects(
     let mut mask = None;
     for command in &commands.segments {
         match command {
-            DrawSegment::BeginTarget(next) => {
+            DrawSegment::BeginTarget(Target::Mask(next)) => {
                 assert!(
                     target.is_none() && mask.is_none(),
                     "mask targets cannot nest"

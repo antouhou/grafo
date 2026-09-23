@@ -1,13 +1,11 @@
 use super::commands::DrawPlan;
-use super::execution::effects::EffectRegistry;
+use super::execution::effects::EffectContext;
 #[cfg(feature = "render_metrics")]
 use super::metrics::PipelineSwitchCounts;
-use super::plan::draws::DrawPlanner;
+use super::plan::groups::GroupPlanner;
 use super::plan::shape_effects::ShapeEffectPlan;
-use super::IntermediateTextureId;
 use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
 use crate::vertex::InstanceTransform;
-use ahash::{HashMap, HashMapExt};
 use thiserror::Error;
 use wgpu::SurfaceError;
 
@@ -280,23 +278,15 @@ impl<'a> BackdropSource<'a> {
 /// Backdrop-specific rendering resources. Only needed when backdrop effects exist.
 /// Callers pass shared pipelines, buffers, and textures separately.
 pub(super) struct BackdropContext<'a> {
-    pub(super) effect_registry: &'a EffectRegistry,
-    pub(super) effect_sampler: &'a wgpu::Sampler,
+    pub(super) effects: EffectContext<'a>,
     pub(super) texture_blit_pipeline: &'a wgpu::RenderPipeline,
-    pub(super) composite_bind_group_layout: &'a wgpu::BindGroupLayout,
     pub(super) backdrop_layer_composite_pipeline: &'a wgpu::RenderPipeline,
     pub(super) backdrop_layer_composite_bind_group_layout: &'a wgpu::BindGroupLayout,
-    pub(super) device: &'a wgpu::Device,
-    pub(super) queue: &'a wgpu::Queue,
-    pub(super) config_format: wgpu::TextureFormat,
-    pub(super) max_texture_dimension_2d: u32,
 }
 
 pub(super) struct RendererScratch {
-    pub(super) effect_results: HashMap<usize, IntermediateTextureId>,
     pub(super) shape_effect_plan: ShapeEffectPlan,
-    pub(super) effect_node_ids: Vec<(usize, usize)>,
-    pub(super) draw_planner: DrawPlanner,
+    pub(super) group_planner: GroupPlanner,
     pub(super) draw_plan: DrawPlan,
     /// CPU storage reused for mapped readback data.
     pub(super) readback_bytes: Vec<u8>,
@@ -305,10 +295,8 @@ pub(super) struct RendererScratch {
 impl RendererScratch {
     pub(super) fn new() -> Self {
         Self {
-            effect_results: HashMap::new(),
             shape_effect_plan: ShapeEffectPlan::new(),
-            effect_node_ids: Vec::new(),
-            draw_planner: DrawPlanner::default(),
+            group_planner: GroupPlanner::default(),
             draw_plan: DrawPlan::default(),
             readback_bytes: Vec::new(),
         }
@@ -316,9 +304,7 @@ impl RendererScratch {
 
     pub(super) fn begin_frame(&mut self) {
         self.draw_plan.clear();
-        self.effect_results.clear();
         self.shape_effect_plan.clear();
-        self.effect_node_ids.clear();
         self.readback_bytes.clear();
     }
 }

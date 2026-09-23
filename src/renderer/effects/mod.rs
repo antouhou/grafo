@@ -305,13 +305,9 @@ impl<'a> Renderer<'a> {
     }
 
     fn remove_effect_attachments(&mut self, effect_id: u64) {
-        self.state.group_effects.retain(|node_id, instance| {
-            if instance.effect_id == effect_id {
-                self.state.scratch.effect_results.remove(node_id);
-                return false;
-            }
-            true
-        });
+        self.state
+            .group_effects
+            .retain(|_, instance| instance.effect_id != effect_id);
         self.state.backdrop_effects.retain(|node_id, instance| {
             if instance.effect.effect_id == effect_id {
                 if let Some(resources) = self.state.shape_execution.draws.get_mut(node_id) {

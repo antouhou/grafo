@@ -45,6 +45,7 @@ impl DrawPlanner {
             input.physical_size,
             max_dimension,
         ) {
+            output.has_backdrop_captures = true;
             let capture = output.allocate_texture();
             let filtered = output.allocate_texture();
             output

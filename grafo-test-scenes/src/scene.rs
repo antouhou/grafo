@@ -164,6 +164,7 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_79_capture_before_first_group_draw(renderer));
     expectations.extend(tile_80_group_composite_under_mixed_clips(renderer));
     expectations.extend(tile_81_shared_shape_effect_composites(renderer));
+    expectations.extend(tile_82_group_dependencies_in_layered_backdrops(renderer));
 
     expectations
 }
@@ -6533,6 +6534,162 @@ fn tile_81_shared_shape_effect_composites(renderer: &mut Renderer) -> Vec<PixelE
         ),
         (72, 72, [0, 255, 0], "t81_textured_sibling_pops_scissor"),
         (2, 72, [255, 255, 255], "t81_stencil_clips_textured_sibling"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+    })
+    .collect()
+}
+
+/// The frosted panel captures both the earlier wavy card and its own coral stripe.
+fn tile_82_group_dependencies_in_layered_backdrops(
+    renderer: &mut Renderer,
+) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(82);
+    let bounds = |left, top, right, bottom| {
+        [
+            (origin_x + left, origin_y + top),
+            (origin_x + right, origin_y + bottom),
+        ]
+    };
+    add_backdrop_checkerboard(renderer, (origin_x, origin_y));
+    let outer_group = renderer
+        .add_shape(
+            Shape::rect(bounds(4.0, 4.0, 76.0, 76.0), Stroke::default()),
+            None,
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+
+    // Warping the group bends its stripes and rounded outline together.
+    let wavy_card = renderer
+        .add_shape(
+            Shape::rounded_rect(
+                bounds(10.0, 10.0, 56.0, 58.0),
+                BorderRadii::new(5.0),
+                Stroke::default(),
+            ),
+            Some(outer_group),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(200, 240, 230)),
+        )
+        .unwrap();
+    for left in [16.0, 28.0, 40.0, 52.0] {
+        renderer
+            .add_shape(
+                Shape::rect(bounds(left, 10.0, left + 5.0, 58.0), Stroke::default()),
+                Some(wavy_card),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(25, 65, 100)),
+            )
+            .unwrap();
+    }
+    renderer
+        .set_group_effect(wavy_card, WAVE_DISTORTION_EFFECT_ID, &[])
+        .unwrap();
+
+    let frosted_group = renderer
+        .add_shape(
+            Shape::builder().build(),
+            Some(outer_group),
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    // This stripe must enter the layered capture before the panel covers it.
+    renderer
+        .add_shape(
+            Shape::rect(bounds(30.0, 48.0, 70.0, 52.0), Stroke::default()),
+            Some(frosted_group),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 35, 80)),
+        )
+        .unwrap();
+    let frosted_panel = renderer
+        .add_shape(
+            Shape::rounded_rect(
+                bounds(28.0, 28.0, 72.0, 72.0),
+                BorderRadii::new(6.0),
+                Stroke::default(),
+            ),
+            Some(frosted_group),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgba(255, 120, 150, 75)),
+        )
+        .unwrap();
+    renderer
+        .set_shape_backdrop_effect(
+            frosted_panel,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::new().padding(4.0).downsample(0.5),
+        )
+        .unwrap();
+    renderer
+        .set_group_effect(
+            frosted_group,
+            BLUR_EFFECT_ID,
+            bytemuck::bytes_of(&BlurParams::new(4.0)),
+        )
+        .unwrap();
+    renderer
+        .set_group_effect(outer_group, PASSTHROUGH_EFFECT_ID, &[])
+        .unwrap();
+
+    [
+        (
+            20,
+            18,
+            [200, 240, 230],
+            "t82_wave_moves_mint_over_original_stripe",
+        ),
+        (
+            22,
+            38,
+            [25, 65, 100],
+            "t82_wave_moves_navy_into_original_gap",
+        ),
+        (
+            36,
+            40,
+            [191, 173, 177],
+            "t82_frost_blurs_completed_wavy_group",
+        ),
+        (
+            42,
+            36,
+            [182, 157, 165],
+            "t82_frost_blends_adjacent_warped_stripes",
+        ),
+        (
+            46,
+            50,
+            [222, 95, 120],
+            "t82_layered_capture_keeps_coral_stripe",
+        ),
+        (
+            64,
+            62,
+            [199, 138, 142],
+            "t82_frost_blurs_checkerboard_outside_card",
+        ),
+        (
+            70,
+            20,
+            [245, 190, 70],
+            "t82_uncovered_gold_check_stays_sharp",
+        ),
+        (8, 68, [40, 90, 170], "t82_uncovered_blue_check_stays_sharp"),
+        (77, 40, [255, 255, 255], "t82_outside_group_keeps_canvas"),
     ]
     .into_iter()
     .map(|(x, y, [red, green, blue], label)| {

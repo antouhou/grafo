@@ -53,15 +53,6 @@ impl IntermediateTextureResources {
         texture_id
     }
 
-    pub(crate) fn insert_transient(
-        &mut self,
-        sampled_texture: IntermediateTexture,
-    ) -> IntermediateTextureId {
-        let texture_id = IntermediateTextureId::Registered(sampled_texture.texture.texture_id);
-        self.sampled_textures.insert(texture_id, sampled_texture);
-        texture_id
-    }
-
     pub(in crate::renderer::execution) fn resolve_id(
         &self,
         texture: IntermediateTextureId,
@@ -108,13 +99,28 @@ impl IntermediateTextureResources {
         texture_id: IntermediateTextureId,
         texture: PooledTexture,
     ) {
+        let IntermediateTextureId::Planned(index) = texture_id else {
+            unreachable!("planned textures have command-local IDs");
+        };
+        if index == self.texture_id_to_work_textures_index.len() {
+            self.reserve_planned(texture_id);
+        }
+        let slot = &mut self.texture_id_to_work_textures_index[index];
+        assert_eq!(*slot, usize::MAX, "planned textures are produced once");
+        *slot = self.work_textures.len();
+        self.work_textures.push(texture);
+    }
+
+    /// A target reserves its slot before captures create later logical outputs.
+    pub(in crate::renderer::execution) fn reserve_planned(
+        &mut self,
+        texture: IntermediateTextureId,
+    ) {
         assert_eq!(
-            texture_id,
+            texture,
             IntermediateTextureId::Planned(self.texture_id_to_work_textures_index.len())
         );
-        self.texture_id_to_work_textures_index
-            .push(self.work_textures.len());
-        self.work_textures.push(texture);
+        self.texture_id_to_work_textures_index.push(usize::MAX);
     }
 
     /// Clears logical references in constant time; allocations survive through submission.
@@ -122,23 +128,8 @@ impl IntermediateTextureResources {
         self.texture_id_to_work_textures_index.clear();
     }
 
-    /// Ends a command reference while keeping the GPU allocation alive through submission.
-    pub(crate) fn finish_transient(&mut self, texture_id: IntermediateTextureId) {
-        let texture = self
-            .sampled_textures
-            .remove(&texture_id)
-            .expect("transient texture references remain registered until their last draw");
-        self.work_textures.push(texture.texture);
-    }
-
     /// All transient textures remain live until the commands that sample them are submitted.
-    pub(crate) fn recycle_submitted(
-        &mut self,
-        transient_texture_ids: impl Iterator<Item = IntermediateTextureId>,
-    ) {
-        for texture_id in transient_texture_ids {
-            self.finish_transient(texture_id);
-        }
+    pub(crate) fn recycle_submitted(&mut self) {
         self.pool.recycle(&mut self.work_textures);
     }
 
