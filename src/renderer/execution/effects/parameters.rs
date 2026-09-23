@@ -30,7 +30,7 @@ impl EffectParameterPool {
         self.slots.truncate(self.used);
     }
 
-    pub(super) fn prepare(
+    pub(in crate::renderer::execution) fn prepare(
         &mut self,
         device: &Device,
         queue: &Queue,

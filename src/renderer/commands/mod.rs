@@ -4,8 +4,10 @@
 //! uploaded resources by ID after planning has finished.
 
 use crate::shape::ShapeDrawMaterial;
+use crate::vertex::{InstanceTransform, TextureUvTransform};
 use crate::{PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
 use std::ops::Range;
+use std::sync::Arc;
 pub(crate) use textures::IntermediateTextureId;
 
 mod textures;
@@ -19,12 +21,9 @@ pub(in crate::renderer) struct BackdropCaptureRegion {
     pub(in crate::renderer) copy_destination_origin: UnsignedPhysicalPoint,
 }
 
-/// Identifies an uploaded shape instance or prepared effect leaf.
+/// Identifies an uploaded shape instance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::renderer) enum ShapeDrawId {
-    Shape(usize),
-    EffectLeaf(usize),
-}
+pub(in crate::renderer) struct ShapeDrawId(pub usize);
 
 /// Physical scissor bounds and stencil reference for one draw.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -39,13 +38,15 @@ pub(in crate::renderer) struct ShapeDraw {
     pub(in crate::renderer) material: ShapeDrawMaterial,
 }
 
+pub(in crate::renderer) type TextureCompositeId = usize;
+
 #[derive(Clone, Copy, Debug)]
 pub(in crate::renderer) enum DrawOperation {
     IncrementStencil(ShapeDrawId),
     DecrementStencil(ShapeDraw),
     DrawShape(ShapeDraw),
     DrawShapeAndIncrementStencil(ShapeDraw),
-    CompositeTexture(IntermediateTextureId),
+    CompositeTexture(TextureCompositeId),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -71,15 +72,69 @@ pub(in crate::renderer) struct BackdropCapture {
 #[derive(Clone, Debug)]
 pub(in crate::renderer) struct EffectApplication {
     pub(in crate::renderer) effect_id: u64,
-    pub(in crate::renderer) parameters: Range<usize>,
+    pub(in crate::renderer) parameters: EffectParameters,
     pub(in crate::renderer) input: IntermediateTextureId,
     pub(in crate::renderer) output: IntermediateTextureId,
 }
 
+/// Parameter storage is owned by the command stream. Shared bytes avoid copying
+/// immutable shape-effect parameters on cache hits and queue rebuilds.
+#[derive(Clone, Debug)]
+pub(in crate::renderer) enum EffectParameters {
+    Bytes(Range<usize>),
+    Shared(Arc<[u8]>),
+}
+
+impl EffectParameters {
+    pub fn bytes<'a>(&'a self, storage: &'a [u8]) -> &'a [u8] {
+        match self {
+            Self::Bytes(range) => &storage[range.clone()],
+            Self::Shared(bytes) => bytes,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(in crate::renderer) enum TexturePlacement {
+    Target,
+    Local {
+        transform: InstanceTransform,
+        sampling: TextureUvTransform,
+    },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(in crate::renderer) struct TextureComposite {
+    pub texture: IntermediateTextureId,
+    pub placement: TexturePlacement,
+}
+
+/// Transparent, linear premultiplied coverage mask at the requested sampling size.
+#[derive(Clone, Copy, Debug)]
+pub(in crate::renderer) struct MaskTarget {
+    pub texture: IntermediateTextureId,
+    pub size: [u32; 2],
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(in crate::renderer) struct ShapeMaskDraw {
+    pub shape: ShapeDrawId,
+    pub clip: DrawClip,
+    pub local_physical_origin: [i32; 2],
+    pub local_bounds: [(f32, f32); 2],
+    pub scale_factor: f64,
+    pub fringe_width: f32,
+    pub downsample: f32,
+}
+
 pub(in crate::renderer) enum DrawSegment {
+    BeginTarget(MaskTarget),
+    DrawShapeMask(ShapeMaskDraw),
+    EndTarget,
     Draws {
         instructions: Range<usize>,
         texture_materials: Range<usize>,
+        composites: Range<usize>,
     },
     CaptureBackdrop(BackdropCapture),
     ApplyEffect(EffectApplication),
@@ -94,6 +149,8 @@ pub(in crate::renderer) struct DrawPlan {
     /// Instruction indices requiring texture bindings before their draw pass opens.
     pub(in crate::renderer) texture_material_draws: Vec<usize>,
     pub(in crate::renderer) texture_count: usize,
+    pub(in crate::renderer) composite_draws: Vec<usize>,
+    pub(in crate::renderer) composites: Vec<TextureComposite>,
     #[cfg(feature = "render_metrics")]
     pub(in crate::renderer) scissor_clip_count: u32,
 }
@@ -105,6 +162,8 @@ impl DrawPlan {
         self.effect_parameters.clear();
         self.texture_material_draws.clear();
         self.texture_count = 0;
+        self.composite_draws.clear();
+        self.composites.clear();
         #[cfg(feature = "render_metrics")]
         {
             self.scissor_clip_count = 0;
@@ -117,8 +176,30 @@ impl DrawPlan {
         texture
     }
 
+    pub(in crate::renderer) fn push_composite(
+        &mut self,
+        composite: TextureComposite,
+        clip: DrawClip,
+    ) {
+        let index = self.composites.len();
+        self.composites.push(composite);
+        self.push_draw(DrawInstruction {
+            operation: DrawOperation::CompositeTexture(index),
+            clip,
+        });
+    }
+
     pub(in crate::renderer) fn push_draw(&mut self, instruction: DrawInstruction) {
         let material_start = self.texture_material_draws.len();
+        let composite_start = self.composite_draws.len();
+        if let DrawOperation::CompositeTexture(index) = instruction.operation {
+            if matches!(
+                self.composites[index].placement,
+                TexturePlacement::Local { .. }
+            ) {
+                self.composite_draws.push(self.instructions.len());
+            }
+        }
         if matches!(instruction.operation, DrawOperation::DrawShape(draw)
             | DrawOperation::DrawShapeAndIncrementStencil(draw)
             if draw.material.under_fill_texture.is_some())
@@ -129,14 +210,17 @@ impl DrawPlan {
         if let Some(DrawSegment::Draws {
             instructions,
             texture_materials,
+            composites,
         }) = self.segments.last_mut()
         {
             instructions.end = self.instructions.len();
             texture_materials.end = self.texture_material_draws.len();
+            composites.end = self.composite_draws.len();
         } else {
             self.segments.push(DrawSegment::Draws {
                 instructions: self.instructions.len() - 1..self.instructions.len(),
                 texture_materials: material_start..self.texture_material_draws.len(),
+                composites: composite_start..self.composite_draws.len(),
             });
         }
     }

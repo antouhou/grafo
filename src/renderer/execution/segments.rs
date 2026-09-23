@@ -13,7 +13,7 @@ use crate::renderer::state::{Buffers, RendererPipelineResources};
 use crate::renderer::types::{
     BackdropContext, BackdropSource, BoundTextureState, Pipeline, PipelineTracker,
 };
-use wgpu::{CommandEncoder, Texture};
+use wgpu::{CommandEncoder, Device, Queue, Texture};
 
 pub(in crate::renderer) struct SegmentRenderTarget<'a> {
     pub(in crate::renderer) output: RenderTarget<'a>,
@@ -21,8 +21,14 @@ pub(in crate::renderer) struct SegmentRenderTarget<'a> {
     pub(in crate::renderer) backdrop_context: Option<&'a BackdropContext<'a>>,
 }
 
+pub(in crate::renderer) struct SegmentExecutionContext<'a> {
+    pub device: &'a Device,
+    pub queue: &'a Queue,
+    pub pipelines: &'a RendererPipelineResources,
+}
+
 pub(in crate::renderer) struct SegmentExecutionResources<'a> {
-    pub(in crate::renderer) pipelines: &'a RendererPipelineResources,
+    pub context: &'a SegmentExecutionContext<'a>,
     pub(in crate::renderer) buffers: &'a Buffers,
     pub(in crate::renderer) shapes: &'a mut ShapeExecutionResources,
     pub(in crate::renderer) effects: &'a mut EffectExecutionResources,
@@ -47,6 +53,7 @@ pub(in crate::renderer) fn execute_segments(
             DrawSegment::Draws {
                 instructions,
                 texture_materials,
+                composites,
             } => {
                 if !texture_materials.is_empty() {
                     let context = target
@@ -58,27 +65,40 @@ pub(in crate::renderer) fn execute_segments(
                         texture_materials.clone(),
                         context.device,
                         context.queue,
-                        &resources.pipelines.shapes,
+                        &resources.context.pipelines.shapes,
                         resources.textures,
                     );
                 }
+                let composite_instances = resources.shapes.composites.prepare(
+                    resources.context.device,
+                    resources.context.queue,
+                    commands,
+                    composites.clone(),
+                );
                 let mut render_pass = target.output.begin_pass(encoder, "segment_pass");
                 let mut draw_pass = DrawPass {
                     render_pass: &mut render_pass,
                     pipeline_tracker: &mut pipeline_tracker,
                     bound_textures: &mut bound_textures,
-                    pipelines: resources.pipelines,
+                    pipelines: resources.context.pipelines,
                     buffers: resources.buffers,
                     textures: resources.textures,
                 };
                 execute_draw_instructions(
+                    commands,
                     &commands.instructions[instructions.clone()],
                     &mut draw_pass,
                     resources.shapes,
+                    composite_instances,
                 );
                 // A new GPU pass must bind all state even when its first pipeline matches.
                 pipeline_tracker.current = Pipeline::None;
                 bound_textures.invalidate();
+            }
+            DrawSegment::BeginTarget(_)
+            | DrawSegment::DrawShapeMask(_)
+            | DrawSegment::EndTarget => {
+                unreachable!("mask targets are executed before scene targets")
             }
             DrawSegment::CaptureBackdrop(command) => {
                 target.output.clear_if_needed(encoder);

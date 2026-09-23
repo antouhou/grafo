@@ -19,7 +19,7 @@ use grafo::{
 
 const TILE_SIZE: u32 = 80;
 const COLUMNS: u32 = 10;
-const ROWS: u32 = 8;
+const ROWS: u32 = 9;
 
 pub const CANVAS_WIDTH: u32 = TILE_SIZE * COLUMNS;
 pub const CANVAS_HEIGHT: u32 = TILE_SIZE * ROWS;
@@ -163,6 +163,7 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     ));
     expectations.extend(tile_79_capture_before_first_group_draw(renderer));
     expectations.extend(tile_80_group_composite_under_mixed_clips(renderer));
+    expectations.extend(tile_81_shared_shape_effect_composites(renderer));
 
     expectations
 }
@@ -6362,6 +6363,176 @@ fn tile_80_group_composite_under_mixed_clips(renderer: &mut Renderer) -> Vec<Pix
             [255, 255, 255],
             "t80_ancestor_stencil_clips_composite",
         ),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+    })
+    .collect()
+}
+
+/// Warped and frosted panels capture shared shadows at distinct local placements.
+fn tile_81_shared_shape_effect_composites(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(81);
+    add_backdrop_checkerboard(renderer, (origin_x, origin_y));
+    renderer.load_shape(
+        Shape::rounded_rect(
+            [(0.0, 0.0), (42.0, 36.0)],
+            BorderRadii::new(4.0),
+            Stroke::default(),
+        ),
+        81_001,
+        Some(81_002),
+    );
+    let outer = renderer
+        .add_shape(
+            Shape::rounded_rect(
+                [
+                    (origin_x + 4.0, origin_y + 4.0),
+                    (origin_x + 76.0, origin_y + 76.0),
+                ],
+                BorderRadii::new(6.0),
+                Stroke::default(),
+            ),
+            None,
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    let clip = renderer
+        .add_clipping_rect(
+            [
+                (origin_x + 8.0, origin_y + 8.0),
+                (origin_x + 68.0, origin_y + 68.0),
+            ],
+            Some(outer),
+            None::<TransformInstance>,
+            true,
+        )
+        .unwrap();
+    let group = renderer
+        .add_shape(
+            Shape::builder().build(),
+            Some(clip),
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    let shadow_parameters = DropShadowParams {
+        radius: 3.0,
+        sigma: 1.0,
+        offset: [6.0, 6.0],
+        color: [0.02, 0.005, 0.30, 0.35],
+    };
+    let blur_parameters = BlurParams::new(4.0);
+    // Both panels reuse one mask and shadow result despite different fills and backdrops.
+    for (x, y, tint, backdrop_effect_id) in [
+        (
+            10.0,
+            10.0,
+            Color::rgba(210, 255, 255, 45),
+            WAVE_DISTORTION_EFFECT_ID,
+        ),
+        (26.0, 26.0, Color::rgba(255, 80, 90, 64), BLUR_EFFECT_ID),
+    ] {
+        let card = renderer
+            .add_cached_shape(
+                81_001,
+                Some(group),
+                ShapeDrawCommandOptions::new()
+                    .color(tint)
+                    .transform(TransformInstance::translation(origin_x + x, origin_y + y))
+                    .clips_children(false),
+            )
+            .unwrap();
+        renderer
+            .set_shape_effect(
+                card,
+                DROP_SHADOW_EFFECT_ID,
+                bytemuck::bytes_of(&shadow_parameters),
+                ShapeEffectConfig::new().outset(12.0),
+            )
+            .unwrap();
+        let backdrop_parameters = if backdrop_effect_id == BLUR_EFFECT_ID {
+            bytemuck::bytes_of(&blur_parameters)
+        } else {
+            &[]
+        };
+        renderer
+            .set_shape_backdrop_effect(
+                card,
+                backdrop_effect_id,
+                backdrop_parameters,
+                BackdropEffectConfig::new().padding(6.0),
+            )
+            .unwrap();
+    }
+    renderer
+        .set_group_effect(group, PASSTHROUGH_EFFECT_ID, &[])
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect(
+                [
+                    (origin_x, origin_y + 70.0),
+                    (origin_x + 80.0, origin_y + 74.0),
+                ],
+                Stroke::default(),
+            ),
+            Some(outer),
+            None,
+            ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
+        )
+        .unwrap();
+    [
+        (16, 14, [101, 140, 189], "t81_wave_panel_tints_blue_checks"),
+        (20, 14, [239, 203, 131], "t81_wave_panel_tints_gold_checks"),
+        (34, 20, [105, 133, 209], "t81_wave_captures_own_shadow"),
+        (24, 20, [206, 180, 180], "t81_wave_warps_shadowed_checks"),
+        (54, 22, [205, 157, 158], "t81_first_shadow_local_placement"),
+        (20, 49, [205, 157, 158], "t81_first_shadow_below_panel"),
+        (
+            36,
+            41,
+            [191, 131, 185],
+            "t81_overlap_blurs_warped_gold_into_blue_check",
+        ),
+        (
+            46,
+            41,
+            [168, 113, 194],
+            "t81_overlap_blurs_warped_blue_into_gold_check",
+        ),
+        (56, 44, [170, 97, 181], "t81_blur_captures_own_shadow"),
+        (60, 52, [217, 141, 146], "t81_blur_panel_tints_checks"),
+        (
+            60,
+            65,
+            [205, 157, 158],
+            "t81_shared_shadow_below_second_panel",
+        ),
+        (
+            20,
+            56,
+            [40, 90, 170],
+            "t81_outside_panels_keeps_checks_sharp",
+        ),
+        (70, 60, [245, 190, 70], "t81_scissor_clips_second_shadow"),
+        (
+            18,
+            72,
+            [0, 255, 0],
+            "t81_textured_sibling_restores_geometry",
+        ),
+        (72, 72, [0, 255, 0], "t81_textured_sibling_pops_scissor"),
+        (2, 72, [255, 255, 255], "t81_stencil_clips_textured_sibling"),
     ]
     .into_iter()
     .map(|(x, y, [red, green, blue], label)| {

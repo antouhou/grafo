@@ -7,7 +7,6 @@ use crate::pipeline::{
 };
 #[cfg(feature = "render_metrics")]
 use crate::renderer::metrics::PhaseTimings;
-use crate::renderer::types::GeometryBufferError;
 use mapping::ReadbackMapping;
 use std::iter;
 #[cfg(feature = "render_metrics")]
@@ -21,11 +20,9 @@ use wgpu::{
 
 mod mapping;
 
-/// An offscreen render could not prepare geometry or read its pixels back from the GPU.
+/// An offscreen render could not read its pixels into the output buffer.
 #[derive(Error, Debug)]
 pub enum ReadbackError {
-    #[error(transparent)]
-    GeometryBuffer(#[from] GeometryBufferError),
     #[error("Output buffer needs {required_pixels} pixels, but has {provided_pixels}")]
     OutputTooSmall {
         required_pixels: usize,
@@ -231,13 +228,13 @@ impl<'a> Renderer<'a> {
     }
 
     /// Reads tightly packed BGRA pixels into `buffer`, resizing it to the viewport.
-    /// Returns an error if geometry preparation or GPU readback fails.
+    /// Returns an error if GPU readback fails.
     /// On error, `buffer` retains its previous contents.
     pub fn render_to_buffer(&mut self, buffer: &mut Vec<u8>) -> Result<(), ReadbackError> {
         #[cfg(feature = "render_metrics")]
         let render_started_at = Instant::now();
 
-        self.prepare_render()?;
+        self.prepare_render();
 
         #[cfg(feature = "render_metrics")]
         let preparation_finished_at = Instant::now();
@@ -303,8 +300,8 @@ impl<'a> Renderer<'a> {
     }
 
     /// Reads ARGB pixels into the first viewport-sized portion of `out_pixels`.
-    /// Returns an error if the output is too small, geometry preparation fails,
-    /// or GPU readback fails. On error, `out_pixels` retains its previous contents.
+    /// Returns an error if the output is too small or GPU readback fails.
+    /// On error, `out_pixels` retains its previous contents.
     pub fn render_to_argb32(&mut self, out_pixels: &mut [u32]) -> Result<(), ReadbackError> {
         let (width, height) = self.state.physical_size;
         let needed_len = (width as usize) * (height as usize);
@@ -318,7 +315,7 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         let render_started_at = Instant::now();
 
-        self.prepare_render()?;
+        self.prepare_render();
 
         #[cfg(feature = "render_metrics")]
         let preparation_finished_at = Instant::now();

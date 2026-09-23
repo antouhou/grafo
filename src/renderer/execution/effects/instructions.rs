@@ -32,7 +32,7 @@ pub(in crate::renderer::execution) fn execute_effect(
         &mut textures.pool,
         EffectPassRunConfig {
             effect_id: command.effect_id,
-            params: &parameters[command.parameters.clone()],
+            params: command.parameters.bytes(parameters),
             source_bind_group,
             effect_sampler: context.effect_sampler,
             composite_bind_group_layout: context.composite_bind_group_layout,

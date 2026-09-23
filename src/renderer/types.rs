@@ -3,7 +3,7 @@ use super::execution::effects::EffectRegistry;
 #[cfg(feature = "render_metrics")]
 use super::metrics::PipelineSwitchCounts;
 use super::plan::draws::DrawPlanner;
-use super::plan::shape_effects::PreparedShapeEffectLeaf;
+use super::plan::shape_effects::ShapeEffectPlan;
 use super::traversal::TraversalScratch;
 use super::IntermediateTextureId;
 use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
@@ -135,11 +135,9 @@ pub enum GeometryBufferError {
     IndexRangeOverflow,
 }
 
-/// A frame could not be prepared or its surface texture could not be acquired.
+/// The surface texture could not be acquired.
 #[derive(Error, Debug)]
 pub enum RenderError {
-    #[error(transparent)]
-    GeometryBuffer(#[from] GeometryBufferError),
     #[error(transparent)]
     Surface(#[from] SurfaceError),
 }
@@ -161,7 +159,6 @@ pub enum DrawCommandError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum TraversalEvent {
-    PreparedLeaf(usize),
     Pre(usize),
     Post(usize),
 }
@@ -304,7 +301,7 @@ pub(super) struct BackdropContext<'a> {
 
 pub(super) struct RendererScratch {
     pub(super) effect_results: HashMap<usize, IntermediateTextureId>,
-    pub(super) shape_effect_leaves: HashMap<usize, PreparedShapeEffectLeaf>,
+    pub(super) shape_effect_plan: ShapeEffectPlan,
     pub(super) effect_node_ids: Vec<(usize, usize)>,
     pub(super) draw_planner: DrawPlanner,
     pub(super) draw_plan: DrawPlan,
@@ -317,7 +314,7 @@ impl RendererScratch {
     pub(super) fn new() -> Self {
         Self {
             effect_results: HashMap::new(),
-            shape_effect_leaves: HashMap::new(),
+            shape_effect_plan: ShapeEffectPlan::new(),
             effect_node_ids: Vec::new(),
             draw_planner: DrawPlanner::default(),
             draw_plan: DrawPlan::default(),
@@ -329,7 +326,7 @@ impl RendererScratch {
     pub(super) fn begin_frame(&mut self) {
         self.draw_plan.clear();
         self.effect_results.clear();
-        self.shape_effect_leaves.clear();
+        self.shape_effect_plan.clear();
         self.effect_node_ids.clear();
         self.readback_bytes.clear();
         self.traversal_scratch.begin();

@@ -4,11 +4,12 @@ use crate::renderer::commands::{
     BackdropCaptureSource, DrawInstruction, DrawOperation, DrawPlan, DrawSegment,
     IntermediateTextureId, ShapeDrawId,
 };
-use crate::renderer::plan::shape_effects::{PreparedShapeEffectLeaf, ShapeEffectRasterRect};
+use crate::renderer::commands::{TextureComposite, TexturePlacement};
 use crate::renderer::traversal::{plan_traversal_in_place, TraversalScratch};
 use crate::renderer::types::{ClipRectDrawData, DrawTreeNode};
-use crate::shape::{CachedShapeDrawData, CachedShapeHandle, ShapeTextureBinding};
+use crate::shape::{CachedShapeDrawData, CachedShapeHandle};
 use crate::util::ShapeResources;
+use crate::vertex::{InstanceTransform, TextureUvTransform};
 use crate::{
     BorderRadii, Color, Shape, ShapeDrawCommandOptions, Size, Stroke, UnsignedPhysicalRect,
 };
@@ -36,7 +37,9 @@ fn snapshot(plan: &DrawPlan) -> Vec<(Operation, u32, UnsignedPhysicalRect)> {
                     Operation::DrawAndIncrement(draw.id)
                 }
                 DrawOperation::DecrementStencil(draw) => Operation::Decrement(draw.id),
-                DrawOperation::CompositeTexture(texture) => Operation::Composite(texture),
+                DrawOperation::CompositeTexture(texture) => {
+                    Operation::Composite(plan.composites[texture].texture)
+                }
             };
             (
                 operation,
@@ -88,7 +91,7 @@ fn clip(min: (f32, f32), max: (f32, f32)) -> DrawTreeNode {
 struct Scene {
     tree: Tree<DrawTreeNode>,
     results: HashMap<usize, IntermediateTextureId>,
-    leaves: HashMap<usize, PreparedShapeEffectLeaf>,
+    shape_effects: HashMap<usize, TextureComposite>,
     groups: HashMap<usize, EffectInstance>,
     backdrops: HashMap<usize, BackdropEffectInstance>,
     traversal: TraversalScratch,
@@ -100,7 +103,7 @@ impl Scene {
         Self {
             tree: Tree::new(),
             results: HashMap::new(),
-            leaves: HashMap::new(),
+            shape_effects: HashMap::new(),
             groups: HashMap::new(),
             backdrops: HashMap::new(),
             traversal: TraversalScratch::new(),
@@ -121,7 +124,6 @@ impl Scene {
         plan_traversal_in_place(
             &mut self.tree,
             &self.results,
-            &self.leaves,
             None,
             None,
             &mut self.traversal,
@@ -131,7 +133,7 @@ impl Scene {
             DrawPlanningInput {
                 tree: &self.tree,
                 effect_results: &self.results,
-                effect_leaves: &self.leaves,
+                shape_effects: &self.shape_effects,
                 group_effects: &self.groups,
                 backdrop_effects: &self.backdrops,
                 scale_factor: 1.0,
@@ -173,26 +175,20 @@ fn mixed_clips_resolve_each_draw_and_restore_before_siblings() {
         snapshot(&output),
         [
             (
-                Operation::DrawAndIncrement(ShapeDrawId::Shape(stencil)),
+                Operation::DrawAndIncrement(ShapeDrawId(stencil)),
                 0,
                 outer_clip
             ),
             (
-                Operation::Draw(ShapeDrawId::Shape(leaf)),
+                Operation::Draw(ShapeDrawId(leaf)),
                 1,
                 rect((10, 20), (40, 80))
             ),
-            (
-                Operation::Decrement(ShapeDrawId::Shape(stencil)),
-                1,
-                outer_clip
-            ),
-            (Operation::Draw(ShapeDrawId::Shape(sibling)), 0, outer_clip),
+            (Operation::Decrement(ShapeDrawId(stencil)), 1, outer_clip),
+            (Operation::Draw(ShapeDrawId(sibling)), 0, outer_clip),
         ]
     );
     assert!(planner.parents.is_empty());
-    #[cfg(feature = "render_metrics")]
-    assert_eq!(output.scissor_clip_count, 2);
 }
 
 #[test]
@@ -211,36 +207,24 @@ fn empty_geometry_and_visible_overflow_keep_the_ancestor_stencil() {
     assert_eq!(
         snapshot(&output),
         [
+            (Operation::DrawAndIncrement(ShapeDrawId(root)), 0, viewport),
             (
-                Operation::DrawAndIncrement(ShapeDrawId::Shape(root)),
-                0,
-                viewport
-            ),
-            (
-                Operation::DrawAndIncrement(ShapeDrawId::Shape(nested)),
+                Operation::DrawAndIncrement(ShapeDrawId(nested)),
                 1,
                 viewport
             ),
-            (Operation::Draw(ShapeDrawId::Shape(leaf)), 2, viewport),
-            (
-                Operation::Decrement(ShapeDrawId::Shape(nested)),
-                2,
-                viewport
-            ),
-            (Operation::Draw(ShapeDrawId::Shape(overflow)), 1, viewport),
-            (
-                Operation::Draw(ShapeDrawId::Shape(overflow_leaf)),
-                1,
-                viewport
-            ),
-            (Operation::Draw(ShapeDrawId::Shape(sibling)), 1, viewport),
-            (Operation::Decrement(ShapeDrawId::Shape(root)), 1, viewport),
+            (Operation::Draw(ShapeDrawId(leaf)), 2, viewport),
+            (Operation::Decrement(ShapeDrawId(nested)), 2, viewport),
+            (Operation::Draw(ShapeDrawId(overflow)), 1, viewport),
+            (Operation::Draw(ShapeDrawId(overflow_leaf)), 1, viewport),
+            (Operation::Draw(ShapeDrawId(sibling)), 1, viewport),
+            (Operation::Decrement(ShapeDrawId(root)), 1, viewport),
         ]
     );
 }
 
 #[test]
-fn effect_composites_and_prepared_leaves_carry_only_ids_and_resolved_clips() {
+fn effect_composites_carry_only_ids_placements_and_resolved_clips() {
     let mut scene = Scene::new();
     let root = scene.add(None, shape(true));
     let scissor = scene.add(Some(root), clip((10.0, 10.0), (60.0, 60.0)));
@@ -251,19 +235,13 @@ fn effect_composites_and_prepared_leaves_carry_only_ids_and_resolved_clips() {
     let group_texture = IntermediateTextureId::Registered(5);
     let leaf_texture = IntermediateTextureId::Registered(6);
     scene.results.insert(group, group_texture);
-    let mut description = shape_description(
-        Shape::rect([(0.0, 0.0), (20.0, 20.0)], Stroke::default()),
-        true,
-    );
-    description.texture_bindings[0] = ShapeTextureBinding::Intermediate(leaf_texture);
-    scene.leaves.insert(
+    scene.shape_effects.insert(
         source,
-        PreparedShapeEffectLeaf {
-            draw_data: description,
-            raster_rect: ShapeEffectRasterRect {
-                local_physical_origin: [0, 0],
-                texture_size: [20, 20],
-                local_bounds: [(0.0, 0.0), (20.0, 20.0)],
+        TextureComposite {
+            texture: leaf_texture,
+            placement: TexturePlacement::Local {
+                transform: InstanceTransform::translation(10.0, 20.0),
+                sampling: TextureUvTransform::IDENTITY,
             },
         },
     );
@@ -274,38 +252,33 @@ fn effect_composites_and_prepared_leaves_carry_only_ids_and_resolved_clips() {
     assert_eq!(
         snapshot(&output),
         [
-            (
-                Operation::DrawAndIncrement(ShapeDrawId::Shape(root)),
-                0,
-                viewport
-            ),
+            (Operation::DrawAndIncrement(ShapeDrawId(root)), 0, viewport),
             (Operation::Composite(group_texture), 1, inherited),
+            (Operation::Composite(leaf_texture), 1, inherited),
             (
-                Operation::Draw(ShapeDrawId::EffectLeaf(source)),
+                Operation::DrawAndIncrement(ShapeDrawId(source)),
                 1,
                 inherited
             ),
-            (
-                Operation::DrawAndIncrement(ShapeDrawId::Shape(source)),
-                1,
-                inherited
-            ),
-            (Operation::Draw(ShapeDrawId::Shape(child)), 2, inherited),
-            (
-                Operation::Decrement(ShapeDrawId::Shape(source)),
-                2,
-                inherited
-            ),
-            (Operation::Decrement(ShapeDrawId::Shape(root)), 1, viewport),
+            (Operation::Draw(ShapeDrawId(child)), 2, inherited),
+            (Operation::Decrement(ShapeDrawId(source)), 2, inherited),
+            (Operation::Decrement(ShapeDrawId(root)), 1, viewport),
         ]
     );
-    let DrawOperation::DrawShape(draw) = output.instructions[2].operation else {
-        panic!("expected effect draw")
+    let DrawOperation::CompositeTexture(composite) = output.instructions[2].operation else {
+        panic!("expected effect composite")
     };
-    assert_eq!(
-        draw.material.texture_bindings[0],
-        ShapeTextureBinding::Intermediate(leaf_texture)
-    );
+    let composite = output.composites[composite];
+    assert_eq!(composite.texture, leaf_texture);
+    let TexturePlacement::Local {
+        transform,
+        sampling,
+    } = composite.placement
+    else {
+        panic!("expected local placement");
+    };
+    assert_eq!(transform.col3, [10.0, 20.0, 0.0, 1.0]);
+    assert_eq!(sampling.scale, [1.0; 2]);
 }
 
 #[test]
@@ -321,12 +294,12 @@ fn offscreen_scissor_and_transparent_parent_restore_the_visible_sibling() {
         snapshot(&output),
         [
             (
-                Operation::Draw(ShapeDrawId::Shape(clipped)),
+                Operation::Draw(ShapeDrawId(clipped)),
                 0,
                 UnsignedPhysicalRect::zero()
             ),
             (
-                Operation::Draw(ShapeDrawId::Shape(sibling)),
+                Operation::Draw(ShapeDrawId(sibling)),
                 0,
                 rect((10, 10), (60, 60))
             ),
@@ -349,18 +322,14 @@ fn empty_backdrop_parent_preserves_ancestor_clips_without_capture() {
     assert_eq!(
         snapshot(&output),
         [
+            (Operation::DrawAndIncrement(ShapeDrawId(root)), 0, viewport),
             (
-                Operation::DrawAndIncrement(ShapeDrawId::Shape(root)),
-                0,
-                viewport
-            ),
-            (
-                Operation::Draw(ShapeDrawId::Shape(child)),
+                Operation::Draw(ShapeDrawId(child)),
                 1,
                 rect((10, 10), (60, 60))
             ),
-            (Operation::Draw(ShapeDrawId::Shape(sibling)), 1, viewport),
-            (Operation::Decrement(ShapeDrawId::Shape(root)), 1, viewport),
+            (Operation::Draw(ShapeDrawId(sibling)), 1, viewport),
+            (Operation::Decrement(ShapeDrawId(root)), 1, viewport),
         ]
     );
     assert_eq!(output.segments.len(), 1);

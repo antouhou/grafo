@@ -178,6 +178,5 @@ impl<'a> Renderer<'a> {
         self.state.backdrop_effects.clear();
         self.state.shape_effects.clear();
         self.state.shape_execution.clear_draw_queue();
-        self.state.scratch.shape_effect_leaves.clear();
     }
 }

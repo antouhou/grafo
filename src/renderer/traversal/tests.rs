@@ -3,7 +3,6 @@ use super::{
 };
 use crate::cache::CachedTessellation;
 use crate::effect::{BackdropEffectConfig, BackdropEffectInstance, EffectInstance};
-use crate::renderer::plan::shape_effects::{PreparedShapeEffectLeaf, ShapeEffectRasterRect};
 use crate::renderer::types::{DrawTreeNode, TraversalEvent};
 use crate::renderer::IntermediateTextureId;
 use crate::shape::{CachedShapeDrawData, CachedShapeHandle};
@@ -28,17 +27,6 @@ fn cached_draw_data() -> CachedShapeDrawData {
         },
         &ShapeDrawCommandOptions::new(),
     )
-}
-
-fn prepared_shape_effect_leaf() -> PreparedShapeEffectLeaf {
-    PreparedShapeEffectLeaf {
-        draw_data: cached_draw_data(),
-        raster_rect: ShapeEffectRasterRect {
-            local_physical_origin: [0, 0],
-            texture_size: [1, 1],
-            local_bounds: [(0.0, 0.0), (1.0, 1.0)],
-        },
-    }
 }
 
 #[test]
@@ -77,7 +65,6 @@ fn plan_traversal_produces_balanced_events() {
     plan_traversal_in_place(
         &mut tree,
         &effect_results,
-        &HashMap::new(),
         None,
         None,
         &mut traversal_scratch,
@@ -93,66 +80,6 @@ fn plan_traversal_produces_balanced_events() {
             TraversalEvent::Post(child),
             TraversalEvent::Pre(sibling),
             TraversalEvent::Post(sibling),
-            TraversalEvent::Post(root),
-        ]
-    );
-}
-
-#[test]
-fn plan_traversal_inserts_prepared_leaf_before_source_node() {
-    let mut tree = Tree::new();
-    let root = tree.add_node(DrawTreeNode::CachedShape(cached_draw_data()));
-    let mut prepared_leaves = HashMap::new();
-    prepared_leaves.insert(root, prepared_shape_effect_leaf());
-    let effect_results: HashMap<usize, IntermediateTextureId> = HashMap::new();
-    let mut traversal_scratch = TraversalScratch::new();
-
-    plan_traversal_in_place(
-        &mut tree,
-        &effect_results,
-        &prepared_leaves,
-        None,
-        None,
-        &mut traversal_scratch,
-    );
-
-    assert_eq!(
-        traversal_scratch.events(),
-        &[
-            TraversalEvent::PreparedLeaf(root),
-            TraversalEvent::Pre(root),
-            TraversalEvent::Post(root),
-        ]
-    );
-}
-
-#[test]
-fn plan_traversal_inserts_prepared_leaf_before_node_with_children() {
-    let mut tree = Tree::new();
-    let root = tree.add_node(DrawTreeNode::CachedShape(cached_draw_data()));
-    tree.get_mut(root).unwrap().set_not_leaf();
-    let child = tree.add_child(root, DrawTreeNode::CachedShape(cached_draw_data()));
-    let mut prepared_leaves = HashMap::new();
-    prepared_leaves.insert(root, prepared_shape_effect_leaf());
-    let effect_results: HashMap<usize, IntermediateTextureId> = HashMap::new();
-    let mut traversal_scratch = TraversalScratch::new();
-
-    plan_traversal_in_place(
-        &mut tree,
-        &effect_results,
-        &prepared_leaves,
-        None,
-        None,
-        &mut traversal_scratch,
-    );
-
-    assert_eq!(
-        traversal_scratch.events(),
-        &[
-            TraversalEvent::PreparedLeaf(root),
-            TraversalEvent::Pre(root),
-            TraversalEvent::Pre(child),
-            TraversalEvent::Post(child),
             TraversalEvent::Post(root),
         ]
     );
@@ -175,7 +102,6 @@ fn plan_traversal_preserves_reserved_event_storage() {
         plan_traversal_in_place(
             &mut tree,
             &effect_results,
-            &HashMap::new(),
             subtree_root,
             None,
             &mut traversal_scratch,
@@ -187,56 +113,36 @@ fn plan_traversal_preserves_reserved_event_storage() {
 }
 
 #[test]
-fn group_texture_replaces_nested_results_and_prepared_leaves() {
+fn group_texture_replaces_nested_results() {
     let mut tree = Tree::new();
     let root = tree.add_node(DrawTreeNode::CachedShape(cached_draw_data()));
     let group = tree.add_child(root, DrawTreeNode::CachedShape(cached_draw_data()));
     let nested_group = tree.add_child(group, DrawTreeNode::CachedShape(cached_draw_data()));
-    let child = tree.add_child(nested_group, DrawTreeNode::CachedShape(cached_draw_data()));
+    tree.add_child(nested_group, DrawTreeNode::CachedShape(cached_draw_data()));
     let sibling = tree.add_child(root, DrawTreeNode::CachedShape(cached_draw_data()));
     let mut results = HashMap::new();
     results.insert(group, IntermediateTextureId::Registered(1));
     results.insert(nested_group, IntermediateTextureId::Registered(2));
-    let mut prepared_leaves = HashMap::new();
-    for node_id in [group, nested_group, child, sibling] {
-        prepared_leaves.insert(node_id, prepared_shape_effect_leaf());
-    }
     let mut scratch = TraversalScratch::new();
 
-    plan_traversal_in_place(
-        &mut tree,
-        &results,
-        &prepared_leaves,
-        None,
-        None,
-        &mut scratch,
-    );
+    plan_traversal_in_place(&mut tree, &results, None, None, &mut scratch);
     assert_eq!(
         scratch.events(),
         &[
             TraversalEvent::Pre(root),
             TraversalEvent::Pre(group),
             TraversalEvent::Post(group),
-            TraversalEvent::PreparedLeaf(sibling),
             TraversalEvent::Pre(sibling),
             TraversalEvent::Post(sibling),
             TraversalEvent::Post(root),
         ]
     );
 
-    plan_traversal_in_place(
-        &mut tree,
-        &results,
-        &prepared_leaves,
-        None,
-        Some(group),
-        &mut scratch,
-    );
+    plan_traversal_in_place(&mut tree, &results, None, Some(group), &mut scratch);
     assert_eq!(
         scratch.events(),
         &[
             TraversalEvent::Pre(root),
-            TraversalEvent::PreparedLeaf(sibling),
             TraversalEvent::Pre(sibling),
             TraversalEvent::Post(sibling),
             TraversalEvent::Post(root),
