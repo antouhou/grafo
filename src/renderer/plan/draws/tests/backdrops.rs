@@ -1,6 +1,6 @@
 use super::*;
 use crate::effect::BackdropCaptureArea;
-use crate::shape::TextureSampling;
+use crate::shape::{ShapeTextureBinding, TextureSampling};
 use crate::{
     Fill, Gradient, GradientCommonDesc, GradientStop, GradientStopOffset, LinearGradientDesc,
     LinearGradientLine,
@@ -24,6 +24,7 @@ fn capture_and_effect_precede_ordinary_backdrop_draws_and_restore_clips() {
         }, DrawSegment::CaptureBackdrop(capture), DrawSegment::ApplyEffect(effect), DrawSegment::Draws {
             instructions: suffix,
             texture_materials,
+            ..
         }] = output.segments.as_slice()
         else {
             panic!("capture and effect split the draw stream")
@@ -36,7 +37,7 @@ fn capture_and_effect_precede_ordinary_backdrop_draws_and_restore_clips() {
         assert_eq!(effect.output, IntermediateTextureId::Planned(1));
         assert_eq!(effect.effect_id, 42);
         assert_eq!(
-            &output.effect_parameters[effect.parameters.clone()],
+            effect.parameters.bytes(&output.effect_parameters),
             &[1, 2, 3, 4]
         );
         assert_eq!(
@@ -58,33 +59,21 @@ fn capture_and_effect_precede_ordinary_backdrop_draws_and_restore_clips() {
         let viewport = rect((0, 0), (100, 100));
         let inherited = rect((10, 10), (60, 60));
         let mut expected = vec![
-            (
-                Operation::DrawAndIncrement(ShapeDrawId::Shape(root)),
-                0,
-                viewport,
-            ),
-            (
-                Operation::Increment(ShapeDrawId::Shape(backdrop)),
-                1,
-                inherited,
-            ),
-            (Operation::Draw(ShapeDrawId::Shape(backdrop)), 2, inherited),
+            (Operation::DrawAndIncrement(ShapeDrawId(root)), 0, viewport),
+            (Operation::Increment(ShapeDrawId(backdrop)), 1, inherited),
+            (Operation::Draw(ShapeDrawId(backdrop)), 2, inherited),
         ];
-        let decrement = (
-            Operation::Decrement(ShapeDrawId::Shape(backdrop)),
-            2,
-            inherited,
-        );
+        let decrement = (Operation::Decrement(ShapeDrawId(backdrop)), 2, inherited);
         if let Some(child) = child.filter(|_| clips_children) {
-            expected.push((Operation::Draw(ShapeDrawId::Shape(child)), 2, inherited));
+            expected.push((Operation::Draw(ShapeDrawId(child)), 2, inherited));
         }
         expected.push(decrement);
         if let Some(child) = child.filter(|_| !clips_children) {
-            expected.push((Operation::Draw(ShapeDrawId::Shape(child)), 1, inherited));
+            expected.push((Operation::Draw(ShapeDrawId(child)), 1, inherited));
         }
         expected.extend([
-            (Operation::Draw(ShapeDrawId::Shape(sibling)), 1, viewport),
-            (Operation::Decrement(ShapeDrawId::Shape(root)), 1, viewport),
+            (Operation::Draw(ShapeDrawId(sibling)), 1, viewport),
+            (Operation::Decrement(ShapeDrawId(root)), 1, viewport),
         ]);
         assert_eq!(snapshot(&output), expected);
     }
@@ -125,11 +114,11 @@ fn consecutive_captures_follow_preceding_draws_and_keep_separate_outputs() {
     assert_eq!(output.texture_count, 4);
     assert_ne!(first_effect.output, second_effect.output);
     assert_eq!(
-        &output.effect_parameters[first_effect.parameters.clone()],
+        first_effect.parameters.bytes(&output.effect_parameters),
         &[1, 2, 3, 4]
     );
     assert_eq!(
-        &output.effect_parameters[second_effect.parameters.clone()],
+        second_effect.parameters.bytes(&output.effect_parameters),
         &[9, 8]
     );
     assert_eq!(output.texture_material_draws, [1, 4]);
@@ -159,7 +148,7 @@ fn layered_capture_references_registered_resources_and_disabling_capture_removes
     assert_eq!(
         snapshot(&output),
         [(
-            Operation::Draw(ShapeDrawId::Shape(panel)),
+            Operation::Draw(ShapeDrawId(panel)),
             0,
             rect((0, 0), (100, 100)),
         )]
@@ -219,9 +208,9 @@ fn rejected_capture_preserves_gradient_and_stencil_without_texture_work() {
     assert_eq!(
         snapshot(&output),
         [
-            (Operation::Increment(ShapeDrawId::Shape(panel)), 0, viewport),
-            (Operation::Draw(ShapeDrawId::Shape(panel)), 1, viewport),
-            (Operation::Decrement(ShapeDrawId::Shape(panel)), 1, viewport),
+            (Operation::Increment(ShapeDrawId(panel)), 0, viewport),
+            (Operation::Draw(ShapeDrawId(panel)), 1, viewport),
+            (Operation::Decrement(ShapeDrawId(panel)), 1, viewport),
         ]
     );
 }
@@ -242,13 +231,13 @@ fn commands_remain_complete_after_planner_and_scene_are_dropped() {
     };
     assert_eq!(command.effect_id, 42);
     assert_eq!(
-        &output.effect_parameters[command.parameters.clone()],
+        command.parameters.bytes(&output.effect_parameters),
         &[1, 2, 3, 4]
     );
     let DrawOperation::DrawShape(draw) = output.instructions[2].operation else {
         panic!("backdrop draw")
     };
-    assert_eq!(draw.id, ShapeDrawId::Shape(1));
+    assert_eq!(draw.id, ShapeDrawId(1));
     assert_eq!(
         draw.material.texture_bindings,
         [ShapeTextureBinding::None; 2]
@@ -309,4 +298,52 @@ fn rebuilt_queues_reuse_storage_and_replace_all_commands_and_parameters() {
     assert!(output.effect_parameters.is_empty());
     assert!(output.texture_material_draws.is_empty());
     assert_eq!(output.texture_count, 0);
+}
+
+#[test]
+fn shape_effect_composite_precedes_its_source_backdrop_capture_under_inherited_clips() {
+    let mut scene = Scene::new();
+    let parent = scene.add(None, shape(true));
+    let scissor = scene.add(Some(parent), clip((10.0, 10.0), (60.0, 60.0)));
+    let source = scene.add(Some(scissor), shape(true));
+    scene.attach_backdrop(source);
+    scene.shape_effects.insert(
+        source,
+        TextureComposite {
+            texture: IntermediateTextureId::ShapeEffect(0),
+            placement: TexturePlacement::Local {
+                transform: InstanceTransform::translation(12.0, 18.0),
+                sampling: TextureUvTransform::IDENTITY,
+            },
+        },
+    );
+    let mut output = DrawPlan::default();
+    scene.plan(&mut DrawPlanner::default(), &mut output);
+    let [DrawSegment::Draws {
+        instructions,
+        composites,
+        ..
+    }, DrawSegment::CaptureBackdrop(_), DrawSegment::ApplyEffect(_), DrawSegment::Draws { .. }] =
+        output.segments.as_slice()
+    else {
+        panic!("shape effect must be in the draw prefix captured by the backdrop")
+    };
+    assert_eq!(instructions, &(0..2));
+    assert_eq!(&output.composite_draws[composites.clone()], &[1]);
+    assert_eq!(
+        snapshot(&output)[1],
+        (
+            Operation::Composite(IntermediateTextureId::ShapeEffect(0)),
+            1,
+            rect((10, 10), (60, 60))
+        )
+    );
+    assert_eq!(
+        snapshot(&output)[2],
+        (
+            Operation::Increment(ShapeDrawId(source)),
+            1,
+            rect((10, 10), (60, 60))
+        )
+    );
 }

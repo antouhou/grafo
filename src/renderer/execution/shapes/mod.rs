@@ -1,3 +1,5 @@
+use super::composites::CompositeExecutionResources;
+use crate::cache::CachedTessellation;
 use crate::gradient::gpu::{GradientCache, GradientMaterial};
 use crate::gradient::types::Fill;
 use crate::renderer::commands::ShapeDrawId;
@@ -26,22 +28,14 @@ pub(crate) struct ShapeDrawLocation {
 /// GPU locations and material bindings for one CPU shape description.
 #[derive(Debug, Default)]
 pub(crate) struct ShapeDrawResources {
+    /// Retained only for draws with a shape effect, to identify cached coverage masks.
+    pub(crate) mask_tessellation: Option<Arc<CachedTessellation>>,
     pub(crate) location: Option<ShapeDrawLocation>,
     gradient_material: Option<Arc<GradientMaterial>>,
     texture_material_bind_group: Option<BindGroup>,
 }
 
 impl ShapeDrawResources {
-    pub(crate) fn new(geometry_range: GeometryBufferRange, instance_index: usize) -> Self {
-        Self {
-            location: Some(ShapeDrawLocation {
-                geometry_range,
-                instance_index,
-            }),
-            ..Self::default()
-        }
-    }
-
     /// Discards material bindings tied to a replaced pipeline layout.
     pub(crate) fn invalidate_material_bindings(&mut self) {
         self.gradient_material = None;
@@ -76,9 +70,9 @@ impl ShapeDrawResources {
 
 /// Reusable execution storage, separate from draw descriptions and their tree.
 pub(crate) struct ShapeExecutionResources {
+    pub(in crate::renderer) composites: CompositeExecutionResources,
     pub(in crate::renderer) texture_materials: TextureMaterialPool,
     pub(crate) draws: HashMap<usize, ShapeDrawResources>,
-    pub(crate) effect_leaves: HashMap<usize, ShapeDrawResources>,
     pub(crate) gradient_cache: GradientCache,
     pub(crate) vertices: Vec<CustomVertex>,
     pub(crate) indices: Vec<u16>,
@@ -90,17 +84,14 @@ pub(crate) struct ShapeExecutionResources {
 
 impl ShapeExecutionResources {
     pub(in crate::renderer) fn draw_resources(&self, id: ShapeDrawId) -> &ShapeDrawResources {
-        match id {
-            ShapeDrawId::Shape(node_id) => &self.draws[&node_id],
-            ShapeDrawId::EffectLeaf(node_id) => &self.effect_leaves[&node_id],
-        }
+        &self.draws[&id.0]
     }
 
     pub(crate) fn new() -> Self {
         Self {
             texture_materials: TextureMaterialPool::default(),
+            composites: CompositeExecutionResources::default(),
             draws: HashMap::new(),
-            effect_leaves: HashMap::new(),
             gradient_cache: GradientCache::new(),
             vertices: Vec::new(),
             indices: Vec::new(),
@@ -114,7 +105,6 @@ impl ShapeExecutionResources {
     /// Drops draw references while retaining GPU material slots, gradients, and CPU capacity.
     pub(crate) fn clear_draw_queue(&mut self) {
         self.draws.clear();
-        self.effect_leaves.clear();
         self.vertices.clear();
         self.indices.clear();
         self.geometry_ranges.clear();

@@ -1,7 +1,7 @@
 use super::{has_geometry, DrawPlanner, DrawPlanningInput};
 use crate::renderer::commands::{
     BackdropCapture, DrawClip, DrawInstruction, DrawOperation, DrawPlan, DrawSegment,
-    EffectApplication, ShapeDraw, ShapeDrawId,
+    EffectApplication, EffectParameters, ShapeDraw, ShapeDrawId,
 };
 use crate::renderer::plan::backdrops::compute_backdrop_capture_region;
 use crate::renderer::rect_utils::compute_downsampled_dimensions;
@@ -41,7 +41,7 @@ impl DrawPlanner {
             return false;
         }
         let mut draw = ShapeDraw {
-            id: ShapeDrawId::Shape(node_id),
+            id: ShapeDrawId(node_id),
             material: description.material(),
         };
         let bounds = node.local_bounds();
@@ -74,7 +74,9 @@ impl DrawPlanner {
                 .segments
                 .push(DrawSegment::ApplyEffect(EffectApplication {
                     effect_id: effect.effect.effect_id,
-                    parameters: parameter_start..output.effect_parameters.len(),
+                    parameters: EffectParameters::Bytes(
+                        parameter_start..output.effect_parameters.len(),
+                    ),
                     input: capture,
                     output: filtered,
                 }));

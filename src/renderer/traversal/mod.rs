@@ -1,4 +1,3 @@
-use super::plan::shape_effects::PreparedShapeEffectLeaf;
 use super::types::TraversalEvent;
 use super::*;
 use crate::effect::BackdropEffectInstance;
@@ -60,7 +59,6 @@ pub(super) fn subtree_has_backdrop_effects(
 pub(super) fn plan_traversal_in_place(
     draw_tree: &mut easy_tree::Tree<DrawTreeNode>,
     effect_results: &HashMap<usize, IntermediateTextureId>,
-    prepared_shape_effect_leaves: &HashMap<usize, PreparedShapeEffectLeaf>,
     subtree_root: Option<usize>,
     exclude_subtree_id: Option<usize>,
     traversal_scratch: &mut TraversalScratch,
@@ -87,8 +85,6 @@ pub(super) fn plan_traversal_in_place(
 
             if effect_results.contains_key(&node_id) {
                 state.substituted_subtree = Some(node_id);
-            } else if prepared_shape_effect_leaves.contains_key(&node_id) {
-                state.events.push(TraversalEvent::PreparedLeaf(node_id));
             }
             state.events.push(TraversalEvent::Pre(node_id));
         };

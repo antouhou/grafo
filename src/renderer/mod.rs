@@ -39,7 +39,6 @@ mod preparation;
 mod readback;
 mod rect_utils;
 mod rendering;
-mod shape_effects;
 mod state;
 mod surface;
 mod traversal;
@@ -125,7 +124,6 @@ impl<'a> Renderer<'a> {
 
     pub(super) fn begin_frame_scratch(&mut self) {
         self.state.scratch.begin_frame();
-        self.state.shape_execution.effect_leaves.clear();
     }
 
     /// Returns the wall-clock CPU time spent in the most recent `render_to_texture_view()` call.

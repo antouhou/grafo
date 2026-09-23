@@ -1,6 +1,6 @@
 use super::{ShapeDrawResources, ShapeExecutionResources, TextureSamplingUniform};
 use crate::gradient::gpu::{GpuGradientColorParams, GpuMaterialParams};
-use crate::renderer::commands::{DrawOperation, DrawPlan, ShapeDrawId};
+use crate::renderer::commands::{DrawOperation, DrawPlan};
 use crate::renderer::execution::textures::IntermediateTextureResources;
 use crate::renderer::execution::uniforms;
 use crate::renderer::state::ShapePipelines;
@@ -235,11 +235,10 @@ impl ShapeExecutionResources {
             else {
                 unreachable!("material preparation references shape draws");
             };
-            let resources = match draw.id {
-                ShapeDrawId::Shape(id) => self.draws.get_mut(&id),
-                ShapeDrawId::EffectLeaf(id) => self.effect_leaves.get_mut(&id),
-            }
-            .expect("material draw was uploaded");
+            let resources = self
+                .draws
+                .get_mut(&draw.id.0)
+                .expect("material draw was uploaded");
             resources.prepare_texture_material(
                 draw.material.has_gradient_fill(),
                 encoder,

@@ -233,14 +233,21 @@ impl<'a> Renderer<'a> {
             .draw_tree
             .get(node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
-        if draw_tree_node.is_clip_rect() {
+        let DrawTreeNode::CachedShape(shape) = draw_tree_node else {
             return Err(EffectError::InvalidParams(
                 "clip rectangles do not support shape effects".to_string(),
             ));
-        }
+        };
 
         self.effect_registry.validate_params(effect_id, params)?;
         validate_shape_effect_config(&config)?;
+        self.state
+            .shape_execution
+            .draws
+            .get_mut(&node_id)
+            .expect("shape draw resources were prepared when queued")
+            .mask_tessellation
+            .get_or_insert_with(|| Arc::clone(&shape.cached_shape.tessellation));
         self.state.shape_effects.insert(
             node_id,
             ShapeEffectInstance {
@@ -287,6 +294,9 @@ impl<'a> Renderer<'a> {
 
     pub fn remove_shape_effect(&mut self, node_id: usize) {
         self.state.shape_effects.remove(&node_id);
+        if let Some(resources) = self.state.shape_execution.draws.get_mut(&node_id) {
+            resources.mask_tessellation = None;
+        }
     }
 
     pub fn unload_effect(&mut self, effect_id: u64) {
@@ -313,8 +323,9 @@ impl<'a> Renderer<'a> {
         });
         self.state.shape_effects.retain(|node_id, instance| {
             if instance.effect_id == effect_id {
-                self.state.scratch.shape_effect_leaves.remove(node_id);
-                self.state.shape_execution.effect_leaves.remove(node_id);
+                if let Some(resources) = self.state.shape_execution.draws.get_mut(node_id) {
+                    resources.mask_tessellation = None;
+                }
                 return false;
             }
             true

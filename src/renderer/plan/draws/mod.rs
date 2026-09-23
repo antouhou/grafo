@@ -3,7 +3,7 @@ use crate::renderer::commands::{
     BackdropCaptureSource, DrawClip, DrawInstruction, DrawOperation, DrawPlan,
     IntermediateTextureId, ShapeDraw, ShapeDrawId,
 };
-use crate::renderer::plan::shape_effects::PreparedShapeEffectLeaf;
+use crate::renderer::commands::{TextureComposite, TexturePlacement};
 use crate::renderer::rect_utils::{should_skip_visible_rect_draw, try_scissor_for_rect};
 use crate::renderer::types::{DrawTreeNode, TraversalEvent};
 use crate::shape::CachedShapeDrawData;
@@ -27,7 +27,7 @@ struct ClipState {
 pub(in crate::renderer) struct DrawPlanningInput<'a> {
     pub(in crate::renderer) tree: &'a Tree<DrawTreeNode>,
     pub(in crate::renderer) effect_results: &'a HashMap<usize, IntermediateTextureId>,
-    pub(in crate::renderer) effect_leaves: &'a HashMap<usize, PreparedShapeEffectLeaf>,
+    pub(in crate::renderer) shape_effects: &'a HashMap<usize, TextureComposite>,
     pub(in crate::renderer) group_effects: &'a HashMap<usize, EffectInstance>,
     pub(in crate::renderer) backdrop_effects: &'a HashMap<usize, BackdropEffectInstance>,
     pub(in crate::renderer) scale_factor: f64,
@@ -62,6 +62,13 @@ impl DrawPlanner {
         };
         output.clear();
         for &event in events {
+            if let TraversalEvent::Pre(node_id) = event {
+                if let Some(&composite) = input.shape_effects.get(&node_id) {
+                    if !input.effect_results.contains_key(&node_id) {
+                        output.push_composite(composite, self.current.clip);
+                    }
+                }
+            }
             if self.plan_backdrop(event, &input, output) {
                 continue;
             }
@@ -82,31 +89,25 @@ impl DrawPlanner {
         output: &mut DrawPlan,
     ) -> Option<DrawInstruction> {
         let node_id = match event {
-            TraversalEvent::PreparedLeaf(node_id) => {
-                return input
-                    .effect_leaves
-                    .get(&node_id)
-                    .filter(|leaf| has_geometry(&leaf.draw_data))
-                    .map(|leaf| {
-                        self.draw_shape(ShapeDraw {
-                            id: ShapeDrawId::EffectLeaf(node_id),
-                            material: leaf.draw_data.material(),
-                        })
-                    });
-            }
             TraversalEvent::Pre(node_id) | TraversalEvent::Post(node_id) => node_id,
         };
         if let Some(&texture) = input.effect_results.get(&node_id) {
-            return matches!(event, TraversalEvent::Pre(_)).then_some(DrawInstruction {
-                operation: DrawOperation::CompositeTexture(texture),
-                clip: self.current.clip,
-            });
+            if matches!(event, TraversalEvent::Pre(_)) {
+                output.push_composite(
+                    TextureComposite {
+                        texture,
+                        placement: TexturePlacement::Target,
+                    },
+                    self.current.clip,
+                );
+            }
+            return None;
         }
         let node = input.tree.get(node_id)?;
         let draw = match node {
             DrawTreeNode::CachedShape(description) if has_geometry(description) => {
                 Some(ShapeDraw {
-                    id: ShapeDrawId::Shape(node_id),
+                    id: ShapeDrawId(node_id),
                     material: description.material(),
                 })
             }

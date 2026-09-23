@@ -2,7 +2,10 @@ use super::*;
 use crate::renderer::commands::BackdropCaptureSource;
 use crate::renderer::execution::effects::{apply_effect_passes, EffectPassRunConfig};
 use crate::renderer::execution::segments::{
-    execute_segments, SegmentExecutionResources, SegmentRenderTarget,
+    execute_segments, SegmentExecutionContext, SegmentExecutionResources, SegmentRenderTarget,
+};
+use crate::renderer::execution::shape_effects::{
+    execute_shape_effects, ShapeEffectExecutionResources,
 };
 use crate::renderer::execution::targets::RenderTarget;
 use crate::renderer::execution::textures::IntermediateTexture;
@@ -22,7 +25,7 @@ fn render_planned_draws(
     effect_results: &HashMap<usize, IntermediateTextureId>,
     backdrop_source: Option<BackdropCaptureSource>,
     target: SegmentRenderTarget<'_>,
-    pipelines: &RendererPipelineResources,
+    execution_context: &SegmentExecutionContext<'_>,
     state: &mut RendererState,
 ) {
     state.scratch.draw_planner.plan(
@@ -30,7 +33,7 @@ fn render_planned_draws(
         DrawPlanningInput {
             tree: &state.draw_tree,
             effect_results,
-            effect_leaves: &state.scratch.shape_effect_leaves,
+            shape_effects: &state.scratch.shape_effect_plan.composites,
             group_effects: &state.group_effects,
             backdrop_effects: &state.backdrop_effects,
             backdrop_source,
@@ -47,7 +50,7 @@ fn render_planned_draws(
         &state.scratch.draw_plan,
         target,
         SegmentExecutionResources {
-            pipelines,
+            context: execution_context,
             buffers: &state.buffers,
             shapes: &mut state.shape_execution,
             effects: &mut state.effect_execution,
@@ -71,11 +74,12 @@ impl<'a> Renderer<'a> {
         let render_to_texture_view_started_at = std::time::Instant::now();
         self.state.shape_execution.texture_materials.begin_render();
         self.state.effect_execution.begin_render();
+        self.state.shape_execution.composites.begin_render();
 
         if self.state.draw_tree.is_empty() {
             self.state.shape_execution.texture_materials.finish_render();
             self.state.effect_execution.finish_render();
-            self.state.scratch.shape_effect_leaves.clear();
+            self.state.scratch.shape_effect_plan.clear();
             let (_collected_shape_effect_results, _collected_shape_effect_masks) =
                 self.state.textures.collect_unused_shape_effects();
             self.state.textures.work_textures.clear();
@@ -129,10 +133,40 @@ impl<'a> Renderer<'a> {
             });
 
         if has_shape_effects {
-            self.resolve_shape_effects(&mut encoder);
+            execute_shape_effects(
+                &mut encoder,
+                &self.state.scratch.shape_effect_plan.commands,
+                ShapeEffectExecutionResources {
+                    device: &self.device,
+                    queue: &self.queue,
+                    registry: &self.effect_registry,
+                    sampler: self
+                        .pipeline_resources
+                        .effect_sampler
+                        .as_ref()
+                        .expect("shape effect sampler was initialized"),
+                    composite_layout: &self
+                        .pipeline_resources
+                        .shapes
+                        .shape_texture_bind_group_layout_background,
+                    format: self.config.format,
+                    pipelines: &self.pipeline_resources.shape_effects,
+                    buffers: &self.state.buffers,
+                    shapes: &self.state.shape_execution,
+                    effects: &mut self.state.effect_execution,
+                    textures: &mut self.state.textures,
+                    #[cfg(feature = "render_metrics")]
+                    metrics: &mut self.state.shape_effect_cache_metrics,
+                },
+            );
         }
 
         let pipeline_resources = &self.pipeline_resources;
+        let execution_context = SegmentExecutionContext {
+            device: &self.device,
+            queue: &self.queue,
+            pipelines: pipeline_resources,
+        };
         let backdrop_context = if has_backdrop_effects {
             let backdrops = pipeline_resources
                 .backdrops
@@ -200,7 +234,6 @@ impl<'a> Renderer<'a> {
                     plan_traversal_in_place(
                         &mut state.draw_tree,
                         &effect_results,
-                        &state.scratch.shape_effect_leaves,
                         None,
                         Some(node_id),
                         &mut traversal_scratch,
@@ -215,7 +248,7 @@ impl<'a> Renderer<'a> {
                             capture_texture: None,
                             backdrop_context: None,
                         },
-                        pipeline_resources,
+                        &execution_context,
                         state,
                     );
                     Some(state.textures.insert_transient(IntermediateTexture {
@@ -229,7 +262,6 @@ impl<'a> Renderer<'a> {
                 plan_traversal_in_place(
                     &mut state.draw_tree,
                     &effect_results,
-                    &state.scratch.shape_effect_leaves,
                     Some(node_id),
                     None,
                     &mut traversal_scratch,
@@ -247,7 +279,7 @@ impl<'a> Renderer<'a> {
                             .as_ref()
                             .filter(|_| subtree_needs_backdrop_effects),
                     },
-                    pipeline_resources,
+                    &execution_context,
                     state,
                 );
 
@@ -306,7 +338,6 @@ impl<'a> Renderer<'a> {
             plan_traversal_in_place(
                 &mut state.draw_tree,
                 &effect_results,
-                &state.scratch.shape_effect_leaves,
                 None,
                 None,
                 &mut traversal_scratch,
@@ -326,7 +357,7 @@ impl<'a> Renderer<'a> {
                     capture_texture: output_texture,
                     backdrop_context: backdrop_context.as_ref(),
                 },
-                pipeline_resources,
+                &execution_context,
                 state,
             );
         }
@@ -337,7 +368,7 @@ impl<'a> Renderer<'a> {
 
         self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
 
-        state.scratch.shape_effect_leaves.clear();
+        state.scratch.shape_effect_plan.clear();
 
         state.scratch.traversal_scratch = traversal_scratch;
         state.scratch.effect_node_ids = effect_node_ids;
@@ -357,11 +388,11 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    /// Returns an error if geometry preparation or surface acquisition fails.
+    /// Returns an error if surface acquisition fails.
     pub fn render(&mut self) -> Result<(), RenderError> {
         #[cfg(feature = "render_metrics")]
         let frame_render_loop_started_at = std::time::Instant::now();
-        self.prepare_render()?;
+        self.prepare_render();
 
         #[cfg(feature = "render_metrics")]
         let after_prepare = std::time::Instant::now();

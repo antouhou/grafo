@@ -1,9 +1,9 @@
 use super::execution::effects::{CompositePipelineResources, EffectExecutionResources};
+use super::execution::shape_effects::ShapeEffectRendererResources;
 use super::execution::shapes::{ShapeExecutionResources, TextureMaterialPipelines};
 use super::execution::textures::IntermediateTextureResources;
 #[cfg(feature = "render_metrics")]
 use super::metrics::{PipelineSwitchCounts, ShapeEffectCacheMetrics};
-use super::shape_effects::ShapeEffectRendererResources;
 use super::types::{DrawTreeNode, RendererScratch};
 use crate::effect::{BackdropEffectInstance, EffectInstance, ShapeEffectInstance};
 use crate::pipeline::{self, Uniforms};

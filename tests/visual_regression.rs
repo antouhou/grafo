@@ -492,70 +492,71 @@ fn cached_shape_effect_is_shared_by_instances_and_survives_queue_rebuild() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 48), 1.0) else {
         return;
     };
-    renderer.load_effect(8_101, &[PASSTHROUGH_WGSL]).unwrap();
+    renderer
+        .load_effect(8_101, &[CACHED_SHAPE_EFFECT_RED_MASK])
+        .unwrap();
     renderer.load_shape(
         Shape::rect([(0.0, 0.0), (24.0, 24.0)], Stroke::default()),
         8_102,
         Some(8_103),
     );
-    let root_id = renderer
-        .add_shape(
-            Shape::rect([(0.0, 0.0), (96.0, 48.0)], Stroke::default()),
-            None,
-            None,
-            ShapeDrawCommandOptions::new().clips_children(false),
-        )
-        .unwrap();
-
-    let first_node = renderer
-        .add_cached_shape(
-            8_102,
-            Some(root_id),
-            ShapeDrawCommandOptions::new()
-                .clips_children(false)
-                .transform(TransformInstance::translation(4.0, 12.0)),
-        )
-        .unwrap();
-    let second_node = renderer
-        .add_cached_shape(
-            8_102,
-            Some(root_id),
-            ShapeDrawCommandOptions::new().transform(TransformInstance::translation(36.0, 12.0)),
-        )
-        .unwrap();
-    for node_id in [first_node, second_node] {
-        renderer
-            .set_shape_effect(node_id, 8_101, &[], ShapeEffectConfig::new().outset(3.0))
-            .unwrap();
-    }
+    renderer.load_shape(
+        Shape::builder()
+            .begin((0.0, 0.0))
+            .line_to((24.0, 0.0))
+            .line_to((0.0, 24.0))
+            .close()
+            .build(),
+        8_104,
+        Some(8_105),
+    );
 
     let mut pixels = Vec::new();
-    renderer.render_to_buffer(&mut pixels).unwrap();
-    let shared_frame = renderer.last_shape_effect_cache_metrics();
-    assert_eq!(shared_frame.misses, 1);
-    assert_eq!(shared_frame.hits, 1);
+    // Reorder and move distinct shapes with identical mask bounds after each queue clear.
+    for (placements, expected_misses, expected_hits) in [
+        ([(8_102, 4), (8_102, 36), (8_104, 68)], 2, 1),
+        ([(8_104, 36), (8_102, 68), (8_102, 4)], 0, 3),
+        ([(8_102, 36), (8_104, 4), (8_102, 68)], 0, 3),
+    ] {
+        renderer.clear_draw_queue();
+        let root_id = renderer
+            .add_shape(
+                Shape::rect([(0.0, 0.0), (96.0, 48.0)], Stroke::default()),
+                None,
+                None,
+                ShapeDrawCommandOptions::new().color(Color::WHITE),
+            )
+            .unwrap();
+        for (shape_key, left) in placements {
+            let node_id = renderer
+                .add_cached_shape(
+                    shape_key,
+                    Some(root_id),
+                    ShapeDrawCommandOptions::new()
+                        .transform(TransformInstance::translation(left as f32, 12.0)),
+                )
+                .unwrap();
+            renderer
+                .set_shape_effect(node_id, 8_101, &[], ShapeEffectConfig::new().outset(3.0))
+                .unwrap();
+        }
+        renderer.render_to_buffer(&mut pixels).unwrap();
 
-    renderer.clear_draw_queue();
-    let rebuilt_node = renderer
-        .add_cached_shape(
-            8_102,
-            None,
-            ShapeDrawCommandOptions::new().transform(TransformInstance::translation(68.0, 12.0)),
-        )
-        .unwrap();
-    renderer
-        .set_shape_effect(
-            rebuilt_node,
-            8_101,
-            &[],
-            ShapeEffectConfig::new().outset(3.0),
-        )
-        .unwrap();
-    renderer.render_to_buffer(&mut pixels).unwrap();
-
-    let rebuilt_frame = renderer.last_shape_effect_cache_metrics();
-    assert_eq!(rebuilt_frame.hits, 1);
-    assert_eq!(rebuilt_frame.misses, 0);
+        let metrics = renderer.last_shape_effect_cache_metrics();
+        assert_eq!(metrics.misses, expected_misses);
+        assert_eq!(metrics.hits, expected_hits);
+        assert_eq!(metrics.generated_masks, expected_misses);
+        assert_eq!(metrics.executed_passes, expected_misses);
+        for (shape_key, left) in placements {
+            assert_eq!(read_pixel_rgba(&pixels, 96, left + 6, 18), [255, 0, 0, 255]);
+            let corner = if shape_key == 8_102 {
+                [255, 0, 0, 255]
+            } else {
+                [255; 4]
+            };
+            assert_eq!(read_pixel_rgba(&pixels, 96, left + 18, 30), corner);
+        }
+    }
 }
 
 #[cfg(feature = "render_metrics")]
@@ -643,7 +644,7 @@ fn cached_shape_effect_is_invalidated_by_normal_pipeline_recreation() {
 
 #[cfg(feature = "render_metrics")]
 #[test]
-fn shape_effect_scale_change_rebuilds_leaf_and_invalidates_cached_texture() {
+fn shape_effect_scale_change_replans_placement_and_invalidates_cached_texture() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 96), 1.0) else {
         return;
     };
@@ -998,6 +999,43 @@ fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent()
     second.render_to_buffer(&mut second_pixels).unwrap();
     assert_eq!(read_pixel_rgba(&first_pixels, 20, 8, 8), [255, 0, 0, 255]);
     assert_eq!(read_pixel_rgba(&second_pixels, 16, 8, 8), [0, 255, 0, 255]);
+
+    second
+        .load_effect(99_101, &[CACHED_SHAPE_EFFECT_RED_MASK])
+        .unwrap();
+    second.clear_draw_queue();
+    let shared_rect = second
+        .add_cached_shape(99, None, ShapeDrawCommandOptions::new())
+        .unwrap();
+    second
+        .set_shape_effect(shared_rect, 99_101, &[], ShapeEffectConfig::default())
+        .unwrap();
+    second.render_to_buffer(&mut second_pixels).unwrap();
+    assert_eq!(
+        read_pixel_rgba(&second_pixels, 16, 12, 12),
+        [255, 0, 0, 255]
+    );
+
+    second.clear_draw_queue();
+    let triangle = second
+        .add_shape(
+            Shape::builder()
+                .begin((0.0, 0.0))
+                .line_to((16.0, 0.0))
+                .line_to((0.0, 16.0))
+                .close()
+                .build(),
+            None,
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    second
+        .set_shape_effect(triangle, 99_101, &[], ShapeEffectConfig::default())
+        .unwrap();
+    second.render_to_buffer(&mut second_pixels).unwrap();
+    assert_eq!(read_pixel_rgba(&second_pixels, 16, 3, 3), [255, 0, 0, 255]);
+    assert_eq!(read_pixel_rgba(&second_pixels, 16, 12, 12), [0, 0, 0, 0]);
 }
 
 #[test]

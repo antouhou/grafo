@@ -1,8 +1,8 @@
 use super::execution::effects;
 use super::execution::effects::EffectExecutionResources;
+use super::execution::shape_effects::ShapeEffectRendererResources;
 use super::execution::shapes::ShapeExecutionResources;
 use super::execution::textures::IntermediateTextureResources;
-use super::shape_effects::ShapeEffectRendererResources;
 use super::state::{BackdropPipelineResources, Buffers, ShapePipelines};
 use super::types::DrawTreeNode;
 use super::*;

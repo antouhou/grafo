@@ -18,6 +18,7 @@ pub(crate) struct IntermediateTexture {
 
 /// Persistent cached textures and transient resources retained through submission.
 pub(crate) struct IntermediateTextureResources {
+    pub(in crate::renderer::execution) shape_effect_outputs: Vec<IntermediateTextureId>,
     sampled_textures: HashMap<IntermediateTextureId, IntermediateTexture>,
     /// Maps each planner-assigned texture ID to its index in work_textures.
     pub(in crate::renderer::execution) texture_id_to_work_textures_index: Vec<usize>,
@@ -30,6 +31,7 @@ pub(crate) struct IntermediateTextureResources {
 impl IntermediateTextureResources {
     pub(crate) fn new() -> Self {
         Self {
+            shape_effect_outputs: Vec::new(),
             sampled_textures: HashMap::new(),
             texture_id_to_work_textures_index: Vec::new(),
             pool: OffscreenTexturePool::new(),
@@ -60,8 +62,21 @@ impl IntermediateTextureResources {
         texture_id
     }
 
+    pub(in crate::renderer::execution) fn resolve_id(
+        &self,
+        texture: IntermediateTextureId,
+    ) -> IntermediateTextureId {
+        match texture {
+            IntermediateTextureId::ShapeEffect(index) => self.shape_effect_outputs[index],
+            _ => texture,
+        }
+    }
+
     pub(crate) fn bind_group(&self, texture_id: IntermediateTextureId) -> &BindGroup {
         match texture_id {
+            IntermediateTextureId::ShapeEffect(index) => {
+                self.bind_group(self.shape_effect_outputs[index])
+            }
             IntermediateTextureId::Registered(_) => self.sampled_textures[&texture_id]
                 .bind_group
                 .as_ref()
@@ -74,6 +89,9 @@ impl IntermediateTextureResources {
 
     pub(crate) fn texture(&self, texture_id: IntermediateTextureId) -> &Texture {
         let texture = match texture_id {
+            IntermediateTextureId::ShapeEffect(index) => {
+                return self.texture(self.shape_effect_outputs[index])
+            }
             IntermediateTextureId::Registered(_) => &self.sampled_textures[&texture_id].texture,
             IntermediateTextureId::Planned(index) => {
                 &self.work_textures[self.texture_id_to_work_textures_index[index]]

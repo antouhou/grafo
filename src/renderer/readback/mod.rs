@@ -7,7 +7,6 @@ use crate::pipeline::{
 };
 #[cfg(feature = "render_metrics")]
 use crate::renderer::metrics::PhaseTimings;
-use crate::renderer::types::GeometryBufferError;
 use mapping::ReadbackMapping;
 use std::iter;
 #[cfg(feature = "render_metrics")]
@@ -24,8 +23,6 @@ mod mapping;
 /// An offscreen render could not prepare geometry or read its pixels back from the GPU.
 #[derive(Error, Debug)]
 pub enum ReadbackError {
-    #[error(transparent)]
-    GeometryBuffer(#[from] GeometryBufferError),
     #[error("Output buffer needs {required_pixels} pixels, but has {provided_pixels}")]
     OutputTooSmall {
         required_pixels: usize,
@@ -237,7 +234,7 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         let render_started_at = Instant::now();
 
-        self.prepare_render()?;
+        self.prepare_render();
 
         #[cfg(feature = "render_metrics")]
         let preparation_finished_at = Instant::now();
@@ -318,7 +315,7 @@ impl<'a> Renderer<'a> {
         #[cfg(feature = "render_metrics")]
         let render_started_at = Instant::now();
 
-        self.prepare_render()?;
+        self.prepare_render();
 
         #[cfg(feature = "render_metrics")]
         let preparation_finished_at = Instant::now();
