@@ -11,17 +11,14 @@ use crate::renderer::execution::targets::RenderTarget;
 use crate::renderer::execution::textures::IntermediateTexture;
 #[cfg(feature = "render_metrics")]
 use crate::renderer::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
-use crate::renderer::plan::draws::DrawPlanningInput;
-use crate::renderer::traversal::{
-    compute_node_depth, plan_traversal_in_place, subtree_has_backdrop_effects,
-};
+use crate::renderer::plan::draws::{DrawPlanningInput, DrawTreeSelection};
+use crate::renderer::traversal::{compute_node_depth, subtree_has_backdrop_effects};
 use crate::renderer::types::RenderError;
-use crate::renderer::types::TraversalEvent;
 use wgpu::CommandEncoder;
 
 fn render_planned_draws(
     encoder: &mut CommandEncoder,
-    events: &[TraversalEvent],
+    selection: DrawTreeSelection,
     effect_results: &HashMap<usize, IntermediateTextureId>,
     backdrop_source: Option<BackdropCaptureSource>,
     target: SegmentRenderTarget<'_>,
@@ -29,9 +26,9 @@ fn render_planned_draws(
     state: &mut RendererState,
 ) {
     state.scratch.draw_planner.plan(
-        events,
         DrawPlanningInput {
             tree: &state.draw_tree,
+            selection,
             effect_results,
             shape_effects: &state.scratch.shape_effect_plan.composites,
             group_effects: &state.group_effects,
@@ -98,7 +95,6 @@ impl<'a> Renderer<'a> {
             return;
         }
 
-        let mut traversal_scratch = std::mem::take(&mut self.state.scratch.traversal_scratch);
         let mut effect_results = std::mem::take(&mut self.state.scratch.effect_results);
         let mut effect_node_ids = std::mem::take(&mut self.state.scratch.effect_node_ids);
 
@@ -231,16 +227,12 @@ impl<'a> Renderer<'a> {
                         self.config.format,
                         self.msaa_sample_count,
                     );
-                    plan_traversal_in_place(
-                        &mut state.draw_tree,
-                        &effect_results,
-                        None,
-                        Some(node_id),
-                        &mut traversal_scratch,
-                    );
                     render_planned_draws(
                         &mut encoder,
-                        traversal_scratch.events(),
+                        DrawTreeSelection {
+                            excluded_subtree: Some(node_id),
+                            ..Default::default()
+                        },
                         &effect_results,
                         None,
                         SegmentRenderTarget {
@@ -259,17 +251,12 @@ impl<'a> Renderer<'a> {
                     None
                 };
 
-                plan_traversal_in_place(
-                    &mut state.draw_tree,
-                    &effect_results,
-                    Some(node_id),
-                    None,
-                    &mut traversal_scratch,
-                );
-
                 render_planned_draws(
                     &mut encoder,
-                    traversal_scratch.events(),
+                    DrawTreeSelection {
+                        subtree_root: Some(node_id),
+                        ..Default::default()
+                    },
                     &effect_results,
                     behind_texture.map(|base| BackdropCaptureSource::Layered { base }),
                     SegmentRenderTarget {
@@ -335,17 +322,9 @@ impl<'a> Renderer<'a> {
         {
             let depth_texture_view = self.depth_stencil_view.as_ref().unwrap();
 
-            plan_traversal_in_place(
-                &mut state.draw_tree,
-                &effect_results,
-                None,
-                None,
-                &mut traversal_scratch,
-            );
-
             render_planned_draws(
                 &mut encoder,
-                traversal_scratch.events(),
+                DrawTreeSelection::default(),
                 &effect_results,
                 has_backdrop_effects.then_some(BackdropCaptureSource::Target),
                 SegmentRenderTarget {
@@ -370,7 +349,6 @@ impl<'a> Renderer<'a> {
 
         state.scratch.shape_effect_plan.clear();
 
-        state.scratch.traversal_scratch = traversal_scratch;
         state.scratch.effect_node_ids = effect_node_ids;
         let (_collected_shape_effect_results, _collected_shape_effect_masks) =
             state.textures.collect_unused_shape_effects();
