@@ -1,11 +1,10 @@
-use super::{DrawPlanner, DrawPlanningInput};
+use super::{DrawPlanner, DrawPlanningInput, DrawTreeSelection};
 use crate::effect::{BackdropEffectConfig, BackdropEffectInstance, EffectInstance};
 use crate::renderer::commands::{
     BackdropCaptureSource, DrawInstruction, DrawOperation, DrawPlan, DrawSegment,
     IntermediateTextureId, ShapeDrawId,
 };
 use crate::renderer::commands::{TextureComposite, TexturePlacement};
-use crate::renderer::traversal::{plan_traversal_in_place, TraversalScratch};
 use crate::renderer::types::{ClipRectDrawData, DrawTreeNode};
 use crate::shape::{CachedShapeDrawData, CachedShapeHandle};
 use crate::util::ShapeResources;
@@ -94,7 +93,6 @@ struct Scene {
     shape_effects: HashMap<usize, TextureComposite>,
     groups: HashMap<usize, EffectInstance>,
     backdrops: HashMap<usize, BackdropEffectInstance>,
-    traversal: TraversalScratch,
     backdrop_source: Option<BackdropCaptureSource>,
 }
 
@@ -106,7 +104,6 @@ impl Scene {
             shape_effects: HashMap::new(),
             groups: HashMap::new(),
             backdrops: HashMap::new(),
-            traversal: TraversalScratch::new(),
             backdrop_source: Some(BackdropCaptureSource::Target),
         }
     }
@@ -120,18 +117,20 @@ impl Scene {
         }
     }
 
-    fn plan(&mut self, planner: &mut DrawPlanner, output: &mut DrawPlan) {
-        plan_traversal_in_place(
-            &mut self.tree,
-            &self.results,
-            None,
-            None,
-            &mut self.traversal,
-        );
+    fn plan(&self, planner: &mut DrawPlanner, output: &mut DrawPlan) {
+        self.plan_selection(DrawTreeSelection::default(), planner, output);
+    }
+
+    fn plan_selection(
+        &self,
+        selection: DrawTreeSelection,
+        planner: &mut DrawPlanner,
+        output: &mut DrawPlan,
+    ) {
         planner.plan(
-            self.traversal.events(),
             DrawPlanningInput {
                 tree: &self.tree,
+                selection,
                 effect_results: &self.results,
                 shape_effects: &self.shape_effects,
                 group_effects: &self.groups,
@@ -337,3 +336,4 @@ fn empty_backdrop_parent_preserves_ancestor_clips_without_capture() {
 }
 
 mod backdrops;
+mod selection;

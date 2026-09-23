@@ -5,7 +5,7 @@ use crate::renderer::commands::{
 };
 use crate::renderer::plan::backdrops::compute_backdrop_capture_region;
 use crate::renderer::rect_utils::compute_downsampled_dimensions;
-use crate::renderer::types::{DrawTreeNode, TraversalEvent};
+use crate::renderer::types::DrawTreeNode;
 use crate::shape::{ShapeTextureBinding, ShapeTextureLayer, TextureSampling};
 use crate::MathRect;
 
@@ -13,25 +13,17 @@ impl DrawPlanner {
     /// Captures preceding color before entering the shape's stencil coverage.
     pub(super) fn plan_backdrop(
         &mut self,
-        event: TraversalEvent,
+        node_id: usize,
+        node: &DrawTreeNode,
         input: &DrawPlanningInput<'_>,
         output: &mut DrawPlan,
     ) -> bool {
-        let TraversalEvent::Pre(node_id) = event else {
-            return false;
-        };
         let (Some(max_dimension), Some(source)) =
             (input.max_capture_dimension, input.backdrop_source)
         else {
             return false;
         };
-        if input.effect_results.contains_key(&node_id) {
-            return false;
-        }
-        let (Some(effect), Some(node)) = (
-            input.backdrop_effects.get(&node_id),
-            input.tree.get(node_id),
-        ) else {
+        let Some(effect) = input.backdrop_effects.get(&node_id) else {
             return false;
         };
         let DrawTreeNode::CachedShape(description) = node else {
@@ -110,7 +102,6 @@ impl DrawPlanner {
             });
         }
         if !node.is_leaf() {
-            self.parents.push(self.current);
             self.current.decrements_stencil = node.clips_children();
             if node.clips_children() {
                 self.current.clip = shape_clip;

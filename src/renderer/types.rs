@@ -4,7 +4,6 @@ use super::execution::effects::EffectRegistry;
 use super::metrics::PipelineSwitchCounts;
 use super::plan::draws::DrawPlanner;
 use super::plan::shape_effects::ShapeEffectPlan;
-use super::traversal::TraversalScratch;
 use super::IntermediateTextureId;
 use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
 use crate::vertex::InstanceTransform;
@@ -158,12 +157,6 @@ pub enum DrawCommandError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum TraversalEvent {
-    Pre(usize),
-    Post(usize),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Pipeline {
     None,
     StencilIncrement,
@@ -307,7 +300,6 @@ pub(super) struct RendererScratch {
     pub(super) draw_plan: DrawPlan,
     /// CPU storage reused for mapped readback data.
     pub(super) readback_bytes: Vec<u8>,
-    pub(super) traversal_scratch: TraversalScratch,
 }
 
 impl RendererScratch {
@@ -319,7 +311,6 @@ impl RendererScratch {
             draw_planner: DrawPlanner::default(),
             draw_plan: DrawPlan::default(),
             readback_bytes: Vec::new(),
-            traversal_scratch: TraversalScratch::new(),
         }
     }
 
@@ -329,6 +320,5 @@ impl RendererScratch {
         self.shape_effect_plan.clear();
         self.effect_node_ids.clear();
         self.readback_bytes.clear();
-        self.traversal_scratch.begin();
     }
 }
