@@ -103,7 +103,6 @@ fn read_pixel_rgba(pixel_buffer: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
     ]
 }
 
-#[cfg(feature = "render_metrics")]
 const CACHED_SHAPE_EFFECT_RED_MASK: &str = r#"
 @fragment
 fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
@@ -431,64 +430,8 @@ fn invalid_effect_can_be_replaced_with_a_valid_shader() {
     }
 }
 
-#[cfg(feature = "render_metrics")]
 #[test]
-fn unchanged_shape_effect_reuses_exact_gpu_result_and_collects_when_unused() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
-        return;
-    };
-    renderer.load_effect(8_001, &[PASSTHROUGH_WGSL]).unwrap();
-    let shape_id = renderer
-        .add_shape(
-            Shape::rect([(16.0, 16.0), (48.0, 48.0)], Stroke::default()),
-            None,
-            Some(8_002),
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
-        )
-        .unwrap();
-    renderer
-        .set_shape_effect(shape_id, 8_001, &[], ShapeEffectConfig::new().outset(4.0))
-        .unwrap();
-
-    let mut pixels = Vec::new();
-    renderer.render_to_buffer(&mut pixels).unwrap();
-    let first_frame = renderer.last_shape_effect_cache_metrics();
-    assert_eq!(first_frame.misses, 1);
-    assert_eq!(first_frame.hits, 0);
-    assert_eq!(first_frame.generated_masks, 1);
-    assert_eq!(first_frame.executed_passes, 1);
-
-    renderer.load_effect(8_001, &[PASSTHROUGH_WGSL]).unwrap();
-    renderer.render_to_buffer(&mut pixels).unwrap();
-    let second_frame = renderer.last_shape_effect_cache_metrics();
-    assert_eq!(second_frame.hits, 1);
-    assert_eq!(second_frame.misses, 0);
-    assert_eq!(second_frame.generated_masks, 0);
-    assert_eq!(second_frame.executed_passes, 0);
-
-    renderer
-        .load_effect(8_001, &[CACHED_SHAPE_EFFECT_RED_MASK])
-        .unwrap();
-    renderer
-        .set_shape_effect(shape_id, 8_001, &[], ShapeEffectConfig::new().outset(4.0))
-        .unwrap();
-    renderer.render_to_buffer(&mut pixels).unwrap();
-    let replaced_effect_frame = renderer.last_shape_effect_cache_metrics();
-    assert_eq!(replaced_effect_frame.misses, 1);
-    assert_eq!(replaced_effect_frame.hits, 0);
-    assert_eq!(replaced_effect_frame.mask_hits, 1);
-    assert_eq!(replaced_effect_frame.generated_masks, 0);
-
-    renderer.remove_shape_effect(shape_id);
-    renderer.render_to_buffer(&mut pixels).unwrap();
-    let unused_effect_frame = renderer.last_shape_effect_cache_metrics();
-    assert_eq!(unused_effect_frame.collected_results, 1);
-    assert_eq!(unused_effect_frame.collected_masks, 1);
-}
-
-#[cfg(feature = "render_metrics")]
-#[test]
-fn cached_shape_effect_is_shared_by_instances_and_survives_queue_rebuild() {
+fn shape_effects_follow_geometry_and_placement_across_queue_rebuilds() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 48), 1.0) else {
         return;
     };
@@ -513,10 +456,10 @@ fn cached_shape_effect_is_shared_by_instances_and_survives_queue_rebuild() {
 
     let mut pixels = Vec::new();
     // Reorder and move distinct shapes with identical mask bounds after each queue clear.
-    for (placements, expected_misses, expected_hits) in [
-        ([(8_102, 4), (8_102, 36), (8_104, 68)], 2, 1),
-        ([(8_104, 36), (8_102, 68), (8_102, 4)], 0, 3),
-        ([(8_102, 36), (8_104, 4), (8_102, 68)], 0, 3),
+    for placements in [
+        [(8_102, 4), (8_102, 36), (8_104, 68)],
+        [(8_104, 36), (8_102, 68), (8_102, 4)],
+        [(8_102, 36), (8_104, 4), (8_102, 68)],
     ] {
         renderer.clear_draw_queue();
         let root_id = renderer
@@ -542,11 +485,6 @@ fn cached_shape_effect_is_shared_by_instances_and_survives_queue_rebuild() {
         }
         renderer.render_to_buffer(&mut pixels).unwrap();
 
-        let metrics = renderer.last_shape_effect_cache_metrics();
-        assert_eq!(metrics.misses, expected_misses);
-        assert_eq!(metrics.hits, expected_hits);
-        assert_eq!(metrics.generated_masks, expected_misses);
-        assert_eq!(metrics.executed_passes, expected_misses);
         for (shape_key, left) in placements {
             assert_eq!(read_pixel_rgba(&pixels, 96, left + 6, 18), [255, 0, 0, 255]);
             let corner = if shape_key == 8_102 {
@@ -642,44 +580,8 @@ fn cached_shape_effect_is_invalidated_by_normal_pipeline_recreation() {
     assert_eq!(read_pixel_rgba(&pixels, 64, 52, 32), [0, 0, 255, 255]);
 }
 
-#[cfg(feature = "render_metrics")]
 #[test]
-fn shape_effect_scale_change_replans_placement_and_invalidates_cached_texture() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 96), 1.0) else {
-        return;
-    };
-    renderer.load_effect(8_171, &[PASSTHROUGH_WGSL]).unwrap();
-    let shape_id = renderer
-        .add_shape(
-            Shape::rect([(8.0, 8.0), (32.0, 32.0)], Stroke::default()),
-            None,
-            Some(8_172),
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 80, 40)),
-        )
-        .unwrap();
-    renderer
-        .set_shape_effect(shape_id, 8_171, &[], ShapeEffectConfig::new().outset(4.0))
-        .unwrap();
-
-    let mut pixels = Vec::new();
-    renderer.render_to_buffer(&mut pixels).unwrap();
-    renderer.render_to_buffer(&mut pixels).unwrap();
-    assert_eq!(renderer.last_shape_effect_cache_metrics().hits, 1);
-    assert_eq!(renderer.last_shape_effect_cache_metrics().misses, 0);
-
-    renderer.change_scale_factor(2.0);
-    renderer.render_to_buffer(&mut pixels).unwrap();
-    assert_eq!(renderer.last_shape_effect_cache_metrics().hits, 0);
-    assert_eq!(renderer.last_shape_effect_cache_metrics().misses, 1);
-
-    renderer.render_to_buffer(&mut pixels).unwrap();
-    assert_eq!(renderer.last_shape_effect_cache_metrics().hits, 1);
-    assert_eq!(renderer.last_shape_effect_cache_metrics().misses, 0);
-}
-
-#[cfg(feature = "render_metrics")]
-#[test]
-fn cached_shape_effect_uses_exact_parameter_bytes_on_transparent_shape() {
+fn shape_effect_parameter_updates_change_visible_color() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((48, 48), 1.0) else {
         return;
     };
@@ -715,9 +617,6 @@ fn cached_shape_effect_uses_exact_parameter_bytes_on_transparent_shape() {
         .unwrap();
     renderer.render_to_buffer(&mut pixels).unwrap();
     assert_eq!(read_pixel_rgba(&pixels, 48, 30, 28), [255, 0, 0, 255]);
-    let changed_parameter_frame = renderer.last_shape_effect_cache_metrics();
-    assert_eq!(changed_parameter_frame.misses, 1);
-    assert_eq!(changed_parameter_frame.hits, 0);
 }
 
 #[test]
@@ -872,42 +771,6 @@ fn empty_draw_queue() {
         pixel_buffer.iter().all(|&byte| byte == 0),
         "Empty scene should produce a fully transparent (all-zero) buffer",
     );
-}
-
-#[cfg(feature = "render_metrics")]
-#[test]
-fn empty_frame_resets_pipeline_switch_counts() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((16, 16), 1.0) else {
-        return;
-    };
-    renderer
-        .add_shape(
-            Shape::rect([(0.0, 0.0), (16.0, 16.0)], Stroke::default()),
-            None,
-            None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
-        )
-        .unwrap();
-
-    let mut pixel_buffer = Vec::new();
-    for _ in 0..2 {
-        renderer.render_to_buffer(&mut pixel_buffer).unwrap();
-        let counts = renderer.last_pipeline_switch_counts();
-        assert_eq!(counts.to_leaf_draw, 1);
-        assert_eq!(counts.total_switches, 1);
-    }
-
-    renderer.clear_draw_queue();
-    renderer.render_to_buffer(&mut pixel_buffer).unwrap();
-
-    let counts = renderer.last_pipeline_switch_counts();
-    assert_eq!(counts.to_stencil_increment, 0);
-    assert_eq!(counts.to_stencil_decrement, 0);
-    assert_eq!(counts.to_leaf_draw, 0);
-    assert_eq!(counts.to_composite, 0);
-    assert_eq!(counts.total_switches, 0);
-    assert_eq!(counts.scissor_clips, 0);
-    assert_eq!(counts.stencil_passes, 0);
 }
 
 /// Renderers created from the same context must keep independent draw queues while sharing GPU

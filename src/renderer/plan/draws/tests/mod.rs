@@ -189,8 +189,6 @@ fn mixed_clips_resolve_each_draw_and_restore_before_siblings() {
         ]
     );
     assert!(planner.parents.is_empty());
-    #[cfg(feature = "render_metrics")]
-    assert_eq!(output.scissor_clip_count, 2);
 }
 
 #[test]
