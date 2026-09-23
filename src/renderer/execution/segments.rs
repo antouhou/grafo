@@ -1,30 +1,34 @@
 use super::backdrops;
 use super::draws::DrawPass;
-use super::effects::instructions::execute_effect;
+use super::effects::instructions::{execute_effect, EffectContext};
 use super::effects::EffectExecutionResources;
 use super::instructions::execute_draw_instructions;
 use super::shapes::ShapeExecutionResources;
 use super::targets::RenderTarget;
 use super::textures::IntermediateTextureResources;
-use crate::renderer::commands::{BackdropCaptureSource, DrawPlan, DrawSegment};
+use crate::renderer::commands::{BackdropCaptureSource, DrawPlan, DrawSegment, Target};
 #[cfg(feature = "render_metrics")]
 use crate::renderer::metrics::PipelineSwitchCounts;
 use crate::renderer::state::{Buffers, RendererPipelineResources};
 use crate::renderer::types::{
     BackdropContext, BackdropSource, BoundTextureState, Pipeline, PipelineTracker,
 };
-use wgpu::{CommandEncoder, Device, Queue, Texture};
+use std::slice::Iter;
+use wgpu::{CommandEncoder, Device, Queue, Texture, TextureFormat};
 
 pub(in crate::renderer) struct SegmentRenderTarget<'a> {
     pub(in crate::renderer) output: RenderTarget<'a>,
     pub(in crate::renderer) capture_texture: Option<&'a Texture>,
-    pub(in crate::renderer) backdrop_context: Option<&'a BackdropContext<'a>>,
 }
 
 pub(in crate::renderer) struct SegmentExecutionContext<'a> {
     pub device: &'a Device,
     pub queue: &'a Queue,
     pub pipelines: &'a RendererPipelineResources,
+    pub effects: Option<EffectContext<'a>>,
+    pub backdrops: Option<BackdropContext<'a>>,
+    pub format: TextureFormat,
+    pub sample_count: u32,
 }
 
 pub(in crate::renderer) struct SegmentExecutionResources<'a> {
@@ -40,15 +44,16 @@ pub(in crate::renderer) struct SegmentExecutionMetrics {
     pub(in crate::renderer) pipeline_switches: PipelineSwitchCounts,
 }
 
-pub(in crate::renderer) fn execute_segments(
+fn execute_target(
     encoder: &mut CommandEncoder,
     commands: &DrawPlan,
+    segments: &mut Iter<'_, DrawSegment>,
     mut target: SegmentRenderTarget<'_>,
-    resources: SegmentExecutionResources<'_>,
-) -> SegmentExecutionMetrics {
-    let mut pipeline_tracker = PipelineTracker::new();
+    resources: &mut SegmentExecutionResources<'_>,
+    pipeline_tracker: &mut PipelineTracker,
+) {
     let mut bound_textures = BoundTextureState::default();
-    for segment in &commands.segments {
+    for segment in segments {
         match segment {
             DrawSegment::Draws {
                 instructions,
@@ -56,15 +61,12 @@ pub(in crate::renderer) fn execute_segments(
                 composites,
             } => {
                 if !texture_materials.is_empty() {
-                    let context = target
-                        .backdrop_context
-                        .expect("texture materials require execution resources");
                     resources.shapes.prepare_texture_materials(
                         encoder,
                         commands,
                         texture_materials.clone(),
-                        context.device,
-                        context.queue,
+                        resources.context.device,
+                        resources.context.queue,
                         &resources.context.pipelines.shapes,
                         resources.textures,
                     );
@@ -78,7 +80,7 @@ pub(in crate::renderer) fn execute_segments(
                 let mut render_pass = target.output.begin_pass(encoder, "segment_pass");
                 let mut draw_pass = DrawPass {
                     render_pass: &mut render_pass,
-                    pipeline_tracker: &mut pipeline_tracker,
+                    pipeline_tracker,
                     bound_textures: &mut bound_textures,
                     pipelines: resources.context.pipelines,
                     buffers: resources.buffers,
@@ -95,15 +97,19 @@ pub(in crate::renderer) fn execute_segments(
                 pipeline_tracker.current = Pipeline::None;
                 bound_textures.invalidate();
             }
-            DrawSegment::BeginTarget(_)
-            | DrawSegment::DrawShapeMask(_)
-            | DrawSegment::EndTarget => {
-                unreachable!("mask targets are executed before scene targets")
+            DrawSegment::EndTarget => {
+                target.output.clear_if_needed(encoder);
+                return;
+            }
+            DrawSegment::BeginTarget(_) | DrawSegment::DrawShapeMask(_) => {
+                unreachable!("scene target scopes cannot nest or draw masks")
             }
             DrawSegment::CaptureBackdrop(command) => {
                 target.output.clear_if_needed(encoder);
-                let context = target
-                    .backdrop_context
+                let context = resources
+                    .context
+                    .backdrops
+                    .as_ref()
                     .expect("capture commands require execution resources");
                 let base_texture;
                 let source = match command.source {
@@ -133,15 +139,82 @@ pub(in crate::renderer) fn execute_segments(
                 encoder,
                 command,
                 &commands.effect_parameters,
-                target
-                    .backdrop_context
+                resources
+                    .context
+                    .effects
+                    .as_ref()
                     .expect("effect commands require execution resources"),
+                false,
                 resources.effects,
                 resources.textures,
             ),
         }
     }
-    target.output.clear_if_needed(encoder);
+    unreachable!("scene target scope must end");
+}
+
+pub(in crate::renderer) fn execute_segments(
+    encoder: &mut CommandEncoder,
+    commands: &DrawPlan,
+    surface: SegmentRenderTarget<'_>,
+    mut resources: SegmentExecutionResources<'_>,
+) -> SegmentExecutionMetrics {
+    let mut pipeline_tracker = PipelineTracker::new();
+    let mut surface = Some(surface);
+    let mut segments = commands.segments.iter();
+    while let Some(segment) = segments.next() {
+        match segment {
+            DrawSegment::BeginTarget(Target::Surface) => execute_target(
+                encoder,
+                commands,
+                &mut segments,
+                surface.take().expect("surface scope is submitted once"),
+                &mut resources,
+                &mut pipeline_tracker,
+            ),
+            DrawSegment::BeginTarget(Target::Texture { texture, size }) => {
+                resources.textures.reserve_planned(*texture);
+                let target = resources.textures.pool.acquire_with_depth(
+                    resources.context.device,
+                    size.width,
+                    size.height,
+                    resources.context.format,
+                    resources.context.sample_count,
+                );
+                execute_target(
+                    encoder,
+                    commands,
+                    &mut segments,
+                    SegmentRenderTarget {
+                        output: RenderTarget::for_texture(&target),
+                        capture_texture: Some(
+                            target
+                                .resolve_texture
+                                .as_ref()
+                                .unwrap_or(&target.color_texture),
+                        ),
+                    },
+                    &mut resources,
+                    &mut pipeline_tracker,
+                );
+                resources.textures.insert_planned(*texture, target);
+            }
+            DrawSegment::ApplyEffect(command) => execute_effect(
+                encoder,
+                command,
+                &commands.effect_parameters,
+                resources
+                    .context
+                    .effects
+                    .as_ref()
+                    .expect("effects require execution resources"),
+                true,
+                resources.effects,
+                resources.textures,
+            ),
+            _ => unreachable!("scene draws require a target scope"),
+        }
+    }
     resources.textures.finish_plan();
     #[cfg(feature = "render_metrics")]
     {

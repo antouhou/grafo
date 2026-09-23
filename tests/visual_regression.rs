@@ -756,21 +756,40 @@ fn empty_draw_queue() {
         return;
     };
 
-    let mut pixel_buffer: Vec<u8> = Vec::new();
+    let mut pixel_buffer = Vec::new();
     renderer.render_to_buffer(&mut pixel_buffer).unwrap();
-
-    let bytes_per_pixel = 4;
-    let expected_length = (CANVAS_WIDTH as usize) * (CANVAS_HEIGHT as usize) * bytes_per_pixel;
     assert_eq!(
         pixel_buffer.len(),
-        expected_length,
-        "Pixel buffer length should equal width * height * {bytes_per_pixel}",
+        (CANVAS_WIDTH * CANVAS_HEIGHT * 4) as usize
     );
-
-    assert!(
-        pixel_buffer.iter().all(|&byte| byte == 0),
-        "Empty scene should produce a fully transparent (all-zero) buffer",
-    );
+    assert!(pixel_buffer.iter().all(|&byte| byte == 0));
+    for samples in [4, 1] {
+        renderer.set_msaa_samples(samples);
+        renderer.clear_draw_queue();
+        renderer
+            .add_shape(
+                Shape::rect(
+                    [(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)],
+                    Stroke::default(),
+                ),
+                None,
+                None,
+                ShapeDrawCommandOptions::new().color(Color::WHITE),
+            )
+            .unwrap();
+        renderer.render_to_buffer(&mut pixel_buffer).unwrap();
+        assert!(pixel_buffer.iter().all(|&byte| byte == 255));
+        renderer.clear_draw_queue();
+        renderer.render_to_buffer(&mut pixel_buffer).unwrap();
+        assert_eq!(
+            pixel_buffer.len(),
+            (CANVAS_WIDTH * CANVAS_HEIGHT * 4) as usize
+        );
+        assert!(
+            pixel_buffer.iter().all(|&byte| byte == 0),
+            "empty scene must clear the previous output"
+        );
+    }
 }
 
 /// Renderers created from the same context must keep independent draw queues while sharing GPU

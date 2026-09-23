@@ -1,4 +1,5 @@
 use super::execution::shapes::ShapeDrawResources;
+use super::plan::groups::GroupPlanningInput;
 use super::types::GeometryBufferError;
 use super::Renderer;
 use crate::shape::CachedShapeDrawData;
@@ -27,6 +28,18 @@ impl Renderer<'_> {
             self.fringe_width,
             self.state.physical_size.into(),
             self.device.limits().max_texture_dimension_2d,
+        );
+        self.state.scratch.group_planner.plan(
+            GroupPlanningInput {
+                tree: &self.state.draw_tree,
+                group_effects: &self.state.group_effects,
+                backdrop_effects: &self.state.backdrop_effects,
+                shape_effects: &self.state.scratch.shape_effect_plan.composites,
+                scale_factor: self.state.scale_factor,
+                physical_size: self.state.physical_size.into(),
+                max_capture_dimension: self.device.limits().max_texture_dimension_2d,
+            },
+            &mut self.state.scratch.draw_plan,
         );
         self.state
             .shape_execution

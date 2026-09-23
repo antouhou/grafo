@@ -58,8 +58,8 @@ pub(in crate::renderer) struct DrawPlanner {
 }
 
 impl DrawPlanner {
-    /// Replaces the output commands while reusing their storage.
-    pub(in crate::renderer) fn plan(
+    /// Appends a selected tree with its own resolved clip state.
+    pub(in crate::renderer) fn append(
         &mut self,
         input: DrawPlanningInput<'_>,
         output: &mut DrawPlan,
@@ -72,7 +72,6 @@ impl DrawPlanner {
             },
             decrements_stencil: false,
         };
-        output.clear();
         let mut next_node = Some(input.selection.subtree_root.unwrap_or(0));
         while let Some(node_id) = next_node {
             self.plan_node(node_id, &input, output);

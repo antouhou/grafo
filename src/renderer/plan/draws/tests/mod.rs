@@ -127,7 +127,8 @@ impl Scene {
         planner: &mut DrawPlanner,
         output: &mut DrawPlan,
     ) {
-        planner.plan(
+        output.clear();
+        planner.append(
             DrawPlanningInput {
                 tree: &self.tree,
                 selection,

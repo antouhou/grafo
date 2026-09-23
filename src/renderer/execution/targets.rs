@@ -17,7 +17,7 @@ pub(in crate::renderer) fn set_scissor(
     );
 }
 
-/// Borrows one traversal's attachments across passes split by backdrop captures.
+/// Borrows one target's attachments across passes split by backdrop captures.
 pub(in crate::renderer) struct RenderTarget<'a> {
     color_view: &'a TextureView,
     resolve_target: Option<&'a TextureView>,
@@ -50,7 +50,7 @@ impl<'a> RenderTarget<'a> {
             depth_stencil_view: texture
                 .depth_stencil_view
                 .as_ref()
-                .expect("traversal targets include depth/stencil"),
+                .expect("scene targets include depth/stencil"),
             needs_clear: true,
         }
     }

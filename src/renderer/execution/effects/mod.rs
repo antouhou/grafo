@@ -3,6 +3,7 @@ pub(crate) use composite::{
     compile_backdrop_layer_composite_pipeline, compile_composite_pipeline,
     compile_texture_blit_pipeline, CompositePipelineResources,
 };
+pub(in crate::renderer) use instructions::EffectContext;
 pub(crate) use parameters::{EffectExecutionResources, EffectParameterPool};
 pub(crate) use registry::EffectRegistry;
 pub(crate) use textures::{OffscreenTexturePool, PooledTexture};
