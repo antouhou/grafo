@@ -1,8 +1,9 @@
 use super::effects::PooledTexture;
+use crate::commands::Target;
 use crate::UnsignedPhysicalRect;
 use wgpu::{
     Color, CommandEncoder, LoadOp, Operations, RenderPass, RenderPassColorAttachment,
-    RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp, TextureView,
+    RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp, Texture, TextureView,
 };
 
 pub(in crate::renderer) fn set_scissor(
@@ -22,7 +23,7 @@ pub(in crate::renderer) struct RenderTarget<'a> {
     color_view: &'a TextureView,
     resolve_target: Option<&'a TextureView>,
     depth_stencil_view: &'a TextureView,
-    needs_clear: bool,
+    pub(super) needs_clear: bool,
 }
 
 impl<'a> RenderTarget<'a> {
@@ -107,5 +108,36 @@ impl<'a> RenderTarget<'a> {
         });
         self.needs_clear = false;
         render_pass
+    }
+}
+
+/// A suspended target owns its attachments until its matching EndTarget.
+pub(super) struct ActiveTarget {
+    pub(super) target: Target,
+    pub(super) texture: Option<PooledTexture>,
+    pub(super) needs_clear: bool,
+}
+
+pub(in crate::renderer) struct SurfaceTarget<'a> {
+    pub(in crate::renderer) output: RenderTarget<'a>,
+    pub(in crate::renderer) capture_texture: Option<&'a Texture>,
+}
+
+impl ActiveTarget {
+    pub(super) fn attachments<'a>(&'a self, surface: &'a SurfaceTarget<'_>) -> RenderTarget<'a> {
+        let mut target = match self.target {
+            Target::Surface => RenderTarget {
+                color_view: surface.output.color_view,
+                resolve_target: surface.output.resolve_target,
+                depth_stencil_view: surface.output.depth_stencil_view,
+                needs_clear: self.needs_clear,
+            },
+            Target::Texture { .. } => {
+                RenderTarget::for_texture(self.texture.as_ref().expect("target owns its texture"))
+            }
+            Target::Mask(_) => unreachable!("mask draws use the mask pipeline"),
+        };
+        target.needs_clear = self.needs_clear;
+        target
     }
 }

@@ -1,4 +1,6 @@
 use super::effects::{OffscreenTexturePool, PooledTexture};
+use super::shape_effects::CompletedMask;
+use super::targets::ActiveTarget;
 use crate::commands::IntermediateTextureId;
 use crate::core::cache::FrameCache;
 use ahash::{HashMap, HashMapExt};
@@ -16,12 +18,21 @@ pub(crate) struct IntermediateTexture {
     pub(crate) bind_group: Option<BindGroup>,
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum PlannedTexture {
+    Pending,
+    Work(usize),
+    Cached(IntermediateTextureId),
+    Mask(usize),
+}
+
 /// Persistent cached textures and transient resources retained through submission.
 pub(crate) struct IntermediateTextureResources {
-    pub(in crate::renderer::backend::execution) shape_effect_outputs: Vec<IntermediateTextureId>,
+    pub(super) active_targets: Vec<ActiveTarget>,
+    pub(super) masks: Vec<CompletedMask>,
     sampled_textures: HashMap<IntermediateTextureId, IntermediateTexture>,
-    /// Maps each planner-assigned texture ID to its index in work_textures.
-    pub(in crate::renderer::backend::execution) texture_id_to_work_textures_index: Vec<usize>,
+    /// Resolves command-local IDs without copying their textures.
+    pub(super) planned: Vec<PlannedTexture>,
     pub(crate) pool: OffscreenTexturePool,
     pub(crate) work_textures: Vec<PooledTexture>,
     pub(crate) shape_effect_results: FrameCache<ShapeEffectCacheKey, IntermediateTextureId>,
@@ -31,9 +42,10 @@ pub(crate) struct IntermediateTextureResources {
 impl IntermediateTextureResources {
     pub(crate) fn new() -> Self {
         Self {
-            shape_effect_outputs: Vec::new(),
+            active_targets: Vec::new(),
+            masks: Vec::new(),
             sampled_textures: HashMap::new(),
-            texture_id_to_work_textures_index: Vec::new(),
+            planned: Vec::new(),
             pool: OffscreenTexturePool::new(),
             work_textures: Vec::new(),
             shape_effect_results: FrameCache::new(),
@@ -58,35 +70,39 @@ impl IntermediateTextureResources {
         texture: IntermediateTextureId,
     ) -> IntermediateTextureId {
         match texture {
-            IntermediateTextureId::ShapeEffect(index) => self.shape_effect_outputs[index],
+            IntermediateTextureId::Planned(index) => match self.planned[index] {
+                PlannedTexture::Cached(texture) => texture,
+                _ => texture,
+            },
             _ => texture,
         }
     }
 
     pub(crate) fn bind_group(&self, texture_id: IntermediateTextureId) -> &BindGroup {
-        match texture_id {
-            IntermediateTextureId::ShapeEffect(index) => {
-                self.bind_group(self.shape_effect_outputs[index])
-            }
-            IntermediateTextureId::Registered(_) => self.sampled_textures[&texture_id]
+        match self.resolve_id(texture_id) {
+            IntermediateTextureId::Registered(texture) => self.sampled_textures
+                [&IntermediateTextureId::Registered(texture)]
                 .bind_group
                 .as_ref()
-                .expect("this texture was prepared for direct sampling"),
-            IntermediateTextureId::Planned(index) => self.work_textures
-                [self.texture_id_to_work_textures_index[index]]
-                .prepared_composite_bind_group(),
+                .expect("texture has a sampling binding"),
+            IntermediateTextureId::Planned(index) => {
+                let PlannedTexture::Work(index) = self.planned[index] else {
+                    unreachable!("composites reference completed textures");
+                };
+                self.work_textures[index].prepared_composite_bind_group()
+            }
         }
     }
 
     pub(crate) fn texture(&self, texture_id: IntermediateTextureId) -> &Texture {
-        let texture = match texture_id {
-            IntermediateTextureId::ShapeEffect(index) => {
-                return self.texture(self.shape_effect_outputs[index])
+        let texture = match self.resolve_id(texture_id) {
+            IntermediateTextureId::Registered(id) => {
+                &self.sampled_textures[&IntermediateTextureId::Registered(id)].texture
             }
-            IntermediateTextureId::Registered(_) => &self.sampled_textures[&texture_id].texture,
-            IntermediateTextureId::Planned(index) => {
-                &self.work_textures[self.texture_id_to_work_textures_index[index]]
-            }
+            IntermediateTextureId::Planned(index) => match self.planned[index] {
+                PlannedTexture::Work(index) => &self.work_textures[index],
+                _ => unreachable!("texture must be produced before sampling"),
+            },
         };
         texture
             .resolve_texture
@@ -102,13 +118,37 @@ impl IntermediateTextureResources {
         let IntermediateTextureId::Planned(index) = texture_id else {
             unreachable!("planned textures have command-local IDs");
         };
-        if index == self.texture_id_to_work_textures_index.len() {
+        if index == self.planned.len() {
             self.reserve_planned(texture_id);
         }
-        let slot = &mut self.texture_id_to_work_textures_index[index];
-        assert_eq!(*slot, usize::MAX, "planned textures are produced once");
-        *slot = self.work_textures.len();
+        let slot = &mut self.planned[index];
+        assert!(
+            matches!(*slot, PlannedTexture::Pending),
+            "planned textures are produced once"
+        );
+        *slot = PlannedTexture::Work(self.work_textures.len());
         self.work_textures.push(texture);
+    }
+
+    pub(super) fn insert_mask(&mut self, mask: CompletedMask) {
+        let IntermediateTextureId::Planned(index) = mask.texture else {
+            unreachable!("mask outputs are command-local");
+        };
+        assert!(matches!(self.planned[index], PlannedTexture::Pending));
+        self.planned[index] = PlannedTexture::Mask(self.masks.len());
+        self.masks.push(mask);
+    }
+
+    pub(super) fn insert_cached_output(
+        &mut self,
+        output: IntermediateTextureId,
+        texture: IntermediateTextureId,
+    ) {
+        self.reserve_planned(output);
+        let IntermediateTextureId::Planned(index) = output else {
+            unreachable!()
+        };
+        self.planned[index] = PlannedTexture::Cached(texture);
     }
 
     /// A target reserves its slot before captures create later logical outputs.
@@ -116,16 +156,15 @@ impl IntermediateTextureResources {
         &mut self,
         texture: IntermediateTextureId,
     ) {
-        assert_eq!(
-            texture,
-            IntermediateTextureId::Planned(self.texture_id_to_work_textures_index.len())
-        );
-        self.texture_id_to_work_textures_index.push(usize::MAX);
+        assert_eq!(texture, IntermediateTextureId::Planned(self.planned.len()));
+        self.planned.push(PlannedTexture::Pending);
     }
 
-    /// Clears logical references in constant time; allocations survive through submission.
+    /// Drops logical references while retaining storage and execution-owned textures.
     pub(in crate::renderer::backend::execution) fn finish_plan(&mut self) {
-        self.texture_id_to_work_textures_index.clear();
+        self.planned.clear();
+        self.masks.clear();
+        debug_assert!(self.active_targets.is_empty());
     }
 
     /// All transient textures remain live until the commands that sample them are submitted.

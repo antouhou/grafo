@@ -1,13 +1,10 @@
 use super::{ShapeDrawResources, ShapeExecutionResources, TextureSamplingUniform};
-use crate::commands::{
-    DrawOperation, DrawPlan, ShapeDrawMaterial, ShapeTextureBinding, ShapeTextureLayer,
-};
+use crate::commands::{ShapeDraw, ShapeDrawMaterial, ShapeTextureBinding, ShapeTextureLayer};
 use crate::renderer::backend::execution::textures::IntermediateTextureResources;
 use crate::renderer::backend::execution::uniforms;
 use crate::renderer::backend::gradient::{GpuGradientColorParams, GpuMaterialParams};
 use crate::renderer::backend::resources::ShapePipelines;
 use std::mem;
-use std::ops::Range;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer,
     CommandEncoder, Device, Queue, Sampler, Texture, TextureView,
@@ -217,41 +214,31 @@ impl ShapeDrawResources {
 }
 
 impl ShapeExecutionResources {
-    /// Prepares only indexed material draws, without scanning ordinary instructions.
     #[allow(clippy::too_many_arguments)]
-    pub(in crate::renderer) fn prepare_texture_materials(
+    pub(in crate::renderer) fn prepare_texture_material(
         &mut self,
         encoder: &mut CommandEncoder,
-        commands: &DrawPlan,
-        material_range: Range<usize>,
+        draw: ShapeDraw,
         device: &Device,
         queue: &Queue,
         pipelines: &ShapePipelines,
         textures: &IntermediateTextureResources,
     ) {
-        for &index in &commands.texture_material_draws[material_range] {
-            let (DrawOperation::DrawShape(draw)
-            | DrawOperation::DrawShapeAndIncrementStencil(draw)) =
-                commands.instructions[index].operation
-            else {
-                unreachable!("material preparation references shape draws");
-            };
-            let resources = self
-                .draws
-                .get_mut(&draw.id.0)
-                .expect("material draw was uploaded");
-            resources.prepare_texture_material(
+        let Some(layer) = draw.material.under_fill_texture else {
+            return;
+        };
+        self.draws
+            .get_mut(&draw.id.0)
+            .expect("material draw was uploaded")
+            .prepare_texture_material(
                 draw.material.has_gradient_fill(),
                 encoder,
-                draw.material
-                    .under_fill_texture
-                    .expect("material draw has an under-fill texture"),
+                layer,
                 &mut self.texture_materials,
                 device,
                 queue,
                 pipelines,
                 textures,
             );
-        }
     }
 }

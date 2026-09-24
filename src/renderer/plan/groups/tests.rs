@@ -1,7 +1,7 @@
-use super::{GroupPlanner, GroupPlanningInput};
+use super::{GroupPlanningInput, SceneTraversal};
 use crate::commands::{
-    BackdropCaptureSource, DrawOperation, DrawPlan, DrawSegment, IntermediateTextureId,
-    ShapeTextureBinding, Target, TextureComposite,
+    BackdropCaptureSource, IntermediateTextureId, RenderOperation, RenderPlan, ShapeTextureBinding,
+    Target, TextureComposite,
 };
 use crate::core::effect::{BackdropEffectConfig, BackdropEffectInstance, EffectInstance};
 use crate::core::shape::CachedShapeHandle;
@@ -29,111 +29,79 @@ fn planned_index(texture: IntermediateTextureId) -> usize {
 }
 
 /// Consumes only completed commands, including after dropping their scene and planner.
-fn validate_dependencies(plan: &DrawPlan) {
+fn validate_dependencies(plan: &RenderPlan) {
     let mut produced = vec![false; plan.texture_count];
-    let mut target = None;
-    let mut instruction_end = 0;
+    let mut targets = Vec::new();
     let mut surface_count = 0;
-    for segment in &plan.segments {
-        match segment {
-            DrawSegment::BeginTarget(next) => {
-                assert!(target.replace(*next).is_none(), "targets cannot nest");
-                match next {
-                    Target::Surface => surface_count += 1,
-                    Target::Texture { texture, .. } => assert!(!produced[planned_index(*texture)]),
-                    Target::Mask(_) => panic!("masks are prepared before group targets"),
+    for command in &plan.instructions {
+        match &command.operation {
+            RenderOperation::BeginTarget(target) => {
+                if matches!(target, Target::Surface) {
+                    surface_count += 1;
                 }
+                targets.push(*target);
             }
-            DrawSegment::EndTarget => {
-                if let Target::Texture { texture, .. } = target.take().unwrap() {
+            RenderOperation::EndTarget => {
+                if let Target::Texture { texture, .. } = targets.pop().unwrap() {
                     produced[planned_index(texture)] = true;
                 }
             }
-            DrawSegment::ApplyEffect(effect) => {
-                assert!(
-                    produced[planned_index(effect.input)],
-                    "effect input must be completed"
-                );
-                let output = planned_index(effect.output);
-                assert!(!produced[output]);
-                produced[output] = true;
-                effect.parameters.bytes(&plan.effect_parameters);
+            RenderOperation::ApplyEffect(effect) => {
+                assert!(produced[planned_index(effect.input)]);
+                produced[planned_index(effect.output)] = true;
             }
-            DrawSegment::CaptureBackdrop(capture) => {
-                assert!(target.is_some());
+            RenderOperation::CaptureBackdrop(capture) => {
+                assert!(!targets.is_empty());
                 if let BackdropCaptureSource::Layered { base } = capture.source {
-                    assert!(
-                        produced[planned_index(base)],
-                        "layered base must be completed"
-                    );
+                    assert!(produced[planned_index(base)]);
                 }
-                let output = planned_index(capture.output);
-                assert!(!produced[output]);
-                produced[output] = true;
+                produced[planned_index(capture.output)] = true;
             }
-            DrawSegment::Draws { instructions, .. } => {
-                assert!(target.is_some());
-                assert_eq!(instructions.start, instruction_end);
-                instruction_end = instructions.end;
-                for instruction in &plan.instructions[instructions.clone()] {
-                    let texture = match instruction.operation {
-                        DrawOperation::CompositeTexture(index) => {
-                            Some(plan.composites[index].texture)
-                        }
-                        DrawOperation::DrawShape(draw)
-                        | DrawOperation::DrawShapeAndIncrementStencil(draw) => {
-                            draw.material.under_fill_texture.and_then(|layer| {
-                                if let ShapeTextureBinding::Intermediate(texture) = layer.texture {
-                                    Some(texture)
-                                } else {
-                                    None
-                                }
-                            })
-                        }
-                        _ => None,
-                    };
-                    if let Some(IntermediateTextureId::Planned(index)) = texture {
-                        assert!(produced[index], "draw input must be completed");
-                    }
+            operation => {
+                assert!(!targets.is_empty());
+                let texture = match operation {
+                    RenderOperation::CompositeTexture(composite) => Some(composite.texture),
+                    RenderOperation::DrawShape(draw)
+                    | RenderOperation::DrawShapeAndIncrementStencil(draw) => draw
+                        .material
+                        .under_fill_texture
+                        .and_then(|layer| match layer.texture {
+                            ShapeTextureBinding::Intermediate(texture) => Some(texture),
+                            _ => None,
+                        }),
+                    _ => None,
+                };
+                if let Some(IntermediateTextureId::Planned(index)) = texture {
+                    assert!(produced[index]);
                 }
             }
-            DrawSegment::DrawShapeMask(_) => panic!("unexpected mask draw"),
         }
     }
-    assert!(target.is_none());
+    assert!(targets.is_empty());
     assert_eq!(surface_count, 1);
-    assert_eq!(instruction_end, plan.instructions.len());
     assert!(produced.into_iter().all(|is_produced| is_produced));
 }
 
-fn snapshot(plan: &DrawPlan) -> Vec<Command> {
-    let mut commands = Vec::new();
-    for segment in &plan.segments {
-        match segment {
-            DrawSegment::BeginTarget(Target::Texture { texture, .. }) => {
-                commands.push(Command::Begin(Some(planned_index(*texture))));
+fn snapshot(plan: &RenderPlan) -> Vec<Command> {
+    plan.instructions
+        .iter()
+        .map(|command| match &command.operation {
+            RenderOperation::BeginTarget(Target::Texture { texture, .. }) => {
+                Command::Begin(Some(planned_index(*texture)))
             }
-            DrawSegment::BeginTarget(Target::Surface) => commands.push(Command::Begin(None)),
-            DrawSegment::EndTarget => commands.push(Command::End),
-            DrawSegment::ApplyEffect(effect) => commands.push(Command::Effect(
+            RenderOperation::BeginTarget(Target::Surface) => Command::Begin(None),
+            RenderOperation::EndTarget => Command::End,
+            RenderOperation::ApplyEffect(effect) => Command::Effect(
                 effect.effect_id,
                 planned_index(effect.input),
                 planned_index(effect.output),
-            )),
-            DrawSegment::Draws { instructions, .. } => {
-                for instruction in &plan.instructions[instructions.clone()] {
-                    let DrawOperation::CompositeTexture(index) = instruction.operation else {
-                        panic!("clip-only scenes contain only composites");
-                    };
-                    commands.push(Command::Composite(planned_index(
-                        plan.composites[index].texture,
-                    )));
-                }
+            ),
+            RenderOperation::CompositeTexture(composite) => {
+                Command::Composite(planned_index(composite.texture))
             }
             _ => panic!("unexpected command in clip-only scene"),
-        }
-    }
-    commands
+        })
+        .collect()
 }
 
 struct Scene {
@@ -206,7 +174,9 @@ impl Scene {
         );
     }
 
-    fn plan(&self, planner: &mut GroupPlanner, output: &mut DrawPlan) {
+    fn plan(&self, planner: &mut SceneTraversal, output: &mut RenderPlan) {
+        output.clear();
+        output.push(RenderOperation::BeginTarget(Target::Surface));
         planner.plan(
             GroupPlanningInput {
                 tree: &self.tree,
@@ -219,83 +189,88 @@ impl Scene {
             },
             output,
         );
+        output.push(RenderOperation::EndTarget);
     }
 }
 
 #[test]
-fn nested_groups_finish_before_ancestor_effects_and_surface_composites() {
+fn nested_groups_close_into_their_parent_targets() {
     let mut scene = Scene::new();
     let outer = scene.group(None, 1);
     let inner = scene.group(Some(outer), 2);
     scene.group(Some(inner), 3);
-    let mut output = DrawPlan::default();
-    scene.plan(&mut GroupPlanner::default(), &mut output);
+    let mut output = RenderPlan::default();
+    scene.plan(&mut SceneTraversal::default(), &mut output);
     drop(scene);
     validate_dependencies(&output);
     assert_eq!(
         snapshot(&output),
         [
+            Command::Begin(None),
             Command::Begin(Some(0)),
-            Command::End,
-            Command::Effect(3, 0, 1),
+            Command::Begin(Some(1)),
             Command::Begin(Some(2)),
-            Command::Composite(1),
             Command::End,
-            Command::Effect(2, 2, 3),
-            Command::Begin(Some(4)),
+            Command::Effect(3, 2, 3),
             Command::Composite(3),
             Command::End,
-            Command::Effect(1, 4, 5),
-            Command::Begin(None),
+            Command::Effect(2, 1, 4),
+            Command::Composite(4),
+            Command::End,
+            Command::Effect(1, 0, 5),
             Command::Composite(5),
             Command::End,
         ]
     );
-    let effects = output.segments.iter().filter_map(|segment| {
-        if let DrawSegment::ApplyEffect(effect) = segment {
-            Some(effect)
-        } else {
-            None
-        }
-    });
+    let effects = output
+        .instructions
+        .iter()
+        .map(|command| &command.operation)
+        .filter_map(|operation| {
+            if let RenderOperation::ApplyEffect(effect) = operation {
+                Some(effect)
+            } else {
+                None
+            }
+        });
     for effect in effects {
         assert_eq!(
-            effect.parameters.bytes(&output.effect_parameters),
+            output.parameters(effect.parameters),
             effect.effect_id.to_le_bytes()
         );
     }
 }
 
 #[test]
-fn uneven_groups_use_descendant_results_and_order_siblings_deterministically() {
+fn uneven_groups_resume_the_parent_between_siblings() {
     let mut scene = Scene::new();
     let root = scene.add(None);
     let first = scene.group(Some(root), 1);
     let inner = scene.group(Some(first), 2);
     scene.group(Some(inner), 3);
     scene.group(Some(root), 4);
-    let mut output = DrawPlan::default();
-    scene.plan(&mut GroupPlanner::default(), &mut output);
+    let mut output = RenderPlan::default();
+    scene.plan(&mut SceneTraversal::default(), &mut output);
     validate_dependencies(&output);
     assert_eq!(
         snapshot(&output),
         [
+            Command::Begin(None),
             Command::Begin(Some(0)),
-            Command::End,
-            Command::Effect(3, 0, 1),
+            Command::Begin(Some(1)),
             Command::Begin(Some(2)),
-            Command::Composite(1),
             Command::End,
-            Command::Effect(2, 2, 3),
-            Command::Begin(Some(4)),
+            Command::Effect(3, 2, 3),
             Command::Composite(3),
             Command::End,
-            Command::Effect(1, 4, 5),
+            Command::Effect(2, 1, 4),
+            Command::Composite(4),
+            Command::End,
+            Command::Effect(1, 0, 5),
+            Command::Composite(5),
             Command::Begin(Some(6)),
             Command::End,
             Command::Effect(4, 6, 7),
-            Command::Begin(None),
-            Command::Composite(5),
             Command::Composite(7),
             Command::End,
         ]
@@ -311,14 +286,15 @@ fn layered_backdrop_sources_finish_before_captures_and_skip_their_group() {
     scene.backdrop(outer);
     let inner = scene.group(Some(outer), 2);
     scene.backdrop(inner);
-    let mut output = DrawPlan::default();
-    scene.plan(&mut GroupPlanner::default(), &mut output);
+    let mut output = RenderPlan::default();
+    scene.plan(&mut SceneTraversal::default(), &mut output);
     validate_dependencies(&output);
     let captures: Vec<_> = output
-        .segments
+        .instructions
         .iter()
-        .filter_map(|segment| {
-            if let DrawSegment::CaptureBackdrop(capture) = segment {
+        .map(|command| &command.operation)
+        .filter_map(|operation| {
+            if let RenderOperation::CaptureBackdrop(capture) = operation {
                 Some(capture)
             } else {
                 None
@@ -345,22 +321,14 @@ fn layered_backdrop_sources_finish_before_captures_and_skip_their_group() {
     // The outer group's behind scene excludes the completed inner result as well.
     let mut target = None;
     let mut composites = Vec::new();
-    for segment in &output.segments {
-        match segment {
-            DrawSegment::BeginTarget(Target::Texture { texture, .. }) => target = Some(*texture),
-            DrawSegment::EndTarget => target = None,
-            DrawSegment::Draws { instructions, .. }
+    for command in &output.instructions {
+        match command.operation {
+            RenderOperation::BeginTarget(Target::Texture { texture, .. }) => target = Some(texture),
+            RenderOperation::EndTarget => target = None,
+            RenderOperation::CompositeTexture(composite)
                 if target == Some(IntermediateTextureId::Planned(5)) =>
             {
-                composites.extend(output.instructions[instructions.clone()].iter().filter_map(
-                    |draw| {
-                        if let DrawOperation::CompositeTexture(index) = draw.operation {
-                            Some(index)
-                        } else {
-                            None
-                        }
-                    },
-                ));
+                composites.push(composite)
             }
             _ => {}
         }
@@ -370,17 +338,15 @@ fn layered_backdrop_sources_finish_before_captures_and_skip_their_group() {
 
 #[test]
 fn queue_rebuilds_reuse_storage_and_empty_scenes_clear_the_surface() {
-    let mut planner = GroupPlanner::default();
-    let mut output = DrawPlan::default();
+    let mut planner = SceneTraversal::default();
+    let mut output = RenderPlan::default();
     let mut scene = Scene::new();
     let group = scene.group(None, 1);
     scene.backdrop(group);
     scene.plan(&mut planner, &mut output);
     let capacities = (
-        output.segments.capacity(),
         output.instructions.capacity(),
         output.effect_parameters.capacity(),
-        output.composites.capacity(),
         planner.groups.capacity(),
         planner.results.capacity(),
         planner.backdrop_ancestors.capacity(),
@@ -394,10 +360,8 @@ fn queue_rebuilds_reuse_storage_and_empty_scenes_clear_the_surface() {
         assert_eq!(
             capacities,
             (
-                output.segments.capacity(),
                 output.instructions.capacity(),
                 output.effect_parameters.capacity(),
-                output.composites.capacity(),
                 planner.groups.capacity(),
                 planner.results.capacity(),
                 planner.backdrop_ancestors.capacity()

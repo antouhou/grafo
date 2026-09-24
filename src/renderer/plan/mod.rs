@@ -1,14 +1,13 @@
 use super::types::DrawTreeNode;
-use crate::commands::RenderPlan;
+use crate::commands::{RenderOperation, RenderPlan, Target, TextureComposite};
 use crate::core::effect::{BackdropEffectInstance, EffectInstance, ShapeEffectInstance};
 use crate::core::util::ShapeResources;
 use crate::CachedShapeHandle;
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
-use groups::{GroupPlanner, GroupPlanningInput};
+use groups::{GroupPlanningInput, SceneTraversal};
 use lyon::tessellation::FillTessellator;
-use shape_effects::ShapeEffectPlan;
-use std::mem;
+use shape_effects::append_shape_effects;
 use std::sync::{Arc, RwLock};
 
 pub(super) mod backdrops;
@@ -35,8 +34,8 @@ pub(super) struct Planner {
     pub(super) shape_effects: HashMap<usize, ShapeEffectInstance>,
     pub(super) fringe_width: f32,
     maximum_texture_dimension: u32,
-    shape_effect_plan: ShapeEffectPlan,
-    group_planner: GroupPlanner,
+    shape_composites: HashMap<usize, TextureComposite>,
+    traversal: SceneTraversal,
     commands: RenderPlan,
 }
 
@@ -56,42 +55,38 @@ impl Planner {
             shape_effects: HashMap::new(),
             fringe_width,
             maximum_texture_dimension,
-            shape_effect_plan: ShapeEffectPlan::new(),
-            group_planner: GroupPlanner::default(),
+            shape_composites: HashMap::new(),
+            traversal: SceneTraversal::default(),
             commands: RenderPlan::default(),
         }
     }
 
     pub(super) fn plan(&mut self, viewport: Viewport) -> &RenderPlan {
-        // Return the previous mask storage to its compiler before rebuilding it.
-        mem::swap(
-            &mut self.commands.shape_effects,
-            &mut self.shape_effect_plan.commands,
-        );
-        self.shape_effect_plan.plan(
+        self.commands.clear();
+        self.commands
+            .push(RenderOperation::BeginTarget(Target::Surface));
+        append_shape_effects(
+            &mut self.commands,
+            &mut self.shape_composites,
             &self.draw_tree,
             &self.shape_effects,
-            viewport.scale_factor,
+            viewport,
             self.fringe_width,
-            viewport.physical_size.into(),
             self.maximum_texture_dimension,
         );
-        self.group_planner.plan(
+        self.traversal.plan(
             GroupPlanningInput {
                 tree: &self.draw_tree,
                 group_effects: &self.group_effects,
                 backdrop_effects: &self.backdrop_effects,
-                shape_effects: &self.shape_effect_plan.composites,
+                shape_effects: &self.shape_composites,
                 scale_factor: viewport.scale_factor,
                 physical_size: viewport.physical_size.into(),
                 max_capture_dimension: self.maximum_texture_dimension,
             },
-            &mut self.commands.scene,
+            &mut self.commands,
         );
-        mem::swap(
-            &mut self.commands.shape_effects,
-            &mut self.shape_effect_plan.commands,
-        );
+        self.commands.push(RenderOperation::EndTarget);
         self.shape_resources.tessellation_cache.end_frame();
         &self.commands
     }
@@ -101,8 +96,7 @@ impl Planner {
         self.group_effects.clear();
         self.backdrop_effects.clear();
         self.shape_effects.clear();
-        self.commands.shape_effects.clear();
-        self.commands.scene.clear();
-        self.shape_effect_plan.clear();
+        self.commands.clear();
+        self.shape_composites.clear();
     }
 }

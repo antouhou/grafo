@@ -11,7 +11,8 @@ use grafo::{
 };
 use grafo_test_scenes::shaders::{PASSTHROUGH_WGSL, SHAPE_DROP_WGSL};
 use grafo_test_scenes::{
-    build_main_scene, check_pixels, PixelExpectation, CANVAS_HEIGHT, CANVAS_WIDTH,
+    build_main_scene, build_nested_targets_scene, check_pixels, PixelExpectation, CANVAS_HEIGHT,
+    CANVAS_WIDTH,
 };
 
 /// Creates a headless renderer. If no suitable GPU adapter is available,
@@ -633,6 +634,12 @@ fn main_scene_pixel_expectations() {
         for _ in 0..2 {
             renderer.clear_draw_queue();
             let expectations = build_main_scene(&mut renderer);
+            renderer.render_to_buffer(&mut pixel_buffer).unwrap();
+            assert_pixels_match(&pixel_buffer, &expectations);
+        }
+        for _ in 0..2 {
+            renderer.clear_draw_queue();
+            let expectations = build_nested_targets_scene(&mut renderer);
             renderer.render_to_buffer(&mut pixel_buffer).unwrap();
             assert_pixels_match(&pixel_buffer, &expectations);
         }

@@ -16,35 +16,21 @@ fn capture_and_effect_precede_ordinary_backdrop_draws_and_restore_clips() {
         let child = has_child.then(|| scene.add(Some(backdrop), shape(true)));
         let sibling = scene.add(Some(root), shape(true));
         scene.attach_backdrop(backdrop);
-        let mut output = DrawPlan::default();
+        let mut output = RenderPlan::default();
         scene.plan(&mut DrawPlanner::default(), &mut output);
-        let [DrawSegment::Draws {
-            instructions: prefix,
-            ..
-        }, DrawSegment::CaptureBackdrop(capture), DrawSegment::ApplyEffect(effect), DrawSegment::Draws {
-            instructions: suffix,
-            texture_materials,
-            ..
-        }] = output.segments.as_slice()
+        let ops = operations(&output);
+        let [RenderOperation::DrawShapeAndIncrementStencil(_), RenderOperation::CaptureBackdrop(capture), RenderOperation::ApplyEffect(effect), RenderOperation::IncrementStencil(_), RenderOperation::DrawShape(_), ..] =
+            ops.as_slice()
         else {
-            panic!("capture and effect split the draw stream")
+            panic!("capture and effect precede the backdrop draw");
         };
-        assert_eq!(prefix, &(0..1));
-        assert_eq!(suffix, &(1..output.instructions.len()));
         assert_eq!(capture.source, BackdropCaptureSource::Target);
         assert_eq!(capture.output, IntermediateTextureId::Planned(0));
         assert_eq!(effect.input, capture.output);
         assert_eq!(effect.output, IntermediateTextureId::Planned(1));
         assert_eq!(effect.effect_id, 42);
-        assert_eq!(
-            effect.parameters.bytes(&output.effect_parameters),
-            &[1, 2, 3, 4]
-        );
-        assert_eq!(
-            &output.texture_material_draws[texture_materials.clone()],
-            &[2]
-        );
-        let DrawOperation::DrawShape(draw) = output.instructions[2].operation else {
+        assert_eq!(output.parameters(effect.parameters), &[1, 2, 3, 4]);
+        let RenderOperation::DrawShape(draw) = output.instructions[4].operation else {
             panic!("ordinary shape draw")
         };
         let layer = draw.material.under_fill_texture.unwrap();
@@ -90,20 +76,14 @@ fn consecutive_captures_follow_preceding_draws_and_keep_separate_outputs() {
     scene.backdrops.get_mut(&first).unwrap().config =
         BackdropEffectConfig::new().padding(4.0).downsample(0.5);
     scene.backdrops.get_mut(&second).unwrap().effect.params = vec![9, 8];
-    let mut output = DrawPlan::default();
+    let mut output = RenderPlan::default();
     scene.plan(&mut DrawPlanner::default(), &mut output);
-    let [DrawSegment::CaptureBackdrop(first_capture), DrawSegment::ApplyEffect(first_effect), DrawSegment::Draws {
-        instructions: first_draws,
-        ..
-    }, DrawSegment::CaptureBackdrop(second_capture), DrawSegment::ApplyEffect(second_effect), DrawSegment::Draws {
-        instructions: second_draws,
-        ..
-    }] = output.segments.as_slice()
+    let ops = operations(&output);
+    let [RenderOperation::CaptureBackdrop(first_capture), RenderOperation::ApplyEffect(first_effect), RenderOperation::IncrementStencil(_), RenderOperation::DrawShape(_), RenderOperation::DecrementStencil(_), RenderOperation::CaptureBackdrop(second_capture), RenderOperation::ApplyEffect(second_effect), RenderOperation::IncrementStencil(_), RenderOperation::DrawShape(_), RenderOperation::DecrementStencil(_)] =
+        ops.as_slice()
     else {
-        panic!("each capture follows all earlier draws")
+        panic!("each capture follows all earlier draws");
     };
-    assert_eq!(first_draws, &(0..3));
-    assert_eq!(second_draws, &(3..6));
     assert_eq!(first_capture.sampling_size, Size::new(44, 44));
     assert_eq!(
         first_capture.region.bounds.size().to_u32(),
@@ -113,15 +93,8 @@ fn consecutive_captures_follow_preceding_draws_and_keep_separate_outputs() {
     assert_eq!(second_effect.input, second_capture.output);
     assert_eq!(output.texture_count, 4);
     assert_ne!(first_effect.output, second_effect.output);
-    assert_eq!(
-        first_effect.parameters.bytes(&output.effect_parameters),
-        &[1, 2, 3, 4]
-    );
-    assert_eq!(
-        second_effect.parameters.bytes(&output.effect_parameters),
-        &[9, 8]
-    );
-    assert_eq!(output.texture_material_draws, [1, 4]);
+    assert_eq!(output.parameters(first_effect.parameters), &[1, 2, 3, 4]);
+    assert_eq!(output.parameters(second_effect.parameters), &[9, 8]);
 }
 
 #[test]
@@ -131,9 +104,9 @@ fn layered_capture_references_registered_resources_and_disabling_capture_removes
     scene.attach_backdrop(panel);
     let base = IntermediateTextureId::Registered(0);
     scene.backdrop_source = Some(BackdropCaptureSource::Layered { base });
-    let mut output = DrawPlan::default();
+    let mut output = RenderPlan::default();
     scene.plan(&mut DrawPlanner::default(), &mut output);
-    let DrawSegment::CaptureBackdrop(capture) = output.segments[0] else {
+    let RenderOperation::CaptureBackdrop(capture) = output.instructions[0].operation else {
         panic!("capture precedes the first draw")
     };
     assert_eq!(capture.source, BackdropCaptureSource::Layered { base });
@@ -141,10 +114,6 @@ fn layered_capture_references_registered_resources_and_disabling_capture_removes
 
     scene.backdrop_source = None;
     scene.plan(&mut DrawPlanner::default(), &mut output);
-    assert!(matches!(
-        output.segments.as_slice(),
-        [DrawSegment::Draws { .. }]
-    ));
     assert_eq!(
         snapshot(&output),
         [(
@@ -154,7 +123,6 @@ fn layered_capture_references_registered_resources_and_disabling_capture_removes
         )]
     );
     assert!(output.effect_parameters.is_empty());
-    assert!(output.texture_material_draws.is_empty());
     assert_eq!(output.texture_count, 0);
 }
 
@@ -190,18 +158,13 @@ fn rejected_capture_preserves_gradient_and_stencil_without_texture_work() {
             (0.0, 0.0),
             (20_000.0, 20_000.0),
         ]));
-    let mut output = DrawPlan::default();
+    let mut output = RenderPlan::default();
     scene.plan(&mut DrawPlanner::default(), &mut output);
-    assert!(matches!(
-        output.segments.as_slice(),
-        [DrawSegment::Draws { .. }]
-    ));
-    let DrawOperation::DrawShape(draw) = output.instructions[1].operation else {
+    let RenderOperation::DrawShape(draw) = output.instructions[1].operation else {
         panic!("ordinary fallback draw")
     };
     assert!(draw.material.has_gradient_fill());
     assert!(draw.material.under_fill_texture.is_none());
-    assert!(output.texture_material_draws.is_empty());
     assert!(output.effect_parameters.is_empty());
     assert_eq!(output.texture_count, 0);
     let viewport = rect((0, 0), (100, 100));
@@ -217,7 +180,7 @@ fn rejected_capture_preserves_gradient_and_stencil_without_texture_work() {
 
 #[test]
 fn commands_remain_complete_after_planner_and_scene_are_dropped() {
-    let mut output = DrawPlan::default();
+    let mut output = RenderPlan::default();
     {
         let mut scene = Scene::new();
         let root = scene.add(None, shape(true));
@@ -225,16 +188,13 @@ fn commands_remain_complete_after_planner_and_scene_are_dropped() {
         scene.attach_backdrop(panel);
         scene.plan(&mut DrawPlanner::default(), &mut output);
     }
-    assert_eq!(output.instructions.len(), 5);
-    let DrawSegment::ApplyEffect(command) = &output.segments[2] else {
+    assert_eq!(output.instructions.len(), 7);
+    let RenderOperation::ApplyEffect(command) = &output.instructions[2].operation else {
         panic!("effect command")
     };
     assert_eq!(command.effect_id, 42);
-    assert_eq!(
-        command.parameters.bytes(&output.effect_parameters),
-        &[1, 2, 3, 4]
-    );
-    let DrawOperation::DrawShape(draw) = output.instructions[2].operation else {
+    assert_eq!(output.parameters(command.parameters), &[1, 2, 3, 4]);
+    let RenderOperation::DrawShape(draw) = output.instructions[4].operation else {
         panic!("backdrop draw")
     };
     assert_eq!(draw.id, ShapeDrawId(1));
@@ -246,25 +206,21 @@ fn commands_remain_complete_after_planner_and_scene_are_dropped() {
         draw.material.under_fill_texture.unwrap().texture,
         ShapeTextureBinding::Intermediate(command.output)
     );
-    let _: DrawInstruction = output.instructions[0];
+    let _: RenderCommand = output.instructions[0];
 }
 
 #[test]
 fn rebuilt_queues_reuse_storage_and_replace_all_commands_and_parameters() {
     let mut scene = Scene::new();
     let mut planner = DrawPlanner::default();
-    let mut output = DrawPlan::default();
+    let mut output = RenderPlan::default();
     planner.parents.reserve(8);
     output.instructions.reserve(16);
-    output.segments.reserve(8);
     output.effect_parameters.reserve(32);
-    output.texture_material_draws.reserve(4);
     let allocations = (
         planner.parents.as_ptr(),
         output.instructions.as_ptr(),
-        output.segments.as_ptr(),
         output.effect_parameters.as_ptr(),
-        output.texture_material_draws.as_ptr(),
     );
     for has_backdrop in [true, false, true] {
         scene.tree.clear();
@@ -280,23 +236,17 @@ fn rebuilt_queues_reuse_storage_and_replace_all_commands_and_parameters() {
             (
                 planner.parents.as_ptr(),
                 output.instructions.as_ptr(),
-                output.segments.as_ptr(),
                 output.effect_parameters.as_ptr(),
-                output.texture_material_draws.as_ptr(),
             )
         );
         assert_eq!(output.effect_parameters.is_empty(), !has_backdrop);
-        assert_eq!(output.texture_material_draws.is_empty(), !has_backdrop);
         assert_eq!(output.texture_count, if has_backdrop { 2 } else { 0 });
-        assert_eq!(output.segments.len(), if has_backdrop { 4 } else { 1 });
     }
     scene.tree.clear();
     scene.backdrops.clear();
     scene.plan(&mut planner, &mut output);
     assert!(output.instructions.is_empty());
-    assert!(output.segments.is_empty());
     assert!(output.effect_parameters.is_empty());
-    assert!(output.texture_material_draws.is_empty());
     assert_eq!(output.texture_count, 0);
 }
 
@@ -310,30 +260,31 @@ fn shape_effect_composite_precedes_its_source_backdrop_capture_under_inherited_c
     scene.shape_effects.insert(
         source,
         TextureComposite {
-            texture: IntermediateTextureId::ShapeEffect(0),
+            texture: IntermediateTextureId::Registered(100),
             placement: TexturePlacement::Local {
                 transform: InstanceTransform::translation(12.0, 18.0),
                 sampling: TextureUvTransform::IDENTITY,
             },
         },
     );
-    let mut output = DrawPlan::default();
+    let mut output = RenderPlan::default();
     scene.plan(&mut DrawPlanner::default(), &mut output);
-    let [DrawSegment::Draws {
-        instructions,
-        composites,
-        ..
-    }, DrawSegment::CaptureBackdrop(_), DrawSegment::ApplyEffect(_), DrawSegment::Draws { .. }] =
-        output.segments.as_slice()
-    else {
-        panic!("shape effect must be in the draw prefix captured by the backdrop")
-    };
-    assert_eq!(instructions, &(0..2));
-    assert_eq!(&output.composite_draws[composites.clone()], &[1]);
+    let ops = operations(&output);
+    assert!(matches!(
+        ops.as_slice(),
+        [
+            RenderOperation::DrawShapeAndIncrementStencil(_),
+            RenderOperation::CompositeTexture(_),
+            RenderOperation::CaptureBackdrop(_),
+            RenderOperation::ApplyEffect(_),
+            ..
+        ]
+    ));
+    assert_eq!(output.composite_draws, [1]);
     assert_eq!(
         snapshot(&output)[1],
         (
-            Operation::Composite(IntermediateTextureId::ShapeEffect(0)),
+            Operation::Composite(IntermediateTextureId::Registered(100)),
             1,
             rect((10, 10), (60, 60))
         )

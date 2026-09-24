@@ -1,13 +1,10 @@
 use super::WgpuBackend;
 use crate::commands::RenderPlan;
 use crate::renderer::backend::execution::effects::EffectContext;
-use crate::renderer::backend::execution::segments::{
-    execute_segments, SegmentExecutionContext, SegmentExecutionResources, SegmentRenderTarget,
+use crate::renderer::backend::execution::instructions::{
+    execute_commands, ExecutionContext, ExecutionResources,
 };
-use crate::renderer::backend::execution::shape_effects::{
-    execute_shape_effects, ShapeEffectExecutionResources,
-};
-use crate::renderer::backend::execution::targets::RenderTarget;
+use crate::renderer::backend::execution::targets::{RenderTarget, SurfaceTarget};
 #[cfg(feature = "render_metrics")]
 use crate::renderer::metrics::{PhaseTimings, ShapeEffectCacheMetrics};
 use crate::renderer::types::{BackdropContext, RenderError};
@@ -30,16 +27,12 @@ impl WgpuBackend {
             .texture_materials
             .begin_render();
         self.resources.effect_execution.begin_render();
-        self.resources.shape_execution.composites.begin_render();
 
-        let needs_scene_effects = commands.scene.texture_count != 0;
-        let has_backdrop_effects = commands.scene.has_backdrop_captures;
-        let has_shape_effects = !commands.shape_effects.segments.is_empty();
+        let needs_scene_effects = commands.texture_count != 0;
+        let has_backdrop_effects = commands.has_backdrop_captures;
 
         if needs_scene_effects {
             self.ensure_composite_pipeline();
-        }
-        if needs_scene_effects || has_shape_effects {
             self.ensure_effect_sampler();
         }
         if has_backdrop_effects {
@@ -60,35 +53,6 @@ impl WgpuBackend {
             .create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("Render Command Encoder"),
             });
-
-        if has_shape_effects {
-            execute_shape_effects(
-                &mut encoder,
-                &commands.shape_effects,
-                ShapeEffectExecutionResources {
-                    device: &self.device,
-                    queue: &self.queue,
-                    registry: &self.effect_registry,
-                    sampler: self
-                        .pipeline_resources
-                        .effect_sampler
-                        .as_ref()
-                        .expect("shape effect sampler was initialized"),
-                    composite_layout: &self
-                        .pipeline_resources
-                        .shapes
-                        .shape_texture_bind_group_layout_background,
-                    format: self.config.format,
-                    pipelines: &self.pipeline_resources.shape_effects,
-                    buffers: &self.resources.buffers,
-                    shapes: &self.resources.shape_execution,
-                    effects: &mut self.resources.effect_execution,
-                    textures: &mut self.resources.textures,
-                    #[cfg(feature = "render_metrics")]
-                    metrics: &mut self.resources.shape_effect_cache_metrics,
-                },
-            );
-        }
 
         let pipeline_resources = &self.pipeline_resources;
         let effects = needs_scene_effects.then(|| EffectContext {
@@ -120,7 +84,7 @@ impl WgpuBackend {
                     .bind_group_layout,
             }
         });
-        let execution_context = SegmentExecutionContext {
+        let execution_context = ExecutionContext {
             device: &self.device,
             queue: &self.queue,
             pipelines: pipeline_resources,
@@ -130,10 +94,10 @@ impl WgpuBackend {
             sample_count: self.msaa_sample_count,
         };
         let resources = &mut self.resources;
-        let _metrics = execute_segments(
+        let _metrics = execute_commands(
             &mut encoder,
-            &commands.scene,
-            SegmentRenderTarget {
+            commands,
+            SurfaceTarget {
                 output: RenderTarget::for_output(
                     texture_view,
                     self.msaa_color_texture_view.as_ref(),
@@ -143,12 +107,14 @@ impl WgpuBackend {
                 ),
                 capture_texture: output_texture,
             },
-            SegmentExecutionResources {
+            ExecutionResources {
                 context: &execution_context,
                 buffers: &resources.buffers,
                 shapes: &mut resources.shape_execution,
                 effects: &mut resources.effect_execution,
                 textures: &mut resources.textures,
+                #[cfg(feature = "render_metrics")]
+                shape_effect_metrics: &mut resources.shape_effect_cache_metrics,
             },
         );
         #[cfg(feature = "render_metrics")]

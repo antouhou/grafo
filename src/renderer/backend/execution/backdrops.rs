@@ -187,5 +187,10 @@ pub(in crate::renderer) fn execute_capture(
         textures.work_textures.push(texture);
         texture = downsampled;
     }
+    texture.composite_bind_group(
+        context.effects.device,
+        context.effects.composite_layout,
+        context.effects.sampler,
+    );
     textures.insert_planned(command.output, texture);
 }

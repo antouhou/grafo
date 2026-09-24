@@ -4,6 +4,4 @@
 pub(crate) enum IntermediateTextureId {
     Registered(u64),
     Planned(usize),
-    /// Shape-effect output retained across the render's target scopes.
-    ShapeEffect(usize),
 }

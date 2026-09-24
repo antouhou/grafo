@@ -1,13 +1,12 @@
 use super::plan::Planner;
 use super::types::DrawTreeNode;
 use super::{RenderBackend, Renderer, Viewport, DEFAULT_FRINGE_WIDTH};
-use crate::commands::{DrawOperation, DrawSegment, RenderPlan, Target};
+use crate::commands::{RenderCommand, RenderOperation, RenderPlan, Target};
 use crate::core::effect::{EffectInstance, ShapeEffectInstance};
 use crate::core::shape::CachedShapeHandle;
 use crate::renderer::types::CachedShapeDrawData;
 use crate::{Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, Stroke};
 use ahash::{HashMap, HashMapExt};
-use std::mem;
 use std::sync::{Arc, RwLock};
 #[cfg(feature = "render_metrics")]
 use std::time::Duration;
@@ -29,7 +28,6 @@ struct TestBackend {
     registered_shapes: Vec<usize>,
     command_address: usize,
     instruction_address: usize,
-    mask_address: usize,
     should_fail: bool,
 }
 
@@ -46,49 +44,42 @@ impl RenderBackend<'_> for TestBackend {
             return Err(TestRenderError);
         }
         self.command_address = commands as *const RenderPlan as usize;
-        self.instruction_address = commands.scene.instructions.as_ptr() as usize;
-        self.mask_address = commands.shape_effects.segments.as_ptr() as usize;
+        self.instruction_address = commands.instructions.as_ptr() as usize;
         surface.draws.clear();
         surface.effects.clear();
         surface.shape_masks = 0;
-        for plan in [&commands.shape_effects, &commands.scene] {
-            let mut has_target = false;
-            for segment in &plan.segments {
-                match segment {
-                    DrawSegment::BeginTarget(_) => assert!(!mem::replace(&mut has_target, true)),
-                    DrawSegment::EndTarget => assert!(mem::replace(&mut has_target, false)),
-                    DrawSegment::DrawShapeMask(mask) => {
-                        assert!(has_target);
-                        assert!(self.registered_shapes.contains(&mask.shape.0));
-                        surface.shape_masks += 1;
-                    }
-                    DrawSegment::ApplyEffect(effect) => {
-                        assert!(!has_target);
-                        assert_eq!(
-                            effect.parameters.bytes(&plan.effect_parameters),
-                            &[1, 2, 3, 4]
-                        );
-                        surface.effects.push(effect.effect_id);
-                    }
-                    DrawSegment::Draws { instructions, .. } => {
-                        assert!(has_target);
-                        for instruction in &plan.instructions[instructions.clone()] {
-                            let shape = match instruction.operation {
-                                DrawOperation::DrawShape(draw)
-                                | DrawOperation::DrawShapeAndIncrementStencil(draw)
-                                | DrawOperation::DecrementStencil(draw) => draw.id,
-                                DrawOperation::IncrementStencil(shape) => shape,
-                                DrawOperation::CompositeTexture(_) => continue,
-                            };
-                            assert!(self.registered_shapes.contains(&shape.0));
-                            surface.draws.push(shape.0);
-                        }
-                    }
-                    DrawSegment::CaptureBackdrop(_) => panic!("unexpected backdrop"),
+        let mut targets = Vec::new();
+        for command in &commands.instructions {
+            match &command.operation {
+                RenderOperation::BeginTarget(target) => targets.push(*target),
+                RenderOperation::EndTarget => {
+                    targets.pop().expect("balanced target scopes");
+                }
+                RenderOperation::DrawShapeMask(mask) => {
+                    assert!(matches!(targets.last(), Some(Target::Mask(_))));
+                    assert!(self.registered_shapes.contains(&mask.shape.0));
+                    surface.shape_masks += 1;
+                }
+                RenderOperation::ApplyEffect(effect) => {
+                    assert_eq!(commands.parameters(effect.parameters), &[1, 2, 3, 4]);
+                    surface.effects.push(effect.effect_id);
+                }
+                operation => {
+                    assert!(!targets.is_empty());
+                    let shape = match operation {
+                        RenderOperation::DrawShape(draw)
+                        | RenderOperation::DrawShapeAndIncrementStencil(draw)
+                        | RenderOperation::DecrementStencil(draw) => draw.id,
+                        RenderOperation::IncrementStencil(shape) => *shape,
+                        RenderOperation::CompositeTexture(_) => continue,
+                        _ => panic!("unexpected operation"),
+                    };
+                    assert!(self.registered_shapes.contains(&shape.0));
+                    surface.draws.push(shape.0);
                 }
             }
-            assert!(!has_target, "backend receives complete target scopes");
         }
+        assert!(targets.is_empty());
         Ok(())
     }
 }
@@ -158,7 +149,6 @@ fn renderer_submits_completed_commands_to_its_own_surface_and_reuses_storage_aft
     assert_eq!(renderer.surface.shape_masks, 1);
     assert_eq!(renderer.surface.effects, [7, 8]);
     let instruction_address = renderer.backend.instruction_address;
-    let mask_address = renderer.backend.mask_address;
 
     for _ in 0..3 {
         renderer.planner.clear_draw_queue();
@@ -167,7 +157,6 @@ fn renderer_submits_completed_commands_to_its_own_surface_and_reuses_storage_aft
         renderer.render().unwrap();
         assert_eq!(renderer.backend.command_address, planned_address);
         assert_eq!(renderer.backend.instruction_address, instruction_address);
-        assert_eq!(renderer.backend.mask_address, mask_address);
         assert_eq!(renderer.surface.effects, [7, 8]);
     }
 
@@ -178,10 +167,16 @@ fn renderer_submits_completed_commands_to_its_own_surface_and_reuses_storage_aft
     assert_eq!(renderer.surface.shape_masks, 0);
     let plan = renderer.planner.plan(renderer.viewport);
     assert!(matches!(
-        plan.scene.segments.as_slice(),
+        plan.instructions.as_slice(),
         [
-            DrawSegment::BeginTarget(Target::Surface),
-            DrawSegment::EndTarget
+            RenderCommand {
+                operation: RenderOperation::BeginTarget(Target::Surface),
+                ..
+            },
+            RenderCommand {
+                operation: RenderOperation::EndTarget,
+                ..
+            }
         ]
     ));
 }

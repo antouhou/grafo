@@ -1,4 +1,4 @@
-//! Draw commands passed from planning to execution.
+//! A flat command stream passed from planning to execution.
 //!
 //! Plans store resource IDs, parameters, and resolved clips. Execution looks up
 //! uploaded resources by ID after planning has finished.
@@ -8,7 +8,6 @@ use crate::core::{PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRec
 pub(crate) use material::{
     ShapeDrawMaterial, ShapeTextureBinding, ShapeTextureLayer, TextureSampling,
 };
-use std::ops::Range;
 use std::sync::Arc;
 pub(crate) use textures::IntermediateTextureId;
 
@@ -41,20 +40,23 @@ pub(crate) struct ShapeDraw {
     pub(crate) material: ShapeDrawMaterial,
 }
 
-pub(crate) type TextureCompositeId = usize;
-
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum DrawOperation {
+pub(crate) enum RenderOperation {
     IncrementStencil(ShapeDrawId),
     DecrementStencil(ShapeDraw),
     DrawShape(ShapeDraw),
     DrawShapeAndIncrementStencil(ShapeDraw),
-    CompositeTexture(TextureCompositeId),
+    CompositeTexture(TextureComposite),
+    BeginTarget(Target),
+    EndTarget,
+    DrawShapeMask(ShapeMaskDraw),
+    CaptureBackdrop(BackdropCapture),
+    ApplyEffect(EffectApplication),
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct DrawInstruction {
-    pub(crate) operation: DrawOperation,
+pub(crate) struct RenderCommand {
+    pub(crate) operation: RenderOperation,
     pub(crate) clip: DrawClip,
 }
 
@@ -72,7 +74,7 @@ pub(crate) struct BackdropCapture {
     pub(crate) sampling_size: Size,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct EffectApplication {
     pub(crate) effect_id: u64,
     pub(crate) parameters: EffectParameters,
@@ -82,19 +84,10 @@ pub(crate) struct EffectApplication {
 
 /// Parameter storage is owned by the command stream. Shared bytes avoid copying
 /// immutable shape-effect parameters on cache hits and queue rebuilds.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum EffectParameters {
-    Bytes(Range<usize>),
-    Shared(Arc<[u8]>),
-}
-
-impl EffectParameters {
-    pub fn bytes<'a>(&'a self, storage: &'a [u8]) -> &'a [u8] {
-        match self {
-            Self::Bytes(range) => &storage[range.clone()],
-            Self::Shared(bytes) => bytes,
-        }
-    }
+    Bytes { start: usize, end: usize },
+    Shared(usize),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -119,7 +112,7 @@ pub(crate) struct MaskTarget {
     pub size: [u32; 2],
 }
 
-/// Scene targets use transparent color and stencil zero at the start of each scope.
+/// BeginTarget clears a new target. EndTarget restores its parent without clearing it.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Target {
     Surface,
@@ -141,48 +134,54 @@ pub(crate) struct ShapeMaskDraw {
     pub downsample: f32,
 }
 
-pub(crate) enum DrawSegment {
-    BeginTarget(Target),
-    DrawShapeMask(ShapeMaskDraw),
-    EndTarget,
-    Draws {
-        instructions: Range<usize>,
-        texture_materials: Range<usize>,
-        composites: Range<usize>,
-    },
-    CaptureBackdrop(BackdropCapture),
-    ApplyEffect(EffectApplication),
-}
-
-/// Draw commands and effect parameters, with storage reused across renders.
+/// One ordered command stream, with storage reused when the draw queue is rebuilt.
 #[derive(Default)]
-pub(crate) struct DrawPlan {
-    pub(crate) instructions: Vec<DrawInstruction>,
-    pub(crate) segments: Vec<DrawSegment>,
+pub struct RenderPlan {
+    pub(crate) instructions: Vec<RenderCommand>,
     pub(crate) effect_parameters: Vec<u8>,
-    /// Instruction indices requiring texture bindings before their draw pass opens.
-    pub(crate) texture_material_draws: Vec<usize>,
+    /// Keep shared ownership outside Copy commands so clearing draws is constant time.
+    pub(crate) shared_effect_parameters: Vec<Arc<[u8]>>,
+    /// Local composite commands whose instance data must be uploaded.
+    pub(crate) composite_draws: Vec<usize>,
     pub(crate) texture_count: usize,
     pub(crate) has_backdrop_captures: bool,
-    pub(crate) composite_draws: Vec<usize>,
-    pub(crate) composites: Vec<TextureComposite>,
     #[cfg(feature = "render_metrics")]
     pub(crate) scissor_clip_count: u32,
 }
 
-impl DrawPlan {
+impl RenderPlan {
     pub(crate) fn clear(&mut self) {
         self.instructions.clear();
-        self.segments.clear();
         self.effect_parameters.clear();
-        self.texture_material_draws.clear();
+        self.shared_effect_parameters.clear();
+        self.composite_draws.clear();
         self.texture_count = 0;
         self.has_backdrop_captures = false;
-        self.composite_draws.clear();
-        self.composites.clear();
         #[cfg(feature = "render_metrics")]
         {
             self.scissor_clip_count = 0;
+        }
+    }
+
+    pub(crate) fn store_parameters(&mut self, parameters: &[u8]) -> EffectParameters {
+        let start = self.effect_parameters.len();
+        self.effect_parameters.extend_from_slice(parameters);
+        EffectParameters::Bytes {
+            start,
+            end: self.effect_parameters.len(),
+        }
+    }
+
+    pub(crate) fn share_parameters(&mut self, parameters: &Arc<[u8]>) -> EffectParameters {
+        let index = self.shared_effect_parameters.len();
+        self.shared_effect_parameters.push(Arc::clone(parameters));
+        EffectParameters::Shared(index)
+    }
+
+    pub(crate) fn parameters(&self, parameters: EffectParameters) -> &[u8] {
+        match parameters {
+            EffectParameters::Bytes { start, end } => &self.effect_parameters[start..end],
+            EffectParameters::Shared(index) => &self.shared_effect_parameters[index],
         }
     }
 
@@ -192,55 +191,32 @@ impl DrawPlan {
         texture
     }
 
+    pub(crate) fn push(&mut self, operation: RenderOperation) {
+        self.push_command(RenderCommand {
+            operation,
+            clip: DrawClip::default(),
+        });
+    }
+
     pub(crate) fn push_composite(&mut self, composite: TextureComposite, clip: DrawClip) {
-        let index = self.composites.len();
-        self.composites.push(composite);
-        self.push_draw(DrawInstruction {
-            operation: DrawOperation::CompositeTexture(index),
+        self.push_command(RenderCommand {
+            operation: RenderOperation::CompositeTexture(composite),
             clip,
         });
     }
 
-    pub(crate) fn push_draw(&mut self, instruction: DrawInstruction) {
-        let material_start = self.texture_material_draws.len();
-        let composite_start = self.composite_draws.len();
-        if let DrawOperation::CompositeTexture(index) = instruction.operation {
-            if matches!(
-                self.composites[index].placement,
-                TexturePlacement::Local { .. }
-            ) {
-                self.composite_draws.push(self.instructions.len());
-            }
-        }
-        if matches!(instruction.operation, DrawOperation::DrawShape(draw)
-            | DrawOperation::DrawShapeAndIncrementStencil(draw)
-            if draw.material.under_fill_texture.is_some())
-        {
-            self.texture_material_draws.push(self.instructions.len());
+    pub(crate) fn push_command(&mut self, instruction: RenderCommand) {
+        self.has_backdrop_captures |=
+            matches!(instruction.operation, RenderOperation::CaptureBackdrop(_));
+        if matches!(
+            instruction.operation,
+            RenderOperation::CompositeTexture(TextureComposite {
+                placement: TexturePlacement::Local { .. },
+                ..
+            })
+        ) {
+            self.composite_draws.push(self.instructions.len());
         }
         self.instructions.push(instruction);
-        if let Some(DrawSegment::Draws {
-            instructions,
-            texture_materials,
-            composites,
-        }) = self.segments.last_mut()
-        {
-            instructions.end = self.instructions.len();
-            texture_materials.end = self.texture_material_draws.len();
-            composites.end = self.composite_draws.len();
-        } else {
-            self.segments.push(DrawSegment::Draws {
-                instructions: self.instructions.len() - 1..self.instructions.len(),
-                texture_materials: material_start..self.texture_material_draws.len(),
-                composites: composite_start..self.composite_draws.len(),
-            });
-        }
     }
-}
-
-/// Completed commands for shape-effect masks followed by the scene's target scopes.
-#[derive(Default)]
-pub struct RenderPlan {
-    pub(crate) shape_effects: DrawPlan,
-    pub(crate) scene: DrawPlan,
 }
