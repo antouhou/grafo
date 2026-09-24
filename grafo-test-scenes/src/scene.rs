@@ -6722,10 +6722,16 @@ pub fn build_nested_targets_scene(renderer: &mut Renderer) -> Vec<PixelExpectati
     renderer
         .load_effect(PASSTHROUGH_EFFECT_ID, &[PASSTHROUGH_WGSL])
         .unwrap();
+    renderer
+        .load_effect(WAVE_DISTORTION_EFFECT_ID, &[WAVE_DISTORTION_WGSL])
+        .unwrap();
+    renderer
+        .load_effect(BLUR_EFFECT_ID, &[HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL])
+        .unwrap();
     tile_83_nested_target_restoration(renderer)
 }
 
-/// Draws surround nested targets and an empty target under inherited stencil and scissor clips.
+/// A wavy striped panel contains a blurred badge; sharp stripes resume after its targets close.
 fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(83);
     let bounds = |left, top, right, bottom| {
@@ -6734,6 +6740,7 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
             (origin_x + right, origin_y + bottom),
         ]
     };
+    add_backdrop_checkerboard(renderer, (origin_x, origin_y));
     let parent = renderer
         .add_shape(
             Shape::rounded_rect(
@@ -6743,7 +6750,7 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
             ),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(180, 30, 30)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(25, 65, 100)),
         )
         .unwrap();
     let scissor = renderer
@@ -6763,35 +6770,69 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
             ),
             Some(scissor),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(70, 70, 70)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(200, 240, 230)),
         )
         .unwrap();
+    for left in [12.0, 24.0, 36.0, 48.0, 60.0] {
+        renderer
+            .add_shape(
+                Shape::rect(bounds(left, 0.0, left + 4.0, 63.0), Stroke::default()),
+                Some(outer),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(100, 175, 165)),
+            )
+            .unwrap();
+    }
     let middle = renderer
         .add_shape(
             Shape::rounded_rect(
-                bounds(20.0, 12.0, 60.0, 48.0),
+                bounds(18.0, 12.0, 64.0, 48.0),
                 BorderRadii::new(6.0),
                 Stroke::default(),
             ),
             Some(outer),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(210, 90, 30)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(240, 135, 95)),
         )
         .unwrap();
+    for left in [22.0, 32.0, 42.0, 52.0, 62.0] {
+        renderer
+            .add_shape(
+                Shape::rect(bounds(left, 12.0, left + 4.0, 48.0), Stroke::default()),
+                Some(middle),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(90, 40, 80)),
+            )
+            .unwrap();
+    }
     let inner = renderer
         .add_shape(
-            Shape::rect(bounds(30.0, 18.0, 50.0, 32.0), Stroke::default()),
+            Shape::rounded_rect(
+                bounds(28.0, 18.0, 54.0, 34.0),
+                BorderRadii::new(5.0),
+                Stroke::default(),
+            ),
             Some(middle),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(30, 60, 210)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(250, 220, 150)),
         )
         .unwrap();
+    for left in [32.0, 40.0, 48.0] {
+        renderer
+            .add_shape(
+                Shape::rect(bounds(left, 18.0, left + 4.0, 34.0), Stroke::default()),
+                Some(inner),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(35, 95, 150)),
+            )
+            .unwrap();
+    }
     renderer
         .add_shape(
-            Shape::rect(bounds(0.0, 37.0, 80.0, 43.0), Stroke::default()),
+            Shape::rect(bounds(0.0, 39.0, 80.0, 43.0), Stroke::default()),
             Some(middle),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(30, 180, 60)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(200, 240, 230)),
         )
         .unwrap();
     let empty = renderer
@@ -6810,7 +6851,27 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
             ShapeDrawCommandOptions::new().color(Color::rgb(220, 190, 30)),
         )
         .unwrap();
-    for group in [outer, middle, inner, empty] {
+    for left in [8.0, 20.0, 32.0, 44.0, 56.0, 68.0] {
+        renderer
+            .add_shape(
+                Shape::rect(bounds(left, 52.0, left + 6.0, 58.0), Stroke::default()),
+                Some(outer),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(240, 135, 95)),
+            )
+            .unwrap();
+    }
+    renderer
+        .set_group_effect(middle, WAVE_DISTORTION_EFFECT_ID, &[])
+        .unwrap();
+    renderer
+        .set_group_effect(
+            inner,
+            BLUR_EFFECT_ID,
+            bytemuck::bytes_of(&BlurParams::new(4.0)),
+        )
+        .unwrap();
+    for group in [outer, empty] {
         renderer
             .set_group_effect(group, PASSTHROUGH_EFFECT_ID, &[])
             .unwrap();
@@ -6821,39 +6882,71 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
             Shape::rect(bounds(0.0, 59.0, 80.0, 61.0), Stroke::default()),
             Some(parent),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(160, 30, 190)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(25, 65, 100)),
         )
         .unwrap();
     renderer
         .add_shape(
-            Shape::rect(bounds(2.0, 67.0, 78.0, 73.0), Stroke::default()),
+            Shape::rect(bounds(2.0, 69.0, 78.0, 75.0), Stroke::default()),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(30, 190, 210)),
+            ShapeDrawCommandOptions::new().color(Color::rgb(40, 90, 170)),
         )
         .unwrap();
+    for left in [8.0, 24.0, 40.0, 56.0, 72.0] {
+        renderer
+            .add_shape(
+                Shape::rect(bounds(left, 69.0, left + 4.0, 75.0), Stroke::default()),
+                None,
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(245, 190, 70)),
+            )
+            .unwrap();
+    }
     [
         (
-            12,
+            14,
             25,
-            [70, 70, 70],
-            "t83_parent_color_survives_nested_targets",
+            [100, 175, 165],
+            "t83_sharp_parent_stripe_survives_nested_targets",
+        ),
+        (
+            10,
+            25,
+            [200, 240, 230],
+            "t83_sharp_parent_gap_survives_nested_targets",
         ),
         (
             24,
             25,
-            [210, 90, 30],
-            "t83_middle_color_survives_inner_target",
+            [240, 135, 95],
+            "t83_wave_moves_coral_into_plum_stripe",
         ),
-        (40, 25, [30, 60, 210], "t83_inner_target_is_composited"),
-        (40, 40, [30, 180, 60], "t83_middle_draw_after_inner_target"),
-        (16, 40, [70, 70, 70], "t83_middle_stencil_is_restored"),
-        (40, 55, [220, 190, 30], "t83_outer_draw_after_empty_target"),
-        (40, 60, [160, 30, 190], "t83_parent_draw_after_outer_target"),
+        (
+            40,
+            25,
+            [220, 198, 150],
+            "t83_wave_samples_blurred_inner_stripes",
+        ),
+        (
+            40,
+            40,
+            [200, 240, 230],
+            "t83_middle_draw_after_inner_target",
+        ),
+        (16, 40, [200, 240, 230], "t83_middle_stencil_is_restored"),
+        (40, 55, [220, 190, 30], "t83_gold_stripe_after_empty_target"),
+        (
+            22,
+            55,
+            [240, 135, 95],
+            "t83_coral_stripe_after_empty_target",
+        ),
+        (40, 60, [25, 65, 100], "t83_parent_draw_after_outer_target"),
         (
             6,
             40,
-            [180, 30, 30],
+            [25, 65, 100],
             "t83_inherited_scissor_clips_composite",
         ),
         (
@@ -6865,9 +6958,17 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
         (
             3,
             70,
-            [30, 190, 210],
+            [40, 90, 170],
             "t83_surface_clip_restored_after_parent",
         ),
+        (10, 70, [245, 190, 70], "t83_surface_pattern_after_parent"),
+        (
+            18,
+            66,
+            [245, 190, 70],
+            "t83_uncovered_gold_check_stays_sharp",
+        ),
+        (8, 66, [40, 90, 170], "t83_uncovered_blue_check_stays_sharp"),
         (
             78,
             40,
