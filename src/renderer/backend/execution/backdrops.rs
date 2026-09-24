@@ -1,6 +1,7 @@
 use super::effects::{self, EffectExecutionResources, OffscreenTexturePool, PooledTexture};
 use super::textures::IntermediateTextureResources;
-use crate::commands::{BackdropCapture, BackdropCaptureRegion};
+use crate::commands::BackdropCapture;
+use crate::core::effect::BackdropCaptureRegion;
 use crate::renderer::types::{BackdropContext, BackdropSource};
 use crate::Size;
 use wgpu::{

@@ -3,7 +3,7 @@ use self::readback::{ArgbReadbackResources, BgraReadbackResources};
 use self::resources::{BackendResources, RendererPipelineResources};
 #[cfg(feature = "render_metrics")]
 use super::metrics::PhaseTimings;
-use super::Viewport;
+use crate::core::Viewport;
 use crate::TextureManager;
 use std::sync::Arc;
 use std::time::Duration;

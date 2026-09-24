@@ -3,8 +3,8 @@ use crate::commands::{
     BackdropCapture, DrawClip, EffectApplication, RenderCommand, RenderOperation, RenderPlan,
     ShapeDraw, ShapeDrawId, ShapeTextureBinding, ShapeTextureLayer, TextureSampling,
 };
+use crate::core::geometry;
 use crate::renderer::plan::backdrops::compute_backdrop_capture_region;
-use crate::renderer::rect_utils::compute_downsampled_dimensions;
 use crate::renderer::types::DrawTreeNode;
 use crate::MathRect;
 
@@ -50,7 +50,7 @@ impl DrawPlanner {
                 source,
                 region,
                 output: capture,
-                sampling_size: compute_downsampled_dimensions(
+                sampling_size: geometry::compute_downsampled_dimensions(
                     region.bounds.size().to_u32(),
                     effect.config.downsample,
                 ),

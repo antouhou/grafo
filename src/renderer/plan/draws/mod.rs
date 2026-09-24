@@ -4,7 +4,6 @@ use crate::commands::{
     TexturePlacement,
 };
 use crate::core::effect::{BackdropEffectInstance, EffectInstance};
-use crate::renderer::rect_utils::{should_skip_visible_rect_draw, try_scissor_for_rect};
 use crate::renderer::types::CachedShapeDrawData;
 use crate::renderer::types::DrawTreeNode;
 use crate::{Size, UnsignedPhysicalRect};
@@ -12,6 +11,7 @@ use ahash::HashMap;
 use easy_tree::Tree;
 
 mod backdrops;
+mod rectangles;
 
 fn has_geometry(shape: &CachedShapeDrawData) -> bool {
     let geometry = shape.cached_shape.vertex_buffers();
@@ -221,7 +221,7 @@ impl DrawPlanner {
         input: &DrawPlanningInput<'_>,
         _output: &mut RenderPlan,
     ) -> Option<RenderCommand> {
-        let should_draw = !should_skip_visible_rect_draw(
+        let should_draw = !rectangles::should_skip_visible_rect_draw(
             node_id,
             node,
             input.group_effects,
@@ -234,7 +234,9 @@ impl DrawPlanner {
         if !node.clips_children() {
             return visible_draw.map(|draw| self.draw_shape(draw));
         }
-        if let Some(scissor) = try_scissor_for_rect(node, input.scale_factor, input.physical_size) {
+        if let Some(scissor) =
+            rectangles::try_scissor_for_rect(node, input.scale_factor, input.physical_size)
+        {
             self.current.clip.scissor = self
                 .current
                 .clip

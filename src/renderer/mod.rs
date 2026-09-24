@@ -6,7 +6,7 @@ pub use self::contract::RenderBackend;
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
 use self::plan::Planner;
-pub use self::plan::Viewport;
+use crate::core::Viewport;
 use crate::CachedShapeHandle;
 use ahash::HashMap;
 pub use backend::readback::ReadbackError;
@@ -28,7 +28,6 @@ pub mod metrics;
 mod plan;
 mod preparation;
 mod readback;
-mod rect_utils;
 mod surface;
 pub(crate) mod types;
 

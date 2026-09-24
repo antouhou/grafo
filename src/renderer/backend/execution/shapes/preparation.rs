@@ -94,17 +94,6 @@ pub(crate) fn append_instance_data(
     instance_index
 }
 
-fn compute_texture_uv_scale_from_dimensions(
-    texture_mapping_size: [f32; 2],
-    texture_dimensions: (u32, u32),
-    scale_factor: f64,
-) -> [f32; 2] {
-    [
-        texture_mapping_size[0] * scale_factor as f32 / texture_dimensions.0.max(1) as f32,
-        texture_mapping_size[1] * scale_factor as f32 / texture_dimensions.1.max(1) as f32,
-    ]
-}
-
 fn compute_texture_uv_transform_for_layer(
     texture_id: Option<u64>,
     texture_fit_mode: ShapeTextureFitMode,
@@ -125,41 +114,11 @@ fn compute_texture_uv_transform_for_layer(
         return TextureUvTransform::IDENTITY;
     };
 
-    let original_size_uv_scale = compute_texture_uv_scale_from_dimensions(
+    texture_fit_mode.compute_uv_transform(
         texture_mapping_size,
         (texture_width, texture_height),
         scale_factor,
-    );
-
-    let normalization_factor = match texture_fit_mode {
-        ShapeTextureFitMode::Stretch => return TextureUvTransform::IDENTITY,
-        ShapeTextureFitMode::Cover => {
-            f32::max(original_size_uv_scale[0], original_size_uv_scale[1])
-        }
-        ShapeTextureFitMode::Contain => {
-            f32::min(original_size_uv_scale[0], original_size_uv_scale[1])
-        }
-        ShapeTextureFitMode::OriginalSize => {
-            return TextureUvTransform {
-                scale: original_size_uv_scale,
-                offset: [0.0, 0.0],
-            };
-        }
-    };
-
-    if !normalization_factor.is_finite() || normalization_factor <= f32::EPSILON {
-        return TextureUvTransform::IDENTITY;
-    }
-
-    let scale = [
-        original_size_uv_scale[0] / normalization_factor,
-        original_size_uv_scale[1] / normalization_factor,
-    ];
-
-    TextureUvTransform {
-        scale,
-        offset: [(1.0 - scale[0]) / 2.0, (1.0 - scale[1]) / 2.0],
-    }
+    )
 }
 
 fn compute_texture_uv_transforms(

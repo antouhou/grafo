@@ -3,7 +3,7 @@
 pub(crate) mod cache;
 mod color;
 pub(crate) mod effect;
-mod geometry;
+pub(crate) mod geometry;
 pub mod gradient;
 pub(crate) mod shape;
 mod stroke;
@@ -12,7 +12,9 @@ pub(crate) mod vertex;
 
 pub use color::{premultiply_rgba8_srgb_inplace, Color};
 pub use effect::{BackdropCaptureArea, BackdropEffectConfig, ShapeEffectConfig};
-pub use geometry::{MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
+pub use geometry::{
+    MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect, Viewport,
+};
 pub use gradient::errors::GradientError;
 pub use gradient::types::{
     ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,

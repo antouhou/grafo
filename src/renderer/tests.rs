@@ -1,9 +1,10 @@
 use super::plan::Planner;
 use super::types::DrawTreeNode;
-use super::{RenderBackend, Renderer, Viewport, DEFAULT_FRINGE_WIDTH};
+use super::{RenderBackend, Renderer, DEFAULT_FRINGE_WIDTH};
 use crate::commands::{RenderCommand, RenderOperation, RenderPlan, Target};
 use crate::core::effect::{EffectInstance, ShapeEffectInstance};
 use crate::core::shape::CachedShapeHandle;
+use crate::core::Viewport;
 use crate::renderer::types::CachedShapeDrawData;
 use crate::{Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, Stroke};
 use ahash::{HashMap, HashMapExt};

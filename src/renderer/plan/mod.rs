@@ -2,7 +2,7 @@ use super::types::DrawTreeNode;
 use crate::commands::{RenderOperation, RenderPlan, Target, TextureComposite};
 use crate::core::effect::{BackdropEffectInstance, EffectInstance, ShapeEffectInstance};
 use crate::core::util::ShapeResources;
-use crate::CachedShapeHandle;
+use crate::core::{CachedShapeHandle, Viewport};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
 use groups::{GroupPlanningInput, SceneTraversal};
@@ -15,13 +15,6 @@ pub(super) mod draws;
 pub(super) mod groups;
 mod scene;
 pub(super) mod shape_effects;
-
-/// Physical output dimensions and logical-to-physical coordinate scale.
-#[derive(Clone, Copy, Debug)]
-pub struct Viewport {
-    pub physical_size: (u32, u32),
-    pub scale_factor: f64,
-}
 
 /// Scene descriptions and reusable command storage, independent of the backend.
 pub(super) struct Planner {

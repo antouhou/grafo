@@ -3,8 +3,9 @@
 //! Plans store resource IDs, parameters, and resolved clips. Execution looks up
 //! uploaded resources by ID after planning has finished.
 
+use crate::core::effect::BackdropCaptureRegion;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
-use crate::core::{PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
+use crate::core::{Size, UnsignedPhysicalRect};
 pub(crate) use material::{
     ShapeDrawMaterial, ShapeTextureBinding, ShapeTextureLayer, TextureSampling,
 };
@@ -13,15 +14,6 @@ pub(crate) use textures::IntermediateTextureId;
 
 mod material;
 mod textures;
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub(crate) struct BackdropCaptureRegion {
-    /// Requested bounds in full-resolution physical pixels, including offscreen padding.
-    pub(crate) bounds: PhysicalRect,
-    /// Viewport overlap to copy, or None when the requested bounds are fully offscreen.
-    pub(crate) source_rect: Option<UnsignedPhysicalRect>,
-    pub(crate) copy_destination_origin: UnsignedPhysicalPoint,
-}
 
 /// Identifies an uploaded shape instance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

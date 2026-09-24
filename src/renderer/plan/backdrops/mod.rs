@@ -1,10 +1,7 @@
-use crate::commands::BackdropCaptureRegion;
-use crate::core::effect::{BackdropCaptureArea, BackdropEffectConfig};
+use crate::core::effect::{self, BackdropCaptureArea, BackdropCaptureRegion, BackdropEffectConfig};
+use crate::core::geometry;
 use crate::core::vertex::InstanceTransform;
-use crate::renderer::rect_utils::{
-    logical_rect_to_physical_rect, transformed_bounds_to_logical_screen_rect,
-};
-use crate::{MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
+use crate::core::{MathRect, Size};
 use tracing::warn;
 
 const MAX_BACKDROP_CAPTURE_VIEWPORT_TEXEL_MULTIPLIER: u64 = 4;
@@ -23,29 +20,6 @@ fn does_capture_size_exceeds_budget(capture_size: Size, physical_size: Size) -> 
     capture_texels > max_backdrop_capture_texels(physical_size)
 }
 
-fn resolve_capture_region_to_viewport(
-    requested_rect: PhysicalRect,
-    physical_size: Size,
-) -> BackdropCaptureRegion {
-    let viewport = UnsignedPhysicalRect::from_size(physical_size).to_i64();
-    let source_rect = requested_rect
-        .to_i64()
-        .intersection(&viewport)
-        .map(|overlap| overlap.to_u32());
-    let copy_destination_origin = source_rect
-        .map(|source_rect| {
-            (source_rect.min.to_i32() - requested_rect.min)
-                .to_u32()
-                .to_point()
-        })
-        .unwrap_or_else(UnsignedPhysicalPoint::zero);
-    BackdropCaptureRegion {
-        bounds: requested_rect,
-        source_rect,
-        copy_destination_origin,
-    }
-}
-
 /// Resolves the requested bounds and viewport overlap before allocating capture textures.
 pub(in crate::renderer) fn compute_backdrop_capture_region(
     local_bounds: MathRect,
@@ -57,7 +31,7 @@ pub(in crate::renderer) fn compute_backdrop_capture_region(
 ) -> Option<BackdropCaptureRegion> {
     let logical_rect = match backdrop_config.capture_area {
         BackdropCaptureArea::NodeBounds => {
-            transformed_bounds_to_logical_screen_rect(local_bounds, transform)
+            geometry::transformed_bounds_to_logical_screen_rect(local_bounds, transform)
         }
         BackdropCaptureArea::FullScene => {
             // Match capture rounding in f32; to_logical's f64 division can add a pixel.
@@ -72,7 +46,7 @@ pub(in crate::renderer) fn compute_backdrop_capture_region(
     let logical_rect = MathRect::from_points([logical_rect.min, logical_rect.max])
         .inflate(backdrop_config.padding, backdrop_config.padding);
 
-    logical_rect_to_physical_rect(logical_rect, scale_factor).and_then(|requested_rect| {
+    geometry::logical_rect_to_physical_rect(logical_rect, scale_factor).and_then(|requested_rect| {
         let capture_size = requested_rect.size().to_u32();
         if does_capture_size_exceeds_limits(capture_size, max_capture_dimension) {
             warn!(
@@ -97,7 +71,7 @@ pub(in crate::renderer) fn compute_backdrop_capture_region(
             return None;
         }
 
-        Some(resolve_capture_region_to_viewport(
+        Some(effect::resolve_capture_region_to_viewport(
             requested_rect,
             physical_size,
         ))

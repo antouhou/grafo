@@ -1,7 +1,7 @@
 use super::WgpuBackend;
 use crate::core::util::to_logical;
+use crate::core::Viewport;
 use crate::pipeline::{create_and_depth_texture, create_msaa_color_texture};
-use crate::renderer::Viewport;
 use tracing::warn;
 use wgpu::SurfaceTarget;
 

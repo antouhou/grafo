@@ -5,7 +5,7 @@
 use crate::core::cache::CachedTessellation;
 use crate::core::gradient::types::Fill;
 use crate::core::util::ShapeResources;
-use crate::core::vertex::{CustomVertex, InstanceTransform};
+use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
 use crate::core::{Color, Stroke};
 use ahash::AHashMap;
 use lyon::lyon_tessellation::{
@@ -849,6 +849,62 @@ pub enum ShapeTextureFitMode {
     /// Outside the texture footprint, this layer contributes no color.
     /// The fill and other texture layer remain visible.
     OriginalSize,
+}
+
+fn compute_texture_uv_scale_from_dimensions(
+    texture_mapping_size: [f32; 2],
+    texture_dimensions: (u32, u32),
+    scale_factor: f64,
+) -> [f32; 2] {
+    [
+        texture_mapping_size[0] * scale_factor as f32 / texture_dimensions.0.max(1) as f32,
+        texture_mapping_size[1] * scale_factor as f32 / texture_dimensions.1.max(1) as f32,
+    ]
+}
+
+impl ShapeTextureFitMode {
+    pub(crate) fn compute_uv_transform(
+        self,
+        texture_mapping_size: [f32; 2],
+        texture_dimensions: (u32, u32),
+        scale_factor: f64,
+    ) -> TextureUvTransform {
+        let original_size_uv_scale = compute_texture_uv_scale_from_dimensions(
+            texture_mapping_size,
+            texture_dimensions,
+            scale_factor,
+        );
+
+        let normalization_factor = match self {
+            ShapeTextureFitMode::Stretch => return TextureUvTransform::IDENTITY,
+            ShapeTextureFitMode::Cover => {
+                f32::max(original_size_uv_scale[0], original_size_uv_scale[1])
+            }
+            ShapeTextureFitMode::Contain => {
+                f32::min(original_size_uv_scale[0], original_size_uv_scale[1])
+            }
+            ShapeTextureFitMode::OriginalSize => {
+                return TextureUvTransform {
+                    scale: original_size_uv_scale,
+                    offset: [0.0, 0.0],
+                };
+            }
+        };
+
+        if !normalization_factor.is_finite() || normalization_factor <= f32::EPSILON {
+            return TextureUvTransform::IDENTITY;
+        }
+
+        let scale = [
+            original_size_uv_scale[0] / normalization_factor,
+            original_size_uv_scale[1] / normalization_factor,
+        ];
+
+        TextureUvTransform {
+            scale,
+            offset: [(1.0 - scale[0]) / 2.0, (1.0 - scale[1]) / 2.0],
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
