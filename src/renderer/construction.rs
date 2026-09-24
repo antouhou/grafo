@@ -1,7 +1,8 @@
 #[cfg(feature = "render_metrics")]
 use super::metrics::RenderLoopMetricsTracker;
 use super::plan::Planner;
-use super::{Renderer, RendererContext, Viewport, WgpuBackend, WgpuContext, DEFAULT_FRINGE_WIDTH};
+use super::{Renderer, RendererContext, WgpuBackend, WgpuContext, DEFAULT_FRINGE_WIDTH};
+use crate::core::Viewport;
 use crate::TextureManager;
 use ahash::{HashMap, HashMapExt};
 use std::sync::{Arc, RwLock};

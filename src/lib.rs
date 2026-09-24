@@ -56,7 +56,7 @@ pub use commands::RenderPlan;
 pub use renderer::{
     types::{DrawCommandError, GeometryBufferError, RenderError},
     EffectError, EffectShaderError, ReadbackError, RenderBackend, Renderer, RendererContext,
-    RendererCreationError, Viewport, WgpuBackend,
+    RendererCreationError, WgpuBackend,
 };
 pub use texture_manager::TextureManager;
 

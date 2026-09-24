@@ -14,6 +14,8 @@
 //! attach a loaded effect to a draw tree node. Nodes share the compiled pipelines
 //! and can supply different parameters.
 
+use crate::core::geometry;
+use crate::core::{PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
 use std::sync::Arc;
 
 /// The rendered region to capture as input to a backdrop effect.
@@ -161,3 +163,132 @@ impl BackdropEffectInstance {
         Self { effect, config }
     }
 }
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BackdropCaptureRegion {
+    /// Requested bounds in full-resolution physical pixels, including offscreen padding.
+    pub(crate) bounds: PhysicalRect,
+    /// Viewport overlap to copy, or None when the requested bounds are fully offscreen.
+    pub(crate) source_rect: Option<UnsignedPhysicalRect>,
+    pub(crate) copy_destination_origin: UnsignedPhysicalPoint,
+}
+
+pub(crate) fn resolve_capture_region_to_viewport(
+    requested_rect: PhysicalRect,
+    physical_size: Size,
+) -> BackdropCaptureRegion {
+    let viewport = UnsignedPhysicalRect::from_size(physical_size).to_i64();
+    let source_rect = requested_rect
+        .to_i64()
+        .intersection(&viewport)
+        .map(|overlap| overlap.to_u32());
+    let copy_destination_origin = source_rect
+        .map(|source_rect| {
+            (source_rect.min.to_i32() - requested_rect.min)
+                .to_u32()
+                .to_point()
+        })
+        .unwrap_or_else(UnsignedPhysicalPoint::zero);
+    BackdropCaptureRegion {
+        bounds: requested_rect,
+        source_rect,
+        copy_destination_origin,
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(crate) struct ShapeEffectRasterRect {
+    pub(crate) local_physical_origin: [i32; 2],
+    pub(crate) texture_size: [u32; 2],
+    pub(crate) local_bounds: [(f32, f32); 2],
+}
+
+pub(crate) fn compute_shape_effect_raster_rect(
+    local_bounds: [(f32, f32); 2],
+    config: ShapeEffectConfig,
+    scale_factor: f64,
+    fringe_width: f32,
+) -> Option<ShapeEffectRasterRect> {
+    let bounds_and_outsets = [
+        local_bounds[0].0,
+        local_bounds[0].1,
+        local_bounds[1].0,
+        local_bounds[1].1,
+        config.left_outset,
+        config.top_outset,
+        config.right_outset,
+        config.bottom_outset,
+    ];
+    if !scale_factor.is_finite()
+        || scale_factor <= 0.0
+        || !fringe_width.is_finite()
+        || fringe_width < 0.0
+        || !config.downsample.is_finite()
+        || config.downsample <= 0.0
+        || config.downsample > 1.0
+        || !bounds_and_outsets.iter().all(|value| value.is_finite())
+    {
+        return None;
+    }
+
+    let minimum_x = local_bounds[0].0.min(local_bounds[1].0) - config.left_outset;
+    let minimum_y = local_bounds[0].1.min(local_bounds[1].1) - config.top_outset;
+    let maximum_x = local_bounds[0].0.max(local_bounds[1].0) + config.right_outset;
+    let maximum_y = local_bounds[0].1.max(local_bounds[1].1) + config.bottom_outset;
+    if ![minimum_x, minimum_y, maximum_x, maximum_y]
+        .iter()
+        .all(|value| value.is_finite())
+    {
+        return None;
+    }
+
+    let guard = f64::from(fringe_width).ceil();
+    let physical_minimum_x = (f64::from(minimum_x) * scale_factor).floor() - guard;
+    let physical_minimum_y = (f64::from(minimum_y) * scale_factor).floor() - guard;
+    let physical_maximum_x = (f64::from(maximum_x) * scale_factor).ceil() + guard;
+    let physical_maximum_y = (f64::from(maximum_y) * scale_factor).ceil() + guard;
+
+    let coordinates = [
+        physical_minimum_x,
+        physical_minimum_y,
+        physical_maximum_x,
+        physical_maximum_y,
+    ];
+    if !coordinates.iter().all(|value| {
+        value.is_finite() && *value >= f64::from(i32::MIN) && *value <= f64::from(i32::MAX)
+    }) {
+        return None;
+    }
+
+    let local_physical_origin = [physical_minimum_x as i32, physical_minimum_y as i32];
+    let physical_width = physical_maximum_x - physical_minimum_x;
+    let physical_height = physical_maximum_y - physical_minimum_y;
+    if physical_width <= 0.0
+        || physical_height <= 0.0
+        || physical_width > f64::from(u32::MAX)
+        || physical_height > f64::from(u32::MAX)
+    {
+        return None;
+    }
+
+    let full_resolution_size = Size::new(physical_width as u32, physical_height as u32);
+    let texture_size =
+        geometry::compute_downsampled_dimensions(full_resolution_size, config.downsample);
+    Some(ShapeEffectRasterRect {
+        local_physical_origin,
+        texture_size: texture_size.to_array(),
+        local_bounds: [
+            (
+                physical_minimum_x as f32 / scale_factor as f32,
+                physical_minimum_y as f32 / scale_factor as f32,
+            ),
+            (
+                physical_maximum_x as f32 / scale_factor as f32,
+                physical_maximum_y as f32 / scale_factor as f32,
+            ),
+        ],
+    })
+}
+
+#[cfg(test)]
+mod tests;

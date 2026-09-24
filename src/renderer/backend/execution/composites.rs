@@ -12,36 +12,6 @@ use std::ops::Range;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{Buffer, BufferDescriptor, BufferUsages, Device, IndexFormat, Queue};
 
-fn create_quad_vertices() -> [CustomVertex; 4] {
-    let [(minimum_x, minimum_y), (maximum_x, maximum_y)] = [(0.0, 0.0), (1.0, 1.0)];
-    [
-        CustomVertex {
-            position: [minimum_x, minimum_y],
-            tex_coords: [0.0, 0.0],
-            normal: [0.0; 2],
-            coverage: 1.0,
-        },
-        CustomVertex {
-            position: [maximum_x, minimum_y],
-            tex_coords: [1.0, 0.0],
-            normal: [0.0; 2],
-            coverage: 1.0,
-        },
-        CustomVertex {
-            position: [maximum_x, maximum_y],
-            tex_coords: [1.0, 1.0],
-            normal: [0.0; 2],
-            coverage: 1.0,
-        },
-        CustomVertex {
-            position: [minimum_x, maximum_y],
-            tex_coords: [0.0, 1.0],
-            normal: [0.0; 2],
-            coverage: 1.0,
-        },
-    ]
-}
-
 struct QuadBuffers {
     vertices: Buffer,
     indices: Buffer,
@@ -72,7 +42,7 @@ impl CompositeExecutionResources {
         self.quad.get_or_insert_with(|| QuadBuffers {
             vertices: device.create_buffer_init(&BufferInitDescriptor {
                 label: Some("composite_quad_vertices"),
-                contents: bytemuck::cast_slice(&create_quad_vertices()),
+                contents: bytemuck::cast_slice(&CustomVertex::unit_quad()),
                 usage: BufferUsages::VERTEX,
             }),
             indices: device.create_buffer_init(&BufferInitDescriptor {

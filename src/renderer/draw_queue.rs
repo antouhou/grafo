@@ -1,5 +1,6 @@
 use super::types::{ClipRectDrawData, DrawCommandError, DrawTreeNode};
-use super::{rect_utils, Renderer};
+use super::Renderer;
+use crate::core::geometry;
 use crate::core::shape::Shape;
 use crate::core::vertex::InstanceTransform;
 use crate::renderer::types::CachedShapeDrawData;
@@ -7,7 +8,7 @@ use crate::ShapeDrawCommandOptions;
 use crate::{CachedShapeHandle, TextureManager};
 
 fn clip_rect_supports_transform(transform: InstanceTransform) -> bool {
-    rect_utils::extract_axis_aligned_rect_transform(Some(transform)).is_some()
+    geometry::extract_axis_aligned_rect_transform(Some(transform)).is_some()
 }
 
 impl<'a> Renderer<'a> {

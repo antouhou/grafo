@@ -11,6 +11,38 @@ pub struct CustomVertex {
     pub(crate) coverage: f32,
 }
 
+impl CustomVertex {
+    pub(crate) fn unit_quad() -> [Self; 4] {
+        let [(minimum_x, minimum_y), (maximum_x, maximum_y)] = [(0.0, 0.0), (1.0, 1.0)];
+        [
+            Self {
+                position: [minimum_x, minimum_y],
+                tex_coords: [0.0, 0.0],
+                normal: [0.0; 2],
+                coverage: 1.0,
+            },
+            Self {
+                position: [maximum_x, minimum_y],
+                tex_coords: [1.0, 0.0],
+                normal: [0.0; 2],
+                coverage: 1.0,
+            },
+            Self {
+                position: [maximum_x, maximum_y],
+                tex_coords: [1.0, 1.0],
+                normal: [0.0; 2],
+                coverage: 1.0,
+            },
+            Self {
+                position: [minimum_x, maximum_y],
+                tex_coords: [0.0, 1.0],
+                normal: [0.0; 2],
+                coverage: 1.0,
+            },
+        ]
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct InstanceTransform {

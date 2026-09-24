@@ -4,7 +4,8 @@ use super::execution::shapes::ShapeExecutionResources;
 use super::execution::textures::IntermediateTextureResources;
 use super::resources::{BackendResources, Buffers, RendererPipelineResources, ShapePipelines};
 use super::{WgpuBackend, WgpuContext};
-use crate::renderer::{Viewport, DEFAULT_FRINGE_WIDTH};
+use crate::core::Viewport;
+use crate::renderer::DEFAULT_FRINGE_WIDTH;
 use std::sync::Arc;
 use wgpu::SurfaceConfiguration;
 
