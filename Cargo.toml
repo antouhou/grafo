@@ -15,7 +15,7 @@ documentation = "https://docs.rs/grafo/"
 readme = "README.md"
 
 [dependencies]
-bytemuck = "1.23"
+bytemuck = { version = "1.23", features = ["derive"] }
 wgpu = "25.0"
 ahash = "0.8"
 lyon = { version = "1.0"}

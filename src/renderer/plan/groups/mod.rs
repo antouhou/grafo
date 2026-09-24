@@ -1,9 +1,9 @@
 use super::draws::{DrawPlanner, DrawPlanningInput, DrawTreeSelection};
-use crate::effect::{BackdropEffectInstance, EffectInstance};
-use crate::renderer::commands::{
+use crate::commands::{
     BackdropCaptureSource, DrawPlan, DrawSegment, EffectApplication, EffectParameters,
     IntermediateTextureId, Target, TextureComposite,
 };
+use crate::core::effect::{BackdropEffectInstance, EffectInstance};
 use crate::renderer::types::DrawTreeNode;
 use crate::Size;
 use ahash::{HashMap, HashSet};

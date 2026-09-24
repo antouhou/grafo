@@ -57,7 +57,7 @@ impl PipelineSwitchCounts {
 /// Available when the `render_metrics` feature is enabled.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PhaseTimings {
-    /// Time spent preparing geometry buffers and uploading them to the GPU.
+    /// Time spent compiling commands and uploading geometry buffers to the GPU.
     pub prepare: Duration,
     /// Time spent in `render_to_texture_view` and `queue.submit`.
     pub encode_and_submit: Duration,
@@ -255,7 +255,10 @@ impl<'a> Renderer<'a> {
 
     /// Returns the per-phase timing breakdown for the most recently rendered frame.
     pub fn last_phase_timings(&self) -> PhaseTimings {
-        self.last_phase_timings
+        let mut timings = self.backend.last_phase_timings;
+        timings.prepare += self.last_planning_time;
+        timings.total += self.last_planning_time;
+        timings
     }
 
     /// Returns the pipeline switch counts for the most recently rendered frame.
@@ -263,12 +266,12 @@ impl<'a> Renderer<'a> {
     /// Shows how many times each GPU pipeline was bound, and how many parent shapes
     /// used scissor clipping instead of stencil increment/decrement.
     pub fn last_pipeline_switch_counts(&self) -> PipelineSwitchCounts {
-        self.state.pipeline_switch_counts
+        self.backend.resources.pipeline_switch_counts
     }
 
     /// Returns cached shape-effect activity for the most recently rendered frame.
     pub fn last_shape_effect_cache_metrics(&self) -> ShapeEffectCacheMetrics {
-        self.state.shape_effect_cache_metrics
+        self.backend.resources.shape_effect_cache_metrics
     }
 }
 

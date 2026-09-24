@@ -1,4 +1,3 @@
-use crate::util::srgb_u8_to_linear;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use wgpu::Texture;
@@ -136,7 +135,8 @@ impl TextureManager {
     ///
     /// `texture_dimensions` is the upload size and must fit inside the texture. Supply
     /// four bytes per pixel with no padding between rows. RGB must be premultiplied
-    /// by alpha in linear space, then encoded as sRGB. Use [`premultiply_rgba8_srgb_inplace`]
+    /// by alpha in linear space, then encoded as sRGB. Use
+    /// [`premultiply_rgba8_srgb_inplace`](crate::premultiply_rgba8_srgb_inplace)
     /// to convert straight-alpha input before uploading.
     ///
     /// Returns an error if `texture_id` has not been allocated.
@@ -264,43 +264,5 @@ impl TextureManager {
                 let size = texture.size();
                 (size.width, size.height)
             })
-    }
-}
-
-fn linear_to_srgb_u8(x: f32) -> u8 {
-    let x = x.clamp(0.0, 1.0);
-    let y = if x <= 0.0031308 {
-        x * 12.92
-    } else {
-        1.055 * x.powf(1.0 / 2.4) - 0.055
-    };
-    (y.clamp(0.0, 1.0) * 255.0 + 0.5).floor() as u8
-}
-
-/// Converts straight-alpha RGBA8 sRGB pixels to premultiplied alpha in place.
-///
-/// Multiplies RGB by alpha in linear space, then encodes it as sRGB. Alpha bytes are unchanged.
-///
-/// # Panics
-///
-/// Panics if the slice length is not a multiple of four.
-pub fn premultiply_rgba8_srgb_inplace(pixels: &mut [u8]) {
-    assert!(
-        pixels.len().is_multiple_of(4),
-        "RGBA8 data length must be multiple of 4"
-    );
-    for px in pixels.chunks_mut(4) {
-        let r_lin = srgb_u8_to_linear(px[0]);
-        let g_lin = srgb_u8_to_linear(px[1]);
-        let b_lin = srgb_u8_to_linear(px[2]);
-        let a = px[3] as f32 / 255.0;
-
-        let r_pma = r_lin * a;
-        let g_pma = g_lin * a;
-        let b_pma = b_lin * a;
-
-        px[0] = linear_to_srgb_u8(r_pma);
-        px[1] = linear_to_srgb_u8(g_pma);
-        px[2] = linear_to_srgb_u8(b_pma);
     }
 }

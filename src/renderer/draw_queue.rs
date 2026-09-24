@@ -1,6 +1,10 @@
-use super::types::{ClipRectDrawData, DrawCommandError};
-use super::*;
+use super::types::{ClipRectDrawData, DrawCommandError, DrawTreeNode};
+use super::{rect_utils, Renderer};
+use crate::core::shape::Shape;
+use crate::core::vertex::InstanceTransform;
+use crate::renderer::types::CachedShapeDrawData;
 use crate::ShapeDrawCommandOptions;
+use crate::{CachedShapeHandle, TextureManager};
 
 fn clip_rect_supports_transform(transform: InstanceTransform) -> bool {
     rect_utils::extract_axis_aligned_rect_transform(Some(transform)).is_some()
@@ -20,13 +24,12 @@ impl<'a> Renderer<'a> {
     ) {
         let cached_shape = CachedShapeHandle::new(
             shape.as_ref(),
-            &mut self.tessellator,
-            &mut self.state.shape_resources,
+            &mut self.planner.tessellator,
+            &mut self.planner.shape_resources,
             geometry_id,
         );
-        self.context
-            .inner
-            .shape_cache
+        self.planner
+            .loaded_shapes
             .write()
             .expect("shared shape cache lock poisoned")
             .insert(cache_key, cached_shape);
@@ -34,9 +37,8 @@ impl<'a> Renderer<'a> {
 
     /// Removes a loaded shape from the cache.
     pub fn remove_shape(&mut self, cache_key: u64) {
-        self.context
-            .inner
-            .shape_cache
+        self.planner
+            .loaded_shapes
             .write()
             .expect("shared shape cache lock poisoned")
             .remove(&cache_key);
@@ -46,7 +48,7 @@ impl<'a> Renderer<'a> {
     ///
     /// When `parent_shape_id` is `Some`, the cached shape is attached as a child of that node.
     /// Children are clipped to their parent unless the parent was queued with
-    /// [`ShapeDrawCommandOptions::clips_children(false)`].
+    /// [`ShapeDrawCommandOptions::clips_children(false)`](ShapeDrawCommandOptions::clips_children).
     pub fn add_cached_shape(
         &mut self,
         cache_key: u64,
@@ -54,9 +56,8 @@ impl<'a> Renderer<'a> {
         options: ShapeDrawCommandOptions,
     ) -> Result<usize, DrawCommandError> {
         let mut draw_data = if let Some(cached_shape_handle) = self
-            .context
-            .inner
-            .shape_cache
+            .planner
+            .loaded_shapes
             .read()
             .expect("shared shape cache lock poisoned")
             .get(&cache_key)
@@ -66,18 +67,24 @@ impl<'a> Renderer<'a> {
             return Err(DrawCommandError::ShapeNotLoaded(cache_key));
         };
         let resources = self.append_shape_resources(&mut draw_data)?;
-        let node_id =
-            self.add_draw_tree_node(DrawTreeNode::CachedShape(draw_data), parent_shape_id)?;
-        self.state.shape_execution.draws.insert(node_id, resources);
+        let node_id = self
+            .planner
+            .add_draw_tree_node(DrawTreeNode::CachedShape(draw_data), parent_shape_id)?;
+        self.backend
+            .resources
+            .shape_execution
+            .draws
+            .insert(node_id, resources);
         Ok(node_id)
     }
 
     /// Adds a shape to the draw tree without retaining it in the loaded-shape cache.
-    /// To reuse a loaded shape, call [`load_shape`] and [`add_cached_shape`].
+    /// To reuse a loaded shape, call [`load_shape`](Self::load_shape) and
+    /// [`add_cached_shape`](Self::add_cached_shape).
     ///
     /// When `parent_shape_id` is `Some`, the new shape is attached as a child of that node.
     /// Children are clipped to their parent unless the parent was queued with
-    /// [`ShapeDrawCommandOptions::clips_children(false)`].
+    /// [`ShapeDrawCommandOptions::clips_children(false)`](ShapeDrawCommandOptions::clips_children).
     pub fn add_shape(
         &mut self,
         shape: impl AsRef<Shape>,
@@ -87,16 +94,21 @@ impl<'a> Renderer<'a> {
     ) -> Result<usize, DrawCommandError> {
         let cached_shape = CachedShapeHandle::new(
             shape.as_ref(),
-            &mut self.tessellator,
-            &mut self.state.shape_resources,
+            &mut self.planner.tessellator,
+            &mut self.planner.shape_resources,
             geometry_id,
         );
         let mut draw_data = CachedShapeDrawData::new(cached_shape, &options);
 
         let resources = self.append_shape_resources(&mut draw_data)?;
-        let node_id =
-            self.add_draw_tree_node(DrawTreeNode::CachedShape(draw_data), parent_shape_id)?;
-        self.state.shape_execution.draws.insert(node_id, resources);
+        let node_id = self
+            .planner
+            .add_draw_tree_node(DrawTreeNode::CachedShape(draw_data), parent_shape_id)?;
+        self.backend
+            .resources
+            .shape_execution
+            .draws
+            .insert(node_id, resources);
         Ok(node_id)
     }
 
@@ -121,7 +133,7 @@ impl<'a> Renderer<'a> {
                 return Err(DrawCommandError::UnsupportedClipRectTransform);
             }
         }
-        self.add_draw_tree_node(
+        self.planner.add_draw_tree_node(
             DrawTreeNode::ClipRect(ClipRectDrawData::new(
                 rect_bounds,
                 transform,
@@ -131,52 +143,12 @@ impl<'a> Renderer<'a> {
         )
     }
 
-    fn add_draw_tree_node(
-        &mut self,
-        draw_tree_node: DrawTreeNode,
-        parent_shape_id: Option<usize>,
-    ) -> Result<usize, DrawCommandError> {
-        if self.state.draw_tree.is_empty() {
-            let node_id = self.state.draw_tree.add_node(draw_tree_node);
-            Ok(node_id)
-        } else if let Some(parent_shape_id) = parent_shape_id {
-            if let Some(parent) = self.state.draw_tree.get_mut(parent_shape_id) {
-                parent.set_not_leaf();
-                let node_id = self
-                    .state
-                    .draw_tree
-                    .add_child(parent_shape_id, draw_tree_node);
-                Ok(node_id)
-            } else {
-                Err(DrawCommandError::InvalidShapeId(parent_shape_id))
-            }
-        } else {
-            if let Some(root) = self.state.draw_tree.get_mut(0) {
-                root.set_not_leaf();
-            }
-            let node_id = self.state.draw_tree.add_child_to_root(draw_tree_node);
-            Ok(node_id)
-        }
-    }
-
-    pub(super) fn refresh_geometry_cache(&mut self, cached_shape_data: &CachedShapeDrawData) {
-        if let Some(geometry_id) = cached_shape_data.cached_shape.geometry_id {
-            self.state
-                .shape_resources
-                .tessellation_cache
-                .refresh_tessellation(geometry_id, &cached_shape_data.cached_shape.tessellation);
-        }
-    }
-
     pub fn texture_manager(&self) -> &TextureManager {
-        &self.pipeline_resources.shapes.texture_manager
+        self.backend.texture_manager()
     }
 
     pub fn clear_draw_queue(&mut self) {
-        self.state.draw_tree.clear();
-        self.state.group_effects.clear();
-        self.state.backdrop_effects.clear();
-        self.state.shape_effects.clear();
-        self.state.shape_execution.clear_draw_queue();
+        self.planner.clear_draw_queue();
+        self.backend.resources.shape_execution.clear_draw_queue();
     }
 }

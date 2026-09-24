@@ -449,6 +449,12 @@ impl<'a> BenchApp<'a> {
 }
 
 impl<'a> ApplicationHandler for BenchApp<'a> {
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        // Release the GPU surface before the event loop closes the display connection.
+        self.renderer = None;
+        self.window = None;
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let attrs = Window::default_attributes()
             .with_inner_size(PhysicalSize::new(BENCH_WIDTH, BENCH_HEIGHT))

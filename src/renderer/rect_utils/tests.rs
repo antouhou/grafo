@@ -3,14 +3,14 @@ use super::{
     transform_point_to_logical_screen, transformed_bounds_to_logical_screen_rect,
     try_scissor_for_rect,
 };
-use crate::effect::{BackdropEffectConfig, BackdropEffectInstance, EffectInstance};
-use crate::gradient::types::{
+use crate::core::effect::{BackdropEffectConfig, BackdropEffectInstance, EffectInstance};
+use crate::core::gradient::types::{
     ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset, LinearGradientDesc,
     LinearGradientLine,
 };
+use crate::core::util::ShapeResources;
+use crate::renderer::types::CachedShapeDrawData;
 use crate::renderer::types::DrawTreeNode;
-use crate::shape::CachedShapeDrawData;
-use crate::util::ShapeResources;
 use crate::{
     CachedShapeHandle, Color, MathRect, PhysicalRect, Shape, ShapeDrawCommandOptions, Size, Stroke,
     TransformInstance, UnsignedPhysicalRect,

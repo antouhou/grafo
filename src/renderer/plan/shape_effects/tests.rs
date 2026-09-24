@@ -1,12 +1,11 @@
 use super::{compute_shape_effect_raster_rect, shape_effect_quad_transform, ShapeEffectPlan};
-use crate::effect::{ShapeEffectConfig, ShapeEffectInstance};
-use crate::renderer::commands::{
-    DrawSegment, IntermediateTextureId, ShapeDrawId, Target, TexturePlacement,
-};
+use crate::commands::{DrawSegment, IntermediateTextureId, ShapeDrawId, Target, TexturePlacement};
+use crate::core::effect::{ShapeEffectConfig, ShapeEffectInstance};
+use crate::core::shape::CachedShapeHandle;
+use crate::core::util::ShapeResources;
+use crate::core::vertex::InstanceTransform;
+use crate::renderer::types::CachedShapeDrawData;
 use crate::renderer::types::DrawTreeNode;
-use crate::shape::{CachedShapeDrawData, CachedShapeHandle};
-use crate::util::ShapeResources;
-use crate::vertex::InstanceTransform;
 use crate::{Shape, ShapeDrawCommandOptions, Size, Stroke};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;

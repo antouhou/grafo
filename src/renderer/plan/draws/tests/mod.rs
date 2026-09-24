@@ -1,14 +1,14 @@
 use super::{DrawPlanner, DrawPlanningInput, DrawTreeSelection};
-use crate::effect::{BackdropEffectConfig, BackdropEffectInstance, EffectInstance};
-use crate::renderer::commands::{
+use crate::commands::{
     BackdropCaptureSource, DrawInstruction, DrawOperation, DrawPlan, DrawSegment,
-    IntermediateTextureId, ShapeDrawId,
+    IntermediateTextureId, ShapeDrawId, TextureComposite, TexturePlacement,
 };
-use crate::renderer::commands::{TextureComposite, TexturePlacement};
+use crate::core::effect::{BackdropEffectConfig, BackdropEffectInstance, EffectInstance};
+use crate::core::shape::CachedShapeHandle;
+use crate::core::util::ShapeResources;
+use crate::core::vertex::{InstanceTransform, TextureUvTransform};
+use crate::renderer::types::CachedShapeDrawData;
 use crate::renderer::types::{ClipRectDrawData, DrawTreeNode};
-use crate::shape::{CachedShapeDrawData, CachedShapeHandle};
-use crate::util::ShapeResources;
-use crate::vertex::{InstanceTransform, TextureUvTransform};
 use crate::{
     BorderRadii, Color, Shape, ShapeDrawCommandOptions, Size, Stroke, UnsignedPhysicalRect,
 };

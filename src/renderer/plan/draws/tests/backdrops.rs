@@ -1,6 +1,6 @@
 use super::*;
-use crate::effect::BackdropCaptureArea;
-use crate::shape::{ShapeTextureBinding, TextureSampling};
+use crate::commands::{ShapeTextureBinding, TextureSampling};
+use crate::core::effect::BackdropCaptureArea;
 use crate::{
     Fill, Gradient, GradientCommonDesc, GradientStop, GradientStopOffset, LinearGradientDesc,
     LinearGradientLine,

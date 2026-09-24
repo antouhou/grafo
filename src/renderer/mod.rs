@@ -1,45 +1,34 @@
 //! Renderer for the Grafo library.
-pub(crate) use self::commands::IntermediateTextureId;
-use self::execution::effects::{
-    compile_composite_pipeline, CompositePipelineResources, EffectRegistry,
-};
-pub(crate) use self::execution::shapes::TextureSamplingUniform;
+pub(crate) use self::backend::execution::shapes::TextureSamplingUniform;
+pub use self::backend::WgpuBackend;
+use self::backend::WgpuContext;
+pub use self::contract::RenderBackend;
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
-use self::readback::{ArgbReadbackResources, BgraReadbackResources};
-use self::state::{RendererPipelineResources, RendererState};
-use self::types::{DrawTreeNode, RendererScratch};
-use crate::effect::{EffectError, EffectInstance};
-use crate::pipeline::{
-    create_and_depth_texture, create_msaa_color_texture, create_pipeline, PipelineType,
-};
-use crate::shape::{CachedShapeDrawData, Shape};
-use crate::texture_manager::TextureManager;
-use crate::util::{to_logical, ShapeResources};
-use crate::vertex::{InstanceColor, InstanceMetadata, InstanceTransform};
+use self::plan::Planner;
+pub use self::plan::Viewport;
 use crate::CachedShapeHandle;
-use ahash::{HashMap, HashMapExt};
+use ahash::HashMap;
+pub use backend::readback::ReadbackError;
 pub use construction::RendererCreationError;
-use lyon::tessellation::FillTessellator;
-pub use readback::ReadbackError;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use tracing::warn;
-use wgpu::{CompositeAlphaMode, SurfaceTarget};
+#[cfg(feature = "render_metrics")]
+use std::time::Instant;
 
-mod commands;
+pub(crate) mod backend;
 mod construction;
+mod contract;
+mod diagnostics;
 mod draw_queue;
 mod effects;
-mod execution;
+pub use effects::{EffectError, EffectShaderError};
 #[cfg(feature = "render_metrics")]
 pub mod metrics;
 mod plan;
 mod preparation;
 mod readback;
 mod rect_utils;
-mod rendering;
-mod state;
 mod surface;
 pub(crate) mod types;
 
@@ -51,82 +40,51 @@ pub(crate) mod types;
 /// under that key, or removing it, affects every renderer using the context.
 #[derive(Clone)]
 pub struct RendererContext {
-    pub(crate) inner: Arc<RendererContextInner>,
+    pub(crate) gpu: Arc<WgpuContext>,
+    pub(crate) loaded_shapes: Arc<RwLock<HashMap<u64, CachedShapeHandle>>>,
 }
 
-pub(crate) struct RendererContextInner {
-    pub(crate) instance: Arc<wgpu::Instance>,
-    pub(crate) adapter: Arc<wgpu::Adapter>,
-    pub(crate) supports_base_vertex: bool,
-    pub(crate) device: Arc<wgpu::Device>,
-    pub(crate) queue: Arc<wgpu::Queue>,
-    pub(crate) texture_manager: TextureManager,
-    pub(crate) shape_cache: RwLock<HashMap<u64, CachedShapeHandle>>,
-}
-
-/// Renders filled and textured shapes with its own draw queue and an optional window surface.
+/// Renders a planned scene onto the surface owned by this renderer.
 ///
-/// Multiple renderers can share GPU resources through a [`RendererContext`].
-pub struct Renderer<'a> {
-    /// Outward AA fringe width in physical pixels.
-    fringe_width: f32,
-
-    context: RendererContext,
-    instance: Arc<wgpu::Instance>,
-    surface: Option<wgpu::Surface<'a>>,
-    device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
-    config: wgpu::SurfaceConfiguration,
-
-    tessellator: FillTessellator,
-
-    pipeline_resources: RendererPipelineResources,
-
-    argb_readback: Option<ArgbReadbackResources>,
-    bgra_readback: Option<BgraReadbackResources>,
-
-    /// MSAA sample count. A value of 1 disables MSAA.
-    msaa_sample_count: u32,
-
-    /// The multisampled color texture. `None` when MSAA is disabled.
-    msaa_color_texture: Option<wgpu::Texture>,
-    msaa_color_texture_view: Option<wgpu::TextureView>,
-
-    /// Cached depth/stencil texture, reused across frames.
-    /// Recreated on resize or MSAA sample count change.
-    depth_stencil_texture: Option<wgpu::Texture>,
-    depth_stencil_view: Option<wgpu::TextureView>,
-
-    effect_registry: EffectRegistry,
+/// The backend receives completed commands and cannot access the planner or tree.
+pub struct Renderer<'surface, B: RenderBackend<'surface> = WgpuBackend> {
+    planner: Planner,
+    surface: B::Surface,
+    backend: B,
+    viewport: Viewport,
+    #[cfg(feature = "render_metrics")]
+    last_planning_time: Duration,
     #[cfg(feature = "render_metrics")]
     render_loop_metrics_tracker: RenderLoopMetricsTracker,
-
-    #[cfg(feature = "render_metrics")]
-    /// Per-phase timing breakdown for the most recently rendered frame.
-    last_phase_timings: self::metrics::PhaseTimings,
-
-    /// Wall-clock CPU time spent inside the most recent `render_to_texture_view()` call.
-    ///
-    /// This measures render/effect pass encoding and `queue.submit`. Planning
-    /// and uploads run during preparation. Presentation, readback mapping, and
-    /// forced GPU waits after submission are also excluded.
-    last_render_to_texture_view_cpu_time: Duration,
-
-    state: RendererState,
 }
 
 /// Default AA fringe width in physical pixels.
 const DEFAULT_FRINGE_WIDTH: f32 = 0.75;
 
-impl<'a> Renderer<'a> {
-    const DEFAULT_FRINGE_WIDTH: f32 = DEFAULT_FRINGE_WIDTH;
-
-    pub(super) fn begin_frame_scratch(&mut self) {
-        self.state.scratch.begin_frame();
-    }
-
-    /// Returns the wall-clock CPU time spent in the most recent `render_to_texture_view()` call.
+impl Renderer<'_> {
+    /// Returns CPU encoding and submission time, excluding planning, uploads and readback.
     pub fn last_render_to_texture_view_cpu_time(&self) -> Duration {
-        self.last_render_to_texture_view_cpu_time
+        self.backend.last_render_to_texture_view_cpu_time
     }
 }
+
+impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
+    /// Compiles the scene before passing its commands and this renderer's surface to execution.
+    pub fn render(&mut self) -> Result<(), B::Error> {
+        #[cfg(feature = "render_metrics")]
+        let started_at = Instant::now();
+        let commands = self.planner.plan(self.viewport);
+        #[cfg(feature = "render_metrics")]
+        {
+            self.last_planning_time = started_at.elapsed();
+        }
+        self.backend.render(commands, &mut self.surface)?;
+        #[cfg(feature = "render_metrics")]
+        self.render_loop_metrics_tracker
+            .record_presented_frame(started_at, Instant::now());
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests;

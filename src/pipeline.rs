@@ -1,7 +1,6 @@
 //! WGPU pipelines, stencil states, and buffer helpers.
-use crate::vertex::{
-    CustomVertex, GeometryBufferRange, InstanceColor, InstanceMetadata, InstanceTransform,
-};
+use crate::core::vertex::{CustomVertex, InstanceTransform};
+use crate::renderer::backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMetadata};
 use std::ops::Range;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{

@@ -1,11 +1,11 @@
-use crate::effect::{ShapeEffectConfig, ShapeEffectInstance};
-use crate::renderer::commands::{
+use crate::commands::{
     DrawClip, DrawPlan, DrawSegment, EffectApplication, EffectParameters, IntermediateTextureId,
     MaskTarget, ShapeDrawId, ShapeMaskDraw, Target, TextureComposite, TexturePlacement,
 };
+use crate::core::effect::{ShapeEffectConfig, ShapeEffectInstance};
+use crate::core::vertex::{InstanceTransform, TextureUvTransform};
 use crate::renderer::rect_utils::compute_downsampled_dimensions;
 use crate::renderer::types::DrawTreeNode;
-use crate::vertex::{InstanceTransform, TextureUvTransform};
 use crate::{Size, UnsignedPhysicalRect};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;

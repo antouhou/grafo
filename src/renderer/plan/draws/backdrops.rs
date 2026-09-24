@@ -1,12 +1,12 @@
 use super::{has_geometry, DrawPlanner, DrawPlanningInput};
-use crate::renderer::commands::{
+use crate::commands::{
     BackdropCapture, DrawClip, DrawInstruction, DrawOperation, DrawPlan, DrawSegment,
-    EffectApplication, EffectParameters, ShapeDraw, ShapeDrawId,
+    EffectApplication, EffectParameters, ShapeDraw, ShapeDrawId, ShapeTextureBinding,
+    ShapeTextureLayer, TextureSampling,
 };
 use crate::renderer::plan::backdrops::compute_backdrop_capture_region;
 use crate::renderer::rect_utils::compute_downsampled_dimensions;
 use crate::renderer::types::DrawTreeNode;
-use crate::shape::{ShapeTextureBinding, ShapeTextureLayer, TextureSampling};
 use crate::MathRect;
 
 impl DrawPlanner {

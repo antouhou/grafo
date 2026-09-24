@@ -805,9 +805,9 @@ fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent()
         Err(error) => panic!("Failed to create renderer context: {error}"),
     };
 
-    let mut first = Renderer::try_new_headless_with_context(context.clone(), (16, 16), 1.0)
+    let mut first = Renderer::try_new_headless_with_context(context, (16, 16), 1.0)
         .expect("to create first headless renderer");
-    let mut second = Renderer::try_new_headless_with_context(context, (16, 16), 1.0)
+    let mut second = Renderer::try_new_headless_with_context(first.context(), (16, 16), 1.0)
         .expect("to create second headless renderer");
 
     first
