@@ -1,6 +1,7 @@
 use crate::commands::{
-    BackdropCaptureSource, DrawClip, DrawInstruction, DrawOperation, DrawPlan,
-    IntermediateTextureId, ShapeDraw, ShapeDrawId, TextureComposite, TexturePlacement,
+    BackdropCaptureSource, DrawClip, EffectApplication, IntermediateTextureId, RenderCommand,
+    RenderOperation, RenderPlan, ShapeDraw, ShapeDrawId, Target, TextureComposite,
+    TexturePlacement,
 };
 use crate::core::effect::{BackdropEffectInstance, EffectInstance};
 use crate::renderer::rect_utils::{should_skip_visible_rect_draw, try_scissor_for_rect};
@@ -27,6 +28,7 @@ struct ParentDrawState {
     node_id: usize,
     next_child: usize,
     clip_state: ClipState,
+    group_target: Option<IntermediateTextureId>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -62,7 +64,7 @@ impl DrawPlanner {
     pub(in crate::renderer) fn append(
         &mut self,
         input: DrawPlanningInput<'_>,
-        output: &mut DrawPlan,
+        output: &mut RenderPlan,
     ) {
         self.parents.clear();
         self.current = ClipState {
@@ -83,7 +85,12 @@ impl DrawPlanner {
         );
     }
 
-    fn plan_node(&mut self, node_id: usize, input: &DrawPlanningInput<'_>, output: &mut DrawPlan) {
+    fn plan_node(
+        &mut self,
+        node_id: usize,
+        input: &DrawPlanningInput<'_>,
+        output: &mut RenderPlan,
+    ) {
         if input.selection.excluded_subtree == Some(node_id) {
             return;
         }
@@ -100,14 +107,36 @@ impl DrawPlanner {
             );
             return;
         }
+        let parent_clip = self.current;
+        let group_target = if input.backdrop_effects.is_empty()
+            && input.selection.subtree_root != Some(node_id)
+            && input.group_effects.contains_key(&node_id)
+        {
+            let texture = output.allocate_texture();
+            output.push(RenderOperation::BeginTarget(Target::Texture {
+                texture,
+                size: input.physical_size,
+            }));
+            self.current = ClipState {
+                clip: DrawClip {
+                    scissor: UnsignedPhysicalRect::from_size(input.physical_size),
+                    stencil_reference: 0,
+                },
+                decrements_stencil: false,
+            };
+            Some(texture)
+        } else {
+            None
+        };
         if let Some(&composite) = input.shape_effects.get(&node_id) {
             output.push_composite(composite, self.current.clip);
         }
-        if !node.is_leaf() {
+        if !node.is_leaf() || group_target.is_some() {
             self.parents.push(ParentDrawState {
                 node_id,
                 next_child: 0,
-                clip_state: self.current,
+                clip_state: parent_clip,
+                group_target,
             });
             self.current.decrements_stencil = false;
         }
@@ -124,12 +153,16 @@ impl DrawPlanner {
             _ => None,
         };
         if let Some(instruction) = self.enter_node(node_id, node, draw, input, output) {
-            output.push_draw(instruction);
+            output.push_command(instruction);
         }
     }
 
     /// Advances through siblings and closes each completed parent's clip.
-    fn next_node(&mut self, input: &DrawPlanningInput<'_>, output: &mut DrawPlan) -> Option<usize> {
+    fn next_node(
+        &mut self,
+        input: &DrawPlanningInput<'_>,
+        output: &mut RenderPlan,
+    ) -> Option<usize> {
         while let Some(parent) = self.parents.last_mut() {
             if let Some(&child) = input.tree.children(parent.node_id).get(parent.next_child) {
                 parent.next_child += 1;
@@ -140,26 +173,42 @@ impl DrawPlanner {
                 let Some(DrawTreeNode::CachedShape(description)) = input.tree.get(node_id) else {
                     unreachable!("stencil clips have shape geometry");
                 };
-                output.push_draw(DrawInstruction {
-                    operation: DrawOperation::DecrementStencil(ShapeDraw {
+                output.push_command(RenderCommand {
+                    operation: RenderOperation::DecrementStencil(ShapeDraw {
                         id: ShapeDrawId(node_id),
                         material: description.material(),
                     }),
                     clip: self.current.clip,
                 });
             }
-            self.current = self
-                .parents
-                .pop()
-                .expect("parent clip is balanced")
-                .clip_state;
+            let parent = self.parents.pop().expect("parent clip is balanced");
+            self.current = parent.clip_state;
+            if let Some(input_texture) = parent.group_target {
+                output.push(RenderOperation::EndTarget);
+                let effect = &input.group_effects[&node_id];
+                let parameters = output.store_parameters(&effect.params);
+                let texture = output.allocate_texture();
+                output.push(RenderOperation::ApplyEffect(EffectApplication {
+                    effect_id: effect.effect_id,
+                    parameters,
+                    input: input_texture,
+                    output: texture,
+                }));
+                output.push_composite(
+                    TextureComposite {
+                        texture,
+                        placement: TexturePlacement::Target,
+                    },
+                    self.current.clip,
+                );
+            }
         }
         None
     }
 
-    fn draw_shape(&self, draw: ShapeDraw) -> DrawInstruction {
-        DrawInstruction {
-            operation: DrawOperation::DrawShape(draw),
+    fn draw_shape(&self, draw: ShapeDraw) -> RenderCommand {
+        RenderCommand {
+            operation: RenderOperation::DrawShape(draw),
             clip: self.current.clip,
         }
     }
@@ -170,8 +219,8 @@ impl DrawPlanner {
         node: &DrawTreeNode,
         draw: Option<ShapeDraw>,
         input: &DrawPlanningInput<'_>,
-        _output: &mut DrawPlan,
-    ) -> Option<DrawInstruction> {
+        _output: &mut RenderPlan,
+    ) -> Option<RenderCommand> {
         let should_draw = !should_skip_visible_rect_draw(
             node_id,
             node,
@@ -202,8 +251,8 @@ impl DrawPlanner {
         let clip = self.current.clip;
         self.current.decrements_stencil = true;
         self.current.clip.stencil_reference += 1;
-        Some(DrawInstruction {
-            operation: DrawOperation::DrawShapeAndIncrementStencil(draw),
+        Some(RenderCommand {
+            operation: RenderOperation::DrawShapeAndIncrementStencil(draw),
             clip,
         })
     }

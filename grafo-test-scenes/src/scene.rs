@@ -165,6 +165,7 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_80_group_composite_under_mixed_clips(renderer));
     expectations.extend(tile_81_shared_shape_effect_composites(renderer));
     expectations.extend(tile_82_group_dependencies_in_layered_backdrops(renderer));
+    expectations.extend(tile_83_nested_target_restoration(renderer));
 
     expectations
 }
@@ -6690,6 +6691,189 @@ fn tile_82_group_dependencies_in_layered_backdrops(
         ),
         (8, 68, [40, 90, 170], "t82_uncovered_blue_check_stays_sharp"),
         (77, 40, [255, 255, 255], "t82_outside_group_keeps_canvas"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+    })
+    .collect()
+}
+
+/// Also render tile 83 alone so its groups open during the main tree walk.
+pub fn build_nested_targets_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    renderer
+        .add_shape(
+            Shape::rect(
+                [(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)],
+                Stroke::default(),
+            ),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::WHITE),
+        )
+        .unwrap();
+    renderer
+        .load_effect(PASSTHROUGH_EFFECT_ID, &[PASSTHROUGH_WGSL])
+        .unwrap();
+    tile_83_nested_target_restoration(renderer)
+}
+
+/// Draws surround nested targets and an empty target under inherited stencil and scissor clips.
+fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(83);
+    let bounds = |left, top, right, bottom| {
+        [
+            (origin_x + left, origin_y + top),
+            (origin_x + right, origin_y + bottom),
+        ]
+    };
+    let parent = renderer
+        .add_shape(
+            Shape::rounded_rect(
+                bounds(5.0, 5.0, 75.0, 63.0),
+                BorderRadii::new(10.0),
+                Stroke::default(),
+            ),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(180, 30, 30)),
+        )
+        .unwrap();
+    let scissor = renderer
+        .add_clipping_rect(
+            bounds(8.0, 8.0, 72.0, 61.0),
+            Some(parent),
+            None::<TransformInstance>,
+            true,
+        )
+        .unwrap();
+    let outer = renderer
+        .add_shape(
+            Shape::rounded_rect(
+                bounds(0.0, 0.0, 80.0, 63.0),
+                BorderRadii::new(8.0),
+                Stroke::default(),
+            ),
+            Some(scissor),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(70, 70, 70)),
+        )
+        .unwrap();
+    let middle = renderer
+        .add_shape(
+            Shape::rounded_rect(
+                bounds(20.0, 12.0, 60.0, 48.0),
+                BorderRadii::new(6.0),
+                Stroke::default(),
+            ),
+            Some(outer),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(210, 90, 30)),
+        )
+        .unwrap();
+    let inner = renderer
+        .add_shape(
+            Shape::rect(bounds(30.0, 18.0, 50.0, 32.0), Stroke::default()),
+            Some(middle),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(30, 60, 210)),
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect(bounds(0.0, 37.0, 80.0, 43.0), Stroke::default()),
+            Some(middle),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(30, 180, 60)),
+        )
+        .unwrap();
+    let empty = renderer
+        .add_shape(
+            Shape::builder().build(),
+            Some(outer),
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect(bounds(0.0, 52.0, 80.0, 58.0), Stroke::default()),
+            Some(outer),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 190, 30)),
+        )
+        .unwrap();
+    for group in [outer, middle, inner, empty] {
+        renderer
+            .set_group_effect(group, PASSTHROUGH_EFFECT_ID, &[])
+            .unwrap();
+    }
+    // This sibling still uses the parent's stencil after the outer group closes.
+    renderer
+        .add_shape(
+            Shape::rect(bounds(0.0, 59.0, 80.0, 61.0), Stroke::default()),
+            Some(parent),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(160, 30, 190)),
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect(bounds(2.0, 67.0, 78.0, 73.0), Stroke::default()),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(30, 190, 210)),
+        )
+        .unwrap();
+    [
+        (
+            12,
+            25,
+            [70, 70, 70],
+            "t83_parent_color_survives_nested_targets",
+        ),
+        (
+            24,
+            25,
+            [210, 90, 30],
+            "t83_middle_color_survives_inner_target",
+        ),
+        (40, 25, [30, 60, 210], "t83_inner_target_is_composited"),
+        (40, 40, [30, 180, 60], "t83_middle_draw_after_inner_target"),
+        (16, 40, [70, 70, 70], "t83_middle_stencil_is_restored"),
+        (40, 55, [220, 190, 30], "t83_outer_draw_after_empty_target"),
+        (40, 60, [160, 30, 190], "t83_parent_draw_after_outer_target"),
+        (
+            6,
+            40,
+            [180, 30, 30],
+            "t83_inherited_scissor_clips_composite",
+        ),
+        (
+            3,
+            60,
+            [255, 255, 255],
+            "t83_inherited_stencil_clips_following_draw",
+        ),
+        (
+            3,
+            70,
+            [30, 190, 210],
+            "t83_surface_clip_restored_after_parent",
+        ),
+        (
+            78,
+            40,
+            [255, 255, 255],
+            "t83_surface_color_survives_targets",
+        ),
     ]
     .into_iter()
     .map(|(x, y, [red, green, blue], label)| {

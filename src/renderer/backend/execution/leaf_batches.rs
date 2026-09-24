@@ -1,7 +1,7 @@
 use super::draws::{self, DrawPass};
 use super::shapes::ShapeExecutionResources;
 use super::targets;
-use crate::commands::{DrawClip, DrawInstruction, DrawOperation, ShapeTextureBinding};
+use crate::commands::{DrawClip, RenderCommand, RenderOperation, ShapeTextureBinding};
 use crate::renderer::backend::vertex::GeometryBufferRange;
 use crate::renderer::types::Pipeline;
 
@@ -63,11 +63,11 @@ impl DrawPass<'_, '_> {
     /// Returns the number of consumed commands.
     pub(super) fn execute_leaf_draws(
         &mut self,
-        instructions: &[DrawInstruction],
+        instructions: &[RenderCommand],
         shapes: &ShapeExecutionResources,
     ) -> usize {
         let first = &instructions[0];
-        let DrawOperation::DrawShape(draw) = first.operation else {
+        let RenderOperation::DrawShape(draw) = &first.operation else {
             unreachable!("leaf batch starts with a shape draw");
         };
         let resources = shapes.draw_resources(draw.id);
@@ -86,7 +86,7 @@ impl DrawPass<'_, '_> {
             instance_count: 1,
         };
         for next in &instructions[1..] {
-            let DrawOperation::DrawShape(next_draw) = next.operation else {
+            let RenderOperation::DrawShape(next_draw) = &next.operation else {
                 break;
             };
             if next.clip != first.clip

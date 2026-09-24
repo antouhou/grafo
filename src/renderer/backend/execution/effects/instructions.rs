@@ -1,6 +1,6 @@
 use super::{apply_effect_passes, EffectExecutionResources, EffectPassRunConfig, EffectRegistry};
-use crate::commands::{EffectApplication, IntermediateTextureId};
-use crate::renderer::backend::execution::textures::IntermediateTextureResources;
+use crate::commands::{EffectApplication, IntermediateTextureId, RenderPlan};
+use crate::renderer::backend::execution::textures::{IntermediateTextureResources, PlannedTexture};
 use wgpu::{BindGroupLayout, CommandEncoder, Device, Queue, Sampler, TextureFormat};
 
 #[derive(Clone, Copy)]
@@ -16,7 +16,7 @@ pub(in crate::renderer) struct EffectContext<'a> {
 pub(in crate::renderer::backend::execution) fn execute_effect(
     encoder: &mut CommandEncoder,
     command: &EffectApplication,
-    parameters: &[u8],
+    commands: &RenderPlan,
     context: &EffectContext<'_>,
     create_composite_bind_group: bool,
     resources: &mut EffectExecutionResources,
@@ -25,7 +25,10 @@ pub(in crate::renderer::backend::execution) fn execute_effect(
     let IntermediateTextureId::Planned(index) = command.input else {
         unreachable!("effect commands consume planned texture outputs");
     };
-    let source = &mut textures.work_textures[textures.texture_id_to_work_textures_index[index]];
+    let PlannedTexture::Work(index) = textures.planned[index] else {
+        unreachable!("effect input must be a completed texture")
+    };
+    let source = &mut textures.work_textures[index];
     let width = source.color_texture.width();
     let height = source.color_texture.height();
     let source_bind_group = source.input_bind_group(
@@ -42,7 +45,7 @@ pub(in crate::renderer::backend::execution) fn execute_effect(
         &mut textures.pool,
         EffectPassRunConfig {
             effect_id: command.effect_id,
-            params: command.parameters.bytes(parameters),
+            params: commands.parameters(command.parameters),
             source_bind_group,
             effect_sampler: context.sampler,
             composite_bind_group_layout: context.composite_layout,

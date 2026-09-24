@@ -102,7 +102,7 @@ impl PooledTexture {
             &mut self.composite_binding,
             device,
             layout,
-            &self.color_view,
+            self.resolve_view.as_ref().unwrap_or(&self.color_view),
             sampler,
         )
     }

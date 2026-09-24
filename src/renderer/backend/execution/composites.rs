@@ -1,7 +1,7 @@
 use super::draws::{self, DrawPass};
 use super::targets;
 use crate::commands::{
-    DrawInstruction, DrawOperation, DrawPlan, ShapeTextureBinding, TextureComposite,
+    RenderCommand, RenderOperation, RenderPlan, ShapeTextureBinding, TextureComposite,
     TexturePlacement,
 };
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
@@ -49,31 +49,24 @@ struct QuadBuffers {
 
 #[derive(Clone, Copy)]
 pub(super) struct CompositeInstanceBuffer {
-    slot: usize,
     count: usize,
 }
 
-/// Shared GPU quad geometry and reusable instance slots, independent of queue nodes.
+/// Shared GPU quad geometry and one reusable instance buffer, independent of queue nodes.
 #[derive(Default)]
 pub(in crate::renderer) struct CompositeExecutionResources {
     quad: Option<QuadBuffers>,
-    instances: Vec<Buffer>,
-    used: usize,
+    instances: Option<Buffer>,
 }
 
 impl CompositeExecutionResources {
-    pub fn begin_render(&mut self) {
-        self.used = 0;
-    }
-
     pub(super) fn prepare(
         &mut self,
         device: &Device,
         queue: &Queue,
-        commands: &DrawPlan,
-        composites: Range<usize>,
+        commands: &RenderPlan,
     ) -> Option<CompositeInstanceBuffer> {
-        if composites.is_empty() {
+        if commands.composite_draws.is_empty() {
             return None;
         }
         self.quad.get_or_insert_with(|| QuadBuffers {
@@ -88,7 +81,7 @@ impl CompositeExecutionResources {
                 usage: BufferUsages::INDEX,
             }),
         });
-        let count = composites.len();
+        let count = commands.composite_draws.len();
         let color_offset = count * InstanceTransform::STRIDE as usize;
         let metadata_offset = color_offset + count * InstanceColor::STRIDE as usize;
         let size = metadata_offset + count * InstanceMetadata::STRIDE as usize;
@@ -98,28 +91,33 @@ impl CompositeExecutionResources {
             usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         };
-        if self.used == self.instances.len() {
-            self.instances.push(device.create_buffer(&descriptor));
-        } else if self.instances[self.used].size() < size as u64 {
-            self.instances[self.used] = device.create_buffer(&descriptor);
+        if self
+            .instances
+            .as_ref()
+            .is_none_or(|buffer| buffer.size() < size as u64)
+        {
+            self.instances = Some(device.create_buffer(&descriptor));
         }
         let mut upload = queue
             .write_buffer_with(
-                &self.instances[self.used],
+                self.instances
+                    .as_ref()
+                    .expect("composite buffer was allocated"),
                 0,
                 NonZeroU64::new(size as u64).expect("composite instances are nonempty"),
             )
             .expect("composite upload fits its buffer");
         upload[color_offset..metadata_offset].fill(0);
-        for (instance, &index) in commands.composite_draws[composites].iter().enumerate() {
-            let DrawOperation::CompositeTexture(composite) = commands.instructions[index].operation
+        for (instance, &index) in commands.composite_draws.iter().enumerate() {
+            let RenderOperation::CompositeTexture(composite) =
+                &commands.instructions[index].operation
             else {
                 unreachable!("composite instance must reference texture parameters");
             };
             let TexturePlacement::Local {
                 transform,
                 sampling,
-            } = commands.composites[composite].placement
+            } = composite.placement
             else {
                 unreachable!("only local composites need instances");
             };
@@ -136,12 +134,7 @@ impl CompositeExecutionResources {
             upload[metadata_start..metadata_start + InstanceMetadata::STRIDE as usize]
                 .copy_from_slice(bytemuck::bytes_of(&metadata));
         }
-        let instances = CompositeInstanceBuffer {
-            slot: self.used,
-            count,
-        };
-        self.used += 1;
-        Some(instances)
+        Some(CompositeInstanceBuffer { count })
     }
 }
 
@@ -149,24 +142,23 @@ impl DrawPass<'_, '_> {
     /// Consecutive local composites can share one instanced quad draw.
     pub(super) fn execute_texture_composites(
         &mut self,
-        instructions: &[DrawInstruction],
-        composites: &[TextureComposite],
+        instructions: &[RenderCommand],
         resources: &CompositeExecutionResources,
         instances: CompositeInstanceBuffer,
         first_instance: u32,
     ) -> usize {
-        let first = instructions[0];
-        let DrawOperation::CompositeTexture(command) = first.operation else {
+        let first = &instructions[0];
+        let RenderOperation::CompositeTexture(command) = &first.operation else {
             unreachable!("composite batch starts with a texture");
         };
-        let command = composites[command];
+        let command = *command;
         let texture = self.textures.resolve_id(command.texture);
         let mut count = 1;
         for next in &instructions[1..] {
-            let DrawOperation::CompositeTexture(next_composite) = next.operation else {
+            let RenderOperation::CompositeTexture(next_composite) = &next.operation else {
                 break;
             };
-            let next_composite = composites[next_composite];
+
             if !matches!(next_composite.placement, TexturePlacement::Local { .. }) {
                 break;
             }
@@ -221,7 +213,10 @@ impl DrawPass<'_, '_> {
             .set_vertex_buffer(0, quad.vertices.slice(..));
         self.render_pass
             .set_index_buffer(quad.indices.slice(..), IndexFormat::Uint16);
-        let buffer = &resources.instances[instances.slot];
+        let buffer = resources
+            .instances
+            .as_ref()
+            .expect("composite instances were uploaded");
         let color_offset = instances.count as u64 * InstanceTransform::STRIDE;
         let metadata_offset = color_offset + instances.count as u64 * InstanceColor::STRIDE;
         self.render_pass

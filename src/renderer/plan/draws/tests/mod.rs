@@ -1,7 +1,7 @@
 use super::{DrawPlanner, DrawPlanningInput, DrawTreeSelection};
 use crate::commands::{
-    BackdropCaptureSource, DrawInstruction, DrawOperation, DrawPlan, DrawSegment,
-    IntermediateTextureId, ShapeDrawId, TextureComposite, TexturePlacement,
+    BackdropCaptureSource, IntermediateTextureId, RenderCommand, RenderOperation, RenderPlan,
+    ShapeDrawId, TextureComposite, TexturePlacement,
 };
 use crate::core::effect::{BackdropEffectConfig, BackdropEffectInstance, EffectInstance};
 use crate::core::shape::CachedShapeHandle;
@@ -25,26 +25,25 @@ enum Operation {
     Composite(IntermediateTextureId),
 }
 
-fn snapshot(plan: &DrawPlan) -> Vec<(Operation, u32, UnsignedPhysicalRect)> {
+fn snapshot(plan: &RenderPlan) -> Vec<(Operation, u32, UnsignedPhysicalRect)> {
     plan.instructions
         .iter()
-        .map(|instruction| {
+        .filter_map(|instruction| {
             let operation = match instruction.operation {
-                DrawOperation::DrawShape(draw) => Operation::Draw(draw.id),
-                DrawOperation::IncrementStencil(id) => Operation::Increment(id),
-                DrawOperation::DrawShapeAndIncrementStencil(draw) => {
+                RenderOperation::DrawShape(draw) => Operation::Draw(draw.id),
+                RenderOperation::IncrementStencil(id) => Operation::Increment(id),
+                RenderOperation::DrawShapeAndIncrementStencil(draw) => {
                     Operation::DrawAndIncrement(draw.id)
                 }
-                DrawOperation::DecrementStencil(draw) => Operation::Decrement(draw.id),
-                DrawOperation::CompositeTexture(texture) => {
-                    Operation::Composite(plan.composites[texture].texture)
-                }
+                RenderOperation::DecrementStencil(draw) => Operation::Decrement(draw.id),
+                RenderOperation::CompositeTexture(texture) => Operation::Composite(texture.texture),
+                _ => return None,
             };
-            (
+            Some((
                 operation,
                 instruction.clip.stencil_reference,
                 instruction.clip.scissor,
-            )
+            ))
         })
         .collect()
 }
@@ -117,7 +116,7 @@ impl Scene {
         }
     }
 
-    fn plan(&self, planner: &mut DrawPlanner, output: &mut DrawPlan) {
+    fn plan(&self, planner: &mut DrawPlanner, output: &mut RenderPlan) {
         self.plan_selection(DrawTreeSelection::default(), planner, output);
     }
 
@@ -125,7 +124,7 @@ impl Scene {
         &self,
         selection: DrawTreeSelection,
         planner: &mut DrawPlanner,
-        output: &mut DrawPlan,
+        output: &mut RenderPlan,
     ) {
         output.clear();
         planner.append(
@@ -168,7 +167,7 @@ fn mixed_clips_resolve_each_draw_and_restore_before_siblings() {
     let leaf = scene.add(Some(inner), shape(true));
     let sibling = scene.add(Some(root), shape(true));
     let mut planner = DrawPlanner::default();
-    let mut output = DrawPlan::default();
+    let mut output = RenderPlan::default();
     scene.plan(&mut planner, &mut output);
     let outer_clip = rect((10, 10), (90, 80));
     assert_eq!(
@@ -201,7 +200,7 @@ fn empty_geometry_and_visible_overflow_keep_the_ancestor_stencil() {
     let overflow = scene.add(Some(root), shape(false));
     let overflow_leaf = scene.add(Some(overflow), shape(true));
     let sibling = scene.add(Some(root), shape(true));
-    let mut output = DrawPlan::default();
+    let mut output = RenderPlan::default();
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let viewport = rect((0, 0), (100, 100));
     assert_eq!(
@@ -245,7 +244,7 @@ fn effect_composites_carry_only_ids_placements_and_resolved_clips() {
             },
         },
     );
-    let mut output = DrawPlan::default();
+    let mut output = RenderPlan::default();
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let viewport = rect((0, 0), (100, 100));
     let inherited = rect((10, 10), (60, 60));
@@ -265,10 +264,9 @@ fn effect_composites_carry_only_ids_placements_and_resolved_clips() {
             (Operation::Decrement(ShapeDrawId(root)), 1, viewport),
         ]
     );
-    let DrawOperation::CompositeTexture(composite) = output.instructions[2].operation else {
+    let RenderOperation::CompositeTexture(composite) = output.instructions[2].operation else {
         panic!("expected effect composite")
     };
-    let composite = output.composites[composite];
     assert_eq!(composite.texture, leaf_texture);
     let TexturePlacement::Local {
         transform,
@@ -288,7 +286,7 @@ fn offscreen_scissor_and_transparent_parent_restore_the_visible_sibling() {
     let offscreen = scene.add(Some(root), clip((150.0, 150.0), (200.0, 200.0)));
     let clipped = scene.add(Some(offscreen), shape(true));
     let sibling = scene.add(Some(root), shape(true));
-    let mut output = DrawPlan::default();
+    let mut output = RenderPlan::default();
     scene.plan(&mut DrawPlanner::default(), &mut output);
     assert_eq!(
         snapshot(&output),
@@ -316,7 +314,7 @@ fn empty_backdrop_parent_preserves_ancestor_clips_without_capture() {
     scene.attach_backdrop(empty);
     let child = scene.add(Some(empty), shape(true));
     let sibling = scene.add(Some(root), shape(true));
-    let mut output = DrawPlan::default();
+    let mut output = RenderPlan::default();
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let viewport = rect((0, 0), (100, 100));
     assert_eq!(
@@ -332,9 +330,16 @@ fn empty_backdrop_parent_preserves_ancestor_clips_without_capture() {
             (Operation::Decrement(ShapeDrawId(root)), 1, viewport),
         ]
     );
-    assert_eq!(output.segments.len(), 1);
     assert!(output.effect_parameters.is_empty());
 }
 
 mod backdrops;
 mod selection;
+mod targets;
+
+fn operations(plan: &RenderPlan) -> Vec<&RenderOperation> {
+    plan.instructions
+        .iter()
+        .map(|command| &command.operation)
+        .collect()
+}

@@ -4,7 +4,6 @@ pub(in crate::renderer) mod draws;
 pub(in crate::renderer) mod effects;
 pub(in crate::renderer) mod instructions;
 pub(in crate::renderer) mod leaf_batches;
-pub(in crate::renderer) mod segments;
 pub(in crate::renderer) mod shape_effects;
 pub(in crate::renderer) mod shapes;
 pub(in crate::renderer) mod targets;

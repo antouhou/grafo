@@ -1,7 +1,7 @@
 use super::draws::{DrawPlanner, DrawPlanningInput, DrawTreeSelection};
 use crate::commands::{
-    BackdropCaptureSource, DrawPlan, DrawSegment, EffectApplication, EffectParameters,
-    IntermediateTextureId, Target, TextureComposite,
+    BackdropCaptureSource, EffectApplication, IntermediateTextureId, RenderOperation, RenderPlan,
+    Target, TextureComposite,
 };
 use crate::core::effect::{BackdropEffectInstance, EffectInstance};
 use crate::renderer::types::DrawTreeNode;
@@ -29,18 +29,17 @@ pub(in crate::renderer) struct GroupPlanningInput<'a> {
     pub max_capture_dimension: u32,
 }
 
-/// Compiles all group dependencies and the surface scope before execution starts.
+/// Appends dependency targets and scene draws to the planner's shared stream.
 #[derive(Default)]
-pub(in crate::renderer) struct GroupPlanner {
+pub(in crate::renderer) struct SceneTraversal {
     groups: Vec<(usize, usize)>,
     results: HashMap<usize, IntermediateTextureId>,
     backdrop_ancestors: HashSet<usize>,
     draws: DrawPlanner,
 }
 
-impl GroupPlanner {
-    pub fn plan(&mut self, input: GroupPlanningInput<'_>, output: &mut DrawPlan) {
-        output.clear();
+impl SceneTraversal {
+    pub fn plan(&mut self, input: GroupPlanningInput<'_>, output: &mut RenderPlan) {
         self.results.clear();
         self.schedule(&input);
         for index in 0..self.groups.len() {
@@ -62,25 +61,28 @@ impl GroupPlanner {
             );
             let result = output.allocate_texture();
             let effect = &input.group_effects[&node];
-            let parameter_start = output.effect_parameters.len();
-            output.effect_parameters.extend_from_slice(&effect.params);
-            output
-                .segments
-                .push(DrawSegment::ApplyEffect(EffectApplication {
-                    effect_id: effect.effect_id,
-                    parameters: EffectParameters::Bytes(
-                        parameter_start..output.effect_parameters.len(),
-                    ),
-                    input: source,
-                    output: result,
-                }));
+            let parameters = output.store_parameters(&effect.params);
+            output.push(RenderOperation::ApplyEffect(EffectApplication {
+                effect_id: effect.effect_id,
+                parameters,
+                input: source,
+                output: result,
+            }));
             self.results.insert(node, result);
         }
-        self.append_target(
-            Target::Surface,
-            DrawTreeSelection::default(),
-            Some(BackdropCaptureSource::Target),
-            &input,
+        self.draws.append(
+            DrawPlanningInput {
+                tree: input.tree,
+                selection: DrawTreeSelection::default(),
+                effect_results: &self.results,
+                shape_effects: input.shape_effects,
+                group_effects: input.group_effects,
+                backdrop_effects: input.backdrop_effects,
+                scale_factor: input.scale_factor,
+                physical_size: input.physical_size,
+                backdrop_source: Some(BackdropCaptureSource::Target),
+                max_capture_dimension: Some(input.max_capture_dimension),
+            },
             output,
         );
     }
@@ -88,7 +90,9 @@ impl GroupPlanner {
     fn schedule(&mut self, input: &GroupPlanningInput<'_>) {
         self.groups.clear();
         self.backdrop_ancestors.clear();
-        if input.group_effects.is_empty() {
+        // Layered captures need completed group dependencies outside the captured subtree.
+        // Without captures, the tree walk opens group targets directly inside their parents.
+        if input.group_effects.is_empty() || input.backdrop_effects.is_empty() {
             return;
         }
         for &node in input.group_effects.keys() {
@@ -117,7 +121,7 @@ impl GroupPlanner {
         &mut self,
         node: usize,
         input: &GroupPlanningInput<'_>,
-        output: &mut DrawPlan,
+        output: &mut RenderPlan,
     ) -> Option<BackdropCaptureSource> {
         if !self.backdrop_ancestors.contains(&node) {
             return None;
@@ -145,9 +149,9 @@ impl GroupPlanner {
         selection: DrawTreeSelection,
         backdrop_source: Option<BackdropCaptureSource>,
         input: &GroupPlanningInput<'_>,
-        output: &mut DrawPlan,
+        output: &mut RenderPlan,
     ) {
-        output.segments.push(DrawSegment::BeginTarget(target));
+        output.push(RenderOperation::BeginTarget(target));
         self.draws.append(
             DrawPlanningInput {
                 tree: input.tree,
@@ -163,7 +167,7 @@ impl GroupPlanner {
             },
             output,
         );
-        output.segments.push(DrawSegment::EndTarget);
+        output.push(RenderOperation::EndTarget);
     }
 }
 

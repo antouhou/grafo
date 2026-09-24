@@ -14,7 +14,7 @@ fn selected_subtree_starts_at_the_viewport_and_substitutes_nested_effects() {
     let texture = IntermediateTextureId::Registered(4);
     scene.results.insert(nested_group, texture);
     let mut planner = DrawPlanner::default();
-    let mut output = DrawPlan::default();
+    let mut output = RenderPlan::default();
     scene.plan_selection(
         DrawTreeSelection {
             subtree_root: Some(selected),
@@ -61,12 +61,12 @@ fn exclusion_precedes_effect_substitution_and_restores_clips_for_siblings() {
     scene.shape_effects.insert(
         excluded,
         TextureComposite {
-            texture: IntermediateTextureId::ShapeEffect(0),
+            texture: IntermediateTextureId::Registered(100),
             placement: TexturePlacement::Target,
         },
     );
     let mut planner = DrawPlanner::default();
-    let mut output = DrawPlan::default();
+    let mut output = RenderPlan::default();
     scene.plan_selection(
         DrawTreeSelection {
             excluded_subtree: Some(excluded),
@@ -89,11 +89,10 @@ fn exclusion_precedes_effect_substitution_and_restores_clips_for_siblings() {
             (Operation::Decrement(ShapeDrawId(root)), 1, viewport),
         ]
     );
-    assert!(matches!(
-        output.segments.as_slice(),
-        [DrawSegment::Draws { .. }]
-    ));
-    assert!(output.composites.is_empty());
+    assert!(!output
+        .instructions
+        .iter()
+        .any(|c| matches!(c.operation, RenderOperation::CompositeTexture(_))));
     assert!(output.effect_parameters.is_empty());
     assert_eq!(output.texture_count, 0);
 
@@ -136,7 +135,7 @@ fn substituted_group_omits_its_clips_effects_and_deep_descendants() {
     scene.shape_effects.insert(
         group,
         TextureComposite {
-            texture: IntermediateTextureId::ShapeEffect(0),
+            texture: IntermediateTextureId::Registered(100),
             placement: TexturePlacement::Target,
         },
     );
@@ -144,7 +143,7 @@ fn substituted_group_omits_its_clips_effects_and_deep_descendants() {
     let mut planner = DrawPlanner::default();
     planner.parents.reserve(4);
     let parent_capacity = planner.parents.capacity();
-    let mut output = DrawPlan::default();
+    let mut output = RenderPlan::default();
 
     // Excluding a descendant does not undo substitution of its ancestor.
     scene.plan_selection(
@@ -166,11 +165,14 @@ fn substituted_group_omits_its_clips_effects_and_deep_descendants() {
         ]
     );
     assert_eq!(planner.parents.capacity(), parent_capacity);
-    assert_eq!(output.composites.len(), 1);
-    assert!(matches!(
-        output.segments.as_slice(),
-        [DrawSegment::Draws { .. }]
-    ));
+    assert_eq!(
+        output
+            .instructions
+            .iter()
+            .filter(|c| matches!(c.operation, RenderOperation::CompositeTexture(_)))
+            .count(),
+        1
+    );
     assert!(output.effect_parameters.is_empty());
     assert_eq!(output.texture_count, 0);
 
@@ -203,8 +205,10 @@ fn substituted_group_omits_its_clips_effects_and_deep_descendants() {
     ] {
         scene.plan_selection(selection, &mut planner, &mut output);
         assert!(output.instructions.is_empty());
-        assert!(output.segments.is_empty());
-        assert!(output.composites.is_empty());
+        assert!(!output
+            .instructions
+            .iter()
+            .any(|c| matches!(c.operation, RenderOperation::CompositeTexture(_))));
         assert!(planner.parents.is_empty());
     }
 }
@@ -218,7 +222,7 @@ fn deep_and_wide_rebuilt_trees_reuse_parent_and_command_storage() {
     }
     let leaf = scene.add(Some(parent), shape(true));
     let mut planner = DrawPlanner::default();
-    let mut output = DrawPlan::default();
+    let mut output = RenderPlan::default();
     scene.plan(&mut planner, &mut output);
     assert_eq!(
         snapshot(&output),
@@ -228,11 +232,7 @@ fn deep_and_wide_rebuilt_trees_reuse_parent_and_command_storage() {
             rect((10, 10), (80, 80))
         )]
     );
-    let storage = (
-        planner.parents.as_ptr(),
-        output.instructions.as_ptr(),
-        output.segments.as_ptr(),
-    );
+    let storage = (planner.parents.as_ptr(), output.instructions.as_ptr());
     scene.tree.clear();
     let root = scene.add(None, clip((20.0, 20.0), (70.0, 70.0)));
     for _ in 0..4096 {
@@ -250,11 +250,7 @@ fn deep_and_wide_rebuilt_trees_reuse_parent_and_command_storage() {
     );
     assert_eq!(
         storage,
-        (
-            planner.parents.as_ptr(),
-            output.instructions.as_ptr(),
-            output.segments.as_ptr()
-        )
+        (planner.parents.as_ptr(), output.instructions.as_ptr(),)
     );
     assert!(planner.parents.is_empty());
     #[cfg(feature = "render_metrics")]

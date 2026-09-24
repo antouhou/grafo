@@ -8,8 +8,8 @@ use super::textures::{
 };
 use super::{draws, targets};
 use crate::commands::{
-    DrawPlan, DrawSegment, EffectApplication, EffectParameters, IntermediateTextureId, MaskTarget,
-    ShapeMaskDraw, Target,
+    EffectApplication, EffectParameters, IntermediateTextureId, MaskTarget, RenderPlan,
+    ShapeMaskDraw,
 };
 use crate::renderer::backend::resources::Buffers;
 #[cfg(feature = "render_metrics")]
@@ -34,8 +34,9 @@ struct MaskUniform {
     padding: [f32; 2],
 }
 
-struct CompletedMask {
-    texture: IntermediateTextureId,
+#[derive(Clone)]
+pub(super) struct CompletedMask {
+    pub(super) texture: IntermediateTextureId,
     key: ShapeEffectMaskCacheKey,
     #[cfg(feature = "render_metrics")]
     was_cached: bool,
@@ -58,7 +59,7 @@ pub(in crate::renderer) struct ShapeEffectExecutionResources<'a> {
 }
 
 impl ShapeEffectExecutionResources<'_> {
-    fn draw_mask(
+    pub(super) fn draw_mask(
         &mut self,
         encoder: &mut CommandEncoder,
         target: MaskTarget,
@@ -144,16 +145,18 @@ impl ShapeEffectExecutionResources<'_> {
         }
     }
 
-    fn apply_effect(
+    pub(super) fn apply_effect(
         &mut self,
         encoder: &mut CommandEncoder,
         command: &EffectApplication,
+        commands: &RenderPlan,
         mask: CompletedMask,
     ) {
         assert_eq!(mask.texture, command.input);
-        let EffectParameters::Shared(parameters) = &command.parameters else {
+        let EffectParameters::Shared(index) = command.parameters else {
             unreachable!("shape effects share immutable parameter bytes");
         };
+        let parameters = &commands.shared_effect_parameters[index];
         let key = ShapeEffectCacheKey {
             mask_key: mask.key,
             effect_id: command.effect_id,
@@ -216,55 +219,6 @@ impl ShapeEffectExecutionResources<'_> {
                 },
             )
         };
-        assert_eq!(
-            command.output,
-            IntermediateTextureId::ShapeEffect(self.textures.shape_effect_outputs.len())
-        );
-        self.textures.shape_effect_outputs.push(texture);
+        self.textures.insert_cached_output(command.output, texture);
     }
-}
-
-/// Interprets completed mask scopes and effect commands without consulting the scene.
-pub(in crate::renderer) fn execute_shape_effects(
-    encoder: &mut CommandEncoder,
-    commands: &DrawPlan,
-    mut resources: ShapeEffectExecutionResources<'_>,
-) {
-    resources.textures.shape_effect_outputs.clear();
-    let mut target = None;
-    let mut mask = None;
-    for command in &commands.segments {
-        match command {
-            DrawSegment::BeginTarget(Target::Mask(next)) => {
-                assert!(
-                    target.is_none() && mask.is_none(),
-                    "mask targets cannot nest"
-                );
-                target = Some(*next);
-            }
-            DrawSegment::DrawShapeMask(draw) => {
-                mask = Some(resources.draw_mask(
-                    encoder,
-                    target.expect("mask draw requires a target"),
-                    *draw,
-                ));
-            }
-            DrawSegment::EndTarget => {
-                target.take().expect("mask target must be open");
-            }
-            DrawSegment::ApplyEffect(effect) => {
-                assert!(target.is_none(), "mask target must finish before sampling");
-                resources.apply_effect(
-                    encoder,
-                    effect,
-                    mask.take().expect("effect input must be produced first"),
-                );
-            }
-            _ => unreachable!("shape effect preparation only contains mask and effect commands"),
-        }
-    }
-    assert!(
-        target.is_none() && mask.is_none(),
-        "shape effects must finish their outputs"
-    );
 }
