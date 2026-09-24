@@ -1,10 +1,13 @@
-use super::execution::shapes::TextureMaterialPipelines;
-use super::state::BackdropPipelineResources;
-use super::*;
-use crate::effect::{
-    BackdropCaptureArea, BackdropEffectConfig, BackdropEffectInstance, ShapeEffectConfig,
-    ShapeEffectInstance,
+use super::types::DrawTreeNode;
+use super::Renderer;
+use crate::core::effect::{
+    BackdropCaptureArea, BackdropEffectConfig, BackdropEffectInstance, EffectInstance,
+    ShapeEffectConfig, ShapeEffectInstance,
 };
+pub use errors::{EffectError, EffectShaderError};
+use std::sync::Arc;
+
+mod errors;
 
 fn update_effect_params(instance: &mut EffectInstance, params: &[u8]) -> Result<(), EffectError> {
     if instance.params.len() != params.len() {
@@ -92,10 +95,12 @@ impl<'a> Renderer<'a> {
         effect_id: u64,
         pass_sources: &[&str],
     ) -> Result<(), EffectError> {
-        if self
-            .effect_registry
-            .load(&self.device, self.config.format, effect_id, pass_sources)?
-        {
+        if self.backend.effect_registry.load(
+            &self.backend.device,
+            self.backend.config.format,
+            effect_id,
+            pass_sources,
+        )? {
             self.remove_effect_attachments(effect_id);
         }
         Ok(())
@@ -108,7 +113,7 @@ impl<'a> Renderer<'a> {
         params: &[u8],
     ) -> Result<(), EffectError> {
         let draw_tree_node = self
-            .state
+            .planner
             .draw_tree
             .get(node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
@@ -118,13 +123,15 @@ impl<'a> Renderer<'a> {
             ));
         }
 
-        self.effect_registry.validate_params(effect_id, params)?;
+        self.backend
+            .effect_registry
+            .validate_params(effect_id, params)?;
         let instance = EffectInstance {
             effect_id,
             params: params.to_vec(),
         };
 
-        self.state.group_effects.insert(node_id, instance);
+        self.planner.group_effects.insert(node_id, instance);
         Ok(())
     }
 
@@ -134,18 +141,19 @@ impl<'a> Renderer<'a> {
         params: &[u8],
     ) -> Result<(), EffectError> {
         let instance = self
-            .state
+            .planner
             .group_effects
             .get_mut(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
 
-        self.effect_registry
+        self.backend
+            .effect_registry
             .validate_params(instance.effect_id, params)?;
         update_effect_params(instance, params)
     }
 
     pub fn remove_group_effect(&mut self, node_id: usize) {
-        self.state.group_effects.remove(&node_id);
+        self.planner.group_effects.remove(&node_id);
     }
 
     pub fn set_shape_backdrop_effect(
@@ -156,7 +164,7 @@ impl<'a> Renderer<'a> {
         backdrop_config: BackdropEffectConfig,
     ) -> Result<(), EffectError> {
         let draw_tree_node = self
-            .state
+            .planner
             .draw_tree
             .get(node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
@@ -166,14 +174,16 @@ impl<'a> Renderer<'a> {
             ));
         }
 
-        self.effect_registry.validate_params(effect_id, params)?;
+        self.backend
+            .effect_registry
+            .validate_params(effect_id, params)?;
         validate_backdrop_config(&backdrop_config)?;
         let instance = EffectInstance {
             effect_id,
             params: params.to_vec(),
         };
 
-        self.state.backdrop_effects.insert(
+        self.planner.backdrop_effects.insert(
             node_id,
             BackdropEffectInstance::new(instance, backdrop_config),
         );
@@ -188,7 +198,7 @@ impl<'a> Renderer<'a> {
         validate_backdrop_config(&backdrop_config)?;
 
         let instance = self
-            .state
+            .planner
             .backdrop_effects
             .get_mut(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
@@ -202,20 +212,27 @@ impl<'a> Renderer<'a> {
         params: &[u8],
     ) -> Result<(), EffectError> {
         let instance = self
-            .state
+            .planner
             .backdrop_effects
             .get_mut(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
         let instance = &mut instance.effect;
 
-        self.effect_registry
+        self.backend
+            .effect_registry
             .validate_params(instance.effect_id, params)?;
         update_effect_params(instance, params)
     }
 
     pub fn remove_backdrop_effect(&mut self, node_id: usize) {
-        self.state.backdrop_effects.remove(&node_id);
-        if let Some(resources) = self.state.shape_execution.draws.get_mut(&node_id) {
+        self.planner.backdrop_effects.remove(&node_id);
+        if let Some(resources) = self
+            .backend
+            .resources
+            .shape_execution
+            .draws
+            .get_mut(&node_id)
+        {
             resources.clear_under_fill_binding();
         }
     }
@@ -229,7 +246,7 @@ impl<'a> Renderer<'a> {
         config: ShapeEffectConfig,
     ) -> Result<(), EffectError> {
         let draw_tree_node = self
-            .state
+            .planner
             .draw_tree
             .get(node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
@@ -239,16 +256,19 @@ impl<'a> Renderer<'a> {
             ));
         };
 
-        self.effect_registry.validate_params(effect_id, params)?;
+        self.backend
+            .effect_registry
+            .validate_params(effect_id, params)?;
         validate_shape_effect_config(&config)?;
-        self.state
+        self.backend
+            .resources
             .shape_execution
             .draws
             .get_mut(&node_id)
             .expect("shape draw resources were prepared when queued")
             .mask_tessellation
             .get_or_insert_with(|| Arc::clone(&shape.cached_shape.tessellation));
-        self.state.shape_effects.insert(
+        self.planner.shape_effects.insert(
             node_id,
             ShapeEffectInstance {
                 effect_id,
@@ -266,11 +286,12 @@ impl<'a> Renderer<'a> {
         params: &[u8],
     ) -> Result<(), EffectError> {
         let instance = self
-            .state
+            .planner
             .shape_effects
             .get_mut(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
-        self.effect_registry
+        self.backend
+            .effect_registry
             .validate_params(instance.effect_id, params)?;
         instance.params = Arc::from(params);
         Ok(())
@@ -284,7 +305,7 @@ impl<'a> Renderer<'a> {
     ) -> Result<(), EffectError> {
         validate_shape_effect_config(&config)?;
         let instance = self
-            .state
+            .planner
             .shape_effects
             .get_mut(&node_id)
             .ok_or(EffectError::NodeNotFound(node_id))?;
@@ -293,95 +314,61 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn remove_shape_effect(&mut self, node_id: usize) {
-        self.state.shape_effects.remove(&node_id);
-        if let Some(resources) = self.state.shape_execution.draws.get_mut(&node_id) {
+        self.planner.shape_effects.remove(&node_id);
+        if let Some(resources) = self
+            .backend
+            .resources
+            .shape_execution
+            .draws
+            .get_mut(&node_id)
+        {
             resources.mask_tessellation = None;
         }
     }
 
     pub fn unload_effect(&mut self, effect_id: u64) {
-        self.effect_registry.unload(effect_id);
+        self.backend.effect_registry.unload(effect_id);
         self.remove_effect_attachments(effect_id);
     }
 
     fn remove_effect_attachments(&mut self, effect_id: u64) {
-        self.state
+        self.planner
             .group_effects
             .retain(|_, instance| instance.effect_id != effect_id);
-        self.state.backdrop_effects.retain(|node_id, instance| {
+        self.planner.backdrop_effects.retain(|node_id, instance| {
             if instance.effect.effect_id == effect_id {
-                if let Some(resources) = self.state.shape_execution.draws.get_mut(node_id) {
+                if let Some(resources) = self
+                    .backend
+                    .resources
+                    .shape_execution
+                    .draws
+                    .get_mut(node_id)
+                {
                     resources.clear_under_fill_binding();
                 }
                 return false;
             }
             true
         });
-        self.state.shape_effects.retain(|node_id, instance| {
+        self.planner.shape_effects.retain(|node_id, instance| {
             if instance.effect_id == effect_id {
-                if let Some(resources) = self.state.shape_execution.draws.get_mut(node_id) {
+                if let Some(resources) = self
+                    .backend
+                    .resources
+                    .shape_execution
+                    .draws
+                    .get_mut(node_id)
+                {
                     resources.mask_tessellation = None;
                 }
                 return false;
             }
             true
         });
-        self.state.textures.invalidate_shape_effect(effect_id);
-    }
-
-    pub(super) fn ensure_composite_pipeline(&mut self) -> &CompositePipelineResources {
-        self.pipeline_resources
-            .composite_resources
-            .get_or_insert_with(|| {
-                compile_composite_pipeline(&self.device, self.config.format, self.msaa_sample_count)
-            })
-    }
-
-    pub(super) fn ensure_backdrop_pipelines(&mut self) {
-        if self.pipeline_resources.backdrops.is_some() {
-            return;
-        }
-
-        self.ensure_composite_pipeline();
-        if self
-            .pipeline_resources
-            .shapes
-            .under_fill_pipelines
-            .is_none()
-        {
-            let under_fill_pipelines = TextureMaterialPipelines::new(
-                &self.device,
-                self.config.format,
-                self.msaa_sample_count,
-                &self.pipeline_resources.shapes,
-            );
-            self.pipeline_resources.shapes.under_fill_pipelines = Some(under_fill_pipelines);
-        }
-        let resources = &self.pipeline_resources;
-        let composite = resources
-            .composite_resources
-            .as_ref()
-            .expect("composite resources were initialized above");
-        self.pipeline_resources.backdrops = Some(BackdropPipelineResources::new(
-            &self.device,
-            self.config.format,
-            &composite.bind_group_layout,
-        ));
-    }
-
-    pub(super) fn ensure_effect_sampler(&mut self) {
-        if self.pipeline_resources.effect_sampler.is_none() {
-            self.pipeline_resources.effect_sampler =
-                Some(self.device.create_sampler(&wgpu::SamplerDescriptor {
-                    address_mode_u: wgpu::AddressMode::ClampToEdge,
-                    address_mode_v: wgpu::AddressMode::ClampToEdge,
-                    address_mode_w: wgpu::AddressMode::ClampToEdge,
-                    mag_filter: wgpu::FilterMode::Linear,
-                    min_filter: wgpu::FilterMode::Linear,
-                    mipmap_filter: wgpu::FilterMode::Linear,
-                    ..Default::default()
-                }));
-        }
+        self.backend
+            .resources
+            .textures
+            .invalidate_shape_effect(effect_id);
     }
 }
 

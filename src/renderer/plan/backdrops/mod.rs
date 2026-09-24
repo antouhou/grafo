@@ -1,9 +1,9 @@
-use crate::effect::{BackdropCaptureArea, BackdropEffectConfig};
-use crate::renderer::commands::BackdropCaptureRegion;
+use crate::commands::BackdropCaptureRegion;
+use crate::core::effect::{BackdropCaptureArea, BackdropEffectConfig};
+use crate::core::vertex::InstanceTransform;
 use crate::renderer::rect_utils::{
     logical_rect_to_physical_rect, transformed_bounds_to_logical_screen_rect,
 };
-use crate::vertex::InstanceTransform;
 use crate::{MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
 use tracing::warn;
 

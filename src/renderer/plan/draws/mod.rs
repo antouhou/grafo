@@ -1,11 +1,11 @@
-use crate::effect::{BackdropEffectInstance, EffectInstance};
-use crate::renderer::commands::{
+use crate::commands::{
     BackdropCaptureSource, DrawClip, DrawInstruction, DrawOperation, DrawPlan,
     IntermediateTextureId, ShapeDraw, ShapeDrawId, TextureComposite, TexturePlacement,
 };
+use crate::core::effect::{BackdropEffectInstance, EffectInstance};
 use crate::renderer::rect_utils::{should_skip_visible_rect_draw, try_scissor_for_rect};
+use crate::renderer::types::CachedShapeDrawData;
 use crate::renderer::types::DrawTreeNode;
-use crate::shape::CachedShapeDrawData;
 use crate::{Size, UnsignedPhysicalRect};
 use ahash::HashMap;
 use easy_tree::Tree;

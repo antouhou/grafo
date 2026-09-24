@@ -1,5 +1,5 @@
 use super::{validate_backdrop_config, validate_shape_effect_config};
-use crate::effect::{BackdropCaptureArea, BackdropEffectConfig, ShapeEffectConfig};
+use crate::core::effect::{BackdropCaptureArea, BackdropEffectConfig, ShapeEffectConfig};
 
 #[test]
 fn validate_backdrop_config_rejects_non_positive_downsample() {

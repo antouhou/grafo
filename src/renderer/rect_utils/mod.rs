@@ -1,6 +1,6 @@
 use super::types::DrawTreeNode;
-use crate::effect::{BackdropEffectInstance, EffectInstance};
-use crate::vertex::InstanceTransform;
+use crate::core::effect::{BackdropEffectInstance, EffectInstance};
+use crate::core::vertex::InstanceTransform;
 use crate::{MathRect, PhysicalRect, Size, UnsignedPhysicalRect};
 use ahash::HashMap;
 use lyon::geom::euclid::default::Transform3D;

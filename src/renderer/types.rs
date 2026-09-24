@@ -1,13 +1,72 @@
-use super::commands::DrawPlan;
-use super::execution::effects::EffectContext;
+use super::backend::execution::effects::EffectContext;
 #[cfg(feature = "render_metrics")]
 use super::metrics::PipelineSwitchCounts;
-use super::plan::groups::GroupPlanner;
-use super::plan::shape_effects::ShapeEffectPlan;
-use crate::shape::{CachedShapeDrawData, ShapeTextureBinding};
-use crate::vertex::InstanceTransform;
+use crate::commands::{ShapeDrawMaterial, ShapeTextureBinding};
+use crate::core::shape::{CachedShapeHandle, ShapeDrawCommandOptions, ShapeTextureFitMode};
+use crate::core::vertex::InstanceTransform;
+use crate::Fill;
 use thiserror::Error;
 use wgpu::SurfaceError;
+
+#[derive(Debug)]
+pub(crate) struct CachedShapeDrawData {
+    pub(crate) cached_shape: CachedShapeHandle,
+    /// Optional per-shape transform applied in pixel space before clip-space normalization.
+    pub(crate) transform: Option<InstanceTransform>,
+    /// Texture sources associated with this cached shape.
+    pub(crate) texture_bindings: [ShapeTextureBinding; 2],
+    pub(crate) texture_fit_modes: [ShapeTextureFitMode; 2],
+    /// Linear RGBA color for a solid fill. Other fills leave this unset.
+    pub(crate) color_override: Option<[f32; 4]>,
+    /// A solid or gradient fill. `None` leaves the shape transparent
+    pub(crate) fill: Option<Fill>,
+    /// Whether this node has no children in the draw tree.
+    pub(crate) is_leaf: bool,
+    /// When `false`, skip this parent's stencil operations so it does not clip its children.
+    pub(crate) clips_children: bool,
+}
+
+impl CachedShapeDrawData {
+    pub(crate) fn material(&self) -> ShapeDrawMaterial {
+        ShapeDrawMaterial {
+            has_gradient_fill: self.has_gradient_fill(),
+            texture_bindings: self.texture_bindings,
+            under_fill_texture: None,
+        }
+    }
+
+    pub(crate) fn has_gradient_fill(&self) -> bool {
+        matches!(&self.fill, Some(Fill::Gradient(_)))
+    }
+
+    pub fn new(cached_shape: CachedShapeHandle, options: &ShapeDrawCommandOptions) -> Self {
+        Self {
+            cached_shape,
+            transform: options.transform,
+            texture_bindings: [
+                options
+                    .background_texture
+                    .texture_id
+                    .map_or(ShapeTextureBinding::None, ShapeTextureBinding::Managed),
+                options
+                    .foreground_texture
+                    .texture_id
+                    .map_or(ShapeTextureBinding::None, ShapeTextureBinding::Managed),
+            ],
+            texture_fit_modes: [
+                options.background_texture.fit_mode,
+                options.foreground_texture.fit_mode,
+            ],
+            clips_children: options.clips_children,
+            color_override: match options.fill.as_ref() {
+                Some(Fill::Solid(color)) => Some(color.normalize()),
+                _ => None,
+            },
+            fill: options.fill.clone(),
+            is_leaf: true,
+        }
+    }
+}
 
 // TODO: probably some parts of it also can be cached, so we don't need to copy it all the time.
 #[allow(clippy::large_enum_variant)]
@@ -282,29 +341,4 @@ pub(super) struct BackdropContext<'a> {
     pub(super) texture_blit_pipeline: &'a wgpu::RenderPipeline,
     pub(super) backdrop_layer_composite_pipeline: &'a wgpu::RenderPipeline,
     pub(super) backdrop_layer_composite_bind_group_layout: &'a wgpu::BindGroupLayout,
-}
-
-pub(super) struct RendererScratch {
-    pub(super) shape_effect_plan: ShapeEffectPlan,
-    pub(super) group_planner: GroupPlanner,
-    pub(super) draw_plan: DrawPlan,
-    /// CPU storage reused for mapped readback data.
-    pub(super) readback_bytes: Vec<u8>,
-}
-
-impl RendererScratch {
-    pub(super) fn new() -> Self {
-        Self {
-            shape_effect_plan: ShapeEffectPlan::new(),
-            group_planner: GroupPlanner::default(),
-            draw_plan: DrawPlan::default(),
-            readback_bytes: Vec::new(),
-        }
-    }
-
-    pub(super) fn begin_frame(&mut self) {
-        self.draw_plan.clear();
-        self.shape_effect_plan.clear();
-        self.readback_bytes.clear();
-    }
 }

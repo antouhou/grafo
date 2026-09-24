@@ -45,40 +45,20 @@
 pub use lyon;
 pub use wgpu;
 
-mod color;
-mod effect;
-mod geometry;
-pub mod gradient;
+pub mod commands;
+pub mod core;
 mod pipeline;
 mod renderer;
-mod stroke;
-mod util;
-mod vertex;
-
-mod cache;
-mod shape;
 mod texture_manager;
 
-pub use color::Color;
-pub use effect::{
-    BackdropCaptureArea, BackdropEffectConfig, EffectError, EffectShaderError, ShapeEffectConfig,
-};
-pub use geometry::{MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
-pub use gradient::errors::GradientError;
-pub use gradient::types::{
-    ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
-    GradientDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
-    HueComponent, HueInterpolationMethod, LinearGradientDesc, LinearGradientLine,
-    RadialGradientDesc, RadialGradientSize, SpreadMode,
-};
+pub use crate::core::*;
+pub use commands::RenderPlan;
 pub use renderer::{
     types::{DrawCommandError, GeometryBufferError, RenderError},
-    ReadbackError, Renderer, RendererContext, RendererCreationError,
+    EffectError, EffectShaderError, ReadbackError, RenderBackend, Renderer, RendererContext,
+    RendererCreationError, Viewport, WgpuBackend,
 };
-pub use shape::*;
-pub use stroke::Stroke;
-pub use texture_manager::{premultiply_rgba8_srgb_inplace, TextureManager};
-pub use vertex::InstanceTransform as TransformInstance;
+pub use texture_manager::TextureManager;
 
 #[cfg(feature = "render_metrics")]
 pub use renderer::metrics::PhaseTimings;

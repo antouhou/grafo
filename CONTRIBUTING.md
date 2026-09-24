@@ -1,5 +1,13 @@
 # Coding style and best practices
 
+## Structure of the project
+The project consist of several modules that shouldn't mix responsibilities with each other:
+- [`src/core`]: all basic math and geometry structures; If you need to use a math structure such as rect, color, color
+conversion function, CPU representation of a tesellated vertex - look into core module. If you need to introduce a new
+math/geometry structure, add it to the core. But first, make sure that the structure or helper are not yet present in
+some shape or form in the core module.
+- [`src/commands`]
+
 ## Basic rules
 
 - Use full, descriptive names for variables, functions, types, and modules. Do not abbreviate them. NEVER shorten the names, as it makes it extremely hard to read and review.

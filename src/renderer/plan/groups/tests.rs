@@ -1,12 +1,13 @@
 use super::{GroupPlanner, GroupPlanningInput};
-use crate::effect::{BackdropEffectConfig, BackdropEffectInstance, EffectInstance};
-use crate::renderer::commands::{
-    BackdropCaptureSource, DrawOperation, DrawPlan, DrawSegment, IntermediateTextureId, Target,
-    TextureComposite,
+use crate::commands::{
+    BackdropCaptureSource, DrawOperation, DrawPlan, DrawSegment, IntermediateTextureId,
+    ShapeTextureBinding, Target, TextureComposite,
 };
+use crate::core::effect::{BackdropEffectConfig, BackdropEffectInstance, EffectInstance};
+use crate::core::shape::CachedShapeHandle;
+use crate::core::util::ShapeResources;
+use crate::renderer::types::CachedShapeDrawData;
 use crate::renderer::types::{ClipRectDrawData, DrawTreeNode};
-use crate::shape::{CachedShapeDrawData, CachedShapeHandle, ShapeTextureBinding};
-use crate::util::ShapeResources;
 use crate::{Shape, ShapeDrawCommandOptions, Size, Stroke};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
