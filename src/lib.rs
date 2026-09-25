@@ -45,20 +45,20 @@
 pub use lyon;
 pub use wgpu;
 
+pub mod backend;
 pub mod commands;
 pub mod core;
-mod pipeline;
+pub(crate) mod planner;
 mod renderer;
-mod texture_manager;
+pub mod scene;
 
 pub use crate::core::*;
+pub use backend::texture_manager::TextureManager;
 pub use commands::RenderPlan;
 pub use renderer::{
-    types::{DrawCommandError, GeometryBufferError, RenderError},
-    EffectError, EffectShaderError, ReadbackError, RenderBackend, Renderer, RendererContext,
-    RendererCreationError, WgpuBackend,
+    types::DrawCommandError, EffectError, EffectShaderError, ReadbackError, RenderBackend,
+    Renderer, RendererContext, RendererCreationError, WgpuBackend,
 };
-pub use texture_manager::TextureManager;
 
 #[cfg(feature = "render_metrics")]
 pub use renderer::metrics::PhaseTimings;
@@ -66,3 +66,6 @@ pub use renderer::metrics::PhaseTimings;
 pub use renderer::metrics::PipelineSwitchCounts;
 #[cfg(feature = "render_metrics")]
 pub use renderer::metrics::ShapeEffectCacheMetrics;
+
+pub use backend::{EffectResourceError, GeometryBufferError, WgpuBackendError};
+pub use scene::SceneError;

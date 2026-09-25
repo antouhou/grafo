@@ -10,8 +10,11 @@ mod stroke;
 pub(crate) mod util;
 pub(crate) mod vertex;
 
+pub use cache::CachedTessellation;
 pub use color::{premultiply_rgba8_srgb_inplace, Color};
-pub use effect::{BackdropCaptureArea, BackdropEffectConfig, ShapeEffectConfig};
+pub use effect::{
+    BackdropCaptureArea, BackdropCaptureRegion, BackdropEffectConfig, ShapeEffectConfig,
+};
 pub use geometry::{
     MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect, Viewport,
 };
@@ -25,3 +28,4 @@ pub use gradient::types::{
 pub use shape::*;
 pub use stroke::Stroke;
 pub use vertex::InstanceTransform as TransformInstance;
+pub use vertex::{CustomVertex, TextureUvTransform};

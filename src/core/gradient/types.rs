@@ -1,5 +1,6 @@
 use super::errors::GradientError;
 use super::normalize::NormalizedGradient;
+use super::sampling;
 use crate::core::Color;
 use smallvec::SmallVec;
 use std::ops::{Deref, DerefMut};
@@ -459,7 +460,7 @@ pub(crate) struct GradientRampStopKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct GradientRampCacheKey {
+pub struct GradientRampCacheKey {
     pub(crate) interpolation: ColorInterpolation,
     pub(crate) stops: GradientRampKeyStops,
 }
@@ -500,7 +501,7 @@ impl From<Gradient> for Fill {
 }
 
 /// The number of texels in a baked gradient ramp texture.
-pub(crate) const RAMP_RESOLUTION: usize = 1024;
+pub const RAMP_RESOLUTION: usize = 1024;
 
 #[derive(Debug, Clone)]
 pub struct Gradient {
@@ -508,7 +509,7 @@ pub struct Gradient {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum GradientRamp {
+pub enum GradientRamp {
     Constant([f32; 4]),
     /// Resolved from the ramp cache or baked before upload.
     Pending(Box<GradientRampSource>),
@@ -516,7 +517,7 @@ pub(crate) enum GradientRamp {
 }
 
 impl GradientRamp {
-    pub(crate) fn as_slice(&self) -> &[[f32; 4]] {
+    pub fn as_slice(&self) -> &[[f32; 4]] {
         match self {
             GradientRamp::Constant(color) => std::slice::from_ref(color),
             GradientRamp::Pending(_) => {
@@ -528,29 +529,36 @@ impl GradientRamp {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct GradientRampSource {
+pub struct GradientRampSource {
     pub(crate) interpolation: ColorInterpolation,
     pub(crate) normalized: NormalizedGradient,
 }
 
+impl GradientRampSource {
+    /// Samples this source for upload. Backends can reuse the result by its ramp cache key.
+    pub fn bake(&self) -> GradientRamp {
+        sampling::bake_gradient_ramp(self)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum GradientGeometry {
+pub enum GradientGeometry {
     Linear(LinearGradientLine),
     Radial { center: [f32; 2], radius: [f32; 2] },
     Conic { center: [f32; 2], start_angle: f32 },
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct GradientData {
-    pub(crate) geometry: GradientGeometry,
-    pub(crate) units: GradientUnits,
-    pub(crate) spread: SpreadMode,
-    pub(crate) ramp_cache_key: GradientRampCacheKey,
+pub struct GradientData {
+    pub geometry: GradientGeometry,
+    pub units: GradientUnits,
+    pub spread: SpreadMode,
+    pub ramp_cache_key: GradientRampCacheKey,
     /// Pending source, a constant color, or a sampled linear premultiplied RGBA ramp.
-    pub(crate) ramp: GradientRamp,
+    pub ramp: GradientRamp,
     /// For repeating: period_start and period_len in the t/theta domain
-    pub(crate) period_start: f32,
-    pub(crate) period_len: f32,
+    pub period_start: f32,
+    pub period_len: f32,
 }
 
 impl GradientData {
@@ -590,6 +598,11 @@ impl GradientData {
 }
 
 impl Gradient {
+    /// Resolved CPU description borrowed by backend material preparation.
+    pub fn data(&self) -> &GradientData {
+        &self.data
+    }
+
     pub fn new(desc: GradientDesc) -> Result<Self, GradientError> {
         match desc {
             GradientDesc::Linear(d) => Self::linear(d),

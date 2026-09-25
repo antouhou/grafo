@@ -2,7 +2,7 @@ use super::IntermediateTextureId;
 use crate::core::PhysicalRect;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) enum ShapeTextureBinding {
+pub enum ShapeTextureBinding {
     #[default]
     None,
     Managed(u64),
@@ -10,11 +10,11 @@ pub(crate) enum ShapeTextureBinding {
 }
 
 impl ShapeTextureBinding {
-    pub(crate) fn is_present(&self) -> bool {
+    pub fn is_present(&self) -> bool {
         !matches!(self, Self::None)
     }
 
-    pub(crate) fn managed_texture_id(&self) -> Option<u64> {
+    pub fn managed_texture_id(&self) -> Option<u64> {
         match self {
             Self::Managed(texture_id) => Some(*texture_id),
             Self::None | Self::Intermediate(_) => None,
@@ -24,7 +24,7 @@ impl ShapeTextureBinding {
 
 /// Coordinates used to sample a shape material's texture.
 #[derive(Clone, Copy, Debug, Default)]
-pub(crate) enum TextureSampling {
+pub enum TextureSampling {
     #[default]
     ShapeUv,
     /// Full-resolution physical bounds, independent of the texture's resolution.
@@ -32,21 +32,21 @@ pub(crate) enum TextureSampling {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct ShapeTextureLayer {
-    pub(crate) texture: ShapeTextureBinding,
-    pub(crate) sampling: TextureSampling,
+pub struct ShapeTextureLayer {
+    pub texture: ShapeTextureBinding,
+    pub sampling: TextureSampling,
 }
 
 /// Value parameters and texture IDs for one draw. Material resources stay in execution.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct ShapeDrawMaterial {
-    pub(crate) has_gradient_fill: bool,
-    pub(crate) texture_bindings: [ShapeTextureBinding; 2],
-    pub(crate) under_fill_texture: Option<ShapeTextureLayer>,
+pub struct ShapeDrawMaterial {
+    pub has_gradient_fill: bool,
+    pub texture_bindings: [ShapeTextureBinding; 2],
+    pub under_fill_texture: Option<ShapeTextureLayer>,
 }
 
 impl ShapeDrawMaterial {
-    pub(crate) fn has_gradient_fill(self) -> bool {
+    pub fn has_gradient_fill(self) -> bool {
         self.has_gradient_fill
     }
 }

@@ -1,15 +1,10 @@
-use super::plan::Planner;
-use super::types::DrawTreeNode;
-use super::{RenderBackend, Renderer, DEFAULT_FRINGE_WIDTH};
-use crate::commands::{RenderCommand, RenderOperation, RenderPlan, Target};
-use crate::core::effect::{EffectInstance, ShapeEffectInstance};
-use crate::core::shape::CachedShapeHandle;
-use crate::core::Viewport;
-use crate::renderer::types::CachedShapeDrawData;
-use crate::{Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, Stroke};
-use ahash::{HashMap, HashMapExt};
-use std::sync::{Arc, RwLock};
+use super::{RenderBackend, Renderer};
 #[cfg(feature = "render_metrics")]
+use crate::backend::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
+use crate::commands::{RenderCommand, RenderOperation, RenderPlan, ShapeDrawId, Target};
+use crate::core::{CachedShapeHandle, ShapeInstance, Viewport};
+use crate::scene::SceneContext;
+use crate::{Color, DrawCommandError, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, Stroke};
 use std::time::Duration;
 use thiserror::Error;
 
@@ -21,8 +16,8 @@ struct TestSurface {
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
-#[error("surface unavailable")]
-struct TestRenderError;
+#[error("backend unavailable")]
+struct TestBackendError;
 
 #[derive(Default)]
 struct TestBackend {
@@ -34,7 +29,85 @@ struct TestBackend {
 
 impl RenderBackend<'_> for TestBackend {
     type Surface = TestSurface;
-    type Error = TestRenderError;
+    type Error = TestBackendError;
+    type TextureManager = ();
+    fn register_shape(
+        &mut self,
+        id: ShapeDrawId,
+        shape: &ShapeInstance,
+    ) -> Result<(), TestBackendError> {
+        if self.should_fail {
+            return Err(TestBackendError);
+        }
+        assert!(!shape.cached_shape.vertex_buffers().vertices.is_empty());
+        self.registered_shapes.push(id.0);
+        Ok(())
+    }
+    fn clear_draw_queue(&mut self) {
+        self.registered_shapes.clear();
+    }
+    fn texture_manager(&self) -> &() {
+        &()
+    }
+    fn maximum_texture_dimension(&self) -> u32 {
+        4096
+    }
+    fn viewport(&self) -> Viewport {
+        Viewport {
+            physical_size: (32, 32),
+            scale_factor: 1.0,
+        }
+    }
+    fn fringe_width(&self) -> f32 {
+        0.75
+    }
+    fn load_effect(&mut self, _: u64, _: &[&str]) -> Result<bool, TestBackendError> {
+        Ok(true)
+    }
+    fn validate_effect_params(&self, _: u64, params: &[u8]) -> Result<(), TestBackendError> {
+        if params.len() == 4 {
+            Ok(())
+        } else {
+            Err(TestBackendError)
+        }
+    }
+    fn unload_effect(&mut self, _: u64) {}
+    fn invalidate_effect(&mut self, _: u64) {}
+    fn set_shape_effect_geometry(&mut self, id: ShapeDrawId, _: &CachedShapeHandle) {
+        assert!(self.registered_shapes.contains(&id.0));
+    }
+    fn remove_shape_effect(&mut self, _: ShapeDrawId) {}
+    fn remove_backdrop_effect(&mut self, _: ShapeDrawId) {}
+    fn resize(&mut self, _: &mut TestSurface, _: Viewport, _: f32) {}
+    fn set_msaa_samples(&mut self, _: u32) {}
+    fn configure_surface(&mut self, _: &mut TestSurface) {}
+    fn set_vsync(&mut self, _: &mut TestSurface, _: bool) {}
+    fn render_to_buffer(
+        &mut self,
+        _: &RenderPlan,
+        _: &mut Vec<u8>,
+    ) -> Result<(), TestBackendError> {
+        Err(TestBackendError)
+    }
+    fn render_to_argb32(&mut self, _: &RenderPlan, _: &mut [u32]) -> Result<(), TestBackendError> {
+        Err(TestBackendError)
+    }
+    fn last_render_to_texture_view_cpu_time(&self) -> Duration {
+        Duration::ZERO
+    }
+    fn print_memory_usage_info(&self) {}
+    #[cfg(feature = "render_metrics")]
+    fn last_phase_timings(&self) -> PhaseTimings {
+        PhaseTimings::default()
+    }
+    #[cfg(feature = "render_metrics")]
+    fn last_pipeline_switch_counts(&self) -> PipelineSwitchCounts {
+        PipelineSwitchCounts::default()
+    }
+    #[cfg(feature = "render_metrics")]
+    fn last_shape_effect_cache_metrics(&self) -> ShapeEffectCacheMetrics {
+        ShapeEffectCacheMetrics::default()
+    }
 
     fn render(
         &mut self,
@@ -42,7 +115,7 @@ impl RenderBackend<'_> for TestBackend {
         surface: &mut TestSurface,
     ) -> Result<(), Self::Error> {
         if self.should_fail {
-            return Err(TestRenderError);
+            return Err(TestBackendError);
         }
         self.command_address = commands as *const RenderPlan as usize;
         self.instruction_address = commands.instructions.as_ptr() as usize;
@@ -85,65 +158,48 @@ impl RenderBackend<'_> for TestBackend {
     }
 }
 
-fn queue_shape(planner: &mut Planner, with_effects: bool) -> usize {
-    let shape = CachedShapeHandle::new(
-        &Shape::rect([(0.0, 0.0), (16.0, 16.0)], Stroke::default()),
-        &mut planner.tessellator,
-        &mut planner.shape_resources,
+fn queue_shape(renderer: &mut Renderer<'static, TestBackend>, with_effects: bool) -> usize {
+    renderer.load_shape(
+        Shape::rect([(0.0, 0.0), (16.0, 16.0)], Stroke::default()),
+        1,
         Some(1),
     );
-    let id = planner
-        .draw_tree
-        .add_node(DrawTreeNode::CachedShape(CachedShapeDrawData::new(
-            shape,
-            &ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
-        )));
+    let id = renderer
+        .add_cached_shape(
+            1,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+        )
+        .unwrap();
     if with_effects {
-        planner.shape_effects.insert(
-            id,
-            ShapeEffectInstance {
-                effect_id: 7,
-                params: Arc::from([1, 2, 3, 4]),
-                config: ShapeEffectConfig::default(),
-            },
-        );
-        planner.group_effects.insert(
-            id,
-            EffectInstance {
-                effect_id: 8,
-                params: vec![1, 2, 3, 4],
-            },
-        );
+        renderer.load_effect(7, &["shape effect"]).unwrap();
+        renderer.load_effect(8, &["group effect"]).unwrap();
+        renderer
+            .set_shape_effect(id, 7, &[1, 2, 3, 4], ShapeEffectConfig::default())
+            .unwrap();
+        renderer.set_group_effect(id, 8, &[1, 2, 3, 4]).unwrap();
     }
     id
 }
 
 fn renderer() -> Renderer<'static, TestBackend> {
-    Renderer {
-        planner: Planner::new(
-            Arc::new(RwLock::new(HashMap::new())),
-            4096,
-            DEFAULT_FRINGE_WIDTH,
-        ),
-        surface: TestSurface::default(),
-        backend: TestBackend::default(),
-        viewport: Viewport {
-            physical_size: (32, 32),
-            scale_factor: 1.0,
-        },
-        #[cfg(feature = "render_metrics")]
-        last_planning_time: Duration::ZERO,
-        #[cfg(feature = "render_metrics")]
-        render_loop_metrics_tracker: Default::default(),
-    }
+    Renderer::from_backend(
+        TestBackend::default(),
+        TestSurface::default(),
+        SceneContext::default(),
+    )
 }
 
 #[test]
 fn renderer_submits_completed_commands_to_its_own_surface_and_reuses_storage_after_rebuilds() {
     let mut renderer = renderer();
-    let shape = queue_shape(&mut renderer.planner, true);
-    renderer.backend.registered_shapes.push(shape);
-    let planned_address = renderer.planner.plan(renderer.viewport) as *const RenderPlan as usize;
+    let shape = queue_shape(&mut renderer, true);
+    let planned_address = renderer.planner.plan(
+        &renderer.scene,
+        renderer.viewport,
+        renderer.fringe_width,
+        4096,
+    ) as *const RenderPlan as usize;
     renderer.render().unwrap();
     assert_eq!(renderer.backend.command_address, planned_address);
     assert_eq!(renderer.surface.draws, [shape]);
@@ -152,8 +208,8 @@ fn renderer_submits_completed_commands_to_its_own_surface_and_reuses_storage_aft
     let instruction_address = renderer.backend.instruction_address;
 
     for _ in 0..3 {
-        renderer.planner.clear_draw_queue();
-        let rebuilt = queue_shape(&mut renderer.planner, true);
+        renderer.clear_draw_queue();
+        let rebuilt = queue_shape(&mut renderer, true);
         assert_eq!(rebuilt, shape);
         renderer.render().unwrap();
         assert_eq!(renderer.backend.command_address, planned_address);
@@ -161,12 +217,17 @@ fn renderer_submits_completed_commands_to_its_own_surface_and_reuses_storage_aft
         assert_eq!(renderer.surface.effects, [7, 8]);
     }
 
-    renderer.planner.clear_draw_queue();
+    renderer.clear_draw_queue();
     renderer.render().unwrap();
     assert!(renderer.surface.draws.is_empty());
     assert!(renderer.surface.effects.is_empty());
     assert_eq!(renderer.surface.shape_masks, 0);
-    let plan = renderer.planner.plan(renderer.viewport);
+    let plan = renderer.planner.plan(
+        &renderer.scene,
+        renderer.viewport,
+        renderer.fringe_width,
+        4096,
+    );
     assert!(matches!(
         plan.instructions.as_slice(),
         [
@@ -185,11 +246,12 @@ fn renderer_submits_completed_commands_to_its_own_surface_and_reuses_storage_aft
 #[test]
 fn one_completed_plan_targets_each_supplied_surface_and_backend_errors_reach_the_caller() {
     let mut first = renderer();
-    let shape = queue_shape(&mut first.planner, false);
-    first.backend.registered_shapes.push(shape);
+    let shape = queue_shape(&mut first, false);
     let mut second = renderer();
-    second.backend.registered_shapes.push(shape);
-    let commands = first.planner.plan(first.viewport);
+    queue_shape(&mut second, false);
+    let commands = first
+        .planner
+        .plan(&first.scene, first.viewport, first.fringe_width, 4096);
     first.backend.render(commands, &mut first.surface).unwrap();
     second
         .backend
@@ -203,9 +265,22 @@ fn one_completed_plan_targets_each_supplied_surface_and_backend_errors_reach_the
     );
 
     second.backend.should_fail = true;
-    assert_eq!(second.render(), Err(TestRenderError));
+    assert!(matches!(
+        second.add_cached_shape(1, None, ShapeDrawCommandOptions::new()),
+        Err(DrawCommandError::Backend(TestBackendError))
+    ));
+    assert!(second.scene.shape(shape + 1).is_err());
+    assert_eq!(second.backend.registered_shapes, [shape]);
+    assert_eq!(second.render(), Err(TestBackendError));
     assert_eq!(second.surface.draws, [shape]);
     second.backend.should_fail = false;
+    assert_eq!(
+        second
+            .add_cached_shape(1, None, ShapeDrawCommandOptions::new())
+            .unwrap(),
+        shape + 1
+    );
+    second.clear_draw_queue();
     second.render().unwrap();
     assert!(second.surface.draws.is_empty());
     assert_eq!(first.surface.draws, [shape]);

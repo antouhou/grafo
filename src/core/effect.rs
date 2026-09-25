@@ -16,7 +16,6 @@
 
 use crate::core::geometry;
 use crate::core::{PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
-use std::sync::Arc;
 
 /// The rendered region to capture as input to a backdrop effect.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -135,42 +134,13 @@ impl ShapeEffectConfig {
     }
 }
 
-/// A cached shape effect attachment. GPU parameter resources are created only on cache misses.
-#[derive(Clone)]
-pub(crate) struct ShapeEffectInstance {
-    pub effect_id: u64,
-    pub params: Arc<[u8]>,
-    pub config: ShapeEffectConfig,
-}
-
-/// Parameters shared by group and backdrop effect attachments.
-pub(crate) struct EffectInstance {
-    /// The loaded effect's ID.
-    pub effect_id: u64,
-    /// Raw bytes for the effect's uniform parameters.
-    /// The byte layout must match the shader's uniform declaration.
-    pub params: Vec<u8>,
-}
-
-/// A backdrop effect attachment and its capture configuration.
-pub(crate) struct BackdropEffectInstance {
-    pub effect: EffectInstance,
-    pub config: BackdropEffectConfig,
-}
-
-impl BackdropEffectInstance {
-    pub(crate) fn new(effect: EffectInstance, config: BackdropEffectConfig) -> Self {
-        Self { effect, config }
-    }
-}
-
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub(crate) struct BackdropCaptureRegion {
+pub struct BackdropCaptureRegion {
     /// Requested bounds in full-resolution physical pixels, including offscreen padding.
-    pub(crate) bounds: PhysicalRect,
+    pub bounds: PhysicalRect,
     /// Viewport overlap to copy, or None when the requested bounds are fully offscreen.
-    pub(crate) source_rect: Option<UnsignedPhysicalRect>,
-    pub(crate) copy_destination_origin: UnsignedPhysicalPoint,
+    pub source_rect: Option<UnsignedPhysicalRect>,
+    pub copy_destination_origin: UnsignedPhysicalPoint,
 }
 
 pub(crate) fn resolve_capture_region_to_viewport(

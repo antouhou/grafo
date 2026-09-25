@@ -3,12 +3,12 @@ use bytemuck::{Pod, Zeroable};
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct CustomVertex {
-    pub(crate) position: [f32; 2],
-    pub(crate) tex_coords: [f32; 2],
+    pub position: [f32; 2],
+    pub tex_coords: [f32; 2],
     /// Outward model-space normal used by the shader to offset the AA fringe.
-    pub(crate) normal: [f32; 2],
+    pub normal: [f32; 2],
     /// Coverage is 1.0 at interior and boundary vertices, and 0.0 at the outer fringe.
-    pub(crate) coverage: f32,
+    pub coverage: f32,
 }
 
 impl CustomVertex {

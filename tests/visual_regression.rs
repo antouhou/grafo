@@ -9,6 +9,7 @@ use grafo::{
     Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
     Stroke, TransformInstance,
 };
+use grafo::{EffectResourceError, SceneError, WgpuBackendError};
 use grafo_test_scenes::shaders::{PASSTHROUGH_WGSL, SHAPE_DROP_WGSL};
 use grafo_test_scenes::{
     build_main_scene, build_nested_targets_scene, check_pixels, PixelExpectation, CANVAS_HEIGHT,
@@ -202,7 +203,12 @@ fn effect_reload_removes_every_attachment_and_accepts_fresh_parameters() {
         renderer.update_group_effect_params(group, &[]),
         renderer.update_backdrop_effect_params(backdrop, &[]),
     ] {
-        assert!(matches!(result, Err(EffectError::InvalidParams(_))));
+        assert!(matches!(
+            result,
+            Err(EffectError::Backend(WgpuBackendError::Effect(
+                EffectResourceError::InvalidParams(_)
+            )))
+        ));
     }
 
     let mut pixel_buffer = Vec::new();
@@ -243,11 +249,11 @@ fn effect_reload_removes_every_attachment_and_accepts_fresh_parameters() {
         ] {
             assert!(matches!(
                 result,
-                Err(EffectError::ParameterSizeMismatch {
+                Err(EffectError::Scene(SceneError::ParameterSizeMismatch {
                     effect_id: rejected_effect_id,
                     expected_size: 16,
                     actual_size,
-                }) if rejected_effect_id == effect_id && actual_size == params.len() as u64
+                })) if rejected_effect_id == effect_id && actual_size == params.len() as u64
             ));
         }
         renderer.render_to_buffer(&mut pixel_buffer).unwrap();
@@ -287,7 +293,10 @@ fn effect_reload_removes_every_attachment_and_accepts_fresh_parameters() {
             renderer.update_backdrop_effect_params(backdrop, params),
             renderer.update_shape_effect_params(shape, params),
         ] {
-            assert!(matches!(result, Err(EffectError::NodeNotFound(_))));
+            assert!(matches!(
+                result,
+                Err(EffectError::Scene(SceneError::NodeNotFound(_)))
+            ));
         }
         renderer.render_to_buffer(&mut pixel_buffer).unwrap();
         for x in [8, 24, 40] {
@@ -303,7 +312,9 @@ fn effect_reload_removes_every_attachment_and_accepts_fresh_parameters() {
             .unwrap();
         assert!(matches!(
             renderer.load_effect(effect_id, &[pass_sources[0], ""]),
-            Err(EffectError::InvalidShader { pass_index: 1, .. })
+            Err(EffectError::Backend(WgpuBackendError::Effect(
+                EffectResourceError::InvalidShader { pass_index: 1, .. }
+            )))
         ));
         for samples in [4, 1] {
             renderer.load_effect(effect_id, pass_sources).unwrap();
@@ -349,7 +360,12 @@ fn effect_reload_removes_every_attachment_and_accepts_fresh_parameters() {
         renderer.update_group_effect_params(group, unexpected_params),
         renderer.update_backdrop_effect_params(backdrop, unexpected_params),
     ] {
-        assert!(matches!(result, Err(EffectError::InvalidParams(_))));
+        assert!(matches!(
+            result,
+            Err(EffectError::Backend(WgpuBackendError::Effect(
+                EffectResourceError::InvalidParams(_)
+            )))
+        ));
     }
     renderer.render_to_buffer(&mut pixel_buffer).unwrap();
     assert_eq!(read_pixel_rgba(&pixel_buffer, 48, 8, 16), [255; 4]);
@@ -385,7 +401,7 @@ fn effect_reload_removes_every_attachment_and_accepts_fresh_parameters() {
     renderer.render_to_buffer(&mut pixel_buffer).unwrap();
     assert_eq!(read_pixel_rgba(&pixel_buffer, 48, 24, 16), [255; 4]);
     assert!(
-        matches!(renderer.set_group_effect(backdrop, effect_id, red), Err(EffectError::EffectNotLoaded(id)) if id == effect_id)
+        matches!(renderer.set_group_effect(backdrop, effect_id, red), Err(EffectError::Backend(WgpuBackendError::Effect(EffectResourceError::EffectNotLoaded(id)))) if id == effect_id)
     );
 }
 
@@ -403,7 +419,9 @@ fn invalid_effect_can_be_replaced_with_a_valid_shader() {
     ] {
         assert!(matches!(
             renderer.load_effect(9_201, &[source]),
-            Err(EffectError::InvalidShader { pass_index: 0, .. })
+            Err(EffectError::Backend(WgpuBackendError::Effect(
+                EffectResourceError::InvalidShader { pass_index: 0, .. }
+            )))
         ));
     }
     renderer.load_effect(9_201, &[PASSTHROUGH_WGSL]).unwrap();
@@ -424,7 +442,9 @@ fn invalid_effect_can_be_replaced_with_a_valid_shader() {
     for _ in 0..2 {
         assert!(matches!(
             renderer.load_effect(9_201, &[PASSTHROUGH_WGSL, ""]),
-            Err(EffectError::InvalidShader { pass_index: 1, .. })
+            Err(EffectError::Backend(WgpuBackendError::Effect(
+                EffectResourceError::InvalidShader { pass_index: 1, .. }
+            )))
         ));
         renderer.render_to_buffer(&mut pixel_buffer).unwrap();
         assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 16, 16), [255, 0, 0, 255]);
@@ -812,9 +832,9 @@ fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent()
         Err(error) => panic!("Failed to create renderer context: {error}"),
     };
 
-    let mut first = Renderer::try_new_headless_with_context(context, (16, 16), 1.0)
+    let mut first = Renderer::try_new_headless_with_context(context.clone(), (16, 16), 1.0)
         .expect("to create first headless renderer");
-    let mut second = Renderer::try_new_headless_with_context(first.context(), (16, 16), 1.0)
+    let mut second = Renderer::try_new_headless_with_context(context, (16, 16), 1.0)
         .expect("to create second headless renderer");
 
     first
@@ -1304,7 +1324,9 @@ fn clipping_rect_rejects_non_axis_aligned_transform() {
             Some(TransformInstance::rotation_z_deg(45.0)),
             true,
         ),
-        Err(DrawCommandError::UnsupportedClipRectTransform)
+        Err(DrawCommandError::Scene(
+            SceneError::UnsupportedClipRectTransform
+        ))
     ));
 
     let child = Shape::rect([(0.0, 0.0), (100.0, 100.0)], Stroke::default());

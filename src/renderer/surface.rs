@@ -1,16 +1,6 @@
-use super::{Renderer, RendererContext};
-use std::sync::Arc;
-use wgpu::SurfaceTarget;
+use super::{RenderBackend, Renderer};
 
-impl<'surface> Renderer<'surface> {
-    /// Returns a context sharing this renderer's GPU resources and loaded shapes.
-    pub fn context(&self) -> RendererContext {
-        RendererContext {
-            gpu: Arc::clone(&self.backend.context),
-            loaded_shapes: Arc::clone(&self.planner.loaded_shapes),
-        }
-    }
-
+impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
     pub fn size(&self) -> (u32, u32) {
         self.viewport.physical_size
     }
@@ -18,7 +8,7 @@ impl<'surface> Renderer<'surface> {
         self.viewport.scale_factor
     }
     pub fn fringe_width(&self) -> f32 {
-        self.planner.fringe_width
+        self.fringe_width
     }
 
     pub fn change_scale_factor(&mut self, new_scale_factor: f64) {
@@ -27,25 +17,24 @@ impl<'surface> Renderer<'surface> {
     }
 
     pub fn set_fringe_width(&mut self, fringe_width: f32) {
-        self.planner.fringe_width = fringe_width;
+        self.fringe_width = fringe_width;
         self.resize(self.viewport.physical_size);
     }
 
     pub fn resize(&mut self, new_physical_size: (u32, u32)) {
         self.viewport.physical_size = new_physical_size;
         self.backend
-            .resize(&mut self.surface, self.viewport, self.planner.fringe_width);
+            .resize(&mut self.surface, self.viewport, self.fringe_width);
     }
 
-    pub fn msaa_samples(&self) -> u32 {
-        self.backend.msaa_samples()
-    }
     pub fn set_msaa_samples(&mut self, samples: u32) {
         self.backend.set_msaa_samples(samples);
     }
 
-    pub fn set_surface(&mut self, window: impl Into<SurfaceTarget<'static>>) {
-        self.backend.set_surface(&mut self.surface, window);
+    /// Configures and replaces the backend output without changing the scene.
+    pub fn set_surface(&mut self, mut surface: B::Surface) {
+        self.backend.configure_surface(&mut surface);
+        self.surface = surface;
     }
 
     pub fn set_vsync(&mut self, vsync: bool) {
