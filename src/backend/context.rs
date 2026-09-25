@@ -1,4 +1,4 @@
-use super::texture_manager::TextureManager;
+use super::texture_manager::WgpuTextureManager;
 use super::{WgpuBackend, WgpuContext};
 use std::sync::Arc;
 use tracing::{error, info, warn};
@@ -117,7 +117,7 @@ impl WgpuContext {
                 .flags
                 .contains(DownlevelFlags::BASE_VERTEX),
             adapter,
-            texture_manager: TextureManager::new(device.clone(), queue.clone()),
+            texture_manager: WgpuTextureManager::new(device.clone(), queue.clone()),
             device,
             queue,
         })

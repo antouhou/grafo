@@ -7,7 +7,7 @@ use grafo::{
     DrawCommandError, EffectError, Fill, Gradient, GradientStop, GradientStopOffset,
     LinearGradientDesc, LinearGradientLine, Renderer, RendererContext, RendererCreationError,
     Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
-    Stroke, TransformInstance,
+    Stroke, TextureManager, TransformInstance,
 };
 use grafo::{EffectResourceError, SceneError, WgpuBackendError};
 use grafo_test_scenes::shaders::{PASSTHROUGH_WGSL, SHAPE_DROP_WGSL};

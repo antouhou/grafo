@@ -10,7 +10,9 @@
 //! cargo run --example bench_render_loop --features render_metrics --release
 //! ```
 use futures::executor::block_on;
-use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke, TransformInstance};
+use grafo::{
+    Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke, TextureManager, TransformInstance,
+};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;

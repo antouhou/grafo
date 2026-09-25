@@ -1,6 +1,7 @@
 use super::{RenderBackend, Renderer};
 use crate::commands::{RenderCommand, RenderOperation, RenderPlan, ShapeDrawId, Target};
 use crate::core::{CachedShapeHandle, ShapeInstance, Viewport};
+use crate::render_backend::TextureManager;
 use crate::scene::SceneContext;
 use crate::{Color, DrawCommandError, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, Stroke};
 use thiserror::Error;
@@ -16,6 +17,36 @@ struct TestSurface {
 #[error("backend unavailable")]
 struct TestBackendError;
 
+struct TestTextureManager;
+
+impl TextureManager for TestTextureManager {
+    type Error = TestBackendError;
+
+    fn clear(&self) {
+        unreachable!("this test backend does not use textures");
+    }
+
+    fn allocate_texture(&self, _: u64, _: (u32, u32)) {
+        unreachable!("this test backend does not use textures");
+    }
+
+    fn allocate_texture_with_data(&self, _: u64, _: (u32, u32), _: &[u8]) {
+        unreachable!("this test backend does not use textures");
+    }
+
+    fn load_data_into_texture(&self, _: u64, _: (u32, u32), _: &[u8]) -> Result<(), Self::Error> {
+        unreachable!("this test backend does not use textures");
+    }
+
+    fn remove_texture(&self, _: u64) {
+        unreachable!("this test backend does not use textures");
+    }
+
+    fn is_texture_loaded(&self, _: u64) -> bool {
+        unreachable!("this test backend does not use textures");
+    }
+}
+
 #[derive(Default)]
 struct TestBackend {
     registered_shapes: Vec<usize>,
@@ -27,7 +58,7 @@ struct TestBackend {
 impl RenderBackend<'_> for TestBackend {
     type Surface = TestSurface;
     type Error = TestBackendError;
-    type TextureManager = ();
+    type TextureManager = TestTextureManager;
     fn register_shape(
         &mut self,
         id: ShapeDrawId,
@@ -43,8 +74,8 @@ impl RenderBackend<'_> for TestBackend {
     fn clear_draw_queue(&mut self) {
         self.registered_shapes.clear();
     }
-    fn texture_manager(&self) -> &() {
-        &()
+    fn texture_manager(&self) -> &TestTextureManager {
+        &TestTextureManager
     }
     fn maximum_texture_dimension(&self) -> u32 {
         4096
@@ -79,17 +110,6 @@ impl RenderBackend<'_> for TestBackend {
     fn set_msaa_samples(&mut self, _: u32) {}
     fn configure_surface(&mut self, _: &mut TestSurface) {}
     fn set_vsync(&mut self, _: &mut TestSurface, _: bool) {}
-    fn render_to_buffer(
-        &mut self,
-        _: &RenderPlan,
-        _: &mut Vec<u8>,
-    ) -> Result<(), TestBackendError> {
-        Err(TestBackendError)
-    }
-    fn render_to_argb32(&mut self, _: &RenderPlan, _: &mut [u32]) -> Result<(), TestBackendError> {
-        Err(TestBackendError)
-    }
-
     fn render(
         &mut self,
         commands: &RenderPlan,
@@ -136,6 +156,17 @@ impl RenderBackend<'_> for TestBackend {
         }
         assert!(targets.is_empty());
         Ok(())
+    }
+    fn render_to_buffer(
+        &mut self,
+        _: &RenderPlan,
+        _: &mut Vec<u8>,
+    ) -> Result<(), TestBackendError> {
+        Err(TestBackendError)
+    }
+
+    fn render_to_argb32(&mut self, _: &RenderPlan, _: &mut [u32]) -> Result<(), TestBackendError> {
+        Err(TestBackendError)
     }
 }
 

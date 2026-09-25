@@ -5,7 +5,7 @@ use super::execution::textures::IntermediateTextureResources;
 #[cfg(feature = "render_metrics")]
 use crate::backend::metrics::{PipelineSwitchCounts, ShapeEffectCacheMetrics};
 use crate::backend::pipeline::{self, Uniforms};
-use crate::backend::texture_manager::TextureManager;
+use crate::backend::texture_manager::WgpuTextureManager;
 use crate::backend::vertex::GeometryBufferRange;
 use std::ops::Range;
 use std::sync::Arc;
@@ -80,7 +80,7 @@ pub(in crate::backend) struct ShapePipelines {
     pub(in crate::backend) shape_texture_bind_group_layout_background: Arc<BindGroupLayout>,
     pub(in crate::backend) shape_texture_bind_group_layout_foreground: Arc<BindGroupLayout>,
     pub(in crate::backend) default_shape_texture_bind_groups: [Arc<BindGroup>; 2],
-    pub(in crate::backend) texture_manager: TextureManager,
+    pub(in crate::backend) texture_manager: WgpuTextureManager,
     pub(in crate::backend) and_uniforms: Uniforms,
     pub(in crate::backend) and_uniform_buffer: Buffer,
     pub(in crate::backend) decrementing_uniforms: Uniforms,

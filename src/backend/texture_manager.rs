@@ -1,3 +1,5 @@
+use super::WgpuBackendError;
+use crate::render_backend::TextureManager;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use wgpu::Texture;
@@ -15,7 +17,7 @@ pub enum TextureManagerError {
 /// # Examples
 ///
 /// ```rust,no_run
-/// use grafo::premultiply_rgba8_srgb_inplace;
+/// use grafo::{premultiply_rgba8_srgb_inplace, TextureManager};
 /// # fn example(renderer: &grafo::Renderer<'_>) {
 /// let texture_manager = renderer.texture_manager();
 /// let texture_id = 42;
@@ -31,7 +33,7 @@ pub enum TextureManagerError {
 /// # }
 /// ```
 #[derive(Clone)]
-pub struct TextureManager {
+pub struct WgpuTextureManager {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     sampler: Arc<wgpu::Sampler>,
@@ -43,7 +45,7 @@ pub struct TextureManager {
 
 type BindGroupCache = HashMap<u64, Arc<wgpu::BindGroup>>;
 
-impl TextureManager {
+impl WgpuTextureManager {
     pub(crate) fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
         let sampler = Self::create_sampler(&device);
         Self {
@@ -53,14 +55,6 @@ impl TextureManager {
             texture_storage: Arc::new(RwLock::new(HashMap::new())),
             shape_bind_group_cache: Arc::new(RwLock::new(HashMap::new())),
         }
-    }
-
-    /// Removes all textures and cached bind groups from the shared storage.
-    pub fn clear(&self) {
-        let mut texture_storage = self.texture_storage.write().unwrap();
-        let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
-        texture_storage.clear();
-        bind_group_cache.clear();
     }
 
     /// Returns the number of stored textures and cached bind groups, in that order.
@@ -107,67 +101,6 @@ impl TextureManager {
         // Invalidate old bindings while both locks exclude concurrent cache insertion.
         bind_group_cache.remove(&texture_id);
         texture_storage.insert(texture_id, texture);
-    }
-
-    /// Allocates an RGBA8 sRGB texture, replacing any texture with the same ID.
-    ///
-    /// Upload pixels with [`Self::load_data_into_texture`], or allocate and upload together
-    /// with [`Self::allocate_texture_with_data`].
-    pub fn allocate_texture(&self, texture_id: u64, texture_dimensions: (u32, u32)) {
-        self.insert_texture(texture_id, self.create_texture(texture_dimensions));
-    }
-
-    /// Allocates and uploads a texture, replacing any texture with the same ID.
-    ///
-    /// See [`Self::load_data_into_texture`] for the required pixel format.
-    pub fn allocate_texture_with_data(
-        &self,
-        texture_id: u64,
-        texture_dimensions: (u32, u32),
-        texture_data: &[u8],
-    ) {
-        let texture = self.create_texture(texture_dimensions);
-        self.write_pixels_to_texture(&texture, texture_dimensions, texture.size(), texture_data);
-        self.insert_texture(texture_id, texture);
-    }
-
-    /// Uploads RGBA8 sRGB pixels to the top-left corner of an allocated texture.
-    ///
-    /// `texture_dimensions` is the upload size and must fit inside the texture. Supply
-    /// four bytes per pixel with no padding between rows. RGB must be premultiplied
-    /// by alpha in linear space, then encoded as sRGB. Use
-    /// [`premultiply_rgba8_srgb_inplace`](crate::premultiply_rgba8_srgb_inplace)
-    /// to convert straight-alpha input before uploading.
-    ///
-    /// Returns an error if `texture_id` has not been allocated.
-    pub fn load_data_into_texture(
-        &self,
-        texture_id: u64,
-        texture_dimensions: (u32, u32),
-        texture_data: &[u8],
-    ) -> Result<(), TextureManagerError> {
-        let texture_storage = self.texture_storage.read().unwrap();
-        let texture = texture_storage
-            .get(&texture_id)
-            .ok_or(TextureManagerError::TextureNotFound(texture_id))?;
-
-        let texture_extent = wgpu::Extent3d {
-            width: texture_dimensions.0,
-            height: texture_dimensions.1,
-            depth_or_array_layers: 1,
-        };
-
-        self.write_pixels_to_texture(texture, texture_dimensions, texture_extent, texture_data);
-
-        Ok(())
-    }
-
-    /// Removes the texture identified by `texture_id` from the manager.
-    pub fn remove_texture(&self, texture_id: u64) {
-        let mut texture_storage = self.texture_storage.write().unwrap();
-        let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
-        bind_group_cache.remove(&texture_id);
-        texture_storage.remove(&texture_id);
     }
 
     fn write_pixels_to_texture(
@@ -239,14 +172,6 @@ impl TextureManager {
         Ok(bind_group)
     }
 
-    /// Returns whether the ID has an allocated texture, even if no pixels were uploaded.
-    pub fn is_texture_loaded(&self, texture_id: u64) -> bool {
-        self.texture_storage
-            .read()
-            .unwrap()
-            .contains_key(&texture_id)
-    }
-
     pub(crate) fn texture(&self, texture_id: u64) -> Option<Texture> {
         self.texture_storage
             .read()
@@ -264,5 +189,67 @@ impl TextureManager {
                 let size = texture.size();
                 (size.width, size.height)
             })
+    }
+}
+
+impl TextureManager for WgpuTextureManager {
+    type Error = WgpuBackendError;
+
+    fn clear(&self) {
+        let mut texture_storage = self.texture_storage.write().unwrap();
+        let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
+        texture_storage.clear();
+        bind_group_cache.clear();
+    }
+
+    fn allocate_texture(&self, texture_id: u64, texture_dimensions: (u32, u32)) {
+        self.insert_texture(texture_id, self.create_texture(texture_dimensions));
+    }
+
+    fn allocate_texture_with_data(
+        &self,
+        texture_id: u64,
+        texture_dimensions: (u32, u32),
+        texture_data: &[u8],
+    ) {
+        let texture = self.create_texture(texture_dimensions);
+        self.write_pixels_to_texture(&texture, texture_dimensions, texture.size(), texture_data);
+        self.insert_texture(texture_id, texture);
+    }
+
+    fn load_data_into_texture(
+        &self,
+        texture_id: u64,
+        texture_dimensions: (u32, u32),
+        texture_data: &[u8],
+    ) -> Result<(), Self::Error> {
+        let texture_storage = self.texture_storage.read().unwrap();
+        let texture = texture_storage
+            .get(&texture_id)
+            .ok_or(TextureManagerError::TextureNotFound(texture_id))?;
+
+        let texture_extent = wgpu::Extent3d {
+            width: texture_dimensions.0,
+            height: texture_dimensions.1,
+            depth_or_array_layers: 1,
+        };
+
+        self.write_pixels_to_texture(texture, texture_dimensions, texture_extent, texture_data);
+
+        Ok(())
+    }
+
+    fn remove_texture(&self, texture_id: u64) {
+        let mut texture_storage = self.texture_storage.write().unwrap();
+        let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
+        bind_group_cache.remove(&texture_id);
+        texture_storage.remove(&texture_id);
+    }
+
+    fn is_texture_loaded(&self, texture_id: u64) -> bool {
+        self.texture_storage
+            .read()
+            .unwrap()
+            .contains_key(&texture_id)
     }
 }

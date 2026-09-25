@@ -1,14 +1,15 @@
-use super::texture_manager::TextureManager;
-use super::{RenderBackend, WgpuBackend, WgpuBackendError};
+use super::texture_manager::WgpuTextureManager;
+use super::{WgpuBackend, WgpuBackendError};
 use crate::commands::{RenderPlan, ShapeDrawId};
 use crate::core::shape::{CachedShapeHandle, ShapeInstance};
 use crate::core::Viewport;
+use crate::render_backend::RenderBackend;
 use std::sync::Arc;
 
 impl<'surface> RenderBackend<'surface> for WgpuBackend {
     type Surface = Option<wgpu::Surface<'surface>>;
     type Error = WgpuBackendError;
-    type TextureManager = TextureManager;
+    type TextureManager = WgpuTextureManager;
 
     fn register_shape(
         &mut self,
@@ -28,7 +29,7 @@ impl<'surface> RenderBackend<'surface> for WgpuBackend {
     fn clear_draw_queue(&mut self) {
         self.resources.shape_execution.clear_draw_queue();
     }
-    fn texture_manager(&self) -> &TextureManager {
+    fn texture_manager(&self) -> &Self::TextureManager {
         self.texture_manager()
     }
     fn maximum_texture_dimension(&self) -> u32 {

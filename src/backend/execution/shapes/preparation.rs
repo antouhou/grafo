@@ -1,6 +1,6 @@
 use super::{ShapeDrawLocation, ShapeDrawResources, ShapeExecutionResources};
 use crate::backend::resources::ShapePipelines;
-use crate::backend::texture_manager::TextureManager;
+use crate::backend::texture_manager::WgpuTextureManager;
 use crate::backend::types::GeometryBufferError;
 use crate::backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMetadata};
 use crate::core::shape::ShapeInstance;
@@ -97,7 +97,7 @@ fn compute_texture_uv_transform_for_layer(
     texture_id: Option<u64>,
     texture_fit_mode: ShapeTextureFitMode,
     texture_mapping_size: [f32; 2],
-    texture_manager: &TextureManager,
+    texture_manager: &WgpuTextureManager,
     scale_factor: f64,
 ) -> TextureUvTransform {
     if texture_fit_mode == ShapeTextureFitMode::Stretch {
@@ -123,7 +123,7 @@ fn compute_texture_uv_transform_for_layer(
 fn compute_texture_uv_transforms(
     texture_mapping_size: [f32; 2],
     shape: &ShapeInstance,
-    texture_manager: &TextureManager,
+    texture_manager: &WgpuTextureManager,
     scale_factor: f64,
 ) -> [TextureUvTransform; 2] {
     [

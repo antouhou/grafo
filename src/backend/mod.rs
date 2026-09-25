@@ -1,6 +1,5 @@
 //! GPU uploads, resource caches and command execution.
 pub use self::context::BackendCreationError;
-pub use self::contract::RenderBackend;
 pub use self::errors::{EffectResourceError, EffectShaderError, WgpuBackendError};
 use self::execution::effects::EffectRegistry;
 #[cfg(feature = "render_metrics")]
@@ -8,7 +7,7 @@ use self::metrics::PhaseTimings;
 pub use self::readback::ReadbackError;
 use self::readback::{ArgbReadbackResources, BgraReadbackResources};
 use self::resources::{BackendResources, RendererPipelineResources};
-use self::texture_manager::TextureManager;
+use self::texture_manager::WgpuTextureManager;
 pub use self::types::GeometryBufferError;
 use crate::core::Viewport;
 use std::sync::Arc;
@@ -17,7 +16,6 @@ use std::time::Duration;
 
 mod construction;
 mod context;
-mod contract;
 #[cfg(feature = "render_metrics")]
 mod diagnostics;
 mod effects;
@@ -43,7 +41,7 @@ pub struct WgpuContext {
     supports_base_vertex: bool,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
-    texture_manager: TextureManager,
+    texture_manager: WgpuTextureManager,
 }
 
 /// WGPU resources, uploads, execution caches and submission state.
@@ -90,7 +88,7 @@ pub struct WgpuBackend {
 
 impl WgpuBackend {
     /// Shared source textures used by this backend.
-    pub fn texture_manager(&self) -> &TextureManager {
+    pub fn texture_manager(&self) -> &WgpuTextureManager {
         &self.pipeline_resources.shapes.texture_manager
     }
 }

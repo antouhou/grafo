@@ -49,15 +49,17 @@ pub mod backend;
 pub mod commands;
 pub mod core;
 pub(crate) mod planner;
+pub mod render_backend;
 mod renderer;
 pub mod scene;
 
 pub use crate::core::*;
-pub use backend::texture_manager::TextureManager;
+pub use backend::texture_manager::WgpuTextureManager;
 pub use commands::RenderPlan;
+pub use render_backend::{RenderBackend, TextureManager};
 pub use renderer::{
-    types::DrawCommandError, EffectError, EffectShaderError, ReadbackError, RenderBackend,
-    Renderer, RendererContext, RendererCreationError, WgpuBackend,
+    types::DrawCommandError, EffectError, EffectShaderError, ReadbackError, Renderer,
+    RendererContext, RendererCreationError, WgpuBackend,
 };
 
 #[cfg(feature = "render_metrics")]

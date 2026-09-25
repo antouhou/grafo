@@ -1,4 +1,5 @@
 use super::readback::ReadbackError;
+use super::texture_manager::TextureManagerError;
 use super::types::GeometryBufferError;
 use naga::front::wgsl::ParseError;
 use naga::valid::ValidationError;
@@ -47,6 +48,8 @@ pub enum WgpuBackendError {
     Surface(#[from] SurfaceError),
     #[error(transparent)]
     Upload(#[from] GeometryBufferError),
+    #[error(transparent)]
+    Texture(#[from] TextureManagerError),
     #[error(transparent)]
     Effect(#[from] EffectResourceError),
     #[error(transparent)]

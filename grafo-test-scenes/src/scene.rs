@@ -12,7 +12,7 @@ use grafo::{
     GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
     LinearGradientLine, RadialGradientDesc, RadialGradientSize, Renderer, Shape,
     ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
-    SpreadMode, Stroke, TransformInstance,
+    SpreadMode, Stroke, TextureManager, TransformInstance,
 };
 
 // Grid layout

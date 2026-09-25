@@ -2,11 +2,10 @@
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
 pub use self::types::EffectError;
-pub use crate::backend::{
-    EffectShaderError, ReadbackError, RenderBackend, WgpuBackend, WgpuContext,
-};
+pub use crate::backend::{EffectShaderError, ReadbackError, WgpuBackend, WgpuContext};
 use crate::core::Viewport;
 use crate::planner::Planner;
+use crate::render_backend::RenderBackend;
 use crate::scene::{Scene, SceneContext};
 pub use construction::RendererCreationError;
 use std::sync::Arc;

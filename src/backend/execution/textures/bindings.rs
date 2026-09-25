@@ -1,7 +1,8 @@
 use super::IntermediateTextureResources;
-use crate::backend::texture_manager::TextureManager;
+use crate::backend::texture_manager::WgpuTextureManager;
 use crate::backend::types::BoundTextureState;
 use crate::commands::ShapeTextureBinding;
+use crate::render_backend::TextureManager;
 use std::sync::Arc;
 use wgpu::{BindGroup, BindGroupLayout, RenderPass};
 
@@ -11,7 +12,7 @@ impl IntermediateTextureResources {
         &self,
         render_pass: &mut RenderPass<'_>,
         texture_bindings: &[ShapeTextureBinding; 2],
-        texture_manager: &TextureManager,
+        texture_manager: &WgpuTextureManager,
         shape_texture_bind_group_layout_background: &BindGroupLayout,
         shape_texture_bind_group_layout_foreground: &BindGroupLayout,
         default_shape_texture_bind_groups: &[Arc<BindGroup>; 2],
