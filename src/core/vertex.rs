@@ -43,6 +43,8 @@ impl CustomVertex {
     }
 }
 
+/// A transform stored as the four columns of a GPU `mat4x4`.
+/// Translation occupies the first three entries of `col3`.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct InstanceTransform {
@@ -62,10 +64,7 @@ impl InstanceTransform {
         }
     }
 
-    /// Create a 2D translation transform (tx, ty) in pixels.
-    ///
-    /// Fields `col0` through `col3` store the columns of the GPU `mat4x4`.
-    /// Translation lives in `col3`.
+    /// Translates by `tx` and `ty` pixels.
     pub fn translation(tx: f32, ty: f32) -> Self {
         Self {
             col0: [1.0, 0.0, 0.0, 0.0],
@@ -75,9 +74,7 @@ impl InstanceTransform {
         }
     }
 
-    /// Create a 3D translation transform (tx, ty, tz).
-    ///
-    /// Translation is stored in `col3`.
+    /// Creates a 3D translation by `tx`, `ty`, and `tz`.
     pub fn translation3d(tx: f32, ty: f32, tz: f32) -> Self {
         Self {
             col0: [1.0, 0.0, 0.0, 0.0],
@@ -111,7 +108,6 @@ impl InstanceTransform {
     /// Positive angles rotate counter-clockwise in screen space.
     pub fn rotation_z(radians: f32) -> Self {
         let (s, c) = radians.sin_cos();
-        // Column-major layout
         Self {
             col0: [c, -s, 0.0, 0.0],
             col1: [s, c, 0.0, 0.0],
@@ -126,12 +122,11 @@ impl InstanceTransform {
     }
 
     /// Create a 2D affine transform from matrix components:
+    /// ```text
     ///   [ a c tx ]
     ///   [ b d ty ]
     ///   [ 0 0  1 ]
-    ///
-    /// Stored so that `col0..col3` map to GPU columns 0..3:
-    ///   `col0=[a,b,0,0]  col1=[c,d,0,0]  col2=[0,0,1,0]  col3=[tx,ty,0,1]`
+    /// ```
     pub fn affine_2d(a: f32, b: f32, c: f32, d: f32, tx: f32, ty: f32) -> Self {
         Self {
             col0: [a, b, 0.0, 0.0],

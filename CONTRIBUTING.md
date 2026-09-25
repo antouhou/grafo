@@ -13,7 +13,9 @@ some shape or form in the core module.
 - [`src/backend`]: WGPU resource uploads, GPU caches, command execution, surfaces, and readback. Backends borrow core data for resource preparation and never access the scene or planner.
 - [`src/renderer`]: public coordinator. Scene mutations go through `Scene`; backend operations go through `RenderBackend`.
 
-The draw queue is cleared and rebuilt every frame. Keep reusable storage and resource caches across clears; do not cache tree identity across frames.
+The draw queue is cleared and rebuilt every frame for now. There's no way to update the tree just yet, so the only 
+purpose of keeping the tree around only if you want to draw exactly the same thing twice. Keep reusable storage and 
+resource caches across clears; do not cache tree identity across frames.
 
 ## Basic rules
 

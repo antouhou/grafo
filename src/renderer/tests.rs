@@ -203,7 +203,7 @@ fn renderer() -> Renderer<'static, TestBackend> {
 }
 
 #[test]
-fn renderer_submits_completed_commands_to_its_own_surface_and_reuses_storage_after_rebuilds() {
+fn render_submits_planned_shapes_and_effects() {
     let mut renderer = renderer();
     let shape = queue_shape(&mut renderer, true);
     let planned_address = renderer.planner.plan(
@@ -217,7 +217,13 @@ fn renderer_submits_completed_commands_to_its_own_surface_and_reuses_storage_aft
     assert_eq!(renderer.surface.draws, [shape]);
     assert_eq!(renderer.surface.shape_masks, 1);
     assert_eq!(renderer.surface.effects, [7, 8]);
-    let instruction_address = renderer.backend.instruction_address;
+}
+
+#[test]
+fn effect_parameter_updates_reuse_storage() {
+    let mut renderer = renderer();
+    let shape = queue_shape(&mut renderer, true);
+    renderer.render().unwrap();
     let parameters = renderer.scene.shape_effect(shape).unwrap().parameters;
     renderer
         .update_shape_effect_params(shape, &[1, 2, 3, 4])
@@ -234,13 +240,23 @@ fn renderer_submits_completed_commands_to_its_own_surface_and_reuses_storage_aft
     );
     assert_eq!(plan.effect_parameters.len(), 8);
     assert_eq!(plan.parameters(parameters), &[1, 2, 3, 4]);
+}
+
+#[test]
+fn queue_rebuilds_reuse_command_storage() {
+    let mut renderer = renderer();
+    let shape = queue_shape(&mut renderer, true);
+    renderer.render().unwrap();
+    let command_address = renderer.backend.command_address;
+    let instruction_address = renderer.backend.instruction_address;
+    let parameters = renderer.scene.shape_effect(shape).unwrap().parameters;
 
     for _ in 0..3 {
         renderer.clear_draw_queue();
         let rebuilt = queue_shape(&mut renderer, true);
         assert_eq!(rebuilt, shape);
         renderer.render().unwrap();
-        assert_eq!(renderer.backend.command_address, planned_address);
+        assert_eq!(renderer.backend.command_address, command_address);
         assert_eq!(renderer.backend.instruction_address, instruction_address);
         assert_eq!(renderer.surface.effects, [7, 8]);
         assert_eq!(
@@ -253,6 +269,13 @@ fn renderer_submits_completed_commands_to_its_own_surface_and_reuses_storage_aft
             parameters.hash
         );
     }
+}
+
+#[test]
+fn clearing_queue_removes_planned_draws_and_effects() {
+    let mut renderer = renderer();
+    queue_shape(&mut renderer, true);
+    renderer.render().unwrap();
 
     renderer.clear_draw_queue();
     renderer.render().unwrap();
@@ -281,7 +304,7 @@ fn renderer_submits_completed_commands_to_its_own_surface_and_reuses_storage_aft
 }
 
 #[test]
-fn one_completed_plan_targets_each_supplied_surface_and_backend_errors_reach_the_caller() {
+fn rendering_to_one_surface_does_not_change_another() {
     let mut first = renderer();
     let shape = queue_shape(&mut first, false);
     let mut second = renderer();
@@ -301,24 +324,46 @@ fn one_completed_plan_targets_each_supplied_surface_and_backend_errors_reach_the
         second.backend.command_address
     );
 
-    second.backend.should_fail = true;
-    assert!(matches!(
-        second.add_cached_shape(1, None, ShapeDrawCommandOptions::new()),
-        Err(DrawCommandError::Backend(TestBackendError))
-    ));
-    assert!(second.scene.shape(shape + 1).is_err());
-    assert_eq!(second.backend.registered_shapes, [shape]);
-    assert_eq!(second.render(), Err(TestBackendError));
-    assert_eq!(second.surface.draws, [shape]);
-    second.backend.should_fail = false;
-    assert_eq!(
-        second
-            .add_cached_shape(1, None, ShapeDrawCommandOptions::new())
-            .unwrap(),
-        shape + 1
-    );
     second.clear_draw_queue();
     second.render().unwrap();
     assert!(second.surface.draws.is_empty());
     assert_eq!(first.surface.draws, [shape]);
+}
+
+#[test]
+fn failed_registration_leaves_scene_unchanged() {
+    let mut renderer = renderer();
+    let shape = queue_shape(&mut renderer, false);
+
+    renderer.backend.should_fail = true;
+    assert!(matches!(
+        renderer.add_cached_shape(1, None, ShapeDrawCommandOptions::new()),
+        Err(DrawCommandError::Backend(TestBackendError))
+    ));
+    assert!(renderer.scene.shape(shape + 1).is_err());
+    assert_eq!(renderer.backend.registered_shapes, [shape]);
+
+    renderer.backend.should_fail = false;
+    assert_eq!(
+        renderer
+            .add_cached_shape(1, None, ShapeDrawCommandOptions::new())
+            .unwrap(),
+        shape + 1
+    );
+}
+
+#[test]
+fn failed_render_preserves_surface_contents() {
+    let mut renderer = renderer();
+    let shape = queue_shape(&mut renderer, false);
+    renderer.render().unwrap();
+
+    renderer.backend.should_fail = true;
+    assert_eq!(renderer.render(), Err(TestBackendError));
+    assert_eq!(renderer.surface.draws, [shape]);
+
+    renderer.backend.should_fail = false;
+    renderer.clear_draw_queue();
+    renderer.render().unwrap();
+    assert!(renderer.surface.draws.is_empty());
 }
