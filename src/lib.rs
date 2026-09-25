@@ -43,28 +43,28 @@
 //! hierarchical clipping, texture layers, transforms, and shader effects.
 
 pub use crate::core::*;
-#[cfg(feature = "render_metrics")]
-pub use backend::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
-pub use backend::texture_manager::WgpuTextureManager;
-use backend::WgpuContext;
-pub use backend::{
-    BackendCreationError as RendererCreationError, EffectResourceError, EffectShaderError,
-    GeometryBufferError, ReadbackError, WgpuBackend, WgpuBackendError,
-};
 pub use commands::RenderPlan;
 pub use lyon;
 pub use render_backend::{RenderBackend, TextureManager};
 pub use scene::SceneError;
 use std::sync::Arc;
 pub use wgpu;
+#[cfg(feature = "render_metrics")]
+pub use wgpu_backend::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
+pub use wgpu_backend::texture_manager::WgpuTextureManager;
+use wgpu_backend::WgpuContext;
+pub use wgpu_backend::{
+    BackendCreationError as RendererCreationError, EffectResourceError, EffectShaderError,
+    GeometryBufferError, ReadbackError, WgpuBackend, WgpuBackendError,
+};
 
-pub mod backend;
 pub mod commands;
 pub mod core;
 pub(crate) mod planner;
 pub mod render_backend;
 pub mod renderer;
 pub mod scene;
+pub mod wgpu_backend;
 mod wgpu_renderer;
 
 /// Coordinates scene construction, planning and execution, using WGPU by default.

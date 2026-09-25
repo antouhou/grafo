@@ -10,7 +10,7 @@ some shape or form in the core module.
 - [`src/scene`]: CPU draw tree, tessellation and loaded-shape caches, and effect attachments.
 - [`src/planner`]: borrows the scene and writes commands into reusable storage. Planning must not access backend resources.
 - [`src/render_backend.rs`]: backend and texture manager traits, shared by the coordinator and backend implementations. Depends only on core types and commands.
-- [`src/backend`]: WGPU resource uploads, GPU caches, command execution, surfaces, and readback. Backends borrow core data for resource preparation and never access the scene or planner.
+- [`src/wgpu_backend`]: WGPU resource uploads, GPU caches, command execution, surfaces, and readback. Backends borrow core data for resource preparation and never access the scene or planner.
 - [`src/renderer`]: generic coordinator. Scene mutations go through `Scene`; backend operations go through `RenderBackend`. Must not depend on a concrete backend.
 - [`src/lib.rs`] and [`src/wgpu_renderer.rs`]: public defaults and WGPU construction, assembling the coordinator, scene context and backend.
 

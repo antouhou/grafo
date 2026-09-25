@@ -1,8 +1,8 @@
 //! Assembles the generic coordinator with WGPU resources.
 
-use crate::backend::{BackendCreationError, WgpuBackend, WgpuContext};
 use crate::renderer::{Renderer, RendererContext};
 use crate::scene::SceneContext;
+use crate::wgpu_backend::{BackendCreationError, WgpuBackend, WgpuContext};
 use std::sync::Arc;
 use wgpu::SurfaceTarget;
 
