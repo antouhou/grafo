@@ -1,7 +1,7 @@
 use super::append_shape_effects;
 use crate::commands::{
-    IntermediateTextureId, RenderOperation, RenderPlan, ShapeDrawId, Target, TextureComposite,
-    TexturePlacement,
+    EffectParameterRange, EffectParameters, IntermediateTextureId, RenderOperation, RenderPlan,
+    ShapeDrawId, Target, TextureComposite, TexturePlacement,
 };
 use crate::core::effect::ShapeEffectConfig;
 use crate::core::shape::CachedShapeHandle;
@@ -15,7 +15,6 @@ use crate::{Shape, ShapeDrawCommandOptions, Size, Stroke};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
 use lyon::tessellation::FillTessellator;
-use std::sync::Arc;
 
 #[derive(Default)]
 struct MaskCommands {
@@ -36,7 +35,7 @@ impl MaskCommands {
         size: Size,
         limit: u32,
     ) {
-        self.commands.clear();
+        self.commands.clear_commands();
         append_shape_effects(
             &mut self.commands,
             &mut self.composites,
@@ -52,7 +51,9 @@ impl MaskCommands {
     }
 }
 
-fn scene_with_effects() -> (Tree<DrawTreeNode>, HashMap<usize, ShapeEffectInstance>) {
+fn scene_with_effects(
+    commands: &mut RenderPlan,
+) -> (Tree<DrawTreeNode>, HashMap<usize, ShapeEffectInstance>) {
     let mut tree = Tree::new();
     let mut effects = HashMap::new();
     let mut resources = ShapeResources::new();
@@ -72,7 +73,7 @@ fn scene_with_effects() -> (Tree<DrawTreeNode>, HashMap<usize, ShapeEffectInstan
             node,
             ShapeEffectInstance {
                 effect_id: 9,
-                params: Arc::from([node as u8, 2, 3, 4]),
+                parameters: commands.store_parameters(&[node as u8, 2, 3, 4]),
                 config: ShapeEffectConfig::new().outset(3.0).downsample(0.5),
             },
         );
@@ -84,7 +85,7 @@ fn scene_with_effects() -> (Tree<DrawTreeNode>, HashMap<usize, ShapeEffectInstan
 fn mask_scopes_and_effect_outputs_are_complete_without_the_scene() {
     let mut plan = MaskCommands::new();
     {
-        let (tree, effects) = scene_with_effects();
+        let (tree, effects) = scene_with_effects(&mut plan.commands);
         plan.plan(&tree, &effects, 2.0, 0.75, Size::new(200, 100), 1024);
     }
     assert_eq!(plan.commands.instructions.len(), 8);
@@ -134,34 +135,34 @@ fn mask_scopes_and_effect_outputs_are_complete_without_the_scene() {
 
 #[test]
 fn rebuilding_shape_effect_commands_reuses_storage_and_drops_removed_outputs() {
-    let (mut tree, mut effects) = scene_with_effects();
     let mut plan = MaskCommands::new();
+    let (mut tree, mut effects) = scene_with_effects(&mut plan.commands);
     plan.plan(&tree, &effects, 1.0, 0.75, Size::new(100, 100), 1024);
     let commands_pointer = plan.commands.instructions.as_ptr();
-    let parameters_pointer = plan.commands.shared_effect_parameters.as_ptr();
+    let parameters_pointer = plan.commands.effect_parameters.as_ptr();
     let composite_capacity = plan.composites.capacity();
     tree.clear();
     effects.clear();
-    let (rebuilt_tree, rebuilt_effects) = scene_with_effects();
+    plan.commands.clear();
+    let (rebuilt_tree, rebuilt_effects) = scene_with_effects(&mut plan.commands);
     for viewport in [Size::new(100, 100), Size::new(1, 1), Size::new(100, 100)] {
         plan.plan(&rebuilt_tree, &rebuilt_effects, 1.0, 0.75, viewport, 1024);
         assert_eq!(plan.commands.instructions.as_ptr(), commands_pointer);
-        assert_eq!(
-            plan.commands.shared_effect_parameters.as_ptr(),
-            parameters_pointer
-        );
+        assert_eq!(plan.commands.effect_parameters.as_ptr(), parameters_pointer);
         assert_eq!(plan.composites.capacity(), composite_capacity);
         assert_eq!(plan.composites.is_empty(), viewport.width == 1);
     }
+    plan.commands.clear();
     plan.plan(&tree, &effects, 1.0, 0.75, Size::new(100, 100), 1024);
     assert!(plan.commands.instructions.is_empty());
-    assert!(plan.commands.shared_effect_parameters.is_empty());
+    assert!(plan.commands.effect_parameters.is_empty());
     assert!(plan.composites.is_empty());
 }
 
 #[test]
 fn invalid_or_empty_masks_never_produce_texture_references() {
-    let (mut tree, mut effects) = scene_with_effects();
+    let mut plan = MaskCommands::new();
+    let (mut tree, mut effects) = scene_with_effects(&mut plan.commands);
     let empty = tree.add_node(DrawTreeNode::CachedShape(CachedShapeDrawData::new(
         CachedShapeHandle::new(
             &Shape::builder().build(),
@@ -175,11 +176,13 @@ fn invalid_or_empty_masks_never_produce_texture_references() {
         empty,
         ShapeEffectInstance {
             effect_id: 9,
-            params: Arc::from([]),
+            parameters: EffectParameters {
+                range: EffectParameterRange { start: 0, end: 0 },
+                hash: 0,
+            },
             config: ShapeEffectConfig::default(),
         },
     );
-    let mut plan = MaskCommands::new();
     for (scale, max_dimension) in [(f64::NAN, 1024), (1.0, 1)] {
         plan.plan(
             &tree,

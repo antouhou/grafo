@@ -1,4 +1,4 @@
-use crate::commands::{RenderOperation, RenderPlan, Target, TextureComposite};
+use crate::commands::{EffectParameters, RenderOperation, RenderPlan, Target, TextureComposite};
 use crate::core::Viewport;
 use crate::scene::Scene;
 use ahash::HashMap;
@@ -19,6 +19,18 @@ pub(crate) struct Planner {
 }
 
 impl Planner {
+    pub(crate) fn store_effect_parameters(&mut self, parameters: &[u8]) -> EffectParameters {
+        self.commands.store_parameters(parameters)
+    }
+
+    pub(crate) fn update_effect_parameters(
+        &mut self,
+        stored: EffectParameters,
+        parameters: &[u8],
+    ) -> EffectParameters {
+        self.commands.update_parameters(stored, parameters)
+    }
+
     pub(crate) fn plan(
         &mut self,
         scene: &Scene,
@@ -26,7 +38,7 @@ impl Planner {
         fringe_width: f32,
         maximum_texture_dimension: u32,
     ) -> &RenderPlan {
-        self.commands.clear();
+        self.commands.clear_commands();
         self.commands
             .push(RenderOperation::BeginTarget(Target::Surface));
         append_shape_effects(

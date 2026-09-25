@@ -1,4 +1,5 @@
 use super::{should_skip_visible_rect_draw, try_scissor_for_rect};
+use crate::commands::{EffectParameterRange, EffectParameters};
 use crate::core::effect::BackdropEffectConfig;
 use crate::core::gradient::types::{
     ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset, LinearGradientDesc,
@@ -73,7 +74,10 @@ fn skip_visible_rect_draw_rejects_effect_nodes() {
         node_id,
         EffectInstance {
             effect_id: 1,
-            params: Vec::new(),
+            parameters: EffectParameters {
+                range: EffectParameterRange { start: 0, end: 0 },
+                hash: 0,
+            },
         },
     );
 
@@ -90,7 +94,10 @@ fn skip_visible_rect_draw_rejects_effect_nodes() {
         BackdropEffectInstance::new(
             EffectInstance {
                 effect_id: 2,
-                params: Vec::new(),
+                parameters: EffectParameters {
+                    range: EffectParameterRange { start: 0, end: 0 },
+                    hash: 0,
+                },
             },
             BackdropEffectConfig::default(),
         ),

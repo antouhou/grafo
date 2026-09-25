@@ -82,11 +82,7 @@ pub struct WgpuBackend {
     pub(in crate::backend) last_phase_timings: PhaseTimings,
 
     #[cfg(feature = "render_metrics")]
-    /// Wall-clock CPU time spent inside the most recent `render_to_texture_view()` call.
-    ///
-    /// This measures render/effect pass encoding and `queue.submit`. Planning
-    /// and uploads run during preparation. Presentation, readback mapping, and
-    /// forced GPU waits after submission are also excluded.
+    /// Last CPU duration reported by [`Self::last_render_to_texture_view_cpu_time`].
     pub(in crate::backend) last_render_to_texture_view_cpu_time: Duration,
 
     pub(in crate::backend) resources: BackendResources,

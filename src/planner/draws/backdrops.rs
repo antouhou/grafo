@@ -56,7 +56,7 @@ impl DrawPlanner {
                     effect.config.downsample,
                 ),
             }));
-            let parameters = output.store_parameters(&effect.effect.params);
+            let parameters = effect.effect.parameters;
             output.push(RenderOperation::ApplyEffect(EffectApplication {
                 effect_id: effect.effect.effect_id,
                 parameters,

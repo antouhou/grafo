@@ -127,7 +127,9 @@ impl Scene {
         planner: &mut DrawPlanner,
         output: &mut RenderPlan,
     ) {
-        output.clear();
+        // Doesn't clear effect parameters, as they're stored before the planning starts, and are
+        //  necessary fot the plan
+        output.clear_commands();
         planner.append(
             DrawPlanningInput {
                 tree: &self.tree,
@@ -145,13 +147,13 @@ impl Scene {
         );
     }
 
-    fn attach_backdrop(&mut self, node: usize) {
+    fn attach_backdrop(&mut self, node: usize, output: &mut RenderPlan) {
         self.backdrops.insert(
             node,
             BackdropEffectInstance::new(
                 EffectInstance {
                     effect_id: 42,
-                    params: vec![1, 2, 3, 4],
+                    parameters: output.store_parameters(&[1, 2, 3, 4]),
                 },
                 BackdropEffectConfig::default(),
             ),
@@ -308,14 +310,14 @@ fn offscreen_scissor_and_transparent_parent_restore_the_visible_sibling() {
 
 #[test]
 fn empty_backdrop_parent_preserves_ancestor_clips_without_capture() {
+    let mut output = RenderPlan::default();
     let mut scene = Scene::new();
     let root = scene.add(None, shape(true));
     let scissor = scene.add(Some(root), clip((10.0, 10.0), (60.0, 60.0)));
     let empty = scene.add(Some(scissor), empty_shape());
-    scene.attach_backdrop(empty);
+    scene.attach_backdrop(empty, &mut output);
     let child = scene.add(Some(empty), shape(true));
     let sibling = scene.add(Some(root), shape(true));
-    let mut output = RenderPlan::default();
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let viewport = rect((0, 0), (100, 100));
     assert_eq!(
@@ -331,7 +333,6 @@ fn empty_backdrop_parent_preserves_ancestor_clips_without_capture() {
             (Operation::Decrement(ShapeDrawId(root)), 1, viewport),
         ]
     );
-    assert!(output.effect_parameters.is_empty());
 }
 
 mod backdrops;

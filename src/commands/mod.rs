@@ -6,8 +6,8 @@
 use crate::core::effect::BackdropCaptureRegion;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
 use crate::core::{Size, UnsignedPhysicalRect};
+use ahash::RandomState;
 pub use material::{ShapeDrawMaterial, ShapeTextureBinding, ShapeTextureLayer, TextureSampling};
-use std::sync::Arc;
 pub use textures::IntermediateTextureId;
 
 mod material;
@@ -64,20 +64,26 @@ pub struct BackdropCapture {
     pub sampling_size: Size,
 }
 
+/// A byte range in the command stream's effect parameter storage.
+#[derive(Clone, Copy, Debug)]
+pub struct EffectParameterRange {
+    pub start: usize,
+    pub end: usize,
+}
+
+/// Parameters stored in the render plan, with content hashed when written.
+#[derive(Clone, Copy, Debug)]
+pub struct EffectParameters {
+    pub range: EffectParameterRange,
+    pub hash: u64,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct EffectApplication {
     pub effect_id: u64,
     pub parameters: EffectParameters,
     pub input: IntermediateTextureId,
     pub output: IntermediateTextureId,
-}
-
-/// Parameter storage is owned by the command stream. Shared bytes avoid copying
-/// immutable shape-effect parameters on cache hits and queue rebuilds.
-#[derive(Clone, Copy, Debug)]
-pub enum EffectParameters {
-    Bytes { start: usize, end: usize },
-    Shared(usize),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -129,21 +135,24 @@ pub struct ShapeMaskDraw {
 pub struct RenderPlan {
     pub instructions: Vec<RenderCommand>,
     pub effect_parameters: Vec<u8>,
-    /// Keep shared ownership outside Copy commands so clearing draws is constant time.
-    pub shared_effect_parameters: Vec<Arc<[u8]>>,
     /// Local composite commands whose instance data must be uploaded.
     pub composite_draws: Vec<usize>,
     pub texture_count: usize,
     pub has_backdrop_captures: bool,
     #[cfg(feature = "render_metrics")]
     pub scissor_clip_count: u32,
+    parameter_hasher: RandomState,
 }
 
 impl RenderPlan {
     pub fn clear(&mut self) {
-        self.instructions.clear();
+        self.clear_commands();
         self.effect_parameters.clear();
-        self.shared_effect_parameters.clear();
+    }
+
+    /// Rebuild commands while preserving parameters written during queuing.
+    pub(crate) fn clear_commands(&mut self) {
+        self.instructions.clear();
         self.composite_draws.clear();
         self.texture_count = 0;
         self.has_backdrop_captures = false;
@@ -156,23 +165,33 @@ impl RenderPlan {
     pub fn store_parameters(&mut self, parameters: &[u8]) -> EffectParameters {
         let start = self.effect_parameters.len();
         self.effect_parameters.extend_from_slice(parameters);
-        EffectParameters::Bytes {
-            start,
-            end: self.effect_parameters.len(),
+        EffectParameters {
+            range: EffectParameterRange {
+                start,
+                end: self.effect_parameters.len(),
+            },
+            hash: self.parameter_hasher.hash_one(parameters),
         }
     }
 
-    pub fn share_parameters(&mut self, parameters: &Arc<[u8]>) -> EffectParameters {
-        let index = self.shared_effect_parameters.len();
-        self.shared_effect_parameters.push(Arc::clone(parameters));
-        EffectParameters::Shared(index)
+    pub(crate) fn update_parameters(
+        &mut self,
+        stored: EffectParameters,
+        parameters: &[u8],
+    ) -> EffectParameters {
+        let range = stored.range;
+        if range.end - range.start != parameters.len() {
+            return self.store_parameters(parameters);
+        }
+        self.effect_parameters[range.start..range.end].copy_from_slice(parameters);
+        EffectParameters {
+            range,
+            hash: self.parameter_hasher.hash_one(parameters),
+        }
     }
 
     pub fn parameters(&self, parameters: EffectParameters) -> &[u8] {
-        match parameters {
-            EffectParameters::Bytes { start, end } => &self.effect_parameters[start..end],
-            EffectParameters::Shared(index) => &self.shared_effect_parameters[index],
-        }
+        &self.effect_parameters[parameters.range.start..parameters.range.end]
     }
 
     pub fn allocate_texture(&mut self) -> IntermediateTextureId {

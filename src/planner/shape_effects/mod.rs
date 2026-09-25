@@ -66,7 +66,7 @@ pub(super) fn append_shape_effects(
             downsample: effect.config.downsample,
         }));
         commands.push(RenderOperation::EndTarget);
-        let parameters = commands.share_parameters(&effect.params);
+        let parameters = effect.parameters;
         commands.push(RenderOperation::ApplyEffect(EffectApplication {
             effect_id: effect.effect_id,
             parameters,

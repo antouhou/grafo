@@ -195,7 +195,7 @@ impl DrawPlanner {
             if let Some(input_texture) = parent.group_target {
                 output.push(RenderOperation::EndTarget);
                 let effect = &input.group_effects[&node_id];
-                let parameters = output.store_parameters(&effect.params);
+                let parameters = effect.parameters;
                 let texture = output.allocate_texture();
                 output.push(RenderOperation::ApplyEffect(EffectApplication {
                     effect_id: effect.effect_id,

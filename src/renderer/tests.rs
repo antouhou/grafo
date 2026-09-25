@@ -155,10 +155,10 @@ fn queue_shape(renderer: &mut Renderer<'static, TestBackend>, with_effects: bool
     if with_effects {
         renderer.load_effect(7, &["shape effect"]).unwrap();
         renderer.load_effect(8, &["group effect"]).unwrap();
+        renderer.set_group_effect(id, 8, &[1, 2, 3, 4]).unwrap();
         renderer
             .set_shape_effect(id, 7, &[1, 2, 3, 4], ShapeEffectConfig::default())
             .unwrap();
-        renderer.set_group_effect(id, 8, &[1, 2, 3, 4]).unwrap();
     }
     id
 }
@@ -187,6 +187,22 @@ fn renderer_submits_completed_commands_to_its_own_surface_and_reuses_storage_aft
     assert_eq!(renderer.surface.shape_masks, 1);
     assert_eq!(renderer.surface.effects, [7, 8]);
     let instruction_address = renderer.backend.instruction_address;
+    let parameters = renderer.scene.shape_effect(shape).unwrap().parameters;
+    renderer
+        .update_shape_effect_params(shape, &[1, 2, 3, 4])
+        .unwrap();
+    renderer
+        .update_group_effect_params(shape, &[1, 2, 3, 4])
+        .unwrap();
+    renderer.render().unwrap();
+    let plan = renderer.planner.plan(
+        &renderer.scene,
+        renderer.viewport,
+        renderer.fringe_width,
+        4096,
+    );
+    assert_eq!(plan.effect_parameters.len(), 8);
+    assert_eq!(plan.parameters(parameters), &[1, 2, 3, 4]);
 
     for _ in 0..3 {
         renderer.clear_draw_queue();
@@ -196,6 +212,15 @@ fn renderer_submits_completed_commands_to_its_own_surface_and_reuses_storage_aft
         assert_eq!(renderer.backend.command_address, planned_address);
         assert_eq!(renderer.backend.instruction_address, instruction_address);
         assert_eq!(renderer.surface.effects, [7, 8]);
+        assert_eq!(
+            renderer
+                .scene
+                .shape_effect(rebuilt)
+                .unwrap()
+                .parameters
+                .hash,
+            parameters.hash
+        );
     }
 
     renderer.clear_draw_queue();

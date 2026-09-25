@@ -43,6 +43,7 @@ fn selected_subtree_starts_at_the_viewport_and_substitutes_nested_effects() {
 
 #[test]
 fn exclusion_precedes_effect_substitution_and_restores_clips_for_siblings() {
+    let mut output = RenderPlan::default();
     let mut scene = Scene::new();
     let root = scene.add(None, shape(true));
     let scissor = scene.add(Some(root), clip((10.0, 10.0), (80.0, 80.0)));
@@ -50,8 +51,8 @@ fn exclusion_precedes_effect_substitution_and_restores_clips_for_siblings() {
     let descendant = scene.add(Some(excluded), shape(true));
     let sibling = scene.add(Some(scissor), shape(true));
     let outside = scene.add(Some(root), shape(true));
-    scene.attach_backdrop(excluded);
-    scene.attach_backdrop(descendant);
+    scene.attach_backdrop(excluded, &mut output);
+    scene.attach_backdrop(descendant, &mut output);
     scene
         .results
         .insert(excluded, IntermediateTextureId::Registered(0));
@@ -66,7 +67,6 @@ fn exclusion_precedes_effect_substitution_and_restores_clips_for_siblings() {
         },
     );
     let mut planner = DrawPlanner::default();
-    let mut output = RenderPlan::default();
     scene.plan_selection(
         DrawTreeSelection {
             excluded_subtree: Some(excluded),
@@ -93,7 +93,6 @@ fn exclusion_precedes_effect_substitution_and_restores_clips_for_siblings() {
         .instructions
         .iter()
         .any(|c| matches!(c.operation, RenderOperation::CompositeTexture(_))));
-    assert!(output.effect_parameters.is_empty());
     assert_eq!(output.texture_count, 0);
 
     scene.plan_selection(
@@ -116,6 +115,7 @@ fn exclusion_precedes_effect_substitution_and_restores_clips_for_siblings() {
 
 #[test]
 fn substituted_group_omits_its_clips_effects_and_deep_descendants() {
+    let mut output = RenderPlan::default();
     let mut scene = Scene::new();
     let root = scene.add(None, shape(true));
     let scissor = scene.add(Some(root), clip((10.0, 10.0), (80.0, 80.0)));
@@ -125,8 +125,8 @@ fn substituted_group_omits_its_clips_effects_and_deep_descendants() {
     for _ in 0..4096 {
         descendant = scene.add(Some(descendant), clip((30.0, 30.0), (40.0, 40.0)));
     }
-    scene.attach_backdrop(group);
-    scene.attach_backdrop(nested);
+    scene.attach_backdrop(group, &mut output);
+    scene.attach_backdrop(nested, &mut output);
     let texture = IntermediateTextureId::Registered(1);
     scene.results.insert(group, texture);
     scene
@@ -143,7 +143,6 @@ fn substituted_group_omits_its_clips_effects_and_deep_descendants() {
     let mut planner = DrawPlanner::default();
     planner.parents.reserve(4);
     let parent_capacity = planner.parents.capacity();
-    let mut output = RenderPlan::default();
 
     // Excluding a descendant does not undo substitution of its ancestor.
     scene.plan_selection(
@@ -173,7 +172,6 @@ fn substituted_group_omits_its_clips_effects_and_deep_descendants() {
             .count(),
         1
     );
-    assert!(output.effect_parameters.is_empty());
     assert_eq!(output.texture_count, 0);
 
     scene.plan_selection(

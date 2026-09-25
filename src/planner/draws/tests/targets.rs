@@ -1,4 +1,5 @@
 use super::*;
+use crate::commands::{EffectParameterRange, EffectParameters};
 
 #[test]
 fn nested_targets_reset_clips_and_restore_each_parent_before_compositing() {
@@ -15,7 +16,10 @@ fn nested_targets_reset_clips_and_restore_each_parent_before_compositing() {
             node,
             EffectInstance {
                 effect_id: 1,
-                params: Vec::new(),
+                parameters: EffectParameters {
+                    range: EffectParameterRange { start: 0, end: 0 },
+                    hash: 0,
+                },
             },
         );
     }

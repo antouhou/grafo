@@ -11,8 +11,7 @@ use super::{draws, targets};
 use crate::backend::metrics::ShapeEffectCacheMetrics;
 use crate::backend::resources::Buffers;
 use crate::commands::{
-    EffectApplication, EffectParameters, IntermediateTextureId, MaskTarget, RenderPlan,
-    ShapeMaskDraw,
+    EffectApplication, IntermediateTextureId, MaskTarget, RenderPlan, ShapeMaskDraw,
 };
 use bytemuck::{Pod, Zeroable};
 pub(in crate::backend) use pipelines::ShapeEffectRendererResources;
@@ -153,14 +152,10 @@ impl ShapeEffectExecutionResources<'_> {
         mask: CompletedMask,
     ) {
         assert_eq!(mask.texture, command.input);
-        let EffectParameters::Shared(index) = command.parameters else {
-            unreachable!("shape effects share immutable parameter bytes");
-        };
-        let parameters = &commands.shared_effect_parameters[index];
         let key = ShapeEffectCacheKey {
             mask_key: mask.key,
             effect_id: command.effect_id,
-            params: Arc::clone(parameters),
+            parameters_hash: command.parameters.hash,
         };
         let texture = if let Some(texture) = self.textures.shape_effect_results.get(&key) {
             #[cfg(feature = "render_metrics")]
@@ -199,7 +194,7 @@ impl ShapeEffectExecutionResources<'_> {
                 &mut self.textures.pool,
                 EffectPassRunConfig {
                     effect_id: command.effect_id,
-                    params: parameters,
+                    params: commands.parameters(command.parameters),
                     source_bind_group,
                     effect_sampler: self.sampler,
                     composite_bind_group_layout: self.composite_layout,

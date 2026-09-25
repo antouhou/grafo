@@ -49,7 +49,8 @@ impl Hash for ShapeEffectMaskCacheKey {
 pub(crate) struct ShapeEffectCacheKey {
     pub mask_key: ShapeEffectMaskCacheKey,
     pub effect_id: u64,
-    pub params: Arc<[u8]>,
+    /// Content hash computed when parameter bytes are stored in the render plan.
+    pub parameters_hash: u64,
 }
 
 pub(crate) struct CachedShapeEffectMask {

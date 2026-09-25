@@ -136,19 +136,19 @@ impl Scene {
         }
     }
 
-    fn group(&mut self, parent: Option<usize>, effect_id: u64) -> usize {
+    fn group(&mut self, parent: Option<usize>, effect_id: u64, output: &mut RenderPlan) -> usize {
         let node = self.add(parent);
         self.groups.insert(
             node,
             EffectInstance {
                 effect_id,
-                params: effect_id.to_le_bytes().to_vec(),
+                parameters: output.store_parameters(&effect_id.to_le_bytes()),
             },
         );
         node
     }
 
-    fn backdrop(&mut self, parent: usize) {
+    fn backdrop(&mut self, parent: usize, output: &mut RenderPlan) {
         let shape = CachedShapeHandle::new(
             &Shape::rect([(10.0, 10.0), (40.0, 40.0)], Stroke::default()),
             &mut FillTessellator::new(),
@@ -168,7 +168,7 @@ impl Scene {
             BackdropEffectInstance::new(
                 EffectInstance {
                     effect_id: 99,
-                    params: vec![9; 4],
+                    parameters: output.store_parameters(&[9; 4]),
                 },
                 BackdropEffectConfig::new().padding(4.0).downsample(0.5),
             ),
@@ -176,7 +176,7 @@ impl Scene {
     }
 
     fn plan(&self, planner: &mut SceneTraversal, output: &mut RenderPlan) {
-        output.clear();
+        output.clear_commands();
         output.push(RenderOperation::BeginTarget(Target::Surface));
         planner.plan(
             GroupPlanningInput {
@@ -196,11 +196,11 @@ impl Scene {
 
 #[test]
 fn nested_groups_close_into_their_parent_targets() {
-    let mut scene = Scene::new();
-    let outer = scene.group(None, 1);
-    let inner = scene.group(Some(outer), 2);
-    scene.group(Some(inner), 3);
     let mut output = RenderPlan::default();
+    let mut scene = Scene::new();
+    let outer = scene.group(None, 1, &mut output);
+    let inner = scene.group(Some(outer), 2, &mut output);
+    scene.group(Some(inner), 3, &mut output);
     scene.plan(&mut SceneTraversal::default(), &mut output);
     drop(scene);
     validate_dependencies(&output);
@@ -244,13 +244,13 @@ fn nested_groups_close_into_their_parent_targets() {
 
 #[test]
 fn uneven_groups_resume_the_parent_between_siblings() {
+    let mut output = RenderPlan::default();
     let mut scene = Scene::new();
     let root = scene.add(None);
-    let first = scene.group(Some(root), 1);
-    let inner = scene.group(Some(first), 2);
-    scene.group(Some(inner), 3);
-    scene.group(Some(root), 4);
-    let mut output = RenderPlan::default();
+    let first = scene.group(Some(root), 1, &mut output);
+    let inner = scene.group(Some(first), 2, &mut output);
+    scene.group(Some(inner), 3, &mut output);
+    scene.group(Some(root), 4, &mut output);
     scene.plan(&mut SceneTraversal::default(), &mut output);
     validate_dependencies(&output);
     assert_eq!(
@@ -280,14 +280,14 @@ fn uneven_groups_resume_the_parent_between_siblings() {
 
 #[test]
 fn layered_backdrop_sources_finish_before_captures_and_skip_their_group() {
+    let mut output = RenderPlan::default();
     let mut scene = Scene::new();
     let root = scene.add(None);
-    scene.backdrop(root);
-    let outer = scene.group(Some(root), 1);
-    scene.backdrop(outer);
-    let inner = scene.group(Some(outer), 2);
-    scene.backdrop(inner);
-    let mut output = RenderPlan::default();
+    scene.backdrop(root, &mut output);
+    let outer = scene.group(Some(root), 1, &mut output);
+    scene.backdrop(outer, &mut output);
+    let inner = scene.group(Some(outer), 2, &mut output);
+    scene.backdrop(inner, &mut output);
     scene.plan(&mut SceneTraversal::default(), &mut output);
     validate_dependencies(&output);
     let captures: Vec<_> = output
@@ -342,8 +342,8 @@ fn queue_rebuilds_reuse_storage_and_empty_scenes_clear_the_surface() {
     let mut planner = SceneTraversal::default();
     let mut output = RenderPlan::default();
     let mut scene = Scene::new();
-    let group = scene.group(None, 1);
-    scene.backdrop(group);
+    let group = scene.group(None, 1, &mut output);
+    scene.backdrop(group, &mut output);
     scene.plan(&mut planner, &mut output);
     let capacities = (
         output.instructions.capacity(),
@@ -353,9 +353,10 @@ fn queue_rebuilds_reuse_storage_and_empty_scenes_clear_the_surface() {
         planner.backdrop_ancestors.capacity(),
     );
     for _ in 0..3 {
+        output.clear();
         let mut rebuilt = Scene::new();
-        let group = rebuilt.group(None, 7);
-        rebuilt.backdrop(group);
+        let group = rebuilt.group(None, 7, &mut output);
+        rebuilt.backdrop(group, &mut output);
         rebuilt.plan(&mut planner, &mut output);
         validate_dependencies(&output);
         assert_eq!(
@@ -369,12 +370,16 @@ fn queue_rebuilds_reuse_storage_and_empty_scenes_clear_the_surface() {
             )
         );
     }
+    output.clear();
     Scene::new().plan(&mut planner, &mut output);
     validate_dependencies(&output);
     assert_eq!(snapshot(&output), [Command::Begin(None), Command::End]);
     assert!(output.effect_parameters.is_empty());
     assert!(planner.results.is_empty());
     assert!(planner.backdrop_ancestors.is_empty());
+    let mut scene = Scene::new();
+    let group = scene.group(None, 1, &mut output);
+    scene.backdrop(group, &mut output);
     scene.plan(&mut planner, &mut output);
     validate_dependencies(&output);
 }

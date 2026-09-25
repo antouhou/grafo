@@ -29,17 +29,24 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
         self.backend
             .validate_effect_params(effect_id, params)
             .map_err(EffectError::Backend)?;
-        Ok(self.scene.set_group_effect(node_id, effect_id, params)?)
+        let parameters = self.planner.store_effect_parameters(params);
+        Ok(self
+            .scene
+            .set_group_effect(node_id, effect_id, parameters)?)
     }
     pub fn update_group_effect_params(
         &mut self,
         node_id: usize,
         params: &[u8],
     ) -> Result<(), EffectError<B::Error>> {
+        let effect = self.scene.group_effect(node_id)?;
         self.backend
-            .validate_effect_params(self.scene.group_effect_id(node_id)?, params)
+            .validate_effect_params(effect.effect_id, params)
             .map_err(EffectError::Backend)?;
-        Ok(self.scene.update_group_effect_params(node_id, params)?)
+        let parameters = self
+            .planner
+            .update_effect_parameters(effect.parameters, params);
+        Ok(self.scene.update_group_effect_params(node_id, parameters)?)
     }
     pub fn remove_group_effect(&mut self, node_id: usize) {
         self.scene.remove_group_effect(node_id);
@@ -55,9 +62,10 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
         self.backend
             .validate_effect_params(effect_id, params)
             .map_err(EffectError::Backend)?;
+        let parameters = self.planner.store_effect_parameters(params);
         Ok(self
             .scene
-            .set_shape_backdrop_effect(node_id, effect_id, params, config)?)
+            .set_shape_backdrop_effect(node_id, effect_id, parameters, config)?)
     }
     pub fn update_backdrop_effect_config(
         &mut self,
@@ -71,10 +79,16 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
         node_id: usize,
         params: &[u8],
     ) -> Result<(), EffectError<B::Error>> {
+        let effect = self.scene.backdrop_effect(node_id)?;
         self.backend
-            .validate_effect_params(self.scene.backdrop_effect_id(node_id)?, params)
+            .validate_effect_params(effect.effect_id, params)
             .map_err(EffectError::Backend)?;
-        Ok(self.scene.update_backdrop_effect_params(node_id, params)?)
+        let parameters = self
+            .planner
+            .update_effect_parameters(effect.parameters, params);
+        Ok(self
+            .scene
+            .update_backdrop_effect_params(node_id, parameters)?)
     }
     pub fn remove_backdrop_effect(&mut self, node_id: usize) {
         self.scene.remove_backdrop_effect(node_id);
@@ -92,8 +106,9 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
         self.backend
             .validate_effect_params(effect_id, params)
             .map_err(EffectError::Backend)?;
+        let parameters = self.planner.store_effect_parameters(params);
         self.scene
-            .set_shape_effect(node_id, effect_id, params, config)?;
+            .set_shape_effect(node_id, effect_id, parameters, config)?;
         self.backend.set_shape_effect_geometry(
             ShapeDrawId(node_id),
             &self.scene.shape(node_id)?.cached_shape,
@@ -105,10 +120,14 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
         node_id: usize,
         params: &[u8],
     ) -> Result<(), EffectError<B::Error>> {
+        let effect = self.scene.shape_effect(node_id)?;
         self.backend
-            .validate_effect_params(self.scene.shape_effect_id(node_id)?, params)
+            .validate_effect_params(effect.effect_id, params)
             .map_err(EffectError::Backend)?;
-        Ok(self.scene.update_shape_effect_params(node_id, params)?)
+        let parameters = self
+            .planner
+            .update_effect_parameters(effect.parameters, params);
+        Ok(self.scene.update_shape_effect_params(node_id, parameters)?)
     }
     pub fn update_shape_effect_config(
         &mut self,

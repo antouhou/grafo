@@ -61,7 +61,7 @@ impl SceneTraversal {
             );
             let result = output.allocate_texture();
             let effect = &input.group_effects[&node];
-            let parameters = output.store_parameters(&effect.params);
+            let parameters = effect.parameters;
             output.push(RenderOperation::ApplyEffect(EffectApplication {
                 effect_id: effect.effect_id,
                 parameters,

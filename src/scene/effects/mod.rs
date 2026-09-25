@@ -1,25 +1,25 @@
 use super::{Scene, SceneError};
+use crate::commands::EffectParameters;
 use crate::core::effect::{BackdropCaptureArea, BackdropEffectConfig, ShapeEffectConfig};
-use std::sync::Arc;
 
 /// A cached shape effect attachment. GPU parameter resources are created only on cache misses.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub(crate) struct ShapeEffectInstance {
     pub effect_id: u64,
-    pub params: Arc<[u8]>,
+    pub parameters: EffectParameters,
     pub config: ShapeEffectConfig,
 }
 
 /// Parameters shared by group and backdrop effect attachments.
+#[derive(Clone, Copy)]
 pub(crate) struct EffectInstance {
     /// The loaded effect's ID.
     pub effect_id: u64,
-    /// Raw bytes for the effect's uniform parameters.
-    /// The byte layout must match the shader's uniform declaration.
-    pub params: Vec<u8>,
+    pub parameters: EffectParameters,
 }
 
 /// A backdrop effect attachment and its capture configuration.
+#[derive(Clone, Copy)]
 pub(crate) struct BackdropEffectInstance {
     pub effect: EffectInstance,
     pub config: BackdropEffectConfig,
@@ -31,15 +31,20 @@ impl BackdropEffectInstance {
     }
 }
 
-fn update_effect_params(instance: &mut EffectInstance, params: &[u8]) -> Result<(), SceneError> {
-    if instance.params.len() != params.len() {
+fn update_effect_params(
+    instance: &mut EffectInstance,
+    parameters: EffectParameters,
+) -> Result<(), SceneError> {
+    let expected_size = instance.parameters.range.end - instance.parameters.range.start;
+    let actual_size = parameters.range.end - parameters.range.start;
+    if expected_size != actual_size {
         return Err(SceneError::ParameterSizeMismatch {
             effect_id: instance.effect_id,
-            expected_size: instance.params.len() as u64,
-            actual_size: params.len() as u64,
+            expected_size: expected_size as u64,
+            actual_size: actual_size as u64,
         });
     }
-    instance.params.copy_from_slice(params);
+    instance.parameters = parameters;
     Ok(())
 }
 
@@ -109,41 +114,36 @@ pub(crate) enum EffectAttachment {
 }
 
 impl Scene {
-    pub(crate) fn group_effect_id(&self, node_id: usize) -> Result<u64, SceneError> {
-        Ok(self
-            .group_effects
+    pub(crate) fn group_effect(&self, node_id: usize) -> Result<&EffectInstance, SceneError> {
+        self.group_effects
             .get(&node_id)
-            .ok_or(SceneError::NodeNotFound(node_id))?
-            .effect_id)
+            .ok_or(SceneError::NodeNotFound(node_id))
     }
-    pub(crate) fn backdrop_effect_id(&self, node_id: usize) -> Result<u64, SceneError> {
-        Ok(self
+    pub(crate) fn backdrop_effect(&self, node_id: usize) -> Result<&EffectInstance, SceneError> {
+        Ok(&self
             .backdrop_effects
             .get(&node_id)
             .ok_or(SceneError::NodeNotFound(node_id))?
-            .effect
-            .effect_id)
+            .effect)
     }
-    pub(crate) fn shape_effect_id(&self, node_id: usize) -> Result<u64, SceneError> {
-        Ok(self
-            .shape_effects
+    pub(crate) fn shape_effect(&self, node_id: usize) -> Result<&ShapeEffectInstance, SceneError> {
+        self.shape_effects
             .get(&node_id)
-            .ok_or(SceneError::NodeNotFound(node_id))?
-            .effect_id)
+            .ok_or(SceneError::NodeNotFound(node_id))
     }
 
     pub fn set_group_effect(
         &mut self,
         node_id: usize,
         effect_id: u64,
-        params: &[u8],
+        parameters: EffectParameters,
     ) -> Result<(), SceneError> {
         self.shape(node_id)?;
         self.group_effects.insert(
             node_id,
             EffectInstance {
                 effect_id,
-                params: params.to_vec(),
+                parameters,
             },
         );
         Ok(())
@@ -151,13 +151,13 @@ impl Scene {
     pub fn update_group_effect_params(
         &mut self,
         node_id: usize,
-        params: &[u8],
+        parameters: EffectParameters,
     ) -> Result<(), SceneError> {
         update_effect_params(
             self.group_effects
                 .get_mut(&node_id)
                 .ok_or(SceneError::NodeNotFound(node_id))?,
-            params,
+            parameters,
         )
     }
     pub fn remove_group_effect(&mut self, node_id: usize) {
@@ -167,7 +167,7 @@ impl Scene {
         &mut self,
         node_id: usize,
         effect_id: u64,
-        params: &[u8],
+        parameters: EffectParameters,
         config: BackdropEffectConfig,
     ) -> Result<(), SceneError> {
         self.shape(node_id)?;
@@ -177,7 +177,7 @@ impl Scene {
             BackdropEffectInstance::new(
                 EffectInstance {
                     effect_id,
-                    params: params.to_vec(),
+                    parameters,
                 },
                 config,
             ),
@@ -187,7 +187,7 @@ impl Scene {
     pub fn update_backdrop_effect_params(
         &mut self,
         node_id: usize,
-        params: &[u8],
+        parameters: EffectParameters,
     ) -> Result<(), SceneError> {
         update_effect_params(
             &mut self
@@ -195,7 +195,7 @@ impl Scene {
                 .get_mut(&node_id)
                 .ok_or(SceneError::NodeNotFound(node_id))?
                 .effect,
-            params,
+            parameters,
         )
     }
     pub fn update_backdrop_effect_config(
@@ -217,7 +217,7 @@ impl Scene {
         &mut self,
         node_id: usize,
         effect_id: u64,
-        params: &[u8],
+        parameters: EffectParameters,
         config: ShapeEffectConfig,
     ) -> Result<(), SceneError> {
         self.shape(node_id)?;
@@ -226,7 +226,7 @@ impl Scene {
             node_id,
             ShapeEffectInstance {
                 effect_id,
-                params: Arc::from(params),
+                parameters,
                 config,
             },
         );
@@ -235,13 +235,13 @@ impl Scene {
     pub fn update_shape_effect_params(
         &mut self,
         node_id: usize,
-        params: &[u8],
+        parameters: EffectParameters,
     ) -> Result<(), SceneError> {
         let instance = self
             .shape_effects
             .get_mut(&node_id)
             .ok_or(SceneError::NodeNotFound(node_id))?;
-        instance.params = Arc::from(params);
+        instance.parameters = parameters;
         Ok(())
     }
     pub fn update_shape_effect_config(

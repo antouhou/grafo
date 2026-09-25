@@ -70,7 +70,10 @@ pub struct PhaseTimings {
 }
 
 impl WgpuBackend {
-    /// Returns CPU encoding and submission time, excluding uploads and readback.
+    /// Returns CPU time for render setup, command execution and submission.
+    /// Includes composite and effect uploads performed during execution.
+    /// Excludes scene planning, geometry uploads before execution, presentation,
+    /// readback and explicit GPU waits after submission.
     pub fn last_render_to_texture_view_cpu_time(&self) -> Duration {
         self.last_render_to_texture_view_cpu_time
     }

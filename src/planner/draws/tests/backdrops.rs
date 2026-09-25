@@ -9,14 +9,14 @@ use crate::{
 #[test]
 fn capture_and_effect_precede_ordinary_backdrop_draws_and_restore_clips() {
     for (has_child, clips_children) in [(false, true), (true, false), (true, true)] {
+        let mut output = RenderPlan::default();
         let mut scene = Scene::new();
         let root = scene.add(None, shape(true));
         let scissor = scene.add(Some(root), clip((10.0, 10.0), (60.0, 60.0)));
         let backdrop = scene.add(Some(scissor), shape(clips_children));
         let child = has_child.then(|| scene.add(Some(backdrop), shape(true)));
         let sibling = scene.add(Some(root), shape(true));
-        scene.attach_backdrop(backdrop);
-        let mut output = RenderPlan::default();
+        scene.attach_backdrop(backdrop, &mut output);
         scene.plan(&mut DrawPlanner::default(), &mut output);
         let ops = operations(&output);
         let [RenderOperation::DrawShapeAndIncrementStencil(_), RenderOperation::CaptureBackdrop(capture), RenderOperation::ApplyEffect(effect), RenderOperation::IncrementStencil(_), RenderOperation::DrawShape(_), ..] =
@@ -67,16 +67,16 @@ fn capture_and_effect_precede_ordinary_backdrop_draws_and_restore_clips() {
 
 #[test]
 fn consecutive_captures_follow_preceding_draws_and_keep_separate_outputs() {
+    let mut output = RenderPlan::default();
     let mut scene = Scene::new();
     let root = scene.add(None, clip((5.0, 5.0), (90.0, 90.0)));
     let first = scene.add(Some(root), shape(true));
     let second = scene.add(Some(root), shape(true));
-    scene.attach_backdrop(first);
-    scene.attach_backdrop(second);
+    scene.attach_backdrop(first, &mut output);
+    scene.attach_backdrop(second, &mut output);
     scene.backdrops.get_mut(&first).unwrap().config =
         BackdropEffectConfig::new().padding(4.0).downsample(0.5);
-    scene.backdrops.get_mut(&second).unwrap().effect.params = vec![9, 8];
-    let mut output = RenderPlan::default();
+    scene.backdrops.get_mut(&second).unwrap().effect.parameters = output.store_parameters(&[9, 8]);
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let ops = operations(&output);
     let [RenderOperation::CaptureBackdrop(first_capture), RenderOperation::ApplyEffect(first_effect), RenderOperation::IncrementStencil(_), RenderOperation::DrawShape(_), RenderOperation::DecrementStencil(_), RenderOperation::CaptureBackdrop(second_capture), RenderOperation::ApplyEffect(second_effect), RenderOperation::IncrementStencil(_), RenderOperation::DrawShape(_), RenderOperation::DecrementStencil(_)] =
@@ -99,12 +99,12 @@ fn consecutive_captures_follow_preceding_draws_and_keep_separate_outputs() {
 
 #[test]
 fn layered_capture_references_registered_resources_and_disabling_capture_removes_all_work() {
+    let mut output = RenderPlan::default();
     let mut scene = Scene::new();
     let panel = scene.add(None, shape(true));
-    scene.attach_backdrop(panel);
+    scene.attach_backdrop(panel, &mut output);
     let base = IntermediateTextureId::Registered(0);
     scene.backdrop_source = Some(BackdropCaptureSource::Layered { base });
-    let mut output = RenderPlan::default();
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let RenderOperation::CaptureBackdrop(capture) = output.instructions[0].operation else {
         panic!("capture precedes the first draw")
@@ -122,15 +122,15 @@ fn layered_capture_references_registered_resources_and_disabling_capture_removes
             rect((0, 0), (100, 100)),
         )]
     );
-    assert!(output.effect_parameters.is_empty());
     assert_eq!(output.texture_count, 0);
 }
 
 #[test]
 fn rejected_capture_preserves_gradient_and_stencil_without_texture_work() {
+    let mut output = RenderPlan::default();
     let mut scene = Scene::new();
     let panel = scene.add(None, shape(true));
-    scene.attach_backdrop(panel);
+    scene.attach_backdrop(panel, &mut output);
     let DrawTreeNode::CachedShape(description) = scene.tree.get_mut(panel).unwrap() else {
         unreachable!()
     };
@@ -158,14 +158,12 @@ fn rejected_capture_preserves_gradient_and_stencil_without_texture_work() {
             (0.0, 0.0),
             (20_000.0, 20_000.0),
         ]));
-    let mut output = RenderPlan::default();
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let RenderOperation::DrawShape(draw) = output.instructions[1].operation else {
         panic!("ordinary fallback draw")
     };
     assert!(draw.material.has_gradient_fill());
     assert!(draw.material.under_fill_texture.is_none());
-    assert!(output.effect_parameters.is_empty());
     assert_eq!(output.texture_count, 0);
     let viewport = rect((0, 0), (100, 100));
     assert_eq!(
@@ -185,7 +183,7 @@ fn commands_remain_complete_after_planner_and_scene_are_dropped() {
         let mut scene = Scene::new();
         let root = scene.add(None, shape(true));
         let panel = scene.add(Some(root), shape(true));
-        scene.attach_backdrop(panel);
+        scene.attach_backdrop(panel, &mut output);
         scene.plan(&mut DrawPlanner::default(), &mut output);
     }
     assert_eq!(output.instructions.len(), 7);
@@ -225,10 +223,11 @@ fn rebuilt_queues_reuse_storage_and_replace_all_commands_and_parameters() {
     for has_backdrop in [true, false, true] {
         scene.tree.clear();
         scene.backdrops.clear();
+        output.clear();
         let root = scene.add(None, shape(true));
         let leaf = scene.add(Some(root), shape(true));
         if has_backdrop {
-            scene.attach_backdrop(leaf);
+            scene.attach_backdrop(leaf, &mut output);
         }
         scene.plan(&mut planner, &mut output);
         assert_eq!(
@@ -244,6 +243,7 @@ fn rebuilt_queues_reuse_storage_and_replace_all_commands_and_parameters() {
     }
     scene.tree.clear();
     scene.backdrops.clear();
+    output.clear();
     scene.plan(&mut planner, &mut output);
     assert!(output.instructions.is_empty());
     assert!(output.effect_parameters.is_empty());
@@ -252,11 +252,12 @@ fn rebuilt_queues_reuse_storage_and_replace_all_commands_and_parameters() {
 
 #[test]
 fn shape_effect_composite_precedes_its_source_backdrop_capture_under_inherited_clips() {
+    let mut output = RenderPlan::default();
     let mut scene = Scene::new();
     let parent = scene.add(None, shape(true));
     let scissor = scene.add(Some(parent), clip((10.0, 10.0), (60.0, 60.0)));
     let source = scene.add(Some(scissor), shape(true));
-    scene.attach_backdrop(source);
+    scene.attach_backdrop(source, &mut output);
     scene.shape_effects.insert(
         source,
         TextureComposite {
@@ -267,7 +268,6 @@ fn shape_effect_composite_precedes_its_source_backdrop_capture_under_inherited_c
             },
         },
     );
-    let mut output = RenderPlan::default();
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let ops = operations(&output);
     assert!(matches!(
