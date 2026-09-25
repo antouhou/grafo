@@ -201,6 +201,7 @@ impl Scene {
         self.shape_resources.tessellation_cache.end_frame();
     }
 
+    #[cfg(feature = "render_metrics")]
     pub fn print_memory_usage_info(&self) {
         println!(
             "Cached shapes: {}",

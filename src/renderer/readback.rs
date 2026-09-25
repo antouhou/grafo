@@ -14,10 +14,6 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
             self.backend.maximum_texture_dimension(),
         );
         self.scene.finish_preparation();
-        #[cfg(feature = "render_metrics")]
-        {
-            self.last_planning_time = started_at.elapsed();
-        }
         self.backend.render_to_buffer(commands, buffer)?;
         #[cfg(feature = "render_metrics")]
         self.render_loop_metrics_tracker
@@ -36,10 +32,6 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
             self.backend.maximum_texture_dimension(),
         );
         self.scene.finish_preparation();
-        #[cfg(feature = "render_metrics")]
-        {
-            self.last_planning_time = started_at.elapsed();
-        }
         self.backend.render_to_argb32(commands, out_pixels)?;
         #[cfg(feature = "render_metrics")]
         self.render_loop_metrics_tracker

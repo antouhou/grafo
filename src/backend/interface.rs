@@ -1,12 +1,9 @@
-#[cfg(feature = "render_metrics")]
-use super::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
 use super::texture_manager::TextureManager;
 use super::{RenderBackend, WgpuBackend, WgpuBackendError};
 use crate::commands::{RenderPlan, ShapeDrawId};
 use crate::core::shape::{CachedShapeHandle, ShapeInstance};
 use crate::core::Viewport;
 use std::sync::Arc;
-use std::time::Duration;
 
 impl<'surface> RenderBackend<'surface> for WgpuBackend {
     type Surface = Option<wgpu::Surface<'surface>>;
@@ -113,23 +110,5 @@ impl<'surface> RenderBackend<'surface> for WgpuBackend {
     ) -> Result<(), Self::Error> {
         self.render_to_argb32(commands, pixels)
             .map_err(WgpuBackendError::Readback)
-    }
-    fn last_render_to_texture_view_cpu_time(&self) -> Duration {
-        self.last_render_to_texture_view_cpu_time
-    }
-    fn print_memory_usage_info(&self) {
-        self.print_memory_usage_info();
-    }
-    #[cfg(feature = "render_metrics")]
-    fn last_phase_timings(&self) -> PhaseTimings {
-        self.last_phase_timings
-    }
-    #[cfg(feature = "render_metrics")]
-    fn last_pipeline_switch_counts(&self) -> PipelineSwitchCounts {
-        self.resources.pipeline_switch_counts
-    }
-    #[cfg(feature = "render_metrics")]
-    fn last_shape_effect_cache_metrics(&self) -> ShapeEffectCacheMetrics {
-        self.resources.shape_effect_cache_metrics
     }
 }

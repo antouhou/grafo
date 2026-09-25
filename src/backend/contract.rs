@@ -1,9 +1,6 @@
-#[cfg(feature = "render_metrics")]
-use super::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
 use crate::commands::{RenderPlan, ShapeDrawId};
 use crate::core::shape::{CachedShapeHandle, ShapeInstance};
 use crate::core::Viewport;
-use std::time::Duration;
 
 /// Owns execution resources and interprets completed commands, without scene access.
 /// Resource preparation happens while queuing; rendering consumes the finished plan.
@@ -54,12 +51,4 @@ pub trait RenderBackend<'surface> {
         commands: &RenderPlan,
         pixels: &mut [u32],
     ) -> Result<(), Self::Error>;
-    fn last_render_to_texture_view_cpu_time(&self) -> Duration;
-    fn print_memory_usage_info(&self);
-    #[cfg(feature = "render_metrics")]
-    fn last_phase_timings(&self) -> PhaseTimings;
-    #[cfg(feature = "render_metrics")]
-    fn last_pipeline_switch_counts(&self) -> PipelineSwitchCounts;
-    #[cfg(feature = "render_metrics")]
-    fn last_shape_effect_cache_metrics(&self) -> ShapeEffectCacheMetrics;
 }

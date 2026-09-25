@@ -29,6 +29,7 @@ where
         }
     }
 
+    #[cfg(any(feature = "render_metrics", test))]
     pub(crate) fn len(&self) -> usize {
         self.previous_frame.len() + self.current_frame.len()
     }
@@ -100,6 +101,7 @@ impl Cache {
         }
     }
 
+    #[cfg(feature = "render_metrics")]
     pub fn len(&self) -> usize {
         self.entries.len()
     }

@@ -561,11 +561,11 @@ fn cached_shape_effects_share_the_normal_texture_pipeline() {
     renderer.render_to_buffer(&mut pixels).unwrap();
     renderer.render_to_buffer(&mut pixels).unwrap();
 
-    let cache_metrics = renderer.last_shape_effect_cache_metrics();
+    let cache_metrics = renderer.backend().last_shape_effect_cache_metrics();
     assert_eq!(cache_metrics.hits, 2);
     assert_eq!(cache_metrics.misses, 0);
 
-    let pipeline_switches = renderer.last_pipeline_switch_counts();
+    let pipeline_switches = renderer.backend().last_pipeline_switch_counts();
     assert_eq!(pipeline_switches.to_leaf_draw, 1);
     assert_eq!(pipeline_switches.to_composite, 0);
     assert_eq!(pipeline_switches.total_switches, 1);
@@ -595,7 +595,7 @@ fn cached_shape_effect_is_invalidated_by_normal_pipeline_recreation() {
     renderer.set_msaa_samples(4);
     renderer.render_to_buffer(&mut pixels).unwrap();
 
-    let cache_metrics = renderer.last_shape_effect_cache_metrics();
+    let cache_metrics = renderer.backend().last_shape_effect_cache_metrics();
     assert_eq!(cache_metrics.hits, 0);
     assert_eq!(cache_metrics.misses, 1);
     assert_eq!(read_pixel_rgba(&pixels, 64, 52, 32), [0, 0, 255, 255]);

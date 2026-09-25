@@ -1,5 +1,4 @@
 use super::{RenderBackend, Renderer};
-pub use crate::backend::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -149,33 +148,33 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
     /// Returns the average frames-per-second since metrics tracking started.
     ///
     /// Divides the completed frame count by the time from the first render's start
-    /// through the latest render's GPU wait after presentation.
+    /// through the latest successful render's completion.
     pub fn average_frames_per_second(&self) -> f64 {
         self.render_loop_metrics_tracker.average_frames_per_second()
     }
 
-    /// Returns the average time spent in `render()` for successfully presented frames.
+    /// Returns the average time spent in successful render calls, including readback calls.
     ///
-    /// Includes the GPU wait after presentation.
+    /// Includes scene planning and any waiting performed by the backend.
     pub fn average_render_loop_duration(&self) -> Duration {
         self.render_loop_metrics_tracker
             .average_render_loop_duration()
     }
 
-    /// Returns the rolling 1-second FPS based on successfully presented frames.
+    /// Returns the rolling 1-second FPS based on successful render calls.
     pub fn rolling_frames_per_second(&mut self) -> f64 {
         self.render_loop_metrics_tracker.rolling_frames_per_second()
     }
 
     /// Returns the rolling 1-second average render-loop duration.
     ///
-    /// Includes the GPU wait after presentation.
+    /// Includes scene planning and any waiting performed by the backend.
     pub fn rolling_average_render_loop_duration(&mut self) -> Duration {
         self.render_loop_metrics_tracker
             .rolling_average_render_loop_duration()
     }
 
-    /// Returns the number of successfully presented frames included in the metrics.
+    /// Returns the number of successful render calls included in the metrics.
     pub fn total_presented_frame_count(&self) -> u64 {
         self.render_loop_metrics_tracker
             .total_presented_frame_count()
@@ -184,27 +183,6 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
     /// Resets all render-loop metrics to start a new measurement window.
     pub fn reset_render_loop_metrics(&mut self) {
         self.render_loop_metrics_tracker.reset();
-    }
-
-    /// Returns the per-phase timing breakdown for the most recently rendered frame.
-    pub fn last_phase_timings(&self) -> PhaseTimings {
-        let mut timings = self.backend.last_phase_timings();
-        timings.prepare += self.last_planning_time;
-        timings.total += self.last_planning_time;
-        timings
-    }
-
-    /// Returns the pipeline switch counts for the most recently rendered frame.
-    ///
-    /// Shows how many times each GPU pipeline was bound, and how many parent shapes
-    /// used scissor clipping instead of stencil increment/decrement.
-    pub fn last_pipeline_switch_counts(&self) -> PipelineSwitchCounts {
-        self.backend.last_pipeline_switch_counts()
-    }
-
-    /// Returns cached shape-effect activity for the most recently rendered frame.
-    pub fn last_shape_effect_cache_metrics(&self) -> ShapeEffectCacheMetrics {
-        self.backend.last_shape_effect_cache_metrics()
     }
 }
 

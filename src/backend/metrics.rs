@@ -1,3 +1,4 @@
+use super::WgpuBackend;
 use std::time::Duration;
 
 /// Shape-effect cache activity during one frame.
@@ -49,15 +50,15 @@ impl PipelineSwitchCounts {
     }
 }
 
-/// Per-phase timing breakdown for a single frame.
+/// WGPU execution timings for a single render, excluding scene planning.
 ///
-/// Provides wall-clock durations for each phase of the render loop.
+/// Provides wall-clock durations for each backend phase.
 /// Available when the `render_metrics` feature is enabled.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PhaseTimings {
-    /// Time spent compiling commands and uploading geometry buffers to the GPU.
+    /// Time spent preparing and uploading geometry buffers to the GPU.
     pub prepare: Duration,
-    /// Time spent in `render_to_texture_view` and `queue.submit`.
+    /// Time spent acquiring the output and encoding and submitting GPU commands.
     pub encode_and_submit: Duration,
     /// Time spent presenting, or mapping, waiting for, and copying offscreen pixels.
     pub present_or_readback: Duration,
@@ -66,4 +67,26 @@ pub struct PhaseTimings {
     pub gpu_wait: Duration,
     /// Sum of all phases, including the GPU wait.
     pub total: Duration,
+}
+
+impl WgpuBackend {
+    /// Returns CPU encoding and submission time, excluding uploads and readback.
+    pub fn last_render_to_texture_view_cpu_time(&self) -> Duration {
+        self.last_render_to_texture_view_cpu_time
+    }
+
+    /// Returns the WGPU phase timings for the most recently completed render.
+    pub fn last_phase_timings(&self) -> PhaseTimings {
+        self.last_phase_timings
+    }
+
+    /// Returns pipeline bindings, scissor clips and stencil draws from the last render.
+    pub fn last_pipeline_switch_counts(&self) -> PipelineSwitchCounts {
+        self.resources.pipeline_switch_counts
+    }
+
+    /// Returns cached shape-effect activity for the most recently rendered frame.
+    pub fn last_shape_effect_cache_metrics(&self) -> ShapeEffectCacheMetrics {
+        self.resources.shape_effect_cache_metrics
+    }
 }

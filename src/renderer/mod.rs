@@ -10,11 +10,9 @@ use crate::planner::Planner;
 use crate::scene::{Scene, SceneContext};
 pub use construction::RendererCreationError;
 use std::sync::Arc;
-use std::time::Duration;
 #[cfg(feature = "render_metrics")]
 use std::time::Instant;
 mod construction;
-mod diagnostics;
 mod draw_queue;
 mod effects;
 #[cfg(feature = "render_metrics")]
@@ -50,8 +48,6 @@ pub struct Renderer<'surface, B: RenderBackend<'surface> = WgpuBackend> {
     viewport: Viewport,
     fringe_width: f32,
     #[cfg(feature = "render_metrics")]
-    last_planning_time: Duration,
-    #[cfg(feature = "render_metrics")]
     render_loop_metrics_tracker: RenderLoopMetricsTracker,
 }
 
@@ -67,15 +63,13 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
             fringe_width: backend.fringe_width(),
             backend,
             #[cfg(feature = "render_metrics")]
-            last_planning_time: Duration::ZERO,
-            #[cfg(feature = "render_metrics")]
             render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),
         }
     }
 
-    /// Returns CPU encoding and submission time, excluding planning, uploads and readback.
-    pub fn last_render_to_texture_view_cpu_time(&self) -> Duration {
-        self.backend.last_render_to_texture_view_cpu_time()
+    /// Provides read-only access to backend-specific resources and diagnostics.
+    pub fn backend(&self) -> &B {
+        &self.backend
     }
 
     /// Plans the scene before passing completed commands to the backend.
@@ -89,10 +83,6 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
             self.backend.maximum_texture_dimension(),
         );
         self.scene.finish_preparation();
-        #[cfg(feature = "render_metrics")]
-        {
-            self.last_planning_time = started_at.elapsed();
-        }
         self.backend.render(commands, &mut self.surface)?;
         #[cfg(feature = "render_metrics")]
         self.render_loop_metrics_tracker

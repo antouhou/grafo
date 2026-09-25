@@ -12,11 +12,13 @@ use self::texture_manager::TextureManager;
 pub use self::types::GeometryBufferError;
 use crate::core::Viewport;
 use std::sync::Arc;
+#[cfg(feature = "render_metrics")]
 use std::time::Duration;
 
 mod construction;
 mod context;
 mod contract;
+#[cfg(feature = "render_metrics")]
 mod diagnostics;
 mod effects;
 mod errors;
@@ -79,6 +81,7 @@ pub struct WgpuBackend {
     /// Per-phase timing breakdown for the most recently rendered frame.
     pub(in crate::backend) last_phase_timings: PhaseTimings,
 
+    #[cfg(feature = "render_metrics")]
     /// Wall-clock CPU time spent inside the most recent `render_to_texture_view()` call.
     ///
     /// This measures render/effect pass encoding and `queue.submit`. Planning

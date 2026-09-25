@@ -1,11 +1,8 @@
 use super::{RenderBackend, Renderer};
-#[cfg(feature = "render_metrics")]
-use crate::backend::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
 use crate::commands::{RenderCommand, RenderOperation, RenderPlan, ShapeDrawId, Target};
 use crate::core::{CachedShapeHandle, ShapeInstance, Viewport};
 use crate::scene::SceneContext;
 use crate::{Color, DrawCommandError, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, Stroke};
-use std::time::Duration;
 use thiserror::Error;
 
 #[derive(Default)]
@@ -91,22 +88,6 @@ impl RenderBackend<'_> for TestBackend {
     }
     fn render_to_argb32(&mut self, _: &RenderPlan, _: &mut [u32]) -> Result<(), TestBackendError> {
         Err(TestBackendError)
-    }
-    fn last_render_to_texture_view_cpu_time(&self) -> Duration {
-        Duration::ZERO
-    }
-    fn print_memory_usage_info(&self) {}
-    #[cfg(feature = "render_metrics")]
-    fn last_phase_timings(&self) -> PhaseTimings {
-        PhaseTimings::default()
-    }
-    #[cfg(feature = "render_metrics")]
-    fn last_pipeline_switch_counts(&self) -> PipelineSwitchCounts {
-        PipelineSwitchCounts::default()
-    }
-    #[cfg(feature = "render_metrics")]
-    fn last_shape_effect_cache_metrics(&self) -> ShapeEffectCacheMetrics {
-        ShapeEffectCacheMetrics::default()
     }
 
     fn render(

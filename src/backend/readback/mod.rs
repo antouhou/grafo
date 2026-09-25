@@ -94,6 +94,7 @@ pub(in crate::backend) struct ArgbReadbackTarget {
     pub(in crate::backend) input_buffer: Buffer,
     pub(in crate::backend) output_buffer: Buffer,
     pub(in crate::backend) readback_buffer: Buffer,
+    #[cfg(feature = "render_metrics")]
     pub(in crate::backend) params_buffer: Buffer,
     bind_group: BindGroup,
 }
@@ -147,6 +148,7 @@ impl ArgbReadbackTarget {
             input_buffer,
             output_buffer,
             readback_buffer,
+            #[cfg(feature = "render_metrics")]
             params_buffer,
             bind_group,
         }

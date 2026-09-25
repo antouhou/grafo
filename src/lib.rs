@@ -61,11 +61,7 @@ pub use renderer::{
 };
 
 #[cfg(feature = "render_metrics")]
-pub use renderer::metrics::PhaseTimings;
-#[cfg(feature = "render_metrics")]
-pub use renderer::metrics::PipelineSwitchCounts;
-#[cfg(feature = "render_metrics")]
-pub use renderer::metrics::ShapeEffectCacheMetrics;
+pub use backend::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
 
 pub use backend::{EffectResourceError, GeometryBufferError, WgpuBackendError};
 pub use scene::SceneError;

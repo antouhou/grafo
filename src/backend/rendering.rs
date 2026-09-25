@@ -8,7 +8,9 @@ use crate::backend::execution::targets::{RenderTarget, SurfaceTarget};
 use crate::backend::metrics::{PhaseTimings, ShapeEffectCacheMetrics};
 use crate::backend::types::BackdropContext;
 use crate::commands::RenderPlan;
-use std::{iter, time::Instant};
+use std::iter;
+#[cfg(feature = "render_metrics")]
+use std::time::Instant;
 #[cfg(feature = "render_metrics")]
 use wgpu::MaintainBase;
 use wgpu::{CommandEncoderDescriptor, SurfaceError, Texture, TextureView, TextureViewDescriptor};
@@ -20,6 +22,7 @@ impl WgpuBackend {
         texture_view: &TextureView,
         output_texture: Option<&Texture>,
     ) {
+        #[cfg(feature = "render_metrics")]
         let render_to_texture_view_started_at = Instant::now();
         self.resources
             .shape_execution
@@ -125,7 +128,10 @@ impl WgpuBackend {
         resources.shape_execution.texture_materials.finish_render();
         resources.effect_execution.finish_render();
 
-        self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
+        #[cfg(feature = "render_metrics")]
+        {
+            self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
+        }
 
         let (_collected_shape_effect_results, _collected_shape_effect_masks) =
             resources.textures.collect_unused_shape_effects();

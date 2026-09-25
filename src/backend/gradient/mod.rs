@@ -416,6 +416,7 @@ impl GradientCache {
         material
     }
 
+    #[cfg(feature = "render_metrics")]
     pub(crate) fn print_sizes(&self) {
         println!("Gradient ramps: {}", self.ramps.len());
         println!("Gradient ramp textures: {}", self.ramp_textures.len());
