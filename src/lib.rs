@@ -42,7 +42,20 @@
 //! The [examples](https://github.com/antouhou/grafo/tree/main/examples) directory includes
 //! hierarchical clipping, texture layers, transforms, and shader effects.
 
+pub use crate::core::*;
+#[cfg(feature = "render_metrics")]
+pub use backend::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
+pub use backend::texture_manager::WgpuTextureManager;
+use backend::WgpuContext;
+pub use backend::{
+    BackendCreationError as RendererCreationError, EffectResourceError, EffectShaderError,
+    GeometryBufferError, ReadbackError, WgpuBackend, WgpuBackendError,
+};
+pub use commands::RenderPlan;
 pub use lyon;
+pub use render_backend::{RenderBackend, TextureManager};
+pub use scene::SceneError;
+use std::sync::Arc;
 pub use wgpu;
 
 pub mod backend;
@@ -50,20 +63,15 @@ pub mod commands;
 pub mod core;
 pub(crate) mod planner;
 pub mod render_backend;
-mod renderer;
+pub mod renderer;
 pub mod scene;
+mod wgpu_renderer;
 
-pub use crate::core::*;
-pub use backend::texture_manager::WgpuTextureManager;
-pub use commands::RenderPlan;
-pub use render_backend::{RenderBackend, TextureManager};
-pub use renderer::{
-    types::DrawCommandError, EffectError, EffectShaderError, ReadbackError, Renderer,
-    RendererContext, RendererCreationError, WgpuBackend,
-};
-
-#[cfg(feature = "render_metrics")]
-pub use backend::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
-
-pub use backend::{EffectResourceError, GeometryBufferError, WgpuBackendError};
-pub use scene::SceneError;
+/// Coordinates scene construction, planning and execution, using WGPU by default.
+pub type Renderer<'surface, B = WgpuBackend> = renderer::Renderer<'surface, B>;
+/// Shared CPU shape storage and backend context, using WGPU by default.
+pub type RendererContext<C = Arc<WgpuContext>> = renderer::RendererContext<C>;
+/// Scene insertion or backend resource preparation failed.
+pub type DrawCommandError<E = WgpuBackendError> = renderer::DrawCommandError<E>;
+/// Scene attachment or backend effect validation failed.
+pub type EffectError<E = WgpuBackendError> = renderer::EffectError<E>;

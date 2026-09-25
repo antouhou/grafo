@@ -1,9 +1,12 @@
+use super::types::DrawCommandError;
 use super::{RenderBackend, Renderer};
 use crate::commands::{RenderCommand, RenderOperation, RenderPlan, ShapeDrawId, Target};
-use crate::core::{CachedShapeHandle, ShapeInstance, Viewport};
+use crate::core::{
+    CachedShapeHandle, Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeInstance,
+    Stroke, Viewport,
+};
 use crate::render_backend::TextureManager;
 use crate::scene::SceneContext;
-use crate::{Color, DrawCommandError, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, Stroke};
 use thiserror::Error;
 
 #[derive(Default)]

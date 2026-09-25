@@ -1,28 +1,24 @@
 //! Coordinates scene mutation, planning and backend execution.
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
-pub use self::types::EffectError;
-pub use crate::backend::{EffectShaderError, ReadbackError, WgpuBackend, WgpuContext};
+pub use self::types::{DrawCommandError, EffectError};
 use crate::core::Viewport;
 use crate::planner::Planner;
 use crate::render_backend::RenderBackend;
 use crate::scene::{Scene, SceneContext};
-pub use construction::RendererCreationError;
-use std::sync::Arc;
 #[cfg(feature = "render_metrics")]
 use std::time::Instant;
-mod construction;
 mod draw_queue;
 mod effects;
 #[cfg(feature = "render_metrics")]
 pub mod metrics;
 mod readback;
 mod surface;
-pub(crate) mod types;
+mod types;
 
 /// Shared CPU shape storage and backend context. Each renderer owns its own queue and output.
 #[derive(Clone)]
-pub struct RendererContext<C = Arc<WgpuContext>> {
+pub struct RendererContext<C> {
     backend: C,
     scene: SceneContext,
 }
@@ -36,10 +32,14 @@ impl<C> RendererContext<C> {
     pub fn scene(&self) -> &SceneContext {
         &self.scene
     }
+    /// Consumes the context without cloning either shared resource owner.
+    pub fn into_parts(self) -> (C, SceneContext) {
+        (self.backend, self.scene)
+    }
 }
 
 /// Coordinates CPU scene construction and planning, then submits the flat command stream.
-pub struct Renderer<'surface, B: RenderBackend<'surface> = WgpuBackend> {
+pub struct Renderer<'surface, B: RenderBackend<'surface>> {
     scene: Scene,
     planner: Planner,
     surface: B::Surface,

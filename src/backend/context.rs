@@ -169,6 +169,7 @@ impl WgpuBackend {
         );
         Ok((backend, Some(surface)))
     }
+
     pub fn headless(
         context: Arc<WgpuContext>,
         physical_size: (u32, u32),
@@ -199,6 +200,7 @@ impl WgpuBackend {
         ))
     }
 }
+
 fn validate_scale_factor(scale_factor: f64) -> Result<(), BackendCreationError> {
     if !scale_factor.is_finite() || scale_factor <= 0.0 {
         return Err(BackendCreationError::InvalidScaleFactor(scale_factor));

@@ -1,17 +1,18 @@
-use super::{Renderer, RendererContext};
-pub use crate::backend::BackendCreationError as RendererCreationError;
-use crate::backend::{WgpuBackend, WgpuContext};
+//! Assembles the generic coordinator with WGPU resources.
+
+use crate::backend::{BackendCreationError, WgpuBackend, WgpuContext};
+use crate::renderer::{Renderer, RendererContext};
 use crate::scene::SceneContext;
 use std::sync::Arc;
 use wgpu::SurfaceTarget;
 
-impl RendererContext {
+impl RendererContext<Arc<WgpuContext>> {
     /// Creates shared backend resources and CPU shape storage without an output surface.
-    pub async fn try_new() -> Result<Self, RendererCreationError> {
-        Ok(Self {
-            backend: Arc::new(WgpuContext::try_new().await?),
-            scene: SceneContext::default(),
-        })
+    pub async fn try_new() -> Result<Self, BackendCreationError> {
+        Ok(Self::from_parts(
+            Arc::new(WgpuContext::try_new().await?),
+            SceneContext::default(),
+        ))
     }
     pub async fn new() -> Self {
         Self::try_new()
@@ -20,7 +21,7 @@ impl RendererContext {
     }
 }
 
-impl<'a> Renderer<'a> {
+impl<'a> Renderer<'a, WgpuBackend> {
     pub async fn new(
         window: impl Into<SurfaceTarget<'static>>,
         physical_size: (u32, u32),
@@ -45,7 +46,7 @@ impl<'a> Renderer<'a> {
     /// Each renderer created through this method owns a distinct surface and draw queue while
     /// sharing the context's WGPU device, queue, and texture storage.
     pub fn new_with_context(
-        context: RendererContext,
+        context: RendererContext<Arc<WgpuContext>>,
         window: impl Into<SurfaceTarget<'static>>,
         physical_size: (u32, u32),
         scale_factor: f64,
@@ -67,16 +68,17 @@ impl<'a> Renderer<'a> {
 
     /// Fallible version of [`Self::new_with_context`].
     pub fn try_new_with_context(
-        context: RendererContext,
+        context: RendererContext<Arc<WgpuContext>>,
         window: impl Into<SurfaceTarget<'static>>,
         physical_size: (u32, u32),
         scale_factor: f64,
         vsync: bool,
         transparent: bool,
         msaa_samples: u32,
-    ) -> Result<Self, RendererCreationError> {
+    ) -> Result<Self, BackendCreationError> {
+        let (backend_context, scene_context) = context.into_parts();
         let (backend, surface) = WgpuBackend::for_window(
-            context.backend,
+            backend_context,
             window,
             physical_size,
             scale_factor,
@@ -84,7 +86,7 @@ impl<'a> Renderer<'a> {
             transparent,
             msaa_samples,
         )?;
-        Ok(Self::from_backend(backend, surface, context.scene))
+        Ok(Self::from_backend(backend, surface, scene_context))
     }
 
     pub async fn new_transparent(
@@ -115,7 +117,7 @@ impl<'a> Renderer<'a> {
     pub async fn try_new_headless(
         physical_size: (u32, u32),
         scale_factor: f64,
-    ) -> Result<Self, RendererCreationError> {
+    ) -> Result<Self, BackendCreationError> {
         Self::try_new_headless_with_context(
             RendererContext::try_new().await?,
             physical_size,
@@ -125,12 +127,13 @@ impl<'a> Renderer<'a> {
 
     /// Creates a headless renderer that shares an existing [`RendererContext`].
     pub fn try_new_headless_with_context(
-        context: RendererContext,
+        context: RendererContext<Arc<WgpuContext>>,
         physical_size: (u32, u32),
         scale_factor: f64,
-    ) -> Result<Self, RendererCreationError> {
-        let backend = WgpuBackend::headless(context.backend, physical_size, scale_factor)?;
-        Ok(Self::from_backend(backend, None, context.scene))
+    ) -> Result<Self, BackendCreationError> {
+        let (backend_context, scene_context) = context.into_parts();
+        let backend = WgpuBackend::headless(backend_context, physical_size, scale_factor)?;
+        Ok(Self::from_backend(backend, None, scene_context))
     }
 
     /// Creates a headless renderer without a window surface.
