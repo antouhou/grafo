@@ -74,27 +74,34 @@ impl RenderBackend<'_> for TestBackend {
         self.registered_shapes.push(id.0);
         Ok(())
     }
+
     fn clear_draw_queue(&mut self) {
         self.registered_shapes.clear();
     }
+
     fn texture_manager(&self) -> &TestTextureManager {
         &TestTextureManager
     }
+
     fn maximum_texture_dimension(&self) -> u32 {
         4096
     }
+
     fn viewport(&self) -> Viewport {
         Viewport {
             physical_size: (32, 32),
             scale_factor: 1.0,
         }
     }
+
     fn fringe_width(&self) -> f32 {
         0.75
     }
+
     fn load_effect(&mut self, _: u64, _: &[&str]) -> Result<bool, TestBackendError> {
         Ok(true)
     }
+
     fn validate_effect_params(&self, _: u64, params: &[u8]) -> Result<(), TestBackendError> {
         if params.len() == 4 {
             Ok(())
@@ -102,11 +109,13 @@ impl RenderBackend<'_> for TestBackend {
             Err(TestBackendError)
         }
     }
+
     fn unload_effect(&mut self, _: u64) {}
     fn invalidate_effect(&mut self, _: u64) {}
     fn set_shape_effect_geometry(&mut self, id: ShapeDrawId, _: &CachedShapeHandle) {
         assert!(self.registered_shapes.contains(&id.0));
     }
+
     fn remove_shape_effect(&mut self, _: ShapeDrawId) {}
     fn remove_backdrop_effect(&mut self, _: ShapeDrawId) {}
     fn resize(&mut self, _: &mut TestSurface, _: Viewport, _: f32) {}
@@ -160,6 +169,7 @@ impl RenderBackend<'_> for TestBackend {
         assert!(targets.is_empty());
         Ok(())
     }
+
     fn render_to_buffer(
         &mut self,
         _: &RenderPlan,

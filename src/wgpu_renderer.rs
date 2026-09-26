@@ -14,6 +14,7 @@ impl RendererContext<Arc<WgpuContext>> {
             SceneContext::default(),
         ))
     }
+
     pub async fn new() -> Self {
         Self::try_new()
             .await

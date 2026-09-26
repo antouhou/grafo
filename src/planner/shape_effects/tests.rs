@@ -26,6 +26,7 @@ impl MaskCommands {
     fn new() -> Self {
         Self::default()
     }
+
     fn plan(
         &mut self,
         tree: &Tree<DrawTreeNode>,

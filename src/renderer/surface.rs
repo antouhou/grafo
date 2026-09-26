@@ -4,9 +4,11 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
     pub fn size(&self) -> (u32, u32) {
         self.viewport.physical_size
     }
+
     pub fn scale_factor(&self) -> f64 {
         self.viewport.scale_factor
     }
+
     pub fn fringe_width(&self) -> f32 {
         self.fringe_width
     }

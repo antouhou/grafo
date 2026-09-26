@@ -14,6 +14,7 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
     ) {
         self.scene.load_shape(shape, cache_key, geometry_id);
     }
+
     pub fn remove_shape(&mut self, cache_key: u64) {
         self.scene.remove_shape(cache_key);
     }
@@ -84,9 +85,11 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
             clips_children,
         )?)
     }
+
     pub fn texture_manager(&self) -> &B::TextureManager {
         self.backend.texture_manager()
     }
+
     pub fn clear_draw_queue(&mut self) {
         self.scene.clear();
         self.planner.clear();

@@ -27,9 +27,11 @@ impl<B> RendererContext<B> {
     pub fn from_parts(backend: B, scene: SceneContext) -> Self {
         Self { backend, scene }
     }
+
     pub fn backend(&self) -> &B {
         &self.backend
     }
+
     pub fn scene(&self) -> &SceneContext {
         &self.scene
     }

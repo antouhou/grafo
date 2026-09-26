@@ -19,6 +19,7 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
         }
         Ok(())
     }
+
     pub fn set_group_effect(
         &mut self,
         node_id: usize,
@@ -34,6 +35,7 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
             .scene
             .set_group_effect(node_id, effect_id, parameters)?)
     }
+
     pub fn update_group_effect_params(
         &mut self,
         node_id: usize,
@@ -48,9 +50,11 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
             .update_effect_parameters(effect.parameters, params);
         Ok(self.scene.update_group_effect_params(node_id, parameters)?)
     }
+
     pub fn remove_group_effect(&mut self, node_id: usize) {
         self.scene.remove_group_effect(node_id);
     }
+
     pub fn set_shape_backdrop_effect(
         &mut self,
         node_id: usize,
@@ -67,6 +71,7 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
             .scene
             .set_shape_backdrop_effect(node_id, effect_id, parameters, config)?)
     }
+
     pub fn update_backdrop_effect_config(
         &mut self,
         node_id: usize,
@@ -74,6 +79,7 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
     ) -> Result<(), EffectError<B::Error>> {
         Ok(self.scene.update_backdrop_effect_config(node_id, config)?)
     }
+
     pub fn update_backdrop_effect_params(
         &mut self,
         node_id: usize,
@@ -90,6 +96,7 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
             .scene
             .update_backdrop_effect_params(node_id, parameters)?)
     }
+
     pub fn remove_backdrop_effect(&mut self, node_id: usize) {
         self.scene.remove_backdrop_effect(node_id);
         self.backend.remove_backdrop_effect(ShapeDrawId(node_id));
@@ -115,6 +122,7 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
         );
         Ok(())
     }
+
     pub fn update_shape_effect_params(
         &mut self,
         node_id: usize,
@@ -129,6 +137,7 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
             .update_effect_parameters(effect.parameters, params);
         Ok(self.scene.update_shape_effect_params(node_id, parameters)?)
     }
+
     pub fn update_shape_effect_config(
         &mut self,
         node_id: usize,
@@ -136,14 +145,17 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
     ) -> Result<(), EffectError<B::Error>> {
         Ok(self.scene.update_shape_effect_config(node_id, config)?)
     }
+
     pub fn remove_shape_effect(&mut self, node_id: usize) {
         self.scene.remove_shape_effect(node_id);
         self.backend.remove_shape_effect(ShapeDrawId(node_id));
     }
+
     pub fn unload_effect(&mut self, effect_id: u64) {
         self.backend.unload_effect(effect_id);
         self.remove_effect_attachments(effect_id);
     }
+
     fn remove_effect_attachments(&mut self, effect_id: u64) {
         self.scene
             .remove_effect_attachments(effect_id, |node_id, attachment| match attachment {
