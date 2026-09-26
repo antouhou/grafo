@@ -18,22 +18,23 @@ mod types;
 
 /// Shared CPU shape storage and backend context. Each renderer owns its own queue and output.
 #[derive(Clone)]
-pub struct RendererContext<C> {
-    backend: C,
+pub struct RendererContext<B> {
+    backend: B,
     scene: SceneContext,
 }
-impl<C> RendererContext<C> {
-    pub fn from_parts(backend: C, scene: SceneContext) -> Self {
+
+impl<B> RendererContext<B> {
+    pub fn from_parts(backend: B, scene: SceneContext) -> Self {
         Self { backend, scene }
     }
-    pub fn backend(&self) -> &C {
+    pub fn backend(&self) -> &B {
         &self.backend
     }
     pub fn scene(&self) -> &SceneContext {
         &self.scene
     }
     /// Consumes the context without cloning either shared resource owner.
-    pub fn into_parts(self) -> (C, SceneContext) {
+    pub fn into_parts(self) -> (B, SceneContext) {
         (self.backend, self.scene)
     }
 }

@@ -119,6 +119,7 @@ impl Scene {
             .get(&node_id)
             .ok_or(SceneError::NodeNotFound(node_id))
     }
+
     pub(crate) fn backdrop_effect(&self, node_id: usize) -> Result<&EffectInstance, SceneError> {
         Ok(&self
             .backdrop_effects
@@ -126,6 +127,7 @@ impl Scene {
             .ok_or(SceneError::NodeNotFound(node_id))?
             .effect)
     }
+
     pub(crate) fn shape_effect(&self, node_id: usize) -> Result<&ShapeEffectInstance, SceneError> {
         self.shape_effects
             .get(&node_id)
@@ -148,6 +150,7 @@ impl Scene {
         );
         Ok(())
     }
+
     pub fn update_group_effect_params(
         &mut self,
         node_id: usize,
@@ -160,9 +163,11 @@ impl Scene {
             parameters,
         )
     }
+
     pub fn remove_group_effect(&mut self, node_id: usize) {
         self.group_effects.remove(&node_id);
     }
+
     pub fn set_shape_backdrop_effect(
         &mut self,
         node_id: usize,
@@ -184,6 +189,7 @@ impl Scene {
         );
         Ok(())
     }
+
     pub fn update_backdrop_effect_params(
         &mut self,
         node_id: usize,
@@ -198,6 +204,7 @@ impl Scene {
             parameters,
         )
     }
+
     pub fn update_backdrop_effect_config(
         &mut self,
         node_id: usize,
@@ -210,9 +217,11 @@ impl Scene {
             .config = config;
         Ok(())
     }
+
     pub fn remove_backdrop_effect(&mut self, node_id: usize) {
         self.backdrop_effects.remove(&node_id);
     }
+
     pub fn set_shape_effect(
         &mut self,
         node_id: usize,
@@ -232,6 +241,7 @@ impl Scene {
         );
         Ok(())
     }
+
     pub fn update_shape_effect_params(
         &mut self,
         node_id: usize,
@@ -244,6 +254,7 @@ impl Scene {
         instance.parameters = parameters;
         Ok(())
     }
+
     pub fn update_shape_effect_config(
         &mut self,
         node_id: usize,
@@ -256,9 +267,11 @@ impl Scene {
             .config = config;
         Ok(())
     }
+
     pub fn remove_shape_effect(&mut self, node_id: usize) {
         self.shape_effects.remove(&node_id);
     }
+    
     pub(crate) fn remove_effect_attachments(
         &mut self,
         effect_id: u64,
