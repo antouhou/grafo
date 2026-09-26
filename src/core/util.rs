@@ -33,6 +33,7 @@ impl ShapeResources {
         }
     }
 
+    #[cfg(feature = "render_metrics")]
     pub fn print_sizes(&self) {
         println!("Tessellations: {}", self.tessellation_cache.len());
     }

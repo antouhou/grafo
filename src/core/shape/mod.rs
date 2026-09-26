@@ -18,13 +18,13 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct CachedShapeHandle {
-    pub(crate) tessellation: Arc<CachedTessellation>,
+    pub tessellation: Arc<CachedTessellation>,
     /// Whether the original shape was an axis-aligned rectangle. Used to enable scissor-based
     /// clipping instead of stencil for rect parents.
     pub(crate) is_rect: bool,
     /// The local-space bounding rect when `is_rect` is true, for scissor computation.
     pub(crate) rect_bounds: Option<[(f32, f32); 2]>,
-    pub(crate) geometry_id: Option<u64>,
+    pub geometry_id: Option<u64>,
 }
 
 impl CachedShapeHandle {
@@ -51,18 +51,50 @@ impl CachedShapeHandle {
     }
 
     #[inline]
-    pub(crate) fn vertex_buffers(&self) -> &Arc<VertexBuffers<CustomVertex, u16>> {
+    pub fn vertex_buffers(&self) -> &Arc<VertexBuffers<CustomVertex, u16>> {
         &self.tessellation.vertex_buffers
     }
 
     #[inline]
-    pub(crate) fn local_bounds(&self) -> [(f32, f32); 2] {
+    pub fn local_bounds(&self) -> [(f32, f32); 2] {
         self.tessellation.local_bounds
     }
 
     #[inline]
-    pub(crate) fn texture_mapping_size(&self) -> [f32; 2] {
+    pub fn texture_mapping_size(&self) -> [f32; 2] {
         self.tessellation.texture_mapping_size
+    }
+}
+
+#[derive(Debug)]
+pub struct ShapeInstance {
+    pub cached_shape: CachedShapeHandle,
+    /// Optional per-shape transform applied in pixel space before clip-space normalization.
+    pub transform: Option<InstanceTransform>,
+    /// Texture sources associated with this cached shape.
+    pub textures: [ShapeTextureOptions; 2],
+    /// Linear RGBA color for a solid fill. Other fills leave this unset.
+    pub color_override: Option<[f32; 4]>,
+    /// A solid or gradient fill. `None` leaves the shape transparent
+    pub fill: Option<Fill>,
+}
+
+impl ShapeInstance {
+    pub fn new(cached_shape: CachedShapeHandle, options: ShapeDrawCommandOptions) -> Self {
+        Self {
+            cached_shape,
+            transform: options.transform,
+            textures: [options.background_texture, options.foreground_texture],
+            color_override: match options.fill.as_ref() {
+                Some(Fill::Solid(color)) => Some(color.normalize()),
+                _ => None,
+            },
+            fill: options.fill,
+        }
+    }
+
+    pub fn has_gradient_fill(&self) -> bool {
+        matches!(&self.fill, Some(Fill::Gradient(_)))
     }
 }
 

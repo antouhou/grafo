@@ -24,7 +24,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! grafo = "0.19"
+//! grafo = "0.20"
 //! winit = "0.30"
 //! futures = "0.3"
 //! env_logger = "0.11"
@@ -42,27 +42,36 @@
 //! The [examples](https://github.com/antouhou/grafo/tree/main/examples) directory includes
 //! hierarchical clipping, texture layers, transforms, and shader effects.
 
+pub use crate::core::*;
+pub use commands::RenderPlan;
 pub use lyon;
+pub use render_backend::{RenderBackend, TextureManager};
+pub use scene::SceneError;
+use std::sync::Arc;
 pub use wgpu;
+#[cfg(feature = "render_metrics")]
+pub use wgpu_backend::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
+pub use wgpu_backend::texture_manager::WgpuTextureManager;
+use wgpu_backend::WgpuContext;
+pub use wgpu_backend::{
+    BackendCreationError as RendererCreationError, EffectResourceError, EffectShaderError,
+    GeometryBufferError, ReadbackError, WgpuBackend, WgpuBackendError,
+};
 
 pub mod commands;
 pub mod core;
-mod pipeline;
-mod renderer;
-mod texture_manager;
+pub(crate) mod planner;
+pub mod render_backend;
+pub mod renderer;
+pub mod scene;
+pub mod wgpu_backend;
+mod wgpu_renderer;
 
-pub use crate::core::*;
-pub use commands::RenderPlan;
-pub use renderer::{
-    types::{DrawCommandError, GeometryBufferError, RenderError},
-    EffectError, EffectShaderError, ReadbackError, RenderBackend, Renderer, RendererContext,
-    RendererCreationError, WgpuBackend,
-};
-pub use texture_manager::TextureManager;
-
-#[cfg(feature = "render_metrics")]
-pub use renderer::metrics::PhaseTimings;
-#[cfg(feature = "render_metrics")]
-pub use renderer::metrics::PipelineSwitchCounts;
-#[cfg(feature = "render_metrics")]
-pub use renderer::metrics::ShapeEffectCacheMetrics;
+/// Coordinates scene construction, planning and execution, using WGPU by default.
+pub type Renderer<'surface, B = WgpuBackend> = renderer::Renderer<'surface, B>;
+/// Shared CPU shape storage and backend context, using WGPU by default.
+pub type RendererContext<C = Arc<WgpuContext>> = renderer::RendererContext<C>;
+/// Scene insertion or backend resource preparation failed.
+pub type DrawCommandError<E = WgpuBackendError> = renderer::DrawCommandError<E>;
+/// Scene attachment or backend effect validation failed.
+pub type EffectError<E = WgpuBackendError> = renderer::EffectError<E>;

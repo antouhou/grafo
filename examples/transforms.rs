@@ -1,7 +1,7 @@
 use euclid::{default::Transform3D, Angle};
 use futures::executor::block_on;
 use grafo::{
-    premultiply_rgba8_srgb_inplace, Color, Shape, ShapeDrawCommandOptions, Stroke,
+    premultiply_rgba8_srgb_inplace, Color, Shape, ShapeDrawCommandOptions, Stroke, TextureManager,
     TransformInstance,
 };
 use lyon::algorithms::hit_test::hit_test_path;

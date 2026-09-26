@@ -10,7 +10,9 @@
 //! cargo run --example bench_render_loop --features render_metrics --release
 //! ```
 use futures::executor::block_on;
-use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke, TransformInstance};
+use grafo::{
+    Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke, TextureManager, TransformInstance,
+};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
@@ -283,7 +285,7 @@ fn print_phase_breakdown(
         );
     }
 
-    println!("--- Phase Breakdown ---");
+    println!("--- WGPU Phase Breakdown ---");
     summarize("prepare:", phase_prepare);
     summarize("encode+submit:", phase_encode_submit);
     summarize("present:", phase_present);
@@ -308,7 +310,7 @@ fn print_metrics(renderer: &mut grafo::Renderer<'_>) {
         "Cumulative avg:  {:.3}ms",
         renderer.average_render_loop_duration().as_secs_f64() * 1000.0
     );
-    let pc = renderer.last_pipeline_switch_counts();
+    let pc = renderer.backend().last_pipeline_switch_counts();
     println!("--- pipeline switches (last frame) ---");
     println!("  StencilIncrement: {}", pc.to_stencil_increment);
     println!("  StencilDecrement: {}", pc.to_stencil_decrement);
@@ -530,7 +532,7 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
 
                             #[cfg(feature = "render_metrics")]
                             {
-                                let pt = renderer.last_phase_timings();
+                                let pt = renderer.backend().last_phase_timings();
                                 self.static_phase_prepare.push(pt.prepare);
                                 self.static_phase_encode_submit.push(pt.encode_and_submit);
                                 self.static_phase_present.push(pt.present_or_readback);
@@ -585,7 +587,7 @@ impl<'a> ApplicationHandler for BenchApp<'a> {
 
                             #[cfg(feature = "render_metrics")]
                             {
-                                let pt = renderer.last_phase_timings();
+                                let pt = renderer.backend().last_phase_timings();
                                 self.dynamic_phase_prepare.push(pt.prepare);
                                 self.dynamic_phase_encode_submit.push(pt.encode_and_submit);
                                 self.dynamic_phase_present.push(pt.present_or_readback);

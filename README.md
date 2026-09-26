@@ -24,7 +24,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-grafo = "0.19"
+grafo = "0.20"
 winit = "0.30"
 futures = "0.3"
 env_logger = "0.11"

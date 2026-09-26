@@ -7,7 +7,7 @@ use std::mem;
 use std::sync::Arc;
 
 #[derive(Debug)]
-pub(crate) struct CachedTessellation {
+pub struct CachedTessellation {
     pub(crate) vertex_buffers: Arc<VertexBuffers<CustomVertex, u16>>,
     pub(crate) local_bounds: [(f32, f32); 2],
     pub(crate) texture_mapping_size: [f32; 2],
@@ -29,6 +29,7 @@ where
         }
     }
 
+    #[cfg(any(feature = "render_metrics", test))]
     pub(crate) fn len(&self) -> usize {
         self.previous_frame.len() + self.current_frame.len()
     }
@@ -100,6 +101,7 @@ impl Cache {
         }
     }
 
+    #[cfg(feature = "render_metrics")]
     pub fn len(&self) -> usize {
         self.entries.len()
     }

@@ -92,7 +92,7 @@ impl<'a> ApplicationHandler for App<'a> {
                 println!(
                     "MSAA: {} (sample count: {})",
                     if self.msaa_enabled { "ON" } else { "OFF" },
-                    renderer.msaa_samples()
+                    new_samples
                 );
                 window.request_redraw();
             }

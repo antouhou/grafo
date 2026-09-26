@@ -6,7 +6,17 @@ The project consist of several modules that shouldn't mix responsibilities with 
 conversion function, CPU representation of a tesellated vertex - look into core module. If you need to introduce a new
 math/geometry structure, add it to the core. But first, make sure that the structure or helper are not yet present in
 some shape or form in the core module.
-- [`src/commands`]
+- [`src/commands`]: the flat render stream and its operands, including shape and intermediate texture IDs.
+- [`src/scene`]: CPU draw tree, tessellation and loaded-shape caches, and effect attachments.
+- [`src/planner`]: borrows the scene and writes commands into reusable storage. Planning must not access backend resources.
+- [`src/render_backend.rs`]: backend and texture manager traits, shared by the coordinator and backend implementations. Depends only on core types and commands.
+- [`src/wgpu_backend`]: WGPU resource uploads, GPU caches, command execution, surfaces, and readback. Backends borrow core data for resource preparation and never access the scene or planner.
+- [`src/renderer`]: generic coordinator. Scene mutations go through `Scene`; backend operations go through `RenderBackend`. Must not depend on a concrete backend.
+- [`src/lib.rs`] and [`src/wgpu_renderer.rs`]: public defaults and WGPU construction, assembling the coordinator, scene context and backend.
+
+The draw queue is cleared and rebuilt every frame for now. There's no way to update the tree just yet, so the only 
+purpose of keeping the tree around only if you want to draw exactly the same thing twice. Keep reusable storage and 
+resource caches across clears; do not cache tree identity across frames.
 
 ## Basic rules
 
