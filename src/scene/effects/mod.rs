@@ -271,7 +271,7 @@ impl Scene {
     pub fn remove_shape_effect(&mut self, node_id: usize) {
         self.shape_effects.remove(&node_id);
     }
-    
+
     pub(crate) fn remove_effect_attachments(
         &mut self,
         effect_id: u64,
