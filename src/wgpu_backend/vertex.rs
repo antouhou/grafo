@@ -37,13 +37,13 @@ impl CustomVertex {
         VertexAttribute {
             format: VertexFormat::Float32x2,
             offset: (mem::size_of::<[f32; 2]>() * 2) as BufferAddress,
-            shader_location: 8,
+            shader_location: 7,
         },
         // AA coverage, from 1.0 at the interior to 0.0 at the outer fringe.
         VertexAttribute {
             format: VertexFormat::Float32,
             offset: (mem::size_of::<[f32; 2]>() * 3) as BufferAddress,
-            shader_location: 9,
+            shader_location: 8,
         },
     ];
 
@@ -119,7 +119,6 @@ impl InstanceTransform {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct InstanceMetadata {
-    pub draw_order: f32,
     pub texture_flags: f32,
     pub texture_uv_transform_layer0: TextureUvTransform,
     pub texture_uv_transform_layer1: TextureUvTransform,
@@ -128,7 +127,6 @@ pub struct InstanceMetadata {
 impl Default for InstanceMetadata {
     fn default() -> Self {
         Self {
-            draw_order: 0.0,
             texture_flags: 0.0,
             texture_uv_transform_layer0: TextureUvTransform::IDENTITY,
             texture_uv_transform_layer1: TextureUvTransform::IDENTITY,
@@ -139,27 +137,21 @@ impl Default for InstanceMetadata {
 impl InstanceMetadata {
     pub(crate) const STRIDE: BufferAddress = mem::size_of::<Self>() as BufferAddress;
 
-    const ATTRIBUTES: [VertexAttribute; 4] = [
+    const ATTRIBUTES: [VertexAttribute; 3] = [
         VertexAttribute {
             format: VertexFormat::Float32,
             offset: 0,
-            shader_location: 7,
+            shader_location: 9,
         },
         VertexAttribute {
-            format: VertexFormat::Float32,
+            format: VertexFormat::Float32x4,
             offset: mem::size_of::<f32>() as BufferAddress,
             shader_location: 10,
         },
         VertexAttribute {
             format: VertexFormat::Float32x4,
-            offset: mem::size_of::<[f32; 2]>() as BufferAddress,
+            offset: (mem::size_of::<f32>() + mem::size_of::<TextureUvTransform>()) as BufferAddress,
             shader_location: 11,
-        },
-        VertexAttribute {
-            format: VertexFormat::Float32x4,
-            offset: (mem::size_of::<[f32; 2]>() + mem::size_of::<TextureUvTransform>())
-                as BufferAddress,
-            shader_location: 12,
         },
     ];
 

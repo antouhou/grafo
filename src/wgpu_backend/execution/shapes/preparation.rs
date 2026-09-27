@@ -85,7 +85,6 @@ pub(crate) fn append_instance_data(
     let texture_flags = (texture_data.texture_presence[0] as u32)
         | ((texture_data.texture_presence[1] as u32) << 1);
     temp_instance_metadata.push(InstanceMetadata {
-        draw_order: instance_index as f32,
         texture_flags: texture_flags as f32,
         texture_uv_transform_layer0: texture_data.texture_uv_transforms[0],
         texture_uv_transform_layer1: texture_data.texture_uv_transforms[1],

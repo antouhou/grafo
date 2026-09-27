@@ -93,7 +93,7 @@ pub fn create_uniform_bind_group_layout(device: &Device) -> BindGroupLayout {
 pub fn create_equal_increment_depth_state() -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format: wgpu::TextureFormat::Depth24PlusStencil8,
-        depth_write_enabled: true,
+        depth_write_enabled: false,
         depth_compare: wgpu::CompareFunction::Always,
         stencil: create_equal_increment_stencil_state(),
         bias: wgpu::DepthBiasState::default(),
@@ -119,7 +119,7 @@ fn create_equal_keep_depth_state() -> wgpu::DepthStencilState {
     };
     wgpu::DepthStencilState {
         format: wgpu::TextureFormat::Depth24PlusStencil8,
-        depth_write_enabled: true,
+        depth_write_enabled: false,
         depth_compare: wgpu::CompareFunction::Always,
         stencil: wgpu::StencilState {
             front: stencil_face,
