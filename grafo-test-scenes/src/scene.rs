@@ -14,6 +14,7 @@ use grafo::{
     ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
     SpreadMode, TextureManager, TransformInstance,
 };
+use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 // Grid layout
 
@@ -3531,7 +3532,6 @@ fn tile_49_conic_quadrant_colors(renderer: &mut Renderer) -> Vec<PixelExpectatio
     let cy = oy + 40.0;
 
     let shape = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)]);
-    use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
     let gradient = Gradient::conic(ConicGradientDesc {
         common: GradientCommonDesc {

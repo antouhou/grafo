@@ -122,7 +122,7 @@ impl Scene {
         output: &mut RenderPlan,
     ) {
         // Doesn't clear effect parameters, as they're stored before the planning starts, and are
-        //  necessary fot the plan
+        //  necessary for the plan
         output.clear_commands();
         planner.append(
             DrawPlanningInput {

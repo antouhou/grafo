@@ -12,7 +12,7 @@ use lyon::path::FillRule;
 use lyon::path::Path;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
+use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
@@ -299,7 +299,6 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                use winit::event::ElementState;
                 if event.state == ElementState::Pressed {
                     let yaw_step = 3.0f32;
                     let pitch_step = 3.0f32;
