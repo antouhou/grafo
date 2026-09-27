@@ -17,6 +17,11 @@ impl CachedShapeDrawData {
             clips_children,
         }
     }
+
+    pub(crate) fn has_geometry(&self) -> bool {
+        let geometry = self.instance.cached_shape.vertex_buffers();
+        !geometry.vertices.is_empty() && !geometry.indices.is_empty()
+    }
 }
 
 #[allow(clippy::large_enum_variant)]

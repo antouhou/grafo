@@ -27,8 +27,7 @@ pub(super) fn append_shape_effects(
         let Some(DrawTreeNode::CachedShape(shape)) = tree.get(node_id) else {
             continue;
         };
-        let geometry = shape.instance.cached_shape.vertex_buffers();
-        if geometry.vertices.is_empty() || geometry.indices.is_empty() {
+        if !shape.has_geometry() {
             continue;
         }
         let Some(raster_rect) = effect::compute_shape_effect_raster_rect(
