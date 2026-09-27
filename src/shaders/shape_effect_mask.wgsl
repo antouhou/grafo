@@ -12,8 +12,8 @@ struct MaskUniforms {
 
 struct MaskVertexInput {
     @location(0) position: vec2<f32>,
-    @location(8) normal: vec2<f32>,
-    @location(9) coverage: f32,
+    @location(7) normal: vec2<f32>,
+    @location(8) coverage: f32,
 };
 
 struct MaskVertexOutput {

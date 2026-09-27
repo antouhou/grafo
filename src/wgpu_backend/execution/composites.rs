@@ -92,7 +92,6 @@ impl CompositeExecutionResources {
                 unreachable!("only local composites need instances");
             };
             let metadata = InstanceMetadata {
-                draw_order: 0.0,
                 texture_flags: 1.0,
                 texture_uv_transform_layer0: sampling,
                 texture_uv_transform_layer1: TextureUvTransform::IDENTITY,

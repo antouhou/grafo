@@ -10,18 +10,16 @@ struct VertexInput {
     @location(4) t_col1: vec4<f32>,
     @location(5) t_col2: vec4<f32>,
     @location(6) t_col3: vec4<f32>,
-    // Per-instance draw order for Z-fighting resolution
-    @location(7) draw_order: f32,
     // Outward model-space normal for the AA fringe
-    @location(8) normal: vec2<f32>,
+    @location(7) normal: vec2<f32>,
     // AA coverage is 1.0 at the interior and 0.0 at the outer fringe
-    @location(9) coverage: f32,
+    @location(8) coverage: f32,
     // Bits 0 and 1 activate texture layers 0 and 1, respectively
     // Zero skips texture sampling and uses only the solid fill
-    @location(10) texture_flags: f32,
+    @location(9) texture_flags: f32,
     // Per-layer UV transform. XY is scale and ZW is offset.
-    @location(11) texture_uv_transform_layer0: vec4<f32>,
-    @location(12) texture_uv_transform_layer1: vec4<f32>,
+    @location(10) texture_uv_transform_layer0: vec4<f32>,
+    @location(11) texture_uv_transform_layer1: vec4<f32>,
 };
 
 struct VertexOutput {
@@ -236,7 +234,6 @@ fn compute_vertex_position(input: VertexInput) -> VertexPosition {
     let invw = 1.0 / max(abs(w), 1e-6);
     let px = p.x * invw;
     let py = p.y * invw;
-    let pz = p.z * invw;
 
     // Offset after projection so the AA fringe keeps its physical-pixel width.
     var final_px = px;
@@ -264,35 +261,10 @@ fn compute_vertex_position(input: VertexInput) -> VertexPosition {
     // Map screen coordinates to [-1, 1], with Y increasing upward.
     let ndc_x = 2.0 * final_px / uniforms.canvas_size.x - 1.0;
     let ndc_y = 1.0 - 2.0 * final_py / uniforms.canvas_size.y;
-    // Map Z from [-scale / 2, scale / 2] to [1, 0], clamping values outside that range.
-    let scale = 1000.0;
-    var depth = clamp(0.5 - pz / scale, 0.0, 1.0);
 
-    // TODO: a bit of a hacky hack to avoid intersection between shapes that do and shapes that doesn't use perspective.
-    //  The basic idea is that shapes with pz=0 are the shapes that are likely don't use perspective, so we push them to
-    //  the far plane. This is not a very good solution, and likely will cause some confusion in certain cases, for
-    //  example when the user explicitly wants a shape to intersect another shape at z=0. I'm a bit too lazy to fix
-    //  this properly right now, so leaving a TODO here.
-    if pz == 0.0 {
-        depth = 1.0; // Place at far plane if Z is exactly zero
-    }
-
-    // Apply a tiny depth bias based on draw order to resolve Z-fighting for coplanar shapes.
-    // Higher draw_order moves the depth closer to the camera.
-    let bias = input.draw_order * 0.00001;
-    let biased_depth = clamp(depth - bias, 0.0, 1.0);
-
-    // Biased depth here is a remnant of old code that used to actually do z sorting. I needed to add some transparency
-    //  effects later on, and I figured that the easiest way would be just to disable depth compare function in the
-    //  pipeline, and just use fs_main to do color compositing. That has one downside: as the compositing does not rely
-    //  on the Z buffer, but rather on the draw order, if two shapes intersect, the one drawn later will
-    //  always appear on top, even though part of it should be behind the other shape. A proper solution would be to implement
-    //  some other algoritm to handle that, like depth peeling or weighted blended order-independent transparency, but
-    //  I don't have a particular use case for it right now, so I'm leaving it as is.
-    //  If you want to enable intersection without transparency, change the pipeline to enable depth test/write with
-    //  less-equal function. (set depth_compare: wgpu::CompareFunction::LessEqual on the stencil/depth state)
+    // Shapes composite in command order. Intersecting geometry is not depth-sorted yet
     return VertexPosition(
-        vec4<f32>(ndc_x, ndc_y, biased_depth, 1.0),
+        vec4<f32>(ndc_x, ndc_y, 0.0, 1.0),
         vec2<f32>(final_px, final_py),
     );
 }
