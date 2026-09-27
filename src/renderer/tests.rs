@@ -5,6 +5,9 @@ use crate::core::{
     CachedShapeHandle, Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeInstance,
     Stroke, Viewport,
 };
+use crate::render_backend::render_target::{
+    PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError, Surface,
+};
 use crate::render_backend::TextureManager;
 use crate::scene::SceneContext;
 use thiserror::Error;
@@ -19,6 +22,12 @@ struct TestSurface {
 #[derive(Debug, Error, PartialEq, Eq)]
 #[error("backend unavailable")]
 struct TestBackendError;
+
+impl From<RenderTargetError> for TestBackendError {
+    fn from(_: RenderTargetError) -> Self {
+        Self
+    }
+}
 
 struct TestTextureManager;
 
@@ -56,9 +65,10 @@ struct TestBackend {
     command_address: usize,
     instruction_address: usize,
     should_fail: bool,
+    size: Option<(u32, u32)>,
 }
 
-impl RenderBackend<'_> for TestBackend {
+impl RenderBackend for TestBackend {
     type Surface = TestSurface;
     type Error = TestBackendError;
     type TextureManager = TestTextureManager;
@@ -89,7 +99,7 @@ impl RenderBackend<'_> for TestBackend {
 
     fn viewport(&self) -> Viewport {
         Viewport {
-            physical_size: (32, 32),
+            physical_size: self.size.unwrap_or((32, 32)),
             scale_factor: 1.0,
         }
     }
@@ -118,20 +128,31 @@ impl RenderBackend<'_> for TestBackend {
 
     fn remove_shape_effect(&mut self, _: ShapeDrawId) {}
     fn remove_backdrop_effect(&mut self, _: ShapeDrawId) {}
-    fn resize(&mut self, _: &mut TestSurface, _: Viewport, _: f32) {}
+    fn resize(&mut self, viewport: Viewport, _: f32) {
+        self.size = Some(viewport.physical_size);
+    }
     fn set_msaa_samples(&mut self, _: u32) {}
-    fn configure_surface(&mut self, _: &mut TestSurface) {}
-    fn set_vsync(&mut self, _: &mut TestSurface, _: bool) {}
     fn render(
         &mut self,
         commands: &RenderPlan,
-        surface: &mut TestSurface,
+        surface: RenderTarget<'_, TestSurface>,
     ) -> Result<(), Self::Error> {
         if self.should_fail {
             return Err(TestBackendError);
         }
         self.command_address = commands as *const RenderPlan as usize;
         self.instruction_address = commands.instructions.as_ptr() as usize;
+        let surface = match surface {
+            RenderTarget::Surface(surface) => surface.resource_mut(),
+            RenderTarget::Pixmap(mut pixels) => {
+                let layout = pixels.layout();
+                for row in 0..layout.size().1 as usize {
+                    let start = row * layout.stride();
+                    pixels.pixels_mut()[start..start + layout.size().0 as usize * 4].fill(71);
+                }
+                return Ok(());
+            }
+        };
         surface.draws.clear();
         surface.effects.clear();
         surface.shape_masks = 0;
@@ -169,21 +190,9 @@ impl RenderBackend<'_> for TestBackend {
         assert!(targets.is_empty());
         Ok(())
     }
-
-    fn render_to_buffer(
-        &mut self,
-        _: &RenderPlan,
-        _: &mut Vec<u8>,
-    ) -> Result<(), TestBackendError> {
-        Err(TestBackendError)
-    }
-
-    fn render_to_argb32(&mut self, _: &RenderPlan, _: &mut [u32]) -> Result<(), TestBackendError> {
-        Err(TestBackendError)
-    }
 }
 
-fn queue_shape(renderer: &mut Renderer<'static, TestBackend>, with_effects: bool) -> usize {
+fn queue_shape(renderer: &mut Renderer<TestBackend>, with_effects: bool) -> usize {
     renderer.load_shape(
         Shape::rect([(0.0, 0.0), (16.0, 16.0)], Stroke::default()),
         1,
@@ -207,17 +216,18 @@ fn queue_shape(renderer: &mut Renderer<'static, TestBackend>, with_effects: bool
     id
 }
 
-fn renderer() -> Renderer<'static, TestBackend> {
-    Renderer::from_backend(
-        TestBackend::default(),
-        TestSurface::default(),
-        SceneContext::default(),
-    )
+fn renderer() -> Renderer<TestBackend> {
+    Renderer::from_backend(TestBackend::default(), SceneContext::default())
+}
+
+fn surface() -> Surface<TestSurface> {
+    Surface::from_resource(TestSurface::default(), (32, 32), true)
 }
 
 #[test]
 fn render_submits_planned_shapes_and_effects() {
     let mut renderer = renderer();
+    let mut surface = surface();
     let shape = queue_shape(&mut renderer, true);
     let planned_address = renderer.planner.plan(
         &renderer.scene,
@@ -225,18 +235,19 @@ fn render_submits_planned_shapes_and_effects() {
         renderer.fringe_width,
         4096,
     ) as *const RenderPlan as usize;
-    renderer.render().unwrap();
+    renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.command_address, planned_address);
-    assert_eq!(renderer.surface.draws, [shape]);
-    assert_eq!(renderer.surface.shape_masks, 1);
-    assert_eq!(renderer.surface.effects, [7, 8]);
+    assert_eq!(surface.resource().draws, [shape]);
+    assert_eq!(surface.resource().shape_masks, 1);
+    assert_eq!(surface.resource().effects, [7, 8]);
 }
 
 #[test]
 fn effect_parameter_updates_reuse_storage() {
     let mut renderer = renderer();
+    let mut surface = surface();
     let shape = queue_shape(&mut renderer, true);
-    renderer.render().unwrap();
+    renderer.render(&mut surface).unwrap();
     let parameters = renderer.scene.shape_effect(shape).unwrap().parameters;
     renderer
         .update_shape_effect_params(shape, &[1, 2, 3, 4])
@@ -244,7 +255,7 @@ fn effect_parameter_updates_reuse_storage() {
     renderer
         .update_group_effect_params(shape, &[1, 2, 3, 4])
         .unwrap();
-    renderer.render().unwrap();
+    renderer.render(&mut surface).unwrap();
     let plan = renderer.planner.plan(
         &renderer.scene,
         renderer.viewport,
@@ -258,8 +269,9 @@ fn effect_parameter_updates_reuse_storage() {
 #[test]
 fn queue_rebuilds_reuse_command_storage() {
     let mut renderer = renderer();
+    let mut surface = surface();
     let shape = queue_shape(&mut renderer, true);
-    renderer.render().unwrap();
+    renderer.render(&mut surface).unwrap();
     let command_address = renderer.backend.command_address;
     let instruction_address = renderer.backend.instruction_address;
     let parameters = renderer.scene.shape_effect(shape).unwrap().parameters;
@@ -268,10 +280,10 @@ fn queue_rebuilds_reuse_command_storage() {
         renderer.clear_draw_queue();
         let rebuilt = queue_shape(&mut renderer, true);
         assert_eq!(rebuilt, shape);
-        renderer.render().unwrap();
+        renderer.render(&mut surface).unwrap();
         assert_eq!(renderer.backend.command_address, command_address);
         assert_eq!(renderer.backend.instruction_address, instruction_address);
-        assert_eq!(renderer.surface.effects, [7, 8]);
+        assert_eq!(surface.resource().effects, [7, 8]);
         assert_eq!(
             renderer
                 .scene
@@ -287,14 +299,15 @@ fn queue_rebuilds_reuse_command_storage() {
 #[test]
 fn clearing_queue_removes_planned_draws_and_effects() {
     let mut renderer = renderer();
+    let mut surface = surface();
     queue_shape(&mut renderer, true);
-    renderer.render().unwrap();
+    renderer.render(&mut surface).unwrap();
 
     renderer.clear_draw_queue();
-    renderer.render().unwrap();
-    assert!(renderer.surface.draws.is_empty());
-    assert!(renderer.surface.effects.is_empty());
-    assert_eq!(renderer.surface.shape_masks, 0);
+    renderer.render(&mut surface).unwrap();
+    assert!(surface.resource().draws.is_empty());
+    assert!(surface.resource().effects.is_empty());
+    assert_eq!(surface.resource().shape_masks, 0);
     let plan = renderer.planner.plan(
         &renderer.scene,
         renderer.viewport,
@@ -319,28 +332,33 @@ fn clearing_queue_removes_planned_draws_and_effects() {
 #[test]
 fn rendering_to_one_surface_does_not_change_another() {
     let mut first = renderer();
+    let mut first_surface = surface();
     let shape = queue_shape(&mut first, false);
     let mut second = renderer();
+    let mut second_surface = surface();
     queue_shape(&mut second, false);
     let commands = first
         .planner
         .plan(&first.scene, first.viewport, first.fringe_width, 4096);
-    first.backend.render(commands, &mut first.surface).unwrap();
+    first
+        .backend
+        .render(commands, (&mut first_surface).into())
+        .unwrap();
     second
         .backend
-        .render(commands, &mut second.surface)
+        .render(commands, (&mut second_surface).into())
         .unwrap();
-    assert_eq!(first.surface.draws, [shape]);
-    assert_eq!(second.surface.draws, [shape]);
+    assert_eq!(first_surface.resource().draws, [shape]);
+    assert_eq!(second_surface.resource().draws, [shape]);
     assert_eq!(
         first.backend.command_address,
         second.backend.command_address
     );
 
     second.clear_draw_queue();
-    second.render().unwrap();
-    assert!(second.surface.draws.is_empty());
-    assert_eq!(first.surface.draws, [shape]);
+    second.render(&mut second_surface).unwrap();
+    assert!(second_surface.resource().draws.is_empty());
+    assert_eq!(first_surface.resource().draws, [shape]);
 }
 
 #[test]
@@ -368,15 +386,55 @@ fn failed_registration_leaves_scene_unchanged() {
 #[test]
 fn failed_render_preserves_surface_contents() {
     let mut renderer = renderer();
+    let mut surface = surface();
     let shape = queue_shape(&mut renderer, false);
-    renderer.render().unwrap();
+    renderer.render(&mut surface).unwrap();
 
     renderer.backend.should_fail = true;
-    assert_eq!(renderer.render(), Err(TestBackendError));
-    assert_eq!(renderer.surface.draws, [shape]);
+    assert_eq!(renderer.render(&mut surface), Err(TestBackendError));
+    assert_eq!(surface.resource().draws, [shape]);
 
     renderer.backend.should_fail = false;
     renderer.clear_draw_queue();
-    renderer.render().unwrap();
-    assert!(renderer.surface.draws.is_empty());
+    renderer.render(&mut surface).unwrap();
+    assert!(surface.resource().draws.is_empty());
+}
+
+#[test]
+fn shared_render_target_contract_accepts_owned_and_borrowed_memory_without_wgpu() {
+    let mut renderer = renderer();
+    queue_shape(&mut renderer, false);
+    let mut owned = Pixmap::new((12, 7), PixelFormat::Bgra8).unwrap();
+    renderer.render(&mut owned).unwrap();
+    assert!(owned.pixels().iter().all(|byte| *byte == 71));
+    assert_eq!(renderer.size(), (12, 7));
+    let mut borrowed = [99; 32];
+    let layout = PixelLayout::new((2, 2), PixelFormat::Argb32, 12).unwrap();
+    renderer
+        .render(PixmapMut::new(&mut borrowed, layout).unwrap())
+        .unwrap();
+    assert_eq!(&borrowed[..8], &[71; 8]);
+    assert_eq!(&borrowed[8..12], &[99; 4]);
+    assert_eq!(&borrowed[12..20], &[71; 8]);
+    assert_eq!(&borrowed[20..], &[99; 12]);
+    let before_failure = borrowed;
+    renderer.backend.should_fail = true;
+    assert_eq!(
+        renderer.render(PixmapMut::new(&mut borrowed, layout).unwrap()),
+        Err(TestBackendError)
+    );
+    assert_eq!(borrowed, before_failure);
+}
+
+#[test]
+fn invalid_surface_size_is_rejected_before_submission() {
+    let mut renderer = renderer();
+    let mut surface = surface();
+    renderer.render(&mut surface).unwrap();
+    let previous_size = renderer.size();
+    for size in [(0, 32), (4097, 32)] {
+        surface.resize(size);
+        assert_eq!(renderer.render(&mut surface), Err(TestBackendError));
+        assert_eq!(renderer.size(), previous_size);
+    }
 }

@@ -144,7 +144,7 @@ impl RenderLoopMetricsTracker {
     }
 }
 
-impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
+impl<B: RenderBackend> Renderer<B> {
     /// Returns the average frames-per-second since metrics tracking started.
     ///
     /// Divides the completed frame count by the time from the first render's start

@@ -1,7 +1,10 @@
 //! Contracts shared by the renderer coordinator and backend implementations.
 
+use self::render_target::{RenderTarget, RenderTargetError};
 use crate::commands::{RenderPlan, ShapeDrawId};
 use crate::core::{CachedShapeHandle, ShapeInstance, Viewport};
+
+pub mod render_target;
 
 /// Source textures addressed by ID. Dimensions are `(width, height)` in pixels.
 pub trait TextureManager {
@@ -48,11 +51,11 @@ pub trait TextureManager {
 
 /// Owns execution resources and interprets completed commands, without scene access.
 /// Resource preparation happens while queuing; rendering consumes the finished plan.
-pub trait RenderBackend<'surface> {
-    /// Backend-defined output; it need not represent a window.
+pub trait RenderBackend {
+    /// Backend resources stored in a `Surface`.
     type Surface;
     /// Error type shared by all fallible backend operations.
-    type Error;
+    type Error: From<RenderTargetError>;
     type TextureManager: TextureManager<Error = Self::Error>;
 
     /// Prepares and registers resources for a borrowed CPU instance.
@@ -85,29 +88,17 @@ pub trait RenderBackend<'surface> {
 
     fn remove_backdrop_effect(&mut self, id: ShapeDrawId);
 
-    fn resize(&mut self, surface: &mut Self::Surface, viewport: Viewport, fringe_width: f32);
+    fn resize(&mut self, viewport: Viewport, fringe_width: f32);
 
     fn set_msaa_samples(&mut self, samples: u32);
-    /// Configures a replacement output using the current viewport and backend settings.
-    fn configure_surface(&mut self, surface: &mut Self::Surface);
-
-    fn set_vsync(&mut self, surface: &mut Self::Surface, vsync: bool);
-
+    /// Renders `commands` at the target's dimensions. The commands must have been
+    /// planned for those dimensions.
+    ///
+    /// Pixmap pixels must be ready on success and remain unchanged on error.
+    /// Surface rendering must submit and present the frame.
     fn render(
         &mut self,
         commands: &RenderPlan,
-        surface: &mut Self::Surface,
-    ) -> Result<(), Self::Error>;
-
-    fn render_to_buffer(
-        &mut self,
-        commands: &RenderPlan,
-        buffer: &mut Vec<u8>,
-    ) -> Result<(), Self::Error>;
-
-    fn render_to_argb32(
-        &mut self,
-        commands: &RenderPlan,
-        pixels: &mut [u32],
+        target: RenderTarget<'_, Self::Surface>,
     ) -> Result<(), Self::Error>;
 }

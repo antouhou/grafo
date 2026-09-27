@@ -3,7 +3,7 @@ use crate::commands::ShapeDrawId;
 use crate::core::effect::{BackdropEffectConfig, ShapeEffectConfig};
 use crate::scene::effects::EffectAttachment;
 
-impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
+impl<B: RenderBackend> Renderer<B> {
     /// Loads shader passes. Changed sources detach old instances and invalidate cached results.
     pub fn load_effect(
         &mut self,

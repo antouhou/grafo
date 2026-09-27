@@ -1,5 +1,6 @@
 use futures::executor::block_on;
 use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke};
+use grafo::{RendererContext, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -10,12 +11,13 @@ use winit::window::{Window, WindowId};
 mod window_rendering;
 
 #[derive(Default)]
-struct App<'a> {
+struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<Renderer<'a>>,
+    renderer: Option<Renderer>,
+    surface: Option<Surface>,
 }
 
-impl<'a> ApplicationHandler for App<'a> {
+impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
@@ -27,14 +29,10 @@ impl<'a> ApplicationHandler for App<'a> {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        let mut renderer = block_on(Renderer::new(
-            window.clone(),
-            physical_size,
-            scale_factor,
-            true,  // vsync
-            false, // transparent
-            1,     // msaa_samples
-        ));
+        let context = block_on(RendererContext::new());
+        let surface = Surface::new(&context, window.clone(), physical_size, true, false)
+            .expect("Failed to create surface");
+        let mut renderer = Renderer::new_with_context(context, physical_size, scale_factor, 1);
 
         let rect = Shape::rect(
             [(100.0, 100.0), (300.0, 200.0)],
@@ -65,6 +63,7 @@ impl<'a> ApplicationHandler for App<'a> {
         window.request_redraw();
         self.window = Some(window);
         self.renderer = Some(renderer);
+        self.surface = Some(surface);
     }
 
     fn window_event(
@@ -77,6 +76,9 @@ impl<'a> ApplicationHandler for App<'a> {
         let Some(renderer) = &mut self.renderer else {
             return;
         };
+        let Some(surface) = &mut self.surface else {
+            return;
+        };
 
         if window_id != window.id() {
             return;
@@ -86,12 +88,12 @@ impl<'a> ApplicationHandler for App<'a> {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(physical_size) => {
                 let new_size = (physical_size.width, physical_size.height);
-                renderer.resize(new_size);
+                surface.resize(new_size);
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
                 // Keep the static scene queued so later redraws render the same shapes.
-                window_rendering::render(renderer, event_loop);
+                window_rendering::render(renderer, surface, event_loop);
             }
             _ => {}
         }

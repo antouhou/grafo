@@ -1,22 +1,23 @@
-use super::WgpuBackend;
+use super::{WgpuBackend, WgpuBackendError};
 use crate::core::util::to_logical;
 use crate::core::Viewport;
+use crate::render_backend::render_target::{RenderTargetError, Surface};
 use crate::wgpu_backend::pipeline::{create_and_depth_texture, create_msaa_color_texture};
 use tracing::warn;
-use wgpu::Surface;
+use wgpu::{Device, PresentMode, Surface as SurfaceHandle, SurfaceConfiguration};
+
+/// Native resources for a Grafo surface.
+pub struct WgpuSurface {
+    pub(super) surface: SurfaceHandle<'static>,
+    pub(super) configuration: SurfaceConfiguration,
+    pub(super) device: Device,
+}
 
 impl WgpuBackend {
-    pub(in crate::wgpu_backend) fn resize(
-        &mut self,
-        surface: &mut Option<wgpu::Surface<'_>>,
-        viewport: Viewport,
-        fringe_width: f32,
-    ) {
+    pub(in crate::wgpu_backend) fn resize(&mut self, viewport: Viewport, fringe_width: f32) {
         self.viewport = viewport;
         self.fringe_width = fringe_width;
         let new_physical_size = viewport.physical_size;
-        self.config.width = new_physical_size.0;
-        self.config.height = new_physical_size.1;
 
         let pipelines = &mut self.pipeline_resources.shapes;
         let logical_size = to_logical(new_physical_size, self.viewport.scale_factor);
@@ -39,7 +40,6 @@ impl WgpuBackend {
             bytemuck::cast_slice(&[pipelines.decrementing_uniforms]),
         );
 
-        self.configure_surface(surface);
         self.recreate_msaa_texture();
         self.recreate_depth_stencil_texture();
     }
@@ -75,7 +75,7 @@ impl WgpuBackend {
             let texture = create_msaa_color_texture(
                 &self.device,
                 self.viewport.physical_size,
-                self.config.format,
+                self.format,
                 self.msaa_sample_count,
             );
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -101,22 +101,32 @@ impl WgpuBackend {
         self.depth_stencil_view = Some(view);
     }
 
-    pub(in crate::wgpu_backend) fn configure_surface(&self, surface: &Option<Surface<'_>>) {
-        if let Some(surface) = surface {
-            surface.configure(&self.device, &self.config);
-        }
-    }
-
-    pub(in crate::wgpu_backend) fn set_vsync(
+    pub(super) fn prepare_surface(
         &mut self,
-        surface: &mut Option<wgpu::Surface<'_>>,
-        vsync: bool,
-    ) {
-        self.config.present_mode = if vsync {
-            wgpu::PresentMode::AutoVsync
+        surface: &mut Surface<WgpuSurface>,
+    ) -> Result<(), WgpuBackendError> {
+        let resource = surface.resource();
+        if self.device.as_ref() != &resource.device {
+            return Err(RenderTargetError::IncompatibleSurface.into());
+        }
+        self.set_format(resource.configuration.format);
+        if !surface.needs_configuration() {
+            return Ok(());
+        }
+        let (width, height) = surface.size();
+        let present_mode = if surface.vsync() {
+            PresentMode::AutoVsync
         } else {
-            wgpu::PresentMode::AutoNoVsync
+            PresentMode::AutoNoVsync
         };
-        self.configure_surface(surface);
+        let resource = surface.resource_mut();
+        resource.configuration.width = width;
+        resource.configuration.height = height;
+        resource.configuration.present_mode = present_mode;
+        resource
+            .surface
+            .configure(&self.device, &resource.configuration);
+        surface.finish_configuration();
+        Ok(())
     }
 }

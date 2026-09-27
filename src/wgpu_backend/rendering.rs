@@ -13,7 +13,9 @@ use std::iter;
 use std::time::Instant;
 #[cfg(feature = "render_metrics")]
 use wgpu::MaintainBase;
-use wgpu::{CommandEncoderDescriptor, SurfaceError, Texture, TextureView, TextureViewDescriptor};
+use wgpu::{
+    CommandEncoderDescriptor, Surface, SurfaceError, Texture, TextureView, TextureViewDescriptor,
+};
 
 impl WgpuBackend {
     pub(in crate::wgpu_backend) fn render_to_texture_view(
@@ -70,7 +72,7 @@ impl WgpuBackend {
                 .as_ref()
                 .expect("effect composites were initialized")
                 .bind_group_layout,
-            format: self.config.format,
+            format: self.format,
         });
         let backdrops = has_backdrop_effects.then(|| {
             let backdrops = pipeline_resources
@@ -92,7 +94,7 @@ impl WgpuBackend {
             pipelines: pipeline_resources,
             effects,
             backdrops,
-            format: self.config.format,
+            format: self.format,
             sample_count: self.msaa_sample_count,
         };
         let resources = &mut self.resources;
@@ -157,10 +159,10 @@ impl WgpuBackend {
 
 impl WgpuBackend {
     /// Returns an error if surface acquisition fails.
-    pub(super) fn render(
+    pub(super) fn render_surface(
         &mut self,
         commands: &RenderPlan,
-        surface: &mut Option<wgpu::Surface<'_>>,
+        surface: &Surface<'_>,
     ) -> Result<(), SurfaceError> {
         #[cfg(feature = "render_metrics")]
         let frame_render_loop_started_at = Instant::now();
@@ -169,9 +171,6 @@ impl WgpuBackend {
         #[cfg(feature = "render_metrics")]
         let after_prepare = Instant::now();
 
-        let surface = surface
-            .as_ref()
-            .expect("Cannot call render() on a headless renderer; use render_to_buffer()");
         let output = surface.get_current_texture()?;
         let output_texture_view = output
             .texture

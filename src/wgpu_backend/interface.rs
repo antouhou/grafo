@@ -1,13 +1,15 @@
 use super::texture_manager::WgpuTextureManager;
-use super::{WgpuBackend, WgpuBackendError};
+use super::{WgpuBackend, WgpuBackendError, WgpuSurface};
 use crate::commands::{RenderPlan, ShapeDrawId};
 use crate::core::shape::{CachedShapeHandle, ShapeInstance};
 use crate::core::Viewport;
+use crate::render_backend::render_target::{PixelFormat, RenderTarget};
 use crate::render_backend::RenderBackend;
 use std::sync::Arc;
+use wgpu::TextureFormat;
 
-impl<'surface> RenderBackend<'surface> for WgpuBackend {
-    type Surface = Option<wgpu::Surface<'surface>>;
+impl RenderBackend for WgpuBackend {
+    type Surface = WgpuSurface;
     type Error = WgpuBackendError;
     type TextureManager = WgpuTextureManager;
 
@@ -49,7 +51,7 @@ impl<'surface> RenderBackend<'surface> for WgpuBackend {
 
     fn load_effect(&mut self, effect_id: u64, pass_sources: &[&str]) -> Result<bool, Self::Error> {
         self.effect_registry
-            .load(&self.device, self.config.format, effect_id, pass_sources)
+            .load(&self.device, self.format, effect_id, pass_sources)
             .map_err(WgpuBackendError::Effect)
     }
 
@@ -89,46 +91,48 @@ impl<'surface> RenderBackend<'surface> for WgpuBackend {
         }
     }
 
-    fn resize(&mut self, surface: &mut Self::Surface, viewport: Viewport, fringe_width: f32) {
-        self.resize(surface, viewport, fringe_width);
+    fn resize(&mut self, viewport: Viewport, fringe_width: f32) {
+        self.resize(viewport, fringe_width);
     }
 
     fn set_msaa_samples(&mut self, samples: u32) {
         self.set_msaa_samples(samples);
     }
 
-    fn configure_surface(&mut self, surface: &mut Self::Surface) {
-        Self::configure_surface(self, surface);
-    }
-
-    fn set_vsync(&mut self, surface: &mut Self::Surface, vsync: bool) {
-        self.set_vsync(surface, vsync);
-    }
-
     fn render(
         &mut self,
         commands: &RenderPlan,
-        surface: &mut Self::Surface,
+        target: RenderTarget<'_, Self::Surface>,
     ) -> Result<(), Self::Error> {
-        self.render(commands, surface)
-            .map_err(WgpuBackendError::Surface)
-    }
-
-    fn render_to_buffer(
-        &mut self,
-        commands: &RenderPlan,
-        buffer: &mut Vec<u8>,
-    ) -> Result<(), Self::Error> {
-        self.render_to_buffer(commands, buffer)
-            .map_err(WgpuBackendError::Readback)
-    }
-
-    fn render_to_argb32(
-        &mut self,
-        commands: &RenderPlan,
-        pixels: &mut [u32],
-    ) -> Result<(), Self::Error> {
-        self.render_to_argb32(commands, pixels)
-            .map_err(WgpuBackendError::Readback)
+        let size = target.validate_size(self.maximum_texture_dimension())?;
+        if self.viewport.physical_size != size {
+            self.resize(
+                Viewport {
+                    physical_size: size,
+                    ..self.viewport
+                },
+                self.fringe_width,
+            );
+        }
+        match target {
+            RenderTarget::Surface(surface) => {
+                self.prepare_surface(surface)?;
+                self.render_surface(commands, &surface.resource().surface)
+                    .map_err(WgpuBackendError::Surface)
+            }
+            RenderTarget::Pixmap(mut pixels) => {
+                let format = match pixels.layout().format() {
+                    PixelFormat::Bgra8 | PixelFormat::Argb32 => TextureFormat::Bgra8UnormSrgb,
+                    PixelFormat::Rgba8 => TextureFormat::Rgba8UnormSrgb,
+                };
+                self.set_format(format);
+                if pixels.layout().format() == PixelFormat::Argb32 {
+                    self.render_argb_pixels(commands, &mut pixels)?;
+                } else {
+                    self.render_byte_pixels(commands, &mut pixels)?;
+                }
+                Ok(())
+            }
+        }
     }
 }

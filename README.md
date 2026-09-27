@@ -55,26 +55,73 @@ renderer
     .unwrap();
 
 // Call this on RedrawRequested in a winit event loop
-renderer.render().unwrap();
+renderer.render(&mut surface).unwrap();
 renderer.clear_draw_queue();
 ```
 
+### Render targets
+
+Create a surface and renderer from the same context:
+
+```rust,no_run
+use grafo::{Renderer, RendererContext, Surface};
+
+let context = RendererContext::new().await;
+let mut surface = Surface::new(&context, platform_target, size, true, false)?;
+let mut renderer = Renderer::new_with_context(context, size, scale_factor, 1);
+renderer.render(&mut surface)?;
+```
+
+Pass a window or an object that provides native display and surface handles to `Surface::new`.
+Use `surface.resize(size)` to resize it and `surface.set_vsync(enabled)` to change vsync.
+`render` borrows the target and uses its dimensions.
+
+For memory output, `Pixmap` owns the buffer and `PixmapMut` borrows a slice:
+
+```rust
+use grafo::{PixelFormat, PixelLayout, Pixmap, PixmapMut};
+
+let size = (640, 480);
+let mut image = Pixmap::new(size, PixelFormat::Bgra8)?;
+renderer.render(&mut image)?;
+let bytes = image.pixels();
+
+let mut pixels = vec![0_u32; 640 * 480];
+renderer.render(PixmapMut::argb32(&mut pixels, size)?)?;
+
+// RGBA rows with 32 bytes of padding.
+let layout = PixelLayout::new(size, PixelFormat::Rgba8, 640 * 4 + 32)?;
+let mut storage = vec![0; layout.byte_len()];
+let mut borrowed = PixmapMut::new(&mut storage, layout)?;
+renderer.render(&mut borrowed)?;
+```
+
+`Pixmap::resize` reuses buffer capacity when it can. A borrowed slice must fit its layout.
+Rendering leaves row padding and trailing bytes untouched.
+
+When rendering to memory, WGPU waits for readback. Errors leave the buffer unchanged.
+Rendering to a surface submits and presents the frame.
+
+BGRA8 and RGBA8 store channels in that byte order. ARGB32 stores native-endian `0xAARRGGBB` words.
+RGB is premultiplied in linear space, then encoded as sRGB. Alpha stays linear.
+
 ### Multiple independent windows
 
-Create a `RendererContext` once, then create one renderer per window. Each renderer has its own
-draw queue and render target, while sharing the WGPU device, queue, and texture storage:
+Reuse a `RendererContext` to share the WGPU device, queue, and textures across windows:
 
 ```rust,no_run
 use futures::executor::block_on;
-use grafo::{Renderer, RendererContext};
+use grafo::{Renderer, RendererContext, Surface};
 
 let context = block_on(RendererContext::new());
 
+let first_surface = Surface::new(&context, first_window, first_size, true, false)?;
+let second_surface = Surface::new(&context, second_window, second_size, true, false)?;
 let first_renderer = Renderer::new_with_context(
-    context.clone(), first_window, first_size, first_scale_factor, true, false, 1,
+    context.clone(), first_size, first_scale_factor, 1,
 );
 let second_renderer = Renderer::new_with_context(
-    context, second_window, second_size, second_scale_factor, true, false, 1,
+    context, second_size, second_scale_factor, 1,
 );
 ```
 

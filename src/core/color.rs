@@ -57,7 +57,7 @@ impl Color {
     }
 }
 
-fn linear_to_srgb_u8(x: f32) -> u8 {
+pub(crate) fn linear_to_srgb_u8(x: f32) -> u8 {
     let x = x.clamp(0.0, 1.0);
     let y = if x <= 0.0031308 {
         x * 12.92

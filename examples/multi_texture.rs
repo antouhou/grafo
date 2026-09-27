@@ -2,6 +2,7 @@
 //! Run with `cargo run --example multi_texture`.
 
 use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke, TextureManager};
+use grafo::{RendererContext, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -12,7 +13,8 @@ mod window_rendering;
 
 struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<Renderer<'static>>,
+    renderer: Option<Renderer>,
+    surface: Option<Surface>,
     bg_tex_id: u64,
     fg_tex_id: u64,
 }
@@ -22,6 +24,7 @@ impl Default for App {
         Self {
             window: None,
             renderer: None,
+            surface: None,
             bg_tex_id: 100,
             fg_tex_id: 101,
         }
@@ -37,14 +40,10 @@ impl ApplicationHandler for App {
         );
         let physical_size = (800, 600);
         let scale_factor = 1.0;
-        let mut renderer = futures::executor::block_on(Renderer::new(
-            window.clone(),
-            physical_size,
-            scale_factor,
-            true,
-            false,
-            1, // msaa_samples
-        ));
+        let context = futures::executor::block_on(RendererContext::new());
+        let surface = Surface::new(&context, window.clone(), physical_size, true, false)
+            .expect("Failed to create surface");
+        let mut renderer = Renderer::new_with_context(context, physical_size, scale_factor, 1);
 
         // Layer a circle mask over a checkerboard.
         let tex_mgr = renderer.texture_manager();
@@ -105,6 +104,7 @@ impl ApplicationHandler for App {
             .unwrap();
         self.window = Some(window);
         self.renderer = Some(renderer);
+        self.surface = Some(surface);
     }
 
     fn window_event(
@@ -113,19 +113,21 @@ impl ApplicationHandler for App {
         _id: winit::window::WindowId,
         event: WindowEvent,
     ) {
-        let (Some(window), Some(renderer)) = (&self.window, &mut self.renderer) else {
+        let (Some(window), Some(renderer), Some(surface)) =
+            (&self.window, &mut self.renderer, &mut self.surface)
+        else {
             return;
         };
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(physical_size) => {
-                renderer.resize((physical_size.width, physical_size.height));
+                surface.resize((physical_size.width, physical_size.height));
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
                 // The draw queue is populated once in `resumed` and persists across frames.
-                window_rendering::render(renderer, event_loop);
+                window_rendering::render(renderer, surface, event_loop);
             }
             _ => {}
         }

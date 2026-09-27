@@ -1,4 +1,5 @@
 use futures::executor::block_on;
+use grafo::PixmapMut;
 use grafo::Shape;
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
 use std::num::NonZeroU32;
@@ -9,17 +10,16 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
 #[derive(Default)]
-struct App<'a> {
+struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer<'a>>,
+    renderer: Option<grafo::Renderer>,
     softbuffer_context: Option<softbuffer::Context<Arc<Window>>>,
     softbuffer_surface: Option<softbuffer::Surface<Arc<Window>, Arc<Window>>>,
-    pending_resize: Option<(u32, u32)>,
     bgra_bytes: Vec<u8>,
     argb_buffer: Vec<u32>,
 }
 
-impl<'a> ApplicationHandler for App<'a> {
+impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
@@ -33,14 +33,7 @@ impl<'a> ApplicationHandler for App<'a> {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        let renderer = block_on(grafo::Renderer::new(
-            window.clone(),
-            physical_size,
-            scale_factor,
-            false, // vsync doesn't matter for offscreen rendering
-            false, // not transparent
-            1,     // msaa_samples
-        ));
+        let renderer = block_on(grafo::Renderer::new(physical_size, scale_factor, 1));
 
         let softbuffer_context = softbuffer::Context::new(window.clone()).unwrap();
         let mut softbuffer_surface =
@@ -79,8 +72,6 @@ impl<'a> ApplicationHandler for App<'a> {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(physical_size) => {
-                self.pending_resize = Some((physical_size.width, physical_size.height));
-
                 if physical_size.width > 0 && physical_size.height > 0 {
                     softbuffer_surface
                         .resize(
@@ -93,13 +84,12 @@ impl<'a> ApplicationHandler for App<'a> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                if let Some(pending) = self.pending_resize.take() {
-                    renderer.resize(pending);
-                }
-
                 renderer.clear_draw_queue();
 
                 let window_size = window.inner_size();
+                if window_size.width == 0 || window_size.height == 0 {
+                    return;
+                }
 
                 let background = Shape::rect(
                     [
@@ -146,10 +136,11 @@ impl<'a> ApplicationHandler for App<'a> {
                     .unwrap();
 
                 let needed_bytes = (window_size.width as usize) * (window_size.height as usize) * 4;
-                if self.bgra_bytes.len() < needed_bytes {
-                    self.bgra_bytes.resize(needed_bytes, 0);
-                }
-                if let Err(error) = renderer.render_to_buffer(&mut self.bgra_bytes) {
+                self.bgra_bytes.resize(needed_bytes, 0);
+                let size = (window_size.width, window_size.height);
+                if let Err(error) =
+                    renderer.render(PixmapMut::bgra8(&mut self.bgra_bytes, size).unwrap())
+                {
                     eprintln!("Render failed: {error}");
                     event_loop.exit();
                     return;

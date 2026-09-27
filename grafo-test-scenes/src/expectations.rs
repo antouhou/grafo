@@ -55,7 +55,7 @@ impl PixelExpectation {
     }
 }
 
-/// Validates pixel expectations against raw BGRA8 pixel data from `render_to_buffer()`.
+/// Checks pixel expectations against tightly packed BGRA8 pixels.
 ///
 /// Returns a list of human-readable failure descriptions. An empty list means
 /// all expectations passed.
@@ -89,7 +89,6 @@ pub fn check_pixels(
             continue;
         }
 
-        // render_to_buffer returns BGRA8
         let actual_b = pixel_data[offset];
         let actual_g = pixel_data[offset + 1];
         let actual_r = pixel_data[offset + 2];

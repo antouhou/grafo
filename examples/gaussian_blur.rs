@@ -4,6 +4,7 @@
 use futures::executor::block_on;
 use grafo::Shape;
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use grafo::{RendererContext, Surface};
 use grafo_test_scenes::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -16,12 +17,13 @@ mod window_rendering;
 const BLUR_EFFECT: u64 = 1;
 
 #[derive(Default)]
-struct App<'a> {
+struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer<'a>>,
+    renderer: Option<grafo::Renderer>,
+    surface: Option<Surface>,
 }
 
-impl<'a> ApplicationHandler for App<'a> {
+impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
@@ -33,14 +35,11 @@ impl<'a> ApplicationHandler for App<'a> {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        let mut renderer = block_on(grafo::Renderer::new(
-            window.clone(),
-            physical_size,
-            scale_factor,
-            true,
-            false,
-            1,
-        ));
+        let context = block_on(RendererContext::new());
+        let surface = Surface::new(&context, window.clone(), physical_size, true, false)
+            .expect("Failed to create surface");
+        let mut renderer =
+            grafo::Renderer::new_with_context(context, physical_size, scale_factor, 1);
 
         renderer
             .load_effect(BLUR_EFFECT, &[HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL])
@@ -48,6 +47,7 @@ impl<'a> ApplicationHandler for App<'a> {
 
         self.window = Some(window);
         self.renderer = Some(renderer);
+        self.surface = Some(surface);
     }
 
     fn window_event(
@@ -60,6 +60,9 @@ impl<'a> ApplicationHandler for App<'a> {
         let Some(renderer) = &mut self.renderer else {
             return;
         };
+        let Some(surface) = &mut self.surface else {
+            return;
+        };
 
         if window_id != window.id() {
             return;
@@ -69,7 +72,7 @@ impl<'a> ApplicationHandler for App<'a> {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(physical_size) => {
                 let new_size = (physical_size.width, physical_size.height);
-                renderer.resize(new_size);
+                surface.resize(new_size);
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
@@ -185,7 +188,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                window_rendering::render(renderer, event_loop);
+                window_rendering::render(renderer, surface, event_loop);
             }
             _ => {}
         }
