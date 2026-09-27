@@ -29,7 +29,7 @@ impl DrawPlanner {
         let DrawTreeNode::CachedShape(description) = node else {
             return false;
         };
-        if !draws::has_geometry(description) {
+        if !description.has_geometry() {
             return false;
         }
         let mut draw = ShapeDraw {

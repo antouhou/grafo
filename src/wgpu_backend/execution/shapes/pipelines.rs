@@ -81,7 +81,7 @@ impl ShapePipelines {
         material: ShapeDrawMaterial,
         increments_stencil: bool,
     ) -> (Pipeline, &RenderPipeline) {
-        let uses_gradient = material.has_gradient_fill();
+        let uses_gradient = material.has_gradient_fill;
         if material.under_fill_texture.is_some() {
             let pipelines = self
                 .under_fill_pipelines

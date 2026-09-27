@@ -44,9 +44,3 @@ pub struct ShapeDrawMaterial {
     pub texture_bindings: [ShapeTextureBinding; 2],
     pub under_fill_texture: Option<ShapeTextureLayer>,
 }
-
-impl ShapeDrawMaterial {
-    pub fn has_gradient_fill(self) -> bool {
-        self.has_gradient_fill
-    }
-}

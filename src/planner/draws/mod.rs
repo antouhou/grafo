@@ -5,7 +5,6 @@ use crate::commands::{
 };
 use crate::core::shape::ShapeInstance;
 use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
-use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::DrawTreeNode;
 use crate::{Size, UnsignedPhysicalRect};
 use ahash::HashMap;
@@ -13,11 +12,6 @@ use easy_tree::Tree;
 
 mod backdrops;
 mod rectangles;
-
-fn has_geometry(shape: &CachedShapeDrawData) -> bool {
-    let geometry = shape.instance.cached_shape.vertex_buffers();
-    !geometry.vertices.is_empty() && !geometry.indices.is_empty()
-}
 
 fn shape_material(instance: &ShapeInstance) -> ShapeDrawMaterial {
     ShapeDrawMaterial {
@@ -153,7 +147,7 @@ impl DrawPlanner {
             return;
         }
         let draw = match node {
-            DrawTreeNode::CachedShape(description) if has_geometry(description) => {
+            DrawTreeNode::CachedShape(description) if description.has_geometry() => {
                 Some(ShapeDraw {
                     id: ShapeDrawId(node_id),
                     material: shape_material(&description.instance),

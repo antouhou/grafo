@@ -74,7 +74,7 @@ impl DrawPass<'_, '_> {
         let Some(location) = resources.location else {
             return 1;
         };
-        if draw.material.has_gradient_fill() || draw.material.under_fill_texture.is_some() {
+        if draw.material.has_gradient_fill || draw.material.under_fill_texture.is_some() {
             targets::set_scissor(self.render_pass, first.clip.scissor);
             self.draw_shape(first.clip.stencil_reference, draw.material, resources);
             return 1;
@@ -90,7 +90,7 @@ impl DrawPass<'_, '_> {
                 break;
             };
             if next.clip != first.clip
-                || next_draw.material.has_gradient_fill()
+                || next_draw.material.has_gradient_fill
                 || next_draw.material.under_fill_texture.is_some()
                 || next_draw.material.texture_bindings != batch.texture_bindings
             {

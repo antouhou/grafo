@@ -2,6 +2,7 @@
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
 pub use self::types::{DrawCommandError, EffectError};
+use crate::commands::RenderPlan;
 use crate::core::Viewport;
 use crate::planner::Planner;
 use crate::render_backend::RenderBackend;
@@ -76,6 +77,13 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
 
     /// Plans the scene before passing completed commands to the backend.
     pub fn render(&mut self) -> Result<(), B::Error> {
+        self.render_with(B::render)
+    }
+
+    fn render_with(
+        &mut self,
+        output: impl FnOnce(&mut B, &RenderPlan, &mut B::Surface) -> Result<(), B::Error>,
+    ) -> Result<(), B::Error> {
         #[cfg(feature = "render_metrics")]
         let started_at = Instant::now();
         let commands = self.planner.plan(
@@ -85,7 +93,7 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
             self.backend.maximum_texture_dimension(),
         );
         self.scene.finish_preparation();
-        self.backend.render(commands, &mut self.surface)?;
+        output(&mut self.backend, commands, &mut self.surface)?;
         #[cfg(feature = "render_metrics")]
         self.render_loop_metrics_tracker
             .record_presented_frame(started_at, Instant::now());

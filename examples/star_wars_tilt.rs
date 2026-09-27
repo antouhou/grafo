@@ -76,7 +76,6 @@ impl<'a> ApplicationHandler for App<'a> {
             WindowEvent::RedrawRequested => {
                 if let Some(renderer) = &mut self.renderer {
                     renderer.clear_draw_queue();
-                    let (_width, _height) = renderer.size();
                     let scale_factor = renderer.scale_factor();
                     let (width, height) = renderer.size();
                     let (width, height) = (
