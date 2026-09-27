@@ -10,9 +10,7 @@ use crate::core::vertex::{InstanceTransform, TextureUvTransform};
 use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::{ClipRectDrawData, DrawTreeNode};
-use crate::{
-    BorderRadii, Color, Shape, ShapeDrawCommandOptions, Size, Stroke, UnsignedPhysicalRect,
-};
+use crate::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, Size, UnsignedPhysicalRect};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
 use lyon::tessellation::FillTessellator;
@@ -70,11 +68,7 @@ fn shape_description(shape: Shape, clips_children: bool) -> CachedShapeDrawData 
 
 fn shape(clips_children: bool) -> DrawTreeNode {
     DrawTreeNode::CachedShape(shape_description(
-        Shape::rounded_rect(
-            [(0.0, 0.0), (80.0, 80.0)],
-            BorderRadii::new(5.0),
-            Stroke::default(),
-        ),
+        Shape::rounded_rect([(0.0, 0.0), (80.0, 80.0)], BorderRadii::new(5.0)),
         clips_children,
     ))
 }

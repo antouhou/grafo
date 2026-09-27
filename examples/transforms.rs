@@ -1,8 +1,8 @@
 use euclid::{default::Transform3D, Angle};
 use futures::executor::block_on;
 use grafo::{
-    premultiply_rgba8_srgb_inplace, Color, Shape, ShapeDrawCommandOptions, Stroke, TextureManager,
-    TransformInstance,
+    premultiply_rgba8_srgb_inplace, Color, PathShape, Shape, ShapeDrawCommandOptions,
+    TextureManager, TransformInstance,
 };
 use grafo::{RendererContext, Surface};
 use lyon::algorithms::hit_test::hit_test_path;
@@ -194,50 +194,32 @@ impl ApplicationHandler for App {
         self.perspective_path = build_perspective_demo_path();
 
         renderer.load_shape(
-            Shape::Path(grafo::PathShape::new(
-                self.red_path.clone(),
-                Stroke::new(2.0_f32, Color::BLACK),
-            )),
+            Shape::Path(PathShape::new(self.red_path.clone())),
             RED_SHAPE_CACHE_KEY,
             Some(RED_SHAPE_CACHE_KEY),
         );
         renderer.load_shape(
-            Shape::Path(grafo::PathShape::new(
-                self.green_path.clone(),
-                Stroke::new(2.0_f32, Color::BLACK),
-            )),
+            Shape::Path(PathShape::new(self.green_path.clone())),
             GREEN_SHAPE_CACHE_KEY,
             Some(GREEN_SHAPE_CACHE_KEY),
         );
         renderer.load_shape(
-            Shape::Path(grafo::PathShape::new(
-                self.blue_path.clone(),
-                Stroke::new(2.0_f32, Color::BLACK),
-            )),
+            Shape::Path(PathShape::new(self.blue_path.clone())),
             BLUE_SHAPE_CACHE_KEY,
             Some(BLUE_SHAPE_CACHE_KEY),
         );
         renderer.load_shape(
-            Shape::Path(grafo::PathShape::new(
-                self.jelly_path.clone(),
-                Stroke::new(2.0_f32, Color::BLACK),
-            )),
+            Shape::Path(PathShape::new(self.jelly_path.clone())),
             JELLY_SHAPE_CACHE_KEY,
             Some(JELLY_SHAPE_CACHE_KEY),
         );
         renderer.load_shape(
-            Shape::Path(grafo::PathShape::new(
-                self.heart_path.clone(),
-                Stroke::new(2.0_f32, Color::BLACK),
-            )),
+            Shape::Path(PathShape::new(self.heart_path.clone())),
             HEART_SHAPE_CACHE_KEY,
             Some(HEART_SHAPE_CACHE_KEY),
         );
         renderer.load_shape(
-            Shape::Path(grafo::PathShape::new(
-                self.perspective_path.clone(),
-                Stroke::new(2.0_f32, Color::BLACK),
-            )),
+            Shape::Path(PathShape::new(self.perspective_path.clone())),
             PERSPECTIVE_SHAPE_CACHE_KEY,
             Some(PERSPECTIVE_SHAPE_CACHE_KEY),
         );
@@ -374,10 +356,7 @@ impl ApplicationHandler for App {
                 // The renderer uses logical canvas coordinates for the background
                 let logical_w = window.inner_size().width as f32 / self.scale_factor as f32;
                 let logical_h = window.inner_size().height as f32 / self.scale_factor as f32;
-                let background = Shape::rect(
-                    [(0.0, 0.0), (logical_w, logical_h)],
-                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let background = Shape::rect([(0.0, 0.0), (logical_w, logical_h)]);
                 renderer
                     .add_shape(
                         background,

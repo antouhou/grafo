@@ -6,12 +6,12 @@ use crate::core::cache::CachedTessellation;
 use crate::core::gradient::types::Fill;
 use crate::core::util::ShapeResources;
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
-use crate::core::{Color, Stroke};
+use crate::core::Color;
 use ahash::AHashMap;
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, VertexBuffers,
 };
-use lyon::path::Winding;
+use lyon::path::{Builder, Path, Winding};
 use lyon::tessellation::FillVertexConstructor;
 use smallvec::SmallVec;
 use std::sync::Arc;
@@ -148,7 +148,7 @@ pub enum Shape {
 }
 
 impl Shape {
-    /// Starts a path with the default black stroke. See [`ShapeBuilder`] for an example.
+    /// Starts an empty path. See [`ShapeBuilder`] for an example.
     pub fn builder() -> ShapeBuilder {
         ShapeBuilder::new()
     }
@@ -158,15 +158,12 @@ impl Shape {
     /// # Examples
     ///
     /// ```rust
-    /// use grafo::{Color, Shape, Stroke};
+    /// use grafo::Shape;
     ///
-    /// let rect = Shape::rect(
-    ///     [(0.0, 0.0), (100.0, 50.0)],
-    ///     Stroke::new(2.0_f32, Color::BLACK),
-    /// );
+    /// let rect = Shape::rect([(0.0, 0.0), (100.0, 50.0)]);
     /// ```
-    pub fn rect(rect: [(f32, f32); 2], stroke: Stroke) -> Shape {
-        let rect_shape = RectShape::new(rect, stroke);
+    pub fn rect(rect: [(f32, f32); 2]) -> Shape {
+        let rect_shape = RectShape::new(rect);
         Shape::Rect(rect_shape)
     }
 
@@ -176,22 +173,21 @@ impl Shape {
     /// # Examples
     ///
     /// ```rust
-    /// use grafo::{BorderRadii, Color, Shape, Stroke};
+    /// use grafo::{BorderRadii, Shape};
     ///
     /// let rounded_rect = Shape::rounded_rect(
     ///     [(0.0, 0.0), (100.0, 50.0)],
     ///     BorderRadii::new(10.0),
-    ///     Stroke::new(1.5_f32, Color::BLACK),
     /// );
     /// ```
-    pub fn rounded_rect(rect: [(f32, f32); 2], border_radii: BorderRadii, stroke: Stroke) -> Shape {
-        let mut path_builder = lyon::path::Path::builder();
+    pub fn rounded_rect(rect: [(f32, f32); 2], border_radii: BorderRadii) -> Shape {
+        let mut path_builder = Path::builder();
         let box2d = lyon::math::Box2D::new(rect[0].into(), rect[1].into());
 
         path_builder.add_rounded_rectangle(&box2d, &border_radii.into(), Winding::Positive);
         let path = path_builder.build();
 
-        let path_shape = PathShape { path, stroke };
+        let path_shape = PathShape { path };
         Shape::Path(path_shape)
     }
 
@@ -301,32 +297,28 @@ impl AsRef<Shape> for Shape {
     }
 }
 
-/// A rectangle's coordinates and stroke. Set its fill with [`ShapeDrawCommandOptions`].
+/// A rectangle's coordinates. Set its fill with [`ShapeDrawCommandOptions`].
 ///
 /// [`Shape::rect`] constructs this and wraps it in [`Shape::Rect`].
 #[derive(Debug, Clone)]
 pub struct RectShape {
     /// Top-left and bottom-right coordinates.
     pub(crate) rect: [(f32, f32); 2],
-    #[allow(unused)]
-    pub(crate) stroke: Stroke,
 }
 
 impl RectShape {
     /// Creates a rectangle from its top-left and bottom-right coordinates.
-    pub fn new(rect: [(f32, f32); 2], stroke: Stroke) -> Self {
-        Self { rect, stroke }
+    pub fn new(rect: [(f32, f32); 2]) -> Self {
+        Self { rect }
     }
 }
 
-/// A custom path with stroke settings.
+/// A custom path. Set its fill with [`ShapeDrawCommandOptions`].
 ///
 /// [`Shape::builder`] constructs this and wraps it in [`Shape::Path`].
 #[derive(Clone, Debug)]
 pub struct PathShape {
-    pub(crate) path: lyon::path::Path,
-    #[allow(unused)]
-    pub(crate) stroke: Stroke,
+    pub(crate) path: Path,
 }
 
 struct VertexConverter;
@@ -777,8 +769,8 @@ fn generate_aa_fringe(
 
 impl PathShape {
     /// Uses an existing Lyon path as the shape's geometry.
-    pub fn new(path: lyon::path::Path, stroke: Stroke) -> Self {
-        Self { path, stroke }
+    pub fn new(path: Path) -> Self {
+        Self { path }
     }
 
     /// Returns shared geometry and bounds, reusing the tessellation cache when a key is given.
@@ -1048,7 +1040,7 @@ impl ShapeDrawCommandOptions {
     }
 }
 
-/// Builds a shape's path and stroke through method chaining.
+/// Builds a shape's path through method chaining.
 ///
 /// Assign a fill through [`ShapeDrawCommandOptions`] when queueing the shape.
 /// An unset fill renders as transparent. [`Shape::builder`] also creates this builder.
@@ -1056,11 +1048,10 @@ impl ShapeDrawCommandOptions {
 /// # Examples
 ///
 /// ```rust
-/// use grafo::{Color, ShapeBuilder, ShapeDrawCommandOptions, Stroke};
+/// use grafo::{Color, ShapeBuilder, ShapeDrawCommandOptions};
 ///
 /// # fn example(renderer: &mut grafo::Renderer) {
 /// let custom_shape = ShapeBuilder::new()
-///     .stroke(Stroke::new(3.0_f32, Color::BLACK))
 ///     .begin((0.0, 0.0))
 ///     .line_to((50.0, 10.0))
 ///     .line_to((50.0, 50.0))
@@ -1076,8 +1067,7 @@ impl ShapeDrawCommandOptions {
 /// ```
 #[derive(Clone)]
 pub struct ShapeBuilder {
-    stroke: Stroke,
-    path_builder: lyon::path::Builder,
+    path_builder: Builder,
 }
 
 impl Default for ShapeBuilder {
@@ -1087,18 +1077,11 @@ impl Default for ShapeBuilder {
 }
 
 impl ShapeBuilder {
-    /// Starts an empty path with a black stroke of width 1.0.
+    /// Starts an empty path.
     pub fn new() -> Self {
         Self {
-            stroke: Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
-            path_builder: lyon::path::Path::builder(),
+            path_builder: Path::builder(),
         }
-    }
-
-    /// Sets the stroke properties of the shape.
-    pub fn stroke(mut self, stroke: Stroke) -> Self {
-        self.stroke = stroke;
-        self
     }
 
     /// Starts a new subpath at `point`.
@@ -1134,13 +1117,10 @@ impl ShapeBuilder {
         self
     }
 
-    /// Builds the [`Shape`] from the accumulated path and stroke.
+    /// Builds the [`Shape`] from the accumulated path.
     pub fn build(self) -> Shape {
         let path = self.path_builder.build();
-        Shape::Path(PathShape {
-            path,
-            stroke: self.stroke,
-        })
+        Shape::Path(PathShape { path })
     }
 }
 

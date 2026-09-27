@@ -1,5 +1,5 @@
 use futures::executor::block_on;
-use grafo::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, Stroke};
+use grafo::{BorderRadii, Color, Shape, ShapeDrawCommandOptions};
 use grafo::{RendererContext, Surface};
 use std::sync::Arc;
 use std::time::Instant;
@@ -73,10 +73,7 @@ impl ApplicationHandler for App {
                 renderer.clear_draw_queue();
                 let timer = Instant::now();
 
-                let rect = Shape::rect(
-                    [(100.0, 100.0), (300.0, 200.0)],
-                    Stroke::new(3.0_f32, Color::BLACK),
-                );
+                let rect = Shape::rect([(100.0, 100.0), (300.0, 200.0)]);
                 renderer
                     .add_shape(
                         rect,
@@ -86,11 +83,8 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let rounded_rect = Shape::rounded_rect(
-                    [(350.0, 250.0), (450.0, 350.0)],
-                    BorderRadii::new(50.0),
-                    Stroke::new(2.0_f32, Color::rgb(0, 100, 200)),
-                );
+                let rounded_rect =
+                    Shape::rounded_rect([(350.0, 250.0), (450.0, 350.0)], BorderRadii::new(50.0));
                 renderer
                     .add_shape(
                         rounded_rect,

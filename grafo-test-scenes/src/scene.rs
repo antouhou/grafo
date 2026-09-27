@@ -12,7 +12,7 @@ use grafo::{
     GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
     LinearGradientLine, RadialGradientDesc, RadialGradientSize, Renderer, Shape,
     ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
-    SpreadMode, Stroke, TextureManager, TransformInstance,
+    SpreadMode, TextureManager, TransformInstance,
 };
 
 // Grid layout
@@ -53,10 +53,7 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 
     // The draw tree requires a single root node. All tile shapes are added as
     // children of this full-canvas root so they are not clipped to each other.
-    let canvas_root = Shape::rect(
-        [(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)],
-        Stroke::default(),
-    );
+    let canvas_root = Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]);
     renderer
         .add_shape(
             canvas_root,
@@ -181,7 +178,6 @@ fn tile_74_backdrop_stencil_ordering(renderer: &mut Renderer) -> Vec<PixelExpect
                     (origin_x + 75.0, origin_y + 75.0),
                 ],
                 BorderRadii::new(8.0),
-                Stroke::default(),
             ),
             None,
             None,
@@ -211,7 +207,6 @@ fn tile_74_backdrop_stencil_ordering(renderer: &mut Renderer) -> Vec<PixelExpect
                         (origin_x + 55.0, panel_top + 16.0),
                     ],
                     BorderRadii::new(4.0),
-                    Stroke::default(),
                 ),
                 Some(clip_id),
                 None,
@@ -230,13 +225,10 @@ fn tile_74_backdrop_stencil_ordering(renderer: &mut Renderer) -> Vec<PixelExpect
             .unwrap();
         renderer
             .add_shape(
-                Shape::rect(
-                    [
-                        (origin_x, panel_top + 5.0),
-                        (origin_x + 80.0, panel_top + 9.0),
-                    ],
-                    Stroke::default(),
-                ),
+                Shape::rect([
+                    (origin_x, panel_top + 5.0),
+                    (origin_x + 80.0, panel_top + 9.0),
+                ]),
                 Some(if is_leaf { clip_id } else { panel_id }),
                 None,
                 ShapeDrawCommandOptions::new().color(Color::rgb(230, 70, 70)),
@@ -244,13 +236,10 @@ fn tile_74_backdrop_stencil_ordering(renderer: &mut Renderer) -> Vec<PixelExpect
             .unwrap();
         renderer
             .add_shape(
-                Shape::rect(
-                    [
-                        (origin_x, panel_top + 11.0),
-                        (origin_x + 80.0, panel_top + 14.0),
-                    ],
-                    Stroke::default(),
-                ),
+                Shape::rect([
+                    (origin_x, panel_top + 11.0),
+                    (origin_x + 80.0, panel_top + 14.0),
+                ]),
                 Some(clip_id),
                 None,
                 ShapeDrawCommandOptions::new().color(Color::rgb(230, 200, 50)),
@@ -295,13 +284,10 @@ fn tile_74_backdrop_stencil_ordering(renderer: &mut Renderer) -> Vec<PixelExpect
 
     renderer
         .add_shape(
-            Shape::rect(
-                [
-                    (origin_x, origin_y + 71.0),
-                    (origin_x + 80.0, origin_y + 74.0),
-                ],
-                Stroke::default(),
-            ),
+            Shape::rect([
+                (origin_x, origin_y + 71.0),
+                (origin_x + 80.0, origin_y + 74.0),
+            ]),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(220, 120, 40)),
@@ -334,7 +320,6 @@ fn tile_70_stencil_restoration_across_empty_and_overflow_parents(
                     (origin_x + 75.0, origin_y + 75.0),
                 ],
                 BorderRadii::new(8.0),
-                Stroke::default(),
             ),
             None,
             None,
@@ -359,7 +344,6 @@ fn tile_70_stencil_restoration_across_empty_and_overflow_parents(
                     (origin_x + 50.0, origin_y + 39.0),
                 ],
                 BorderRadii::new(6.0),
-                Stroke::default(),
             ),
             Some(empty_parent_id),
             None,
@@ -374,7 +358,6 @@ fn tile_70_stencil_restoration_across_empty_and_overflow_parents(
                     (origin_x + 59.0, origin_y + 43.0),
                 ],
                 BorderRadii::new(16.0),
-                Stroke::default(),
             ),
             Some(nested_clip_id),
             None,
@@ -390,7 +373,6 @@ fn tile_70_stencil_restoration_across_empty_and_overflow_parents(
                     (origin_x + 38.0, origin_y + 66.0),
                 ],
                 BorderRadii::new(4.0),
-                Stroke::default(),
             ),
             Some(outer_id),
             None,
@@ -421,7 +403,6 @@ fn tile_70_stencil_restoration_across_empty_and_overflow_parents(
                     (origin_x + 82.0, origin_y + 60.0),
                 ],
                 BorderRadii::new(11.0),
-                Stroke::default(),
             ),
             Some(outer_id),
             None,
@@ -437,7 +418,6 @@ fn tile_70_stencil_restoration_across_empty_and_overflow_parents(
                     (origin_x + 72.0, origin_y + 79.0),
                 ],
                 BorderRadii::new(7.0),
-                Stroke::default(),
             ),
             None,
             None,
@@ -517,13 +497,10 @@ fn tile_68_gradient_transition_hints(renderer: &mut Renderer) -> Vec<PixelExpect
         .unwrap();
         renderer
             .add_shape(
-                Shape::rect(
-                    [
-                        (origin_x + 8.0, origin_y + top),
-                        (origin_x + 72.0, origin_y + bottom),
-                    ],
-                    Stroke::default(),
-                ),
+                Shape::rect([
+                    (origin_x + 8.0, origin_y + top),
+                    (origin_x + 72.0, origin_y + bottom),
+                ]),
                 None,
                 None,
                 ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
@@ -578,13 +555,10 @@ fn tile_69_gradient_automatic_stop_after_decreasing_stop(
     .unwrap();
     renderer
         .add_shape(
-            Shape::rect(
-                [
-                    (origin_x + 8.0, origin_y + 8.0),
-                    (origin_x + 72.0, origin_y + 72.0),
-                ],
-                Stroke::default(),
-            ),
+            Shape::rect([
+                (origin_x + 8.0, origin_y + 8.0),
+                (origin_x + 72.0, origin_y + 72.0),
+            ]),
             None,
             None,
             ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
@@ -710,10 +684,7 @@ fn load_shared_resources(renderer: &mut Renderer) {
 
 fn tile_01_rect_solid(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(1);
-    let shape = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)]);
     renderer
         .add_shape(
             shape,
@@ -741,7 +712,6 @@ fn tile_02_rounded_rect_solid(renderer: &mut Renderer) -> Vec<PixelExpectation> 
     let shape = Shape::rounded_rect(
         [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
         BorderRadii::new(15.0),
-        Stroke::default(),
     );
     renderer
         .add_shape(
@@ -838,10 +808,7 @@ fn tile_04_path_bezier(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 
 fn tile_05_rect_parent_child_inside(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(5);
-    let parent = Shape::rect(
-        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
-        Stroke::default(),
-    );
+    let parent = Shape::rect([(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)]);
     let parent_id = renderer
         .add_shape(
             parent,
@@ -851,10 +818,7 @@ fn tile_05_rect_parent_child_inside(renderer: &mut Renderer) -> Vec<PixelExpecta
         )
         .unwrap();
 
-    let child = Shape::rect(
-        [(ox + 20.0, oy + 20.0), (ox + 60.0, oy + 60.0)],
-        Stroke::default(),
-    );
+    let child = Shape::rect([(ox + 20.0, oy + 20.0), (ox + 60.0, oy + 60.0)]);
     renderer
         .add_shape(
             child,
@@ -886,10 +850,7 @@ fn tile_05_rect_parent_child_inside(renderer: &mut Renderer) -> Vec<PixelExpecta
 
 fn tile_06_rect_parent_child_overflow(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(6);
-    let parent = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 55.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let parent = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 55.0, oy + 70.0)]);
     let parent_id = renderer
         .add_shape(
             parent,
@@ -900,10 +861,7 @@ fn tile_06_rect_parent_child_overflow(renderer: &mut Renderer) -> Vec<PixelExpec
         .unwrap();
 
     // Child extends past parent's right edge
-    let child = Shape::rect(
-        [(ox + 30.0, oy + 20.0), (ox + 75.0, oy + 60.0)],
-        Stroke::default(),
-    );
+    let child = Shape::rect([(ox + 30.0, oy + 20.0), (ox + 75.0, oy + 60.0)]);
     renderer
         .add_shape(
             child,
@@ -945,10 +903,7 @@ fn tile_06_rect_parent_child_overflow(renderer: &mut Renderer) -> Vec<PixelExpec
 
 fn tile_07_rect_parent_multi_children(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(7);
-    let parent = Shape::rect(
-        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
-        Stroke::default(),
-    );
+    let parent = Shape::rect([(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)]);
     let parent_id = renderer
         .add_shape(
             parent,
@@ -966,10 +921,7 @@ fn tile_07_rect_parent_multi_children(renderer: &mut Renderer) -> Vec<PixelExpec
     let child_y_offsets: [(f32, f32); 3] = [(10.0, 25.0), (30.0, 45.0), (50.0, 65.0)];
 
     for (idx, &(y_start, y_end)) in child_y_offsets.iter().enumerate() {
-        let child = Shape::rect(
-            [(ox + 15.0, oy + y_start), (ox + 65.0, oy + y_end)],
-            Stroke::default(),
-        );
+        let child = Shape::rect([(ox + 15.0, oy + y_start), (ox + 65.0, oy + y_end)]);
         renderer
             .add_shape(
                 child,
@@ -1003,10 +955,7 @@ fn tile_07_rect_parent_multi_children(renderer: &mut Renderer) -> Vec<PixelExpec
 
 fn tile_08_rect_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(8);
-    let level0 = Shape::rect(
-        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
-        Stroke::default(),
-    );
+    let level0 = Shape::rect([(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)]);
     let id0 = renderer
         .add_shape(
             level0,
@@ -1016,10 +965,7 @@ fn tile_08_rect_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectation
         )
         .unwrap();
 
-    let level1 = Shape::rect(
-        [(ox + 15.0, oy + 15.0), (ox + 65.0, oy + 65.0)],
-        Stroke::default(),
-    );
+    let level1 = Shape::rect([(ox + 15.0, oy + 15.0), (ox + 65.0, oy + 65.0)]);
     let id1 = renderer
         .add_shape(
             level1,
@@ -1029,10 +975,7 @@ fn tile_08_rect_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectation
         )
         .unwrap();
 
-    let level2 = Shape::rect(
-        [(ox + 25.0, oy + 25.0), (ox + 55.0, oy + 55.0)],
-        Stroke::default(),
-    );
+    let level2 = Shape::rect([(ox + 25.0, oy + 25.0), (ox + 55.0, oy + 55.0)]);
     renderer
         .add_shape(
             level2,
@@ -1058,10 +1001,7 @@ fn tile_08_rect_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectation
 
 fn tile_09_rect_siblings_overlap(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(9);
-    let parent = Shape::rect(
-        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
-        Stroke::default(),
-    );
+    let parent = Shape::rect([(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)]);
     let parent_id = renderer
         .add_shape(
             parent,
@@ -1072,10 +1012,7 @@ fn tile_09_rect_siblings_overlap(renderer: &mut Renderer) -> Vec<PixelExpectatio
         .unwrap();
 
     // Draw this child before its overlapping sibling.
-    let child1 = Shape::rect(
-        [(ox + 15.0, oy + 20.0), (ox + 50.0, oy + 55.0)],
-        Stroke::default(),
-    );
+    let child1 = Shape::rect([(ox + 15.0, oy + 20.0), (ox + 50.0, oy + 55.0)]);
     renderer
         .add_shape(
             child1,
@@ -1086,10 +1023,7 @@ fn tile_09_rect_siblings_overlap(renderer: &mut Renderer) -> Vec<PixelExpectatio
         .unwrap();
 
     // This child covers the first in their overlap.
-    let child2 = Shape::rect(
-        [(ox + 30.0, oy + 30.0), (ox + 65.0, oy + 65.0)],
-        Stroke::default(),
-    );
+    let child2 = Shape::rect([(ox + 30.0, oy + 30.0), (ox + 65.0, oy + 65.0)]);
     renderer
         .add_shape(
             child2,
@@ -1130,7 +1064,6 @@ fn tile_10_rounded_rect_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let parent = Shape::rounded_rect(
         [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
         BorderRadii::new(20.0),
-        Stroke::default(),
     );
     let parent_id = renderer
         .add_shape(
@@ -1142,10 +1075,7 @@ fn tile_10_rounded_rect_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         .unwrap();
 
     // Child is smaller than parent, leaving a visible parent ring
-    let child = Shape::rect(
-        [(ox + 15.0, oy + 15.0), (ox + 65.0, oy + 65.0)],
-        Stroke::default(),
-    );
+    let child = Shape::rect([(ox + 15.0, oy + 15.0), (ox + 65.0, oy + 65.0)]);
     renderer
         .add_shape(
             child,
@@ -1198,10 +1128,7 @@ fn tile_11_path_parent_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         .unwrap();
 
     // Child rect offset to the right so left part of triangle shows parent color
-    let child = Shape::rect(
-        [(ox + 35.0, oy + 15.0), (ox + 75.0, oy + 75.0)],
-        Stroke::default(),
-    );
+    let child = Shape::rect([(ox + 35.0, oy + 15.0), (ox + 75.0, oy + 75.0)]);
     renderer
         .add_shape(
             child,
@@ -1249,7 +1176,6 @@ fn tile_12_stencil_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectat
     let level0 = Shape::rounded_rect(
         [(ox + 5.0, oy + 5.0), (ox + 60.0, oy + 60.0)],
         BorderRadii::new(10.0),
-        Stroke::default(),
     );
     let id0 = renderer
         .add_shape(
@@ -1265,7 +1191,6 @@ fn tile_12_stencil_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectat
     let level1 = Shape::rounded_rect(
         [(ox + 20.0, oy + 20.0), (ox + 75.0, oy + 75.0)],
         BorderRadii::new(8.0),
-        Stroke::default(),
     );
     let id1 = renderer
         .add_shape(
@@ -1281,7 +1206,6 @@ fn tile_12_stencil_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectat
     let level2 = Shape::rounded_rect(
         [(ox + 10.0, oy + 35.0), (ox + 50.0, oy + 75.0)],
         BorderRadii::new(8.0),
-        Stroke::default(),
     );
     renderer
         .add_shape(
@@ -1346,7 +1270,7 @@ fn tile_12_stencil_nested_3_levels(renderer: &mut Renderer) -> Vec<PixelExpectat
 fn tile_13_rotated_rect_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(13);
     // Parent rect defined centered at origin, then rotated+translated
-    let parent = Shape::rect([(-20.0, -20.0), (20.0, 20.0)], Stroke::default());
+    let parent = Shape::rect([(-20.0, -20.0), (20.0, 20.0)]);
     let rotation = TransformInstance::rotation_z_deg(45.0);
     let translation = TransformInstance::translation(ox + 40.0, oy + 40.0);
     let parent_id = renderer
@@ -1361,7 +1285,7 @@ fn tile_13_rotated_rect_clip(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         .unwrap();
 
     // The smaller child leaves a visible ring of the parent.
-    let child = Shape::rect([(-12.0, -12.0), (12.0, 12.0)], Stroke::default());
+    let child = Shape::rect([(-12.0, -12.0), (12.0, 12.0)]);
     renderer
         .add_shape(
             child,
@@ -1411,10 +1335,7 @@ fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation
     let (ox, oy) = tile_origin(14);
 
     // L0 is a scissor-clipped rectangle in the upper-left quadrant.
-    let level0 = Shape::rect(
-        [(ox + 5.0, oy + 5.0), (ox + 60.0, oy + 60.0)],
-        Stroke::default(),
-    );
+    let level0 = Shape::rect([(ox + 5.0, oy + 5.0), (ox + 60.0, oy + 60.0)]);
     let id0 = renderer
         .add_shape(
             level0,
@@ -1429,7 +1350,6 @@ fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation
     let level1 = Shape::rounded_rect(
         [(ox + 20.0, oy + 20.0), (ox + 75.0, oy + 75.0)],
         BorderRadii::new(10.0),
-        Stroke::default(),
     );
     let id1 = renderer
         .add_shape(
@@ -1442,10 +1362,7 @@ fn tile_14_scissor_then_stencil(renderer: &mut Renderer) -> Vec<PixelExpectation
 
     // The leaf extends left of L1 and below L0.
     // Visible (L0 & L1 & leaf) ~ (20,35) -> (50,60).
-    let leaf = Shape::rect(
-        [(ox + 10.0, oy + 35.0), (ox + 50.0, oy + 75.0)],
-        Stroke::default(),
-    );
+    let leaf = Shape::rect([(ox + 10.0, oy + 35.0), (ox + 50.0, oy + 75.0)]);
     renderer
         .add_shape(
             leaf,
@@ -1513,7 +1430,6 @@ fn tile_15_stencil_then_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation
     let level0 = Shape::rounded_rect(
         [(ox + 5.0, oy + 5.0), (ox + 60.0, oy + 60.0)],
         BorderRadii::new(12.0),
-        Stroke::default(),
     );
     let id0 = renderer
         .add_shape(
@@ -1526,10 +1442,7 @@ fn tile_15_stencil_then_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation
 
     // L1 uses scissor clipping and extends past the right and bottom of L0.
     // Visible (L0 & L1) ~ (20,20) -> (60,60).
-    let level1 = Shape::rect(
-        [(ox + 20.0, oy + 20.0), (ox + 75.0, oy + 75.0)],
-        Stroke::default(),
-    );
+    let level1 = Shape::rect([(ox + 20.0, oy + 20.0), (ox + 75.0, oy + 75.0)]);
     let id1 = renderer
         .add_shape(
             level1,
@@ -1541,10 +1454,7 @@ fn tile_15_stencil_then_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation
 
     // The leaf extends left of L1 and below L0.
     // Visible (L0 & L1 & leaf) ~ (20,35) -> (50,60).
-    let leaf = Shape::rect(
-        [(ox + 10.0, oy + 35.0), (ox + 50.0, oy + 75.0)],
-        Stroke::default(),
-    );
+    let leaf = Shape::rect([(ox + 10.0, oy + 35.0), (ox + 50.0, oy + 75.0)]);
     renderer
         .add_shape(
             leaf,
@@ -1610,10 +1520,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
     let (ox, oy) = tile_origin(16);
 
     // L0 is a tall scissor-clipped rectangle on the left.
-    let l0 = Shape::rect(
-        [(ox + 5.0, oy + 5.0), (ox + 55.0, oy + 75.0)],
-        Stroke::default(),
-    );
+    let l0 = Shape::rect([(ox + 5.0, oy + 5.0), (ox + 55.0, oy + 75.0)]);
     let id0 = renderer
         .add_shape(
             l0,
@@ -1625,10 +1532,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
 
     // L1 uses scissor clipping and extends right of L0.
     // Visible (L0 & L1) = (20,5) -> (55,55).
-    let l1 = Shape::rect(
-        [(ox + 20.0, oy + 5.0), (ox + 75.0, oy + 55.0)],
-        Stroke::default(),
-    );
+    let l1 = Shape::rect([(ox + 20.0, oy + 5.0), (ox + 75.0, oy + 55.0)]);
     let id1 = renderer
         .add_shape(
             l1,
@@ -1643,7 +1547,6 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
     let l2 = Shape::rounded_rect(
         [(ox + 15.0, oy + 20.0), (ox + 50.0, oy + 70.0)],
         BorderRadii::new(10.0),
-        Stroke::default(),
     );
     let id2 = renderer
         .add_shape(
@@ -1656,10 +1559,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
 
     // L3 uses scissor clipping and extends right of and above L2.
     // Visible (L0 & L1 & L2 & L3) ~ (25,20) -> (50,50).
-    let l3 = Shape::rect(
-        [(ox + 25.0, oy + 10.0), (ox + 70.0, oy + 50.0)],
-        Stroke::default(),
-    );
+    let l3 = Shape::rect([(ox + 25.0, oy + 10.0), (ox + 70.0, oy + 50.0)]);
     let id3 = renderer
         .add_shape(
             l3,
@@ -1671,10 +1571,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
 
     // L4 extends left of and below L3.
     // Visible (all 5) ~ (25,30) -> (45,50).
-    let l4 = Shape::rect(
-        [(ox + 10.0, oy + 30.0), (ox + 45.0, oy + 65.0)],
-        Stroke::default(),
-    );
+    let l4 = Shape::rect([(ox + 10.0, oy + 30.0), (ox + 45.0, oy + 65.0)]);
     renderer
         .add_shape(
             l4,
@@ -1740,7 +1637,7 @@ fn tile_16_deep_mixed_5_levels(renderer: &mut Renderer) -> Vec<PixelExpectation>
 fn tile_17_translated_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(17);
     // Rect defined at origin, translated to bottom-right of tile
-    let shape = Shape::rect([(0.0, 0.0), (40.0, 25.0)], Stroke::default());
+    let shape = Shape::rect([(0.0, 0.0), (40.0, 25.0)]);
     renderer
         .add_shape(
             shape,
@@ -1787,10 +1684,7 @@ fn tile_18_scaled_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(18);
     // 60x60 rect, scaled to 0.5x horizontally and 1.0x vertically around tile center.
     // The resulting 30x60 rectangle stays centered in the tile.
-    let shape = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)]);
     let to_origin = TransformInstance::translation(-(ox + 40.0), -(oy + 40.0));
     let scale = TransformInstance::scale(0.5, 1.0);
     let back = TransformInstance::translation(ox + 40.0, oy + 40.0);
@@ -1840,7 +1734,7 @@ fn tile_18_scaled_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 
 fn tile_19_rotated_rect_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(19);
-    let shape = Shape::rect([(-15.0, -15.0), (15.0, 15.0)], Stroke::default());
+    let shape = Shape::rect([(-15.0, -15.0), (15.0, 15.0)]);
     let rotation = TransformInstance::rotation_z_deg(45.0);
     let translation = TransformInstance::translation(ox + 40.0, oy + 40.0);
     renderer
@@ -1870,7 +1764,7 @@ fn tile_19_rotated_rect_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 fn tile_20_transform_parent_child(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(20);
     // Parent translated
-    let parent = Shape::rect([(0.0, 0.0), (50.0, 50.0)], Stroke::default());
+    let parent = Shape::rect([(0.0, 0.0), (50.0, 50.0)]);
     let parent_id = renderer
         .add_shape(
             parent,
@@ -1883,7 +1777,7 @@ fn tile_20_transform_parent_child(renderer: &mut Renderer) -> Vec<PixelExpectati
         .unwrap();
 
     // The transform maps the child bounds from local (10,10)-(40,40) to tile (25,25)-(55,55).
-    let child = Shape::rect([(10.0, 10.0), (40.0, 40.0)], Stroke::default());
+    let child = Shape::rect([(10.0, 10.0), (40.0, 40.0)]);
     renderer
         .add_shape(
             child,
@@ -1906,10 +1800,7 @@ fn tile_20_transform_parent_child(renderer: &mut Renderer) -> Vec<PixelExpectati
 fn tile_21_alpha_overlap(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(21);
     // Opaque blue background
-    let bg = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 50.0, oy + 60.0)],
-        Stroke::default(),
-    );
+    let bg = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 50.0, oy + 60.0)]);
     renderer
         .add_shape(
             bg,
@@ -1920,10 +1811,7 @@ fn tile_21_alpha_overlap(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         .unwrap();
 
     // Semi-transparent red on top
-    let fg = Shape::rect(
-        [(ox + 25.0, oy + 20.0), (ox + 65.0, oy + 55.0)],
-        Stroke::default(),
-    );
+    let fg = Shape::rect([(ox + 25.0, oy + 20.0), (ox + 65.0, oy + 55.0)]);
     renderer
         .add_shape(
             fg,
@@ -1962,10 +1850,7 @@ fn tile_21_alpha_overlap(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 fn tile_22_no_color_default(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(22);
     // Colored background so we can verify that an unset color stays transparent.
-    let bg = Shape::rect(
-        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
-        Stroke::default(),
-    );
+    let bg = Shape::rect([(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)]);
     renderer
         .add_shape(
             bg,
@@ -1975,10 +1860,7 @@ fn tile_22_no_color_default(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         )
         .unwrap();
 
-    let shape = Shape::rect(
-        [(ox + 20.0, oy + 20.0), (ox + 60.0, oy + 60.0)],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([(ox + 20.0, oy + 20.0), (ox + 60.0, oy + 60.0)]);
     // An unset fill is transparent.
     renderer
         .add_shape(shape, None, None, ShapeDrawCommandOptions::new())
@@ -2008,10 +1890,7 @@ fn tile_22_no_color_default(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 
 fn tile_23_fully_transparent(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(23);
-    let shape = Shape::rect(
-        [(ox + 15.0, oy + 15.0), (ox + 65.0, oy + 65.0)],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([(ox + 15.0, oy + 15.0), (ox + 65.0, oy + 65.0)]);
     renderer
         .add_shape(
             shape,
@@ -2036,10 +1915,7 @@ fn tile_23_fully_transparent(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 
 fn tile_24_textured_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(24);
-    let shape = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)]);
     renderer
         .add_shape(
             shape,
@@ -2076,10 +1952,7 @@ fn tile_24_textured_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 
 fn tile_25_textured_with_color(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(25);
-    let shape = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)]);
     renderer
         .add_shape(
             shape,
@@ -2124,10 +1997,7 @@ fn tile_25_textured_with_color(renderer: &mut Renderer) -> Vec<PixelExpectation>
 
 fn tile_26_textured_parent_child(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(26);
-    let parent = Shape::rect(
-        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
-        Stroke::default(),
-    );
+    let parent = Shape::rect([(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)]);
     let parent_id = renderer
         .add_shape(
             parent,
@@ -2139,10 +2009,7 @@ fn tile_26_textured_parent_child(renderer: &mut Renderer) -> Vec<PixelExpectatio
         )
         .unwrap();
 
-    let child = Shape::rect(
-        [(ox + 25.0, oy + 25.0), (ox + 55.0, oy + 55.0)],
-        Stroke::default(),
-    );
+    let child = Shape::rect([(ox + 25.0, oy + 25.0), (ox + 55.0, oy + 55.0)]);
     renderer
         .add_shape(
             child,
@@ -2188,10 +2055,7 @@ fn tile_27_group_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(27);
 
     // Only the shape is blurred; the background stripe must stay sharp.
-    let bg_stripe = Shape::rect(
-        [(ox + 5.0, oy + 30.0), (ox + 75.0, oy + 50.0)],
-        Stroke::default(),
-    );
+    let bg_stripe = Shape::rect([(ox + 5.0, oy + 30.0), (ox + 75.0, oy + 50.0)]);
     renderer
         .add_shape(
             bg_stripe,
@@ -2202,10 +2066,7 @@ fn tile_27_group_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         .unwrap(); // green stripe
 
     // The blurred shape is translucent, so the stripe shows through.
-    let shape = Shape::rect(
-        [(ox + 15.0, oy + 10.0), (ox + 65.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([(ox + 15.0, oy + 10.0), (ox + 65.0, oy + 70.0)]);
     let id = renderer
         .add_shape(
             shape,
@@ -2249,10 +2110,7 @@ fn tile_28_group_blur_with_children(renderer: &mut Renderer) -> Vec<PixelExpecta
     let (ox, oy) = tile_origin(28);
 
     // Only the group is blurred; the background stripe must stay sharp.
-    let bg_stripe = Shape::rect(
-        [(ox + 5.0, oy + 30.0), (ox + 75.0, oy + 50.0)],
-        Stroke::default(),
-    );
+    let bg_stripe = Shape::rect([(ox + 5.0, oy + 30.0), (ox + 75.0, oy + 50.0)]);
     renderer
         .add_shape(
             bg_stripe,
@@ -2263,10 +2121,7 @@ fn tile_28_group_blur_with_children(renderer: &mut Renderer) -> Vec<PixelExpecta
         .unwrap(); // yellow stripe
 
     // The group effect blurs the parent and child together.
-    let parent = Shape::rect(
-        [(ox + 10.0, oy + 5.0), (ox + 70.0, oy + 75.0)],
-        Stroke::default(),
-    );
+    let parent = Shape::rect([(ox + 10.0, oy + 5.0), (ox + 70.0, oy + 75.0)]);
     let parent_id = renderer
         .add_shape(
             parent,
@@ -2276,10 +2131,7 @@ fn tile_28_group_blur_with_children(renderer: &mut Renderer) -> Vec<PixelExpecta
         )
         .unwrap(); // semi-transparent gray
 
-    let child = Shape::rect(
-        [(ox + 20.0, oy + 20.0), (ox + 60.0, oy + 60.0)],
-        Stroke::default(),
-    );
+    let child = Shape::rect([(ox + 20.0, oy + 20.0), (ox + 60.0, oy + 60.0)]);
     renderer
         .add_shape(
             child,
@@ -2337,10 +2189,7 @@ fn tile_28_group_blur_with_children(renderer: &mut Renderer) -> Vec<PixelExpecta
 fn tile_29_backdrop_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(29);
     // Red background
-    let bg = Shape::rect(
-        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
-        Stroke::default(),
-    );
+    let bg = Shape::rect([(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)]);
     renderer
         .add_shape(
             bg,
@@ -2352,10 +2201,7 @@ fn tile_29_backdrop_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> 
 
     // Sharp-edged stripe that partially overlaps the backdrop panel.
     // The panel blurs the covered part of the stripe. The uncovered part stays sharp.
-    let stripe = Shape::rect(
-        [(ox + 10.0, oy + 32.0), (ox + 70.0, oy + 48.0)],
-        Stroke::default(),
-    );
+    let stripe = Shape::rect([(ox + 10.0, oy + 32.0), (ox + 70.0, oy + 48.0)]);
     renderer
         .add_shape(
             stripe,
@@ -2366,10 +2212,7 @@ fn tile_29_backdrop_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> 
         .unwrap(); // blue stripe
 
     // A backdrop blur panel with no children.
-    let panel = Shape::rect(
-        [(ox + 20.0, oy + 15.0), (ox + 60.0, oy + 65.0)],
-        Stroke::default(),
-    );
+    let panel = Shape::rect([(ox + 20.0, oy + 15.0), (ox + 60.0, oy + 65.0)]);
     let panel_id = renderer
         .add_shape(
             panel,
@@ -2418,10 +2261,7 @@ fn tile_29_backdrop_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> 
 fn tile_30_backdrop_blur_nonleaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(30);
     // Green background
-    let bg = Shape::rect(
-        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
-        Stroke::default(),
-    );
+    let bg = Shape::rect([(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)]);
     renderer
         .add_shape(
             bg,
@@ -2432,10 +2272,7 @@ fn tile_30_backdrop_blur_nonleaf(renderer: &mut Renderer) -> Vec<PixelExpectatio
         .unwrap();
 
     // Sharp-edged stripe partially behind the backdrop panel
-    let stripe = Shape::rect(
-        [(ox + 8.0, oy + 30.0), (ox + 72.0, oy + 50.0)],
-        Stroke::default(),
-    );
+    let stripe = Shape::rect([(ox + 8.0, oy + 30.0), (ox + 72.0, oy + 50.0)]);
     renderer
         .add_shape(
             stripe,
@@ -2446,10 +2283,7 @@ fn tile_30_backdrop_blur_nonleaf(renderer: &mut Renderer) -> Vec<PixelExpectatio
         .unwrap(); // red stripe
 
     // Backdrop panel with a child
-    let panel = Shape::rect(
-        [(ox + 15.0, oy + 10.0), (ox + 65.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let panel = Shape::rect([(ox + 15.0, oy + 10.0), (ox + 65.0, oy + 70.0)]);
     let panel_id = renderer
         .add_shape(
             panel,
@@ -2459,10 +2293,7 @@ fn tile_30_backdrop_blur_nonleaf(renderer: &mut Renderer) -> Vec<PixelExpectatio
         )
         .unwrap();
 
-    let child = Shape::rect(
-        [(ox + 25.0, oy + 50.0), (ox + 55.0, oy + 65.0)],
-        Stroke::default(),
-    );
+    let child = Shape::rect([(ox + 25.0, oy + 50.0), (ox + 55.0, oy + 65.0)]);
     renderer
         .add_shape(
             child,
@@ -2529,10 +2360,7 @@ fn tile_30_backdrop_blur_nonleaf(renderer: &mut Renderer) -> Vec<PixelExpectatio
 fn tile_31_backdrop_under_scissor(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(31);
     // Yellow background
-    let bg = Shape::rect(
-        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
-        Stroke::default(),
-    );
+    let bg = Shape::rect([(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)]);
     let bg_id = renderer
         .add_shape(
             bg,
@@ -2543,10 +2371,7 @@ fn tile_31_backdrop_under_scissor(renderer: &mut Renderer) -> Vec<PixelExpectati
         .unwrap();
 
     // The panel should blur only the covered part of the blue stripe.
-    let stripe = Shape::rect(
-        [(ox + 8.0, oy + 32.0), (ox + 72.0, oy + 48.0)],
-        Stroke::default(),
-    );
+    let stripe = Shape::rect([(ox + 8.0, oy + 32.0), (ox + 72.0, oy + 48.0)]);
     renderer
         .add_shape(
             stripe,
@@ -2557,10 +2382,7 @@ fn tile_31_backdrop_under_scissor(renderer: &mut Renderer) -> Vec<PixelExpectati
         .unwrap(); // blue stripe
 
     // Draw the scissor-clipping parent after its sibling stripe.
-    let clip_parent = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 60.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let clip_parent = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 60.0, oy + 70.0)]);
     let clip_id = renderer
         .add_shape(
             clip_parent,
@@ -2571,10 +2393,7 @@ fn tile_31_backdrop_under_scissor(renderer: &mut Renderer) -> Vec<PixelExpectati
         .unwrap(); // Transparent fill leaves only the clip.
 
     // Backdrop panel inside scissor-clipped parent
-    let panel = Shape::rect(
-        [(ox + 15.0, oy + 15.0), (ox + 55.0, oy + 65.0)],
-        Stroke::default(),
-    );
+    let panel = Shape::rect([(ox + 15.0, oy + 15.0), (ox + 55.0, oy + 65.0)]);
     let panel_id = renderer
         .add_shape(
             panel,
@@ -2631,10 +2450,7 @@ fn tile_31_backdrop_under_scissor(renderer: &mut Renderer) -> Vec<PixelExpectati
 
 fn tile_32_tiny_1px_shape(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(32);
-    let shape = Shape::rect(
-        [(ox + 40.0, oy + 40.0), (ox + 41.0, oy + 41.0)],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([(ox + 40.0, oy + 40.0), (ox + 41.0, oy + 41.0)]);
     renderer
         .add_shape(
             shape,
@@ -2661,13 +2477,10 @@ fn tile_33_shape_at_canvas_edge(renderer: &mut Renderer) -> Vec<PixelExpectation
     // Reserve the bottom-right grid slot for a shape crossing both canvas edges.
     let origin_x = (CANVAS_WIDTH - TILE_SIZE) as f32;
     let origin_y = (CANVAS_HEIGHT - TILE_SIZE) as f32;
-    let shape = Shape::rect(
-        [
-            (origin_x + 50.0, origin_y + 50.0),
-            (origin_x + 120.0, origin_y + 120.0),
-        ],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([
+        (origin_x + 50.0, origin_y + 50.0),
+        (origin_x + 120.0, origin_y + 120.0),
+    ]);
     renderer
         .add_shape(
             shape,
@@ -2723,10 +2536,7 @@ fn tile_33_shape_at_canvas_edge(renderer: &mut Renderer) -> Vec<PixelExpectation
 
 fn tile_34_cached_shape(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(34);
-    let shape = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)]);
 
     let cache_key = 9999;
     renderer.load_shape(shape, cache_key, None);
@@ -2762,10 +2572,7 @@ fn tile_34_cached_shape(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 fn tile_35_trivial_transform_transparent_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(35);
 
-    let bg = Shape::rect(
-        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
-        Stroke::default(),
-    );
+    let bg = Shape::rect([(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)]);
     renderer
         .add_shape(
             bg,
@@ -2775,7 +2582,7 @@ fn tile_35_trivial_transform_transparent_leaf(renderer: &mut Renderer) -> Vec<Pi
         )
         .unwrap();
 
-    let leaf = Shape::rect([(0.0, 0.0), (20.0, 20.0)], Stroke::default());
+    let leaf = Shape::rect([(0.0, 0.0), (20.0, 20.0)]);
     renderer
         .add_shape(
             leaf,
@@ -2805,7 +2612,7 @@ fn tile_35_trivial_transform_transparent_leaf(renderer: &mut Renderer) -> Vec<Pi
 fn tile_36_trivial_transform_transparent_parent(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(36);
 
-    let parent = Shape::rect([(0.0, 0.0), (20.0, 20.0)], Stroke::default());
+    let parent = Shape::rect([(0.0, 0.0), (20.0, 20.0)]);
     let parent_id = renderer
         .add_shape(
             parent,
@@ -2822,10 +2629,7 @@ fn tile_36_trivial_transform_transparent_parent(renderer: &mut Renderer) -> Vec<
         )
         .unwrap();
 
-    let child = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 40.0)],
-        Stroke::default(),
-    );
+    let child = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 40.0)]);
     renderer
         .add_shape(
             child,
@@ -2858,10 +2662,7 @@ fn tile_36_trivial_transform_transparent_parent(renderer: &mut Renderer) -> Vec<
 fn tile_37_textured_transparent_rects(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(37);
 
-    let explicit_alpha_zero = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 30.0, oy + 30.0)],
-        Stroke::default(),
-    );
+    let explicit_alpha_zero = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 30.0, oy + 30.0)]);
     renderer
         .add_shape(
             explicit_alpha_zero,
@@ -2873,10 +2674,7 @@ fn tile_37_textured_transparent_rects(renderer: &mut Renderer) -> Vec<PixelExpec
         )
         .unwrap();
 
-    let none_color = Shape::rect(
-        [(ox + 40.0, oy + 10.0), (ox + 60.0, oy + 30.0)],
-        Stroke::default(),
-    );
+    let none_color = Shape::rect([(ox + 40.0, oy + 10.0), (ox + 60.0, oy + 30.0)]);
     renderer
         .add_shape(
             none_color,
@@ -2909,7 +2707,7 @@ fn tile_37_textured_transparent_rects(renderer: &mut Renderer) -> Vec<PixelExpec
 fn tile_38_sheared_transparent_parent(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(38);
 
-    let parent = Shape::rect([(0.0, 0.0), (20.0, 20.0)], Stroke::default());
+    let parent = Shape::rect([(0.0, 0.0), (20.0, 20.0)]);
     let parent_id = renderer
         .add_shape(
             parent,
@@ -2926,10 +2724,7 @@ fn tile_38_sheared_transparent_parent(renderer: &mut Renderer) -> Vec<PixelExpec
         )
         .unwrap();
 
-    let child = Shape::rect(
-        [(ox + 15.0, oy + 15.0), (ox + 55.0, oy + 45.0)],
-        Stroke::default(),
-    );
+    let child = Shape::rect([(ox + 15.0, oy + 15.0), (ox + 55.0, oy + 45.0)]);
     renderer
         .add_shape(
             child,
@@ -2996,7 +2791,7 @@ fn two_stop_common_with_units(
 
 fn tile_39_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(39);
-    let shape = Shape::rect([(0.0, 0.0), (60.0, 60.0)], Stroke::default());
+    let shape = Shape::rect([(0.0, 0.0), (60.0, 60.0)]);
     let gradient = Gradient::linear(LinearGradientDesc {
         common: two_stop_common_canvas((220, 30, 30), (30, 30, 220), SpreadMode::Pad),
         line: LinearGradientLine {
@@ -3044,10 +2839,7 @@ fn tile_39_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 
 fn tile_40_radial_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(40);
-    let shape = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)]);
     let gradient = Gradient::radial(RadialGradientDesc {
         common: two_stop_common((240, 240, 30), (30, 180, 30), SpreadMode::Pad),
         center: [ox + 40.0, oy + 40.0],
@@ -3090,10 +2882,7 @@ fn tile_40_radial_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 
 fn tile_41_conic_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(41);
-    let shape = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)]);
     let tau = std::f32::consts::TAU;
     let gradient = Gradient::conic(ConicGradientDesc {
         common: GradientCommonDesc {
@@ -3178,10 +2967,7 @@ fn tile_41_conic_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 
 fn tile_42_repeating_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(42);
-    let shape = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)]);
     let gradient = Gradient::linear(LinearGradientDesc {
         common: GradientCommonDesc {
             units: GradientUnits::Local,
@@ -3264,10 +3050,7 @@ fn tile_42_repeating_linear_gradient(renderer: &mut Renderer) -> Vec<PixelExpect
 
 fn tile_43_gradient_hard_stops(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(43);
-    let shape = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)]);
     let gradient = Gradient::linear(LinearGradientDesc {
         common: GradientCommonDesc {
             units: GradientUnits::Local,
@@ -3364,13 +3147,9 @@ fn tile_44_gradient_clipped(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let parent = Shape::rounded_rect(
         [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
         BorderRadii::new(15.0),
-        Stroke::default(),
     );
     // Child rect filled with a gradient, clipped by rounded parent.
-    let child = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let child = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)]);
 
     let gradient = Gradient::linear(LinearGradientDesc {
         common: two_stop_common((30, 220, 30), (220, 30, 220), SpreadMode::Pad),
@@ -3439,10 +3218,7 @@ fn tile_45_gradient_group_blur(renderer: &mut Renderer) -> Vec<PixelExpectation>
     let (ox, oy) = tile_origin(45);
 
     // Only the shape is blurred; the background stripe must stay sharp.
-    let bg_stripe = Shape::rect(
-        [(ox + 5.0, oy + 30.0), (ox + 75.0, oy + 50.0)],
-        Stroke::default(),
-    );
+    let bg_stripe = Shape::rect([(ox + 5.0, oy + 30.0), (ox + 75.0, oy + 50.0)]);
     renderer
         .add_shape(
             bg_stripe,
@@ -3453,10 +3229,7 @@ fn tile_45_gradient_group_blur(renderer: &mut Renderer) -> Vec<PixelExpectation>
         .unwrap(); // green stripe
 
     // Gradient-filled shape with group blur
-    let shape = Shape::rect(
-        [(ox + 15.0, oy + 10.0), (ox + 65.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([(ox + 15.0, oy + 10.0), (ox + 65.0, oy + 70.0)]);
     let gradient = Gradient::linear(LinearGradientDesc {
         common: two_stop_common((220, 50, 50), (50, 50, 220), SpreadMode::Pad),
         line: LinearGradientLine {
@@ -3522,10 +3295,7 @@ fn tile_46_gradient_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectati
     let (ox, oy) = tile_origin(46);
 
     // Red background
-    let bg = Shape::rect(
-        [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
-        Stroke::default(),
-    );
+    let bg = Shape::rect([(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)]);
     renderer
         .add_shape(
             bg,
@@ -3537,10 +3307,7 @@ fn tile_46_gradient_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectati
 
     // Gradient stripe that partially overlaps the backdrop panel.
     // The panel blurs the covered part of the stripe. The uncovered part stays sharp.
-    let stripe = Shape::rect(
-        [(ox + 10.0, oy + 32.0), (ox + 70.0, oy + 48.0)],
-        Stroke::default(),
-    );
+    let stripe = Shape::rect([(ox + 10.0, oy + 32.0), (ox + 70.0, oy + 48.0)]);
     let gradient = Gradient::linear(LinearGradientDesc {
         common: two_stop_common((50, 50, 220), (50, 220, 50), SpreadMode::Pad),
         line: LinearGradientLine {
@@ -3560,10 +3327,7 @@ fn tile_46_gradient_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectati
         .unwrap();
 
     // A backdrop blur panel with no children.
-    let panel = Shape::rect(
-        [(ox + 20.0, oy + 15.0), (ox + 60.0, oy + 65.0)],
-        Stroke::default(),
-    );
+    let panel = Shape::rect([(ox + 20.0, oy + 15.0), (ox + 60.0, oy + 65.0)]);
     let panel_id = renderer
         .add_shape(
             panel,
@@ -3620,7 +3384,6 @@ fn tile_47_gradient_nonleaf_stencil(renderer: &mut Renderer) -> Vec<PixelExpecta
     let parent = Shape::rounded_rect(
         [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
         BorderRadii::new(12.0),
-        Stroke::default(),
     );
     let gradient = Gradient::linear(LinearGradientDesc {
         common: two_stop_common((220, 30, 30), (30, 30, 220), SpreadMode::Pad),
@@ -3641,10 +3404,7 @@ fn tile_47_gradient_nonleaf_stencil(renderer: &mut Renderer) -> Vec<PixelExpecta
         .unwrap();
 
     // Small opaque child in the center.
-    let child = Shape::rect(
-        [(ox + 30.0, oy + 30.0), (ox + 50.0, oy + 50.0)],
-        Stroke::default(),
-    );
+    let child = Shape::rect([(ox + 30.0, oy + 30.0), (ox + 50.0, oy + 50.0)]);
     renderer
         .add_shape(
             child,
@@ -3692,10 +3452,7 @@ fn tile_48_gradient_state_leak(renderer: &mut Renderer) -> Vec<PixelExpectation>
     let (ox, oy) = tile_origin(48);
 
     // Draw the gradient rectangle on the left first.
-    let grad_shape = Shape::rect(
-        [(ox + 5.0, oy + 10.0), (ox + 37.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let grad_shape = Shape::rect([(ox + 5.0, oy + 10.0), (ox + 37.0, oy + 70.0)]);
     let gradient = Gradient::linear(LinearGradientDesc {
         common: two_stop_common((220, 30, 30), (30, 220, 30), SpreadMode::Pad),
         line: LinearGradientLine {
@@ -3715,10 +3472,7 @@ fn tile_48_gradient_state_leak(renderer: &mut Renderer) -> Vec<PixelExpectation>
         .unwrap();
 
     // Draw the cyan rectangle on the right immediately after the gradient.
-    let solid_shape = Shape::rect(
-        [(ox + 43.0, oy + 10.0), (ox + 75.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let solid_shape = Shape::rect([(ox + 43.0, oy + 10.0), (ox + 75.0, oy + 70.0)]);
     renderer
         .add_shape(
             solid_shape,
@@ -3776,10 +3530,7 @@ fn tile_49_conic_quadrant_colors(renderer: &mut Renderer) -> Vec<PixelExpectatio
     let cx = ox + 40.0;
     let cy = oy + 40.0;
 
-    let shape = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)]);
     use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
     let gradient = Gradient::conic(ConicGradientDesc {
@@ -3902,7 +3653,6 @@ fn tile_50_overflow_visible_delegates_to_ancestor(
     let outer = Shape::rounded_rect(
         [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
         BorderRadii::new(12.0),
-        Stroke::default(),
     );
     let outer_id = renderer
         .add_shape(
@@ -3916,7 +3666,6 @@ fn tile_50_overflow_visible_delegates_to_ancestor(
     let middle = Shape::rounded_rect(
         [(ox + 25.0, oy + 25.0), (ox + 55.0, oy + 55.0)],
         BorderRadii::new(6.0),
-        Stroke::default(),
     );
     let middle_id = renderer
         .add_shape(
@@ -3929,10 +3678,7 @@ fn tile_50_overflow_visible_delegates_to_ancestor(
         )
         .unwrap();
 
-    let child = Shape::rect(
-        [(ox + 0.0, oy + 35.0), (ox + 80.0, oy + 50.0)],
-        Stroke::default(),
-    );
+    let child = Shape::rect([(ox + 0.0, oy + 35.0), (ox + 80.0, oy + 50.0)]);
     renderer
         .add_shape(
             child,
@@ -3977,7 +3723,6 @@ fn tile_51_clip_rect_overflow_visible_container(renderer: &mut Renderer) -> Vec<
     let outer = Shape::rounded_rect(
         [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
         BorderRadii::new(12.0),
-        Stroke::default(),
     );
     let outer_id = renderer
         .add_shape(
@@ -3997,10 +3742,7 @@ fn tile_51_clip_rect_overflow_visible_container(renderer: &mut Renderer) -> Vec<
         )
         .unwrap();
 
-    let child = Shape::rect(
-        [(ox + 0.0, oy + 35.0), (ox + 80.0, oy + 50.0)],
-        Stroke::default(),
-    );
+    let child = Shape::rect([(ox + 0.0, oy + 35.0), (ox + 80.0, oy + 50.0)]);
     renderer
         .add_shape(
             child,
@@ -4045,7 +3787,6 @@ fn tile_52_backdrop_overflow_visible_children(renderer: &mut Renderer) -> Vec<Pi
     let outer = Shape::rounded_rect(
         [(ox + 5.0, oy + 5.0), (ox + 75.0, oy + 75.0)],
         BorderRadii::new(12.0),
-        Stroke::default(),
     );
     let outer_id = renderer
         .add_shape(
@@ -4059,7 +3800,6 @@ fn tile_52_backdrop_overflow_visible_children(renderer: &mut Renderer) -> Vec<Pi
     let backdrop_panel = Shape::rounded_rect(
         [(ox + 25.0, oy + 25.0), (ox + 55.0, oy + 55.0)],
         BorderRadii::new(6.0),
-        Stroke::default(),
     );
     let panel_id = renderer
         .add_shape(
@@ -4082,10 +3822,7 @@ fn tile_52_backdrop_overflow_visible_children(renderer: &mut Renderer) -> Vec<Pi
         )
         .expect("Failed to set backdrop effect");
 
-    let child = Shape::rect(
-        [(ox + 0.0, oy + 35.0), (ox + 80.0, oy + 50.0)],
-        Stroke::default(),
-    );
+    let child = Shape::rect([(ox + 0.0, oy + 35.0), (ox + 80.0, oy + 50.0)]);
     renderer
         .add_shape(
             child,
@@ -4142,10 +3879,7 @@ fn tile_52_backdrop_overflow_visible_children(renderer: &mut Renderer) -> Vec<Pi
 
 fn tile_53_texture_original_size(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(53);
-    let shape = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)]);
     renderer
         .add_shape(
             shape,
@@ -4183,7 +3917,7 @@ fn tile_53_texture_original_size(renderer: &mut Renderer) -> Vec<PixelExpectatio
 
 fn tile_54_texture_original_size_scaled(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(54);
-    let shape = Shape::rect([(0.0, 0.0), (20.0, 20.0)], Stroke::default());
+    let shape = Shape::rect([(0.0, 0.0), (20.0, 20.0)]);
     renderer
         .add_shape(
             shape,
@@ -4237,10 +3971,7 @@ fn tile_54_texture_original_size_scaled(renderer: &mut Renderer) -> Vec<PixelExp
 fn tile_55_backdrop_capture_screen_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(55);
 
-    let red_source = Shape::rect(
-        [(ox + 5.0, oy + 10.0), (ox + 35.0, oy + 40.0)],
-        Stroke::default(),
-    );
+    let red_source = Shape::rect([(ox + 5.0, oy + 10.0), (ox + 35.0, oy + 40.0)]);
     renderer
         .add_shape(
             red_source,
@@ -4250,10 +3981,7 @@ fn tile_55_backdrop_capture_screen_rect(renderer: &mut Renderer) -> Vec<PixelExp
         )
         .unwrap();
 
-    let blue_behind_panel = Shape::rect(
-        [(ox + 45.0, oy + 20.0), (ox + 75.0, oy + 50.0)],
-        Stroke::default(),
-    );
+    let blue_behind_panel = Shape::rect([(ox + 45.0, oy + 20.0), (ox + 75.0, oy + 50.0)]);
     renderer
         .add_shape(
             blue_behind_panel,
@@ -4263,10 +3991,7 @@ fn tile_55_backdrop_capture_screen_rect(renderer: &mut Renderer) -> Vec<PixelExp
         )
         .unwrap();
 
-    let panel = Shape::rect(
-        [(ox + 45.0, oy + 20.0), (ox + 75.0, oy + 50.0)],
-        Stroke::default(),
-    );
+    let panel = Shape::rect([(ox + 45.0, oy + 20.0), (ox + 75.0, oy + 50.0)]);
     let panel_id = renderer
         .add_shape(panel, None, None, ShapeDrawCommandOptions::new())
         .unwrap();
@@ -4316,10 +4041,7 @@ fn tile_55_backdrop_capture_screen_rect(renderer: &mut Renderer) -> Vec<PixelExp
 fn tile_56_backdrop_capture_downsampled(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(56);
 
-    let green_source = Shape::rect(
-        [(ox + 5.0, oy + 10.0), (ox + 45.0, oy + 50.0)],
-        Stroke::default(),
-    );
+    let green_source = Shape::rect([(ox + 5.0, oy + 10.0), (ox + 45.0, oy + 50.0)]);
     renderer
         .add_shape(
             green_source,
@@ -4329,10 +4051,7 @@ fn tile_56_backdrop_capture_downsampled(renderer: &mut Renderer) -> Vec<PixelExp
         )
         .unwrap();
 
-    let red_behind_panel = Shape::rect(
-        [(ox + 50.0, oy + 15.0), (ox + 75.0, oy + 55.0)],
-        Stroke::default(),
-    );
+    let red_behind_panel = Shape::rect([(ox + 50.0, oy + 15.0), (ox + 75.0, oy + 55.0)]);
     renderer
         .add_shape(
             red_behind_panel,
@@ -4342,10 +4061,7 @@ fn tile_56_backdrop_capture_downsampled(renderer: &mut Renderer) -> Vec<PixelExp
         )
         .unwrap();
 
-    let panel = Shape::rect(
-        [(ox + 50.0, oy + 15.0), (ox + 75.0, oy + 55.0)],
-        Stroke::default(),
-    );
+    let panel = Shape::rect([(ox + 50.0, oy + 15.0), (ox + 75.0, oy + 55.0)]);
     let panel_id = renderer
         .add_shape(panel, None, None, ShapeDrawCommandOptions::new())
         .unwrap();
@@ -4397,10 +4113,7 @@ fn tile_57_gradient_backdrop_oversized_capture_falls_back(
 ) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(57);
 
-    let panel = Shape::rect(
-        [(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)],
-        Stroke::default(),
-    );
+    let panel = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)]);
     let gradient = Gradient::linear(LinearGradientDesc {
         common: two_stop_common((220, 30, 30), (30, 30, 220), SpreadMode::Pad),
         line: LinearGradientLine {
@@ -4464,10 +4177,7 @@ fn tile_57_gradient_backdrop_oversized_capture_falls_back(
 fn tile_58_backdrop_budgeted_capture_falls_back(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(58);
 
-    let red_source = Shape::rect(
-        [(ox + 5.0, oy + 10.0), (ox + 75.0, oy + 45.0)],
-        Stroke::default(),
-    );
+    let red_source = Shape::rect([(ox + 5.0, oy + 10.0), (ox + 75.0, oy + 45.0)]);
     renderer
         .add_shape(
             red_source,
@@ -4477,10 +4187,7 @@ fn tile_58_backdrop_budgeted_capture_falls_back(renderer: &mut Renderer) -> Vec<
         )
         .unwrap();
 
-    let blue_behind_panel = Shape::rect(
-        [(ox + 45.0, oy + 20.0), (ox + 75.0, oy + 50.0)],
-        Stroke::default(),
-    );
+    let blue_behind_panel = Shape::rect([(ox + 45.0, oy + 20.0), (ox + 75.0, oy + 50.0)]);
     renderer
         .add_shape(
             blue_behind_panel,
@@ -4490,10 +4197,7 @@ fn tile_58_backdrop_budgeted_capture_falls_back(renderer: &mut Renderer) -> Vec<
         )
         .unwrap();
 
-    let panel = Shape::rect(
-        [(ox + 45.0, oy + 20.0), (ox + 75.0, oy + 50.0)],
-        Stroke::default(),
-    );
+    let panel = Shape::rect([(ox + 45.0, oy + 20.0), (ox + 75.0, oy + 50.0)]);
     let panel_id = renderer
         .add_shape(panel, None, None, ShapeDrawCommandOptions::new())
         .unwrap();
@@ -4543,10 +4247,7 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
 ) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(59);
 
-    let red_band = Shape::rect(
-        [(ox + 60.0, oy + 15.0), (ox + 70.0, oy + 55.0)],
-        Stroke::default(),
-    );
+    let red_band = Shape::rect([(ox + 60.0, oy + 15.0), (ox + 70.0, oy + 55.0)]);
     renderer
         .add_shape(
             red_band,
@@ -4556,10 +4257,7 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
         )
         .unwrap();
 
-    let green_band = Shape::rect(
-        [(ox + 70.0, oy + 15.0), (ox + 80.0, oy + 55.0)],
-        Stroke::default(),
-    );
+    let green_band = Shape::rect([(ox + 70.0, oy + 15.0), (ox + 80.0, oy + 55.0)]);
     renderer
         .add_shape(
             green_band,
@@ -4569,10 +4267,7 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
         )
         .unwrap();
 
-    let blue_offscreen_band = Shape::rect(
-        [(ox + 80.0, oy + 15.0), (ox + 170.0, oy + 55.0)],
-        Stroke::default(),
-    );
+    let blue_offscreen_band = Shape::rect([(ox + 80.0, oy + 15.0), (ox + 170.0, oy + 55.0)]);
     renderer
         .add_shape(
             blue_offscreen_band,
@@ -4582,10 +4277,7 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
         )
         .unwrap();
 
-    let yellow_offscreen_band = Shape::rect(
-        [(ox + 170.0, oy + 15.0), (ox + 190.0, oy + 55.0)],
-        Stroke::default(),
-    );
+    let yellow_offscreen_band = Shape::rect([(ox + 170.0, oy + 15.0), (ox + 190.0, oy + 55.0)]);
     renderer
         .add_shape(
             yellow_offscreen_band,
@@ -4595,10 +4287,7 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
         )
         .unwrap();
 
-    let panel = Shape::rect(
-        [(ox + 60.0, oy + 15.0), (ox + 190.0, oy + 55.0)],
-        Stroke::default(),
-    );
+    let panel = Shape::rect([(ox + 60.0, oy + 15.0), (ox + 190.0, oy + 55.0)]);
     let panel_id = renderer
         .add_shape(panel, None, None, ShapeDrawCommandOptions::new())
         .unwrap();
@@ -4651,13 +4340,10 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
 /// The cached effect must draw beyond the source bounds and behind its fill.
 fn tile_60_cached_shape_effect_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(60);
-    let shape = Shape::rect(
-        [
-            (origin_x + 20.0, origin_y + 20.0),
-            (origin_x + 50.0, origin_y + 50.0),
-        ],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([
+        (origin_x + 20.0, origin_y + 20.0),
+        (origin_x + 50.0, origin_y + 50.0),
+    ]);
     let shape_id = renderer
         .add_shape(
             shape,
@@ -4666,13 +4352,10 @@ fn tile_60_cached_shape_effect_rect(renderer: &mut Renderer) -> Vec<PixelExpecta
             ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
         )
         .unwrap();
-    let transparent_child = Shape::rect(
-        [
-            (origin_x + 30.0, origin_y + 30.0),
-            (origin_x + 40.0, origin_y + 40.0),
-        ],
-        Stroke::default(),
-    );
+    let transparent_child = Shape::rect([
+        (origin_x + 30.0, origin_y + 30.0),
+        (origin_x + 40.0, origin_y + 40.0),
+    ]);
     renderer
         .add_shape(
             transparent_child,
@@ -4726,7 +4409,6 @@ fn tile_61_cached_shape_effect_path_clipped(renderer: &mut Renderer) -> Vec<Pixe
             (origin_x + 60.0, origin_y + 60.0),
         ],
         BorderRadii::new(8.0),
-        Stroke::default(),
     );
     let clip_parent_id = renderer
         .add_shape(clip_parent, None, None, ShapeDrawCommandOptions::new())
@@ -4788,13 +4470,10 @@ fn tile_62_cached_shape_effect_inside_group_effect(
     renderer: &mut Renderer,
 ) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(62);
-    let shape = Shape::rect(
-        [
-            (origin_x + 20.0, origin_y + 20.0),
-            (origin_x + 50.0, origin_y + 50.0),
-        ],
-        Stroke::default(),
-    );
+    let shape = Shape::rect([
+        (origin_x + 20.0, origin_y + 20.0),
+        (origin_x + 50.0, origin_y + 50.0),
+    ]);
     let shape_id = renderer
         .add_shape(
             shape,
@@ -4838,13 +4517,10 @@ fn tile_62_cached_shape_effect_inside_group_effect(
 /// Backdrop capture must include the target node's shape effect.
 fn tile_63_cached_shape_effect_with_backdrop(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(63);
-    let backdrop_source = Shape::rect(
-        [
-            (origin_x + 5.0, origin_y + 5.0),
-            (origin_x + 75.0, origin_y + 70.0),
-        ],
-        Stroke::default(),
-    );
+    let backdrop_source = Shape::rect([
+        (origin_x + 5.0, origin_y + 5.0),
+        (origin_x + 75.0, origin_y + 70.0),
+    ]);
     renderer
         .add_shape(
             backdrop_source,
@@ -4854,13 +4530,10 @@ fn tile_63_cached_shape_effect_with_backdrop(renderer: &mut Renderer) -> Vec<Pix
         )
         .unwrap();
 
-    let panel = Shape::rect(
-        [
-            (origin_x + 20.0, origin_y + 20.0),
-            (origin_x + 50.0, origin_y + 50.0),
-        ],
-        Stroke::default(),
-    );
+    let panel = Shape::rect([
+        (origin_x + 20.0, origin_y + 20.0),
+        (origin_x + 50.0, origin_y + 50.0),
+    ]);
     let panel_id = renderer
         .add_shape(panel, None, Some(63_063), ShapeDrawCommandOptions::new())
         .unwrap();
@@ -4903,13 +4576,10 @@ fn tile_63_cached_shape_effect_with_backdrop(renderer: &mut Renderer) -> Vec<Pix
 
 fn tile_64_drop_shadow_with_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(64);
-    let backing_shape = Shape::rect(
-        [
-            (origin_x + 6.0, origin_y + 6.0),
-            (origin_x + 72.0, origin_y + 42.0),
-        ],
-        Stroke::default(),
-    );
+    let backing_shape = Shape::rect([
+        (origin_x + 6.0, origin_y + 6.0),
+        (origin_x + 72.0, origin_y + 42.0),
+    ]);
     renderer
         .add_shape(
             backing_shape,
@@ -4925,7 +4595,6 @@ fn tile_64_drop_shadow_with_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelE
             (origin_x + 56.0, origin_y + 52.0),
         ],
         BorderRadii::new(8.0),
-        Stroke::default(),
     );
     let card_id = renderer
         .add_shape(
@@ -5043,13 +4712,10 @@ fn tile_64_drop_shadow_with_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelE
 /// A grouped backdrop must capture the shape effect already drawn in its subtree.
 fn tile_65_grouped_shape_effect_in_backdrop(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(65);
-    let backing_shape = Shape::rect(
-        [
-            (origin_x + 5.0, origin_y + 5.0),
-            (origin_x + 75.0, origin_y + 70.0),
-        ],
-        Stroke::default(),
-    );
+    let backing_shape = Shape::rect([
+        (origin_x + 5.0, origin_y + 5.0),
+        (origin_x + 75.0, origin_y + 70.0),
+    ]);
     renderer
         .add_shape(
             backing_shape,
@@ -5059,24 +4725,18 @@ fn tile_65_grouped_shape_effect_in_backdrop(renderer: &mut Renderer) -> Vec<Pixe
         )
         .unwrap();
 
-    let group_root = Shape::rect(
-        [
-            (origin_x + 8.0, origin_y + 8.0),
-            (origin_x + 72.0, origin_y + 65.0),
-        ],
-        Stroke::default(),
-    );
+    let group_root = Shape::rect([
+        (origin_x + 8.0, origin_y + 8.0),
+        (origin_x + 72.0, origin_y + 65.0),
+    ]);
     let group_root_id = renderer
         .add_shape(group_root, None, None, ShapeDrawCommandOptions::new())
         .unwrap();
 
-    let panel = Shape::rect(
-        [
-            (origin_x + 20.0, origin_y + 20.0),
-            (origin_x + 50.0, origin_y + 50.0),
-        ],
-        Stroke::default(),
-    );
+    let panel = Shape::rect([
+        (origin_x + 20.0, origin_y + 20.0),
+        (origin_x + 50.0, origin_y + 50.0),
+    ]);
     let panel_id = renderer
         .add_shape(
             panel,
@@ -5138,13 +4798,10 @@ fn tile_66_same_node_shape_backdrop_and_group_effects(
     renderer: &mut Renderer,
 ) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(66);
-    let backing_shape = Shape::rect(
-        [
-            (origin_x + 5.0, origin_y + 5.0),
-            (origin_x + 75.0, origin_y + 70.0),
-        ],
-        Stroke::default(),
-    );
+    let backing_shape = Shape::rect([
+        (origin_x + 5.0, origin_y + 5.0),
+        (origin_x + 75.0, origin_y + 70.0),
+    ]);
     renderer
         .add_shape(
             backing_shape,
@@ -5154,13 +4811,10 @@ fn tile_66_same_node_shape_backdrop_and_group_effects(
         )
         .unwrap();
 
-    let panel = Shape::rect(
-        [
-            (origin_x + 20.0, origin_y + 20.0),
-            (origin_x + 50.0, origin_y + 50.0),
-        ],
-        Stroke::default(),
-    );
+    let panel = Shape::rect([
+        (origin_x + 20.0, origin_y + 20.0),
+        (origin_x + 50.0, origin_y + 50.0),
+    ]);
     let panel_id = renderer
         .add_shape(panel, None, Some(66_066), ShapeDrawCommandOptions::new())
         .unwrap();
@@ -5218,13 +4872,10 @@ fn tile_67_downsampled_drop_shadow_with_backdrop_blur(
     renderer: &mut Renderer,
 ) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(67);
-    let backing_shape = Shape::rect(
-        [
-            (origin_x + 6.0, origin_y + 6.0),
-            (origin_x + 72.0, origin_y + 42.0),
-        ],
-        Stroke::default(),
-    );
+    let backing_shape = Shape::rect([
+        (origin_x + 6.0, origin_y + 6.0),
+        (origin_x + 72.0, origin_y + 42.0),
+    ]);
     renderer
         .add_shape(
             backing_shape,
@@ -5240,7 +4891,6 @@ fn tile_67_downsampled_drop_shadow_with_backdrop_blur(
             (origin_x + 56.0, origin_y + 52.0),
         ],
         BorderRadii::new(8.0),
-        Stroke::default(),
     );
     let card_id = renderer
         .add_shape(
@@ -5363,7 +5013,7 @@ fn tile_71_shared_geometry_material_batches(renderer: &mut Renderer) -> Vec<Pixe
     let (origin_x, origin_y) = tile_origin(73);
     let shape_key = 71_001;
     renderer.load_shape(
-        Shape::rect([(0.0, 0.0), (18.0, 18.0)], Stroke::default()),
+        Shape::rect([(0.0, 0.0), (18.0, 18.0)]),
         shape_key,
         Some(shape_key),
     );
@@ -5439,13 +5089,10 @@ fn tile_72_nested_group_textures(renderer: &mut Renderer) -> Vec<PixelExpectatio
 
     let outer = renderer
         .add_shape(
-            Shape::rect(
-                [
-                    (origin_x + 4.0, origin_y + 4.0),
-                    (origin_x + 76.0, origin_y + 76.0),
-                ],
-                Stroke::default(),
-            ),
+            Shape::rect([
+                (origin_x + 4.0, origin_y + 4.0),
+                (origin_x + 76.0, origin_y + 76.0),
+            ]),
             None,
             None,
             ShapeDrawCommandOptions::new(),
@@ -5453,13 +5100,10 @@ fn tile_72_nested_group_textures(renderer: &mut Renderer) -> Vec<PixelExpectatio
         .unwrap();
     let nested = renderer
         .add_shape(
-            Shape::rect(
-                [
-                    (origin_x + 8.0, origin_y + 8.0),
-                    (origin_x + 64.0, origin_y + 64.0),
-                ],
-                Stroke::default(),
-            ),
+            Shape::rect([
+                (origin_x + 8.0, origin_y + 8.0),
+                (origin_x + 64.0, origin_y + 64.0),
+            ]),
             Some(outer),
             None,
             ShapeDrawCommandOptions::new(),
@@ -5467,13 +5111,10 @@ fn tile_72_nested_group_textures(renderer: &mut Renderer) -> Vec<PixelExpectatio
         .unwrap();
     let shape = renderer
         .add_shape(
-            Shape::rect(
-                [
-                    (origin_x + 16.0, origin_y + 16.0),
-                    (origin_x + 44.0, origin_y + 44.0),
-                ],
-                Stroke::default(),
-            ),
+            Shape::rect([
+                (origin_x + 16.0, origin_y + 16.0),
+                (origin_x + 44.0, origin_y + 44.0),
+            ]),
             Some(nested),
             Some(72_003),
             ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
@@ -5552,7 +5193,7 @@ fn tile_73_padded_layered_backdrops(renderer: &mut Renderer) -> Vec<PixelExpecta
     ];
     renderer
         .add_shape(
-            Shape::rect(group_bounds, Stroke::default()),
+            Shape::rect(group_bounds),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
@@ -5560,7 +5201,7 @@ fn tile_73_padded_layered_backdrops(renderer: &mut Renderer) -> Vec<PixelExpecta
         .unwrap();
     let group = renderer
         .add_shape(
-            Shape::rect(group_bounds, Stroke::default()),
+            Shape::rect(group_bounds),
             None,
             None,
             ShapeDrawCommandOptions::new(),
@@ -5571,13 +5212,10 @@ fn tile_73_padded_layered_backdrops(renderer: &mut Renderer) -> Vec<PixelExpecta
         .unwrap();
     renderer
         .add_shape(
-            Shape::rect(
-                [
-                    (origin_x + 44.0, origin_y + 4.0),
-                    (origin_x + 60.0, origin_y + 76.0),
-                ],
-                Stroke::default(),
-            ),
+            Shape::rect([
+                (origin_x + 44.0, origin_y + 4.0),
+                (origin_x + 60.0, origin_y + 76.0),
+            ]),
             Some(group),
             None,
             ShapeDrawCommandOptions::new().color(Color::rgba(0, 255, 0, 128)),
@@ -5610,13 +5248,10 @@ fn tile_73_padded_layered_backdrops(renderer: &mut Renderer) -> Vec<PixelExpecta
     ] {
         let panel = renderer
             .add_shape(
-                Shape::rect(
-                    [
-                        (origin_x + 4.0, origin_y + top),
-                        (origin_x + 44.0, origin_y + top + 20.0),
-                    ],
-                    Stroke::default(),
-                ),
+                Shape::rect([
+                    (origin_x + 4.0, origin_y + top),
+                    (origin_x + 44.0, origin_y + top + 20.0),
+                ]),
                 Some(group),
                 None,
                 options,
@@ -5662,13 +5297,10 @@ fn tile_75_under_fill_with_user_textures(renderer: &mut Renderer) -> Vec<PixelEx
     let (origin_x, origin_y) = tile_origin(75);
     renderer
         .add_shape(
-            Shape::rect(
-                [
-                    (origin_x + 4.0, origin_y + 4.0),
-                    (origin_x + 76.0, origin_y + 76.0),
-                ],
-                Stroke::default(),
-            ),
+            Shape::rect([
+                (origin_x + 4.0, origin_y + 4.0),
+                (origin_x + 76.0, origin_y + 76.0),
+            ]),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(0, 255, 0)),
@@ -5715,7 +5347,6 @@ fn tile_75_under_fill_with_user_textures(renderer: &mut Renderer) -> Vec<PixelEx
                     Shape::rounded_rect(
                         [(left, top), (left + 28.0, top + 28.0)],
                         BorderRadii::new(4.0),
-                        Stroke::default(),
                     ),
                     None,
                     None,
@@ -5772,7 +5403,7 @@ fn tile_76_rotated_under_fill_sampling(renderer: &mut Renderer) -> Vec<PixelExpe
     ];
     renderer
         .add_shape(
-            Shape::rect(bounds, Stroke::default()),
+            Shape::rect(bounds),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
@@ -5780,10 +5411,7 @@ fn tile_76_rotated_under_fill_sampling(renderer: &mut Renderer) -> Vec<PixelExpe
         .unwrap();
     renderer
         .add_shape(
-            Shape::rect(
-                [(origin_x + 40.0, origin_y + 5.0), bounds[1]],
-                Stroke::default(),
-            ),
+            Shape::rect([(origin_x + 40.0, origin_y + 5.0), bounds[1]]),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(0, 0, 255)),
@@ -5791,7 +5419,7 @@ fn tile_76_rotated_under_fill_sampling(renderer: &mut Renderer) -> Vec<PixelExpe
         .unwrap();
     let group = renderer
         .add_shape(
-            Shape::rect(bounds, Stroke::default()),
+            Shape::rect(bounds),
             None,
             None,
             ShapeDrawCommandOptions::new(),
@@ -5804,7 +5432,7 @@ fn tile_76_rotated_under_fill_sampling(renderer: &mut Renderer) -> Vec<PixelExpe
     let translation = TransformInstance::translation(origin_x + 40.0, origin_y + 40.0);
     let panel = renderer
         .add_shape(
-            Shape::rect([(-20.0, -20.0), (20.0, 20.0)], Stroke::default()),
+            Shape::rect([(-20.0, -20.0), (20.0, 20.0)]),
             Some(group),
             None,
             ShapeDrawCommandOptions::new().transform(rotation.multiply(&translation)),
@@ -5854,7 +5482,7 @@ fn add_backdrop_checkerboard(renderer: &mut Renderer, origin: (f32, f32)) {
             };
             renderer
                 .add_shape(
-                    Shape::rect([(left, top), (left + 10.0, top + 10.0)], Stroke::default()),
+                    Shape::rect([(left, top), (left + 10.0, top + 10.0)]),
                     None,
                     None,
                     ShapeDrawCommandOptions::new().color(color),
@@ -5874,10 +5502,7 @@ fn tile_consecutive_captures_under_inherited_clips(
     add_backdrop_checkerboard(renderer, (origin_x, origin_y));
     let container = renderer
         .add_shape(
-            Shape::rect(
-                [(origin_x, origin_y), (origin_x + 80.0, origin_y + 80.0)],
-                Stroke::default(),
-            ),
+            Shape::rect([(origin_x, origin_y), (origin_x + 80.0, origin_y + 80.0)]),
             None,
             None,
             ShapeDrawCommandOptions::new(),
@@ -5896,7 +5521,6 @@ fn tile_consecutive_captures_under_inherited_clips(
                     (origin_x + 75.0, origin_y + 75.0),
                 ],
                 BorderRadii::new(35.0),
-                Stroke::default(),
             ),
             Some(container),
             None,
@@ -5930,7 +5554,7 @@ fn tile_consecutive_captures_under_inherited_clips(
     for left in [20.0, 52.0] {
         renderer
             .add_shape(
-                Shape::rect([(0.0, 0.0), (8.0, 8.0)], Stroke::default()),
+                Shape::rect([(0.0, 0.0), (8.0, 8.0)]),
                 Some(inner_scissor),
                 Some(7_701),
                 ShapeDrawCommandOptions::new()
@@ -5967,7 +5591,6 @@ fn tile_consecutive_captures_under_inherited_clips(
                         (origin_x + left + 38.0, origin_y + bottom),
                     ],
                     BorderRadii::new(5.0),
-                    Stroke::default(),
                 ),
                 Some(inner_scissor),
                 None,
@@ -5996,13 +5619,10 @@ fn tile_consecutive_captures_under_inherited_clips(
     ] {
         renderer
             .add_shape(
-                Shape::rect(
-                    [
-                        (origin_x, origin_y + top),
-                        (origin_x + 80.0, origin_y + top + 4.0),
-                    ],
-                    Stroke::default(),
-                ),
+                Shape::rect([
+                    (origin_x, origin_y + top),
+                    (origin_x + 80.0, origin_y + top + 4.0),
+                ]),
                 Some(parent),
                 None,
                 ShapeDrawCommandOptions::new().color(color),
@@ -6141,13 +5761,10 @@ fn tile_79_capture_before_first_group_draw(renderer: &mut Renderer) -> Vec<Pixel
     add_backdrop_checkerboard(renderer, (origin_x, origin_y));
     let group = renderer
         .add_shape(
-            Shape::rect(
-                [
-                    (origin_x + 10.0, origin_y + 10.0),
-                    (origin_x + 70.0, origin_y + 70.0),
-                ],
-                Stroke::default(),
-            ),
+            Shape::rect([
+                (origin_x + 10.0, origin_y + 10.0),
+                (origin_x + 70.0, origin_y + 70.0),
+            ]),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::rgba(255, 255, 255, 40)),
@@ -6166,13 +5783,10 @@ fn tile_79_capture_before_first_group_draw(renderer: &mut Renderer) -> Vec<Pixel
         .unwrap();
     let child = renderer
         .add_shape(
-            Shape::rect(
-                [
-                    (origin_x + 40.0, origin_y),
-                    (origin_x + 80.0, origin_y + 60.0),
-                ],
-                Stroke::default(),
-            ),
+            Shape::rect([
+                (origin_x + 40.0, origin_y),
+                (origin_x + 80.0, origin_y + 60.0),
+            ]),
             Some(group),
             None,
             ShapeDrawCommandOptions::new().color(Color::rgba(255, 80, 90, 85)),
@@ -6251,11 +5865,7 @@ fn tile_80_group_composite_under_mixed_clips(renderer: &mut Renderer) -> Vec<Pix
     };
     let outer = renderer
         .add_shape(
-            Shape::rounded_rect(
-                bounds(4.0, 4.0, 76.0, 70.0),
-                BorderRadii::new(8.0),
-                Stroke::default(),
-            ),
+            Shape::rounded_rect(bounds(4.0, 4.0, 76.0, 70.0), BorderRadii::new(8.0)),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(180, 180, 220)),
@@ -6279,7 +5889,7 @@ fn tile_80_group_composite_under_mixed_clips(renderer: &mut Renderer) -> Vec<Pix
         .unwrap();
     let overflow = renderer
         .add_shape(
-            Shape::rect(bounds(20.0, 15.0, 38.0, 35.0), Stroke::default()),
+            Shape::rect(bounds(20.0, 15.0, 38.0, 35.0)),
             Some(group),
             Some(80_001),
             ShapeDrawCommandOptions::new()
@@ -6297,7 +5907,7 @@ fn tile_80_group_composite_under_mixed_clips(renderer: &mut Renderer) -> Vec<Pix
         .unwrap();
     renderer
         .add_shape(
-            Shape::rect(bounds(6.0, 20.0, 72.0, 42.0), Stroke::default()),
+            Shape::rect(bounds(6.0, 20.0, 72.0, 42.0)),
             Some(overflow),
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(220, 0, 0)),
@@ -6324,7 +5934,7 @@ fn tile_80_group_composite_under_mixed_clips(renderer: &mut Renderer) -> Vec<Pix
         .unwrap();
     renderer
         .add_shape(
-            Shape::rect(bounds(55.0, 44.0, 74.0, 58.0), Stroke::default()),
+            Shape::rect(bounds(55.0, 44.0, 74.0, 58.0)),
             Some(empty_backdrop),
             None,
             ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
@@ -6332,7 +5942,7 @@ fn tile_80_group_composite_under_mixed_clips(renderer: &mut Renderer) -> Vec<Pix
         .unwrap();
     renderer
         .add_shape(
-            Shape::rect(bounds(8.0, 58.0, 72.0, 68.0), Stroke::default()),
+            Shape::rect(bounds(8.0, 58.0, 72.0, 68.0)),
             Some(outer),
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(230, 200, 50)),
@@ -6340,7 +5950,7 @@ fn tile_80_group_composite_under_mixed_clips(renderer: &mut Renderer) -> Vec<Pix
         .unwrap();
     renderer
         .add_shape(
-            Shape::rect(bounds(5.0, 70.0, 75.0, 78.0), Stroke::default()),
+            Shape::rect(bounds(5.0, 70.0, 75.0, 78.0)),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(70, 70, 70)),
@@ -6385,11 +5995,7 @@ fn tile_81_shared_shape_effect_composites(renderer: &mut Renderer) -> Vec<PixelE
     let (origin_x, origin_y) = tile_origin(81);
     add_backdrop_checkerboard(renderer, (origin_x, origin_y));
     renderer.load_shape(
-        Shape::rounded_rect(
-            [(0.0, 0.0), (42.0, 36.0)],
-            BorderRadii::new(4.0),
-            Stroke::default(),
-        ),
+        Shape::rounded_rect([(0.0, 0.0), (42.0, 36.0)], BorderRadii::new(4.0)),
         81_001,
         Some(81_002),
     );
@@ -6401,7 +6007,6 @@ fn tile_81_shared_shape_effect_composites(renderer: &mut Renderer) -> Vec<PixelE
                     (origin_x + 76.0, origin_y + 76.0),
                 ],
                 BorderRadii::new(6.0),
-                Stroke::default(),
             ),
             None,
             None,
@@ -6481,13 +6086,10 @@ fn tile_81_shared_shape_effect_composites(renderer: &mut Renderer) -> Vec<PixelE
         .unwrap();
     renderer
         .add_shape(
-            Shape::rect(
-                [
-                    (origin_x, origin_y + 70.0),
-                    (origin_x + 80.0, origin_y + 74.0),
-                ],
-                Stroke::default(),
-            ),
+            Shape::rect([
+                (origin_x, origin_y + 70.0),
+                (origin_x + 80.0, origin_y + 74.0),
+            ]),
             Some(outer),
             None,
             ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
@@ -6564,7 +6166,7 @@ fn tile_82_group_dependencies_in_layered_backdrops(
     add_backdrop_checkerboard(renderer, (origin_x, origin_y));
     let outer_group = renderer
         .add_shape(
-            Shape::rect(bounds(4.0, 4.0, 76.0, 76.0), Stroke::default()),
+            Shape::rect(bounds(4.0, 4.0, 76.0, 76.0)),
             None,
             None,
             ShapeDrawCommandOptions::new(),
@@ -6574,11 +6176,7 @@ fn tile_82_group_dependencies_in_layered_backdrops(
     // Warping the group bends its stripes and rounded outline together.
     let wavy_card = renderer
         .add_shape(
-            Shape::rounded_rect(
-                bounds(10.0, 10.0, 56.0, 58.0),
-                BorderRadii::new(5.0),
-                Stroke::default(),
-            ),
+            Shape::rounded_rect(bounds(10.0, 10.0, 56.0, 58.0), BorderRadii::new(5.0)),
             Some(outer_group),
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(200, 240, 230)),
@@ -6587,7 +6185,7 @@ fn tile_82_group_dependencies_in_layered_backdrops(
     for left in [16.0, 28.0, 40.0, 52.0] {
         renderer
             .add_shape(
-                Shape::rect(bounds(left, 10.0, left + 5.0, 58.0), Stroke::default()),
+                Shape::rect(bounds(left, 10.0, left + 5.0, 58.0)),
                 Some(wavy_card),
                 None,
                 ShapeDrawCommandOptions::new().color(Color::rgb(25, 65, 100)),
@@ -6609,7 +6207,7 @@ fn tile_82_group_dependencies_in_layered_backdrops(
     // This stripe must enter the layered capture before the panel covers it.
     renderer
         .add_shape(
-            Shape::rect(bounds(30.0, 48.0, 70.0, 52.0), Stroke::default()),
+            Shape::rect(bounds(30.0, 48.0, 70.0, 52.0)),
             Some(frosted_group),
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(220, 35, 80)),
@@ -6617,11 +6215,7 @@ fn tile_82_group_dependencies_in_layered_backdrops(
         .unwrap();
     let frosted_panel = renderer
         .add_shape(
-            Shape::rounded_rect(
-                bounds(28.0, 28.0, 72.0, 72.0),
-                BorderRadii::new(6.0),
-                Stroke::default(),
-            ),
+            Shape::rounded_rect(bounds(28.0, 28.0, 72.0, 72.0), BorderRadii::new(6.0)),
             Some(frosted_group),
             None,
             ShapeDrawCommandOptions::new().color(Color::rgba(255, 120, 150, 75)),
@@ -6710,10 +6304,7 @@ fn tile_82_group_dependencies_in_layered_backdrops(
 pub fn build_nested_targets_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     renderer
         .add_shape(
-            Shape::rect(
-                [(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)],
-                Stroke::default(),
-            ),
+            Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::WHITE),
@@ -6743,11 +6334,7 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
     add_backdrop_checkerboard(renderer, (origin_x, origin_y));
     let parent = renderer
         .add_shape(
-            Shape::rounded_rect(
-                bounds(5.0, 5.0, 75.0, 63.0),
-                BorderRadii::new(10.0),
-                Stroke::default(),
-            ),
+            Shape::rounded_rect(bounds(5.0, 5.0, 75.0, 63.0), BorderRadii::new(10.0)),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(25, 65, 100)),
@@ -6763,11 +6350,7 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
         .unwrap();
     let outer = renderer
         .add_shape(
-            Shape::rounded_rect(
-                bounds(0.0, 0.0, 80.0, 63.0),
-                BorderRadii::new(8.0),
-                Stroke::default(),
-            ),
+            Shape::rounded_rect(bounds(0.0, 0.0, 80.0, 63.0), BorderRadii::new(8.0)),
             Some(scissor),
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(200, 240, 230)),
@@ -6776,7 +6359,7 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
     for left in [12.0, 24.0, 36.0, 48.0, 60.0] {
         renderer
             .add_shape(
-                Shape::rect(bounds(left, 0.0, left + 4.0, 63.0), Stroke::default()),
+                Shape::rect(bounds(left, 0.0, left + 4.0, 63.0)),
                 Some(outer),
                 None,
                 ShapeDrawCommandOptions::new().color(Color::rgb(100, 175, 165)),
@@ -6785,11 +6368,7 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
     }
     let middle = renderer
         .add_shape(
-            Shape::rounded_rect(
-                bounds(18.0, 12.0, 64.0, 48.0),
-                BorderRadii::new(6.0),
-                Stroke::default(),
-            ),
+            Shape::rounded_rect(bounds(18.0, 12.0, 64.0, 48.0), BorderRadii::new(6.0)),
             Some(outer),
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(240, 135, 95)),
@@ -6798,7 +6377,7 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
     for left in [22.0, 32.0, 42.0, 52.0, 62.0] {
         renderer
             .add_shape(
-                Shape::rect(bounds(left, 12.0, left + 4.0, 48.0), Stroke::default()),
+                Shape::rect(bounds(left, 12.0, left + 4.0, 48.0)),
                 Some(middle),
                 None,
                 ShapeDrawCommandOptions::new().color(Color::rgb(90, 40, 80)),
@@ -6807,11 +6386,7 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
     }
     let inner = renderer
         .add_shape(
-            Shape::rounded_rect(
-                bounds(28.0, 18.0, 54.0, 34.0),
-                BorderRadii::new(5.0),
-                Stroke::default(),
-            ),
+            Shape::rounded_rect(bounds(28.0, 18.0, 54.0, 34.0), BorderRadii::new(5.0)),
             Some(middle),
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(250, 220, 150)),
@@ -6820,7 +6395,7 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
     for left in [32.0, 40.0, 48.0] {
         renderer
             .add_shape(
-                Shape::rect(bounds(left, 18.0, left + 4.0, 34.0), Stroke::default()),
+                Shape::rect(bounds(left, 18.0, left + 4.0, 34.0)),
                 Some(inner),
                 None,
                 ShapeDrawCommandOptions::new().color(Color::rgb(35, 95, 150)),
@@ -6829,7 +6404,7 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
     }
     renderer
         .add_shape(
-            Shape::rect(bounds(0.0, 39.0, 80.0, 43.0), Stroke::default()),
+            Shape::rect(bounds(0.0, 39.0, 80.0, 43.0)),
             Some(middle),
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(200, 240, 230)),
@@ -6845,7 +6420,7 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
         .unwrap();
     renderer
         .add_shape(
-            Shape::rect(bounds(0.0, 52.0, 80.0, 58.0), Stroke::default()),
+            Shape::rect(bounds(0.0, 52.0, 80.0, 58.0)),
             Some(outer),
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(220, 190, 30)),
@@ -6854,7 +6429,7 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
     for left in [8.0, 20.0, 32.0, 44.0, 56.0, 68.0] {
         renderer
             .add_shape(
-                Shape::rect(bounds(left, 52.0, left + 6.0, 58.0), Stroke::default()),
+                Shape::rect(bounds(left, 52.0, left + 6.0, 58.0)),
                 Some(outer),
                 None,
                 ShapeDrawCommandOptions::new().color(Color::rgb(240, 135, 95)),
@@ -6879,7 +6454,7 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
     // This sibling still uses the parent's stencil after the outer group closes.
     renderer
         .add_shape(
-            Shape::rect(bounds(0.0, 59.0, 80.0, 61.0), Stroke::default()),
+            Shape::rect(bounds(0.0, 59.0, 80.0, 61.0)),
             Some(parent),
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(25, 65, 100)),
@@ -6887,7 +6462,7 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
         .unwrap();
     renderer
         .add_shape(
-            Shape::rect(bounds(2.0, 69.0, 78.0, 75.0), Stroke::default()),
+            Shape::rect(bounds(2.0, 69.0, 78.0, 75.0)),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(40, 90, 170)),
@@ -6896,7 +6471,7 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
     for left in [8.0, 24.0, 40.0, 56.0, 72.0] {
         renderer
             .add_shape(
-                Shape::rect(bounds(left, 69.0, left + 4.0, 75.0), Stroke::default()),
+                Shape::rect(bounds(left, 69.0, left + 4.0, 75.0)),
                 None,
                 None,
                 ShapeDrawCommandOptions::new().color(Color::rgb(245, 190, 70)),

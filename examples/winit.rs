@@ -1,6 +1,6 @@
 use futures::executor::block_on;
 use grafo::{BorderRadii, Shape, TextureManager};
-use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use grafo::{Color, ShapeDrawCommandOptions};
 use grafo::{RendererContext, Surface};
 use image::ImageReader;
 use std::sync::Arc;
@@ -99,13 +99,10 @@ impl ApplicationHandler for App {
                 renderer.clear_draw_queue();
                 let window_size = window.inner_size();
 
-                let background = Shape::rect(
-                    [
-                        (0.0, 0.0),
-                        (window_size.width as f32, window_size.height as f32),
-                    ],
-                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let background = Shape::rect([
+                    (0.0, 0.0),
+                    (window_size.width as f32, window_size.height as f32),
+                ]);
                 let background_id = renderer
                     .add_shape(
                         background,
@@ -115,11 +112,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let red = Shape::rounded_rect(
-                    [(0.0, 0.0), (200.0, 200.0)],
-                    BorderRadii::new(0.0),
-                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let red = Shape::rounded_rect([(0.0, 0.0), (200.0, 200.0)], BorderRadii::new(0.0));
                 let red_id = renderer
                     .add_shape(
                         red,
@@ -129,11 +122,8 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let green = Shape::rounded_rect(
-                    [(0.0, 0.0), (200.0, 200.0)],
-                    BorderRadii::new(0.0),
-                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let green =
+                    Shape::rounded_rect([(0.0, 0.0), (200.0, 200.0)], BorderRadii::new(0.0));
                 let green_id = renderer
                     .add_shape(
                         green,
@@ -145,11 +135,8 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let blue = Shape::rounded_rect(
-                    [(0.0, 0.0), (200.0, 200.0)],
-                    BorderRadii::new(10.0),
-                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let blue =
+                    Shape::rounded_rect([(0.0, 0.0), (200.0, 200.0)], BorderRadii::new(10.0));
                 let blue_id = renderer
                     .add_shape(
                         blue,
@@ -161,11 +148,8 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let yellow = Shape::rounded_rect(
-                    [(0.0, 0.0), (150.0, 150.0)],
-                    BorderRadii::new(0.0),
-                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let yellow =
+                    Shape::rounded_rect([(0.0, 0.0), (150.0, 150.0)], BorderRadii::new(0.0));
                 renderer
                     .add_shape(
                         yellow,
@@ -175,11 +159,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let white = Shape::rounded_rect(
-                    [(0.0, 0.0), (20.0, 20.0)],
-                    BorderRadii::new(0.0),
-                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let white = Shape::rounded_rect([(0.0, 0.0), (20.0, 20.0)], BorderRadii::new(0.0));
                 renderer
                     .add_shape(
                         white,
@@ -189,11 +169,8 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let shape_that_doesnt_fit = Shape::rounded_rect(
-                    [(0.0, 0.0), (20.0, 20.0)],
-                    BorderRadii::new(0.0),
-                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let shape_that_doesnt_fit =
+                    Shape::rounded_rect([(0.0, 0.0), (20.0, 20.0)], BorderRadii::new(0.0));
                 renderer
                     .add_shape(
                         shape_that_doesnt_fit,
@@ -215,16 +192,13 @@ impl ApplicationHandler for App {
                         &self.rust_logo_png_bytes,
                     )
                     .unwrap();
-                let img_rect1 = Shape::rect(
-                    [
-                        (0.0, 0.0),
-                        (
-                            self.rust_logo_png_dimensions_f32.0,
-                            self.rust_logo_png_dimensions_f32.1,
-                        ),
-                    ],
-                    Stroke::new(0.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let img_rect1 = Shape::rect([
+                    (0.0, 0.0),
+                    (
+                        self.rust_logo_png_dimensions_f32.0,
+                        self.rust_logo_png_dimensions_f32.1,
+                    ),
+                ]);
                 let img_rect2 = img_rect1.clone();
                 let img_rect3 = img_rect1.clone();
 

@@ -1,6 +1,6 @@
 use futures::executor::block_on;
 use grafo::{BorderRadii, Shape, TextureManager};
-use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use grafo::{Color, ShapeDrawCommandOptions};
 use grafo::{RendererContext, Surface};
 use image::ImageReader;
 use std::sync::Arc;
@@ -101,13 +101,10 @@ impl ApplicationHandler for App {
                 let window_size = window.inner_size();
 
                 // Background
-                let background = Shape::rect(
-                    [
-                        (0.0, 0.0),
-                        (window_size.width as f32, window_size.height as f32),
-                    ],
-                    Stroke::new(0.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let background = Shape::rect([
+                    (0.0, 0.0),
+                    (window_size.width as f32, window_size.height as f32),
+                ]);
                 let background_id = renderer
                     .add_shape(
                         background,
@@ -118,11 +115,8 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 // A white rounded rect that we will texture
-                let textured_rect = Shape::rounded_rect(
-                    [(0.0, 0.0), (300.0, 300.0)],
-                    BorderRadii::new(20.0),
-                    Stroke::new(2.0_f32, Color::rgb(200, 200, 200)),
-                );
+                let textured_rect =
+                    Shape::rounded_rect([(0.0, 0.0), (300.0, 300.0)], BorderRadii::new(20.0));
                 renderer
                     .add_shape(
                         textured_rect,

@@ -1,5 +1,5 @@
 use futures::executor::block_on;
-use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke};
+use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions};
 use grafo::{RendererContext, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -34,10 +34,7 @@ impl ApplicationHandler for App {
             .expect("Failed to create surface");
         let mut renderer = Renderer::new_with_context(context, physical_size, scale_factor, 1);
 
-        let rect = Shape::rect(
-            [(100.0, 100.0), (300.0, 200.0)],
-            Stroke::new(2.0_f32, Color::BLACK),
-        );
+        let rect = Shape::rect([(100.0, 100.0), (300.0, 200.0)]);
         renderer
             .add_shape(
                 rect,
@@ -47,10 +44,7 @@ impl ApplicationHandler for App {
             )
             .unwrap();
 
-        let rect = Shape::rect(
-            [(500.0, 100.0), (600.0, 200.0)],
-            Stroke::new(2.0_f32, Color::BLACK),
-        );
+        let rect = Shape::rect([(500.0, 100.0), (600.0, 200.0)]);
         renderer
             .add_shape(
                 rect,

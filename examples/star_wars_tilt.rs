@@ -1,6 +1,6 @@
 use euclid::{Point2D, UnknownUnit};
 use futures::executor::block_on;
-use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke};
+use grafo::{Color, Shape, ShapeDrawCommandOptions};
 use grafo::{RendererContext, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -151,10 +151,7 @@ impl ApplicationHandler for App {
 
                     renderer
                         .add_shape(
-                            Shape::rect(
-                                [(0.0, 0.0), (width, height)],
-                                Stroke::new(2.0_f32, Color::TRANSPARENT),
-                            ),
+                            Shape::rect([(0.0, 0.0), (width, height)]),
                             None,
                             None,
                             ShapeDrawCommandOptions::new().color(Color::rgb(30, 30, 30)),
@@ -163,10 +160,7 @@ impl ApplicationHandler for App {
 
                     renderer
                         .add_shape(
-                            Shape::rect(
-                                [(0.0, 0.0), (100.0, 100.0)],
-                                Stroke::new(2.0_f32, Color::TRANSPARENT),
-                            ),
+                            Shape::rect([(0.0, 0.0), (100.0, 100.0)]),
                             None,
                             None,
                             ShapeDrawCommandOptions::new()
@@ -181,10 +175,7 @@ impl ApplicationHandler for App {
                         )
                         .unwrap();
 
-                    let inner_rect_shape = Shape::rect(
-                        [(0.0, 0.0), (35.0, 80.0)],
-                        Stroke::new(1.0_f32, Color::BLACK),
-                    );
+                    let inner_rect_shape = Shape::rect([(0.0, 0.0), (35.0, 80.0)]);
                     renderer
                         .add_shape(
                             inner_rect_shape.clone(),

@@ -6,7 +6,6 @@ pub(crate) mod effect;
 pub(crate) mod geometry;
 pub mod gradient;
 pub(crate) mod shape;
-mod stroke;
 pub(crate) mod util;
 pub(crate) mod vertex;
 
@@ -27,6 +26,5 @@ pub use gradient::types::{
     RadialGradientDesc, RadialGradientSize, SpreadMode,
 };
 pub use shape::*;
-pub use stroke::Stroke;
 pub use vertex::InstanceTransform as TransformInstance;
 pub use vertex::{CustomVertex, TextureUvTransform};

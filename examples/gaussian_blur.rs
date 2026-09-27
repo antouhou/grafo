@@ -3,7 +3,7 @@
 
 use futures::executor::block_on;
 use grafo::Shape;
-use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use grafo::{Color, ShapeDrawCommandOptions};
 use grafo::{RendererContext, Surface};
 use grafo_test_scenes::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 use std::sync::Arc;
@@ -78,10 +78,7 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 renderer.clear_draw_queue();
                 // Background without an effect
-                let bg = Shape::rect(
-                    [(30.0, 30.0), (770.0, 570.0)],
-                    Stroke::new(2.0_f32, Color::BLACK),
-                );
+                let bg = Shape::rect([(30.0, 30.0), (770.0, 570.0)]);
                 let bg_id = renderer
                     .add_shape(
                         bg,
@@ -91,10 +88,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let marker = Shape::rect(
-                    [(310.0, 200.0), (750.0, 230.0)],
-                    Stroke::new(1.0_f32, Color::BLACK),
-                );
+                let marker = Shape::rect([(310.0, 200.0), (750.0, 230.0)]);
                 renderer
                     .add_shape(
                         marker,
@@ -104,10 +98,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let group_bg = Shape::rect(
-                    [(80.0, 80.0), (500.0, 400.0)],
-                    Stroke::new(0.0_f32, Color::TRANSPARENT),
-                );
+                let group_bg = Shape::rect([(80.0, 80.0), (500.0, 400.0)]);
                 let group = renderer
                     .add_shape(
                         group_bg,
@@ -117,10 +108,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let child1 = Shape::rect(
-                    [(100.0, 100.0), (300.0, 280.0)],
-                    Stroke::new(3.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let child1 = Shape::rect([(100.0, 100.0), (300.0, 280.0)]);
                 renderer
                     .add_shape(
                         child1,
@@ -130,10 +118,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let child2 = Shape::rect(
-                    [(200.0, 180.0), (450.0, 360.0)],
-                    Stroke::new(3.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let child2 = Shape::rect([(200.0, 180.0), (450.0, 360.0)]);
                 renderer
                     .add_shape(
                         child2,
@@ -149,10 +134,7 @@ impl ApplicationHandler for App {
                     .expect("Failed to set blur effect");
 
                 // Sharp group for comparison
-                let sharp_bg = Shape::rect(
-                    [(80.0, 420.0), (500.0, 560.0)],
-                    Stroke::new(0.0_f32, Color::TRANSPARENT),
-                );
+                let sharp_bg = Shape::rect([(80.0, 420.0), (500.0, 560.0)]);
                 let sharp = renderer
                     .add_shape(
                         sharp_bg,
@@ -162,10 +144,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let sc1 = Shape::rect(
-                    [(100.0, 430.0), (300.0, 550.0)],
-                    Stroke::new(3.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let sc1 = Shape::rect([(100.0, 430.0), (300.0, 550.0)]);
                 renderer
                     .add_shape(
                         sc1,
@@ -175,10 +154,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let sc2 = Shape::rect(
-                    [(200.0, 440.0), (450.0, 550.0)],
-                    Stroke::new(3.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let sc2 = Shape::rect([(200.0, 440.0), (450.0, 550.0)]);
                 renderer
                     .add_shape(
                         sc2,

@@ -3,7 +3,7 @@
 
 use futures::executor::block_on;
 use grafo::Shape;
-use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use grafo::{Color, ShapeDrawCommandOptions};
 use grafo::{RendererContext, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -90,10 +90,7 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 renderer.clear_draw_queue();
                 // Background without an effect
-                let bg = Shape::rect(
-                    [(50.0, 50.0), (750.0, 550.0)],
-                    Stroke::new(2.0_f32, Color::BLACK),
-                );
+                let bg = Shape::rect([(50.0, 50.0), (750.0, 550.0)]);
                 let _bg_id = renderer
                     .add_shape(
                         bg,
@@ -103,10 +100,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let group1_bg = Shape::rect(
-                    [(100.0, 100.0), (400.0, 350.0)],
-                    Stroke::new(0.0_f32, Color::TRANSPARENT),
-                );
+                let group1_bg = Shape::rect([(100.0, 100.0), (400.0, 350.0)]);
                 let group1 = renderer
                     .add_shape(
                         group1_bg,
@@ -117,10 +111,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 // The overlap gets the group's opacity once, after the children are composited.
-                let child1 = Shape::rect(
-                    [(120.0, 120.0), (300.0, 250.0)],
-                    Stroke::new(2.0_f32, Color::BLACK),
-                );
+                let child1 = Shape::rect([(120.0, 120.0), (300.0, 250.0)]);
                 renderer
                     .add_shape(
                         child1,
@@ -130,10 +121,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let child2 = Shape::rect(
-                    [(200.0, 180.0), (380.0, 320.0)],
-                    Stroke::new(2.0_f32, Color::BLACK),
-                );
+                let child2 = Shape::rect([(200.0, 180.0), (380.0, 320.0)]);
                 renderer
                     .add_shape(
                         child2,
@@ -148,10 +136,7 @@ impl ApplicationHandler for App {
                     .set_group_effect(group1, OPACITY_EFFECT, bytemuck::bytes_of(&opacity))
                     .expect("Failed to set effect");
 
-                let group2_bg = Shape::rect(
-                    [(350.0, 100.0), (700.0, 350.0)],
-                    Stroke::new(0.0_f32, Color::TRANSPARENT),
-                );
+                let group2_bg = Shape::rect([(350.0, 100.0), (700.0, 350.0)]);
                 let group2 = renderer
                     .add_shape(
                         group2_bg,
@@ -161,10 +146,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let child3 = Shape::rect(
-                    [(370.0, 130.0), (680.0, 320.0)],
-                    Stroke::new(2.0_f32, Color::BLACK),
-                );
+                let child3 = Shape::rect([(370.0, 130.0), (680.0, 320.0)]);
                 renderer
                     .add_shape(
                         child3,
