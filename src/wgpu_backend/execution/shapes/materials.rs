@@ -199,7 +199,7 @@ impl ShapeDrawResources {
                     .as_ref()
                     .expect("under-fill textures have a prepared material binding"),
             )
-        } else if material.has_gradient_fill() {
+        } else if material.has_gradient_fill {
             Some(
                 &self
                     .gradient_material
@@ -231,7 +231,7 @@ impl ShapeExecutionResources {
             .get_mut(&draw.id.0)
             .expect("material draw was uploaded")
             .prepare_texture_material(
-                draw.material.has_gradient_fill(),
+                draw.material.has_gradient_fill,
                 encoder,
                 layer,
                 &mut self.texture_materials,

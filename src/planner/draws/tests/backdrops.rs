@@ -162,7 +162,7 @@ fn rejected_capture_preserves_gradient_and_stencil_without_texture_work() {
     let RenderOperation::DrawShape(draw) = output.instructions[1].operation else {
         panic!("ordinary fallback draw")
     };
-    assert!(draw.material.has_gradient_fill());
+    assert!(draw.material.has_gradient_fill);
     assert!(draw.material.under_fill_texture.is_none());
     assert_eq!(output.texture_count, 0);
     let viewport = rect((0, 0), (100, 100));
