@@ -1,5 +1,7 @@
 use super::WgpuBackend;
 use crate::commands::RenderPlan;
+use crate::core::linear_to_srgb_u8;
+use crate::render_backend::render_target::{PixelFormat, PixmapMut};
 #[cfg(feature = "render_metrics")]
 use crate::wgpu_backend::metrics::PhaseTimings;
 use crate::wgpu_backend::pipeline::{
@@ -24,11 +26,8 @@ mod mapping;
 /// An offscreen render could not read its pixels into the output buffer.
 #[derive(Error, Debug)]
 pub enum ReadbackError {
-    #[error("Output buffer needs {required_pixels} pixels, but has {provided_pixels}")]
-    OutputTooSmall {
-        required_pixels: usize,
-        provided_pixels: usize,
-    },
+    #[error("Texture format {0:?} cannot be read into an eight-bit pixel surface")]
+    UnsupportedFormat(TextureFormat),
     #[error("Failed to wait for GPU readback: {0}")]
     GpuWait(#[from] PollError),
     #[error("Failed to map the readback buffer: {0}")]
@@ -37,38 +36,87 @@ pub enum ReadbackError {
     MapCallbackDropped,
 }
 
-fn copy_padded_readback_rows(
-    data: &[u8],
-    height: u32,
-    unpadded_bytes_per_row: u32,
-    padded_bytes_per_row: u32,
-    output: &mut Vec<u8>,
-) {
-    let output_size = (unpadded_bytes_per_row * height) as usize;
-    output.resize(output_size, 0);
-
-    if padded_bytes_per_row == unpadded_bytes_per_row {
-        output.copy_from_slice(data);
-        return;
-    }
-
-    for row in 0..height {
-        let padded_offset = (row * padded_bytes_per_row) as usize;
-        let unpadded_offset = (row * unpadded_bytes_per_row) as usize;
-        let row_data = &data[padded_offset..padded_offset + unpadded_bytes_per_row as usize];
-        output[unpadded_offset..unpadded_offset + unpadded_bytes_per_row as usize]
-            .copy_from_slice(row_data);
+fn validate_readback_format(format: TextureFormat) -> Result<(), ReadbackError> {
+    if matches!(
+        format,
+        TextureFormat::Bgra8UnormSrgb
+            | TextureFormat::Rgba8UnormSrgb
+            | TextureFormat::Bgra8Unorm
+            | TextureFormat::Rgba8Unorm
+    ) {
+        Ok(())
+    } else {
+        Err(ReadbackError::UnsupportedFormat(format))
     }
 }
 
-pub(in crate::wgpu_backend) struct BgraReadbackResources {
+fn copy_readback_rows(
+    data: &[u8],
+    source_stride: usize,
+    source_format: TextureFormat,
+    output: &mut PixmapMut<'_>,
+) -> Result<(), ReadbackError> {
+    validate_readback_format(source_format)?;
+    let layout = output.layout();
+    let row_bytes = layout.size().0 as usize * 4;
+    let is_bgra = matches!(
+        source_format,
+        TextureFormat::Bgra8UnormSrgb | TextureFormat::Bgra8Unorm
+    );
+    let is_srgb = source_format.is_srgb();
+    let matches_layout = is_srgb
+        && match layout.format() {
+            PixelFormat::Bgra8 => is_bgra,
+            PixelFormat::Rgba8 => !is_bgra,
+            PixelFormat::Argb32 => is_bgra && cfg!(target_endian = "little"),
+        };
+    let output = output.pixels_mut();
+    if matches_layout && source_stride == row_bytes && layout.stride() == row_bytes {
+        output[..layout.byte_len()].copy_from_slice(&data[..layout.byte_len()]);
+        return Ok(());
+    }
+    for row in 0..layout.size().1 as usize {
+        let source = &data[row * source_stride..row * source_stride + row_bytes];
+        let destination = &mut output[row * layout.stride()..row * layout.stride() + row_bytes];
+        if matches_layout {
+            destination.copy_from_slice(source);
+            continue;
+        }
+        for (source, destination) in source
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(destination.as_chunks_mut::<4>().0.iter_mut())
+        {
+            let (mut red, mut green, mut blue, alpha) = if is_bgra {
+                (source[2], source[1], source[0], source[3])
+            } else {
+                (source[0], source[1], source[2], source[3])
+            };
+            if !is_srgb {
+                red = linear_to_srgb_u8(red as f32 / 255.0);
+                green = linear_to_srgb_u8(green as f32 / 255.0);
+                blue = linear_to_srgb_u8(blue as f32 / 255.0);
+            }
+            let pixel = match layout.format() {
+                PixelFormat::Bgra8 => [blue, green, red, alpha],
+                PixelFormat::Rgba8 => [red, green, blue, alpha],
+                PixelFormat::Argb32 => u32::from_be_bytes([alpha, red, green, blue]).to_ne_bytes(),
+            };
+            destination.copy_from_slice(&pixel);
+        }
+    }
+    Ok(())
+}
+
+pub(in crate::wgpu_backend) struct ByteReadbackResources {
     pub(in crate::wgpu_backend) texture: Texture,
     view: TextureView,
     mapping: ReadbackMapping,
     pub(in crate::wgpu_backend) buffer: Buffer,
 }
 
-impl BgraReadbackResources {
+impl ByteReadbackResources {
     fn new(device: &Device, physical_size: (u32, u32), format: TextureFormat) -> Self {
         let (_, padded_bytes_per_row) = compute_padded_bytes_per_row(physical_size.0, 4);
         let texture = create_offscreen_color_texture(device, physical_size, format);
@@ -228,14 +276,12 @@ impl WgpuBackend {
         Ok(())
     }
 
-    /// Reads tightly packed BGRA pixels into `buffer`, resizing it to the viewport.
-    /// Returns an error if GPU readback fails.
-    /// On error, `buffer` retains its previous contents.
-    pub(in crate::wgpu_backend) fn render_to_buffer(
+    pub(in crate::wgpu_backend) fn render_byte_pixels(
         &mut self,
         commands: &RenderPlan,
-        buffer: &mut Vec<u8>,
+        output: &mut PixmapMut<'_>,
     ) -> Result<(), ReadbackError> {
+        validate_readback_format(self.format)?;
         #[cfg(feature = "render_metrics")]
         let render_started_at = Instant::now();
 
@@ -247,17 +293,17 @@ impl WgpuBackend {
         let (width, height) = self.viewport.physical_size;
 
         let physical_size = (width, height);
-        let resources = match self.bgra_readback.take() {
+        let resources = match self.byte_readback.take() {
             Some(resources)
                 if (resources.texture.width(), resources.texture.height()) == physical_size =>
             {
                 resources
             }
-            _ => BgraReadbackResources::new(&self.device, physical_size, self.config.format),
+            _ => ByteReadbackResources::new(&self.device, physical_size, self.format),
         };
         self.render_to_texture_view(commands, &resources.view, Some(&resources.texture));
 
-        let (unpadded_bytes_per_row, padded_bytes_per_row) = compute_padded_bytes_per_row(width, 4);
+        let (_, padded_bytes_per_row) = compute_padded_bytes_per_row(width, 4);
 
         let mut encoder = self
             .device
@@ -286,14 +332,13 @@ impl WgpuBackend {
             &resources.mapping,
             readback_bytes,
         )?;
-        self.bgra_readback = Some(resources);
-        copy_padded_readback_rows(
+        self.byte_readback = Some(resources);
+        copy_readback_rows(
             readback_bytes,
-            height,
-            unpadded_bytes_per_row,
-            padded_bytes_per_row,
-            buffer,
-        );
+            padded_bytes_per_row as usize,
+            self.format,
+            output,
+        )?;
 
         #[cfg(feature = "render_metrics")]
         self.record_readback_metrics(
@@ -304,23 +349,13 @@ impl WgpuBackend {
         Ok(())
     }
 
-    /// Reads ARGB pixels into the first viewport-sized portion of `out_pixels`.
-    /// Returns an error if the output is too small or GPU readback fails.
-    /// On error, `out_pixels` retains its previous contents.
-    pub(in crate::wgpu_backend) fn render_to_argb32(
+    pub(in crate::wgpu_backend) fn render_argb_pixels(
         &mut self,
         commands: &RenderPlan,
-        out_pixels: &mut [u32],
+        output: &mut PixmapMut<'_>,
     ) -> Result<(), ReadbackError> {
+        validate_readback_format(self.format)?;
         let (width, height) = self.viewport.physical_size;
-        let needed_len = (width as usize) * (height as usize);
-        if out_pixels.len() < needed_len {
-            return Err(ReadbackError::OutputTooSmall {
-                required_pixels: needed_len,
-                provided_pixels: out_pixels.len(),
-            });
-        }
-
         #[cfg(feature = "render_metrics")]
         let render_started_at = Instant::now();
 
@@ -330,9 +365,9 @@ impl WgpuBackend {
         let preparation_finished_at = Instant::now();
 
         let mut resources = self.argb_readback.take().unwrap_or_else(|| {
-            ArgbReadbackResources::new(&self.device, (width, height), self.config.format)
+            ArgbReadbackResources::new(&self.device, (width, height), self.format)
         });
-        resources.resize(&self.device, (width, height), self.config.format);
+        resources.resize(&self.device, (width, height), self.format);
         let target = &resources.target;
         self.render_to_texture_view(commands, &target.view, Some(&target.texture));
 
@@ -397,8 +432,7 @@ impl WgpuBackend {
         )?;
         self.argb_readback = Some(resources);
 
-        let src_words: &[u32] = bytemuck::cast_slice(readback_bytes);
-        out_pixels[..needed_len].copy_from_slice(&src_words[..needed_len]);
+        copy_readback_rows(readback_bytes, width as usize * 4, self.format, output)?;
 
         #[cfg(feature = "render_metrics")]
         self.record_readback_metrics(

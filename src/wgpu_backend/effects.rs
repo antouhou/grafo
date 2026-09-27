@@ -10,7 +10,7 @@ impl WgpuBackend {
         self.pipeline_resources
             .composite_resources
             .get_or_insert_with(|| {
-                compile_composite_pipeline(&self.device, self.config.format, self.msaa_sample_count)
+                compile_composite_pipeline(&self.device, self.format, self.msaa_sample_count)
             })
     }
 
@@ -28,7 +28,7 @@ impl WgpuBackend {
         {
             let under_fill_pipelines = TextureMaterialPipelines::new(
                 &self.device,
-                self.config.format,
+                self.format,
                 self.msaa_sample_count,
                 &self.pipeline_resources.shapes,
             );
@@ -41,7 +41,7 @@ impl WgpuBackend {
             .expect("composite resources were initialized above");
         self.pipeline_resources.backdrops = Some(BackdropPipelineResources::new(
             &self.device,
-            self.config.format,
+            self.format,
             &composite.bind_group_layout,
         ));
     }

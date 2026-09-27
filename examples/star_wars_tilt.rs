@@ -1,6 +1,7 @@
 use euclid::{Point2D, UnknownUnit};
 use futures::executor::block_on;
 use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke};
+use grafo::{RendererContext, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -9,9 +10,10 @@ use winit::window::{Window, WindowId};
 
 mod window_rendering;
 
-struct App<'a> {
+struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer<'a>>,
+    renderer: Option<grafo::Renderer>,
+    surface: Option<Surface>,
     mouse_position: Point2D<f32, UnknownUnit>,
     // Track which shapes are being hovered
     parent_hovered: bool,
@@ -19,11 +21,12 @@ struct App<'a> {
     child2_hovered: bool,
 }
 
-impl<'a> App<'a> {
+impl App {
     fn new() -> Self {
         Self {
             window: None,
             renderer: None,
+            surface: None,
             mouse_position: Point2D::new(0.0, 0.0),
             parent_hovered: false,
             child1_hovered: false,
@@ -32,7 +35,7 @@ impl<'a> App<'a> {
     }
 }
 
-impl<'a> ApplicationHandler for App<'a> {
+impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -49,16 +52,13 @@ impl<'a> ApplicationHandler for App<'a> {
 
         self.window = Some(window.clone());
 
-        let renderer = block_on(grafo::Renderer::new(
-            window.clone(),
-            physical_size,
-            scale_factor,
-            true,
-            false,
-            1, // msaa_samples
-        ));
+        let context = block_on(RendererContext::new());
+        let surface = Surface::new(&context, window.clone(), physical_size, true, false)
+            .expect("Failed to create surface");
+        let renderer = grafo::Renderer::new_with_context(context, physical_size, scale_factor, 1);
 
         self.renderer = Some(renderer);
+        self.surface = Some(surface);
 
         window.request_redraw();
     }
@@ -74,10 +74,10 @@ impl<'a> ApplicationHandler for App<'a> {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                if let Some(renderer) = &mut self.renderer {
+                if let (Some(renderer), Some(surface)) = (&mut self.renderer, &mut self.surface) {
                     renderer.clear_draw_queue();
                     let scale_factor = renderer.scale_factor();
-                    let (width, height) = renderer.size();
+                    let (width, height) = surface.size();
                     let (width, height) = (
                         width as f32 / scale_factor as f32,
                         height as f32 / scale_factor as f32,
@@ -218,12 +218,12 @@ impl<'a> ApplicationHandler for App<'a> {
                         )
                         .unwrap();
 
-                    window_rendering::render(renderer, event_loop);
+                    window_rendering::render(renderer, surface, event_loop);
                 }
             }
             WindowEvent::Resized(new_size) => {
-                if let Some(renderer) = &mut self.renderer {
-                    renderer.resize((new_size.width, new_size.height));
+                if let Some(surface) = &mut self.surface {
+                    surface.resize((new_size.width, new_size.height));
 
                     if let Some(window) = &self.window {
                         window.request_redraw();

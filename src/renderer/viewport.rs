@@ -1,6 +1,6 @@
 use super::{RenderBackend, Renderer};
 
-impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
+impl<B: RenderBackend> Renderer<B> {
     pub fn size(&self) -> (u32, u32) {
         self.viewport.physical_size
     }
@@ -25,21 +25,10 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
 
     pub fn resize(&mut self, new_physical_size: (u32, u32)) {
         self.viewport.physical_size = new_physical_size;
-        self.backend
-            .resize(&mut self.surface, self.viewport, self.fringe_width);
+        self.backend.resize(self.viewport, self.fringe_width);
     }
 
     pub fn set_msaa_samples(&mut self, samples: u32) {
         self.backend.set_msaa_samples(samples);
-    }
-
-    /// Configures and replaces the backend output without changing the scene.
-    pub fn set_surface(&mut self, mut surface: B::Surface) {
-        self.backend.configure_surface(&mut surface);
-        self.surface = surface;
-    }
-
-    pub fn set_vsync(&mut self, vsync: bool) {
-        self.backend.set_vsync(&mut self.surface, vsync);
     }
 }

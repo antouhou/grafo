@@ -18,7 +18,7 @@ pub enum TextureManagerError {
 ///
 /// ```rust,no_run
 /// use grafo::{premultiply_rgba8_srgb_inplace, TextureManager};
-/// # fn example(renderer: &grafo::Renderer<'_>) {
+/// # fn example(renderer: &grafo::Renderer) {
 /// let texture_manager = renderer.texture_manager();
 /// let texture_id = 42;
 /// let texture_dimensions = (256, 256);

@@ -1,5 +1,5 @@
 use super::bindings::create_effect_input_bind_group_layout;
-use super::shaders::{compile_effect_pipeline, LoadedEffect};
+use super::shaders::{compile_effect, LoadedEffect};
 use crate::wgpu_backend::errors::EffectResourceError;
 use ahash::{HashMap, HashMapExt};
 use naga::valid::{Capabilities, ValidationFlags, Validator};
@@ -39,7 +39,7 @@ impl EffectRegistry {
         }) {
             return Ok(false);
         }
-        let effect = compile_effect_pipeline(
+        let effect = compile_effect(
             device,
             pass_sources,
             format,
@@ -52,6 +52,15 @@ impl EffectRegistry {
 
     pub(crate) fn unload(&mut self, effect_id: u64) {
         self.loaded.remove(&effect_id);
+    }
+
+    /// Rebuilds pipelines from retained shaders when the target format changes.
+    pub(crate) fn recreate_pipelines(&mut self, device: &Device, format: TextureFormat) {
+        for effect in self.loaded.values_mut() {
+            for pass in &mut effect.passes {
+                pass.recreate_pipeline(device, format);
+            }
+        }
     }
 
     #[cfg(feature = "render_metrics")]

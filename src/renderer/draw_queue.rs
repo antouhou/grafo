@@ -4,7 +4,7 @@ use crate::commands::ShapeDrawId;
 use crate::core::shape::{Shape, ShapeDrawCommandOptions, ShapeInstance};
 use crate::core::vertex::InstanceTransform;
 
-impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
+impl<B: RenderBackend> Renderer<B> {
     /// Tessellates into the shared CPU cache. Geometry IDs let identical shapes share uploads.
     pub fn load_shape(
         &mut self,

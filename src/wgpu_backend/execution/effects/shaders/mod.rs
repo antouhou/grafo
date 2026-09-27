@@ -5,8 +5,9 @@ use naga::valid::Validator;
 use naga::{AddressSpace, ShaderStage};
 use wgpu::{
     BindGroupLayout, BlendState, ColorTargetState, ColorWrites, Device, FragmentState,
-    MultisampleState, PipelineLayoutDescriptor, PrimitiveState, PrimitiveTopology, RenderPipeline,
-    RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, TextureFormat, VertexState,
+    MultisampleState, PipelineLayout, PipelineLayoutDescriptor, PrimitiveState, PrimitiveTopology,
+    RenderPipeline, RenderPipelineDescriptor, ShaderModule, ShaderModuleDescriptor, ShaderSource,
+    TextureFormat, VertexState,
 };
 /// Draws a fullscreen triangle from three vertex indices, without a vertex buffer.
 /// Effect and composite passes share this shader.
@@ -17,12 +18,58 @@ pub(crate) const FULLSCREEN_TRIANGLE_VS: &str =
 pub(crate) const EFFECT_FS_PREAMBLE: &str =
     include_str!("../../../../shaders/effect_fs_preamble.wgsl");
 
+fn create_effect_pass_pipeline(
+    device: &Device,
+    shader: &ShaderModule,
+    layout: &PipelineLayout,
+    format: TextureFormat,
+) -> RenderPipeline {
+    device.create_render_pipeline(&RenderPipelineDescriptor {
+        label: Some("effect_pass_pipeline"),
+        layout: Some(layout),
+        vertex: VertexState {
+            module: shader,
+            entry_point: Some("vs_triangle"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        fragment: Some(FragmentState {
+            module: shader,
+            entry_point: Some("effect_main"),
+            compilation_options: Default::default(),
+            targets: &[Some(ColorTargetState {
+                format,
+                blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                write_mask: ColorWrites::ALL,
+            })],
+        }),
+        primitive: PrimitiveState {
+            topology: PrimitiveTopology::TriangleList,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    })
+}
+
 /// A single compiled pass within a multi-pass effect.
 pub(crate) struct LoadedEffectPass {
+    shader: ShaderModule,
+    pipeline_layout: PipelineLayout,
     /// The compiled render pipeline for this pass's fullscreen triangle.
     pub pipeline: RenderPipeline,
     /// Whether this pass references user parameters at `@group(1)`.
     pub has_params: bool,
+}
+
+impl LoadedEffectPass {
+    /// Changes the target format while retaining the shader and binding layouts.
+    pub(crate) fn recreate_pipeline(&mut self, device: &Device, format: TextureFormat) {
+        self.pipeline =
+            create_effect_pass_pipeline(device, &self.shader, &self.pipeline_layout, format);
+    }
 }
 
 /// Compiled effect passes cached by `effect_id` and shared across nodes.
@@ -87,7 +134,7 @@ fn validate_effect_shader(
 /// Passes that use user parameters share the uniform layout at group 1.
 ///
 /// For single-pass effects, pass a one-element slice.
-pub(crate) fn compile_effect_pipeline(
+pub(crate) fn compile_effect(
     device: &Device,
     pass_sources: &[&str],
     format: TextureFormat,
@@ -133,7 +180,9 @@ pub(crate) fn compile_effect_pipeline(
         let pipeline_layout = if pass_has_params {
             let bind_group_layouts = [
                 input_bind_group_layout,
-                params_bind_group_layout.as_ref().unwrap(),
+                params_bind_group_layout
+                    .as_ref()
+                    .expect("parameter layout was created for passes with parameters"),
             ];
             device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some(&layout_label),
@@ -149,37 +198,11 @@ pub(crate) fn compile_effect_pipeline(
             })
         };
 
-        let pipeline_label = format!("effect_pass{pass_index}_pipeline");
-        let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some(&pipeline_label),
-            layout: Some(&pipeline_layout),
-            vertex: VertexState {
-                module: &shader,
-                entry_point: Some("vs_triangle"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            fragment: Some(FragmentState {
-                module: &shader,
-                entry_point: Some("effect_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(ColorTargetState {
-                    format,
-                    blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                    write_mask: ColorWrites::ALL,
-                })],
-            }),
-            primitive: PrimitiveState {
-                topology: PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
+        let pipeline = create_effect_pass_pipeline(device, &shader, &pipeline_layout, format);
 
         passes.push(LoadedEffectPass {
+            shader,
+            pipeline_layout,
             pipeline,
             has_params: pass_has_params,
         });

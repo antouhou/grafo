@@ -2,9 +2,9 @@
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
 pub use self::types::{DrawCommandError, EffectError};
-use crate::commands::RenderPlan;
 use crate::core::Viewport;
 use crate::planner::Planner;
+use crate::render_backend::render_target::RenderTarget;
 use crate::render_backend::RenderBackend;
 use crate::scene::{Scene, SceneContext};
 #[cfg(feature = "render_metrics")]
@@ -13,11 +13,10 @@ mod draw_queue;
 mod effects;
 #[cfg(feature = "render_metrics")]
 pub mod metrics;
-mod readback;
-mod surface;
 mod types;
+mod viewport;
 
-/// Shared CPU shape storage and backend context. Each renderer owns its own queue and output.
+/// CPU shape storage and backend context shared between renderers.
 #[derive(Clone)]
 pub struct RendererContext<B> {
     backend: B,
@@ -36,17 +35,15 @@ impl<B> RendererContext<B> {
     pub fn scene(&self) -> &SceneContext {
         &self.scene
     }
-    /// Consumes the context without cloning either shared resource owner.
     pub fn into_parts(self) -> (B, SceneContext) {
         (self.backend, self.scene)
     }
 }
 
 /// Coordinates CPU scene construction and planning, then submits the flat command stream.
-pub struct Renderer<'surface, B: RenderBackend<'surface>> {
+pub struct Renderer<B: RenderBackend> {
     scene: Scene,
     planner: Planner,
-    surface: B::Surface,
     backend: B,
     viewport: Viewport,
     fringe_width: f32,
@@ -54,14 +51,13 @@ pub struct Renderer<'surface, B: RenderBackend<'surface>> {
     render_loop_metrics_tracker: RenderLoopMetricsTracker,
 }
 
-impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
-    /// Creates an empty scene for an initialized backend and its output.
-    /// Loaded CPU shapes can be shared through `context` without copying geometry.
-    pub fn from_backend(backend: B, surface: B::Surface, context: SceneContext) -> Self {
+impl<B: RenderBackend> Renderer<B> {
+    /// Creates a renderer with an empty draw queue using the supplied backend.
+    /// Loaded shapes are shared through `context`.
+    pub fn from_backend(backend: B, context: SceneContext) -> Self {
         Self {
             scene: Scene::new(context),
             planner: Planner::default(),
-            surface,
             viewport: backend.viewport(),
             fringe_width: backend.fringe_width(),
             backend,
@@ -75,15 +71,24 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
         &self.backend
     }
 
-    /// Plans the scene before passing completed commands to the backend.
-    pub fn render(&mut self) -> Result<(), B::Error> {
-        self.render_with(B::render)
-    }
-
-    fn render_with(
+    /// Renders the draw queue to `target`, resizing the renderer to match its physical size.
+    ///
+    /// Pixmap pixels are ready on success and unchanged on error. Surface rendering
+    /// submits and presents the frame, though GPU work may still be pending.
+    /// The draw queue is retained for another render.
+    pub fn render<'target>(
         &mut self,
-        output: impl FnOnce(&mut B, &RenderPlan, &mut B::Surface) -> Result<(), B::Error>,
-    ) -> Result<(), B::Error> {
+        target: impl Into<RenderTarget<'target, B::Surface>>,
+    ) -> Result<(), B::Error>
+    where
+        B::Surface: 'target,
+    {
+        let target = target.into();
+        let maximum = self.backend.maximum_texture_dimension();
+        let size = target.validate_size(maximum)?;
+        if self.viewport.physical_size != size {
+            self.resize(size);
+        }
         #[cfg(feature = "render_metrics")]
         let started_at = Instant::now();
         let commands = self.planner.plan(
@@ -93,7 +98,7 @@ impl<'surface, B: RenderBackend<'surface>> Renderer<'surface, B> {
             self.backend.maximum_texture_dimension(),
         );
         self.scene.finish_preparation();
-        output(&mut self.backend, commands, &mut self.surface)?;
+        self.backend.render(commands, target)?;
         #[cfg(feature = "render_metrics")]
         self.render_loop_metrics_tracker
             .record_presented_frame(started_at, Instant::now());

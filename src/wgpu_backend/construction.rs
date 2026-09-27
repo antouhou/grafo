@@ -6,14 +6,14 @@ use super::resources::{BackendResources, Buffers, RendererPipelineResources, Sha
 use super::{WgpuBackend, WgpuContext};
 use crate::core::Viewport;
 use std::sync::Arc;
-use wgpu::SurfaceConfiguration;
+use wgpu::TextureFormat;
 
 const DEFAULT_FRINGE_WIDTH: f32 = 0.75;
 
 impl WgpuBackend {
-    pub(in crate::wgpu_backend) fn new(
+    pub(in crate::wgpu_backend) fn initialize(
         context: Arc<WgpuContext>,
-        config: SurfaceConfiguration,
+        format: TextureFormat,
         physical_size: (u32, u32),
         scale_factor: f64,
         msaa_sample_count: u32,
@@ -21,7 +21,7 @@ impl WgpuBackend {
         let device = context.device.clone();
         let resources = ShapePipelines::new(
             &context,
-            &config,
+            format,
             physical_size,
             scale_factor,
             DEFAULT_FRINGE_WIDTH,
@@ -29,7 +29,7 @@ impl WgpuBackend {
             None,
         );
         let queue = context.queue.clone();
-        let shape_effect_resources = ShapeEffectRendererResources::new(&device, config.format);
+        let shape_effect_resources = ShapeEffectRendererResources::new(&device, format);
         let effect_registry = EffectRegistry::new(&device);
 
         let supports_base_vertex = context.supports_base_vertex;
@@ -37,7 +37,7 @@ impl WgpuBackend {
             context,
             device,
             queue,
-            config,
+            format,
             fringe_width: DEFAULT_FRINGE_WIDTH,
             readback_bytes: Vec::new(),
             viewport: Viewport {
@@ -52,7 +52,7 @@ impl WgpuBackend {
                 backdrops: None,
             },
             argb_readback: None,
-            bgra_readback: None,
+            byte_readback: None,
             msaa_sample_count,
             msaa_color_texture: None,
             msaa_color_texture_view: None,
@@ -87,10 +87,23 @@ impl WgpuBackend {
         backend
     }
 
+    pub(in crate::wgpu_backend) fn set_format(&mut self, format: TextureFormat) {
+        if self.format == format {
+            return;
+        }
+        self.effect_registry
+            .recreate_pipelines(&self.device, format);
+        self.format = format;
+        self.recreate_pipelines();
+        self.recreate_msaa_texture();
+        self.argb_readback = None;
+        self.byte_readback = None;
+    }
+
     pub(in crate::wgpu_backend) fn recreate_pipelines(&mut self) {
         let resources = ShapePipelines::new(
             &self.context,
-            &self.config,
+            self.format,
             self.viewport.physical_size,
             self.viewport.scale_factor,
             self.fringe_width,
@@ -112,7 +125,7 @@ impl WgpuBackend {
         self.pipeline_resources.composite_resources = None;
         self.pipeline_resources
             .shape_effects
-            .recreate_pipeline(&self.device, self.config.format);
+            .recreate_pipeline(&self.device, self.format);
 
         // Reset lazily-created pipelines so they pick up the new layout
         self.pipeline_resources.backdrops = None;

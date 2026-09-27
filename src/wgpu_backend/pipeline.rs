@@ -5,7 +5,7 @@ use std::ops::Range;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, ComputePipeline, Device,
-    RenderPass, RenderPipeline, Texture,
+    RenderPass, RenderPipeline, Texture, TextureFormat,
 };
 
 struct ShapePipelineDescriptor<'a> {
@@ -331,7 +331,7 @@ pub fn create_pipeline(
     scale_factor: f64,
     fringe_width: f32,
     device: &Device,
-    config: &wgpu::SurfaceConfiguration,
+    format: TextureFormat,
     pipeline_type: PipelineType,
     sample_count: u32,
 ) -> (
@@ -393,7 +393,7 @@ pub fn create_pipeline(
             vertex_entry_point: "vs_main",
             fragment_entry_point,
             color_target: wgpu::ColorTargetState {
-                format: config.format,
+                format,
                 blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                 write_mask: color_writes,
             },

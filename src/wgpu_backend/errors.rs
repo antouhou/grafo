@@ -1,6 +1,7 @@
 use super::readback::ReadbackError;
 use super::texture_manager::TextureManagerError;
 use super::types::GeometryBufferError;
+use crate::render_backend::render_target::RenderTargetError;
 use naga::front::wgsl::ParseError;
 use naga::valid::ValidationError;
 use naga::WithSpan;
@@ -44,6 +45,8 @@ pub enum EffectResourceError {
 /// Errors returned by WGPU backend operations.
 #[derive(Debug, thiserror::Error)]
 pub enum WgpuBackendError {
+    #[error(transparent)]
+    Output(#[from] RenderTargetError),
     #[error(transparent)]
     Surface(#[from] SurfaceError),
     #[error(transparent)]

@@ -87,7 +87,7 @@ impl WgpuBackend {
         }
 
         println!("\n--- Render-to-Buffer Caches ---");
-        if let Some(resources) = &self.bgra_readback {
+        if let Some(resources) = &self.byte_readback {
             println!(
                 "RTB offscreen texture: {}x{}",
                 resources.texture.width(),

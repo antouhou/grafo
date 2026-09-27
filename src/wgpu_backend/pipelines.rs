@@ -8,7 +8,7 @@ use crate::wgpu_backend::pipeline::{
     create_stencil_keep_color_pipeline, create_stencil_only_pipeline, PipelineType,
 };
 use std::sync::Arc;
-use wgpu::{BindGroupLayout, Device, SurfaceConfiguration, TextureFormat};
+use wgpu::{BindGroupLayout, Device, TextureFormat};
 
 fn create_transparent_texture_view_and_sampler(
     device: &wgpu::Device,
@@ -66,7 +66,7 @@ fn create_transparent_texture_view_and_sampler(
 impl ShapePipelines {
     pub(in crate::wgpu_backend) fn new(
         context: &WgpuContext,
-        config: &SurfaceConfiguration,
+        format: TextureFormat,
         physical_size: (u32, u32),
         scale_factor: f64,
         fringe_width: f32,
@@ -89,7 +89,7 @@ impl ShapePipelines {
             scale_factor,
             fringe_width,
             device,
-            config,
+            format,
             PipelineType::EqualIncrementStencil,
             msaa_sample_count,
         );
@@ -106,7 +106,7 @@ impl ShapePipelines {
             scale_factor,
             fringe_width,
             device,
-            config,
+            format,
             PipelineType::EqualDecrementStencil,
             msaa_sample_count,
         );
@@ -115,7 +115,7 @@ impl ShapePipelines {
             gradient_layout.unwrap_or_else(|| create_gradient_bind_group_layout(device));
         let and_gradient_pipeline = create_gradient_increment_pipeline(
             device,
-            config.format,
+            format,
             msaa_sample_count,
             &and_pipeline.get_bind_group_layout(0),
             &background_texture_layout,
@@ -125,7 +125,7 @@ impl ShapePipelines {
 
         let leaf_draw_pipeline = create_stencil_keep_color_pipeline(
             device,
-            config.format,
+            format,
             msaa_sample_count,
             &and_pipeline.get_bind_group_layout(0),
             &background_texture_layout,
@@ -133,7 +133,7 @@ impl ShapePipelines {
         );
         let leaf_draw_gradient_pipeline = create_gradient_stencil_keep_color_pipeline(
             device,
-            config.format,
+            format,
             msaa_sample_count,
             &and_pipeline.get_bind_group_layout(0),
             &background_texture_layout,
@@ -166,7 +166,7 @@ impl ShapePipelines {
             );
         let stencil_only_pipeline = create_stencil_only_pipeline(
             device,
-            config.format,
+            format,
             msaa_sample_count,
             &and_pipeline.get_bind_group_layout(0),
             &background_texture_layout,

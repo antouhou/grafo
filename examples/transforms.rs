@@ -4,6 +4,7 @@ use grafo::{
     premultiply_rgba8_srgb_inplace, Color, Shape, ShapeDrawCommandOptions, Stroke, TextureManager,
     TransformInstance,
 };
+use grafo::{RendererContext, Surface};
 use lyon::algorithms::hit_test::hit_test_path;
 use lyon::algorithms::math::point as algo_point;
 use lyon::geom::point;
@@ -104,9 +105,10 @@ fn build_perspective_demo_path() -> Path {
 }
 
 #[derive(Default)]
-struct App<'a> {
+struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer<'a>>,
+    renderer: Option<grafo::Renderer>,
+    surface: Option<Surface>,
     angle: f32,
     // Last mouse position in logical window coordinates.
     last_mouse_pos: Option<(f32, f32)>,
@@ -148,7 +150,7 @@ struct App<'a> {
 // - F toggles whether the camera origin follows the mouse
 // - R resets yaw and pitch to zero
 
-impl<'a> ApplicationHandler for App<'a> {
+impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
@@ -160,14 +162,11 @@ impl<'a> ApplicationHandler for App<'a> {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        let mut renderer = block_on(grafo::Renderer::new(
-            window.clone(),
-            physical_size,
-            scale_factor,
-            true,  // vsync
-            false, // transparent
-            1,     // msaa_samples
-        ));
+        let context = block_on(RendererContext::new());
+        let surface = Surface::new(&context, window.clone(), physical_size, true, false)
+            .expect("Failed to create surface");
+        let mut renderer =
+            grafo::Renderer::new_with_context(context, physical_size, scale_factor, 1);
 
         let rust_logo_png_bytes = include_bytes!("assets/rust-logo-256x256-blk.png");
         let rust_logo_png = image::ImageReader::new(std::io::Cursor::new(rust_logo_png_bytes))
@@ -255,6 +254,7 @@ impl<'a> ApplicationHandler for App<'a> {
         self.rust_logo_texture_id = rust_logo_texture_id;
         self.window = Some(window);
         self.renderer = Some(renderer);
+        self.surface = Some(surface);
     }
 
     fn window_event(
@@ -265,6 +265,9 @@ impl<'a> ApplicationHandler for App<'a> {
     ) {
         let Some(window) = &self.window else { return };
         let Some(renderer) = &mut self.renderer else {
+            return;
+        };
+        let Some(surface) = &mut self.surface else {
             return;
         };
 
@@ -363,7 +366,7 @@ impl<'a> ApplicationHandler for App<'a> {
             }
             WindowEvent::Resized(physical_size) => {
                 let new_size = (physical_size.width, physical_size.height);
-                renderer.resize(new_size);
+                surface.resize(new_size);
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
@@ -568,7 +571,7 @@ impl<'a> ApplicationHandler for App<'a> {
 
                 self.angle = (self.angle + 0.02) % (std::f32::consts::TAU);
 
-                if window_rendering::render(renderer, event_loop) {
+                if window_rendering::render(renderer, surface, event_loop) {
                     window.request_redraw();
                 }
             }
@@ -584,6 +587,7 @@ pub fn main() {
     let mut app = App {
         window: None,
         renderer: None,
+        surface: None,
         angle: 0.0,
         last_mouse_pos: None,
         orbit_yaw_deg: 0.0,

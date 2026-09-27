@@ -3,6 +3,7 @@
 use futures::executor::block_on;
 use grafo::{BorderRadii, Shape};
 use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use grafo::{RendererContext, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
@@ -12,23 +13,25 @@ use winit::window::{Window, WindowId};
 
 mod window_rendering;
 
-struct App<'a> {
+struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer<'a>>,
+    renderer: Option<grafo::Renderer>,
+    surface: Option<Surface>,
     msaa_enabled: bool,
 }
 
-impl<'a> Default for App<'a> {
+impl Default for App {
     fn default() -> Self {
         Self {
             window: None,
             renderer: None,
+            surface: None,
             msaa_enabled: true,
         }
     }
 }
 
-impl<'a> ApplicationHandler for App<'a> {
+impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
@@ -42,17 +45,15 @@ impl<'a> ApplicationHandler for App<'a> {
 
         let msaa_samples = if self.msaa_enabled { 4 } else { 1 };
 
-        let renderer = block_on(grafo::Renderer::new(
-            window.clone(),
-            physical_size,
-            scale_factor,
-            true,  // vsync
-            false, // transparent
-            msaa_samples,
-        ));
+        let context = block_on(RendererContext::new());
+        let surface = Surface::new(&context, window.clone(), physical_size, true, false)
+            .expect("Failed to create surface");
+        let renderer =
+            grafo::Renderer::new_with_context(context, physical_size, scale_factor, msaa_samples);
 
         self.window = Some(window);
         self.renderer = Some(renderer);
+        self.surface = Some(surface);
     }
 
     fn window_event(
@@ -65,6 +66,9 @@ impl<'a> ApplicationHandler for App<'a> {
         let Some(renderer) = &mut self.renderer else {
             return;
         };
+        let Some(surface) = &mut self.surface else {
+            return;
+        };
 
         if window_id != window.id() {
             return;
@@ -74,7 +78,7 @@ impl<'a> ApplicationHandler for App<'a> {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(physical_size) => {
                 let new_size = (physical_size.width, physical_size.height);
-                renderer.resize(new_size);
+                surface.resize(new_size);
                 window.request_redraw();
             }
             WindowEvent::KeyboardInput {
@@ -171,7 +175,7 @@ impl<'a> ApplicationHandler for App<'a> {
                     )
                     .unwrap();
 
-                window_rendering::render(renderer, event_loop);
+                window_rendering::render(renderer, surface, event_loop);
             }
             _ => {}
         }

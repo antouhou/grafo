@@ -45,6 +45,9 @@
 pub use crate::core::*;
 pub use commands::RenderPlan;
 pub use lyon;
+pub use render_backend::render_target::{
+    PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError,
+};
 pub use render_backend::{RenderBackend, TextureManager};
 pub use scene::SceneError;
 use std::sync::Arc;
@@ -52,11 +55,11 @@ pub use wgpu;
 #[cfg(feature = "render_metrics")]
 pub use wgpu_backend::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
 pub use wgpu_backend::texture_manager::WgpuTextureManager;
-use wgpu_backend::WgpuContext;
 pub use wgpu_backend::{
     BackendCreationError as RendererCreationError, EffectResourceError, EffectShaderError,
     GeometryBufferError, ReadbackError, WgpuBackend, WgpuBackendError,
 };
+use wgpu_backend::{WgpuContext, WgpuSurface};
 
 pub mod commands;
 pub mod core;
@@ -68,7 +71,9 @@ pub mod wgpu_backend;
 mod wgpu_renderer;
 
 /// Coordinates scene construction, planning and execution, using WGPU by default.
-pub type Renderer<'surface, B = WgpuBackend> = renderer::Renderer<'surface, B>;
+pub type Renderer<B = WgpuBackend> = renderer::Renderer<B>;
+/// A platform surface with size and vsync settings, using WGPU by default.
+pub type Surface<Resource = WgpuSurface> = render_backend::render_target::Surface<Resource>;
 /// Shared CPU shape storage and backend context, using WGPU by default.
 pub type RendererContext<C = Arc<WgpuContext>> = renderer::RendererContext<C>;
 /// Scene insertion or backend resource preparation failed.

@@ -5,8 +5,9 @@ use self::execution::effects::EffectRegistry;
 #[cfg(feature = "render_metrics")]
 use self::metrics::PhaseTimings;
 pub use self::readback::ReadbackError;
-use self::readback::{ArgbReadbackResources, BgraReadbackResources};
+use self::readback::{ArgbReadbackResources, ByteReadbackResources};
 use self::resources::{BackendResources, RendererPipelineResources};
+pub use self::surface::WgpuSurface;
 use self::texture_manager::WgpuTextureManager;
 pub use self::types::GeometryBufferError;
 use crate::core::Viewport;
@@ -50,7 +51,7 @@ pub struct WgpuBackend {
     pub(in crate::wgpu_backend) context: Arc<WgpuContext>,
     pub(in crate::wgpu_backend) device: Arc<wgpu::Device>,
     pub(in crate::wgpu_backend) queue: Arc<wgpu::Queue>,
-    pub(in crate::wgpu_backend) config: wgpu::SurfaceConfiguration,
+    pub(in crate::wgpu_backend) format: wgpu::TextureFormat,
 
     pub(in crate::wgpu_backend) readback_bytes: Vec<u8>,
     pub(in crate::wgpu_backend) viewport: Viewport,
@@ -59,7 +60,7 @@ pub struct WgpuBackend {
     pub(in crate::wgpu_backend) pipeline_resources: RendererPipelineResources,
 
     pub(in crate::wgpu_backend) argb_readback: Option<ArgbReadbackResources>,
-    pub(in crate::wgpu_backend) bgra_readback: Option<BgraReadbackResources>,
+    pub(in crate::wgpu_backend) byte_readback: Option<ByteReadbackResources>,
 
     /// MSAA sample count. A value of 1 disables MSAA.
     pub(in crate::wgpu_backend) msaa_sample_count: u32,

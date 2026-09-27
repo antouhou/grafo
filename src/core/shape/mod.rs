@@ -1058,7 +1058,7 @@ impl ShapeDrawCommandOptions {
 /// ```rust
 /// use grafo::{Color, ShapeBuilder, ShapeDrawCommandOptions, Stroke};
 ///
-/// # fn example(renderer: &mut grafo::Renderer<'_>) {
+/// # fn example(renderer: &mut grafo::Renderer) {
 /// let custom_shape = ShapeBuilder::new()
 ///     .stroke(Stroke::new(3.0_f32, Color::BLACK))
 ///     .begin((0.0, 0.0))
