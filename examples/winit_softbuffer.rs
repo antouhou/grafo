@@ -1,7 +1,7 @@
 use futures::executor::block_on;
 use grafo::PixmapMut;
 use grafo::Shape;
-use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use grafo::{Color, ShapeDrawCommandOptions};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -102,13 +102,10 @@ impl ApplicationHandler for App {
                     return;
                 }
 
-                let background = Shape::rect(
-                    [
-                        (0.0, 0.0),
-                        (window_size.width as f32, window_size.height as f32),
-                    ],
-                    Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let background = Shape::rect([
+                    (0.0, 0.0),
+                    (window_size.width as f32, window_size.height as f32),
+                ]);
                 renderer
                     .add_shape(
                         background,
@@ -120,10 +117,7 @@ impl ApplicationHandler for App {
 
                 renderer
                     .add_shape(
-                        Shape::rect(
-                            [(0.0, 0.0), (200.0, 200.0)],
-                            Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
-                        ),
+                        Shape::rect([(0.0, 0.0), (200.0, 200.0)]),
                         None,
                         None,
                         ShapeDrawCommandOptions::new()
@@ -134,10 +128,7 @@ impl ApplicationHandler for App {
 
                 renderer
                     .add_shape(
-                        Shape::rect(
-                            [(0.0, 0.0), (200.0, 200.0)],
-                            Stroke::new(1.0_f32, Color::rgb(0, 0, 0)),
-                        ),
+                        Shape::rect([(0.0, 0.0), (200.0, 200.0)]),
                         None,
                         None,
                         ShapeDrawCommandOptions::new()

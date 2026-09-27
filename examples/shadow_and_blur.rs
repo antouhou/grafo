@@ -3,7 +3,7 @@
 
 use futures::executor::block_on;
 use grafo::{BackdropEffectConfig, BorderRadii, Shape};
-use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use grafo::{Color, ShapeDrawCommandOptions};
 use grafo::{RendererContext, Surface};
 use grafo_test_scenes::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 use std::sync::Arc;
@@ -157,10 +157,7 @@ impl ApplicationHandler for App {
                 let ph = ph as f32;
 
                 // Scene background
-                let scene_bg = Shape::rect(
-                    [(0.0, 0.0), (pw, ph)],
-                    Stroke::new(0.0_f32, Color::TRANSPARENT),
-                );
+                let scene_bg = Shape::rect([(0.0, 0.0), (pw, ph)]);
                 let bg_id = renderer
                     .add_shape(
                         scene_bg,
@@ -171,10 +168,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 // Background colors for the blur
-                let r1 = Shape::rect(
-                    [(40.0, 60.0), (300.0, 280.0)],
-                    Stroke::new(2.0_f32, Color::BLACK),
-                );
+                let r1 = Shape::rect([(40.0, 60.0), (300.0, 280.0)]);
                 renderer
                     .add_shape(
                         r1,
@@ -184,10 +178,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let r2 = Shape::rect(
-                    [(200.0, 150.0), (500.0, 400.0)],
-                    Stroke::new(2.0_f32, Color::BLACK),
-                );
+                let r2 = Shape::rect([(200.0, 150.0), (500.0, 400.0)]);
                 renderer
                     .add_shape(
                         r2,
@@ -197,10 +188,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let r3 = Shape::rect(
-                    [(400.0, 80.0), (700.0, 320.0)],
-                    Stroke::new(2.0_f32, Color::BLACK),
-                );
+                let r3 = Shape::rect([(400.0, 80.0), (700.0, 320.0)]);
                 renderer
                     .add_shape(
                         r3,
@@ -210,10 +198,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let r4 = Shape::rect(
-                    [(100.0, 380.0), (650.0, 550.0)],
-                    Stroke::new(2.0_f32, Color::BLACK),
-                );
+                let r4 = Shape::rect([(100.0, 380.0), (650.0, 550.0)]);
                 renderer
                     .add_shape(
                         r4,
@@ -233,7 +218,6 @@ impl ApplicationHandler for App {
                 let panel_shape = Shape::rounded_rect(
                     [(panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h)],
                     BorderRadii::new(panel_radius),
-                    Stroke::new(0.0_f32, Color::TRANSPARENT),
                 );
                 let panel = renderer
                     .add_shape(
@@ -263,7 +247,6 @@ impl ApplicationHandler for App {
                 let glass_shape = Shape::rounded_rect(
                     [(panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h)],
                     BorderRadii::new(panel_radius),
-                    Stroke::new(1.0_f32, Color::rgba(255, 255, 255, 80)),
                 );
                 let glass = renderer
                     .add_shape(

@@ -36,13 +36,10 @@ Create a shape, set its fill and transform, then render it. For a complete windo
 `cargo run --example basic`. The same example appears in the [crate documentation](https://docs.rs/grafo/).
 
 ```rust
-use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke};
+use grafo::{Color, Shape, ShapeDrawCommandOptions};
 
 // Set the fill when queueing the shape.
-let rect = Shape::rect(
-    [(0.0, 0.0), (200.0, 100.0)],
-    Stroke::new(2.0_f32, Color::BLACK),
-);
+let rect = Shape::rect([(0.0, 0.0), (200.0, 100.0)]);
 renderer
     .add_shape(
         rect,
@@ -141,11 +138,11 @@ The second argument to `add_shape` and `add_clipping_rect` is the optional
 By default, parents clip their children:
 
 ```rust
-use grafo::{Color, Shape, ShapeDrawCommandOptions, Stroke};
+use grafo::{Color, Shape, ShapeDrawCommandOptions};
 
 let clipping_parent_id = renderer
     .add_shape(
-        Shape::rect([(0.0, 0.0), (120.0, 80.0)], Stroke::default()),
+        Shape::rect([(0.0, 0.0), (120.0, 80.0)]),
         None,
         None,
         ShapeDrawCommandOptions::new().color(Color::rgb(220, 220, 220)),
@@ -154,7 +151,7 @@ let clipping_parent_id = renderer
 
 renderer
     .add_shape(
-        Shape::rect([(80.0, 20.0), (160.0, 60.0)], Stroke::default()),
+        Shape::rect([(80.0, 20.0), (160.0, 60.0)]),
         Some(clipping_parent_id),
         None,
         ShapeDrawCommandOptions::new().color(Color::rgb(220, 80, 80)),
@@ -164,7 +161,7 @@ renderer
 // Let children render outside `overflow_parent_id`, while still respecting any ancestor clip.
 let overflow_parent_id = renderer
     .add_shape(
-        Shape::rect([(0.0, 0.0), (120.0, 80.0)], Stroke::default()),
+        Shape::rect([(0.0, 0.0), (120.0, 80.0)]),
         None,
         None,
         ShapeDrawCommandOptions::new()
@@ -175,7 +172,7 @@ let overflow_parent_id = renderer
 
 renderer
     .add_shape(
-        Shape::rect([(80.0, 20.0), (160.0, 60.0)], Stroke::default()),
+        Shape::rect([(80.0, 20.0), (160.0, 60.0)]),
         Some(overflow_parent_id),
         None,
         ShapeDrawCommandOptions::new().color(Color::rgb(220, 80, 80)),
@@ -217,12 +214,12 @@ Composition from bottom to top:
 API:
 
 ```rust
-use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke};
+use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions};
 
 // After allocating textures via renderer.texture_manager()
 renderer
     .add_shape(
-        Shape::rect([(0.0, 0.0), (300.0, 200.0)], Stroke::new(1.0_f32, Color::BLACK)),
+        Shape::rect([(0.0, 0.0), (300.0, 200.0)]),
         None,
         None,
         ShapeDrawCommandOptions::new()
@@ -235,7 +232,7 @@ renderer
 // Transparent parts of the background texture reveal the white fill.
 renderer
     .add_shape(
-        Shape::rect([(0.0, 0.0), (300.0, 200.0)], Stroke::new(1.0_f32, Color::BLACK)),
+        Shape::rect([(0.0, 0.0), (300.0, 200.0)]),
         None,
         None,
         ShapeDrawCommandOptions::new()

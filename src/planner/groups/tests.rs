@@ -9,7 +9,7 @@ use crate::core::util::ShapeResources;
 use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::{ClipRectDrawData, DrawTreeNode};
-use crate::{Shape, ShapeDrawCommandOptions, Size, Stroke};
+use crate::{Shape, ShapeDrawCommandOptions, Size};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
 use lyon::tessellation::FillTessellator;
@@ -150,7 +150,7 @@ impl Scene {
 
     fn backdrop(&mut self, parent: usize, output: &mut RenderPlan) {
         let shape = CachedShapeHandle::new(
-            &Shape::rect([(10.0, 10.0), (40.0, 40.0)], Stroke::default()),
+            &Shape::rect([(10.0, 10.0), (40.0, 40.0)]),
             &mut FillTessellator::new(),
             &mut ShapeResources::new(),
             None,

@@ -3,7 +3,7 @@
 
 use futures::executor::block_on;
 use grafo::{BackdropEffectConfig, BorderRadii, Shape};
-use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use grafo::{Color, ShapeDrawCommandOptions};
 use grafo::{RendererContext, Surface};
 use grafo_test_scenes::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 use std::sync::Arc;
@@ -78,10 +78,7 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 renderer.clear_draw_queue();
                 // Shapes behind the panel
-                let bg = Shape::rect(
-                    [(20.0, 20.0), (780.0, 580.0)],
-                    Stroke::new(2.0_f32, Color::BLACK),
-                );
+                let bg = Shape::rect([(20.0, 20.0), (780.0, 580.0)]);
                 let bg_id = renderer
                     .add_shape(
                         bg,
@@ -92,10 +89,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 // These rectangles remain visible through the blurred panel.
-                let r1 = Shape::rect(
-                    [(60.0, 80.0), (260.0, 260.0)],
-                    Stroke::new(2.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let r1 = Shape::rect([(60.0, 80.0), (260.0, 260.0)]);
                 renderer
                     .add_shape(
                         r1,
@@ -105,10 +99,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let r2 = Shape::rect(
-                    [(180.0, 160.0), (420.0, 380.0)],
-                    Stroke::new(2.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let r2 = Shape::rect([(180.0, 160.0), (420.0, 380.0)]);
                 renderer
                     .add_shape(
                         r2,
@@ -118,10 +109,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let r3 = Shape::rect(
-                    [(340.0, 100.0), (560.0, 300.0)],
-                    Stroke::new(2.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let r3 = Shape::rect([(340.0, 100.0), (560.0, 300.0)]);
                 renderer
                     .add_shape(
                         r3,
@@ -131,10 +119,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let r4 = Shape::rect(
-                    [(100.0, 350.0), (700.0, 540.0)],
-                    Stroke::new(2.0_f32, Color::rgb(0, 0, 0)),
-                );
+                let r4 = Shape::rect([(100.0, 350.0), (700.0, 540.0)]);
                 renderer
                     .add_shape(
                         r4,
@@ -145,10 +130,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 // The backdrop effect blurs the shapes already drawn behind this panel.
-                let panel = Shape::rect(
-                    [(120.0, 120.0), (520.0, 460.0)],
-                    Stroke::new(2.0_f32, Color::rgb(100, 100, 100)),
-                );
+                let panel = Shape::rect([(120.0, 120.0), (520.0, 460.0)]);
                 let panel_id = renderer
                     .add_shape(
                         panel,
@@ -159,11 +141,8 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 // The panel clips this child.
-                let panel_content = Shape::rounded_rect(
-                    [(240.0, 240.0), (600.0, 540.0)],
-                    BorderRadii::new(100.0),
-                    Stroke::new(1.0_f32, Color::rgb(80, 80, 80)),
-                );
+                let panel_content =
+                    Shape::rounded_rect([(240.0, 240.0), (600.0, 540.0)], BorderRadii::new(100.0));
                 renderer
                     .add_shape(
                         panel_content,
@@ -184,10 +163,7 @@ impl ApplicationHandler for App {
                     .expect("Failed to set backdrop effect");
 
                 // A second, smaller frosted panel for comparison
-                let panel2 = Shape::rect(
-                    [(560.0, 200.0), (740.0, 400.0)],
-                    Stroke::new(2.0_f32, Color::rgb(80, 80, 80)),
-                );
+                let panel2 = Shape::rect([(560.0, 200.0), (740.0, 400.0)]);
                 let panel2_id = renderer
                     .add_shape(
                         panel2,

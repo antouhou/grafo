@@ -1,7 +1,7 @@
 //! Composites a background texture and a foreground texture on one shape.
 //! Run with `cargo run --example multi_texture`.
 
-use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke, TextureManager};
+use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, TextureManager};
 use grafo::{RendererContext, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -90,10 +90,7 @@ impl ApplicationHandler for App {
 
         renderer
             .add_shape(
-                Shape::rect(
-                    [(100.0, 100.0), (500.0, 400.0)],
-                    Stroke::new(1.0_f32, Color::BLACK),
-                ),
+                Shape::rect([(100.0, 100.0), (500.0, 400.0)]),
                 None,
                 None,
                 ShapeDrawCommandOptions::new()

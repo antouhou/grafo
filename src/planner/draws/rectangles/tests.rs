@@ -9,9 +9,7 @@ use crate::core::util::ShapeResources;
 use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::DrawTreeNode;
-use crate::{
-    CachedShapeHandle, Color, Shape, ShapeDrawCommandOptions, Size, Stroke, TransformInstance,
-};
+use crate::{CachedShapeHandle, Color, Shape, ShapeDrawCommandOptions, Size, TransformInstance};
 use ahash::{HashMap, HashMapExt};
 use lyon::tessellation::FillTessellator;
 
@@ -42,7 +40,7 @@ fn rect_draw_tree_node_with_options(options: ShapeDrawCommandOptions) -> DrawTre
     let mut tessellator = FillTessellator::new();
     let mut shape_resources = ShapeResources::new();
     let shape_handle = CachedShapeHandle::new(
-        &Shape::rect([(0.0, 0.0), (10.0, 10.0)], Stroke::default()),
+        &Shape::rect([(0.0, 0.0), (10.0, 10.0)]),
         &mut tessellator,
         &mut shape_resources,
         None,

@@ -4,7 +4,6 @@ use super::{
 };
 use crate::core::util::ShapeResources;
 use crate::core::vertex::CustomVertex;
-use crate::core::Stroke;
 use lyon::tessellation::FillTessellator;
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -64,7 +63,7 @@ fn aa_fringe_ignores_internal_seams_with_duplicate_vertices() {
 
 #[test]
 fn rect_tessellation_uses_shared_quad_corners() {
-    let rect_shape = RectShape::new([(10.0, 20.0), (30.0, 50.0)], Stroke::default());
+    let rect_shape = RectShape::new([(10.0, 20.0), (30.0, 50.0)]);
     let mut tessellator = FillTessellator::new();
     let mut shape_resources = ShapeResources::new();
 
@@ -135,7 +134,7 @@ fn tessellation_reuse_survives_queue_rebuilds_in_independent_caches() {
     let mut first = ShapeResources::new();
     let mut second = ShapeResources::new();
     let mut tessellator = FillTessellator::new();
-    let rectangle = Shape::rect([(0.0, 0.0), (20.0, 20.0)], Stroke::default());
+    let rectangle = Shape::rect([(0.0, 0.0), (20.0, 20.0)]);
     let triangle = Shape::builder()
         .begin((0.0, 0.0))
         .line_to((20.0, 0.0))

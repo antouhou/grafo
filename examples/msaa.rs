@@ -2,7 +2,7 @@
 
 use futures::executor::block_on;
 use grafo::{BorderRadii, Shape};
-use grafo::{Color, ShapeDrawCommandOptions, Stroke};
+use grafo::{Color, ShapeDrawCommandOptions};
 use grafo::{RendererContext, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -102,10 +102,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 renderer.clear_draw_queue();
-                let background = Shape::rect(
-                    [(0.0, 0.0), (800.0, 600.0)],
-                    Stroke::new(2.0_f32, Color::rgb(255, 0, 0)),
-                );
+                let background = Shape::rect([(0.0, 0.0), (800.0, 600.0)]);
                 renderer
                     .add_shape(
                         background,
@@ -117,7 +114,6 @@ impl ApplicationHandler for App {
 
                 // Diagonal edges make aliasing visible.
                 let triangle = Shape::builder()
-                    .stroke(Stroke::new(2.0_f32, Color::BLACK))
                     .begin((200.0, 80.0))
                     .line_to((80.0, 350.0))
                     .line_to((320.0, 350.0))
@@ -133,11 +129,8 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 // Curved edges show the effect of MSAA.
-                let rounded_rect = Shape::rounded_rect(
-                    [(380.0, 100.0), (620.0, 330.0)],
-                    BorderRadii::new(30.0),
-                    Stroke::new(2.0_f32, Color::rgb(255, 0, 0)),
-                );
+                let rounded_rect =
+                    Shape::rounded_rect([(380.0, 100.0), (620.0, 330.0)], BorderRadii::new(30.0));
                 renderer
                     .add_shape(
                         rounded_rect,
@@ -148,11 +141,8 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 // A corner radius of half the width makes this square circular.
-                let circle = Shape::rounded_rect(
-                    [(100.0, 270.0), (260.0, 430.0)],
-                    BorderRadii::new(80.0),
-                    Stroke::new(2.0_f32, Color::BLACK),
-                );
+                let circle =
+                    Shape::rounded_rect([(100.0, 270.0), (260.0, 430.0)], BorderRadii::new(80.0));
                 renderer
                     .add_shape(
                         circle,
@@ -162,10 +152,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                let small_rect = Shape::rect(
-                    [(400.0, 280.0), (550.0, 420.0)],
-                    Stroke::new(1.0_f32, Color::rgb(100, 0, 150)),
-                );
+                let small_rect = Shape::rect([(400.0, 280.0), (550.0, 420.0)]);
                 renderer
                     .add_shape(
                         small_rect,

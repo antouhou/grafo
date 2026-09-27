@@ -10,9 +10,7 @@
 //! cargo run --example bench_render_loop --features render_metrics --release
 //! ```
 use futures::executor::block_on;
-use grafo::{
-    Color, Renderer, Shape, ShapeDrawCommandOptions, Stroke, TextureManager, TransformInstance,
-};
+use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, TextureManager, TransformInstance};
 use grafo::{RendererContext, Surface};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -83,43 +81,24 @@ fn load_textures_and_shapes(renderer: &mut grafo::Renderer) {
     }
 
     // A 250x250 textured rectangle.
-    let textured_rect = Shape::rect(
-        [(0.0, 0.0), (TEXTURE_SIZE as f32, TEXTURE_SIZE as f32)],
-        Stroke::default(),
-    );
+    let textured_rect = Shape::rect([(0.0, 0.0), (TEXTURE_SIZE as f32, TEXTURE_SIZE as f32)]);
     renderer.load_shape(textured_rect, CACHE_KEY_TEXTURED, Some(CACHE_KEY_TEXTURED));
 }
 
 fn load_shape_geometries(renderer: &mut grafo::Renderer) {
-    let container = Shape::rect(
-        [(0.0, 0.0), (240.0, 500.0)],
-        Stroke::new(1.0_f32, Color::BLACK),
-    );
+    let container = Shape::rect([(0.0, 0.0), (240.0, 500.0)]);
     renderer.load_shape(container, CACHE_KEY_CONTAINER, Some(CACHE_KEY_CONTAINER));
 
-    let row = Shape::rect(
-        [(0.0, 0.0), (220.0, 110.0)],
-        Stroke::new(1.0_f32, Color::BLACK),
-    );
+    let row = Shape::rect([(0.0, 0.0), (220.0, 110.0)]);
     renderer.load_shape(row, CACHE_KEY_ROW, Some(CACHE_KEY_ROW));
 
-    let cell = Shape::rect(
-        [(0.0, 0.0), (36.0, 90.0)],
-        Stroke::new(1.0_f32, Color::BLACK),
-    );
+    let cell = Shape::rect([(0.0, 0.0), (36.0, 90.0)]);
     renderer.load_shape(cell, CACHE_KEY_CELL, Some(CACHE_KEY_CELL));
 
-    let sidebar = Shape::rect(
-        [(0.0, 0.0), (100.0, 500.0)],
-        Stroke::new(1.0_f32, Color::BLACK),
-    );
+    let sidebar = Shape::rect([(0.0, 0.0), (100.0, 500.0)]);
     renderer.load_shape(sidebar, CACHE_KEY_SIDEBAR, Some(CACHE_KEY_SIDEBAR));
 
-    let circle = Shape::rounded_rect(
-        [(0.0, 0.0), (40.0, 40.0)],
-        grafo::BorderRadii::new(20.0),
-        Stroke::new(1.0_f32, Color::BLACK),
-    );
+    let circle = Shape::rounded_rect([(0.0, 0.0), (40.0, 40.0)], grafo::BorderRadii::new(20.0));
     renderer.load_shape(circle, CACHE_KEY_CIRCLE, Some(CACHE_KEY_CIRCLE));
 }
 

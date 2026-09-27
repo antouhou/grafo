@@ -3,7 +3,7 @@ use super::{RenderBackend, Renderer};
 use crate::commands::{RenderCommand, RenderOperation, RenderPlan, ShapeDrawId, Target};
 use crate::core::{
     CachedShapeHandle, Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeInstance,
-    Stroke, Viewport,
+    Viewport,
 };
 use crate::render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError, Surface,
@@ -193,11 +193,7 @@ impl RenderBackend for TestBackend {
 }
 
 fn queue_shape(renderer: &mut Renderer<TestBackend>, with_effects: bool) -> usize {
-    renderer.load_shape(
-        Shape::rect([(0.0, 0.0), (16.0, 16.0)], Stroke::default()),
-        1,
-        Some(1),
-    );
+    renderer.load_shape(Shape::rect([(0.0, 0.0), (16.0, 16.0)]), 1, Some(1));
     let id = renderer
         .add_cached_shape(
             1,

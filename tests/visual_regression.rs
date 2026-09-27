@@ -7,7 +7,7 @@ use grafo::{
     DrawCommandError, EffectError, Fill, Gradient, GradientStop, GradientStopOffset,
     LinearGradientDesc, LinearGradientLine, Renderer, RendererContext, RendererCreationError,
     Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
-    Stroke, TextureManager, TransformInstance,
+    TextureManager, TransformInstance,
 };
 use grafo::{
     EffectResourceError, PixelFormat, PixelLayout, Pixmap, PixmapMut, SceneError, WgpuBackendError,
@@ -73,7 +73,7 @@ fn shape_effect_is_resolved_before_backdrop_capture_with_msaa() {
 
     renderer
         .add_shape(
-            Shape::rect([(0.0, 0.0), (64.0, 64.0)], Stroke::default()),
+            Shape::rect([(0.0, 0.0), (64.0, 64.0)]),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 50)),
@@ -81,7 +81,7 @@ fn shape_effect_is_resolved_before_backdrop_capture_with_msaa() {
         .unwrap();
     let panel_id = renderer
         .add_shape(
-            Shape::rect([(16.0, 16.0), (48.0, 48.0)], Stroke::default()),
+            Shape::rect([(16.0, 16.0), (48.0, 48.0)]),
             None,
             Some(9_103),
             ShapeDrawCommandOptions::new(),
@@ -144,7 +144,7 @@ fn effect_reload_removes_every_attachment_and_accepts_fresh_parameters() {
         .unwrap();
     let background = renderer
         .add_shape(
-            Shape::rect([(0.0, 0.0), (48.0, 32.0)], Stroke::default()),
+            Shape::rect([(0.0, 0.0), (48.0, 32.0)]),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::WHITE),
@@ -152,7 +152,7 @@ fn effect_reload_removes_every_attachment_and_accepts_fresh_parameters() {
         .unwrap();
     let group = renderer
         .add_shape(
-            Shape::rect([(0.0, 0.0), (16.0, 32.0)], Stroke::default()),
+            Shape::rect([(0.0, 0.0), (16.0, 32.0)]),
             Some(background),
             None,
             ShapeDrawCommandOptions::new().color(Color::WHITE),
@@ -160,7 +160,7 @@ fn effect_reload_removes_every_attachment_and_accepts_fresh_parameters() {
         .unwrap();
     let backdrop = renderer
         .add_shape(
-            Shape::rect([(16.0, 0.0), (32.0, 32.0)], Stroke::default()),
+            Shape::rect([(16.0, 0.0), (32.0, 32.0)]),
             Some(background),
             None,
             ShapeDrawCommandOptions::new(),
@@ -168,7 +168,7 @@ fn effect_reload_removes_every_attachment_and_accepts_fresh_parameters() {
         .unwrap();
     let shape = renderer
         .add_shape(
-            Shape::rect([(32.0, 0.0), (48.0, 32.0)], Stroke::default()),
+            Shape::rect([(32.0, 0.0), (48.0, 32.0)]),
             Some(background),
             None,
             ShapeDrawCommandOptions::new(),
@@ -435,7 +435,7 @@ fn invalid_effect_can_be_replaced_with_a_valid_shader() {
     renderer.load_effect(9_201, &[PASSTHROUGH_WGSL]).unwrap();
     let shape_id = renderer
         .add_shape(
-            Shape::rect([(8.0, 8.0), (24.0, 24.0)], Stroke::default()),
+            Shape::rect([(8.0, 8.0), (24.0, 24.0)]),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
@@ -467,11 +467,7 @@ fn shape_effects_follow_geometry_and_placement_across_queue_rebuilds() {
     renderer
         .load_effect(8_101, &[CACHED_SHAPE_EFFECT_RED_MASK])
         .unwrap();
-    renderer.load_shape(
-        Shape::rect([(0.0, 0.0), (24.0, 24.0)], Stroke::default()),
-        8_102,
-        Some(8_103),
-    );
+    renderer.load_shape(Shape::rect([(0.0, 0.0), (24.0, 24.0)]), 8_102, Some(8_103));
     renderer.load_shape(
         Shape::builder()
             .begin((0.0, 0.0))
@@ -493,7 +489,7 @@ fn shape_effects_follow_geometry_and_placement_across_queue_rebuilds() {
         renderer.clear_draw_queue();
         let root_id = renderer
             .add_shape(
-                Shape::rect([(0.0, 0.0), (96.0, 48.0)], Stroke::default()),
+                Shape::rect([(0.0, 0.0), (96.0, 48.0)]),
                 None,
                 None,
                 ShapeDrawCommandOptions::new().color(Color::WHITE),
@@ -533,14 +529,10 @@ fn cached_shape_effects_share_the_normal_texture_pipeline() {
         return;
     };
     renderer.load_effect(8_151, &[PASSTHROUGH_WGSL]).unwrap();
-    renderer.load_shape(
-        Shape::rect([(0.0, 0.0), (24.0, 24.0)], Stroke::default()),
-        8_152,
-        Some(8_153),
-    );
+    renderer.load_shape(Shape::rect([(0.0, 0.0), (24.0, 24.0)]), 8_152, Some(8_153));
     let root_id = renderer
         .add_shape(
-            Shape::rect([(0.0, 0.0), (96.0, 48.0)], Stroke::default()),
+            Shape::rect([(0.0, 0.0), (96.0, 48.0)]),
             None,
             None,
             ShapeDrawCommandOptions::new().clips_children(false),
@@ -588,7 +580,7 @@ fn cached_shape_effect_is_invalidated_by_normal_pipeline_recreation() {
     renderer.load_effect(8_161, &[SHAPE_DROP_WGSL]).unwrap();
     let shape_id = renderer
         .add_shape(
-            Shape::rect([(16.0, 16.0), (48.0, 48.0)], Stroke::default()),
+            Shape::rect([(16.0, 16.0), (48.0, 48.0)]),
             None,
             Some(8_162),
             ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 50)),
@@ -619,7 +611,7 @@ fn shape_effect_parameter_updates_change_visible_color() {
         .unwrap();
     let shape_id = renderer
         .add_shape(
-            Shape::rect([(12.0, 12.0), (36.0, 36.0)], Stroke::default()),
+            Shape::rect([(12.0, 12.0), (36.0, 36.0)]),
             None,
             Some(8_202),
             ShapeDrawCommandOptions::new().transform(TransformInstance::translation(6.0, 4.0)),
@@ -683,7 +675,7 @@ fn rebuild_texture_material_scene(
     renderer.clear_draw_queue();
     renderer
         .add_shape(
-            Shape::rect([(0.0, 0.0), (64.0, 32.0)], Stroke::default()),
+            Shape::rect([(0.0, 0.0), (64.0, 32.0)]),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::WHITE),
@@ -692,7 +684,7 @@ fn rebuild_texture_material_scene(
     for left in [14.0, 46.0] {
         renderer
             .add_shape(
-                Shape::rect([(left, 0.0), (left + 4.0, 32.0)], Stroke::default()),
+                Shape::rect([(left, 0.0), (left + 4.0, 32.0)]),
                 None,
                 None,
                 ShapeDrawCommandOptions::new().color(Color::BLACK),
@@ -726,7 +718,7 @@ fn rebuild_texture_material_scene(
         };
         let panel = renderer
             .add_shape(
-                Shape::rect([(left, 4.0), (left + 24.0, 28.0)], Stroke::default()),
+                Shape::rect([(left, 4.0), (left + 24.0, 28.0)]),
                 None,
                 None,
                 ShapeDrawCommandOptions::new().fill(fill),
@@ -803,10 +795,7 @@ fn empty_draw_queue() {
         renderer.clear_draw_queue();
         renderer
             .add_shape(
-                Shape::rect(
-                    [(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)],
-                    Stroke::default(),
-                ),
+                Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]),
                 None,
                 None,
                 ShapeDrawCommandOptions::new().color(Color::WHITE),
@@ -850,11 +839,7 @@ fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent()
         .allocate_texture_with_data(42, (1, 1), &[0, 0, 0, 0]);
     assert!(second.texture_manager().is_texture_loaded(42));
 
-    first.load_shape(
-        Shape::rect([(0.0, 0.0), (16.0, 16.0)], Stroke::default()),
-        99,
-        Some(99),
-    );
+    first.load_shape(Shape::rect([(0.0, 0.0), (16.0, 16.0)]), 99, Some(99));
     second
         .add_cached_shape(
             99,
@@ -867,7 +852,7 @@ fn renderers_from_one_context_share_resources_and_keep_draw_queues_independent()
 
     first
         .add_shape(
-            Shape::rect([(0.0, 0.0), (16.0, 16.0)], Stroke::default()),
+            Shape::rect([(0.0, 0.0), (16.0, 16.0)]),
             None,
             None,
             ShapeDrawCommandOptions::new()
@@ -961,7 +946,7 @@ fn single_root_no_children() {
         return;
     };
 
-    let shape = Shape::rect([(10.0, 10.0), (100.0, 100.0)], Stroke::default());
+    let shape = Shape::rect([(10.0, 10.0), (100.0, 100.0)]);
     renderer
         .add_shape(
             shape,
@@ -1010,7 +995,7 @@ fn original_size_texture_fit_uses_physical_pixels_on_hidpi() {
         &green_texture_with_transparent_border_20x20,
     );
 
-    let shape = Shape::rect([(10.0, 10.0), (70.0, 70.0)], Stroke::default());
+    let shape = Shape::rect([(10.0, 10.0), (70.0, 70.0)]);
     renderer
         .add_shape(
             shape,
@@ -1078,7 +1063,7 @@ fn cover_and_contain_texture_fit_preserve_aspect_ratio() {
 
     renderer
         .add_shape(
-            Shape::rect([(8.0, 8.0), (56.0, 56.0)], Stroke::default()),
+            Shape::rect([(8.0, 8.0), (56.0, 56.0)]),
             None,
             None,
             ShapeDrawCommandOptions::new()
@@ -1091,7 +1076,7 @@ fn cover_and_contain_texture_fit_preserve_aspect_ratio() {
         .unwrap();
     renderer
         .add_shape(
-            Shape::rect([(88.0, 8.0), (136.0, 56.0)], Stroke::default()),
+            Shape::rect([(88.0, 8.0), (136.0, 56.0)]),
             None,
             None,
             ShapeDrawCommandOptions::new()
@@ -1151,7 +1136,7 @@ fn clipping_rect_clips_child_without_visible_surface() {
             true,
         )
         .unwrap();
-    let child = Shape::rect([(0.0, 0.0), (100.0, 100.0)], Stroke::default());
+    let child = Shape::rect([(0.0, 0.0), (100.0, 100.0)]);
     renderer
         .add_shape(
             child,
@@ -1203,7 +1188,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
         )
         .expect("Failed to compile deterministic backdrop test effect");
 
-    let seeded_blue_panel = Shape::rect([(20.0, 20.0), (60.0, 60.0)], Stroke::default());
+    let seeded_blue_panel = Shape::rect([(20.0, 20.0), (60.0, 60.0)]);
     renderer
         .add_shape(
             seeded_blue_panel.clone(),
@@ -1237,7 +1222,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 
     renderer.clear_draw_queue();
 
-    let visible_red_source = Shape::rect([(70.0, 20.0), (100.0, 60.0)], Stroke::default());
+    let visible_red_source = Shape::rect([(70.0, 20.0), (100.0, 60.0)]);
     renderer
         .add_shape(
             visible_red_source,
@@ -1247,7 +1232,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
         )
         .unwrap();
 
-    let partially_offscreen_panel = Shape::rect([(70.0, 20.0), (100.0, 60.0)], Stroke::default());
+    let partially_offscreen_panel = Shape::rect([(70.0, 20.0), (100.0, 60.0)]);
     let partially_offscreen_panel_id = renderer
         .add_shape(
             partially_offscreen_panel,
@@ -1337,7 +1322,7 @@ fn clipping_rect_rejects_non_axis_aligned_transform() {
         ))
     ));
 
-    let child = Shape::rect([(0.0, 0.0), (100.0, 100.0)], Stroke::default());
+    let child = Shape::rect([(0.0, 0.0), (100.0, 100.0)]);
     renderer
         .add_shape(
             child,
@@ -1364,7 +1349,7 @@ fn gradient_fill_basic() {
         return;
     };
 
-    let root = Shape::rect([(0.0, 0.0), (100.0, 100.0)], Stroke::default());
+    let root = Shape::rect([(0.0, 0.0), (100.0, 100.0)]);
     let root_id = renderer
         .add_shape(
             root,
@@ -1397,7 +1382,7 @@ fn gradient_fill_basic() {
 
     renderer
         .add_shape(
-            Shape::rect([(10.0, 10.0), (90.0, 90.0)], Stroke::default()),
+            Shape::rect([(10.0, 10.0), (90.0, 90.0)]),
             Some(root_id),
             None,
             ShapeDrawCommandOptions::new().fill(Fill::from(gradient)),
@@ -1445,7 +1430,7 @@ fn gradient_survives_pipeline_recreation() {
 
     renderer
         .add_shape(
-            Shape::rect([(10.0, 10.0), (90.0, 90.0)], Stroke::default()),
+            Shape::rect([(10.0, 10.0), (90.0, 90.0)]),
             None,
             None,
             ShapeDrawCommandOptions::new().fill(Fill::from(gradient)),
@@ -1481,10 +1466,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
     // Full-canvas rect root so all children are visible.
     let root = renderer
         .add_shape(
-            Shape::rect(
-                [(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)],
-                Stroke::default(),
-            ),
+            Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::rgba(0, 0, 0, 0)),
@@ -1516,7 +1498,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
 
     let gradient_parent = renderer
         .add_shape(
-            Shape::rounded_rect([(10.0, 10.0), (140.0, 90.0)], radii, Stroke::default()),
+            Shape::rounded_rect([(10.0, 10.0), (140.0, 90.0)], radii),
             Some(root),
             None,
             ShapeDrawCommandOptions::new().fill(Fill::from(gradient)),
@@ -1525,7 +1507,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
 
     renderer
         .add_shape(
-            Shape::rect([(20.0, 20.0), (130.0, 80.0)], Stroke::default()),
+            Shape::rect([(20.0, 20.0), (130.0, 80.0)]),
             Some(gradient_parent),
             None,
             ShapeDrawCommandOptions::new().color(Color::WHITE),
@@ -1534,7 +1516,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
 
     let solid_parent = renderer
         .add_shape(
-            Shape::rounded_rect([(160.0, 10.0), (290.0, 90.0)], radii, Stroke::default()),
+            Shape::rounded_rect([(160.0, 10.0), (290.0, 90.0)], radii),
             Some(root),
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(0, 200, 0)),
@@ -1543,7 +1525,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
 
     renderer
         .add_shape(
-            Shape::rect([(170.0, 20.0), (280.0, 80.0)], Stroke::default()),
+            Shape::rect([(170.0, 20.0), (280.0, 80.0)]),
             Some(solid_parent),
             None,
             ShapeDrawCommandOptions::new().color(Color::WHITE),
@@ -1569,10 +1551,7 @@ fn multi_subpath_fill_has_no_internal_seam() {
         return;
     };
 
-    let canvas_root = Shape::rect(
-        [(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)],
-        Stroke::default(),
-    );
+    let canvas_root = Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]);
     let canvas_root_id = renderer
         .add_shape(
             canvas_root,
@@ -1601,7 +1580,7 @@ fn multi_subpath_fill_has_no_internal_seam() {
         )
         .unwrap();
 
-    let rect = Shape::rect([(140.0, 10.0), (230.0, 100.0)], Stroke::default());
+    let rect = Shape::rect([(140.0, 10.0), (230.0, 100.0)]);
     renderer
         .add_shape(
             rect,
@@ -1648,7 +1627,7 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
         .unwrap();
     renderer
         .add_shape(
-            Shape::rect([(0.0, 0.0), (64.0, 64.0)], Stroke::default()),
+            Shape::rect([(0.0, 0.0), (64.0, 64.0)]),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
@@ -1656,7 +1635,7 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
         .unwrap();
     let group = renderer
         .add_shape(
-            Shape::rect([(4.0, 4.0), (60.0, 60.0)], Stroke::default()),
+            Shape::rect([(4.0, 4.0), (60.0, 60.0)]),
             None,
             None,
             ShapeDrawCommandOptions::new(),
@@ -1665,7 +1644,7 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
     renderer.set_group_effect(group, effect_id, &[]).unwrap();
     renderer
         .add_shape(
-            Shape::rect([(32.0, 4.0), (60.0, 60.0)], Stroke::default()),
+            Shape::rect([(32.0, 4.0), (60.0, 60.0)]),
             Some(group),
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(0, 255, 0)),
@@ -1673,7 +1652,7 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
         .unwrap();
     let panel = renderer
         .add_shape(
-            Shape::rect([(16.0, 16.0), (48.0, 48.0)], Stroke::default()),
+            Shape::rect([(16.0, 16.0), (48.0, 48.0)]),
             Some(group),
             None,
             ShapeDrawCommandOptions::new(),
@@ -1736,7 +1715,7 @@ fn readback_targets_survive_alternating_formats_and_resize() {
     };
     renderer
         .add_shape(
-            Shape::rect([(0.0, 0.0), (130.0, 10.0)], Stroke::default()),
+            Shape::rect([(0.0, 0.0), (130.0, 10.0)]),
             None,
             None,
             ShapeDrawCommandOptions::new().color(Color::rgb(51, 102, 153)),

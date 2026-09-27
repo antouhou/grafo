@@ -11,7 +11,7 @@ use crate::core::Viewport;
 use crate::scene::effects::ShapeEffectInstance;
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::DrawTreeNode;
-use crate::{Shape, ShapeDrawCommandOptions, Size, Stroke};
+use crate::{Shape, ShapeDrawCommandOptions, Size};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
 use lyon::tessellation::FillTessellator;
@@ -59,7 +59,7 @@ fn scene_with_effects(
     let mut effects = HashMap::new();
     let mut resources = ShapeResources::new();
     let handle = CachedShapeHandle::new(
-        &Shape::rect([(0.0, 0.0), (20.0, 10.0)], Stroke::default()),
+        &Shape::rect([(0.0, 0.0), (20.0, 10.0)]),
         &mut FillTessellator::new(),
         &mut resources,
         Some(17),
