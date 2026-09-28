@@ -640,6 +640,37 @@ fn shape_effect_parameter_updates_change_visible_color() {
     assert_eq!(read_pixel_rgba(&pixels, 48, 30, 28), [255, 0, 0, 255]);
 }
 
+fn assert_scene_restored_after_overlay_removal(
+    renderer: &mut Renderer,
+    pixel_buffer: &mut Vec<u8>,
+    expectations: &[PixelExpectation],
+) {
+    let overlay = renderer
+        .add_clipping_rect(
+            [(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)],
+            None,
+            None::<TransformInstance>,
+            true,
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]),
+            Some(overlay),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 255)),
+        )
+        .unwrap();
+    render_bgra(renderer, pixel_buffer).unwrap();
+    assert_eq!(
+        read_pixel_rgba(pixel_buffer, CANVAS_WIDTH, 40, 40),
+        [255, 0, 255, 255]
+    );
+    renderer.remove_subtree(overlay, |_| {});
+    render_bgra(renderer, pixel_buffer).unwrap();
+    assert_pixels_match(pixel_buffer, expectations);
+}
+
 #[test]
 fn main_scene_pixel_expectations() {
     let Some(mut renderer) = create_headless_renderer() else {
@@ -651,8 +682,8 @@ fn main_scene_pixel_expectations() {
     for sample_count in [4, 1, 4, 1] {
         renderer.set_msaa_samples(sample_count);
         // Exercise both full clears and root removal after a completed render.
-        for remove_root in [false, true] {
-            if remove_root {
+        for should_remove_root in [false, true] {
+            if should_remove_root {
                 renderer.remove_subtree(0, |_| {});
             } else {
                 renderer.clear_draw_queue();
@@ -660,31 +691,12 @@ fn main_scene_pixel_expectations() {
             let expectations = build_main_scene(&mut renderer);
             render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
             assert_pixels_match(&pixel_buffer, &expectations);
-            if remove_root {
-                let overlay = renderer
-                    .add_clipping_rect(
-                        [(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)],
-                        None,
-                        None::<TransformInstance>,
-                        true,
-                    )
-                    .unwrap();
-                renderer
-                    .add_shape(
-                        Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]),
-                        Some(overlay),
-                        None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 255)),
-                    )
-                    .unwrap();
-                render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
-                assert_eq!(
-                    read_pixel_rgba(&pixel_buffer, CANVAS_WIDTH, 40, 40),
-                    [255, 0, 255, 255]
+            if should_remove_root {
+                assert_scene_restored_after_overlay_removal(
+                    &mut renderer,
+                    &mut pixel_buffer,
+                    &expectations,
                 );
-                renderer.remove_subtree(overlay, |_| {});
-                render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
-                assert_pixels_match(&pixel_buffer, &expectations);
             }
         }
         for _ in 0..2 {

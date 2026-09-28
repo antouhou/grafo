@@ -47,6 +47,180 @@ fn tile_origin(tile_number: u32) -> (f32, f32) {
     ((column * TILE_SIZE) as f32, (row * TILE_SIZE) as f32)
 }
 
+fn add_removable_effect_subtree(
+    renderer: &mut Renderer,
+    parent: usize,
+    (origin_x, origin_y): (f32, f32),
+) -> usize {
+    let subtree_root = renderer
+        .add_shape(
+            Shape::rect([(origin_x, origin_y), (origin_x + 80.0, origin_y + 80.0)]),
+            Some(parent),
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgb(255, 0, 0))
+                .clips_children(false),
+        )
+        .unwrap();
+    renderer
+        .set_group_effect(subtree_root, COLOR_CHANNEL_EFFECT_ID, &[])
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            subtree_root,
+            SHAPE_DROP_EFFECT_ID,
+            &[],
+            ShapeEffectConfig::default(),
+        )
+        .unwrap();
+    let clip = renderer
+        .add_clipping_rect(
+            [
+                (origin_x + 10.0, origin_y + 10.0),
+                (origin_x + 70.0, origin_y + 70.0),
+            ],
+            Some(subtree_root),
+            None::<TransformInstance>,
+            true,
+        )
+        .unwrap();
+    let textured_child = renderer
+        .add_shape(
+            Shape::rect([(origin_x, origin_y), (origin_x + 80.0, origin_y + 80.0)]),
+            Some(clip),
+            None,
+            ShapeDrawCommandOptions::new().background_texture_id(SOLID_RED_TEXTURE_ID),
+        )
+        .unwrap();
+    renderer
+        .set_shape_backdrop_effect(
+            textured_child,
+            COLOR_CHANNEL_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::default(),
+        )
+        .unwrap();
+    subtree_root
+}
+
+fn add_replacement_effect_subtree(
+    renderer: &mut Renderer,
+    parent: usize,
+    (origin_x, origin_y): (f32, f32),
+) {
+    let replacement_clip = renderer
+        .add_clipping_rect(
+            [
+                (origin_x + 15.0, origin_y + 15.0),
+                (origin_x + 65.0, origin_y + 65.0),
+            ],
+            Some(parent),
+            None::<TransformInstance>,
+            true,
+        )
+        .unwrap();
+    let textured_shape = renderer
+        .add_shape(
+            Shape::rect([
+                (origin_x + 20.0, origin_y + 20.0),
+                (origin_x + 40.0, origin_y + 60.0),
+            ]),
+            Some(replacement_clip),
+            None,
+            ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
+        )
+        .unwrap();
+    renderer
+        .set_group_effect(textured_shape, PASSTHROUGH_EFFECT_ID, &[])
+        .unwrap();
+    let backdrop_shape = renderer
+        .add_shape(
+            Shape::rect([
+                (origin_x + 45.0, origin_y + 20.0),
+                (origin_x + 60.0, origin_y + 60.0),
+            ]),
+            Some(replacement_clip),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(0, 0, 255)),
+        )
+        .unwrap();
+    renderer
+        .set_shape_backdrop_effect(
+            backdrop_shape,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::default(),
+        )
+        .unwrap();
+    let temporary_child = renderer
+        .add_shape(
+            Shape::rect([(origin_x, origin_y), (origin_x + 80.0, origin_y + 80.0)]),
+            Some(backdrop_shape),
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+        )
+        .unwrap();
+    renderer.remove_subtree(temporary_child, |_| {});
+}
+
+/// Removed effects must not follow reused IDs, and the last child's removal restores a leaf.
+fn tile_84_subtree_removal(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(84);
+    let parent = renderer
+        .add_shape(
+            Shape::rounded_rect(
+                [
+                    (origin_x + 5.0, origin_y + 5.0),
+                    (origin_x + 75.0, origin_y + 75.0),
+                ],
+                BorderRadii::new(12.0),
+            ),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 50)),
+        )
+        .unwrap();
+    let subtree_root = add_removable_effect_subtree(renderer, parent, (origin_x, origin_y));
+    renderer.remove_subtree(subtree_root, |_| {});
+
+    // Reuse all removed slots with different node types and attachments.
+    add_replacement_effect_subtree(renderer, parent, (origin_x, origin_y));
+    vec![
+        PixelExpectation::opaque(
+            origin_x as u32 + 30,
+            origin_y as u32 + 40,
+            0,
+            255,
+            0,
+            "t84_retained_texture_and_group",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 52,
+            origin_y as u32 + 40,
+            0,
+            0,
+            255,
+            "t84_backdrop_leaf_after_removal",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 10,
+            origin_y as u32 + 40,
+            220,
+            200,
+            50,
+            "t84_removed_branch_is_absent",
+        ),
+        PixelExpectation::opaque(
+            origin_x as u32 + 6,
+            origin_y as u32 + 6,
+            255,
+            255,
+            255,
+            "t84_rounded_clip_preserved",
+        ),
+    ]
+}
+
 /// Queues the tile grid and returns its expected pixel colors.
 /// The headless regression test and visual_test_grid example share this scene.
 pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
@@ -167,163 +341,6 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_84_subtree_removal(renderer));
 
     expectations
-}
-
-/// Removed effects must not follow reused IDs, and the last child's removal restores a leaf.
-fn tile_84_subtree_removal(renderer: &mut Renderer) -> Vec<PixelExpectation> {
-    let (origin_x, origin_y) = tile_origin(84);
-    let parent = renderer
-        .add_shape(
-            Shape::rounded_rect(
-                [
-                    (origin_x + 5.0, origin_y + 5.0),
-                    (origin_x + 75.0, origin_y + 75.0),
-                ],
-                BorderRadii::new(12.0),
-            ),
-            None,
-            None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 50)),
-        )
-        .unwrap();
-    let removed = renderer
-        .add_shape(
-            Shape::rect([(origin_x, origin_y), (origin_x + 80.0, origin_y + 80.0)]),
-            Some(parent),
-            None,
-            ShapeDrawCommandOptions::new()
-                .color(Color::rgb(255, 0, 0))
-                .clips_children(false),
-        )
-        .unwrap();
-    renderer
-        .set_group_effect(removed, COLOR_CHANNEL_EFFECT_ID, &[])
-        .unwrap();
-    renderer
-        .set_shape_effect(
-            removed,
-            SHAPE_DROP_EFFECT_ID,
-            &[],
-            ShapeEffectConfig::default(),
-        )
-        .unwrap();
-    let clip = renderer
-        .add_clipping_rect(
-            [
-                (origin_x + 10.0, origin_y + 10.0),
-                (origin_x + 70.0, origin_y + 70.0),
-            ],
-            Some(removed),
-            None::<TransformInstance>,
-            true,
-        )
-        .unwrap();
-    let descendant = renderer
-        .add_shape(
-            Shape::rect([(origin_x, origin_y), (origin_x + 80.0, origin_y + 80.0)]),
-            Some(clip),
-            None,
-            ShapeDrawCommandOptions::new().background_texture_id(SOLID_RED_TEXTURE_ID),
-        )
-        .unwrap();
-    renderer
-        .set_shape_backdrop_effect(
-            descendant,
-            COLOR_CHANNEL_EFFECT_ID,
-            &[],
-            BackdropEffectConfig::default(),
-        )
-        .unwrap();
-    renderer.remove_subtree(removed, |_| {});
-
-    // Consume all removed slots with different node types and attachments.
-    let replacement_clip = renderer
-        .add_clipping_rect(
-            [
-                (origin_x + 15.0, origin_y + 15.0),
-                (origin_x + 65.0, origin_y + 65.0),
-            ],
-            Some(parent),
-            None::<TransformInstance>,
-            true,
-        )
-        .unwrap();
-    let green = renderer
-        .add_shape(
-            Shape::rect([
-                (origin_x + 20.0, origin_y + 20.0),
-                (origin_x + 40.0, origin_y + 60.0),
-            ]),
-            Some(replacement_clip),
-            None,
-            ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
-        )
-        .unwrap();
-    renderer
-        .set_group_effect(green, PASSTHROUGH_EFFECT_ID, &[])
-        .unwrap();
-    let blue = renderer
-        .add_shape(
-            Shape::rect([
-                (origin_x + 45.0, origin_y + 20.0),
-                (origin_x + 60.0, origin_y + 60.0),
-            ]),
-            Some(replacement_clip),
-            None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(0, 0, 255)),
-        )
-        .unwrap();
-    renderer
-        .set_shape_backdrop_effect(
-            blue,
-            PASSTHROUGH_EFFECT_ID,
-            &[],
-            BackdropEffectConfig::default(),
-        )
-        .unwrap();
-    let temporary_child = renderer
-        .add_shape(
-            Shape::rect([(origin_x, origin_y), (origin_x + 80.0, origin_y + 80.0)]),
-            Some(blue),
-            None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
-        )
-        .unwrap();
-    renderer.remove_subtree(temporary_child, |_| {});
-    vec![
-        PixelExpectation::opaque(
-            origin_x as u32 + 30,
-            origin_y as u32 + 40,
-            0,
-            255,
-            0,
-            "t84_retained_texture_and_group",
-        ),
-        PixelExpectation::opaque(
-            origin_x as u32 + 52,
-            origin_y as u32 + 40,
-            0,
-            0,
-            255,
-            "t84_backdrop_leaf_after_removal",
-        ),
-        PixelExpectation::opaque(
-            origin_x as u32 + 10,
-            origin_y as u32 + 40,
-            220,
-            200,
-            50,
-            "t84_removed_branch_is_absent",
-        ),
-        PixelExpectation::opaque(
-            origin_x as u32 + 6,
-            origin_y as u32 + 6,
-            255,
-            255,
-            255,
-            "t84_rounded_clip_preserved",
-        ),
-    ]
 }
 
 /// Each row checks a backdrop's color, child clip, and following sibling.

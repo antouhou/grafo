@@ -190,13 +190,6 @@ impl Scene {
         }
     }
 
-    /// Removes a node, its descendants and their effect attachments.
-    /// Calls `removed` once for every removed shape or clipping rectangle, including `node_id`.
-    /// Missing IDs produce no callbacks. Removed IDs can be reused by later insertions.
-    pub fn remove_subtree(&mut self, node_id: usize, mut removed: impl FnMut(usize)) {
-        self.remove_subtree_with(node_id, |id, _| removed(id));
-    }
-
     pub(crate) fn remove_subtree_with(
         &mut self,
         node_id: usize,
@@ -218,6 +211,13 @@ impl Scene {
                 .get_unchecked_mut(parent)
                 .set_is_leaf(is_leaf);
         }
+    }
+
+    /// Removes a node, its descendants and their effect attachments.
+    /// Calls `removed` once for every removed shape or clipping rectangle, including `node_id`.
+    /// Missing IDs produce no callbacks. Removed IDs can be reused by later insertions.
+    pub fn remove_subtree(&mut self, node_id: usize, mut removed: impl FnMut(usize)) {
+        self.remove_subtree_with(node_id, |id, _| removed(id));
     }
 
     pub fn clear(&mut self) {

@@ -24,23 +24,6 @@ pub(crate) struct Planner {
 }
 
 impl Planner {
-    /// Compacts parameters and remaps attachments and recorded effect commands.
-    /// Structural scene changes still require planning before execution.
-    pub(crate) fn retain_effect_parameters(&mut self, scene: &mut Scene) {
-        self.parameter_relocations.clear();
-        scene.retain_effect_parameters(
-            &mut self.commands.effect_parameters,
-            &mut self.retained_parameters,
-            |previous, retained| {
-                self.parameter_relocations.insert(previous, retained);
-            },
-        );
-        self.remap_effect_commands();
-        self.parameter_relocations.clear();
-        self.shape_composites
-            .retain(|node_id, _| scene.shape_effects.contains_key(node_id));
-    }
-
     /// Drops effect commands whose parameter storage was discarded and reindexes composites.
     fn remap_effect_commands(&mut self) {
         self.commands.composite_draws.clear();
@@ -65,6 +48,24 @@ impl Planner {
             retained_index += 1;
             true
         });
+    }
+
+    /// Compacts parameters and remaps attachments and recorded effect commands.
+    /// Structural scene changes still require planning before execution.
+    pub(crate) fn retain_effect_parameters(&mut self, scene: &mut Scene) {
+        self.parameter_relocations.clear();
+        scene.retain_effect_parameters(
+            &mut self.commands.effect_parameters,
+            &mut self.retained_parameters,
+            |previous_range, retained_parameters| {
+                self.parameter_relocations
+                    .insert(previous_range, retained_parameters);
+            },
+        );
+        self.remap_effect_commands();
+        self.parameter_relocations.clear();
+        self.shape_composites
+            .retain(|node_id, _| scene.shape_effects.contains_key(node_id));
     }
 
     pub(crate) fn store_effect_parameters(&mut self, parameters: &[u8]) -> EffectParameters {
