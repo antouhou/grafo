@@ -650,12 +650,42 @@ fn main_scene_pixel_expectations() {
     // Start with MSAA so a rejected submission cannot reuse a prior valid output.
     for sample_count in [4, 1, 4, 1] {
         renderer.set_msaa_samples(sample_count);
-        // Rebuild the queue on every render, including when MSAA remains unchanged.
-        for _ in 0..2 {
-            renderer.clear_draw_queue();
+        // Exercise both full clears and root removal after a completed render.
+        for remove_root in [false, true] {
+            if remove_root {
+                renderer.remove_subtree(0, |_| {});
+            } else {
+                renderer.clear_draw_queue();
+            }
             let expectations = build_main_scene(&mut renderer);
             render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
             assert_pixels_match(&pixel_buffer, &expectations);
+            if remove_root {
+                let overlay = renderer
+                    .add_clipping_rect(
+                        [(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)],
+                        None,
+                        None::<TransformInstance>,
+                        true,
+                    )
+                    .unwrap();
+                renderer
+                    .add_shape(
+                        Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]),
+                        Some(overlay),
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 255)),
+                    )
+                    .unwrap();
+                render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+                assert_eq!(
+                    read_pixel_rgba(&pixel_buffer, CANVAS_WIDTH, 40, 40),
+                    [255, 0, 255, 255]
+                );
+                renderer.remove_subtree(overlay, |_| {});
+                render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+                assert_pixels_match(&pixel_buffer, &expectations);
+            }
         }
         for _ in 0..2 {
             renderer.clear_draw_queue();

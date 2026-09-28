@@ -9,6 +9,7 @@ pub(crate) struct GeometryBufferRange {
     pub(crate) index_start: u32,
     pub(crate) index_count: u32,
     pub(crate) vertex_start: i32,
+    pub(crate) vertex_count: usize,
 }
 
 impl GeometryBufferRange {

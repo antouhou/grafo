@@ -16,6 +16,7 @@ mod buffers;
 mod materials;
 mod pipelines;
 pub(in crate::wgpu_backend) mod preparation;
+mod removal;
 mod sampling;
 
 #[derive(Debug, Clone, Copy)]
@@ -106,3 +107,6 @@ impl ShapeExecutionResources {
         self.instance_metadata.clear();
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -56,7 +56,6 @@ impl ClipRectDrawData {
 
 impl DrawTreeNode {
     /// Whether this node has no children in the draw tree
-    /// Starts as `true`; set to `false` when a child is added.
     pub(crate) fn is_leaf(&self) -> bool {
         match self {
             DrawTreeNode::CachedShape(s) => s.is_leaf,
@@ -64,10 +63,10 @@ impl DrawTreeNode {
         }
     }
 
-    pub(crate) fn set_not_leaf(&mut self) {
+    pub(crate) fn set_is_leaf(&mut self, is_leaf: bool) {
         match self {
-            DrawTreeNode::CachedShape(s) => s.is_leaf = false,
-            DrawTreeNode::ClipRect(clip_rect) => clip_rect.is_leaf = false,
+            DrawTreeNode::CachedShape(shape) => shape.is_leaf = is_leaf,
+            DrawTreeNode::ClipRect(clip_rect) => clip_rect.is_leaf = is_leaf,
         }
     }
 }

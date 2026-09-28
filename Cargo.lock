@@ -724,9 +724,9 @@ dependencies = [
 
 [[package]]
 name = "easy-tree"
-version = "0.3.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43f560da9bebb976828efaccac969205c68852b12cf9f88d3a4a6bcd8f7fca34"
+checksum = "1911e76576c5df6adfe569b6a8e3e42096e7d4102b13201c01791bfb796f2382"
 
 [[package]]
 name = "either"

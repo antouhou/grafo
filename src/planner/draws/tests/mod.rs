@@ -104,7 +104,7 @@ impl Scene {
 
     fn add(&mut self, parent: Option<usize>, node: DrawTreeNode) -> usize {
         if let Some(parent) = parent {
-            self.tree.get_mut(parent).unwrap().set_not_leaf();
+            self.tree.get_mut(parent).unwrap().set_is_leaf(false);
             self.tree.add_child(parent, node)
         } else {
             self.tree.add_node(node)

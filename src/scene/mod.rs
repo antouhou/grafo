@@ -100,9 +100,9 @@ impl Scene {
         Ok(())
     }
 
-    /// Nodes are append-only until the queue is cleared.
+    /// Removed node slots can be reused by the next insertion.
     pub(crate) fn next_node_id(&self) -> usize {
-        self.draw_tree.len()
+        self.draw_tree.next_node_id()
     }
 
     pub fn add_shape(
@@ -173,7 +173,7 @@ impl Scene {
         self.draw_tree
             .get_mut(parent)
             .expect("validated parent")
-            .set_not_leaf();
+            .set_is_leaf(false);
         self.draw_tree.add_child(parent, node)
     }
 
@@ -187,6 +187,36 @@ impl Scene {
             DrawTreeNode::ClipRect(_) => {
                 Err(SceneError::UnsupportedClipRectOperation(node_id, "effects"))
             }
+        }
+    }
+
+    /// Removes a node, its descendants and their effect attachments.
+    /// Calls `removed` once for every removed shape or clipping rectangle, including `node_id`.
+    /// Missing IDs produce no callbacks. Removed IDs can be reused by later insertions.
+    pub fn remove_subtree(&mut self, node_id: usize, mut removed: impl FnMut(usize)) {
+        self.remove_subtree_with(node_id, |id, _| removed(id));
+    }
+
+    pub(crate) fn remove_subtree_with(
+        &mut self,
+        node_id: usize,
+        mut removed: impl FnMut(usize, DrawTreeNode),
+    ) {
+        if self.draw_tree.get(node_id).is_none() {
+            return;
+        }
+        let parent = self.draw_tree.parent_index_unchecked(node_id);
+        self.draw_tree.remove_subtree_with(node_id, |id, node| {
+            self.group_effects.remove(&id);
+            self.backdrop_effects.remove(&id);
+            self.shape_effects.remove(&id);
+            removed(id, node);
+        });
+        if let Some(parent) = parent {
+            let is_leaf = self.draw_tree.children(parent).is_empty();
+            self.draw_tree
+                .get_unchecked_mut(parent)
+                .set_is_leaf(is_leaf);
         }
     }
 
