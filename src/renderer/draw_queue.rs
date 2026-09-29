@@ -3,7 +3,36 @@ use super::{RenderBackend, Renderer};
 use crate::commands::ShapeDrawId;
 use crate::core::shape::{Shape, ShapeDrawCommandOptions, ShapeInstance};
 use crate::core::vertex::InstanceTransform;
+use crate::core::{geometry, MathRect, UnsignedPhysicalRect, Viewport};
 use crate::scene::types::DrawTreeNode;
+
+fn mark_dirty(
+    dirty_bounds: &mut Option<UnsignedPhysicalRect>,
+    bounds: [(f32, f32); 2],
+    transform: Option<InstanceTransform>,
+    viewport: Viewport,
+    fringe_width: f32,
+) {
+    let bounds = geometry::transformed_bounds_to_logical_screen_rect(
+        MathRect::new(bounds[0].into(), bounds[1].into()),
+        transform,
+    );
+    let scale = viewport.scale_factor as f32;
+    let bounds = bounds
+        .scale(scale, scale)
+        .inflate(fringe_width, fringe_width)
+        .round_out();
+    let viewport_bounds = UnsignedPhysicalRect::from_size(viewport.physical_size.into());
+    let bounds = if bounds.is_finite() {
+        let Some(bounds) = bounds.intersection(&viewport_bounds.to_f32()) else {
+            return;
+        };
+        bounds.cast()
+    } else {
+        viewport_bounds
+    };
+    *dirty_bounds = Some(dirty_bounds.map_or(bounds, |dirty| dirty.union(&bounds)));
+}
 
 impl<B: RenderBackend> Renderer<B> {
     /// Tessellates into the shared CPU cache. Geometry IDs let identical shapes share uploads.
@@ -66,7 +95,16 @@ impl<B: RenderBackend> Renderer<B> {
         self.backend
             .register_shape(ShapeDrawId(id), &instance)
             .map_err(DrawCommandError::Backend)?;
+        let bounds = instance.cached_shape.local_bounds();
+        let transform = instance.transform;
         let inserted_id = self.scene.insert_shape(instance, parent, clips_children)?;
+        mark_dirty(
+            &mut self.dirty_bounds,
+            bounds,
+            transform,
+            self.viewport,
+            self.fringe_width,
+        );
         debug_assert_eq!(inserted_id, id);
         Ok(id)
     }
@@ -104,6 +142,15 @@ impl<B: RenderBackend> Renderer<B> {
         self.removed_shape_ids.clear();
         let mut has_removed_nodes = false;
         self.scene.remove_subtrees_with(node_ids, |id, node| {
+            if matches!(node, DrawTreeNode::CachedShape(_)) {
+                mark_dirty(
+                    &mut self.dirty_bounds,
+                    node.local_bounds(),
+                    node.transform(),
+                    self.viewport,
+                    self.fringe_width,
+                );
+            }
             has_removed_nodes = true;
             if matches!(node, DrawTreeNode::CachedShape(_)) {
                 self.removed_shape_ids.push(ShapeDrawId(id));
@@ -126,8 +173,6 @@ impl<B: RenderBackend> Renderer<B> {
     }
 
     pub fn clear_draw_queue(&mut self) {
-        self.scene.clear();
-        self.planner.clear();
-        self.backend.clear_draw_queue();
+        self.remove_subtrees([0], |_| {});
     }
 }

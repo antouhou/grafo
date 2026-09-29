@@ -301,7 +301,7 @@ impl WgpuBackend {
             }
             _ => ByteReadbackResources::new(&self.device, physical_size, self.format),
         };
-        self.render_to_texture_view(commands, &resources.view, Some(&resources.texture));
+        self.render_to_texture_view(commands, &resources.view);
 
         let (_, padded_bytes_per_row) = compute_padded_bytes_per_row(width, 4);
 
@@ -369,7 +369,7 @@ impl WgpuBackend {
         });
         resources.resize(&self.device, (width, height), self.format);
         let target = &resources.target;
-        self.render_to_texture_view(commands, &target.view, Some(&target.texture));
+        self.render_to_texture_view(commands, &target.view);
 
         let (_, padded_bytes_per_row) = compute_padded_bytes_per_row(width, 4);
         let mut encoder = self

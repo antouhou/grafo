@@ -7,6 +7,7 @@ use self::metrics::PhaseTimings;
 pub use self::readback::ReadbackError;
 use self::readback::{ArgbReadbackResources, ByteReadbackResources};
 use self::resources::{BackendResources, RendererPipelineResources};
+use self::retained_output::RetainedOutput;
 pub use self::surface::WgpuSurface;
 use self::texture_manager::WgpuTextureManager;
 pub use self::types::GeometryBufferError;
@@ -31,6 +32,7 @@ mod pipelines;
 pub(in crate::wgpu_backend) mod readback;
 mod rendering;
 pub(in crate::wgpu_backend) mod resources;
+mod retained_output;
 mod surface;
 pub mod texture_manager;
 mod types;
@@ -61,6 +63,7 @@ pub struct WgpuBackend {
 
     pub(in crate::wgpu_backend) argb_readback: Option<ArgbReadbackResources>,
     pub(in crate::wgpu_backend) byte_readback: Option<ByteReadbackResources>,
+    retained_output: Option<RetainedOutput>,
 
     /// MSAA sample count. A value of 1 disables MSAA.
     pub(in crate::wgpu_backend) msaa_sample_count: u32,

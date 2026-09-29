@@ -62,6 +62,7 @@ fn plan_scene(planner: &mut Planner, scene: &Scene) {
         },
         0.75,
         4096,
+        None,
     );
 }
 

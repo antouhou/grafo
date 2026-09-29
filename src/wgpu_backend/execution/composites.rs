@@ -1,5 +1,4 @@
 use super::draws::{self, DrawPass};
-use super::targets;
 use crate::commands::{
     RenderCommand, RenderOperation, RenderPlan, ShapeTextureBinding, TextureComposite,
     TexturePlacement,
@@ -138,7 +137,7 @@ impl DrawPass<'_, '_> {
             }
             count += 1;
         }
-        targets::set_scissor(self.render_pass, first.clip.scissor);
+        self.set_scissor(first.clip.scissor);
         self.composite_local_texture(
             first.clip.stencil_reference,
             command,

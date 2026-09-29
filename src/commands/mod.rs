@@ -108,7 +108,8 @@ pub struct MaskTarget {
     pub size: [u32; 2],
 }
 
-/// BeginTarget clears a new target. EndTarget restores its parent without clearing it.
+/// BeginTarget clears intermediate targets. The surface retains pixels outside the root scissor.
+/// EndTarget restores its parent without clearing it.
 #[derive(Clone, Copy, Debug)]
 pub enum Target {
     Surface,
@@ -133,6 +134,8 @@ pub struct ShapeMaskDraw {
 /// One ordered command stream, with storage reused when the draw queue is rebuilt.
 #[derive(Default)]
 pub struct RenderPlan {
+    /// Changed surface pixels. None preserves the retained image without drawing.
+    pub root_scissor: Option<UnsignedPhysicalRect>,
     pub instructions: Vec<RenderCommand>,
     pub effect_parameters: Vec<u8>,
     /// Local composite commands whose instance data must be uploaded.

@@ -3,7 +3,7 @@ use super::{RenderBackend, Renderer};
 use crate::commands::{RenderCommand, RenderOperation, RenderPlan, ShapeDrawId, Target};
 use crate::core::{
     CachedShapeHandle, Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeInstance,
-    Viewport,
+    UnsignedPhysicalRect, Viewport,
 };
 use crate::render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError, Surface,
@@ -12,6 +12,7 @@ use crate::render_backend::TextureManager;
 use crate::scene::SceneContext;
 use thiserror::Error;
 
+mod dirty_bounds;
 mod removal;
 
 #[derive(Default)]
@@ -63,6 +64,7 @@ impl TextureManager for TestTextureManager {
 
 #[derive(Default)]
 struct TestBackend {
+    root_scissor: Option<UnsignedPhysicalRect>,
     registered_shapes: Vec<usize>,
     command_address: usize,
     instruction_address: usize,
@@ -148,6 +150,7 @@ impl RenderBackend for TestBackend {
             return Err(TestBackendError);
         }
         self.command_address = commands as *const RenderPlan as usize;
+        self.root_scissor = commands.root_scissor;
         self.instruction_address = commands.instructions.as_ptr() as usize;
         let surface = match surface {
             RenderTarget::Surface(surface) => surface.resource_mut(),
@@ -238,6 +241,7 @@ fn render_submits_planned_shapes_and_effects() {
         renderer.viewport,
         renderer.fringe_width,
         4096,
+        None,
     ) as *const RenderPlan as usize;
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.command_address, planned_address);
@@ -265,6 +269,7 @@ fn effect_parameter_updates_reuse_storage() {
         renderer.viewport,
         renderer.fringe_width,
         4096,
+        None,
     );
     assert_eq!(plan.effect_parameters.len(), 8);
     assert_eq!(plan.parameters(parameters), &[1, 2, 3, 4]);
@@ -317,6 +322,7 @@ fn clearing_queue_removes_planned_draws_and_effects() {
         renderer.viewport,
         renderer.fringe_width,
         4096,
+        None,
     );
     assert!(matches!(
         plan.instructions.as_slice(),
@@ -343,7 +349,7 @@ fn rendering_to_one_surface_does_not_change_another() {
     queue_shape(&mut second, false);
     let commands = first
         .planner
-        .plan(&first.scene, first.viewport, first.fringe_width, 4096);
+        .plan(&first.scene, first.viewport, first.fringe_width, 4096, None);
     first
         .backend
         .render(commands, (&mut first_surface).into())

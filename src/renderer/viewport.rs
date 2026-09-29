@@ -1,4 +1,5 @@
 use super::{RenderBackend, Renderer};
+use crate::core::UnsignedPhysicalRect;
 
 impl<B: RenderBackend> Renderer<B> {
     pub fn size(&self) -> (u32, u32) {
@@ -25,10 +26,14 @@ impl<B: RenderBackend> Renderer<B> {
 
     pub fn resize(&mut self, new_physical_size: (u32, u32)) {
         self.viewport.physical_size = new_physical_size;
+        self.dirty_bounds = Some(UnsignedPhysicalRect::from_size(new_physical_size.into()));
         self.backend.resize(self.viewport, self.fringe_width);
     }
 
     pub fn set_msaa_samples(&mut self, samples: u32) {
         self.backend.set_msaa_samples(samples);
+        self.dirty_bounds = Some(UnsignedPhysicalRect::from_size(
+            self.viewport.physical_size.into(),
+        ));
     }
 }

@@ -561,6 +561,25 @@ fn cached_shape_effects_share_the_normal_texture_pipeline() {
     render_bgra(&mut renderer, &mut pixels).unwrap();
     render_bgra(&mut renderer, &mut pixels).unwrap();
 
+    assert_eq!(renderer.backend().last_shape_effect_cache_metrics().hits, 0);
+    assert_eq!(
+        renderer
+            .backend()
+            .last_pipeline_switch_counts()
+            .total_switches,
+        0
+    );
+    // Queue a transparent shape to redraw and exercise the retained effect cache.
+    renderer
+        .add_shape(
+            Shape::rect([(0.0, 0.0), (96.0, 48.0)]),
+            Some(root_id),
+            None,
+            ShapeDrawCommandOptions::new(),
+        )
+        .unwrap();
+    render_bgra(&mut renderer, &mut pixels).unwrap();
+
     let cache_metrics = renderer.backend().last_shape_effect_cache_metrics();
     assert_eq!(cache_metrics.hits, 2);
     assert_eq!(cache_metrics.misses, 0);
@@ -816,6 +835,79 @@ fn texture_materials_follow_scene_changes_across_queue_rebuilds() {
         } else {
             assert!(gradient[1] > gradient[0] + 20);
         }
+    }
+}
+
+#[test]
+fn dirty_subtree_replacement_preserves_pixels_and_clears_removed_shapes() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
+        return;
+    };
+    let mut pixels = Vec::new();
+    for samples in [1, 4] {
+        renderer.clear_draw_queue();
+        renderer.set_msaa_samples(samples);
+        let root = renderer
+            .add_clipping_rect(
+                [(0.0, 0.0), (64.0, 64.0)],
+                None,
+                None::<TransformInstance>,
+                true,
+            )
+            .unwrap();
+        renderer
+            .add_shape(
+                Shape::rect([(2.0, 2.0), (48.0, 48.0)]),
+                Some(root),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgba(255, 0, 0, 128)),
+            )
+            .unwrap();
+        render_bgra(&mut renderer, &mut pixels).unwrap();
+        let background = pixels.clone();
+        let branch = renderer
+            .add_clipping_rect(
+                [(8.0, 8.0), (60.0, 60.0)],
+                Some(root),
+                None::<TransformInstance>,
+                true,
+            )
+            .unwrap();
+        renderer
+            .add_shape(
+                Shape::rect([(10.25, 10.25), (20.75, 20.75)]),
+                Some(branch),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgba(0, 0, 255, 128)),
+            )
+            .unwrap();
+        renderer
+            .add_shape(
+                Shape::rect([(50.25, 50.25), (56.75, 56.75)]),
+                Some(branch),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::WHITE),
+            )
+            .unwrap();
+        render_bgra(&mut renderer, &mut pixels).unwrap();
+        assert_eq!(read_pixel_rgba(&pixels, 64, 54, 54), [255, 255, 255, 255]);
+        assert_eq!(
+            read_pixel_rgba(&pixels, 64, 4, 4),
+            read_pixel_rgba(&background, 64, 4, 4)
+        );
+        let overlay = pixels.clone();
+        pixels.fill(0x71);
+        render_bgra(&mut renderer, &mut pixels).unwrap();
+        assert_eq!(pixels, overlay, "unchanged renders must preserve the image");
+        renderer.remove_subtrees([branch], |_| {});
+        render_bgra(&mut renderer, &mut pixels).unwrap();
+        assert_eq!(
+            pixels, background,
+            "removal must restore transparent pixels and AA edges"
+        );
+        renderer.clear_draw_queue();
+        render_bgra(&mut renderer, &mut pixels).unwrap();
+        assert!(pixels.iter().all(|&byte| byte == 0));
     }
 }
 

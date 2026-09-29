@@ -1,5 +1,5 @@
 use crate::commands::{EffectParameters, RenderOperation, RenderPlan, Target, TextureComposite};
-use crate::core::Viewport;
+use crate::core::{UnsignedPhysicalRect, Viewport};
 use crate::scene::Scene;
 use ahash::HashMap;
 use groups::{GroupPlanningInput, SceneTraversal};
@@ -47,8 +47,10 @@ impl Planner {
         viewport: Viewport,
         fringe_width: f32,
         maximum_texture_dimension: u32,
+        root_scissor: Option<UnsignedPhysicalRect>,
     ) -> &RenderPlan {
         self.commands.clear_commands();
+        self.commands.root_scissor = root_scissor;
         self.commands
             .push(RenderOperation::BeginTarget(Target::Surface));
         append_shape_effects(

@@ -213,6 +213,7 @@ fn repeated_subtree_replacement_reclaims_parameters_and_preserves_surviving_effe
             renderer.viewport,
             renderer.fringe_width,
             4096,
+            None,
         );
         assert_eq!(plan.parameters(group_parameters), &[5; 4]);
         assert_eq!(plan.parameters(backdrop_parameters), &[6; 4]);
@@ -234,7 +235,8 @@ fn repeated_subtree_replacement_reclaims_parameters_and_preserves_surviving_effe
                     &renderer.scene,
                     renderer.viewport,
                     renderer.fringe_width,
-                    4096
+                    4096,
+                    None,
                 )
                 .effect_parameters
                 .len(),

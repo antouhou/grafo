@@ -5,7 +5,7 @@ use super::effects::instructions::{execute_effect, EffectContext};
 use super::effects::EffectExecutionResources;
 use super::shape_effects::ShapeEffectExecutionResources;
 use super::shapes::ShapeExecutionResources;
-use super::targets::{self, ActiveTarget, SurfaceTarget};
+use super::targets::{ActiveTarget, SurfaceTarget};
 use super::textures::{IntermediateTextureResources, PlannedTexture};
 use crate::commands::{
     BackdropCaptureSource, IntermediateTextureId, RenderOperation, RenderPlan, Target,
@@ -99,7 +99,7 @@ impl ExecutionResources<'_> {
         self.textures.active_targets.push(ActiveTarget {
             target,
             texture,
-            needs_clear: true,
+            needs_clear: !matches!(target, Target::Surface),
         });
     }
 
@@ -170,11 +170,13 @@ fn execute_draws(
         .last_mut()
         .expect("draw requires an open target");
     let mut attachments = target.attachments(surface);
+    let root_scissor = matches!(target.target, Target::Surface).then_some(surface.root_scissor);
     let mut render_pass = attachments.begin_pass(encoder, "command_draws");
     target.needs_clear = false;
     let mut bound_textures = BoundTextureState::default();
     pipeline_tracker.current = Pipeline::None;
     let mut pass = DrawPass {
+        root_scissor,
         render_pass: &mut render_pass,
         pipeline_tracker,
         bound_textures: &mut bound_textures,
@@ -197,14 +199,14 @@ fn execute_draws(
                 continue;
             }
             RenderOperation::IncrementStencil(shape) => {
-                targets::set_scissor(pass.render_pass, command.clip.scissor);
+                pass.set_scissor(command.clip.scissor);
                 pass.increment_stencil(
                     command.clip.stencil_reference,
                     resources.shapes.draw_resources(*shape),
                 );
             }
             RenderOperation::DrawShapeAndIncrementStencil(draw) => {
-                targets::set_scissor(pass.render_pass, command.clip.scissor);
+                pass.set_scissor(command.clip.scissor);
                 pass.draw_shape_and_increment_stencil(
                     command.clip.stencil_reference,
                     draw.material,
@@ -212,7 +214,7 @@ fn execute_draws(
                 );
             }
             RenderOperation::DecrementStencil(draw) => {
-                targets::set_scissor(pass.render_pass, command.clip.scissor);
+                pass.set_scissor(command.clip.scissor);
                 pass.decrement_stencil(
                     command.clip.stencil_reference,
                     resources.shapes.draw_resources(draw.id),
@@ -220,7 +222,7 @@ fn execute_draws(
             }
             RenderOperation::CompositeTexture(composite) => match composite.placement {
                 TexturePlacement::Target => {
-                    targets::set_scissor(pass.render_pass, command.clip.scissor);
+                    pass.set_scissor(command.clip.scissor);
                     pass.composite_texture(command.clip.stencil_reference, composite.texture);
                 }
                 TexturePlacement::Local { .. } => {
