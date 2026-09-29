@@ -2,6 +2,7 @@
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
 pub use self::types::{DrawCommandError, EffectError};
+use crate::commands::ShapeDrawId;
 use crate::core::Viewport;
 use crate::planner::Planner;
 use crate::render_backend::render_target::RenderTarget;
@@ -47,6 +48,7 @@ pub struct Renderer<B: RenderBackend> {
     backend: B,
     viewport: Viewport,
     fringe_width: f32,
+    removed_shape_ids: Vec<ShapeDrawId>,
     #[cfg(feature = "render_metrics")]
     render_loop_metrics_tracker: RenderLoopMetricsTracker,
 }
@@ -60,6 +62,7 @@ impl<B: RenderBackend> Renderer<B> {
             planner: Planner::default(),
             viewport: backend.viewport(),
             fringe_width: backend.fringe_width(),
+            removed_shape_ids: Vec::new(),
             backend,
             #[cfg(feature = "render_metrics")]
             render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),

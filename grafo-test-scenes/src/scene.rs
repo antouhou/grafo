@@ -160,7 +160,7 @@ fn add_replacement_effect_subtree(
             ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
         )
         .unwrap();
-    renderer.remove_subtree(temporary_child, |_| {});
+    renderer.remove_subtrees([temporary_child], |_| {});
 }
 
 /// Removed effects must not follow reused IDs, and the last child's removal restores a leaf.
@@ -181,9 +181,10 @@ fn tile_84_subtree_removal(renderer: &mut Renderer) -> Vec<PixelExpectation> {
         )
         .unwrap();
     let subtree_root = add_removable_effect_subtree(renderer, parent, (origin_x, origin_y));
-    renderer.remove_subtree(subtree_root, |_| {});
+    let second_subtree_root = add_removable_effect_subtree(renderer, parent, (origin_x, origin_y));
+    renderer.remove_subtrees([subtree_root, second_subtree_root], |_| {});
 
-    // Reuse all removed slots with different node types and attachments.
+    // Reuse removed slots with different node types and attachments.
     add_replacement_effect_subtree(renderer, parent, (origin_x, origin_y));
     vec![
         PixelExpectation::opaque(

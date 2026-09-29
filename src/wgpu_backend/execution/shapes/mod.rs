@@ -8,6 +8,7 @@ use crate::wgpu_backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMe
 use ahash::{HashMap, HashMapExt};
 use materials::TextureMaterialPool;
 pub(in crate::wgpu_backend) use pipelines::TextureMaterialPipelines;
+use removal::DrawBufferCompactionStorage;
 pub(crate) use sampling::TextureSamplingUniform;
 use std::sync::Arc;
 use wgpu::{BindGroup, BindGroupLayout, Device, Queue, Sampler};
@@ -74,6 +75,7 @@ pub(crate) struct ShapeExecutionResources {
     pub(crate) instance_transforms: Vec<InstanceTransform>,
     pub(crate) instance_colors: Vec<InstanceColor>,
     pub(crate) instance_metadata: Vec<InstanceMetadata>,
+    compaction: DrawBufferCompactionStorage,
 }
 
 impl ShapeExecutionResources {
@@ -93,6 +95,7 @@ impl ShapeExecutionResources {
             instance_transforms: Vec::new(),
             instance_colors: Vec::new(),
             instance_metadata: Vec::new(),
+            compaction: DrawBufferCompactionStorage::default(),
         }
     }
 

@@ -653,7 +653,7 @@ fn assert_scene_restored_after_overlay_removal(
             true,
         )
         .unwrap();
-    renderer
+    let overlay_shape = renderer
         .add_shape(
             Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]),
             Some(overlay),
@@ -666,7 +666,7 @@ fn assert_scene_restored_after_overlay_removal(
         read_pixel_rgba(pixel_buffer, CANVAS_WIDTH, 40, 40),
         [255, 0, 255, 255]
     );
-    renderer.remove_subtree(overlay, |_| {});
+    renderer.remove_subtrees([overlay_shape, overlay, overlay_shape], |_| {});
     render_bgra(renderer, pixel_buffer).unwrap();
     assert_pixels_match(pixel_buffer, expectations);
 }
@@ -684,7 +684,7 @@ fn main_scene_pixel_expectations() {
         // Exercise both full clears and root removal after a completed render.
         for should_remove_root in [false, true] {
             if should_remove_root {
-                renderer.remove_subtree(0, |_| {});
+                renderer.remove_subtrees([0], |_| {});
             } else {
                 renderer.clear_draw_queue();
             }

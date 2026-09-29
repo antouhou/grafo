@@ -37,7 +37,7 @@ fn effect_snapshots(plan: &RenderPlan) -> Vec<EffectSnapshot> {
         .collect()
 }
 
-fn other_commands(plan: &RenderPlan) -> Vec<String> {
+fn non_effect_command_snapshots(plan: &RenderPlan) -> Vec<String> {
     plan.instructions
         .iter()
         .filter(|command| !matches!(command.operation, RenderOperation::ApplyEffect(_)))
@@ -114,17 +114,20 @@ fn parameter_compaction_remaps_recorded_effects_without_clearing_other_commands(
             .iter()
             .any(|effect| effect.parameters == parameters));
     }
-    let expected_other_commands = other_commands(&planner.commands);
+    let expected_non_effect_commands = non_effect_command_snapshots(&planner.commands);
     let instructions_address = planner.commands.instructions.as_ptr();
     let texture_count = planner.commands.texture_count;
     assert!(planner.commands.has_backdrop_captures);
     assert!(planner.shape_composites.contains_key(&removed));
 
-    scene.remove_subtree(removed, |_| {});
+    scene.remove_subtrees([removed], |_| {});
     for _ in 0..2 {
         planner.retain_effect_parameters(&mut scene);
         assert_eq!(effect_snapshots(&planner.commands), expected_effects);
-        assert_eq!(other_commands(&planner.commands), expected_other_commands);
+        assert_eq!(
+            non_effect_command_snapshots(&planner.commands),
+            expected_non_effect_commands
+        );
         assert_eq!(planner.commands.instructions.as_ptr(), instructions_address);
         assert_eq!(planner.commands.effect_parameters.len(), 12);
         assert_eq!(planner.commands.texture_count, texture_count);

@@ -87,9 +87,9 @@ impl RenderBackend for TestBackend {
         Ok(())
     }
 
-    fn unregister_shape(&mut self, id: ShapeDrawId) {
+    fn unregister_shapes(&mut self, ids: &[ShapeDrawId]) {
         self.registered_shapes
-            .retain(|&registered| registered != id.0);
+            .retain(|&registered| !ids.contains(&ShapeDrawId(registered)));
     }
 
     fn clear_draw_queue(&mut self) {

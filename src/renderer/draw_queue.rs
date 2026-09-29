@@ -91,30 +91,40 @@ impl<B: RenderBackend> Renderer<B> {
         self.backend.texture_manager()
     }
 
-    /// Removes a queued shape or clipping rectangle and all of its descendants.
+    /// Removes queued nodes and their descendants.
     ///
-    /// Calls `removed` once for every removed node ID, including `node_id` and clipping rectangles.
-    /// Missing IDs produce no callbacks. Pass `|_| {}` to ignore removed IDs.
-    /// Surviving nodes keep their IDs and effects. Removing the root empties the queue.
-    /// Discard removed IDs, which later insertions can reuse.
-    /// Loaded shapes, textures and reusable resource caches are retained.
-    pub fn remove_subtree(&mut self, node_id: usize, mut removed: impl FnMut(usize)) {
-        if self.scene.draw_tree.get(node_id).is_none() {
-            return;
-        }
-        let removes_root = node_id == 0;
-        self.scene.remove_subtree_with(node_id, |id, node| {
-            if !removes_root && matches!(node, DrawTreeNode::CachedShape(_)) {
-                self.backend.unregister_shape(ShapeDrawId(id));
+    /// Calls `removed` once per removed ID.
+    /// Remaining nodes keep their IDs and effects. New nodes may reuse removed IDs.
+    /// Loaded shapes and textures remain available.
+    pub fn remove_subtrees(
+        &mut self,
+        node_ids: impl IntoIterator<Item = usize>,
+        mut removed: impl FnMut(usize),
+    ) {
+        self.removed_shape_ids.clear();
+        let mut has_removed_nodes = false;
+        let mut has_removed_root = false;
+        self.scene.remove_subtrees_with(node_ids, |id, node| {
+            has_removed_nodes = true;
+            has_removed_root = has_removed_root || id == 0;
+            if !has_removed_root && matches!(node, DrawTreeNode::CachedShape(_)) {
+                self.removed_shape_ids.push(ShapeDrawId(id));
             }
             removed(id);
         });
-        if removes_root {
+        if !has_removed_nodes {
+            return;
+        }
+        if has_removed_root {
             self.planner.clear();
             self.backend.clear_draw_queue();
         } else {
+            if !self.removed_shape_ids.is_empty() {
+                self.backend.unregister_shapes(&self.removed_shape_ids);
+            }
             self.planner.retain_effect_parameters(&mut self.scene);
         }
+        self.removed_shape_ids.clear();
     }
 
     pub fn clear_draw_queue(&mut self) {
