@@ -12,6 +12,8 @@ use crate::render_backend::TextureManager;
 use crate::scene::SceneContext;
 use thiserror::Error;
 
+mod removal;
+
 #[derive(Default)]
 struct TestSurface {
     draws: Vec<usize>,
@@ -83,6 +85,11 @@ impl RenderBackend for TestBackend {
         assert!(!shape.cached_shape.vertex_buffers().vertices.is_empty());
         self.registered_shapes.push(id.0);
         Ok(())
+    }
+
+    fn unregister_shapes(&mut self, ids: &[ShapeDrawId]) {
+        self.registered_shapes
+            .retain(|&registered| !ids.contains(&ShapeDrawId(registered)));
     }
 
     fn clear_draw_queue(&mut self) {
@@ -179,7 +186,8 @@ impl RenderBackend for TestBackend {
                         | RenderOperation::DrawShapeAndIncrementStencil(draw)
                         | RenderOperation::DecrementStencil(draw) => draw.id,
                         RenderOperation::IncrementStencil(shape) => *shape,
-                        RenderOperation::CompositeTexture(_) => continue,
+                        RenderOperation::CompositeTexture(_)
+                        | RenderOperation::CaptureBackdrop(_) => continue,
                         _ => panic!("unexpected operation"),
                     };
                     assert!(self.registered_shapes.contains(&shape.0));

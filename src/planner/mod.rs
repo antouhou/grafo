@@ -16,9 +16,18 @@ pub(crate) struct Planner {
     shape_composites: HashMap<usize, TextureComposite>,
     traversal: SceneTraversal,
     commands: RenderPlan,
+    compacted_parameters: Vec<u8>,
 }
 
 impl Planner {
+    /// Compacts parameter storage and updates the scene's attachment ranges.
+    pub(crate) fn compact_effect_parameters(&mut self, scene: &mut Scene) {
+        scene.compact_effect_parameters(
+            &mut self.commands.effect_parameters,
+            &mut self.compacted_parameters,
+        );
+    }
+
     pub(crate) fn store_effect_parameters(&mut self, parameters: &[u8]) -> EffectParameters {
         self.commands.store_parameters(parameters)
     }
@@ -31,6 +40,7 @@ impl Planner {
         self.commands.update_parameters(stored, parameters)
     }
 
+    /// Rebuilds commands and composites before exposing the plan for execution.
     pub(crate) fn plan(
         &mut self,
         scene: &Scene,
@@ -71,3 +81,6 @@ impl Planner {
         self.shape_composites.clear();
     }
 }
+
+#[cfg(test)]
+mod tests;

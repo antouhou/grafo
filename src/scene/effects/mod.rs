@@ -1,6 +1,7 @@
 use super::{Scene, SceneError};
 use crate::commands::EffectParameters;
 use crate::core::effect::{BackdropCaptureArea, BackdropEffectConfig, ShapeEffectConfig};
+use std::mem;
 
 /// A cached shape effect attachment. GPU parameter resources are created only on cache misses.
 #[derive(Clone, Copy)]
@@ -114,6 +115,36 @@ pub(crate) enum EffectAttachment {
 }
 
 impl Scene {
+    pub(crate) fn compact_effect_parameters(
+        &mut self,
+        current: &mut Vec<u8>,
+        compacted: &mut Vec<u8>,
+    ) {
+        compacted.clear();
+        let parameters = self
+            .group_effects
+            .values_mut()
+            .map(|effect| &mut effect.parameters)
+            .chain(
+                self.backdrop_effects
+                    .values_mut()
+                    .map(|effect| &mut effect.effect.parameters),
+            )
+            .chain(
+                self.shape_effects
+                    .values_mut()
+                    .map(|effect| &mut effect.parameters),
+            );
+        for parameters in parameters {
+            let start = compacted.len();
+            compacted.extend_from_slice(&current[parameters.range.start..parameters.range.end]);
+            parameters.range.start = start;
+            parameters.range.end = compacted.len();
+        }
+        mem::swap(current, compacted);
+        compacted.clear();
+    }
+
     pub(crate) fn group_effect(&self, node_id: usize) -> Result<&EffectInstance, SceneError> {
         self.group_effects
             .get(&node_id)

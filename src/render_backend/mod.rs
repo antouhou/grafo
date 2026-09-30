@@ -62,6 +62,9 @@ pub trait RenderBackend {
     /// An error must leave the ID unregistered.
     fn register_shape(&mut self, id: ShapeDrawId, shape: &ShapeInstance)
         -> Result<(), Self::Error>;
+    /// Releases the given instances and their effect bindings.
+    /// Preserve other instances and resource caches.
+    fn unregister_shapes(&mut self, ids: &[ShapeDrawId]);
     /// Releases queued references, retaining reusable storage and resource caches.
     fn clear_draw_queue(&mut self);
 

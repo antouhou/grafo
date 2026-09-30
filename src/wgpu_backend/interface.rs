@@ -29,6 +29,10 @@ impl RenderBackend for WgpuBackend {
         Ok(())
     }
 
+    fn unregister_shapes(&mut self, ids: &[ShapeDrawId]) {
+        self.resources.shape_execution.remove_draws(ids);
+    }
+
     fn clear_draw_queue(&mut self) {
         self.resources.shape_execution.clear_draw_queue();
     }

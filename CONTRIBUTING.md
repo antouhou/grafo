@@ -14,10 +14,6 @@ some shape or form in the core module.
 - [`src/renderer`]: generic coordinator. Scene mutations go through `Scene`; backend operations go through `RenderBackend`. Must not depend on a concrete backend.
 - [`src/lib.rs`] and [`src/wgpu_renderer.rs`]: public defaults and WGPU construction, assembling the coordinator, scene context and backend.
 
-The draw queue is cleared and rebuilt every frame for now. There's no way to update the tree just yet, so the only 
-purpose of keeping the tree around only if you want to draw exactly the same thing twice. Keep reusable storage and 
-resource caches across clears; do not cache tree identity across frames.
-
 ## Basic rules
 
 - Use full, descriptive names for variables, functions, types, and modules. Do not abbreviate them. NEVER shorten the names, as it makes it extremely hard to read and review.

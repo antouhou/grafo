@@ -40,6 +40,7 @@ fn append_aggregated_geometry(
         index_start,
         index_count: index_end - index_start,
         vertex_start,
+        vertex_count: vertices.len(),
     }))
 }
 
@@ -50,7 +51,7 @@ pub(crate) fn append_aggregated_geometry_for_shape(
     geometry_dedup_map: &mut HashMap<u64, GeometryBufferRange>,
 ) -> Result<Option<GeometryBufferRange>, GeometryBufferError> {
     let geometry_id = cached_shape_data.cached_shape.geometry_id;
-    // Reuse the range if this geometry is already in the frame's buffers.
+    // Reuse geometry already referenced by another queued draw.
     if let Some(&existing_range) = geometry_id.and_then(|id| geometry_dedup_map.get(&id)) {
         Ok(Some(existing_range))
     } else {

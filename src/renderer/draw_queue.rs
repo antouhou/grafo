@@ -3,6 +3,7 @@ use super::{RenderBackend, Renderer};
 use crate::commands::ShapeDrawId;
 use crate::core::shape::{Shape, ShapeDrawCommandOptions, ShapeInstance};
 use crate::core::vertex::InstanceTransform;
+use crate::scene::types::DrawTreeNode;
 
 impl<B: RenderBackend> Renderer<B> {
     /// Tessellates into the shared CPU cache. Geometry IDs let identical shapes share uploads.
@@ -88,6 +89,40 @@ impl<B: RenderBackend> Renderer<B> {
 
     pub fn texture_manager(&self) -> &B::TextureManager {
         self.backend.texture_manager()
+    }
+
+    /// Removes queued nodes and their descendants.
+    ///
+    /// Calls `removed` once per removed ID.
+    /// Remaining nodes keep their IDs and effects. New nodes may reuse removed IDs.
+    /// Loaded shapes and textures remain available.
+    pub fn remove_subtrees(
+        &mut self,
+        node_ids: impl IntoIterator<Item = usize>,
+        mut removed: impl FnMut(usize),
+    ) {
+        self.removed_shape_ids.clear();
+        let mut has_removed_nodes = false;
+        self.scene.remove_subtrees_with(node_ids, |id, node| {
+            has_removed_nodes = true;
+            if matches!(node, DrawTreeNode::CachedShape(_)) {
+                self.removed_shape_ids.push(ShapeDrawId(id));
+            }
+            removed(id);
+        });
+        if !has_removed_nodes {
+            return;
+        }
+        if self.scene.draw_tree.is_empty() {
+            self.planner.clear();
+            self.backend.clear_draw_queue();
+        } else {
+            if !self.removed_shape_ids.is_empty() {
+                self.backend.unregister_shapes(&self.removed_shape_ids);
+            }
+            self.planner.compact_effect_parameters(&mut self.scene);
+        }
+        self.removed_shape_ids.clear();
     }
 
     pub fn clear_draw_queue(&mut self) {

@@ -4,7 +4,6 @@ use crate::core::vertex::InstanceTransform;
 #[derive(Debug)]
 pub(crate) struct CachedShapeDrawData {
     pub(crate) instance: ShapeInstance,
-    pub(crate) is_leaf: bool,
     pub(crate) clips_children: bool,
 }
 
@@ -13,7 +12,6 @@ impl CachedShapeDrawData {
         let clips_children = options.clips_children;
         Self {
             instance: ShapeInstance::new(cached_shape, options),
-            is_leaf: true,
             clips_children,
         }
     }
@@ -35,7 +33,6 @@ pub(crate) enum DrawTreeNode {
 pub(crate) struct ClipRectDrawData {
     pub(crate) rect_bounds: [(f32, f32); 2],
     pub(crate) transform: Option<InstanceTransform>,
-    pub(crate) is_leaf: bool,
     pub(crate) clips_children: bool,
 }
 
@@ -49,25 +46,6 @@ impl ClipRectDrawData {
             rect_bounds,
             transform,
             clips_children,
-            is_leaf: true,
-        }
-    }
-}
-
-impl DrawTreeNode {
-    /// Whether this node has no children in the draw tree
-    /// Starts as `true`; set to `false` when a child is added.
-    pub(crate) fn is_leaf(&self) -> bool {
-        match self {
-            DrawTreeNode::CachedShape(s) => s.is_leaf,
-            DrawTreeNode::ClipRect(clip_rect) => clip_rect.is_leaf,
-        }
-    }
-
-    pub(crate) fn set_not_leaf(&mut self) {
-        match self {
-            DrawTreeNode::CachedShape(s) => s.is_leaf = false,
-            DrawTreeNode::ClipRect(clip_rect) => clip_rect.is_leaf = false,
         }
     }
 }

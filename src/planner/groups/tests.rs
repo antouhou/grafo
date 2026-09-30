@@ -129,7 +129,6 @@ impl Scene {
             true,
         ));
         if let Some(parent) = parent {
-            self.tree.get_mut(parent).unwrap().set_not_leaf();
             self.tree.add_child(parent, node)
         } else {
             self.tree.add_node(node)
@@ -155,7 +154,6 @@ impl Scene {
             &mut ShapeResources::new(),
             None,
         );
-        self.tree.get_mut(parent).unwrap().set_not_leaf();
         let node = self.tree.add_child(
             parent,
             DrawTreeNode::CachedShape(CachedShapeDrawData::new(

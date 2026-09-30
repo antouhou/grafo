@@ -65,7 +65,7 @@ pub struct BackdropCapture {
 }
 
 /// A byte range in the command stream's effect parameter storage.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EffectParameterRange {
     pub start: usize,
     pub end: usize,

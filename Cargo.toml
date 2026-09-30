@@ -19,7 +19,7 @@ bytemuck = { version = "1.23", features = ["derive"] }
 wgpu = "25.0"
 ahash = "0.8"
 lyon = { version = "1.0"}
-easy-tree = { version = "0.3" }
+easy-tree = { version = "0.7.1" }
 tracing = "0.1.44"
 lru = "0.15"
 naga = { version = "25.0", features = ["wgsl-in"] }

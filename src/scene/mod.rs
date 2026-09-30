@@ -100,9 +100,9 @@ impl Scene {
         Ok(())
     }
 
-    /// Nodes are append-only until the queue is cleared.
+    /// Removed node slots can be reused by the next insertion.
     pub(crate) fn next_node_id(&self) -> usize {
-        self.draw_tree.len()
+        self.draw_tree.next_node_id()
     }
 
     pub fn add_shape(
@@ -123,7 +123,6 @@ impl Scene {
         self.insert_shape_data(
             CachedShapeDrawData {
                 instance,
-                is_leaf: true,
                 clips_children,
             },
             parent,
@@ -169,12 +168,7 @@ impl Scene {
         if self.draw_tree.is_empty() {
             return self.draw_tree.add_node(node);
         }
-        let parent = parent.unwrap_or(0);
-        self.draw_tree
-            .get_mut(parent)
-            .expect("validated parent")
-            .set_not_leaf();
-        self.draw_tree.add_child(parent, node)
+        self.draw_tree.add_child(parent.unwrap_or(0), node)
     }
 
     pub fn shape(&self, node_id: usize) -> Result<&ShapeInstance, SceneError> {
@@ -188,6 +182,21 @@ impl Scene {
                 Err(SceneError::UnsupportedClipRectOperation(node_id, "effects"))
             }
         }
+    }
+
+    /// Removes nodes, their descendants and attached effects.
+    /// Calls `removed` once per removed node. New nodes may reuse removed IDs.
+    pub(crate) fn remove_subtrees_with(
+        &mut self,
+        node_ids: impl IntoIterator<Item = usize>,
+        mut removed: impl FnMut(usize, DrawTreeNode),
+    ) {
+        self.draw_tree.remove_subtrees_with(node_ids, |id, node| {
+            self.group_effects.remove(&id);
+            self.backdrop_effects.remove(&id);
+            self.shape_effects.remove(&id);
+            removed(id, node);
+        });
     }
 
     pub fn clear(&mut self) {
