@@ -1,5 +1,5 @@
 use super::{Scene, SceneError};
-use crate::commands::{EffectParameterRange, EffectParameters};
+use crate::commands::EffectParameters;
 use crate::core::effect::{BackdropCaptureArea, BackdropEffectConfig, ShapeEffectConfig};
 use std::mem;
 
@@ -119,7 +119,6 @@ impl Scene {
         &mut self,
         stored: &mut Vec<u8>,
         retained: &mut Vec<u8>,
-        mut relocated: impl FnMut(EffectParameterRange, EffectParameters),
     ) {
         retained.clear();
         let parameters = self
@@ -137,12 +136,10 @@ impl Scene {
                     .map(|effect| &mut effect.parameters),
             );
         for parameters in parameters {
-            let previous = parameters.range;
             let start = retained.len();
             retained.extend_from_slice(&stored[parameters.range.start..parameters.range.end]);
             parameters.range.start = start;
             parameters.range.end = retained.len();
-            relocated(previous, *parameters);
         }
         mem::swap(stored, retained);
         retained.clear();

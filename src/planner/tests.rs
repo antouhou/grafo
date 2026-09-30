@@ -1,8 +1,5 @@
 use super::Planner;
-use crate::commands::{
-    DrawClip, IntermediateTextureId, RenderOperation, RenderPlan, TextureComposite,
-    TexturePlacement,
-};
+use crate::commands::{DrawClip, IntermediateTextureId, RenderOperation, RenderPlan};
 use crate::core::{
     BackdropEffectConfig, Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, Viewport,
 };
@@ -69,7 +66,7 @@ fn plan_scene(planner: &mut Planner, scene: &Scene) {
 }
 
 #[test]
-fn parameter_compaction_remaps_recorded_effects_without_clearing_other_commands() {
+fn parameter_compaction_preserves_replanned_effects() {
     let mut scene = Scene::default();
     let mut planner = Planner::default();
     let root = add_shape(&mut scene, None);
@@ -105,10 +102,10 @@ fn parameter_compaction_remaps_recorded_effects_without_clearing_other_commands(
         .unwrap();
     plan_scene(&mut planner, &scene);
 
-    let expected_effects: Vec<_> = effect_snapshots(&planner.commands)
-        .into_iter()
-        .filter(|effect| effect.parameters != [4; 4])
-        .collect();
+    assert!(planner.shape_composites.contains_key(&removed));
+    scene.remove_subtrees([removed], |_| {});
+    plan_scene(&mut planner, &scene);
+    let expected_effects = effect_snapshots(&planner.commands);
     for parameters in [[1; 4], [2; 4], [3; 4]] {
         assert!(expected_effects
             .iter()
@@ -116,13 +113,14 @@ fn parameter_compaction_remaps_recorded_effects_without_clearing_other_commands(
     }
     let expected_non_effect_commands = non_effect_command_snapshots(&planner.commands);
     let instructions_address = planner.commands.instructions.as_ptr();
+    let expected_composites = planner.commands.composite_draws.clone();
     let texture_count = planner.commands.texture_count;
     assert!(planner.commands.has_backdrop_captures);
-    assert!(planner.shape_composites.contains_key(&removed));
 
-    scene.remove_subtrees([removed], |_| {});
     for _ in 0..2 {
         planner.retain_effect_parameters(&mut scene);
+        assert_eq!(planner.commands.effect_parameters.len(), 12);
+        plan_scene(&mut planner, &scene);
         assert_eq!(effect_snapshots(&planner.commands), expected_effects);
         assert_eq!(
             non_effect_command_snapshots(&planner.commands),
@@ -134,29 +132,13 @@ fn parameter_compaction_remaps_recorded_effects_without_clearing_other_commands(
         assert!(planner.commands.has_backdrop_captures);
         assert!(planner.shape_composites.contains_key(&root));
         assert!(!planner.shape_composites.contains_key(&removed));
-        let expected_composites: Vec<_> = planner
-            .commands
-            .instructions
-            .iter()
-            .enumerate()
-            .filter_map(|(index, command)| {
-                matches!(
-                    command.operation,
-                    RenderOperation::CompositeTexture(TextureComposite {
-                        placement: TexturePlacement::Local { .. },
-                        ..
-                    })
-                )
-                .then_some(index)
-            })
-            .collect();
         assert!(!expected_composites.is_empty());
         assert_eq!(planner.commands.composite_draws, expected_composites);
     }
 }
 
 #[test]
-fn parameter_compaction_remaps_shared_empty_ranges() {
+fn parameter_compaction_preserves_replanned_effects_with_empty_parameters() {
     let mut scene = Scene::default();
     let mut planner = Planner::default();
     let root = add_shape(&mut scene, None);
@@ -174,5 +156,6 @@ fn parameter_compaction_remaps_shared_empty_ranges() {
     assert!(!expected_effects.is_empty());
     planner.retain_effect_parameters(&mut scene);
     assert!(planner.commands.effect_parameters.is_empty());
+    plan_scene(&mut planner, &scene);
     assert_eq!(effect_snapshots(&planner.commands), expected_effects);
 }

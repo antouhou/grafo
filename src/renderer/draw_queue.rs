@@ -103,11 +103,9 @@ impl<B: RenderBackend> Renderer<B> {
     ) {
         self.removed_shape_ids.clear();
         let mut has_removed_nodes = false;
-        let mut has_removed_root = false;
         self.scene.remove_subtrees_with(node_ids, |id, node| {
             has_removed_nodes = true;
-            has_removed_root = has_removed_root || id == 0;
-            if !has_removed_root && matches!(node, DrawTreeNode::CachedShape(_)) {
+            if matches!(node, DrawTreeNode::CachedShape(_)) {
                 self.removed_shape_ids.push(ShapeDrawId(id));
             }
             removed(id);
@@ -115,7 +113,7 @@ impl<B: RenderBackend> Renderer<B> {
         if !has_removed_nodes {
             return;
         }
-        if has_removed_root {
+        if self.scene.draw_tree.is_empty() {
             self.planner.clear();
             self.backend.clear_draw_queue();
         } else {
