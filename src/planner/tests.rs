@@ -118,7 +118,7 @@ fn parameter_compaction_preserves_replanned_effects() {
     assert!(planner.commands.has_backdrop_captures);
 
     for _ in 0..2 {
-        planner.retain_effect_parameters(&mut scene);
+        planner.compact_effect_parameters(&mut scene);
         assert_eq!(planner.commands.effect_parameters.len(), 12);
         plan_scene(&mut planner, &scene);
         assert_eq!(effect_snapshots(&planner.commands), expected_effects);
@@ -154,7 +154,7 @@ fn parameter_compaction_preserves_replanned_effects_with_empty_parameters() {
     plan_scene(&mut planner, &scene);
     let expected_effects = effect_snapshots(&planner.commands);
     assert!(!expected_effects.is_empty());
-    planner.retain_effect_parameters(&mut scene);
+    planner.compact_effect_parameters(&mut scene);
     assert!(planner.commands.effect_parameters.is_empty());
     plan_scene(&mut planner, &scene);
     assert_eq!(effect_snapshots(&planner.commands), expected_effects);

@@ -16,15 +16,15 @@ pub(crate) struct Planner {
     shape_composites: HashMap<usize, TextureComposite>,
     traversal: SceneTraversal,
     commands: RenderPlan,
-    retained_parameters: Vec<u8>,
+    compacted_parameters: Vec<u8>,
 }
 
 impl Planner {
     /// Compacts parameter storage and updates the scene's attachment ranges.
-    pub(crate) fn retain_effect_parameters(&mut self, scene: &mut Scene) {
-        scene.retain_effect_parameters(
+    pub(crate) fn compact_effect_parameters(&mut self, scene: &mut Scene) {
+        scene.compact_effect_parameters(
             &mut self.commands.effect_parameters,
-            &mut self.retained_parameters,
+            &mut self.compacted_parameters,
         );
     }
 

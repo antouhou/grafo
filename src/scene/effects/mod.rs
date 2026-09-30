@@ -115,12 +115,12 @@ pub(crate) enum EffectAttachment {
 }
 
 impl Scene {
-    pub(crate) fn retain_effect_parameters(
+    pub(crate) fn compact_effect_parameters(
         &mut self,
-        stored: &mut Vec<u8>,
-        retained: &mut Vec<u8>,
+        current: &mut Vec<u8>,
+        compacted: &mut Vec<u8>,
     ) {
-        retained.clear();
+        compacted.clear();
         let parameters = self
             .group_effects
             .values_mut()
@@ -136,13 +136,13 @@ impl Scene {
                     .map(|effect| &mut effect.parameters),
             );
         for parameters in parameters {
-            let start = retained.len();
-            retained.extend_from_slice(&stored[parameters.range.start..parameters.range.end]);
+            let start = compacted.len();
+            compacted.extend_from_slice(&current[parameters.range.start..parameters.range.end]);
             parameters.range.start = start;
-            parameters.range.end = retained.len();
+            parameters.range.end = compacted.len();
         }
-        mem::swap(stored, retained);
-        retained.clear();
+        mem::swap(current, compacted);
+        compacted.clear();
     }
 
     pub(crate) fn group_effect(&self, node_id: usize) -> Result<&EffectInstance, SceneError> {

@@ -120,7 +120,7 @@ impl<B: RenderBackend> Renderer<B> {
             if !self.removed_shape_ids.is_empty() {
                 self.backend.unregister_shapes(&self.removed_shape_ids);
             }
-            self.planner.retain_effect_parameters(&mut self.scene);
+            self.planner.compact_effect_parameters(&mut self.scene);
         }
         self.removed_shape_ids.clear();
     }
