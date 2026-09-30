@@ -184,6 +184,8 @@ impl Scene {
         }
     }
 
+    /// Removes nodes, their descendants and attached effects.
+    /// Calls `removed` once per removed node. New nodes may reuse removed IDs.
     pub(crate) fn remove_subtrees_with(
         &mut self,
         node_ids: impl IntoIterator<Item = usize>,
@@ -195,17 +197,6 @@ impl Scene {
             self.shape_effects.remove(&id);
             removed(id, node);
         });
-    }
-
-    /// Removes nodes, their descendants and attached effects.
-    /// Calls `removed` once per removed ID.
-    /// New nodes may reuse removed IDs.
-    pub fn remove_subtrees(
-        &mut self,
-        node_ids: impl IntoIterator<Item = usize>,
-        mut removed: impl FnMut(usize),
-    ) {
-        self.remove_subtrees_with(node_ids, |id, _| removed(id));
     }
 
     pub fn clear(&mut self) {

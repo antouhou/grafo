@@ -103,7 +103,7 @@ fn parameter_compaction_preserves_replanned_effects() {
     plan_scene(&mut planner, &scene);
 
     assert!(planner.shape_composites.contains_key(&removed));
-    scene.remove_subtrees([removed], |_| {});
+    scene.remove_subtrees_with([removed], |_, _| {});
     plan_scene(&mut planner, &scene);
     let expected_effects = effect_snapshots(&planner.commands);
     for parameters in [[1; 4], [2; 4], [3; 4]] {
