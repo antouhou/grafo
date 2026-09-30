@@ -123,7 +123,6 @@ impl Scene {
         self.insert_shape_data(
             CachedShapeDrawData {
                 instance,
-                is_leaf: true,
                 clips_children,
             },
             parent,
@@ -169,12 +168,7 @@ impl Scene {
         if self.draw_tree.is_empty() {
             return self.draw_tree.add_node(node);
         }
-        let parent = parent.unwrap_or(0);
-        self.draw_tree
-            .get_mut(parent)
-            .expect("validated parent")
-            .set_is_leaf(false);
-        self.draw_tree.add_child(parent, node)
+        self.draw_tree.add_child(parent.unwrap_or(0), node)
     }
 
     pub fn shape(&self, node_id: usize) -> Result<&ShapeInstance, SceneError> {
@@ -190,37 +184,17 @@ impl Scene {
         }
     }
 
-    fn remove_subtree_with(
-        &mut self,
-        node_id: usize,
-        mut removed: impl FnMut(usize, DrawTreeNode),
-    ) {
-        if self.draw_tree.get(node_id).is_none() {
-            return;
-        }
-        let parent = self.draw_tree.parent_index_unchecked(node_id);
-        self.draw_tree.remove_subtree_with(node_id, |id, node| {
-            self.group_effects.remove(&id);
-            self.backdrop_effects.remove(&id);
-            self.shape_effects.remove(&id);
-            removed(id, node);
-        });
-        if let Some(parent) = parent {
-            let is_leaf = self.draw_tree.children(parent).is_empty();
-            self.draw_tree
-                .get_unchecked_mut(parent)
-                .set_is_leaf(is_leaf);
-        }
-    }
-
     pub(crate) fn remove_subtrees_with(
         &mut self,
         node_ids: impl IntoIterator<Item = usize>,
         mut removed: impl FnMut(usize, DrawTreeNode),
     ) {
-        for node_id in node_ids {
-            self.remove_subtree_with(node_id, &mut removed);
-        }
+        self.draw_tree.remove_subtrees_with(node_ids, |id, node| {
+            self.group_effects.remove(&id);
+            self.backdrop_effects.remove(&id);
+            self.shape_effects.remove(&id);
+            removed(id, node);
+        });
     }
 
     /// Removes nodes, their descendants and attached effects.

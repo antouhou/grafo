@@ -84,7 +84,6 @@ fn overlapping_subtree_removals_keep_sibling_effects() {
         assert!(!renderer.scene.shape_effects.contains_key(&node));
     }
     assert_eq!(renderer.scene.draw_tree.children(root), [survivor]);
-    assert!(!renderer.scene.draw_tree.get(root).unwrap().is_leaf());
     assert!(matches!(
         renderer.add_cached_shape(1, Some(removed), ShapeDrawCommandOptions::new()),
         Err(DrawCommandError::Scene(SceneError::InvalidShapeId(id))) if id == removed
@@ -112,7 +111,7 @@ fn overlapping_subtree_removals_keep_sibling_effects() {
     assert_eq!(surface.resource().shape_masks, 1);
 
     renderer.remove_subtrees([survivor, replacement], |_| {});
-    assert!(renderer.scene.draw_tree.get(root).unwrap().is_leaf());
+    assert!(renderer.scene.draw_tree.children(root).is_empty());
     renderer.render(&mut surface).unwrap();
     assert_eq!(surface.resource().draws, [root]);
     assert!(surface.resource().effects.is_empty());
@@ -149,7 +148,7 @@ fn removing_clip_subtrees_and_the_root_preserves_loaded_shapes() {
     let mut removed_ids = Vec::new();
     renderer.remove_subtrees([child], |id| removed_ids.push(id));
     assert_eq!(removed_ids, [child]);
-    assert!(renderer.scene.draw_tree.get(clip).unwrap().is_leaf());
+    assert!(renderer.scene.draw_tree.children(clip).is_empty());
     let replacement_child = renderer
         .add_cached_shape(
             1,
@@ -161,7 +160,7 @@ fn removing_clip_subtrees_and_the_root_preserves_loaded_shapes() {
     renderer.remove_subtrees([clip], |id| removed_ids.push(id));
     removed_ids.sort_unstable();
     assert_eq!(removed_ids, [clip, replacement_child]);
-    assert!(renderer.scene.draw_tree.get(root).unwrap().is_leaf());
+    assert!(renderer.scene.draw_tree.children(root).is_empty());
     assert!(renderer.backend.registered_shapes.is_empty());
     let remaining_shape = queue_shape(&mut renderer, true);
     removed_ids.clear();

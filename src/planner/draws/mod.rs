@@ -134,7 +134,8 @@ impl DrawPlanner {
         if let Some(&composite) = input.shape_effects.get(&node_id) {
             output.push_composite(composite, self.current.clip);
         }
-        if !node.is_leaf() || group_target.is_some() {
+        let has_children = !input.tree.children(node_id).is_empty();
+        if has_children || group_target.is_some() {
             self.parents.push(ParentDrawState {
                 node_id,
                 next_child: 0,
@@ -231,7 +232,7 @@ impl DrawPlanner {
             input.backdrop_effects,
         );
         let visible_draw = draw.filter(|_| should_draw);
-        if node.is_leaf() {
+        if input.tree.children(node_id).is_empty() {
             return visible_draw.map(|draw| self.draw_shape(draw));
         }
         if !node.clips_children() {

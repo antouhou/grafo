@@ -68,11 +68,18 @@ impl DrawPlanner {
                 sampling: TextureSampling::TargetPixels(region.bounds),
             });
         }
-        self.draw_backdrop(node, draw, output);
+        let has_children = !input.tree.children(node_id).is_empty();
+        self.draw_backdrop(node, draw, has_children, output);
         true
     }
 
-    fn draw_backdrop(&mut self, node: &DrawTreeNode, draw: ShapeDraw, output: &mut RenderPlan) {
+    fn draw_backdrop(
+        &mut self,
+        node: &DrawTreeNode,
+        draw: ShapeDraw,
+        has_children: bool,
+        output: &mut RenderPlan,
+    ) {
         let parent_clip = self.current.clip;
         let shape_clip = DrawClip {
             stencil_reference: parent_clip.stencil_reference + 1,
@@ -86,13 +93,13 @@ impl DrawPlanner {
             operation: RenderOperation::DrawShape(draw),
             clip: shape_clip,
         });
-        if node.is_leaf() || !node.clips_children() {
+        if !has_children || !node.clips_children() {
             output.push_command(RenderCommand {
                 operation: RenderOperation::DecrementStencil(draw),
                 clip: shape_clip,
             });
         }
-        if !node.is_leaf() {
+        if has_children {
             self.current.decrements_stencil = node.clips_children();
             if node.clips_children() {
                 self.current.clip = shape_clip;
