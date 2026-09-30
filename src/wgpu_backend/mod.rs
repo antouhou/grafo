@@ -64,6 +64,7 @@ pub struct WgpuBackend {
     pub(in crate::wgpu_backend) argb_readback: Option<ArgbReadbackResources>,
     pub(in crate::wgpu_backend) byte_readback: Option<ByteReadbackResources>,
     retained_output: Option<RetainedOutput>,
+    is_dirty_region_overlay_enabled: bool,
 
     /// MSAA sample count. A value of 1 disables MSAA.
     pub(in crate::wgpu_backend) msaa_sample_count: u32,

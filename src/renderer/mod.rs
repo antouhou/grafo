@@ -78,6 +78,18 @@ impl<B: RenderBackend> Renderer<B> {
         &self.backend
     }
 
+    /// Enables a red overlay at 25% opacity over the current surface redraw bounds.
+    /// Disabled by default. Pixmap output and the retained scene stay unchanged.
+    /// Toggling the overlay does not request a scene redraw.
+    pub fn set_dirty_region_overlay_enabled(&mut self, enabled: bool) {
+        self.backend.set_dirty_region_overlay_enabled(enabled);
+    }
+
+    /// Returns whether surface redraw bounds are highlighted.
+    pub fn is_dirty_region_overlay_enabled(&self) -> bool {
+        self.backend.is_dirty_region_overlay_enabled()
+    }
+
     /// Renders the draw queue to `target`, resizing the renderer to match its physical size.
     ///
     /// Pixmap pixels are ready on success and unchanged on error. Surface rendering

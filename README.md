@@ -99,6 +99,17 @@ Rendering leaves row padding and trailing bytes untouched.
 When rendering to memory, WGPU waits for readback. Errors leave the buffer unchanged.
 Rendering to a surface submits and presents the frame.
 
+To highlight redraw bounds while debugging, enable the renderer's runtime setting:
+
+```rust
+renderer.set_dirty_region_overlay_enabled(true);
+```
+
+The overlay is disabled by default. When enabled, window output highlights the current
+redraw bounds in red at 25% opacity. The overlay is not retained between draws or included
+in pixmap output. Toggling it does not redraw the scene; it highlights the next changed
+region. Use `renderer.is_dirty_region_overlay_enabled()` to read the setting.
+
 BGRA8 and RGBA8 store channels in that byte order. ARGB32 stores native-endian `0xAARRGGBB` words.
 RGB is premultiplied in linear space, then encoded as sRGB. Alpha stays linear.
 

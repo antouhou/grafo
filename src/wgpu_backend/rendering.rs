@@ -18,6 +18,7 @@ use wgpu::MaintainBase;
 use wgpu::{CommandEncoderDescriptor, Surface, SurfaceError, TextureView, TextureViewDescriptor};
 
 impl WgpuBackend {
+    /// Copies the clean scene to the output.
     pub(in crate::wgpu_backend) fn render_to_texture_view(
         &mut self,
         commands: &RenderPlan,
@@ -222,6 +223,21 @@ impl WgpuBackend {
             .create_view(&TextureViewDescriptor::default());
 
         self.render_to_texture_view(commands, &output_texture_view);
+        if let Some(scissor) = commands
+            .root_scissor
+            .filter(|_| self.is_dirty_region_overlay_enabled)
+        {
+            let mut encoder = self
+                .device
+                .create_command_encoder(&CommandEncoderDescriptor {
+                    label: Some("draw_dirty_region_overlay"),
+                });
+            self.retained_output
+                .as_ref()
+                .expect("retained output was initialized before presentation")
+                .draw_dirty_region_overlay(&mut encoder, &output_texture_view, scissor);
+            self.queue.submit(iter::once(encoder.finish()));
+        }
 
         #[cfg(feature = "render_metrics")]
         let after_submit = Instant::now();

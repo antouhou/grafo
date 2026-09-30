@@ -65,6 +65,7 @@ impl TextureManager for TestTextureManager {
 #[derive(Default)]
 struct TestBackend {
     root_scissor: Option<UnsignedPhysicalRect>,
+    is_dirty_region_overlay_enabled: bool,
     registered_shapes: Vec<usize>,
     command_address: usize,
     instruction_address: usize,
@@ -141,6 +142,14 @@ impl RenderBackend for TestBackend {
         self.size = Some(viewport.physical_size);
     }
     fn set_msaa_samples(&mut self, _: u32) {}
+    fn set_dirty_region_overlay_enabled(&mut self, enabled: bool) {
+        self.is_dirty_region_overlay_enabled = enabled;
+    }
+
+    fn is_dirty_region_overlay_enabled(&self) -> bool {
+        self.is_dirty_region_overlay_enabled
+    }
+
     fn render(
         &mut self,
         commands: &RenderPlan,

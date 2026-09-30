@@ -8,6 +8,10 @@ fn subtree_replacement_accumulates_bounds_until_a_successful_render() {
     let mut surface = surface();
     renderer.change_scale_factor(2.0);
     renderer.render(&mut surface).unwrap();
+    assert!(!renderer.is_dirty_region_overlay_enabled());
+    renderer.set_dirty_region_overlay_enabled(true);
+    renderer.render(&mut surface).unwrap();
+    assert_eq!(renderer.backend.root_scissor, None);
     let branch = renderer
         .add_clipping_rect(
             [(0.0, 0.0), (16.0, 16.0)],
@@ -53,6 +57,7 @@ fn subtree_replacement_accumulates_bounds_until_a_successful_render() {
     assert!(renderer.render(&mut surface).is_err());
     renderer.backend.should_fail = false;
     renderer.render(&mut surface).unwrap();
+    assert!(renderer.is_dirty_region_overlay_enabled());
     assert_eq!(
         renderer.backend.root_scissor,
         Some(UnsignedPhysicalRect::new((3, 1).into(), (32, 27).into()))
@@ -67,6 +72,8 @@ fn subtree_replacement_accumulates_bounds_until_a_successful_render() {
         Some(UnsignedPhysicalRect::new((27, 1).into(), (32, 7).into()))
     );
     renderer.remove_subtrees([usize::MAX], |_| panic!("missing node"));
+    renderer.set_dirty_region_overlay_enabled(false);
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, None);
+    assert!(!renderer.is_dirty_region_overlay_enabled());
 }

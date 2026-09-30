@@ -843,6 +843,8 @@ fn dirty_subtree_replacement_preserves_pixels_and_clears_removed_shapes() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
         return;
     };
+    assert!(!renderer.is_dirty_region_overlay_enabled());
+    renderer.set_dirty_region_overlay_enabled(true);
     let mut pixels = Vec::new();
     for samples in [1, 4] {
         renderer.clear_draw_queue();
@@ -908,6 +910,7 @@ fn dirty_subtree_replacement_preserves_pixels_and_clears_removed_shapes() {
         renderer.clear_draw_queue();
         render_bgra(&mut renderer, &mut pixels).unwrap();
         assert!(pixels.iter().all(|&byte| byte == 0));
+        assert!(renderer.is_dirty_region_overlay_enabled());
     }
 }
 
@@ -1847,6 +1850,7 @@ fn readback_targets_survive_alternating_formats_and_resize() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((65, 7), 1.0) else {
         return;
     };
+    renderer.set_dirty_region_overlay_enabled(true);
     renderer
         .add_shape(
             Shape::rect([(0.0, 0.0), (130.0, 10.0)]),

@@ -94,6 +94,13 @@ pub trait RenderBackend {
     fn resize(&mut self, viewport: Viewport, fringe_width: f32);
 
     fn set_msaa_samples(&mut self, samples: u32);
+
+    /// Controls the transient red redraw overlay on surfaces. Disabled by default.
+    /// This setting must not invalidate the retained scene or affect pixmap pixels.
+    fn set_dirty_region_overlay_enabled(&mut self, enabled: bool);
+
+    fn is_dirty_region_overlay_enabled(&self) -> bool;
+
     /// Renders `commands` at the target's dimensions. The commands must have been
     /// planned for those dimensions.
     /// Preserve the previous image outside `commands.root_scissor`. Clear and redraw

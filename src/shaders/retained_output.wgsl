@@ -17,3 +17,9 @@ fn fs_clear() -> @location(0) vec4<f32> {
 fn fs_present(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     return textureLoad(retained_image, vec2<i32>(position.xy), 0);
 }
+
+@fragment
+fn fs_dirty_region_overlay() -> @location(0) vec4<f32> {
+    // Premultiplied red at 25% opacity.
+    return vec4<f32>(0.25, 0.0, 0.0, 0.25);
+}

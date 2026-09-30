@@ -54,6 +54,7 @@ impl WgpuBackend {
             argb_readback: None,
             byte_readback: None,
             retained_output: None,
+            is_dirty_region_overlay_enabled: false,
             msaa_sample_count,
             msaa_color_texture: None,
             msaa_color_texture_view: None,

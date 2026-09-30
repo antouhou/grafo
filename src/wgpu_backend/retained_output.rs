@@ -1,9 +1,9 @@
 use super::execution::targets;
 use crate::core::UnsignedPhysicalRect;
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindingResource, Color, ColorTargetState,
-    ColorWrites, CommandEncoder, CompareFunction, DepthStencilState, Device, Extent3d,
-    FragmentState, LoadOp, MultisampleState, Operations, RenderPassColorAttachment,
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindingResource, BlendState, Color,
+    ColorTargetState, ColorWrites, CommandEncoder, CompareFunction, DepthStencilState, Device,
+    Extent3d, FragmentState, LoadOp, MultisampleState, Operations, RenderPassColorAttachment,
     RenderPassDepthStencilAttachment, RenderPassDescriptor, RenderPipeline,
     RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, StoreOp, Texture,
     TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
@@ -17,6 +17,7 @@ pub(super) struct RetainedOutput {
     clear_pipeline: RenderPipeline,
     present_pipeline: RenderPipeline,
     present_binding: BindGroup,
+    dirty_region_overlay_pipeline: RenderPipeline,
 }
 
 impl RetainedOutput {
@@ -42,7 +43,7 @@ impl RetainedOutput {
             label: Some("retained_output"),
             source: ShaderSource::Wgsl(include_str!("../shaders/retained_output.wgsl").into()),
         });
-        let pipeline = |entry_point, samples, depth_stencil| {
+        let pipeline = |entry_point, samples, depth_stencil, blend| {
             device.create_render_pipeline(&RenderPipelineDescriptor {
                 label: Some(entry_point),
                 layout: None,
@@ -58,7 +59,7 @@ impl RetainedOutput {
                     compilation_options: Default::default(),
                     targets: &[Some(ColorTargetState {
                         format,
-                        blend: None,
+                        blend,
                         write_mask: ColorWrites::ALL,
                     })],
                 }),
@@ -82,8 +83,15 @@ impl RetainedOutput {
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
+            None,
         );
-        let present_pipeline = pipeline("fs_present", 1, None);
+        let present_pipeline = pipeline("fs_present", 1, None, None);
+        let dirty_region_overlay_pipeline = pipeline(
+            "fs_dirty_region_overlay",
+            1,
+            None,
+            Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+        );
         let present_binding = device.create_bind_group(&BindGroupDescriptor {
             label: Some("retained_output"),
             layout: &present_pipeline.get_bind_group_layout(0),
@@ -98,6 +106,7 @@ impl RetainedOutput {
             clear_pipeline,
             present_pipeline,
             present_binding,
+            dirty_region_overlay_pipeline,
         }
     }
 
@@ -145,6 +154,7 @@ impl RetainedOutput {
         }
     }
 
+    /// Copies the clean scene to the disposable output.
     pub fn present(&self, encoder: &mut CommandEncoder, output: &TextureView) {
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("present_retained_output"),
@@ -162,6 +172,32 @@ impl RetainedOutput {
         });
         pass.set_pipeline(&self.present_pipeline);
         pass.set_bind_group(0, &self.present_binding, &[]);
+        pass.draw(0..3, 0..1);
+    }
+
+    /// Highlights redraw bounds over the finished output without changing the retained scene.
+    pub fn draw_dirty_region_overlay(
+        &self,
+        encoder: &mut CommandEncoder,
+        output: &TextureView,
+        scissor: UnsignedPhysicalRect,
+    ) {
+        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("draw_dirty_region_overlay"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: output,
+                resolve_target: None,
+                ops: Operations {
+                    load: LoadOp::Load,
+                    store: StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        targets::set_scissor(&mut pass, scissor);
+        pass.set_pipeline(&self.dirty_region_overlay_pipeline);
         pass.draw(0..3, 0..1);
     }
 }

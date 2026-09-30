@@ -103,6 +103,14 @@ impl RenderBackend for WgpuBackend {
         self.set_msaa_samples(samples);
     }
 
+    fn set_dirty_region_overlay_enabled(&mut self, enabled: bool) {
+        self.is_dirty_region_overlay_enabled = enabled;
+    }
+
+    fn is_dirty_region_overlay_enabled(&self) -> bool {
+        self.is_dirty_region_overlay_enabled
+    }
+
     fn render(
         &mut self,
         commands: &RenderPlan,
