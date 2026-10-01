@@ -22,8 +22,6 @@ pub struct CachedShapeHandle {
     /// Whether the original shape was an axis-aligned rectangle. Used to enable scissor-based
     /// clipping instead of stencil for rect parents.
     pub(crate) is_rect: bool,
-    /// The local-space bounding rect when `is_rect` is true, for scissor computation.
-    pub(crate) rect_bounds: Option<[(f32, f32); 2]>,
     pub geometry_id: Option<u64>,
 }
 
@@ -37,15 +35,10 @@ impl CachedShapeHandle {
         shape_resources: &mut ShapeResources,
         geometry_id: Option<u64>,
     ) -> Self {
-        let (is_rect, rect_bounds) = match shape {
-            Shape::Rect(r) => (true, Some(r.rect)),
-            _ => (false, None),
-        };
         let tessellation = shape.tessellate(tessellator, shape_resources, geometry_id);
         Self {
             tessellation,
-            is_rect,
-            rect_bounds,
+            is_rect: matches!(shape, Shape::Rect(_)),
             geometry_id,
         }
     }

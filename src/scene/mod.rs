@@ -114,22 +114,7 @@ impl Scene {
         self.insert_shape_data(CachedShapeDrawData::new(shape, options), parent)
     }
 
-    pub fn insert_shape(
-        &mut self,
-        instance: ShapeInstance,
-        parent: Option<usize>,
-        clips_children: bool,
-    ) -> Result<usize, SceneError> {
-        self.insert_shape_data(
-            CachedShapeDrawData {
-                instance,
-                clips_children,
-            },
-            parent,
-        )
-    }
-
-    fn insert_shape_data(
+    pub(crate) fn insert_shape_data(
         &mut self,
         shape: CachedShapeDrawData,
         parent: Option<usize>,
@@ -151,7 +136,7 @@ impl Scene {
         clips_children: bool,
     ) -> Result<usize, SceneError> {
         self.validate_parent(parent)?;
-        if geometry::extract_axis_aligned_rect_transform(transform).is_none() {
+        if !geometry::is_axis_aligned_rect_transform(transform) {
             return Err(SceneError::UnsupportedClipRectTransform);
         }
         Ok(self.insert_node(

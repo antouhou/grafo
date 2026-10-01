@@ -7,7 +7,6 @@ use crate::core::geometry;
 use crate::planner::backdrops::compute_backdrop_capture_region;
 use crate::planner::draws;
 use crate::scene::types::DrawTreeNode;
-use crate::MathRect;
 
 impl DrawPlanner {
     /// Captures preceding color before entering the shape's stencil coverage.
@@ -36,10 +35,8 @@ impl DrawPlanner {
             id: ShapeDrawId(node_id),
             material: draws::shape_material(&description.instance),
         };
-        let bounds = node.local_bounds();
         if let Some(region) = compute_backdrop_capture_region(
-            MathRect::new(bounds[0].into(), bounds[1].into()),
-            node.transform(),
+            node.logical_screen_bounds(),
             effect.config,
             input.scale_factor,
             input.physical_size,

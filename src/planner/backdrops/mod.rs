@@ -1,7 +1,5 @@
 use crate::core::effect::{self, BackdropCaptureArea, BackdropCaptureRegion, BackdropEffectConfig};
-
 use crate::core::geometry;
-use crate::core::vertex::InstanceTransform;
 use crate::core::{MathRect, Size};
 use tracing::warn;
 
@@ -23,17 +21,14 @@ fn does_capture_size_exceeds_budget(capture_size: Size, physical_size: Size) -> 
 
 /// Resolves the requested bounds and viewport overlap before allocating capture textures.
 pub(crate) fn compute_backdrop_capture_region(
-    local_bounds: MathRect,
-    transform: Option<InstanceTransform>,
+    logical_screen_bounds: MathRect,
     backdrop_config: BackdropEffectConfig,
     scale_factor: f64,
     physical_size: Size,
     max_capture_dimension: u32,
 ) -> Option<BackdropCaptureRegion> {
     let logical_rect = match backdrop_config.capture_area {
-        BackdropCaptureArea::NodeBounds => {
-            geometry::transformed_bounds_to_logical_screen_rect(local_bounds, transform)
-        }
+        BackdropCaptureArea::NodeBounds => logical_screen_bounds,
         BackdropCaptureArea::FullScene => {
             // Match capture rounding in f32; to_logical's f64 division can add a pixel.
             MathRect::from_size(physical_size.to_f32() / scale_factor as f32)

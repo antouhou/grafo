@@ -1,17 +1,19 @@
 use super::{
-    compute_scissor_rect, logical_rect_to_physical_rect, transform_point_to_logical_screen,
+    logical_rect_to_physical_rect, logical_rect_to_scissor_rect, transform_point_to_logical_screen,
     transformed_bounds_to_logical_screen_rect, unit_quad_transform,
 };
 use crate::core::{MathRect, PhysicalRect, Size, TransformInstance, UnsignedPhysicalRect};
 use lyon::geom::Point;
 
 #[test]
-fn axis_aligned_rect_transform_accepts_translation_and_scale() {
+fn transformed_screen_bounds_convert_to_scissor() {
     let transform = TransformInstance::affine_2d(2.0, 0.0, 0.0, -3.0, 10.0, 20.0);
 
-    let scissor = compute_scissor_rect(
-        MathRect::new(Point::new(0.0, 0.0), Point::new(10.0, 5.0)),
-        Some(transform),
+    let scissor = logical_rect_to_scissor_rect(
+        transformed_bounds_to_logical_screen_rect(
+            MathRect::new(Point::new(0.0, 0.0), Point::new(10.0, 5.0)),
+            Some(transform),
+        ),
         1.0,
         Size::new(100, 100),
     );
@@ -80,7 +82,11 @@ fn scissor_conversion_clips_scaled_bounds_and_preserves_empty_regions() {
     let transform = Some(TransformInstance::translation(-5.0, -10.0));
     let partially_visible = MathRect::new(Point::new(0.0, 0.0), Point::new(30.0, 25.0));
     assert_eq!(
-        compute_scissor_rect(partially_visible, transform, 2.0, viewport_size),
+        logical_rect_to_scissor_rect(
+            transformed_bounds_to_logical_screen_rect(partially_visible, transform),
+            2.0,
+            viewport_size,
+        ),
         Some(UnsignedPhysicalRect::new(
             Point::new(0, 0),
             Point::new(50, 30)
@@ -92,7 +98,12 @@ fn scissor_conversion_clips_scaled_bounds_and_preserves_empty_regions() {
         MathRect::new(Point::new(60.0, 50.0), Point::new(80.0, 70.0)),
         MathRect::new(Point::new(20.0, 20.0), Point::new(20.0, 30.0)),
     ] {
-        let scissor = compute_scissor_rect(bounds, transform, 2.0, viewport_size).unwrap();
+        let scissor = logical_rect_to_scissor_rect(
+            transformed_bounds_to_logical_screen_rect(bounds, transform),
+            2.0,
+            viewport_size,
+        )
+        .unwrap();
         assert!(scissor.is_empty());
         assert!(scissor.max.x <= viewport_size.width);
         assert!(scissor.max.y <= viewport_size.height);

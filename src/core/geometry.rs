@@ -3,7 +3,7 @@
 use crate::core::vertex::InstanceTransform;
 use lyon::geom::euclid::default::Transform3D;
 use lyon::geom::{self, Box2D, Point};
-use lyon::math::{self, Transform};
+use lyon::math;
 
 /// Rectangle with floating-point coordinates.
 pub type MathRect = math::Box2D;
@@ -27,40 +27,28 @@ pub struct Viewport {
     pub scale_factor: f64,
 }
 
-pub(crate) fn extract_axis_aligned_rect_transform(
-    transform: Option<InstanceTransform>,
-) -> Option<Transform> {
+pub(crate) fn is_axis_aligned_rect_transform(transform: Option<InstanceTransform>) -> bool {
     let transform = transform.unwrap_or_else(InstanceTransform::identity);
 
     if transform.col0[3] != 0.0 || transform.col1[3] != 0.0 || transform.col3[3] != 1.0 {
-        return None;
+        return false;
     }
 
     if transform.col0[1] != 0.0 || transform.col1[0] != 0.0 {
-        return None;
+        return false;
     }
 
-    Some(Transform::new(
-        transform.col0[0],
-        0.0,
-        0.0,
-        transform.col1[1],
-        transform.col3[0],
-        transform.col3[1],
-    ))
+    true
 }
 
-/// Resolves an axis-aligned rectangle to an outward-rounded viewport scissor.
-pub(crate) fn compute_scissor_rect(
-    rect: MathRect,
-    transform: Option<InstanceTransform>,
+/// Resolves logical screen bounds to an outward-rounded viewport scissor.
+pub(crate) fn logical_rect_to_scissor_rect(
+    logical_screen_bounds: MathRect,
     scale_factor: f64,
     physical_size: Size,
 ) -> Option<UnsignedPhysicalRect> {
-    let transform = extract_axis_aligned_rect_transform(transform)?;
     let scale_factor = scale_factor as f32;
-    let physical_rect = transform
-        .outer_transformed_box(&rect)
+    let physical_rect = logical_screen_bounds
         .scale(scale_factor, scale_factor)
         .round_out();
     let viewport = MathRect::from_size(physical_size.to_f32());

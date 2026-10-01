@@ -1,24 +1,19 @@
 use super::types::DrawCommandError;
 use super::{RenderBackend, Renderer};
 use crate::commands::ShapeDrawId;
-use crate::core::shape::{Shape, ShapeDrawCommandOptions, ShapeInstance};
+use crate::core::shape::{Shape, ShapeDrawCommandOptions};
 use crate::core::vertex::InstanceTransform;
-use crate::core::{geometry, MathRect, UnsignedPhysicalRect, Viewport};
-use crate::scene::types::DrawTreeNode;
+use crate::core::{MathRect, UnsignedPhysicalRect, Viewport};
+use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
 
 fn mark_dirty(
     dirty_bounds: &mut Option<UnsignedPhysicalRect>,
-    bounds: [(f32, f32); 2],
-    transform: Option<InstanceTransform>,
+    logical_screen_bounds: MathRect,
     viewport: Viewport,
     fringe_width: f32,
 ) {
-    let bounds = geometry::transformed_bounds_to_logical_screen_rect(
-        MathRect::new(bounds[0].into(), bounds[1].into()),
-        transform,
-    );
     let scale = viewport.scale_factor as f32;
-    let bounds = bounds
+    let bounds = logical_screen_bounds
         .scale(scale, scale)
         .inflate(fringe_width, fringe_width)
         .round_out();
@@ -58,12 +53,7 @@ impl<B: RenderBackend> Renderer<B> {
     ) -> Result<usize, DrawCommandError<B::Error>> {
         self.scene.validate_parent(parent_shape_id)?;
         let shape = self.scene.loaded_shape(cache_key)?;
-        let clips_children = options.clips_children;
-        self.queue_shape(
-            ShapeInstance::new(shape, options),
-            parent_shape_id,
-            clips_children,
-        )
+        self.queue_shape(CachedShapeDrawData::new(shape, options), parent_shape_id)
     }
 
     /// Queues a shape without retaining it in the loaded-shape cache.
@@ -77,31 +67,23 @@ impl<B: RenderBackend> Renderer<B> {
     ) -> Result<usize, DrawCommandError<B::Error>> {
         self.scene.validate_parent(parent_shape_id)?;
         let shape = self.scene.tessellate(shape.as_ref(), geometry_id);
-        let clips_children = options.clips_children;
-        self.queue_shape(
-            ShapeInstance::new(shape, options),
-            parent_shape_id,
-            clips_children,
-        )
+        self.queue_shape(CachedShapeDrawData::new(shape, options), parent_shape_id)
     }
 
     fn queue_shape(
         &mut self,
-        instance: ShapeInstance,
+        shape: CachedShapeDrawData,
         parent: Option<usize>,
-        clips_children: bool,
     ) -> Result<usize, DrawCommandError<B::Error>> {
         let id = self.scene.next_node_id();
         self.backend
-            .register_shape(ShapeDrawId(id), &instance)
+            .register_shape(ShapeDrawId(id), &shape.instance)
             .map_err(DrawCommandError::Backend)?;
-        let bounds = instance.cached_shape.local_bounds();
-        let transform = instance.transform;
-        let inserted_id = self.scene.insert_shape(instance, parent, clips_children)?;
+        let bounds = shape.logical_screen_bounds;
+        let inserted_id = self.scene.insert_shape_data(shape, parent)?;
         mark_dirty(
             &mut self.dirty_bounds,
             bounds,
-            transform,
             self.viewport,
             self.fringe_width,
         );
@@ -145,8 +127,7 @@ impl<B: RenderBackend> Renderer<B> {
             if matches!(node, DrawTreeNode::CachedShape(_)) {
                 mark_dirty(
                     &mut self.dirty_bounds,
-                    node.local_bounds(),
-                    node.transform(),
+                    node.logical_screen_bounds(),
                     self.viewport,
                     self.fringe_width,
                 );
