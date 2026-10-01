@@ -1,6 +1,7 @@
+use super::damage::mark_shape_effect_dirty;
 use super::{EffectError, RenderBackend, Renderer};
 use crate::commands::ShapeDrawId;
-use crate::core::effect::{BackdropEffectConfig, ShapeEffectConfig};
+use crate::core::effect::{BackdropEffectConfig, ShapeEffectBounds, ShapeEffectConfig};
 use crate::scene::effects::EffectAttachment;
 
 impl<B: RenderBackend> Renderer<B> {
@@ -114,12 +115,27 @@ impl<B: RenderBackend> Renderer<B> {
             .validate_effect_params(effect_id, params)
             .map_err(EffectError::Backend)?;
         let parameters = self.planner.store_effect_parameters(params);
-        self.scene
-            .set_shape_effect(node_id, effect_id, parameters, config)?;
+        let old_bounds = self
+            .scene
+            .shape_effects
+            .get(&node_id)
+            .map(|effect| effect.bounds);
+        self.scene.set_shape_effect(
+            node_id,
+            effect_id,
+            parameters,
+            config,
+            self.viewport,
+            self.fringe_width,
+        )?;
         self.backend.set_shape_effect_geometry(
             ShapeDrawId(node_id),
             &self.scene.shape(node_id)?.cached_shape,
         );
+        if let Some(bounds) = old_bounds {
+            self.mark_shape_effect_dirty(bounds);
+        }
+        self.mark_shape_effect_dirty(self.scene.shape_effect(node_id)?.bounds);
         Ok(())
     }
 
@@ -129,13 +145,16 @@ impl<B: RenderBackend> Renderer<B> {
         params: &[u8],
     ) -> Result<(), EffectError<B::Error>> {
         let effect = self.scene.shape_effect(node_id)?;
+        let bounds = effect.bounds;
         self.backend
             .validate_effect_params(effect.effect_id, params)
             .map_err(EffectError::Backend)?;
         let parameters = self
             .planner
             .update_effect_parameters(effect.parameters, params);
-        Ok(self.scene.update_shape_effect_params(node_id, parameters)?)
+        self.scene.update_shape_effect_params(node_id, parameters)?;
+        self.mark_shape_effect_dirty(bounds);
+        Ok(())
     }
 
     pub fn update_shape_effect_config(
@@ -143,11 +162,24 @@ impl<B: RenderBackend> Renderer<B> {
         node_id: usize,
         config: ShapeEffectConfig,
     ) -> Result<(), EffectError<B::Error>> {
-        Ok(self.scene.update_shape_effect_config(node_id, config)?)
+        let old_bounds = self.scene.shape_effect(node_id)?.bounds;
+        self.scene
+            .update_shape_effect_config(node_id, config, self.viewport, self.fringe_width)?;
+        self.mark_shape_effect_dirty(old_bounds);
+        self.mark_shape_effect_dirty(self.scene.shape_effect(node_id)?.bounds);
+        Ok(())
     }
 
     pub fn remove_shape_effect(&mut self, node_id: usize) {
+        let bounds = self
+            .scene
+            .shape_effects
+            .get(&node_id)
+            .map(|effect| effect.bounds);
         self.scene.remove_shape_effect(node_id);
+        if let Some(bounds) = bounds {
+            self.mark_shape_effect_dirty(bounds);
+        }
         self.backend.remove_shape_effect(ShapeDrawId(node_id));
     }
 
@@ -162,8 +194,15 @@ impl<B: RenderBackend> Renderer<B> {
                 EffectAttachment::Backdrop => {
                     self.backend.remove_backdrop_effect(ShapeDrawId(node_id))
                 }
-                EffectAttachment::Shape => self.backend.remove_shape_effect(ShapeDrawId(node_id)),
+                EffectAttachment::Shape(bounds) => {
+                    mark_shape_effect_dirty(&mut self.dirty_bounds, bounds, self.viewport);
+                    self.backend.remove_shape_effect(ShapeDrawId(node_id));
+                }
             });
         self.backend.invalidate_effect(effect_id);
+    }
+
+    fn mark_shape_effect_dirty(&mut self, bounds: ShapeEffectBounds) {
+        mark_shape_effect_dirty(&mut self.dirty_bounds, bounds, self.viewport);
     }
 }

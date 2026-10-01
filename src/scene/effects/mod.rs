@@ -1,6 +1,10 @@
+use super::types::DrawTreeNode;
 use super::{Scene, SceneError};
 use crate::commands::EffectParameters;
-use crate::core::effect::{BackdropCaptureArea, BackdropEffectConfig, ShapeEffectConfig};
+use crate::core::effect::{
+    BackdropCaptureArea, BackdropEffectConfig, ShapeEffectBounds, ShapeEffectConfig,
+};
+use crate::core::Viewport;
 use std::mem;
 
 /// A cached shape effect attachment. GPU parameter resources are created only on cache misses.
@@ -9,6 +13,7 @@ pub(crate) struct ShapeEffectInstance {
     pub effect_id: u64,
     pub parameters: EffectParameters,
     pub config: ShapeEffectConfig,
+    pub bounds: ShapeEffectBounds,
 }
 
 /// Parameters shared by group and backdrop effect attachments.
@@ -111,7 +116,7 @@ fn validate_shape_effect_config(config: &ShapeEffectConfig) -> Result<(), SceneE
 #[derive(Clone, Copy)]
 pub(crate) enum EffectAttachment {
     Backdrop,
-    Shape,
+    Shape(ShapeEffectBounds),
 }
 
 impl Scene {
@@ -253,21 +258,34 @@ impl Scene {
         self.backdrop_effects.remove(&node_id);
     }
 
+    /// Attaches an effect and caches its bounds for the supplied rasterization settings.
+    /// Leaves the previous attachment unchanged if its bounds cannot be calculated.
     pub fn set_shape_effect(
         &mut self,
         node_id: usize,
         effect_id: u64,
         parameters: EffectParameters,
         config: ShapeEffectConfig,
+        viewport: Viewport,
+        fringe_width: f32,
     ) -> Result<(), SceneError> {
-        self.shape(node_id)?;
+        let shape = self.shape(node_id)?;
         validate_shape_effect_config(&config)?;
+        let bounds = ShapeEffectBounds::new(
+            shape.cached_shape.tessellation.local_bounds,
+            config,
+            shape.transform,
+            viewport.scale_factor,
+            fringe_width,
+        )
+        .ok_or(SceneError::InvalidShapeEffectBounds(node_id))?;
         self.shape_effects.insert(
             node_id,
             ShapeEffectInstance {
                 effect_id,
                 parameters,
                 config,
+                bounds,
             },
         );
         Ok(())
@@ -290,13 +308,43 @@ impl Scene {
         &mut self,
         node_id: usize,
         config: ShapeEffectConfig,
+        viewport: Viewport,
+        fringe_width: f32,
     ) -> Result<(), SceneError> {
         validate_shape_effect_config(&config)?;
-        self.shape_effects
+        let bounds = ShapeEffectBounds::new(
+            self.shape(node_id)?.cached_shape.tessellation.local_bounds,
+            config,
+            self.shape(node_id)?.transform,
+            viewport.scale_factor,
+            fringe_width,
+        )
+        .ok_or(SceneError::InvalidShapeEffectBounds(node_id))?;
+        let instance = self
+            .shape_effects
             .get_mut(&node_id)
-            .ok_or(SceneError::NodeNotFound(node_id))?
-            .config = config;
+            .ok_or(SceneError::NodeNotFound(node_id))?;
+        instance.config = config;
+        instance.bounds = bounds;
         Ok(())
+    }
+
+    /// Refreshes cached rectangles when the logical scale or fringe width changes.
+    pub fn refresh_shape_effect_bounds(&mut self, scale_factor: f64, fringe_width: f32) {
+        for (&node_id, effect) in &mut self.shape_effects {
+            let Some(DrawTreeNode::CachedShape(shape)) = self.draw_tree.get(node_id) else {
+                continue;
+            };
+            if let Some(bounds) = ShapeEffectBounds::new(
+                shape.instance.cached_shape.tessellation.local_bounds,
+                effect.config,
+                shape.instance.transform,
+                scale_factor,
+                fringe_width,
+            ) {
+                effect.bounds = bounds;
+            }
+        }
     }
 
     pub fn remove_shape_effect(&mut self, node_id: usize) {
@@ -321,7 +369,7 @@ impl Scene {
             if instance.effect_id != effect_id {
                 return true;
             }
-            removed(*node_id, EffectAttachment::Shape);
+            removed(*node_id, EffectAttachment::Shape(instance.bounds));
             false
         });
     }

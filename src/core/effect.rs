@@ -15,7 +15,8 @@
 //! and can supply different parameters.
 
 use crate::core::geometry;
-use crate::core::{PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
+use crate::core::vertex::InstanceTransform;
+use crate::core::{MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
 
 /// The rendered region to capture as input to a backdrop effect.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -173,7 +174,7 @@ pub(crate) struct ShapeEffectRasterRect {
     pub(crate) local_bounds: [(f32, f32); 2],
 }
 
-pub(crate) fn compute_shape_effect_raster_rect(
+fn compute_shape_effect_raster_rect(
     local_bounds: [(f32, f32); 2],
     config: ShapeEffectConfig,
     scale_factor: f64,
@@ -258,6 +259,37 @@ pub(crate) fn compute_shape_effect_raster_rect(
             ),
         ],
     })
+}
+
+/// The raster rectangle and its unclipped footprint under the source transform.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ShapeEffectBounds {
+    pub raster_rect: ShapeEffectRasterRect,
+    pub logical_screen_bounds: MathRect,
+}
+
+impl ShapeEffectBounds {
+    pub(crate) fn new(
+        local_bounds: [(f32, f32); 2],
+        config: ShapeEffectConfig,
+        transform: Option<InstanceTransform>,
+        scale_factor: f64,
+        fringe_width: f32,
+    ) -> Option<Self> {
+        let raster_rect =
+            compute_shape_effect_raster_rect(local_bounds, config, scale_factor, fringe_width)?;
+        let logical_screen_bounds = geometry::transformed_bounds_to_logical_screen_rect(
+            MathRect::new(
+                raster_rect.local_bounds[0].into(),
+                raster_rect.local_bounds[1].into(),
+            ),
+            transform,
+        );
+        Some(Self {
+            raster_rect,
+            logical_screen_bounds,
+        })
+    }
 }
 
 #[cfg(test)]

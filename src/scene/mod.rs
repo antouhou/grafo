@@ -174,13 +174,13 @@ impl Scene {
     pub(crate) fn remove_subtrees_with(
         &mut self,
         node_ids: impl IntoIterator<Item = usize>,
-        mut removed: impl FnMut(usize, DrawTreeNode),
+        mut removed: impl FnMut(usize, DrawTreeNode, Option<ShapeEffectInstance>),
     ) {
         self.draw_tree.remove_subtrees_with(node_ids, |id, node| {
             self.group_effects.remove(&id);
             self.backdrop_effects.remove(&id);
-            self.shape_effects.remove(&id);
-            removed(id, node);
+            let shape_effect = self.shape_effects.remove(&id);
+            removed(id, node, shape_effect);
         });
     }
 

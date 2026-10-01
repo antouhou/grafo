@@ -66,6 +66,13 @@ fn plan_scene(planner: &mut Planner, scene: &Scene) {
     );
 }
 
+fn viewport() -> Viewport {
+    Viewport {
+        physical_size: (32, 32),
+        scale_factor: 1.0,
+    }
+}
+
 #[test]
 fn parameter_compaction_preserves_replanned_effects() {
     let mut scene = Scene::default();
@@ -79,7 +86,14 @@ fn parameter_compaction_preserves_replanned_effects() {
     let backdrop_parameters = planner.store_effect_parameters(&[3; 4]);
     let removed_parameters = planner.store_effect_parameters(&[4; 4]);
     scene
-        .set_shape_effect(root, 17, shape_parameters, ShapeEffectConfig::default())
+        .set_shape_effect(
+            root,
+            17,
+            shape_parameters,
+            ShapeEffectConfig::default(),
+            viewport(),
+            0.75,
+        )
         .unwrap();
     scene.set_group_effect(root, 17, group_parameters).unwrap();
     scene
@@ -99,12 +113,14 @@ fn parameter_compaction_preserves_replanned_effects() {
             17,
             removed_parameters,
             ShapeEffectConfig::default(),
+            viewport(),
+            0.75,
         )
         .unwrap();
     plan_scene(&mut planner, &scene);
 
     assert!(planner.shape_composites.contains_key(&removed));
-    scene.remove_subtrees_with([removed], |_, _| {});
+    scene.remove_subtrees_with([removed], |_, _, _| {});
     plan_scene(&mut planner, &scene);
     let expected_effects = effect_snapshots(&planner.commands);
     for parameters in [[1; 4], [2; 4], [3; 4]] {
@@ -147,7 +163,14 @@ fn parameter_compaction_preserves_replanned_effects_with_empty_parameters() {
     let parameters = planner.store_effect_parameters(&[]);
     scene.set_group_effect(root, 17, parameters).unwrap();
     scene
-        .set_shape_effect(root, 18, parameters, ShapeEffectConfig::default())
+        .set_shape_effect(
+            root,
+            18,
+            parameters,
+            ShapeEffectConfig::default(),
+            viewport(),
+            0.75,
+        )
         .unwrap();
     scene
         .set_shape_backdrop_effect(root, 19, parameters, BackdropEffectConfig::default())

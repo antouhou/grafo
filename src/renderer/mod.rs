@@ -10,6 +10,7 @@ use crate::render_backend::RenderBackend;
 use crate::scene::{Scene, SceneContext};
 #[cfg(feature = "render_metrics")]
 use std::time::Instant;
+mod damage;
 mod draw_queue;
 mod effects;
 #[cfg(feature = "render_metrics")]
@@ -96,7 +97,6 @@ impl<B: RenderBackend> Renderer<B> {
     /// submits and presents the frame, though GPU work may still be pending.
     /// The draw queue and output image are retained for another render. Additions and
     /// removals redraw their combined bounds; an unchanged queue preserves the image.
-    /// This prototype does not track texture uploads or effect changes as damage.
     pub fn render<'target>(
         &mut self,
         target: impl Into<RenderTarget<'target, B::Surface>>,

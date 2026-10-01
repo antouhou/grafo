@@ -2,7 +2,6 @@ use crate::commands::{
     DrawClip, EffectApplication, MaskTarget, RenderOperation, RenderPlan, ShapeDrawId,
     ShapeMaskDraw, Target, TextureComposite, TexturePlacement,
 };
-use crate::core::effect;
 use crate::core::geometry;
 use crate::core::vertex::TextureUvTransform;
 use crate::core::{Size, UnsignedPhysicalRect, Viewport};
@@ -30,14 +29,7 @@ pub(super) fn append_shape_effects(
         if !shape.has_geometry() {
             continue;
         }
-        let Some(raster_rect) = effect::compute_shape_effect_raster_rect(
-            shape.instance.cached_shape.tessellation.local_bounds,
-            effect.config,
-            viewport.scale_factor,
-            fringe_width,
-        ) else {
-            continue;
-        };
+        let raster_rect = effect.bounds.raster_rect;
         let [width, height] = raster_rect.texture_size;
         if width > maximum_texture_dimension
             || height > maximum_texture_dimension

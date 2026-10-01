@@ -16,11 +16,15 @@ impl<B: RenderBackend> Renderer<B> {
 
     pub fn change_scale_factor(&mut self, new_scale_factor: f64) {
         self.viewport.scale_factor = new_scale_factor;
+        self.scene
+            .refresh_shape_effect_bounds(new_scale_factor, self.fringe_width);
         self.resize(self.viewport.physical_size);
     }
 
     pub fn set_fringe_width(&mut self, fringe_width: f32) {
         self.fringe_width = fringe_width;
+        self.scene
+            .refresh_shape_effect_bounds(self.viewport.scale_factor, fringe_width);
         self.resize(self.viewport.physical_size);
     }
 

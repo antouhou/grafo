@@ -1,33 +1,10 @@
+use super::damage::{mark_dirty, mark_shape_effect_dirty};
 use super::types::DrawCommandError;
 use super::{RenderBackend, Renderer};
 use crate::commands::ShapeDrawId;
 use crate::core::shape::{Shape, ShapeDrawCommandOptions};
 use crate::core::vertex::InstanceTransform;
-use crate::core::{MathRect, UnsignedPhysicalRect, Viewport};
 use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
-
-fn mark_dirty(
-    dirty_bounds: &mut Option<UnsignedPhysicalRect>,
-    logical_screen_bounds: MathRect,
-    viewport: Viewport,
-    fringe_width: f32,
-) {
-    let scale = viewport.scale_factor as f32;
-    let bounds = logical_screen_bounds
-        .scale(scale, scale)
-        .inflate(fringe_width, fringe_width)
-        .round_out();
-    let viewport_bounds = UnsignedPhysicalRect::from_size(viewport.physical_size.into());
-    let bounds = if bounds.is_finite() {
-        let Some(bounds) = bounds.intersection(&viewport_bounds.to_f32()) else {
-            return;
-        };
-        bounds.cast()
-    } else {
-        viewport_bounds
-    };
-    *dirty_bounds = Some(dirty_bounds.map_or(bounds, |dirty| dirty.union(&bounds)));
-}
 
 impl<B: RenderBackend> Renderer<B> {
     /// Tessellates into the shared CPU cache. Geometry IDs let identical shapes share uploads.
@@ -123,21 +100,25 @@ impl<B: RenderBackend> Renderer<B> {
     ) {
         self.removed_shape_ids.clear();
         let mut has_removed_nodes = false;
-        self.scene.remove_subtrees_with(node_ids, |id, node| {
-            if matches!(node, DrawTreeNode::CachedShape(_)) {
-                mark_dirty(
-                    &mut self.dirty_bounds,
-                    node.logical_screen_bounds(),
-                    self.viewport,
-                    self.fringe_width,
-                );
-            }
-            has_removed_nodes = true;
-            if matches!(node, DrawTreeNode::CachedShape(_)) {
-                self.removed_shape_ids.push(ShapeDrawId(id));
-            }
-            removed(id);
-        });
+        self.scene
+            .remove_subtrees_with(node_ids, |id, node, effect| {
+                if matches!(node, DrawTreeNode::CachedShape(_)) {
+                    mark_dirty(
+                        &mut self.dirty_bounds,
+                        node.logical_screen_bounds(),
+                        self.viewport,
+                        self.fringe_width,
+                    );
+                }
+                if let Some(effect) = effect {
+                    mark_shape_effect_dirty(&mut self.dirty_bounds, effect.bounds, self.viewport);
+                }
+                has_removed_nodes = true;
+                if matches!(node, DrawTreeNode::CachedShape(_)) {
+                    self.removed_shape_ids.push(ShapeDrawId(id));
+                }
+                removed(id);
+            });
         if !has_removed_nodes {
             return;
         }

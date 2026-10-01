@@ -14,6 +14,7 @@ use thiserror::Error;
 
 mod dirty_bounds;
 mod removal;
+mod shape_effect_damage;
 
 #[derive(Default)]
 struct TestSurface {
