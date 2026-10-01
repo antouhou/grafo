@@ -19,7 +19,7 @@ fn does_capture_size_exceeds_budget(capture_size: Size, physical_size: Size) -> 
     capture_texels > max_backdrop_capture_texels(physical_size)
 }
 
-/// Resolves the requested bounds and viewport overlap before allocating capture textures.
+/// Resolves capture bounds and viewport overlap within allocation limits.
 pub(crate) fn compute_backdrop_capture_region(
     logical_screen_bounds: MathRect,
     backdrop_config: BackdropEffectConfig,

@@ -5,7 +5,6 @@ use ahash::HashMap;
 use groups::{GroupPlanningInput, SceneTraversal};
 use shape_effects::append_shape_effects;
 
-pub(super) mod backdrops;
 pub(super) mod draws;
 pub(super) mod groups;
 pub(super) mod shape_effects;
@@ -70,7 +69,6 @@ impl Planner {
                 shape_effects: &self.shape_composites,
                 scale_factor: viewport.scale_factor,
                 physical_size: viewport.physical_size.into(),
-                max_capture_dimension: maximum_texture_dimension,
             },
             &mut self.commands,
         );

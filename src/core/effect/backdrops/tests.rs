@@ -2,8 +2,7 @@ use super::{
     compute_backdrop_capture_region, does_capture_size_exceeds_budget,
     does_capture_size_exceeds_limits,
 };
-use crate::core::effect::BackdropCaptureRegion;
-use crate::core::effect::{BackdropCaptureArea, BackdropEffectConfig};
+use crate::core::effect::{BackdropCaptureArea, BackdropCaptureRegion, BackdropEffectConfig};
 use crate::core::geometry::compute_downsampled_dimensions;
 use crate::{MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
 use lyon::geom::Point;

@@ -7,6 +7,7 @@ use crate::core::effect::BackdropEffectConfig;
 use crate::core::shape::CachedShapeHandle;
 use crate::core::util::ShapeResources;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
+use crate::core::Viewport;
 use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::{ClipRectDrawData, DrawTreeNode};
@@ -133,7 +134,6 @@ impl Scene {
                 backdrop_effects: &self.backdrops,
                 scale_factor: 1.0,
                 physical_size: Size::new(100, 100),
-                max_capture_dimension: Some(1024),
                 backdrop_source: self.backdrop_source,
             },
             output,
@@ -149,7 +149,27 @@ impl Scene {
                     parameters: output.store_parameters(&[1, 2, 3, 4]),
                 },
                 BackdropEffectConfig::default(),
+                self.tree.get(node).unwrap().logical_screen_bounds(),
+                Viewport {
+                    physical_size: (100, 100),
+                    scale_factor: 1.0,
+                },
+                1024,
             ),
+        );
+    }
+
+    fn update_backdrop_config(&mut self, node: usize, config: BackdropEffectConfig) {
+        let instance = self.backdrops.get_mut(&node).unwrap();
+        *instance = BackdropEffectInstance::new(
+            instance.effect,
+            config,
+            self.tree.get(node).unwrap().logical_screen_bounds(),
+            Viewport {
+                physical_size: (100, 100),
+                scale_factor: 1.0,
+            },
+            1024,
         );
     }
 }

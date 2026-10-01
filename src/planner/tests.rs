@@ -102,6 +102,8 @@ fn parameter_compaction_preserves_replanned_effects() {
             17,
             backdrop_parameters,
             BackdropEffectConfig::default(),
+            viewport(),
+            4096,
         )
         .unwrap();
     scene
@@ -173,7 +175,14 @@ fn parameter_compaction_preserves_replanned_effects_with_empty_parameters() {
         )
         .unwrap();
     scene
-        .set_shape_backdrop_effect(root, 19, parameters, BackdropEffectConfig::default())
+        .set_shape_backdrop_effect(
+            root,
+            19,
+            parameters,
+            BackdropEffectConfig::default(),
+            viewport(),
+            4096,
+        )
         .unwrap();
     plan_scene(&mut planner, &scene);
     let expected_effects = effect_snapshots(&planner.commands);

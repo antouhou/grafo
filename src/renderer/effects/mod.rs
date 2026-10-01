@@ -68,9 +68,14 @@ impl<B: RenderBackend> Renderer<B> {
             .validate_effect_params(effect_id, params)
             .map_err(EffectError::Backend)?;
         let parameters = self.planner.store_effect_parameters(params);
-        Ok(self
-            .scene
-            .set_shape_backdrop_effect(node_id, effect_id, parameters, config)?)
+        Ok(self.scene.set_shape_backdrop_effect(
+            node_id,
+            effect_id,
+            parameters,
+            config,
+            self.viewport,
+            self.backend.maximum_texture_dimension(),
+        )?)
     }
 
     pub fn update_backdrop_effect_config(
@@ -78,7 +83,12 @@ impl<B: RenderBackend> Renderer<B> {
         node_id: usize,
         config: BackdropEffectConfig,
     ) -> Result<(), EffectError<B::Error>> {
-        Ok(self.scene.update_backdrop_effect_config(node_id, config)?)
+        Ok(self.scene.update_backdrop_effect_config(
+            node_id,
+            config,
+            self.viewport,
+            self.backend.maximum_texture_dimension(),
+        )?)
     }
 
     pub fn update_backdrop_effect_params(

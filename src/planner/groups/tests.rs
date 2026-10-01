@@ -6,6 +6,7 @@ use crate::commands::{
 use crate::core::effect::BackdropEffectConfig;
 use crate::core::shape::CachedShapeHandle;
 use crate::core::util::ShapeResources;
+use crate::core::Viewport;
 use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::{ClipRectDrawData, DrawTreeNode};
@@ -169,6 +170,12 @@ impl Scene {
                     parameters: output.store_parameters(&[9; 4]),
                 },
                 BackdropEffectConfig::new().padding(4.0).downsample(0.5),
+                self.tree.get(node).unwrap().logical_screen_bounds(),
+                Viewport {
+                    physical_size: (100, 100),
+                    scale_factor: 1.0,
+                },
+                1024,
             ),
         );
     }
@@ -184,7 +191,6 @@ impl Scene {
                 shape_effects: &self.shapes,
                 scale_factor: 1.0,
                 physical_size: Size::new(100, 100),
-                max_capture_dimension: 1024,
             },
             output,
         );

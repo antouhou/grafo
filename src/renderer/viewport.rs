@@ -32,6 +32,10 @@ impl<B: RenderBackend> Renderer<B> {
         self.viewport.physical_size = new_physical_size;
         self.dirty_bounds = Some(UnsignedPhysicalRect::from_size(new_physical_size.into()));
         self.backend.resize(self.viewport, self.fringe_width);
+        self.scene.refresh_backdrop_capture_regions(
+            self.viewport,
+            self.backend.maximum_texture_dimension(),
+        );
     }
 
     pub fn set_msaa_samples(&mut self, samples: u32) {

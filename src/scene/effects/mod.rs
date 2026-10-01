@@ -2,9 +2,10 @@ use super::types::DrawTreeNode;
 use super::{Scene, SceneError};
 use crate::commands::EffectParameters;
 use crate::core::effect::{
-    BackdropCaptureArea, BackdropEffectConfig, ShapeEffectBounds, ShapeEffectConfig,
+    backdrops, BackdropCaptureArea, BackdropCaptureRegion, BackdropEffectConfig, ShapeEffectBounds,
+    ShapeEffectConfig,
 };
-use crate::core::Viewport;
+use crate::core::{MathRect, Viewport};
 use std::mem;
 
 /// A cached shape effect attachment. GPU parameter resources are created only on cache misses.
@@ -24,16 +25,33 @@ pub(crate) struct EffectInstance {
     pub parameters: EffectParameters,
 }
 
-/// A backdrop effect attachment and its capture configuration.
+/// A backdrop effect attachment with cached capture bounds and viewport overlap.
 #[derive(Clone, Copy)]
 pub(crate) struct BackdropEffectInstance {
     pub effect: EffectInstance,
     pub config: BackdropEffectConfig,
+    pub capture_region: Option<BackdropCaptureRegion>,
 }
 
 impl BackdropEffectInstance {
-    pub(crate) fn new(effect: EffectInstance, config: BackdropEffectConfig) -> Self {
-        Self { effect, config }
+    pub(crate) fn new(
+        effect: EffectInstance,
+        config: BackdropEffectConfig,
+        logical_screen_bounds: MathRect,
+        viewport: Viewport,
+        maximum_texture_dimension: u32,
+    ) -> Self {
+        Self {
+            effect,
+            config,
+            capture_region: backdrops::compute_backdrop_capture_region(
+                logical_screen_bounds,
+                config,
+                viewport.scale_factor,
+                viewport.physical_size.into(),
+                maximum_texture_dimension,
+            ),
+        }
     }
 }
 
@@ -210,8 +228,16 @@ impl Scene {
         effect_id: u64,
         parameters: EffectParameters,
         config: BackdropEffectConfig,
+        viewport: Viewport,
+        maximum_texture_dimension: u32,
     ) -> Result<(), SceneError> {
-        self.shape(node_id)?;
+        let node = self
+            .draw_tree
+            .get(node_id)
+            .ok_or(SceneError::NodeNotFound(node_id))?;
+        let DrawTreeNode::CachedShape(shape) = node else {
+            return Err(SceneError::UnsupportedClipRectOperation(node_id, "effects"));
+        };
         validate_backdrop_config(&config)?;
         self.backdrop_effects.insert(
             node_id,
@@ -221,6 +247,9 @@ impl Scene {
                     parameters,
                 },
                 config,
+                shape.logical_screen_bounds,
+                viewport,
+                maximum_texture_dimension,
             ),
         );
         Ok(())
@@ -245,13 +274,46 @@ impl Scene {
         &mut self,
         node_id: usize,
         config: BackdropEffectConfig,
+        viewport: Viewport,
+        maximum_texture_dimension: u32,
     ) -> Result<(), SceneError> {
         validate_backdrop_config(&config)?;
-        self.backdrop_effects
+        let instance = self
+            .backdrop_effects
             .get_mut(&node_id)
-            .ok_or(SceneError::NodeNotFound(node_id))?
-            .config = config;
+            .ok_or(SceneError::NodeNotFound(node_id))?;
+        let node = self
+            .draw_tree
+            .get(node_id)
+            .ok_or(SceneError::NodeNotFound(node_id))?;
+        *instance = BackdropEffectInstance::new(
+            instance.effect,
+            config,
+            node.logical_screen_bounds(),
+            viewport,
+            maximum_texture_dimension,
+        );
         Ok(())
+    }
+
+    /// Refreshes capture bounds, viewport overlap and allocation limits after viewport changes.
+    pub fn refresh_backdrop_capture_regions(
+        &mut self,
+        viewport: Viewport,
+        maximum_texture_dimension: u32,
+    ) {
+        for (&node_id, instance) in &mut self.backdrop_effects {
+            let Some(node) = self.draw_tree.get(node_id) else {
+                continue;
+            };
+            *instance = BackdropEffectInstance::new(
+                instance.effect,
+                instance.config,
+                node.logical_screen_bounds(),
+                viewport,
+                maximum_texture_dimension,
+            );
+        }
     }
 
     pub fn remove_backdrop_effect(&mut self, node_id: usize) {

@@ -18,6 +18,8 @@ use crate::core::geometry;
 use crate::core::vertex::InstanceTransform;
 use crate::core::{MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
 
+pub(crate) mod backdrops;
+
 /// The rendered region to capture as input to a backdrop effect.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub enum BackdropCaptureArea {
