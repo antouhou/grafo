@@ -1,4 +1,5 @@
 //! Coordinates scene mutation, planning and backend execution.
+use self::damage::BackdropDamage;
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
 pub use self::types::{DrawCommandError, EffectError};
@@ -51,6 +52,7 @@ pub struct Renderer<B: RenderBackend> {
     fringe_width: f32,
     removed_shape_ids: Vec<ShapeDrawId>,
     dirty_bounds: Option<UnsignedPhysicalRect>,
+    backdrop_damage: BackdropDamage,
     #[cfg(feature = "render_metrics")]
     render_loop_metrics_tracker: RenderLoopMetricsTracker,
 }
@@ -68,6 +70,7 @@ impl<B: RenderBackend> Renderer<B> {
             dirty_bounds: Some(UnsignedPhysicalRect::from_size(
                 backend.viewport().physical_size.into(),
             )),
+            backdrop_damage: BackdropDamage::default(),
             backend,
             #[cfg(feature = "render_metrics")]
             render_loop_metrics_tracker: RenderLoopMetricsTracker::default(),
@@ -112,6 +115,12 @@ impl<B: RenderBackend> Renderer<B> {
         }
         #[cfg(feature = "render_metrics")]
         let started_at = Instant::now();
+        // Expands passed dirty bounds with backdrop dependencies
+        self.dirty_bounds = self.backdrop_damage.expand(
+            &self.scene.backdrop_damage_index,
+            self.viewport.physical_size.into(),
+            self.dirty_bounds,
+        );
         let commands = self.planner.plan(
             &self.scene,
             self.viewport,

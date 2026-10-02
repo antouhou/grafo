@@ -34,6 +34,7 @@ impl<B: RenderBackend> Renderer<B> {
         self.backend.resize(self.viewport, self.fringe_width);
         self.scene.refresh_backdrop_capture_regions(
             self.viewport,
+            self.fringe_width,
             self.backend.maximum_texture_dimension(),
         );
     }

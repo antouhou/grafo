@@ -39,7 +39,7 @@ impl Planner {
         self.commands.update_parameters(stored, parameters)
     }
 
-    /// Rebuilds commands and composites before exposing the plan for execution.
+    /// Rebuilds commands and composites
     pub(crate) fn plan(
         &mut self,
         scene: &Scene,

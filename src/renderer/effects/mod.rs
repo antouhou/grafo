@@ -1,8 +1,9 @@
-use super::damage::mark_shape_effect_dirty;
+use super::damage::{mark_dirty, mark_shape_effect_dirty};
 use super::{EffectError, RenderBackend, Renderer};
 use crate::commands::ShapeDrawId;
 use crate::core::effect::{BackdropEffectConfig, ShapeEffectBounds, ShapeEffectConfig};
-use crate::scene::effects::EffectAttachment;
+use crate::scene::effects::{EffectAttachment, EffectInstance};
+use crate::scene::types::DrawTreeNode;
 
 impl<B: RenderBackend> Renderer<B> {
     /// Loads shader passes. Changed sources detach old instances and invalidate cached results.
@@ -68,14 +69,22 @@ impl<B: RenderBackend> Renderer<B> {
             .validate_effect_params(effect_id, params)
             .map_err(EffectError::Backend)?;
         let parameters = self.planner.store_effect_parameters(params);
-        Ok(self.scene.set_shape_backdrop_effect(
+        self.scene.set_shape_backdrop_effect(
             node_id,
-            effect_id,
-            parameters,
+            EffectInstance {
+                effect_id,
+                parameters,
+            },
             config,
             self.viewport,
+            self.fringe_width,
             self.backend.maximum_texture_dimension(),
-        )?)
+        )?;
+        // During the dependency calculation, we're going to mark capture region as dirty too,
+        // so no need to mark the capture region as dirty here. It's going to happen right before
+        // the planning stage.
+        self.mark_shape_dirty(node_id);
+        Ok(())
     }
 
     pub fn update_backdrop_effect_config(
@@ -83,12 +92,18 @@ impl<B: RenderBackend> Renderer<B> {
         node_id: usize,
         config: BackdropEffectConfig,
     ) -> Result<(), EffectError<B::Error>> {
-        Ok(self.scene.update_backdrop_effect_config(
+        self.scene.update_backdrop_effect_config(
             node_id,
             config,
             self.viewport,
+            self.fringe_width,
             self.backend.maximum_texture_dimension(),
-        )?)
+        )?;
+        // During the dependency calculation, we're going to mark capture region as dirty too,
+        // so no need to mark the capture region as dirty here. It's going to happen right before
+        // the planning stage.
+        self.mark_shape_dirty(node_id);
+        Ok(())
     }
 
     pub fn update_backdrop_effect_params(
@@ -103,13 +118,19 @@ impl<B: RenderBackend> Renderer<B> {
         let parameters = self
             .planner
             .update_effect_parameters(effect.parameters, params);
-        Ok(self
-            .scene
-            .update_backdrop_effect_params(node_id, parameters)?)
+        self.scene
+            .update_backdrop_effect_params(node_id, parameters)?;
+        // During the dependency calculation, we're going to mark capture region as dirty too,
+        // so no need to mark the capture region as dirty here. It's going to happen right before
+        // the planning stage.
+        self.mark_shape_dirty(node_id);
+        Ok(())
     }
 
     pub fn remove_backdrop_effect(&mut self, node_id: usize) {
-        self.scene.remove_backdrop_effect(node_id);
+        if self.scene.remove_backdrop_effect(node_id) {
+            self.mark_shape_dirty(node_id);
+        }
         self.backend.remove_backdrop_effect(ShapeDrawId(node_id));
     }
     /// Uses shared CPU geometry to identify and prepare the node's coverage mask.
@@ -201,8 +222,16 @@ impl<B: RenderBackend> Renderer<B> {
     fn remove_effect_attachments(&mut self, effect_id: u64) {
         self.scene
             .remove_effect_attachments(effect_id, |node_id, attachment| match attachment {
-                EffectAttachment::Backdrop => {
-                    self.backend.remove_backdrop_effect(ShapeDrawId(node_id))
+                EffectAttachment::Backdrop { shape_bounds } => {
+                    if let Some(shape_bounds) = shape_bounds {
+                        mark_dirty(
+                            &mut self.dirty_bounds,
+                            shape_bounds,
+                            self.viewport,
+                            self.fringe_width,
+                        );
+                    }
+                    self.backend.remove_backdrop_effect(ShapeDrawId(node_id));
                 }
                 EffectAttachment::Shape(bounds) => {
                     mark_shape_effect_dirty(&mut self.dirty_bounds, bounds, self.viewport);
@@ -210,6 +239,17 @@ impl<B: RenderBackend> Renderer<B> {
                 }
             });
         self.backend.invalidate_effect(effect_id);
+    }
+
+    fn mark_shape_dirty(&mut self, node_id: usize) {
+        if let Some(DrawTreeNode::CachedShape(shape)) = self.scene.draw_tree.get(node_id) {
+            mark_dirty(
+                &mut self.dirty_bounds,
+                shape.logical_screen_bounds,
+                self.viewport,
+                self.fringe_width,
+            );
+        }
     }
 
     fn mark_shape_effect_dirty(&mut self, bounds: ShapeEffectBounds) {

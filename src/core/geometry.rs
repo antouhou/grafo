@@ -27,6 +27,27 @@ pub struct Viewport {
     pub scale_factor: f64,
 }
 
+/// Includes antialiasing coverage and clips logical bounds to the viewport.
+pub(crate) fn logical_bounds_to_viewport_rect(
+    logical_screen_bounds: MathRect,
+    viewport: Viewport,
+    fringe_width: f32,
+) -> Option<UnsignedPhysicalRect> {
+    let scale = viewport.scale_factor as f32;
+    let bounds = logical_screen_bounds
+        .scale(scale, scale)
+        .inflate(fringe_width, fringe_width)
+        .round_out();
+    let viewport_bounds = UnsignedPhysicalRect::from_size(viewport.physical_size.into());
+    if bounds.is_finite() {
+        bounds
+            .intersection(&viewport_bounds.to_f32())
+            .map(|bounds| bounds.cast())
+    } else {
+        Some(viewport_bounds)
+    }
+}
+
 pub(crate) fn is_axis_aligned_rect_transform(transform: Option<InstanceTransform>) -> bool {
     let transform = transform.unwrap_or_else(InstanceTransform::identity);
 

@@ -1,4 +1,5 @@
 //! CPU scene descriptions, tessellation caches and effect attachments.
+use self::backdrop_damage::BackdropDamageIndex;
 use self::effects::{BackdropEffectInstance, EffectInstance, ShapeEffectInstance};
 pub use self::errors::SceneError;
 use self::types::{CachedShapeDrawData, ClipRectDrawData, DrawTreeNode};
@@ -10,6 +11,7 @@ use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
 use lyon::tessellation::FillTessellator;
 use std::sync::{Arc, RwLock};
+pub(crate) mod backdrop_damage;
 pub(crate) mod effects;
 mod errors;
 pub(crate) mod types;
@@ -28,6 +30,7 @@ pub struct Scene {
     shape_resources: ShapeResources,
     pub(crate) group_effects: HashMap<usize, EffectInstance>,
     pub(crate) backdrop_effects: HashMap<usize, BackdropEffectInstance>,
+    pub(crate) backdrop_damage_index: BackdropDamageIndex,
     pub(crate) shape_effects: HashMap<usize, ShapeEffectInstance>,
 }
 
@@ -46,6 +49,7 @@ impl Scene {
             shape_resources: ShapeResources::new(),
             group_effects: HashMap::new(),
             backdrop_effects: HashMap::new(),
+            backdrop_damage_index: BackdropDamageIndex::default(),
             shape_effects: HashMap::new(),
         }
     }
@@ -179,6 +183,7 @@ impl Scene {
         self.draw_tree.remove_subtrees_with(node_ids, |id, node| {
             self.group_effects.remove(&id);
             self.backdrop_effects.remove(&id);
+            self.backdrop_damage_index.remove(id);
             let shape_effect = self.shape_effects.remove(&id);
             removed(id, node, shape_effect);
         });
@@ -188,6 +193,7 @@ impl Scene {
         self.draw_tree.clear();
         self.group_effects.clear();
         self.backdrop_effects.clear();
+        self.backdrop_damage_index.clear();
         self.shape_effects.clear();
     }
 

@@ -3,6 +3,7 @@ use crate::commands::{DrawClip, IntermediateTextureId, RenderOperation, RenderPl
 use crate::core::{
     BackdropEffectConfig, Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, Viewport,
 };
+use crate::scene::effects::EffectInstance;
 use crate::scene::Scene;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -99,10 +100,13 @@ fn parameter_compaction_preserves_replanned_effects() {
     scene
         .set_shape_backdrop_effect(
             root,
-            17,
-            backdrop_parameters,
+            EffectInstance {
+                effect_id: 17,
+                parameters: backdrop_parameters,
+            },
             BackdropEffectConfig::default(),
             viewport(),
+            0.75,
             4096,
         )
         .unwrap();
@@ -177,10 +181,13 @@ fn parameter_compaction_preserves_replanned_effects_with_empty_parameters() {
     scene
         .set_shape_backdrop_effect(
             root,
-            19,
-            parameters,
+            EffectInstance {
+                effect_id: 19,
+                parameters,
+            },
             BackdropEffectConfig::default(),
             viewport(),
+            0.75,
             4096,
         )
         .unwrap();

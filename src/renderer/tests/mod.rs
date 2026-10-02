@@ -12,6 +12,7 @@ use crate::render_backend::TextureManager;
 use crate::scene::SceneContext;
 use thiserror::Error;
 
+mod backdrop_damage;
 mod dirty_bounds;
 mod removal;
 mod shape_effect_damage;
