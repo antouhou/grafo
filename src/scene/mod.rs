@@ -1,17 +1,17 @@
 //! CPU scene descriptions, tessellation caches and effect attachments.
-use self::backdrop_damage::BackdropDamageIndex;
+use self::backdrop_damage::BackdropDamage;
 use self::effects::{BackdropEffectInstance, EffectInstance, ShapeEffectInstance};
 pub use self::errors::SceneError;
 use self::types::{CachedShapeDrawData, ClipRectDrawData, DrawTreeNode};
-use crate::core::geometry;
 use crate::core::shape::{CachedShapeHandle, Shape, ShapeDrawCommandOptions, ShapeInstance};
 use crate::core::util::ShapeResources;
 use crate::core::vertex::InstanceTransform;
+use crate::core::{geometry, Size, UnsignedPhysicalRect};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
 use lyon::tessellation::FillTessellator;
 use std::sync::{Arc, RwLock};
-pub(crate) mod backdrop_damage;
+mod backdrop_damage;
 pub(crate) mod effects;
 mod errors;
 pub(crate) mod types;
@@ -30,7 +30,7 @@ pub struct Scene {
     shape_resources: ShapeResources,
     pub(crate) group_effects: HashMap<usize, EffectInstance>,
     pub(crate) backdrop_effects: HashMap<usize, BackdropEffectInstance>,
-    pub(crate) backdrop_damage_index: BackdropDamageIndex,
+    backdrop_damage: BackdropDamage,
     pub(crate) shape_effects: HashMap<usize, ShapeEffectInstance>,
 }
 
@@ -49,7 +49,7 @@ impl Scene {
             shape_resources: ShapeResources::new(),
             group_effects: HashMap::new(),
             backdrop_effects: HashMap::new(),
-            backdrop_damage_index: BackdropDamageIndex::default(),
+            backdrop_damage: BackdropDamage::default(),
             shape_effects: HashMap::new(),
         }
     }
@@ -95,7 +95,7 @@ impl Scene {
             .ok_or(SceneError::ShapeNotLoaded(cache_key))
     }
 
-    pub fn validate_parent(&self, parent: Option<usize>) -> Result<(), SceneError> {
+    pub(crate) fn validate_parent(&self, parent: Option<usize>) -> Result<(), SceneError> {
         if let Some(parent) = parent {
             if self.draw_tree.get(parent).is_none() {
                 return Err(SceneError::InvalidShapeId(parent));
@@ -183,7 +183,7 @@ impl Scene {
         self.draw_tree.remove_subtrees_with(node_ids, |id, node| {
             self.group_effects.remove(&id);
             self.backdrop_effects.remove(&id);
-            self.backdrop_damage_index.remove(id);
+            self.backdrop_damage.remove(id);
             let shape_effect = self.shape_effects.remove(&id);
             removed(id, node, shape_effect);
         });
@@ -193,8 +193,16 @@ impl Scene {
         self.draw_tree.clear();
         self.group_effects.clear();
         self.backdrop_effects.clear();
-        self.backdrop_damage_index.clear();
+        self.backdrop_damage.clear();
         self.shape_effects.clear();
+    }
+
+    pub(crate) fn expand_backdrop_damage(
+        &mut self,
+        physical_size: Size,
+        dirty_bounds: Option<UnsignedPhysicalRect>,
+    ) -> Option<UnsignedPhysicalRect> {
+        self.backdrop_damage.expand(physical_size, dirty_bounds)
     }
 
     pub(crate) fn finish_preparation(&mut self) {

@@ -134,7 +134,6 @@ fn backdrop_mutations_damage_shape_and_reconstruct_current_capture() {
         .unwrap();
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, rect((15, 127), (49, 161)));
-    assert!(renderer.scene.backdrop_damage_index.is_empty());
 
     renderer
         .update_backdrop_effect_params(node, &[4, 3, 2, 1])
@@ -169,7 +168,6 @@ fn removed_backdrops_do_not_leave_dependencies_when_node_ids_are_reused() {
         .update_backdrop_effect_config(node, oversized)
         .unwrap();
     renderer.render(&mut surface).unwrap();
-    assert!(renderer.scene.backdrop_damage_index.is_empty());
     renderer.unload_effect(7);
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, rect((511, 7), (537, 33)));

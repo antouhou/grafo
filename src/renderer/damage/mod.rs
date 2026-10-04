@@ -1,9 +1,6 @@
-pub(super) use self::backdrops::BackdropDamage;
 use crate::core::effect::ShapeEffectBounds;
 use crate::core::geometry;
 use crate::core::{MathRect, UnsignedPhysicalRect, Viewport};
-
-mod backdrops;
 
 pub(super) fn mark_dirty(
     dirty_bounds: &mut Option<UnsignedPhysicalRect>,

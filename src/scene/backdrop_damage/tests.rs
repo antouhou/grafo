@@ -1,8 +1,8 @@
-use super::{BackdropDamageEntry, BackdropDamageIndex};
+use super::{envelope, BackdropDamage, BackdropDamageEntry};
 use crate::core::effect::backdrops;
 use crate::core::{
     BackdropCaptureArea, BackdropCaptureRegion, BackdropEffectConfig, MathRect, Shape,
-    ShapeDrawCommandOptions, UnsignedPhysicalRect, Viewport,
+    ShapeDrawCommandOptions, Size, UnsignedPhysicalRect, Viewport,
 };
 use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
 use crate::scene::Scene;
@@ -23,17 +23,13 @@ fn entry(
     }
 }
 
-fn assert_matching_nodes(
-    index: &BackdropDamageIndex,
-    query: UnsignedPhysicalRect,
-    expected: &[usize],
-) {
+fn assert_matching_nodes(damage: &BackdropDamage, query: UnsignedPhysicalRect, expected: &[usize]) {
     let mut nodes = [0; 4];
     let mut count = 0;
-    index.for_each_intersecting(query, |entry| {
+    for entry in damage.tree.locate_in_envelope_intersecting(envelope(query)) {
         nodes[count] = entry.node_id;
         count += 1;
-    });
+    }
     let nodes = &mut nodes[..count];
     nodes.sort_unstable();
     assert_eq!(nodes, expected);
@@ -57,48 +53,65 @@ fn capture(bounds: [(f32, f32); 2], viewport: Viewport) -> Option<BackdropCaptur
     )
 }
 
+fn assert_unique_cells(cells: &[usize]) {
+    let mut visited = [false; 256];
+    for &cell in cells {
+        assert!(!visited[cell]);
+        visited[cell] = true;
+    }
+}
+
+fn storage_capacities(damage: &BackdropDamage) -> [usize; 4] {
+    [
+        damage.entries.capacity(),
+        damage.cells.capacity(),
+        damage.visited_cells.capacity(),
+        damage.processed_backdrops.capacity(),
+    ]
+}
+
 #[test]
 fn replacement_removal_and_rebuild_keep_spatial_queries_and_storage_consistent() {
-    let mut index = BackdropDamageIndex::default();
+    let mut damage = BackdropDamage::default();
     let original = entry(3, rect((10, 10), (20, 20)), rect((500, 10), (520, 30)));
     let unrelated = entry(
         4,
         rect((800, 300), (820, 320)),
         rect((900, 300), (920, 320)),
     );
-    index.replace(3, Some(original));
-    index.replace(4, Some(unrelated));
-    let capacity = index.entries.capacity();
-    index.replace(3, Some(original));
-    assert_matching_nodes(&index, original.capture_region.unwrap(), &[3]);
-    assert_matching_nodes(&index, original.target_region.unwrap(), &[3]);
+    damage.replace(3, Some(original));
+    damage.replace(4, Some(unrelated));
+    let capacity = damage.entries.capacity();
+    damage.replace(3, Some(original));
+    assert_matching_nodes(&damage, original.capture_region.unwrap(), &[3]);
+    assert_matching_nodes(&damage, original.target_region.unwrap(), &[3]);
 
     let replacement = entry(
         3,
         rect((600, 200), (620, 220)),
         rect((700, 200), (720, 220)),
     );
-    index.replace(3, Some(replacement));
-    assert_matching_nodes(&index, original.capture_region.unwrap(), &[]);
-    assert_matching_nodes(&index, original.target_region.unwrap(), &[]);
-    index.remove(3);
-    assert_matching_nodes(&index, replacement.capture_region.unwrap(), &[]);
-    assert_matching_nodes(&index, unrelated.target_region.unwrap(), &[4]);
+    damage.replace(3, Some(replacement));
+    assert_matching_nodes(&damage, original.capture_region.unwrap(), &[]);
+    assert_matching_nodes(&damage, original.target_region.unwrap(), &[]);
+    damage.remove(3);
+    assert_matching_nodes(&damage, replacement.capture_region.unwrap(), &[]);
+    assert_matching_nodes(&damage, unrelated.target_region.unwrap(), &[4]);
 
-    index.replace(3, Some(original));
-    index.rebuild([replacement]);
-    assert_matching_nodes(&index, original.capture_region.unwrap(), &[]);
-    assert_matching_nodes(&index, unrelated.capture_region.unwrap(), &[]);
-    assert_matching_nodes(&index, replacement.capture_region.unwrap(), &[3]);
-    index.replace(3, None);
-    assert!(index.is_empty());
-    assert_matching_nodes(&index, replacement.target_region.unwrap(), &[]);
+    damage.replace(3, Some(original));
+    damage.rebuild([replacement]);
+    assert_matching_nodes(&damage, original.capture_region.unwrap(), &[]);
+    assert_matching_nodes(&damage, unrelated.capture_region.unwrap(), &[]);
+    assert_matching_nodes(&damage, replacement.capture_region.unwrap(), &[3]);
+    damage.replace(3, None);
+    assert!(damage.is_empty());
+    assert_matching_nodes(&damage, replacement.target_region.unwrap(), &[]);
 
-    index.replace(3, Some(original));
-    index.clear();
-    assert!(index.is_empty());
-    assert_matching_nodes(&index, original.capture_region.unwrap(), &[]);
-    assert_eq!(index.entries.capacity(), capacity);
+    damage.replace(3, Some(original));
+    damage.clear();
+    assert!(damage.is_empty());
+    assert_matching_nodes(&damage, original.capture_region.unwrap(), &[]);
+    assert_eq!(damage.entries.capacity(), capacity);
 }
 
 #[test]
@@ -128,10 +141,98 @@ fn capture_and_target_regions_keep_independent_viewport_clipping_and_fringe_cove
     assert!(BackdropDamageEntry::new(4, &offscreen, offscreen_capture, viewport, 1.0).is_none());
     assert!(BackdropDamageEntry::new(5, &visible, None, viewport, 1.0).is_none());
 
-    let mut index = BackdropDamageIndex::default();
-    index.rebuild([both, target_only, capture_only]);
-    assert_matching_nodes(&index, capture_region, &[1, 3]);
-    assert_matching_nodes(&index, target_region, &[1, 2]);
-    index.remove(3);
-    assert_matching_nodes(&index, capture_region, &[1]);
+    let mut damage = BackdropDamage::default();
+    damage.rebuild([both, target_only, capture_only]);
+    assert_matching_nodes(&damage, capture_region, &[1, 3]);
+    assert_matching_nodes(&damage, target_region, &[1, 2]);
+    damage.remove(3);
+    assert_matching_nodes(&damage, capture_region, &[1]);
+}
+
+#[test]
+fn long_chains_query_each_cell_once_and_reuse_worklist_storage() {
+    let mut damage = BackdropDamage::default();
+    damage.rebuild((0..64).rev().map(|node| {
+        let bounds = rect((node * 64, 140), ((node + 1) * 64, 180));
+        entry(node as usize, bounds, bounds)
+    }));
+    let initial = Some(rect((0, 150), (1, 151)));
+    let expected = Some(rect((0, 140), (4096, 180)));
+    assert_eq!(damage.expand(Size::new(8192, 512), initial), expected);
+    assert_eq!(damage.processed_backdrops.len(), 64);
+    assert_eq!(damage.cells.len(), 32);
+    assert_unique_cells(&damage.cells);
+    let capacities = storage_capacities(&damage);
+    for _ in 0..3 {
+        assert_eq!(damage.expand(Size::new(8192, 512), None), None);
+        assert_eq!(damage.expand(Size::new(8192, 512), initial), expected);
+        assert_eq!(storage_capacities(&damage), capacities);
+        assert_eq!(damage.processed_backdrops.len(), 64);
+        assert_eq!(damage.cells.len(), 32);
+    }
+}
+
+#[test]
+fn expansion_in_all_directions_includes_newly_covered_cells_without_duplicates() {
+    let mut damage = BackdropDamage::default();
+    damage.rebuild(
+        [
+            (1, rect((128, 128), (600, 600))),
+            (2, rect((0, 350), (160, 400))),
+            (3, rect((200, 0), (260, 160))),
+            (4, rect((600, 100), (900, 129))),
+        ]
+        .map(|(node_id, bounds)| entry(node_id, bounds, bounds)),
+    );
+    assert_eq!(
+        damage.expand(Size::new(1024, 1024), Some(rect((150, 150), (151, 151)))),
+        Some(rect((0, 0), (900, 600)))
+    );
+    assert_eq!(damage.processed_backdrops.len(), 4);
+    assert_eq!(damage.cells.len(), 40);
+    assert_unique_cells(&damage.cells);
+}
+
+#[test]
+fn expansion_propagates_through_separate_capture_and_target_regions() {
+    let mut damage = BackdropDamage::default();
+    damage.rebuild([
+        entry(1, rect((0, 0), (64, 64)), rect((256, 8), (288, 32))),
+        entry(2, rect((256, 0), (320, 64)), rect((512, 8), (544, 32))),
+    ]);
+    assert_eq!(
+        damage.expand(Size::new(1024, 512), Some(rect((8, 8), (16, 16)))),
+        Some(rect((0, 0), (544, 64)))
+    );
+    assert_eq!(damage.processed_backdrops.len(), 2);
+    assert_eq!(damage.expand(Size::new(1024, 512), None), None);
+}
+
+#[test]
+fn dependency_changes_update_expansion_and_preserve_reusable_storage() {
+    let mut damage = BackdropDamage::default();
+    let size = Size::new(1024, 512);
+    let initial = Some(rect((8, 8), (16, 16)));
+    let capture = rect((0, 0), (64, 64));
+    let original = entry(1, capture, rect((768, 8), (800, 32)));
+    damage.replace(1, Some(original));
+    assert_eq!(damage.expand(size, initial), Some(rect((0, 0), (800, 64))));
+    let capacities = storage_capacities(&damage);
+
+    let replacement = entry(1, capture, rect((256, 8), (288, 32)));
+    damage.replace(1, Some(replacement));
+    assert_eq!(damage.expand(size, initial), Some(rect((0, 0), (288, 64))));
+    damage.remove(1);
+    assert_eq!(damage.expand(size, initial), initial);
+
+    damage.rebuild([replacement]);
+    assert_eq!(damage.expand(size, initial), Some(rect((0, 0), (288, 64))));
+    damage.clear();
+    assert_eq!(damage.expand(size, initial), initial);
+    assert_eq!(storage_capacities(&damage), capacities);
+
+    damage.replace(1, Some(original));
+    assert_eq!(damage.expand(size, initial), Some(rect((0, 0), (800, 64))));
+    assert_eq!(storage_capacities(&damage), capacities);
+    assert_eq!(damage.processed_backdrops.len(), 1);
 }

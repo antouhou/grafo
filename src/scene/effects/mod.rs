@@ -202,7 +202,7 @@ impl Scene {
         instance: BackdropEffectInstance,
         entry: Option<BackdropDamageEntry>,
     ) {
-        self.backdrop_damage_index.replace(node_id, entry);
+        self.backdrop_damage.replace(node_id, entry);
         self.backdrop_effects.insert(node_id, instance);
     }
 
@@ -257,7 +257,7 @@ impl Scene {
     }
 
     /// Refreshes capture bounds, viewport overlap and allocation limits after viewport changes.
-    pub fn refresh_backdrop_capture_regions(
+    pub(crate) fn refresh_backdrop_capture_regions(
         &mut self,
         viewport: Viewport,
         fringe_width: f32,
@@ -283,14 +283,14 @@ impl Scene {
                     fringe_width,
                 )
             });
-        self.backdrop_damage_index.rebuild(entries);
+        self.backdrop_damage.rebuild(entries);
     }
 
     pub fn remove_backdrop_effect(&mut self, node_id: usize) -> bool {
         if self.backdrop_effects.remove(&node_id).is_none() {
             return false;
         }
-        self.backdrop_damage_index.remove(node_id);
+        self.backdrop_damage.remove(node_id);
         true
     }
 
@@ -366,7 +366,7 @@ impl Scene {
     }
 
     /// Refreshes cached rectangles when the logical scale or fringe width changes.
-    pub fn refresh_shape_effect_bounds(&mut self, scale_factor: f64, fringe_width: f32) {
+    pub(crate) fn refresh_shape_effect_bounds(&mut self, scale_factor: f64, fringe_width: f32) {
         for (&node_id, effect) in &mut self.shape_effects {
             let Some(DrawTreeNode::CachedShape(shape)) = self.draw_tree.get(node_id) else {
                 continue;
@@ -398,7 +398,7 @@ impl Scene {
             if instance.effect.effect_id != effect_id {
                 return true;
             }
-            self.backdrop_damage_index.remove(*node_id);
+            self.backdrop_damage.remove(*node_id);
             let shape_bounds = self
                 .draw_tree
                 .get(*node_id)
