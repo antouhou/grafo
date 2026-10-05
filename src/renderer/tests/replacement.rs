@@ -20,7 +20,7 @@ fn shape(renderer: &mut Renderer<TestBackend>, bounds: [(f32, f32); 2], parent: 
 
 fn clip(renderer: &mut Renderer<TestBackend>, node_id: usize, clips_children: bool) {
     renderer
-        .replace_clipping_rect(
+        .replace_with_clipping_rect(
             node_id,
             [(10.0, 10.0), (18.0, 18.0)],
             None::<InstanceTransform>,
@@ -49,13 +49,13 @@ fn replacements_preserve_topology_and_refresh_or_remove_only_the_nodes_effects()
     let old_capture = renderer.scene.backdrop_effects[&parent].capture_region;
     let replacement = Shape::rect([(4.0, 5.0), (12.0, 13.0)]);
     renderer
-        .replace_shape(parent, &replacement, None, ShapeDrawCommandOptions::new())
+        .replace_with_shape(parent, &replacement, None, ShapeDrawCommandOptions::new())
         .unwrap();
     renderer
-        .replace_cached_shape(first, 1, ShapeDrawCommandOptions::new())
+        .replace_with_cached_shape(first, 1, ShapeDrawCommandOptions::new())
         .unwrap();
     renderer
-        .replace_cached_shape(first, 1, ShapeDrawCommandOptions::new())
+        .replace_with_cached_shape(first, 1, ShapeDrawCommandOptions::new())
         .unwrap();
     assert_eq!(renderer.scene.draw_tree.children(root), &[parent, sibling]);
     assert_eq!(renderer.scene.draw_tree.children(parent), &[first, second]);
@@ -90,7 +90,7 @@ fn replacements_preserve_topology_and_refresh_or_remove_only_the_nodes_effects()
     );
     assert_eq!(plan.effect_parameters.len(), 16);
     renderer
-        .replace_cached_shape(parent, 1, ShapeDrawCommandOptions::new())
+        .replace_with_cached_shape(parent, 1, ShapeDrawCommandOptions::new())
         .unwrap();
     assert_eq!(renderer.scene.draw_tree.children(parent), &[first, second]);
     renderer.render(&mut surface).unwrap();
@@ -123,10 +123,10 @@ fn replacement_errors_preserve_the_failing_node_and_prior_replacements() {
     let old_effect = *renderer.scene.shape_effect(second).unwrap();
     renderer.backend.registration_failure = Some(second);
     renderer
-        .replace_cached_shape(first, 2, ShapeDrawCommandOptions::new())
+        .replace_with_cached_shape(first, 2, ShapeDrawCommandOptions::new())
         .unwrap();
     assert!(matches!(
-        renderer.replace_cached_shape(second, 2, ShapeDrawCommandOptions::new()),
+        renderer.replace_with_cached_shape(second, 2, ShapeDrawCommandOptions::new()),
         Err(DrawCommandError::Backend(TestBackendError))
     ));
     for (node_id, expected) in [(first, Some(2)), (second, Some(1)), (last, Some(1))] {
@@ -143,12 +143,12 @@ fn replacement_errors_preserve_the_failing_node_and_prior_replacements() {
     let dirty = renderer.dirty_bounds;
     for (node_id, cache_key) in [(usize::MAX, 1), (first, 999)] {
         assert!(renderer
-            .replace_cached_shape(node_id, cache_key, ShapeDrawCommandOptions::new())
+            .replace_with_cached_shape(node_id, cache_key, ShapeDrawCommandOptions::new())
             .is_err());
         assert_eq!(renderer.dirty_bounds, dirty);
     }
     assert!(matches!(
-        renderer.replace_shape(second, Shape::rect([(0.0, 0.0), (f32::MAX, f32::MAX)]), None, ShapeDrawCommandOptions::new()),
+        renderer.replace_with_shape(second, Shape::rect([(0.0, 0.0), (f32::MAX, f32::MAX)]), None, ShapeDrawCommandOptions::new()),
         Err(DrawCommandError::Scene(SceneError::InvalidShapeEffectBounds(id))) if id == second
     ));
     assert_eq!(

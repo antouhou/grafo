@@ -111,9 +111,9 @@ impl<B: RenderBackend> Renderer<B> {
         )
     }
 
-    /// Replaces one command and returns its unchanged ID.
+    /// Replaces one command with a shape and returns its unchanged ID.
     /// Parent, children and attached effects are preserved.
-    pub fn replace_shape(
+    pub fn replace_with_shape(
         &mut self,
         node_id: usize,
         shape: impl AsRef<Shape>,
@@ -132,7 +132,7 @@ impl<B: RenderBackend> Renderer<B> {
 
     /// Replaces one command with a loaded shape and returns its unchanged ID.
     /// Children and attached effects are retained.
-    pub fn replace_cached_shape(
+    pub fn replace_with_cached_shape(
         &mut self,
         node_id: usize,
         cache_key: u64,
@@ -147,7 +147,7 @@ impl<B: RenderBackend> Renderer<B> {
     /// Replaces one command with a clip rectangle and returns its unchanged ID.
     /// Children are retained.
     /// Effects attached to this node are removed because they require a shape.
-    pub fn replace_clipping_rect(
+    pub fn replace_with_clipping_rect(
         &mut self,
         node_id: usize,
         rect_bounds: [(f32, f32); 2],

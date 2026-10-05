@@ -199,10 +199,10 @@ fn tile_84_mixed_command_replacement(renderer: &mut Renderer) -> Vec<PixelExpect
     })
     .unwrap();
     renderer
-        .replace_clipping_rect(parent, [(10.0, 5.0), (50.0, 35.0)], options.transform, true)
+        .replace_with_clipping_rect(parent, [(10.0, 5.0), (50.0, 35.0)], options.transform, true)
         .unwrap();
     renderer
-        .replace_cached_shape(
+        .replace_with_cached_shape(
             child,
             84_001,
             options
@@ -211,7 +211,7 @@ fn tile_84_mixed_command_replacement(renderer: &mut Renderer) -> Vec<PixelExpect
         )
         .unwrap();
     renderer
-        .replace_shape(
+        .replace_with_shape(
             lower,
             &replacement,
             None,
@@ -290,7 +290,7 @@ fn tile_85_replacement_preserves_effects_and_children(
         .set_group_effect(parent, PASSTHROUGH_EFFECT_ID, &[])
         .unwrap();
     renderer
-        .replace_shape(
+        .replace_with_shape(
             parent,
             Shape::rounded_rect([(30.0, 25.0), (50.0, 45.0)], BorderRadii::new(3.0)),
             None,

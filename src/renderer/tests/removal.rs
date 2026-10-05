@@ -211,7 +211,7 @@ fn replacements_and_subtree_removals_defer_compaction_and_preserve_surviving_par
         let shape_parameters = renderer.scene.shape_effect(survivor).unwrap().parameters;
         renderer.remove_subtrees([branch], |_| {});
         renderer
-            .replace_clipping_rect(
+            .replace_with_clipping_rect(
                 converted,
                 [(0.0, 0.0), (16.0, 16.0)],
                 None::<InstanceTransform>,
