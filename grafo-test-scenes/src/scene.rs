@@ -8,10 +8,10 @@ use crate::shaders::{
 };
 use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
-    ColorInterpolation, ConicGradientDesc, DrawCommandReplacement, Fill, Gradient, GradientColor,
-    GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
-    LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientSize, Renderer,
-    Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
+    ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
+    GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
+    LinearGradientLine, RadialGradientDesc, RadialGradientSize, Renderer, Shape,
+    ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
     SpreadMode, TextureManager, TransformInstance,
 };
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
@@ -199,33 +199,24 @@ fn tile_84_mixed_command_replacement(renderer: &mut Renderer) -> Vec<PixelExpect
     })
     .unwrap();
     renderer
-        .replace_draw_commands([
-            (
-                parent,
-                DrawCommandReplacement::ClippingRect {
-                    rect_bounds: [(10.0, 5.0), (50.0, 35.0)],
-                    transform: options.transform,
-                    clips_children: true,
-                },
-            ),
-            (
-                child,
-                DrawCommandReplacement::CachedShape {
-                    cache_key: 84_001,
-                    options: options
-                        .clone()
-                        .background_texture_id(SOLID_GREEN_TEXTURE_ID),
-                },
-            ),
-            (
-                lower,
-                DrawCommandReplacement::Shape {
-                    shape: &replacement,
-                    geometry_id: None,
-                    options: options.fill(Fill::Gradient(gradient)),
-                },
-            ),
-        ])
+        .replace_clipping_rect(parent, [(10.0, 5.0), (50.0, 35.0)], options.transform, true)
+        .unwrap();
+    renderer
+        .replace_cached_shape(
+            child,
+            84_001,
+            options
+                .clone()
+                .background_texture_id(SOLID_GREEN_TEXTURE_ID),
+        )
+        .unwrap();
+    renderer
+        .replace_shape(
+            lower,
+            &replacement,
+            None,
+            options.fill(Fill::Gradient(gradient)),
+        )
         .unwrap();
     [
         (8, 15, [255, 255, 255], 5, "t84_clip_left_edge"),

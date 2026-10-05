@@ -1,6 +1,5 @@
 //! Coordinates scene mutation, planning and backend execution.
 use self::damage::PendingClipDamage;
-pub use self::draw_queue::DrawCommandReplacement;
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
 pub use self::types::{DrawCommandError, EffectError};

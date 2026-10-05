@@ -10,7 +10,7 @@ use crate::scene::{Scene, SceneError};
 
 /// The command to put at an existing node, keeping its ID, parent and children.
 #[derive(Debug)]
-pub enum DrawCommandReplacement<'shape> {
+enum DrawCommandReplacement<'shape> {
     Shape {
         shape: &'shape Shape,
         geometry_id: Option<u64>,
@@ -111,38 +111,41 @@ impl<B: RenderBackend> Renderer<B> {
         )
     }
 
-    /// Replaces one command, preserving its ID, parent, children and attached effects.
+    /// Replaces one command and returns its unchanged ID.
+    /// Parent, children and attached effects are preserved.
     pub fn replace_shape(
         &mut self,
         node_id: usize,
         shape: impl AsRef<Shape>,
         geometry_id: Option<u64>,
         options: ShapeDrawCommandOptions,
-    ) -> Result<(), DrawCommandError<B::Error>> {
-        self.replace_draw_commands([(
-            node_id,
+    ) -> Result<usize, DrawCommandError<B::Error>> {
+        self.queue_draw_command(
+            NodeTarget::Replace { node_id },
             DrawCommandReplacement::Shape {
                 shape: shape.as_ref(),
                 geometry_id,
                 options,
             },
-        )])
+        )
     }
 
-    /// Replaces one command with a loaded shape, retaining its children and effects.
+    /// Replaces one command with a loaded shape and returns its unchanged ID.
+    /// Children and attached effects are retained.
     pub fn replace_cached_shape(
         &mut self,
         node_id: usize,
         cache_key: u64,
         options: ShapeDrawCommandOptions,
-    ) -> Result<(), DrawCommandError<B::Error>> {
-        self.replace_draw_commands([(
-            node_id,
+    ) -> Result<usize, DrawCommandError<B::Error>> {
+        self.queue_draw_command(
+            NodeTarget::Replace { node_id },
             DrawCommandReplacement::CachedShape { cache_key, options },
-        )])
+        )
     }
 
-    /// Replaces one command with a clip rectangle, retaining its children.
+    /// Replaces one command with a clip rectangle and returns its unchanged ID.
+    /// Children are retained.
     /// Effects attached to this node are removed because they require a shape.
     pub fn replace_clipping_rect(
         &mut self,
@@ -150,30 +153,15 @@ impl<B: RenderBackend> Renderer<B> {
         rect_bounds: [(f32, f32); 2],
         transform: Option<impl Into<InstanceTransform>>,
         clips_children: bool,
-    ) -> Result<(), DrawCommandError<B::Error>> {
-        self.replace_draw_commands([(
-            node_id,
+    ) -> Result<usize, DrawCommandError<B::Error>> {
+        self.queue_draw_command(
+            NodeTarget::Replace { node_id },
             DrawCommandReplacement::ClippingRect {
                 rect_bounds,
                 transform: transform.map(Into::into),
                 clips_children,
             },
-        )])
-    }
-
-    /// Replaces commands in order. Shape replacements retain
-    /// effects; clip rectangles remove effects attached to the replaced node.
-    ///
-    /// Stops at the first error. Earlier replacements remain applied, while the
-    /// failing command and later entries remain unchanged. Repeated IDs are allowed.
-    pub fn replace_draw_commands<'shape>(
-        &mut self,
-        replacements: impl IntoIterator<Item = (usize, DrawCommandReplacement<'shape>)>,
-    ) -> Result<(), DrawCommandError<B::Error>> {
-        for (node_id, command) in replacements {
-            self.queue_draw_command(NodeTarget::Replace { node_id }, command)?;
-        }
-        Ok(())
+        )
     }
 
     fn prepare_draw_command(

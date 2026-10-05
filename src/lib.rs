@@ -49,7 +49,6 @@ pub use render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError,
 };
 pub use render_backend::{RenderBackend, TextureManager};
-pub use renderer::DrawCommandReplacement;
 pub use scene::SceneError;
 use std::sync::Arc;
 pub use wgpu;
