@@ -52,6 +52,7 @@ pub struct Renderer<B: RenderBackend> {
     viewport: Viewport,
     fringe_width: f32,
     removed_shape_ids: Vec<ShapeDrawId>,
+    should_compact_effect_parameters: bool,
     dirty_bounds: Option<UnsignedPhysicalRect>,
     pending_clip_damage: PendingClipDamage,
     #[cfg(feature = "render_metrics")]
@@ -68,6 +69,7 @@ impl<B: RenderBackend> Renderer<B> {
             viewport: backend.viewport(),
             fringe_width: backend.fringe_width(),
             removed_shape_ids: Vec::new(),
+            should_compact_effect_parameters: false,
             pending_clip_damage: PendingClipDamage::default(),
             dirty_bounds: Some(UnsignedPhysicalRect::from_size(
                 backend.viewport().physical_size.into(),
@@ -116,6 +118,10 @@ impl<B: RenderBackend> Renderer<B> {
         }
         #[cfg(feature = "render_metrics")]
         let started_at = Instant::now();
+        if self.should_compact_effect_parameters {
+            self.planner.compact_effect_parameters(&mut self.scene);
+            self.should_compact_effect_parameters = false;
+        }
         self.pending_clip_damage.apply(
             &self.scene,
             &mut self.dirty_bounds,

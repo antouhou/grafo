@@ -170,25 +170,10 @@ impl<B: RenderBackend> Renderer<B> {
         &mut self,
         replacements: impl IntoIterator<Item = (usize, DrawCommandReplacement<'shape>)>,
     ) -> Result<(), DrawCommandError<B::Error>> {
-        let mut should_compact_parameters = false;
-        let mut result = Ok(());
         for (node_id, command) in replacements {
-            let removes_effects = matches!(command, DrawCommandReplacement::ClippingRect { .. })
-                && (self.scene.group_effects.contains_key(&node_id)
-                    || self.scene.backdrop_effects.contains_key(&node_id)
-                    || self.scene.shape_effects.contains_key(&node_id));
-            result = self
-                .queue_draw_command(NodeTarget::Replace { node_id }, command)
-                .map(|_| ());
-            if result.is_err() {
-                break;
-            }
-            should_compact_parameters = should_compact_parameters || removes_effects;
+            self.queue_draw_command(NodeTarget::Replace { node_id }, command)?;
         }
-        if should_compact_parameters {
-            self.planner.compact_effect_parameters(&mut self.scene);
-        }
-        result
+        Ok(())
     }
 
     fn prepare_draw_command(
@@ -298,6 +283,10 @@ impl<B: RenderBackend> Renderer<B> {
             .map(|effect| effect.bounds);
         let new_bounds = node.logical_screen_bounds();
         let clips_children = has_child_clip(&node);
+        let removes_effects = matches!(node, DrawTreeNode::ClipRect(_))
+            && (old_effect_bounds.is_some()
+                || self.scene.group_effects.contains_key(&node_id)
+                || self.scene.backdrop_effects.contains_key(&node_id));
         let previous = self.scene.replace_node(
             node_id,
             node,
@@ -306,6 +295,8 @@ impl<B: RenderBackend> Renderer<B> {
             self.fringe_width,
             self.backend.maximum_texture_dimension(),
         );
+        self.should_compact_effect_parameters =
+            self.should_compact_effect_parameters || removes_effects;
         for bounds in [previous.logical_screen_bounds(), new_bounds] {
             mark_dirty(
                 &mut self.dirty_bounds,
@@ -364,12 +355,13 @@ impl<B: RenderBackend> Renderer<B> {
         }
         if self.scene.draw_tree.is_empty() {
             self.planner.clear();
+            self.should_compact_effect_parameters = false;
             self.backend.clear_draw_queue();
         } else {
             if !self.removed_shape_ids.is_empty() {
                 self.backend.unregister_shapes(&self.removed_shape_ids);
             }
-            self.planner.compact_effect_parameters(&mut self.scene);
+            self.should_compact_effect_parameters = true;
         }
         self.removed_shape_ids.clear();
     }

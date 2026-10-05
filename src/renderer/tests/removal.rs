@@ -186,7 +186,7 @@ fn removing_clip_subtrees_and_the_root_preserves_loaded_shapes() {
 }
 
 #[test]
-fn repeated_subtree_replacement_reclaims_parameters_and_preserves_surviving_effects() {
+fn replacements_and_subtree_removals_defer_compaction_and_preserve_surviving_parameters() {
     let mut renderer = renderer();
     let mut surface = surface();
     queue_shape(&mut renderer, false);
@@ -195,6 +195,8 @@ fn repeated_subtree_replacement_reclaims_parameters_and_preserves_surviving_effe
     let survivor = queue_shape(&mut renderer, false);
     attach_effects(&mut renderer, survivor);
     for _ in 0..20 {
+        let converted = queue_shape(&mut renderer, false);
+        attach_effects(&mut renderer, converted);
         renderer
             .update_group_effect_params(survivor, &[5; 4])
             .unwrap();
@@ -204,10 +206,19 @@ fn repeated_subtree_replacement_reclaims_parameters_and_preserves_surviving_effe
         renderer
             .update_shape_effect_params(survivor, &[7; 4])
             .unwrap();
-        renderer.remove_subtrees([branch], |_| {});
         let group_parameters = renderer.scene.group_effect(survivor).unwrap().parameters;
         let backdrop_parameters = renderer.scene.backdrop_effect(survivor).unwrap().parameters;
         let shape_parameters = renderer.scene.shape_effect(survivor).unwrap().parameters;
+        renderer.remove_subtrees([branch], |_| {});
+        renderer
+            .replace_clipping_rect(
+                converted,
+                [(0.0, 0.0), (16.0, 16.0)],
+                None::<InstanceTransform>,
+                true,
+            )
+            .unwrap();
+        renderer.remove_subtrees([converted], |_| {});
         let plan = renderer.planner.plan(
             &renderer.scene,
             renderer.viewport,
@@ -215,6 +226,7 @@ fn repeated_subtree_replacement_reclaims_parameters_and_preserves_surviving_effe
             4096,
             None,
         );
+        assert_eq!(plan.effect_parameters.len(), 36);
         assert_eq!(plan.parameters(group_parameters), &[5; 4]);
         assert_eq!(plan.parameters(backdrop_parameters), &[6; 4]);
         assert_eq!(plan.parameters(shape_parameters), &[7; 4]);

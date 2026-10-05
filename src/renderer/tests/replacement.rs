@@ -101,7 +101,7 @@ fn replacements_preserve_topology_and_refresh_or_remove_only_the_nodes_effects()
         4096,
         None,
     );
-    assert_eq!(plan.effect_parameters.len(), 4);
+    assert_eq!(plan.effect_parameters.len(), 16);
     renderer
         .replace_cached_shape(parent, 1, ShapeDrawCommandOptions::new())
         .unwrap();
@@ -109,6 +109,20 @@ fn replacements_preserve_topology_and_refresh_or_remove_only_the_nodes_effects()
     renderer.render(&mut surface).unwrap();
     assert_eq!(surface.resource().shape_masks, 0);
     assert!(surface.resource().effects.contains(&8));
+    assert_eq!(
+        renderer
+            .planner
+            .plan(
+                &renderer.scene,
+                renderer.viewport,
+                renderer.fringe_width,
+                4096,
+                None,
+            )
+            .effect_parameters
+            .len(),
+        4
+    );
 }
 
 #[test]
