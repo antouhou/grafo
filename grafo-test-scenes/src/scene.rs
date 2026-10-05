@@ -8,10 +8,10 @@ use crate::shaders::{
 };
 use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
-    ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
-    GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
-    LinearGradientLine, RadialGradientDesc, RadialGradientSize, Renderer, Shape,
-    ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
+    ColorInterpolation, ConicGradientDesc, DrawCommandReplacement, Fill, Gradient, GradientColor,
+    GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
+    LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientSize, Renderer,
+    Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
     SpreadMode, TextureManager, TransformInstance,
 };
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
@@ -164,8 +164,166 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_81_shared_shape_effect_composites(renderer));
     expectations.extend(tile_82_group_dependencies_in_layered_backdrops(renderer));
     expectations.extend(tile_83_nested_target_restoration(renderer));
+    expectations.extend(tile_84_mixed_command_replacement(renderer));
+    expectations.extend(tile_85_replacement_preserves_effects_and_children(renderer));
 
     expectations
+}
+
+fn tile_84_mixed_command_replacement(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(84);
+    let options = ShapeDrawCommandOptions::new()
+        .transform(TransformInstance::translation(origin_x, origin_y));
+    let initial = Shape::rect([(5.0, 5.0), (30.0, 30.0)]);
+    let parent = renderer
+        .add_shape(&initial, None, None, options.clone())
+        .unwrap();
+    let child = renderer
+        .add_shape(&initial, Some(parent), None, options.clone())
+        .unwrap();
+    let lower = renderer
+        .add_shape(&initial, None, None, options.clone())
+        .unwrap();
+    renderer.load_shape(
+        Shape::rect([(5.0, 5.0), (55.0, 30.0)]),
+        84_001,
+        Some(84_002),
+    );
+    let replacement = Shape::rounded_rect([(10.0, 45.0), (70.0, 70.0)], BorderRadii::new(4.0));
+    let gradient = Gradient::linear(LinearGradientDesc {
+        common: two_stop_common_canvas((220, 30, 30), (30, 30, 220), SpreadMode::Pad),
+        line: LinearGradientLine {
+            start: [origin_x + 10.0, origin_y + 55.0],
+            end: [origin_x + 70.0, origin_y + 55.0],
+        },
+    })
+    .unwrap();
+    renderer
+        .replace_draw_commands([
+            (
+                parent,
+                DrawCommandReplacement::ClippingRect {
+                    rect_bounds: [(10.0, 5.0), (50.0, 35.0)],
+                    transform: options.transform,
+                    clips_children: true,
+                },
+            ),
+            (
+                child,
+                DrawCommandReplacement::CachedShape {
+                    cache_key: 84_001,
+                    options: options
+                        .clone()
+                        .background_texture_id(SOLID_GREEN_TEXTURE_ID),
+                },
+            ),
+            (
+                lower,
+                DrawCommandReplacement::Shape {
+                    shape: &replacement,
+                    geometry_id: None,
+                    options: options.fill(Fill::Gradient(gradient)),
+                },
+            ),
+        ])
+        .unwrap();
+    [
+        (8, 15, [255, 255, 255], 5, "t84_clip_left_edge"),
+        (20, 15, [0, 255, 0], 5, "t84_child_texture"),
+        (53, 15, [255, 255, 255], 5, "t84_clip_right_edge"),
+        (15, 55, [200, 30, 50], 45, "t84_gradient_red"),
+        (65, 55, [50, 30, 200], 45, "t84_gradient_blue"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], tolerance, label)| {
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            tolerance,
+            label,
+        )
+    })
+    .collect()
+}
+
+fn tile_85_replacement_preserves_effects_and_children(
+    renderer: &mut Renderer,
+) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(85);
+    let options = ShapeDrawCommandOptions::new()
+        .transform(TransformInstance::translation(origin_x, origin_y));
+    renderer
+        .add_shape(
+            Shape::rect([(5.0, 5.0), (75.0, 70.0)]),
+            None,
+            None,
+            options.clone().color(Color::rgb(50, 180, 80)),
+        )
+        .unwrap();
+    let parent = renderer
+        .add_shape(
+            Shape::rect([(10.0, 10.0), (30.0, 30.0)]),
+            None,
+            None,
+            options.clone(),
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect([(35.0, 30.0), (45.0, 40.0)]),
+            Some(parent),
+            None,
+            options.clone().color(Color::rgb(220, 30, 30)),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            parent,
+            SHAPE_DROP_EFFECT_ID,
+            &[],
+            ShapeEffectConfig::new().outset(6.0),
+        )
+        .unwrap();
+    renderer
+        .set_shape_backdrop_effect(
+            parent,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::default(),
+        )
+        .unwrap();
+    renderer
+        .set_group_effect(parent, PASSTHROUGH_EFFECT_ID, &[])
+        .unwrap();
+    renderer
+        .replace_shape(
+            parent,
+            Shape::rounded_rect([(30.0, 25.0), (50.0, 45.0)], BorderRadii::new(3.0)),
+            None,
+            options,
+        )
+        .unwrap();
+    [
+        (15, 15, [50, 180, 80], "t85_old_geometry_removed"),
+        (46, 43, [0, 0, 255], "t85_geometry_effect"),
+        (53, 35, [0, 0, 255], "t85_effect_bounds"),
+        (38, 35, [220, 30, 30], "t85_child_preserved"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+    })
+    .collect()
 }
 
 /// Each row checks a backdrop's color, child clip, and following sibling.

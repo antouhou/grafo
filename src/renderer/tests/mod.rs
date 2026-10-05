@@ -15,6 +15,7 @@ use thiserror::Error;
 mod backdrop_damage;
 mod dirty_bounds;
 mod removal;
+mod replacement;
 mod shape_effect_damage;
 
 #[derive(Default)]
@@ -72,6 +73,7 @@ struct TestBackend {
     command_address: usize,
     instruction_address: usize,
     should_fail: bool,
+    registration_failure: Option<usize>,
     size: Option<(u32, u32)>,
 }
 
@@ -84,11 +86,13 @@ impl RenderBackend for TestBackend {
         id: ShapeDrawId,
         shape: &ShapeInstance,
     ) -> Result<(), TestBackendError> {
-        if self.should_fail {
+        if self.should_fail || self.registration_failure == Some(id.0) {
             return Err(TestBackendError);
         }
         assert!(!shape.cached_shape.vertex_buffers().vertices.is_empty());
-        self.registered_shapes.push(id.0);
+        if !self.registered_shapes.contains(&id.0) {
+            self.registered_shapes.push(id.0);
+        }
         Ok(())
     }
 

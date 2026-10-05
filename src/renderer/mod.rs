@@ -1,4 +1,6 @@
 //! Coordinates scene mutation, planning and backend execution.
+use self::damage::PendingClipDamage;
+pub use self::draw_queue::DrawCommandReplacement;
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
 pub use self::types::{DrawCommandError, EffectError};
@@ -51,6 +53,7 @@ pub struct Renderer<B: RenderBackend> {
     fringe_width: f32,
     removed_shape_ids: Vec<ShapeDrawId>,
     dirty_bounds: Option<UnsignedPhysicalRect>,
+    pending_clip_damage: PendingClipDamage,
     #[cfg(feature = "render_metrics")]
     render_loop_metrics_tracker: RenderLoopMetricsTracker,
 }
@@ -65,6 +68,7 @@ impl<B: RenderBackend> Renderer<B> {
             viewport: backend.viewport(),
             fringe_width: backend.fringe_width(),
             removed_shape_ids: Vec::new(),
+            pending_clip_damage: PendingClipDamage::default(),
             dirty_bounds: Some(UnsignedPhysicalRect::from_size(
                 backend.viewport().physical_size.into(),
             )),
@@ -112,6 +116,12 @@ impl<B: RenderBackend> Renderer<B> {
         }
         #[cfg(feature = "render_metrics")]
         let started_at = Instant::now();
+        self.pending_clip_damage.apply(
+            &self.scene,
+            &mut self.dirty_bounds,
+            self.viewport,
+            self.fringe_width,
+        );
         self.dirty_bounds = self
             .scene
             .expand_backdrop_damage(self.viewport.physical_size.into(), self.dirty_bounds);

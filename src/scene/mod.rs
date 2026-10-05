@@ -3,10 +3,11 @@ use self::backdrop_damage::BackdropDamage;
 use self::effects::{BackdropEffectInstance, EffectInstance, ShapeEffectInstance};
 pub use self::errors::SceneError;
 use self::types::{CachedShapeDrawData, ClipRectDrawData, DrawTreeNode};
+use crate::core::effect::ShapeEffectBounds;
 use crate::core::shape::{CachedShapeHandle, Shape, ShapeDrawCommandOptions, ShapeInstance};
 use crate::core::util::ShapeResources;
 use crate::core::vertex::InstanceTransform;
-use crate::core::{geometry, Size, UnsignedPhysicalRect};
+use crate::core::{geometry, Size, UnsignedPhysicalRect, Viewport};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
 use lyon::tessellation::FillTessellator;
@@ -115,21 +116,10 @@ impl Scene {
         parent: Option<usize>,
         options: ShapeDrawCommandOptions,
     ) -> Result<usize, SceneError> {
-        self.insert_shape_data(CachedShapeDrawData::new(shape, options), parent)
-    }
-
-    pub(crate) fn insert_shape_data(
-        &mut self,
-        shape: CachedShapeDrawData,
-        parent: Option<usize>,
-    ) -> Result<usize, SceneError> {
-        self.validate_parent(parent)?;
-        if let Some(geometry_id) = shape.instance.cached_shape.geometry_id {
-            self.shape_resources
-                .tessellation_cache
-                .refresh_tessellation(geometry_id, &shape.instance.cached_shape.tessellation);
-        }
-        Ok(self.insert_node(DrawTreeNode::CachedShape(shape), parent))
+        self.insert_node(
+            DrawTreeNode::CachedShape(CachedShapeDrawData::new(shape, options)),
+            parent,
+        )
     }
 
     pub fn add_clipping_rect(
@@ -140,24 +130,87 @@ impl Scene {
         clips_children: bool,
     ) -> Result<usize, SceneError> {
         self.validate_parent(parent)?;
+        self.insert_node(
+            Self::prepare_clipping_rect(rect_bounds, transform, clips_children)?,
+            parent,
+        )
+    }
+
+    pub(crate) fn prepare_clipping_rect(
+        rect_bounds: [(f32, f32); 2],
+        transform: Option<InstanceTransform>,
+        clips_children: bool,
+    ) -> Result<DrawTreeNode, SceneError> {
         if !geometry::is_axis_aligned_rect_transform(transform) {
             return Err(SceneError::UnsupportedClipRectTransform);
         }
-        Ok(self.insert_node(
-            DrawTreeNode::ClipRect(ClipRectDrawData::new(
-                rect_bounds,
-                transform,
-                clips_children,
-            )),
-            parent,
-        ))
+        Ok(DrawTreeNode::ClipRect(ClipRectDrawData::new(
+            rect_bounds,
+            transform,
+            clips_children,
+        )))
     }
 
-    fn insert_node(&mut self, node: DrawTreeNode, parent: Option<usize>) -> usize {
+    pub(crate) fn insert_node(
+        &mut self,
+        node: DrawTreeNode,
+        parent: Option<usize>,
+    ) -> Result<usize, SceneError> {
+        self.validate_parent(parent)?;
+        self.refresh_tessellation_cache(&node);
         if self.draw_tree.is_empty() {
-            return self.draw_tree.add_node(node);
+            return Ok(self.draw_tree.add_node(node));
         }
-        self.draw_tree.add_child(parent.unwrap_or(0), node)
+        Ok(self.draw_tree.add_child(parent.unwrap_or(0), node))
+    }
+
+    pub(crate) fn replace_node(
+        &mut self,
+        node_id: usize,
+        node: DrawTreeNode,
+        shape_effect_bounds: Option<ShapeEffectBounds>,
+        viewport: Viewport,
+        fringe_width: f32,
+        maximum_texture_dimension: u32,
+    ) -> DrawTreeNode {
+        self.refresh_tessellation_cache(&node);
+        if matches!(node, DrawTreeNode::CachedShape(_)) {
+            if let Some(bounds) = shape_effect_bounds {
+                self.shape_effects
+                    .get_mut(&node_id)
+                    .expect("replacement retains the validated attachment")
+                    .bounds = bounds;
+            }
+        } else {
+            self.group_effects.remove(&node_id);
+            self.shape_effects.remove(&node_id);
+            self.remove_backdrop_effect(node_id);
+        }
+        let previous = self
+            .draw_tree
+            .replace(node_id, node)
+            .expect("replacement node was validated before resource preparation");
+        if let Some(effect) = self.backdrop_effects.get(&node_id) {
+            self.update_backdrop_effect_config(
+                node_id,
+                effect.config,
+                viewport,
+                fringe_width,
+                maximum_texture_dimension,
+            )
+            .expect("retained backdrop configuration was validated on attachment");
+        }
+        previous
+    }
+
+    fn refresh_tessellation_cache(&mut self, node: &DrawTreeNode) {
+        if let DrawTreeNode::CachedShape(shape) = node {
+            if let Some(geometry_id) = shape.instance.cached_shape.geometry_id {
+                self.shape_resources
+                    .tessellation_cache
+                    .refresh_tessellation(geometry_id, &shape.instance.cached_shape.tessellation);
+            }
+        }
     }
 
     pub fn shape(&self, node_id: usize) -> Result<&ShapeInstance, SceneError> {

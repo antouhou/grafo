@@ -49,6 +49,7 @@ pub use render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError,
 };
 pub use render_backend::{RenderBackend, TextureManager};
+pub use renderer::DrawCommandReplacement;
 pub use scene::SceneError;
 use std::sync::Arc;
 pub use wgpu;
@@ -76,7 +77,7 @@ pub type Renderer<B = WgpuBackend> = renderer::Renderer<B>;
 pub type Surface<Resource = WgpuSurface> = render_backend::render_target::Surface<Resource>;
 /// Shared CPU shape storage and backend context, using WGPU by default.
 pub type RendererContext<C = Arc<WgpuContext>> = renderer::RendererContext<C>;
-/// Scene insertion or backend resource preparation failed.
+/// Scene mutation or backend resource preparation failed.
 pub type DrawCommandError<E = WgpuBackendError> = renderer::DrawCommandError<E>;
 /// Scene attachment or backend effect validation failed.
 pub type EffectError<E = WgpuBackendError> = renderer::EffectError<E>;

@@ -25,7 +25,7 @@ impl RenderBackend for WgpuBackend {
             &self.pipeline_resources.shapes,
             self.viewport.scale_factor,
         )?;
-        self.resources.shape_execution.draws.insert(id.0, resources);
+        self.resources.shape_execution.register_draw(id, resources);
         Ok(())
     }
 
@@ -117,6 +117,7 @@ impl RenderBackend for WgpuBackend {
         target: RenderTarget<'_, Self::Surface>,
     ) -> Result<(), Self::Error> {
         let size = target.validate_size(self.maximum_texture_dimension())?;
+        self.resources.shape_execution.compact_draw_buffers();
         if self.viewport.physical_size != size {
             self.resize(
                 Viewport {

@@ -58,8 +58,8 @@ pub trait RenderBackend {
     type Error: From<RenderTargetError>;
     type TextureManager: TextureManager<Error = Self::Error>;
 
-    /// Prepares and registers resources for a borrowed CPU instance.
-    /// An error must leave the ID unregistered.
+    /// Registers or replaces resources for a borrowed CPU instance.
+    /// An error must preserve the previous registration, if any.
     fn register_shape(&mut self, id: ShapeDrawId, shape: &ShapeInstance)
         -> Result<(), Self::Error>;
     /// Releases the given instances and their effect bindings.
