@@ -22,7 +22,10 @@ impl<B: RenderBackend> Renderer<B> {
             .refresh_shape_effect_bounds(new_scale_factor, self.fringe_width)
         {
             self.scene
-                .refresh_shape_effect_bounds(self.viewport.scale_factor, self.fringe_width)?;
+                .refresh_shape_effect_bounds(self.viewport.scale_factor, self.fringe_width)
+                .expect(
+                    "failed to restore shape effect bounds with previous rasterization settings",
+                );
             return Err(error);
         }
         self.viewport.scale_factor = new_scale_factor;
@@ -37,7 +40,10 @@ impl<B: RenderBackend> Renderer<B> {
             .refresh_shape_effect_bounds(self.viewport.scale_factor, fringe_width)
         {
             self.scene
-                .refresh_shape_effect_bounds(self.viewport.scale_factor, self.fringe_width)?;
+                .refresh_shape_effect_bounds(self.viewport.scale_factor, self.fringe_width)
+                .expect(
+                    "failed to restore shape effect bounds with previous rasterization settings",
+                );
             return Err(error);
         }
         self.fringe_width = fringe_width;
