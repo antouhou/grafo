@@ -1606,6 +1606,30 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
     assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
 }
 
+fn assert_repeated_readback_pixels(
+    renderer: &mut Renderer,
+    pixels: &mut Vec<u8>,
+    size: (u32, u32),
+    format: PixelFormat,
+) {
+    let layout = PixelLayout::tightly_packed(size, format).unwrap();
+    let expected_pixel = match format {
+        PixelFormat::Bgra8 => [153, 102, 51, 255],
+        PixelFormat::Rgba8 => [51, 102, 153, 255],
+        PixelFormat::Argb32 => 0xff33_6699_u32.to_ne_bytes(),
+    };
+    pixels.resize(layout.byte_len(), 0);
+    for _ in 0..3 {
+        pixels.fill(0x71);
+        renderer
+            .render(PixmapMut::new(pixels, layout).unwrap())
+            .unwrap();
+        for pixel in pixels.as_chunks::<4>().0 {
+            assert_eq!(*pixel, expected_pixel, "format {format:?}");
+        }
+    }
+}
+
 #[test]
 fn readback_targets_survive_alternating_formats_and_resize() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((65, 7), 1.0) else {
@@ -1620,23 +1644,12 @@ fn readback_targets_survive_alternating_formats_and_resize() {
             ShapeDrawCommandOptions::new().color(Color::rgb(51, 102, 153)),
         )
         .unwrap();
-    let mut bgra_pixels = Vec::new();
-    let mut argb_pixels = Vec::new();
-    for size in [(65, 7), (129, 5), (65, 7)] {
-        bgra_pixels.resize(size.0 as usize * size.1 as usize * 4, 0);
-        argb_pixels.resize((size.0 * size.1) as usize, 0);
-        for _ in 0..3 {
-            renderer
-                .render(PixmapMut::bgra8(&mut bgra_pixels, size).unwrap())
-                .unwrap();
-            assert_eq!(renderer.size(), size);
-            renderer
-                .render(PixmapMut::argb32(&mut argb_pixels, size).unwrap())
-                .unwrap();
-            assert_eq!(bgra_pixels.len(), argb_pixels.len() * 4);
-            for (bytes, pixel) in bgra_pixels.as_chunks::<4>().0.iter().zip(&argb_pixels) {
-                assert_eq!(*bytes, [153, 102, 51, 255]);
-                assert_eq!(*pixel, 0xff33_6699);
+    let mut pixels = Vec::new();
+    for samples in [1, 4] {
+        renderer.set_msaa_samples(samples);
+        for size in [(65, 7), (129, 5), (65, 7)] {
+            for format in [PixelFormat::Bgra8, PixelFormat::Rgba8, PixelFormat::Argb32] {
+                assert_repeated_readback_pixels(&mut renderer, &mut pixels, size, format);
             }
         }
     }

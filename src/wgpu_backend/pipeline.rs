@@ -483,28 +483,6 @@ pub(crate) fn draw_indexed_geometry(
     render_pass.draw_indexed(geometry_range.indices(), base_vertex, instances);
 }
 
-/// Creates an offscreen color texture for rendering and copying.
-pub fn create_offscreen_color_texture(
-    device: &Device,
-    size: (u32, u32),
-    format: wgpu::TextureFormat,
-) -> Texture {
-    device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("offscreen_render_texture"),
-        size: wgpu::Extent3d {
-            width: size.0,
-            height: size.1,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    })
-}
-
 /// Creates the GPU pipeline that removes row padding from ARGB readback data.
 pub fn create_argb_row_packing_pipeline(device: &Device) -> (BindGroupLayout, ComputePipeline) {
     let cs_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {

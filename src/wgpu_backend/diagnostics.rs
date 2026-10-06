@@ -68,31 +68,21 @@ impl WgpuBackend {
 
         println!("\n--- ARGB Compute Buffers ---");
         if let Some(resources) = &self.argb_readback {
-            let target = &resources.target;
-            println!("ARGB input buffer: {} bytes", target.input_buffer.size());
+            let buffers = &resources.buffers;
+            println!("ARGB input buffer: {} bytes", buffers.input_buffer.size());
             println!(
                 "ARGB output storage buffer: {} bytes",
-                target.output_buffer.size()
+                buffers.output_buffer.size()
             );
             println!(
                 "ARGB readback buffer: {} bytes",
-                target.readback_buffer.size()
+                buffers.readback_buffer.size()
             );
-            println!("ARGB params buffer: {} bytes", target.params_buffer.size());
-            println!(
-                "ARGB offscreen texture: {}x{}",
-                target.texture.width(),
-                target.texture.height()
-            );
+            println!("ARGB params buffer: {} bytes", buffers.params_buffer.size());
         }
 
         println!("\n--- Render-to-Buffer Caches ---");
         if let Some(resources) = &self.byte_readback {
-            println!(
-                "RTB offscreen texture: {}x{}",
-                resources.texture.width(),
-                resources.texture.height()
-            );
             println!("RTB readback buffer: {} bytes", resources.buffer.size());
         }
 

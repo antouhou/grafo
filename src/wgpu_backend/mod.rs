@@ -85,8 +85,8 @@ pub struct WgpuBackend {
     pub(in crate::wgpu_backend) last_phase_timings: PhaseTimings,
 
     #[cfg(feature = "render_metrics")]
-    /// Last CPU duration reported by [`Self::last_render_to_texture_view_cpu_time`].
-    pub(in crate::wgpu_backend) last_render_to_texture_view_cpu_time: Duration,
+    /// Last CPU duration reported by [`Self::last_retained_output_update_cpu_time`].
+    pub(in crate::wgpu_backend) last_retained_output_update_cpu_time: Duration,
 
     pub(in crate::wgpu_backend) resources: BackendResources,
 }

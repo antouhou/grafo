@@ -64,7 +64,7 @@ impl WgpuBackend {
             #[cfg(feature = "render_metrics")]
             last_phase_timings: Default::default(),
             #[cfg(feature = "render_metrics")]
-            last_render_to_texture_view_cpu_time: Default::default(),
+            last_retained_output_update_cpu_time: Default::default(),
             resources: BackendResources {
                 shape_execution: ShapeExecutionResources::new(),
                 effect_execution: EffectExecutionResources::default(),

@@ -15,17 +15,16 @@ use std::iter;
 use std::time::Instant;
 #[cfg(feature = "render_metrics")]
 use wgpu::MaintainBase;
-use wgpu::{CommandEncoderDescriptor, Surface, SurfaceError, TextureView, TextureViewDescriptor};
+use wgpu::{CommandEncoderDescriptor, Surface, SurfaceError, TextureViewDescriptor};
 
 impl WgpuBackend {
-    /// Copies the clean scene to the output and returns the redrawn bounds.
-    pub(in crate::wgpu_backend) fn render_to_texture_view(
+    /// Updates the clean scene and returns the redrawn bounds.
+    pub(in crate::wgpu_backend) fn update_retained_output(
         &mut self,
         commands: &RenderPlan,
-        texture_view: &TextureView,
     ) -> Option<UnsignedPhysicalRect> {
         #[cfg(feature = "render_metrics")]
-        let render_to_texture_view_started_at = Instant::now();
+        let update_started_at = Instant::now();
         #[cfg(feature = "render_metrics")]
         {
             self.resources.pipeline_switch_counts = Default::default();
@@ -50,17 +49,10 @@ impl WgpuBackend {
         if let Some(scissor) = root_scissor {
             self.render_dirty_region(commands, &retained, scissor, is_new);
         }
-        let mut encoder = self
-            .device
-            .create_command_encoder(&CommandEncoderDescriptor {
-                label: Some("present_retained_output"),
-            });
-        retained.present(&mut encoder, texture_view);
-        self.queue.submit(iter::once(encoder.finish()));
         self.retained_output = Some(retained);
         #[cfg(feature = "render_metrics")]
         {
-            self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
+            self.last_retained_output_update_cpu_time = update_started_at.elapsed();
         }
         root_scissor
     }
@@ -223,17 +215,25 @@ impl WgpuBackend {
             .texture
             .create_view(&TextureViewDescriptor::default());
 
-        let root_scissor = self.render_to_texture_view(commands, &output_texture_view);
+        let root_scissor = self.update_retained_output(commands);
+        let retained = self
+            .retained_output
+            .as_ref()
+            .expect("retained output was initialized before presentation");
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("present_retained_output"),
+            });
+        retained.present(&mut encoder, &output_texture_view);
+        self.queue.submit(iter::once(encoder.finish()));
         if let Some(scissor) = root_scissor.filter(|_| self.is_dirty_region_overlay_enabled) {
             let mut encoder = self
                 .device
                 .create_command_encoder(&CommandEncoderDescriptor {
                     label: Some("draw_dirty_region_overlay"),
                 });
-            self.retained_output
-                .as_ref()
-                .expect("retained output was initialized before presentation")
-                .draw_dirty_region_overlay(&mut encoder, &output_texture_view, scissor);
+            retained.draw_dirty_region_overlay(&mut encoder, &output_texture_view, scissor);
             self.queue.submit(iter::once(encoder.finish()));
         }
 
