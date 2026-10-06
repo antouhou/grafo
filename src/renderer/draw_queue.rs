@@ -240,7 +240,7 @@ impl<B: RenderBackend> Renderer<B> {
                     DrawTreeNode::CachedShape(shape) => Some(shape.logical_screen_bounds),
                     DrawTreeNode::ClipRect(_) => None,
                 };
-                let inserted_id = self.scene.insert_node(node, parent)?;
+                let inserted_id = self.scene.insert_node(node, parent);
                 debug_assert_eq!(inserted_id, node_id);
                 if let Some(bounds) = shape_bounds {
                     mark_dirty(

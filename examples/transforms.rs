@@ -11,6 +11,7 @@ use lyon::geom::point;
 use lyon::path::FillRule;
 use lyon::path::Path;
 use std::sync::Arc;
+use tracing::warn;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -340,9 +341,10 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                self.scale_factor = scale_factor;
-                // Propagate DPI change to the renderer so normalization uses the new logical size
-                renderer.change_scale_factor(scale_factor);
+                match renderer.change_scale_factor(scale_factor) {
+                    Ok(()) => self.scale_factor = scale_factor,
+                    Err(error) => warn!(%error, scale_factor, "scale factor change rejected"),
+                }
                 window.request_redraw();
             }
             WindowEvent::Resized(physical_size) => {

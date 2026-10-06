@@ -80,9 +80,7 @@ impl<B: RenderBackend> Renderer<B> {
             self.fringe_width,
             self.backend.maximum_texture_dimension(),
         )?;
-        // During the dependency calculation, we're going to mark capture region as dirty too,
-        // so no need to mark the capture region as dirty here. It's going to happen right before
-        // the planning stage.
+        // Damage expansion includes the capture region.
         self.mark_shape_dirty(node_id);
         Ok(())
     }
@@ -99,9 +97,7 @@ impl<B: RenderBackend> Renderer<B> {
             self.fringe_width,
             self.backend.maximum_texture_dimension(),
         )?;
-        // During the dependency calculation, we're going to mark capture region as dirty too,
-        // so no need to mark the capture region as dirty here. It's going to happen right before
-        // the planning stage.
+        // Damage expansion includes the capture region.
         self.mark_shape_dirty(node_id);
         Ok(())
     }
@@ -120,9 +116,7 @@ impl<B: RenderBackend> Renderer<B> {
             .update_effect_parameters(effect.parameters, params);
         self.scene
             .update_backdrop_effect_params(node_id, parameters)?;
-        // During the dependency calculation, we're going to mark capture region as dirty too,
-        // so no need to mark the capture region as dirty here. It's going to happen right before
-        // the planning stage.
+        // Damage expansion includes the capture region.
         self.mark_shape_dirty(node_id);
         Ok(())
     }

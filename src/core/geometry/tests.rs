@@ -1,8 +1,10 @@
 use super::{
-    logical_rect_to_physical_rect, logical_rect_to_scissor_rect, transform_point_to_logical_screen,
+    logical_bounds_to_viewport_rect, logical_rect_to_physical_rect, logical_rect_to_scissor_rect,
     transformed_bounds_to_logical_screen_rect, unit_quad_transform,
 };
-use crate::core::{MathRect, PhysicalRect, Size, TransformInstance, UnsignedPhysicalRect};
+use crate::core::{
+    MathRect, PhysicalRect, Size, TransformInstance, UnsignedPhysicalRect, Viewport,
+};
 use lyon::geom::Point;
 
 #[test]
@@ -42,7 +44,7 @@ fn physical_capture_rect_preserves_requested_size_outside_viewport() {
 }
 
 #[test]
-fn transform_point_to_logical_screen_preserves_negative_w_sign() {
+fn transformed_screen_bounds_match_negative_w_shader_projection() {
     let transform = TransformInstance {
         col0: [2.0, 0.0, 0.0, 0.0],
         col1: [0.0, 3.0, 0.0, 0.0],
@@ -50,9 +52,86 @@ fn transform_point_to_logical_screen_preserves_negative_w_sign() {
         col3: [0.0, 0.0, 0.0, -2.0],
     };
 
-    let point = transform_point_to_logical_screen(Point::new(1.0, 1.0), Some(transform));
+    assert_eq!(
+        transformed_bounds_to_logical_screen_rect(
+            MathRect::new((1.0, 1.0).into(), (2.0, 2.0).into()),
+            Some(transform),
+        ),
+        MathRect::new((1.0, 1.5).into(), (2.0, 3.0).into())
+    );
+}
 
-    assert_eq!(point, Point::new(-1.0, -1.5));
+#[test]
+fn projection_bounds_fall_back_when_the_divisor_crosses_clamp_regions() {
+    let viewport = Viewport {
+        physical_size: (32, 24),
+        scale_factor: 1.0,
+    };
+    for (horizontal_w, origin_w) in [(0.75e-6, 0.5e-6), (-0.75e-6, -0.5e-6), (1.0, -1.0)] {
+        let mut transform = TransformInstance::identity();
+        transform.col0[3] = horizontal_w;
+        transform.col3[3] = origin_w;
+        let bounds = transformed_bounds_to_logical_screen_rect(
+            MathRect::new((0.0, 0.0).into(), (2.0, 2.0).into()),
+            Some(transform),
+        );
+        assert!(!bounds.is_finite(), "transform: {transform:?}");
+        assert_eq!(
+            logical_bounds_to_viewport_rect(bounds, viewport, 0.75),
+            Some(UnsignedPhysicalRect::from_size((32, 24).into()))
+        );
+    }
+}
+
+#[test]
+fn projection_bounds_keep_constant_clamp_and_negative_divisor_regions() {
+    for horizontal_w in [0.0, 0.5e-6] {
+        let mut transform = TransformInstance::scale(1e-6, 1e-6);
+        transform.col0[3] = horizontal_w;
+        transform.col3[3] = -0.5e-6;
+        assert_eq!(
+            transformed_bounds_to_logical_screen_rect(
+                MathRect::new((0.0, 0.0).into(), (2.0, 2.0).into()),
+                Some(transform),
+            ),
+            MathRect::new((0.0, 0.0).into(), (2.0, 2.0).into())
+        );
+    }
+
+    let mut transform = TransformInstance::identity();
+    transform.col0[3] = -0.5;
+    transform.col3[3] = -1.0;
+    assert_eq!(
+        transformed_bounds_to_logical_screen_rect(
+            MathRect::new((0.0, 0.0).into(), (2.0, 2.0).into()),
+            Some(transform),
+        ),
+        MathRect::new((0.0, 0.0).into(), (1.0, 2.0).into())
+    );
+}
+
+#[test]
+fn projection_bounds_fall_back_for_non_finite_homogeneous_coordinates() {
+    for transform in [
+        TransformInstance {
+            col0: [1.0, 0.0, 0.0, f32::MAX],
+            ..TransformInstance::identity()
+        },
+        TransformInstance {
+            col0: [f32::MAX, 0.0, 0.0, 0.0],
+            ..TransformInstance::identity()
+        },
+        TransformInstance {
+            col3: [0.0, 0.0, 0.0, f32::NAN],
+            ..TransformInstance::identity()
+        },
+    ] {
+        let bounds = transformed_bounds_to_logical_screen_rect(
+            MathRect::new((0.0, 0.0).into(), (2.0, 2.0).into()),
+            Some(transform),
+        );
+        assert!(!bounds.is_finite(), "transform: {transform:?}");
+    }
 }
 
 #[test]

@@ -186,6 +186,78 @@ fn removing_clip_subtrees_and_the_root_preserves_loaded_shapes() {
 }
 
 #[test]
+fn removed_parents_are_rejected_before_resource_and_clip_preparation() {
+    let mut renderer = renderer();
+    let root = queue_shape(&mut renderer, false);
+    let removed = queue_shape(&mut renderer, false);
+    renderer.remove_subtrees([removed], |_| {});
+    let bounds = [(0.0, 0.0), (16.0, 16.0)];
+    let transform = InstanceTransform::rotation_z_deg(45.0);
+    let dirty = renderer.dirty_bounds;
+    let next_node = renderer.scene.next_node_id();
+    renderer.backend.should_fail = true;
+
+    for result in [
+        renderer.add_shape(
+            Shape::rect(bounds),
+            Some(removed),
+            None,
+            ShapeDrawCommandOptions::new(),
+        ),
+        renderer.add_cached_shape(999, Some(removed), ShapeDrawCommandOptions::new()),
+        renderer.add_clipping_rect(bounds, Some(removed), Some(transform), true),
+    ] {
+        assert!(matches!(
+            result,
+            Err(DrawCommandError::Scene(SceneError::InvalidShapeId(id))) if id == removed
+        ));
+    }
+
+    let cached_shape = renderer.scene.loaded_shape(1).unwrap();
+    for result in [
+        renderer
+            .scene
+            .add_shape(cached_shape, Some(removed), ShapeDrawCommandOptions::new()),
+        renderer
+            .scene
+            .add_clipping_rect(bounds, Some(removed), Some(transform), true),
+    ] {
+        assert!(matches!(result, Err(SceneError::InvalidShapeId(id)) if id == removed));
+    }
+
+    assert!(matches!(
+        renderer.add_shape(
+            Shape::rect(bounds),
+            Some(root),
+            None,
+            ShapeDrawCommandOptions::new(),
+        ),
+        Err(DrawCommandError::Backend(_))
+    ));
+    assert!(matches!(
+        renderer.add_cached_shape(999, Some(root), ShapeDrawCommandOptions::new()),
+        Err(DrawCommandError::Scene(SceneError::ShapeNotLoaded(999)))
+    ));
+    assert!(matches!(
+        renderer.add_clipping_rect(bounds, Some(root), Some(transform), true),
+        Err(DrawCommandError::Scene(
+            SceneError::UnsupportedClipRectTransform
+        ))
+    ));
+    assert!(matches!(
+        renderer
+            .scene
+            .add_clipping_rect(bounds, Some(root), Some(transform), true),
+        Err(SceneError::UnsupportedClipRectTransform)
+    ));
+    assert_eq!(renderer.scene.next_node_id(), next_node);
+    assert!(renderer.scene.draw_tree.get(removed).is_none());
+    assert!(renderer.scene.draw_tree.children(root).is_empty());
+    assert_eq!(renderer.backend.registered_shapes, [root]);
+    assert_eq!(renderer.dirty_bounds, dirty);
+}
+
+#[test]
 fn replacements_and_subtree_removals_defer_compaction_and_preserve_surviving_parameters() {
     let mut renderer = renderer();
     let mut surface = surface();

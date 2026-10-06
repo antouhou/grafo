@@ -1,10 +1,152 @@
-use super::{renderer, surface};
+use super::{renderer, surface, TestBackend};
 use crate::commands::RenderOperation;
+use crate::core::effect::ShapeEffectBounds;
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
     BackdropEffectConfig, Color, MathRect, Shape, ShapeDrawCommandOptions, ShapeEffectConfig,
     UnsignedPhysicalRect,
 };
+use crate::renderer::Renderer;
+use crate::scene::effects::ShapeEffectInstance;
+use crate::scene::SceneError;
+
+fn add_effects_with_mixed_coordinate_ranges(renderer: &mut Renderer<TestBackend>) -> [usize; 2] {
+    let nodes = [0, 1].map(|_| {
+        renderer
+            .add_shape(
+                Shape::rect([(10.0, 10.0), (14.0, 14.0)]),
+                None,
+                None,
+                ShapeDrawCommandOptions::new().color(Color::WHITE),
+            )
+            .unwrap()
+    });
+    for node in nodes {
+        renderer
+            .set_shape_effect(node, 7, &[1, 2, 3, 4], ShapeEffectConfig::new().outset(3.0))
+            .unwrap();
+    }
+    // Put the failing attachment last so rejection follows a successful bounds update.
+    let translated = *renderer.scene.shape_effects.keys().last().unwrap();
+    renderer
+        .replace_with_shape(
+            translated,
+            Shape::rect([(1_500_000_000.0, 10.0), (1_500_000_128.0, 14.0)]),
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::WHITE)
+                .transform(InstanceTransform::translation(-1_500_000_000.0, 0.0)),
+        )
+        .unwrap();
+    let nearby = nodes.into_iter().find(|&node| node != translated).unwrap();
+    [nearby, translated]
+}
+
+fn assert_shape_effects_preserved(
+    renderer: &Renderer<TestBackend>,
+    previous: [(usize, ShapeEffectInstance); 2],
+) {
+    assert_eq!(renderer.scene.shape_effects.len(), previous.len());
+    for (node, previous) in previous {
+        let current = renderer.scene.shape_effect(node).unwrap();
+        assert_eq!(current.effect_id, previous.effect_id);
+        assert_eq!(current.parameters.range, previous.parameters.range);
+        assert_eq!(current.parameters.hash, previous.parameters.hash);
+        assert_eq!(current.config, previous.config);
+        assert_eq!(current.bounds, previous.bounds);
+    }
+}
+
+fn assert_shape_effect_bounds_match_settings(renderer: &Renderer<TestBackend>, nodes: [usize; 2]) {
+    for node in nodes {
+        let shape = renderer.scene.shape(node).unwrap();
+        let effect = renderer.scene.shape_effect(node).unwrap();
+        assert_eq!(
+            Some(effect.bounds),
+            ShapeEffectBounds::new(
+                shape.cached_shape.tessellation.local_bounds,
+                effect.config,
+                shape.transform,
+                renderer.scale_factor(),
+                renderer.fringe_width(),
+            )
+        );
+    }
+}
+
+#[test]
+fn rejected_scale_change_preserves_all_effects_and_allows_a_later_valid_change() {
+    let mut renderer = renderer();
+    let mut surface = surface();
+    let nodes = add_effects_with_mixed_coordinate_ranges(&mut renderer);
+    renderer.render(&mut surface).unwrap();
+    assert_eq!(surface.resource().shape_masks, 2);
+    let previous = nodes.map(|node| (node, *renderer.scene.shape_effect(node).unwrap()));
+
+    assert!(matches!(
+        renderer.change_scale_factor(2.0),
+        Err(SceneError::InvalidShapeEffectBounds(node)) if node == nodes[1]
+    ));
+    assert_eq!(renderer.scale_factor(), 1.0);
+    assert_eq!(renderer.fringe_width(), 0.75);
+    assert_eq!(renderer.size(), (32, 32));
+    assert_eq!(renderer.backend.size, None);
+    assert_eq!(renderer.dirty_bounds, None);
+    assert_shape_effects_preserved(&renderer, previous);
+    assert_shape_effect_bounds_match_settings(&renderer, nodes);
+
+    renderer.change_scale_factor(0.5).unwrap();
+    assert_eq!(renderer.scale_factor(), 0.5);
+    assert_eq!(renderer.fringe_width(), 0.75);
+    assert_eq!(renderer.backend.size, Some((32, 32)));
+    assert_shape_effect_bounds_match_settings(&renderer, nodes);
+    for (node, previous) in previous {
+        let current = renderer.scene.shape_effect(node).unwrap();
+        assert_ne!(current.bounds, previous.bounds);
+        assert_eq!(current.config, previous.config);
+        assert_eq!(current.parameters.range, previous.parameters.range);
+        assert_eq!(current.parameters.hash, previous.parameters.hash);
+    }
+    renderer.render(&mut surface).unwrap();
+    assert_eq!(surface.resource().shape_masks, 2);
+}
+
+#[test]
+fn rejected_fringe_change_preserves_all_effects_and_allows_a_later_valid_change() {
+    let mut renderer = renderer();
+    let mut surface = surface();
+    let nodes = add_effects_with_mixed_coordinate_ranges(&mut renderer);
+    renderer.render(&mut surface).unwrap();
+    assert_eq!(surface.resource().shape_masks, 2);
+    let previous = nodes.map(|node| (node, *renderer.scene.shape_effect(node).unwrap()));
+
+    assert!(matches!(
+        renderer.set_fringe_width(700_000_000.0),
+        Err(SceneError::InvalidShapeEffectBounds(node)) if node == nodes[1]
+    ));
+    assert_eq!(renderer.scale_factor(), 1.0);
+    assert_eq!(renderer.fringe_width(), 0.75);
+    assert_eq!(renderer.size(), (32, 32));
+    assert_eq!(renderer.backend.size, None);
+    assert_eq!(renderer.dirty_bounds, None);
+    assert_shape_effects_preserved(&renderer, previous);
+    assert_shape_effect_bounds_match_settings(&renderer, nodes);
+
+    renderer.set_fringe_width(2.25).unwrap();
+    assert_eq!(renderer.scale_factor(), 1.0);
+    assert_eq!(renderer.fringe_width(), 2.25);
+    assert_eq!(renderer.backend.size, Some((32, 32)));
+    assert_shape_effect_bounds_match_settings(&renderer, nodes);
+    for (node, previous) in previous {
+        let current = renderer.scene.shape_effect(node).unwrap();
+        assert_ne!(current.bounds, previous.bounds);
+        assert_eq!(current.config, previous.config);
+        assert_eq!(current.parameters.range, previous.parameters.range);
+        assert_eq!(current.parameters.hash, previous.parameters.hash);
+    }
+    renderer.render(&mut surface).unwrap();
+    assert_eq!(surface.resource().shape_masks, 2);
+}
 
 #[test]
 fn retained_shape_effect_changes_clear_old_footprints() {
@@ -129,10 +271,10 @@ fn cached_effect_bounds_follow_rasterization_and_keep_offscreen_coverage() {
         MathRect::new((9.0, 0.0).into(), (21.0, 22.0).into())
     );
 
-    renderer.change_scale_factor(2.0);
+    renderer.change_scale_factor(2.0).unwrap();
     let scaled = renderer.scene.shape_effect(node).unwrap().bounds;
     assert_eq!(scaled.raster_rect.local_bounds, [(-1.5, -2.0), (8.0, 8.0)]);
-    renderer.set_fringe_width(2.25);
+    renderer.set_fringe_width(2.25).unwrap();
     let padded = renderer.scene.shape_effect(node).unwrap().bounds;
     assert_eq!(padded.raster_rect.local_bounds, [(-2.5, -3.0), (9.0, 9.0)]);
     assert_eq!(

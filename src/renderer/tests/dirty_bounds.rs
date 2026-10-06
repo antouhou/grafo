@@ -7,10 +7,105 @@ use crate::core::{
 };
 
 #[test]
+fn negative_w_shape_addition_dirties_shader_footprint_after_empty_render() {
+    let mut renderer = renderer();
+    let mut surface = surface();
+    renderer.render(&mut surface).unwrap();
+    let mut transform = InstanceTransform::identity();
+    transform.col3[3] = -1.0;
+    renderer
+        .add_shape(
+            Shape::rect([(8.0, 8.0), (16.0, 16.0)]),
+            None,
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::WHITE)
+                .transform(transform),
+        )
+        .unwrap();
+    renderer.render(&mut surface).unwrap();
+    assert_eq!(
+        renderer.backend.root_scissor,
+        Some(UnsignedPhysicalRect::new((7, 7).into(), (17, 17).into()))
+    );
+}
+
+#[test]
+fn negative_w_shape_removal_dirties_shader_footprint_after_render() {
+    let mut renderer = renderer();
+    let mut surface = surface();
+    let mut transform = InstanceTransform::identity();
+    transform.col3[3] = -1.0;
+    let shape = renderer
+        .add_shape(
+            Shape::rect([(8.0, 8.0), (16.0, 16.0)]),
+            None,
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::WHITE)
+                .transform(transform),
+        )
+        .unwrap();
+    renderer.render(&mut surface).unwrap();
+    renderer.remove_subtrees([shape], |_| {});
+    renderer.render(&mut surface).unwrap();
+    assert_eq!(
+        renderer.backend.root_scissor,
+        Some(UnsignedPhysicalRect::new((7, 7).into(), (17, 17).into()))
+    );
+}
+
+#[test]
+fn uncertain_projection_redraws_viewport_on_removal_and_addition() {
+    for (horizontal_w, origin_w) in [
+        (0.125e-6, -0.5e-6),
+        (-0.125e-6, 0.5e-6),
+        (0.25, -3.0),
+        (f32::MAX, 1.0),
+    ] {
+        let mut renderer = renderer();
+        let mut surface = surface();
+        let mut transform = InstanceTransform::identity();
+        transform.col0[3] = horizontal_w;
+        transform.col3[3] = origin_w;
+        let shape = renderer
+            .add_shape(
+                Shape::rect([(8.0, 8.0), (16.0, 16.0)]),
+                None,
+                None,
+                ShapeDrawCommandOptions::new().transform(transform),
+            )
+            .unwrap();
+        renderer.render(&mut surface).unwrap();
+        renderer.remove_subtrees([shape], |_| {});
+        renderer.render(&mut surface).unwrap();
+        assert_eq!(
+            renderer.backend.root_scissor,
+            Some(UnsignedPhysicalRect::from_size((32, 32).into())),
+            "transform: {transform:?}"
+        );
+        renderer
+            .add_shape(
+                Shape::rect([(8.0, 8.0), (16.0, 16.0)]),
+                None,
+                None,
+                ShapeDrawCommandOptions::new().transform(transform),
+            )
+            .unwrap();
+        renderer.render(&mut surface).unwrap();
+        assert_eq!(
+            renderer.backend.root_scissor,
+            Some(UnsignedPhysicalRect::from_size((32, 32).into())),
+            "transform: {transform:?}"
+        );
+    }
+}
+
+#[test]
 fn subtree_replacement_accumulates_bounds_until_a_successful_render() {
     let mut renderer = renderer();
     let mut surface = surface();
-    renderer.change_scale_factor(2.0);
+    renderer.change_scale_factor(2.0).unwrap();
     renderer.render(&mut surface).unwrap();
     assert!(!renderer.is_dirty_region_overlay_enabled());
     renderer.set_dirty_region_overlay_enabled(true);
@@ -162,8 +257,8 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
     ] {
         if scale != 1.0 {
             surface.resize(size);
-            renderer.change_scale_factor(scale);
-            renderer.set_fringe_width(fringe);
+            renderer.change_scale_factor(scale).unwrap();
+            renderer.set_fringe_width(fringe).unwrap();
         }
         renderer.render(&mut surface).unwrap();
         if scale == 1.0 {

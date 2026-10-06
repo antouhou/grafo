@@ -116,10 +116,11 @@ impl Scene {
         parent: Option<usize>,
         options: ShapeDrawCommandOptions,
     ) -> Result<usize, SceneError> {
-        self.insert_node(
+        self.validate_parent(parent)?;
+        Ok(self.insert_node(
             DrawTreeNode::CachedShape(CachedShapeDrawData::new(shape, options)),
             parent,
-        )
+        ))
     }
 
     pub fn add_clipping_rect(
@@ -130,10 +131,10 @@ impl Scene {
         clips_children: bool,
     ) -> Result<usize, SceneError> {
         self.validate_parent(parent)?;
-        self.insert_node(
+        Ok(self.insert_node(
             Self::prepare_clipping_rect(rect_bounds, transform, clips_children)?,
             parent,
-        )
+        ))
     }
 
     pub(crate) fn prepare_clipping_rect(
@@ -151,17 +152,13 @@ impl Scene {
         )))
     }
 
-    pub(crate) fn insert_node(
-        &mut self,
-        node: DrawTreeNode,
-        parent: Option<usize>,
-    ) -> Result<usize, SceneError> {
-        self.validate_parent(parent)?;
+    /// The parent must be validated before insertion.
+    pub(crate) fn insert_node(&mut self, node: DrawTreeNode, parent: Option<usize>) -> usize {
         self.refresh_tessellation_cache(&node);
         if self.draw_tree.is_empty() {
-            return Ok(self.draw_tree.add_node(node));
+            return self.draw_tree.add_node(node);
         }
-        Ok(self.draw_tree.add_child(parent.unwrap_or(0), node))
+        self.draw_tree.add_child(parent.unwrap_or(0), node)
     }
 
     pub(crate) fn replace_node(

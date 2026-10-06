@@ -3,6 +3,7 @@ use futures::executor::block_on;
 use grafo::{Color, Shape, ShapeDrawCommandOptions};
 use grafo::{RendererContext, Surface};
 use std::sync::Arc;
+use tracing::warn;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -227,7 +228,9 @@ impl ApplicationHandler for App {
             } => {
                 if let Some(renderer) = &mut self.renderer {
                     println!("Change scale factor to {}", scale_factor);
-                    renderer.change_scale_factor(scale_factor);
+                    if let Err(error) = renderer.change_scale_factor(scale_factor) {
+                        warn!(%error, scale_factor, "scale factor change rejected");
+                    }
 
                     if let Some(window) = &self.window {
                         window.request_redraw();

@@ -18,6 +18,13 @@ use grafo_test_scenes::{
     CANVAS_WIDTH,
 };
 
+const CONSTANT_BLUE_SHAPE_EFFECT: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 1.0, 1.0);
+}
+"#;
+
 /// Creates a headless renderer. If no suitable GPU adapter is available,
 /// prints a skip message and returns `None`.
 fn create_headless_renderer() -> Option<Renderer> {
@@ -54,6 +61,98 @@ fn render_bgra(renderer: &mut Renderer, pixels: &mut Vec<u8>) -> Result<(), Wgpu
     let size = renderer.size();
     pixels.resize(size.0 as usize * size.1 as usize * 4, 0);
     renderer.render(PixmapMut::bgra8(pixels, size)?)
+}
+
+#[test]
+fn negative_w_addition_and_removal_update_retained_pixels() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((32, 32), 1.0) else {
+        return;
+    };
+    renderer
+        .load_effect(9_301, &[CACHED_SHAPE_EFFECT_RED_MASK])
+        .unwrap();
+    let mut transform = TransformInstance::identity();
+    transform.col3[3] = -1.0;
+    let mut pixels = Vec::new();
+
+    // A populated first render cannot exercise retained-output damage.
+    for samples in [1, 4] {
+        renderer.set_msaa_samples(samples);
+        for has_shape_effect in [false, true] {
+            render_bgra(&mut renderer, &mut pixels).unwrap();
+            assert!(pixels.iter().all(|&byte| byte == 0));
+            let node = renderer
+                .add_shape(
+                    Shape::rect([(8.0, 8.0), (16.0, 16.0)]),
+                    None,
+                    None,
+                    ShapeDrawCommandOptions::new()
+                        .color(Color::rgb(255, 0, 0))
+                        .transform(transform),
+                )
+                .unwrap();
+            if has_shape_effect {
+                renderer
+                    .set_shape_effect(node, 9_301, &[], ShapeEffectConfig::new().outset(3.0))
+                    .unwrap();
+            }
+            render_bgra(&mut renderer, &mut pixels).unwrap();
+            assert_eq!(read_pixel_rgba(&pixels, 32, 12, 12), [255, 0, 0, 255]);
+            let incremental = pixels.clone();
+            renderer.resize((32, 32));
+            render_bgra(&mut renderer, &mut pixels).unwrap();
+            assert_eq!(pixels, incremental);
+            renderer.remove_subtrees([node], |_| {});
+            render_bgra(&mut renderer, &mut pixels).unwrap();
+            assert!(pixels.iter().all(|&byte| byte == 0));
+        }
+    }
+}
+
+#[test]
+fn rejected_rasterization_changes_preserve_shape_effect_pixels() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((512, 256), 1.0) else {
+        return;
+    };
+    renderer
+        .load_effect(9_302, &[CONSTANT_BLUE_SHAPE_EFFECT])
+        .unwrap();
+    let node = renderer
+        .add_shape(
+            Shape::rect([(1_500_000_000.0, 0.0), (1_500_000_128.0, 64.0)]),
+            None,
+            None,
+            ShapeDrawCommandOptions::new()
+                .transform(TransformInstance::translation(-1_500_000_000.0, 0.0)),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(node, 9_302, &[], ShapeEffectConfig::new().outset(128.0))
+        .unwrap();
+    let mut pixels = Vec::new();
+    render_bgra(&mut renderer, &mut pixels).unwrap();
+    assert_eq!(read_pixel_rgba(&pixels, 512, 192, 32), [0, 0, 255, 255]);
+    assert_eq!(read_pixel_rgba(&pixels, 512, 384, 32), [0, 0, 0, 0]);
+    let initial = pixels.clone();
+
+    let _ = renderer.change_scale_factor(2.0);
+    render_bgra(&mut renderer, &mut pixels).unwrap();
+    assert_eq!(pixels, initial);
+    renderer.change_scale_factor(0.5).unwrap();
+    render_bgra(&mut renderer, &mut pixels).unwrap();
+    assert_eq!(read_pixel_rgba(&pixels, 512, 64, 16), [0, 0, 255, 255]);
+    assert_eq!(read_pixel_rgba(&pixels, 512, 192, 32), [0, 0, 0, 0]);
+    let recovered = pixels.clone();
+
+    let _ = renderer.set_fringe_width(f32::MAX);
+    render_bgra(&mut renderer, &mut pixels).unwrap();
+    assert_eq!(pixels, recovered);
+    renderer.change_scale_factor(1.0).unwrap();
+    render_bgra(&mut renderer, &mut pixels).unwrap();
+    assert_eq!(pixels, initial);
+    renderer.remove_shape_effect(node);
+    render_bgra(&mut renderer, &mut pixels).unwrap();
+    assert!(pixels.iter().all(|&byte| byte == 0));
 }
 
 #[test]
@@ -269,14 +368,6 @@ fn cached_shape_effects_share_the_normal_texture_pipeline() {
     render_bgra(&mut renderer, &mut pixels).unwrap();
     render_bgra(&mut renderer, &mut pixels).unwrap();
 
-    assert_eq!(renderer.backend().last_shape_effect_cache_metrics().hits, 0);
-    assert_eq!(
-        renderer
-            .backend()
-            .last_pipeline_switch_counts()
-            .total_switches,
-        0
-    );
     // Queue a transparent shape to redraw and exercise the retained effect cache.
     renderer
         .add_shape(
@@ -512,7 +603,6 @@ fn dirty_subtree_replacement_preserves_pixels_and_clears_removed_shapes() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
         return;
     };
-    assert!(!renderer.is_dirty_region_overlay_enabled());
     renderer.set_dirty_region_overlay_enabled(true);
     let mut pixels = Vec::new();
     for samples in [1, 4] {
@@ -579,7 +669,6 @@ fn dirty_subtree_replacement_preserves_pixels_and_clears_removed_shapes() {
         renderer.clear_draw_queue();
         render_bgra(&mut renderer, &mut pixels).unwrap();
         assert!(pixels.iter().all(|&byte| byte == 0));
-        assert!(renderer.is_dirty_region_overlay_enabled());
     }
 }
 

@@ -90,8 +90,8 @@ fn removing_input_propagates_through_separate_capture_and_output_regions() {
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, rect((899, 399), (917, 417)));
 
-    renderer.change_scale_factor(2.0);
-    renderer.set_fringe_width(2.0);
+    renderer.change_scale_factor(2.0).unwrap();
+    renderer.set_fringe_width(2.0).unwrap();
     surface.resize((2048, 1024));
     renderer.render(&mut surface).unwrap();
     shape(&mut renderer, [(8.0, 8.0), (16.0, 16.0)]);

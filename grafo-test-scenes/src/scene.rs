@@ -166,6 +166,7 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_83_nested_target_restoration(renderer));
     expectations.extend(tile_84_mixed_command_replacement(renderer));
     expectations.extend(tile_85_replacement_preserves_effects_and_children(renderer));
+    expectations.extend(tile_86_negative_w_shapes_and_effects(renderer));
 
     expectations
 }
@@ -302,6 +303,80 @@ fn tile_85_replacement_preserves_effects_and_children(
         (46, 43, [0, 0, 255], "t85_geometry_effect"),
         (53, 35, [0, 0, 255], "t85_effect_bounds"),
         (38, 35, [220, 30, 30], "t85_child_preserved"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+    })
+    .collect()
+}
+
+fn tile_86_negative_w_shapes_and_effects(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(86);
+    let parent = renderer
+        .add_clipping_rect(
+            [(5.0, 5.0), (70.0, 70.0)],
+            None,
+            Some(TransformInstance::translation(origin_x, origin_y)),
+            true,
+        )
+        .unwrap();
+    let mut transform = TransformInstance::translation(origin_x, origin_y);
+    transform.col3[3] = -1.0;
+    renderer
+        .add_shape(
+            Shape::rect([(0.0, 10.0), (35.0, 35.0)]),
+            Some(parent),
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgb(220, 30, 30))
+                .transform(transform),
+        )
+        .unwrap();
+    let effect_shape = renderer
+        .add_shape(
+            Shape::rect([(45.0, 10.0), (65.0, 30.0)]),
+            Some(parent),
+            None,
+            ShapeDrawCommandOptions::new().transform(transform),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            effect_shape,
+            SHAPE_DROP_EFFECT_ID,
+            &[],
+            ShapeEffectConfig::new().outset(12.0),
+        )
+        .unwrap();
+    [
+        (3, 22, [255, 255, 255], "t86_negative_w_shape_respects_clip"),
+        (
+            22,
+            22,
+            [220, 30, 30],
+            "t86_negative_w_shape_projects_forward",
+        ),
+        (40, 22, [255, 255, 255], "t86_gap_between_shape_and_effect"),
+        (
+            62,
+            26,
+            [0, 0, 255],
+            "t86_negative_w_shape_effect_projects_forward",
+        ),
+        (
+            74,
+            26,
+            [255, 255, 255],
+            "t86_negative_w_shape_effect_respects_clip",
+        ),
     ]
     .into_iter()
     .map(|(x, y, [red, green, blue], label)| {

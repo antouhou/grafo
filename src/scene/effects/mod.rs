@@ -365,22 +365,30 @@ impl Scene {
         Ok(())
     }
 
-    /// Refreshes cached rectangles when the logical scale or fringe width changes.
-    pub(crate) fn refresh_shape_effect_bounds(&mut self, scale_factor: f64, fringe_width: f32) {
+    /// Refreshes cached rectangles using the supplied rasterization settings.
+    pub(crate) fn refresh_shape_effect_bounds(
+        &mut self,
+        scale_factor: f64,
+        fringe_width: f32,
+    ) -> Result<(), SceneError> {
         for (&node_id, effect) in &mut self.shape_effects {
-            let Some(DrawTreeNode::CachedShape(shape)) = self.draw_tree.get(node_id) else {
-                continue;
+            let node = self
+                .draw_tree
+                .get(node_id)
+                .ok_or(SceneError::NodeNotFound(node_id))?;
+            let DrawTreeNode::CachedShape(shape) = node else {
+                return Err(SceneError::UnsupportedClipRectOperation(node_id, "effects"));
             };
-            if let Some(bounds) = ShapeEffectBounds::new(
+            effect.bounds = ShapeEffectBounds::new(
                 shape.instance.cached_shape.tessellation.local_bounds,
                 effect.config,
                 shape.instance.transform,
                 scale_factor,
                 fringe_width,
-            ) {
-                effect.bounds = bounds;
-            }
+            )
+            .ok_or(SceneError::InvalidShapeEffectBounds(node_id))?;
         }
+        Ok(())
     }
 
     pub fn remove_shape_effect(&mut self, node_id: usize) {
