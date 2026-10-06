@@ -282,13 +282,13 @@ fn tile_85_replacement_preserves_effects_and_children(
     renderer
         .set_shape_backdrop_effect(
             parent,
-            PASSTHROUGH_EFFECT_ID,
+            COLOR_CHANNEL_EFFECT_ID,
             &[],
             BackdropEffectConfig::default(),
         )
         .unwrap();
     renderer
-        .set_group_effect(parent, PASSTHROUGH_EFFECT_ID, &[])
+        .set_group_effect(parent, COLOR_CHANNEL_EFFECT_ID, &[])
         .unwrap();
     renderer
         .replace_with_shape(
@@ -300,9 +300,10 @@ fn tile_85_replacement_preserves_effects_and_children(
         .unwrap();
     [
         (15, 15, [50, 180, 80], "t85_old_geometry_removed"),
-        (46, 43, [0, 0, 255], "t85_geometry_effect"),
-        (53, 35, [0, 0, 255], "t85_effect_bounds"),
-        (38, 35, [220, 30, 30], "t85_child_preserved"),
+        (33, 35, [180, 80, 50], "t85_backdrop_preserved"),
+        (46, 43, [0, 255, 0], "t85_geometry_effect"),
+        (53, 35, [255, 0, 0], "t85_effect_bounds"),
+        (38, 35, [30, 220, 30], "t85_child_preserved"),
     ]
     .into_iter()
     .map(|(x, y, [red, green, blue], label)| {

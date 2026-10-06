@@ -348,10 +348,11 @@ impl Scene {
         fringe_width: f32,
     ) -> Result<(), SceneError> {
         validate_shape_effect_config(&config)?;
+        let shape = self.shape(node_id)?;
         let bounds = ShapeEffectBounds::new(
-            self.shape(node_id)?.cached_shape.tessellation.local_bounds,
+            shape.cached_shape.tessellation.local_bounds,
             config,
-            self.shape(node_id)?.transform,
+            shape.transform,
             viewport.scale_factor,
             fringe_width,
         )

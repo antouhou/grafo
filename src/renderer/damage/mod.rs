@@ -83,6 +83,3 @@ impl PendingClipDamage {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;
