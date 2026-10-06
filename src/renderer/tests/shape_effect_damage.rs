@@ -265,7 +265,7 @@ fn cached_effect_bounds_follow_rasterization_and_keep_offscreen_coverage() {
         .set_shape_effect(node, 7, &[1, 2, 3, 4], config)
         .unwrap();
     let initial = renderer.scene.shape_effect(node).unwrap().bounds;
-    assert_eq!(initial.raster_rect.local_bounds, [(-2.0, -3.0), (9.0, 9.0)]);
+    assert_eq!(initial.local_bounds, [(-2.0, -3.0), (9.0, 9.0)]);
     assert_eq!(
         initial.logical_screen_bounds,
         MathRect::new((9.0, 0.0).into(), (21.0, 22.0).into())
@@ -273,10 +273,10 @@ fn cached_effect_bounds_follow_rasterization_and_keep_offscreen_coverage() {
 
     renderer.change_scale_factor(2.0).unwrap();
     let scaled = renderer.scene.shape_effect(node).unwrap().bounds;
-    assert_eq!(scaled.raster_rect.local_bounds, [(-1.5, -2.0), (8.0, 8.0)]);
+    assert_eq!(scaled.local_bounds, [(-1.5, -2.0), (8.0, 8.0)]);
     renderer.set_fringe_width(2.25).unwrap();
     let padded = renderer.scene.shape_effect(node).unwrap().bounds;
-    assert_eq!(padded.raster_rect.local_bounds, [(-2.5, -3.0), (9.0, 9.0)]);
+    assert_eq!(padded.local_bounds, [(-2.5, -3.0), (9.0, 9.0)]);
     assert_eq!(
         padded.logical_screen_bounds,
         MathRect::new((9.0, -1.0).into(), (21.0, 22.0).into())
@@ -293,7 +293,7 @@ fn cached_effect_bounds_follow_rasterization_and_keep_offscreen_coverage() {
         downsampled.logical_screen_bounds,
         padded.logical_screen_bounds
     );
-    assert_eq!(downsampled.raster_rect.texture_size, [6, 6]);
+    assert_eq!(downsampled.texture_size, [6, 6]);
     renderer.render(&mut surface).unwrap();
     assert_eq!(
         renderer.backend.root_scissor,
@@ -308,10 +308,10 @@ fn cached_effect_bounds_follow_rasterization_and_keep_offscreen_coverage() {
             _ => None,
         })
         .unwrap();
-    assert_eq!(mask.local_bounds, downsampled.raster_rect.local_bounds);
+    assert_eq!(mask.local_bounds, downsampled.local_bounds);
     assert_eq!(
         mask.local_physical_origin,
-        downsampled.raster_rect.local_physical_origin
+        downsampled.local_physical_origin
     );
     assert_eq!(mask.scale_factor, 2.0);
     assert_eq!(mask.fringe_width, 2.25);

@@ -29,8 +29,8 @@ pub(super) fn append_shape_effects(
         if !shape.has_geometry() {
             continue;
         }
-        let raster_rect = effect.bounds.raster_rect;
-        let [width, height] = raster_rect.texture_size;
+        let bounds = effect.bounds;
+        let [width, height] = bounds.texture_size;
         if width > maximum_texture_dimension
             || height > maximum_texture_dimension
             || u64::from(width) * u64::from(height) > maximum_texel_count
@@ -42,7 +42,7 @@ pub(super) fn append_shape_effects(
         let output = commands.allocate_texture();
         commands.push(RenderOperation::BeginTarget(Target::Mask(MaskTarget {
             texture: mask,
-            size: raster_rect.texture_size,
+            size: bounds.texture_size,
         })));
         commands.push(RenderOperation::DrawShapeMask(ShapeMaskDraw {
             shape: ShapeDrawId(node_id),
@@ -50,8 +50,8 @@ pub(super) fn append_shape_effects(
                 scissor: UnsignedPhysicalRect::from_size(Size::new(width, height)),
                 stencil_reference: 0,
             },
-            local_physical_origin: raster_rect.local_physical_origin,
-            local_bounds: raster_rect.local_bounds,
+            local_physical_origin: bounds.local_physical_origin,
+            local_bounds: bounds.local_bounds,
             scale_factor: viewport.scale_factor,
             fringe_width,
             downsample: effect.config.downsample,
@@ -70,7 +70,7 @@ pub(super) fn append_shape_effects(
                 texture: output,
                 placement: TexturePlacement::Local {
                     transform: geometry::unit_quad_transform(
-                        raster_rect.local_bounds,
+                        bounds.local_bounds,
                         shape.instance.transform,
                     ),
                     sampling: TextureUvTransform::IDENTITY,
