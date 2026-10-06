@@ -78,7 +78,7 @@ impl<B: RenderBackend> Renderer<B> {
             config,
             self.backend.maximum_texture_dimension(),
         )?;
-        // Damage expansion includes the capture region.
+        // Damage expansion performed before planning will include the capture region
         self.mark_shape_dirty(node_id);
         Ok(())
     }
@@ -93,7 +93,7 @@ impl<B: RenderBackend> Renderer<B> {
             config,
             self.backend.maximum_texture_dimension(),
         )?;
-        // Damage expansion includes the capture region.
+        // Damage expansion performed before planning will include the capture region
         self.mark_shape_dirty(node_id);
         Ok(())
     }
@@ -112,7 +112,7 @@ impl<B: RenderBackend> Renderer<B> {
             .update_effect_parameters(effect.parameters, params);
         self.scene
             .update_backdrop_effect_params(node_id, parameters)?;
-        // Damage expansion includes the capture region.
+        // Damage expansion performed before planning will include the capture region
         self.mark_shape_dirty(node_id);
         Ok(())
     }
