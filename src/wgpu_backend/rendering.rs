@@ -18,12 +18,12 @@ use wgpu::MaintainBase;
 use wgpu::{CommandEncoderDescriptor, Surface, SurfaceError, TextureView, TextureViewDescriptor};
 
 impl WgpuBackend {
-    /// Copies the clean scene to the output.
+    /// Copies the clean scene to the output and returns the redrawn bounds.
     pub(in crate::wgpu_backend) fn render_to_texture_view(
         &mut self,
         commands: &RenderPlan,
         texture_view: &TextureView,
-    ) {
+    ) -> Option<UnsignedPhysicalRect> {
         #[cfg(feature = "render_metrics")]
         let render_to_texture_view_started_at = Instant::now();
         #[cfg(feature = "render_metrics")]
@@ -62,6 +62,7 @@ impl WgpuBackend {
         {
             self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
         }
+        root_scissor
     }
 
     fn render_dirty_region(
@@ -222,11 +223,8 @@ impl WgpuBackend {
             .texture
             .create_view(&TextureViewDescriptor::default());
 
-        self.render_to_texture_view(commands, &output_texture_view);
-        if let Some(scissor) = commands
-            .root_scissor
-            .filter(|_| self.is_dirty_region_overlay_enabled)
-        {
+        let root_scissor = self.render_to_texture_view(commands, &output_texture_view);
+        if let Some(scissor) = root_scissor.filter(|_| self.is_dirty_region_overlay_enabled) {
             let mut encoder = self
                 .device
                 .create_command_encoder(&CommandEncoderDescriptor {

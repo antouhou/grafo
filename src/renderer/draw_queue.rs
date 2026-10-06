@@ -8,9 +8,8 @@ use crate::core::vertex::InstanceTransform;
 use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
 use crate::scene::{Scene, SceneError};
 
-/// The command to put at an existing node, keeping its ID, parent and children.
 #[derive(Debug)]
-enum DrawCommandReplacement<'shape> {
+enum DrawCommand<'shape> {
     Shape {
         shape: &'shape Shape,
         geometry_id: Option<u64>,
@@ -66,7 +65,7 @@ impl<B: RenderBackend> Renderer<B> {
             NodeTarget::Insert {
                 parent: parent_shape_id,
             },
-            DrawCommandReplacement::CachedShape { cache_key, options },
+            DrawCommand::CachedShape { cache_key, options },
         )
     }
 
@@ -83,7 +82,7 @@ impl<B: RenderBackend> Renderer<B> {
             NodeTarget::Insert {
                 parent: parent_shape_id,
             },
-            DrawCommandReplacement::Shape {
+            DrawCommand::Shape {
                 shape: shape.as_ref(),
                 geometry_id,
                 options,
@@ -103,7 +102,7 @@ impl<B: RenderBackend> Renderer<B> {
             NodeTarget::Insert {
                 parent: parent_shape_id,
             },
-            DrawCommandReplacement::ClippingRect {
+            DrawCommand::ClippingRect {
                 rect_bounds,
                 transform: transform.map(Into::into),
                 clips_children,
@@ -122,7 +121,7 @@ impl<B: RenderBackend> Renderer<B> {
     ) -> Result<usize, DrawCommandError<B::Error>> {
         self.queue_draw_command(
             NodeTarget::Replace { node_id },
-            DrawCommandReplacement::Shape {
+            DrawCommand::Shape {
                 shape: shape.as_ref(),
                 geometry_id,
                 options,
@@ -140,7 +139,7 @@ impl<B: RenderBackend> Renderer<B> {
     ) -> Result<usize, DrawCommandError<B::Error>> {
         self.queue_draw_command(
             NodeTarget::Replace { node_id },
-            DrawCommandReplacement::CachedShape { cache_key, options },
+            DrawCommand::CachedShape { cache_key, options },
         )
     }
 
@@ -156,7 +155,7 @@ impl<B: RenderBackend> Renderer<B> {
     ) -> Result<usize, DrawCommandError<B::Error>> {
         self.queue_draw_command(
             NodeTarget::Replace { node_id },
-            DrawCommandReplacement::ClippingRect {
+            DrawCommand::ClippingRect {
                 rect_bounds,
                 transform: transform.map(Into::into),
                 clips_children,
@@ -166,10 +165,10 @@ impl<B: RenderBackend> Renderer<B> {
 
     fn prepare_draw_command(
         &mut self,
-        command: DrawCommandReplacement<'_>,
+        command: DrawCommand<'_>,
     ) -> Result<DrawTreeNode, SceneError> {
         Ok(match command {
-            DrawCommandReplacement::Shape {
+            DrawCommand::Shape {
                 shape,
                 geometry_id,
                 options,
@@ -177,13 +176,10 @@ impl<B: RenderBackend> Renderer<B> {
                 self.scene.tessellate(shape, geometry_id),
                 options,
             )),
-            DrawCommandReplacement::CachedShape { cache_key, options } => {
-                DrawTreeNode::CachedShape(CachedShapeDrawData::new(
-                    self.scene.loaded_shape(cache_key)?,
-                    options,
-                ))
-            }
-            DrawCommandReplacement::ClippingRect {
+            DrawCommand::CachedShape { cache_key, options } => DrawTreeNode::CachedShape(
+                CachedShapeDrawData::new(self.scene.loaded_shape(cache_key)?, options),
+            ),
+            DrawCommand::ClippingRect {
                 rect_bounds,
                 transform,
                 clips_children,
@@ -194,7 +190,7 @@ impl<B: RenderBackend> Renderer<B> {
     fn queue_draw_command(
         &mut self,
         target: NodeTarget,
-        command: DrawCommandReplacement<'_>,
+        command: DrawCommand<'_>,
     ) -> Result<usize, DrawCommandError<B::Error>> {
         let node_id = match target {
             NodeTarget::Insert { parent } => {

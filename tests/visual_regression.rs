@@ -599,7 +599,7 @@ fn texture_materials_follow_scene_changes_across_queue_rebuilds() {
 }
 
 #[test]
-fn dirty_subtree_replacement_preserves_pixels_and_clears_removed_shapes() {
+fn dirty_subtree_addition_and_removal_preserve_retained_pixels() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
         return;
     };
@@ -669,6 +669,133 @@ fn dirty_subtree_replacement_preserves_pixels_and_clears_removed_shapes() {
         renderer.clear_draw_queue();
         render_bgra(&mut renderer, &mut pixels).unwrap();
         assert!(pixels.iter().all(|&byte| byte == 0));
+    }
+}
+
+fn assert_incremental_pixels_match_full_redraw(renderer: &mut Renderer, pixels: &mut Vec<u8>) {
+    let incremental = pixels.clone();
+    renderer.resize(renderer.size());
+    render_bgra(renderer, pixels).unwrap();
+    assert_eq!(pixels, &incremental, "replacement must match a full redraw");
+}
+
+#[test]
+fn command_replacements_update_retained_geometry_effects_and_child_clips() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 96), 1.0) else {
+        return;
+    };
+    renderer.load_effect(9_401, &[SHAPE_DROP_WGSL]).unwrap();
+    renderer.load_shape(
+        Shape::builder()
+            .begin((20.25, 42.25))
+            .line_to((40.75, 42.25))
+            .line_to((20.25, 62.75))
+            .close()
+            .build(),
+        9_402,
+        None,
+    );
+    let background = [190, 50, 20, 255];
+    let blue = [0, 0, 255, 255];
+    let mut pixels = Vec::new();
+    for samples in [1, 4] {
+        renderer.clear_draw_queue();
+        renderer.set_msaa_samples(samples);
+        let root = renderer
+            .add_shape(
+                Shape::rect([(0.0, 0.0), (96.0, 96.0)]),
+                None,
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(190, 50, 20)),
+            )
+            .unwrap();
+        let parent = renderer
+            .add_shape(
+                Shape::rect([(10.25, 10.25), (30.75, 30.75)]),
+                Some(root),
+                None,
+                ShapeDrawCommandOptions::new().clips_children(false),
+            )
+            .unwrap();
+        renderer
+            .set_shape_effect(parent, 9_401, &[], ShapeEffectConfig::new().outset(12.0))
+            .unwrap();
+        renderer
+            .add_shape(
+                Shape::rect([(78.25, 12.25), (88.75, 22.75)]),
+                Some(parent),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::WHITE),
+            )
+            .unwrap();
+        render_bgra(&mut renderer, &mut pixels).unwrap();
+        assert_eq!(read_pixel_rgba(&pixels, 96, 25, 25), blue);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 36, 36), blue);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 87, 15), [255; 4]);
+
+        renderer
+            .replace_with_shape(
+                parent,
+                Shape::rect([(40.25, 10.25), (60.75, 30.75)]),
+                None,
+                ShapeDrawCommandOptions::new().clips_children(false),
+            )
+            .unwrap();
+        render_bgra(&mut renderer, &mut pixels).unwrap();
+        assert_eq!(read_pixel_rgba(&pixels, 96, 25, 25), background);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 36, 36), background);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 55, 25), blue);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 66, 36), blue);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 87, 15), [255; 4]);
+        assert_incremental_pixels_match_full_redraw(&mut renderer, &mut pixels);
+
+        renderer
+            .replace_with_cached_shape(
+                parent,
+                9_402,
+                ShapeDrawCommandOptions::new().clips_children(false),
+            )
+            .unwrap();
+        render_bgra(&mut renderer, &mut pixels).unwrap();
+        assert_eq!(read_pixel_rgba(&pixels, 96, 55, 25), background);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 66, 36), background);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 32, 54), blue);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 30, 64), blue);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 45, 67), background);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 87, 15), [255; 4]);
+        assert_incremental_pixels_match_full_redraw(&mut renderer, &mut pixels);
+
+        renderer
+            .replace_with_clipping_rect(
+                parent,
+                [(80.0, 10.0), (86.0, 18.0)],
+                None::<TransformInstance>,
+                true,
+            )
+            .unwrap();
+        render_bgra(&mut renderer, &mut pixels).unwrap();
+        assert_eq!(read_pixel_rgba(&pixels, 96, 32, 54), background);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 30, 64), background);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 82, 15), [255; 4]);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 87, 15), background);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 82, 21), background);
+        assert_incremental_pixels_match_full_redraw(&mut renderer, &mut pixels);
+
+        renderer
+            .replace_with_shape(
+                parent,
+                Shape::rect([(40.25, 42.25), (60.75, 62.75)]),
+                None,
+                ShapeDrawCommandOptions::new()
+                    .color(Color::rgb(0, 255, 0))
+                    .clips_children(false),
+            )
+            .unwrap();
+        render_bgra(&mut renderer, &mut pixels).unwrap();
+        assert_eq!(read_pixel_rgba(&pixels, 96, 45, 50), [0, 255, 0, 255]);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 66, 66), background);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 87, 15), [255; 4]);
+        assert_incremental_pixels_match_full_redraw(&mut renderer, &mut pixels);
     }
 }
 
