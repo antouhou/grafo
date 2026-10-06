@@ -309,7 +309,7 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
     renderer.render(&mut surface).unwrap();
     assert_eq!(
         renderer.backend.root_scissor,
-        Some(UnsignedPhysicalRect::new((16, 12).into(), (44, 34).into()))
+        Some(UnsignedPhysicalRect::new((16, 12).into(), (28, 22).into()))
     );
     renderer.remove_subtrees([branch], |_| {});
     renderer.render(&mut surface).unwrap();

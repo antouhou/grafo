@@ -6,23 +6,10 @@ use ahash::{HashMap, HashSet};
 use rstar::{RTree, RTreeObject, AABB};
 use std::ops::ControlFlow;
 
-const CELL_SIZE: u32 = 128;
-
 fn envelope(bounds: UnsignedPhysicalRect) -> AABB<[f64; 2]> {
     AABB::from_corners(
         [f64::from(bounds.min.x), f64::from(bounds.min.y)],
         [f64::from(bounds.max.x), f64::from(bounds.max.y)],
-    )
-}
-
-fn cell_range(bounds: UnsignedPhysicalRect) -> UnsignedPhysicalRect {
-    UnsignedPhysicalRect::new(
-        (bounds.min.x / CELL_SIZE, bounds.min.y / CELL_SIZE).into(),
-        (
-            bounds.max.x.div_ceil(CELL_SIZE),
-            bounds.max.y.div_ceil(CELL_SIZE),
-        )
-            .into(),
     )
 }
 
@@ -82,8 +69,7 @@ impl RTreeObject for BackdropDamageEntry {
 pub(super) struct BackdropDamage {
     entries: HashMap<usize, BackdropDamageEntry>,
     tree: RTree<BackdropDamageEntry>,
-    cells: Vec<usize>,
-    visited_cells: Vec<bool>,
+    query_regions: Vec<UnsignedPhysicalRect>,
     processed_backdrops: HashSet<usize>,
 }
 
@@ -115,8 +101,7 @@ impl BackdropDamage {
     }
 
     pub(super) fn clear(&mut self) {
-        self.cells.clear();
-        self.visited_cells.clear();
+        self.query_regions.clear();
         self.processed_backdrops.clear();
         if self.entries.is_empty() {
             return;
@@ -135,36 +120,26 @@ impl BackdropDamage {
         physical_size: Size,
         dirty_bounds: Option<UnsignedPhysicalRect>,
     ) -> Option<UnsignedPhysicalRect> {
-        self.cells.clear();
+        self.query_regions.clear();
         self.processed_backdrops.clear();
         let viewport = UnsignedPhysicalRect::from_size(physical_size);
         let mut bounds = dirty_bounds?.intersection(&viewport)?;
         if self.is_empty() || bounds == viewport {
             return Some(bounds);
         }
-        let columns = physical_size.width.div_ceil(CELL_SIZE) as usize;
-        let rows = physical_size.height.div_ceil(CELL_SIZE) as usize;
-        self.visited_cells.resize(columns * rows, false);
-        self.visited_cells.fill(false);
-        self.enqueue(cell_range(bounds), columns);
-        let mut next_cell = 0;
-        while let Some(&cell) = self.cells.get(next_cell) {
-            next_cell += 1;
-            let x = (cell % columns) as u32 * CELL_SIZE;
-            let y = (cell / columns) as u32 * CELL_SIZE;
-            let query = UnsignedPhysicalRect::new(
-                (x, y).into(),
-                (
-                    x.saturating_add(CELL_SIZE).min(physical_size.width),
-                    y.saturating_add(CELL_SIZE).min(physical_size.height),
-                )
-                    .into(),
-            );
-            let previous = cell_range(bounds);
+        self.query_regions.push(bounds);
+        let mut next_region = 0;
+        while let Some(&query) = self.query_regions.get(next_region) {
+            next_region += 1;
+            let previous = bounds;
             let _ = self
                 .tree
                 .locate_in_envelope_intersecting_int(envelope(query), |entry| {
-                    if self.processed_backdrops.insert(entry.node_id) {
+                    let is_affected = [entry.capture_region, entry.target_region]
+                        .into_iter()
+                        .flatten()
+                        .any(|region| region.intersects(&bounds));
+                    if is_affected && self.processed_backdrops.insert(entry.node_id) {
                         for region in [entry.capture_region, entry.target_region]
                             .into_iter()
                             .flatten()
@@ -177,30 +152,19 @@ impl BackdropDamage {
             if bounds == viewport {
                 break;
             }
-            self.enqueue_added_cells(previous, cell_range(bounds), columns);
+            if bounds != previous {
+                self.enqueue_added_regions(previous, bounds);
+            }
         }
         Some(bounds)
     }
 
-    fn enqueue(&mut self, cells: UnsignedPhysicalRect, columns: usize) {
-        for y in cells.min.y..cells.max.y {
-            for x in cells.min.x..cells.max.x {
-                let cell = y as usize * columns + x as usize;
-                if !self.visited_cells[cell] {
-                    self.visited_cells[cell] = true;
-                    self.cells.push(cell);
-                }
-            }
-        }
-    }
-
-    fn enqueue_added_cells(
+    fn enqueue_added_regions(
         &mut self,
         previous: UnsignedPhysicalRect,
         current: UnsignedPhysicalRect,
-        columns: usize,
     ) {
-        // Differences in cell coordinates avoid rechecking edges that grow within a cell.
+        // Query all newly covered pixels, including gaps filled by the bounding union.
         for strip in [
             UnsignedPhysicalRect::new(current.min, (current.max.x, previous.min.y).into()),
             UnsignedPhysicalRect::new((current.min.x, previous.max.y).into(), current.max),
@@ -213,7 +177,9 @@ impl BackdropDamage {
                 (current.max.x, previous.max.y).into(),
             ),
         ] {
-            self.enqueue(strip, columns);
+            if !strip.is_empty() {
+                self.query_regions.push(strip);
+            }
         }
     }
 }

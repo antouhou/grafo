@@ -17,27 +17,22 @@ impl<B: RenderBackend> Renderer<B> {
 
     /// Returns an error and preserves settings if attached shape effects cannot use the new scale.
     pub fn change_scale_factor(&mut self, new_scale_factor: f64) -> Result<(), SceneError> {
-        if let Err(error) = self
-            .scene
-            .refresh_shape_effect_bounds(new_scale_factor, self.fringe_width)
-        {
-            self.scene
-                .refresh_shape_effect_bounds(self.viewport.scale_factor, self.fringe_width)
-                .expect(
-                    "failed to restore shape effect bounds with previous rasterization settings",
-                );
-            return Err(error);
-        }
-        self.viewport.scale_factor = new_scale_factor;
-        self.resize(self.viewport.physical_size);
-        Ok(())
+        self.update_raster_settings(new_scale_factor, self.fringe_width)
     }
 
     /// Returns an error and preserves settings if attached shape effects cannot use the new fringe.
     pub fn set_fringe_width(&mut self, fringe_width: f32) -> Result<(), SceneError> {
+        self.update_raster_settings(self.viewport.scale_factor, fringe_width)
+    }
+
+    fn update_raster_settings(
+        &mut self,
+        scale_factor: f64,
+        fringe_width: f32,
+    ) -> Result<(), SceneError> {
         if let Err(error) = self
             .scene
-            .refresh_shape_effect_bounds(self.viewport.scale_factor, fringe_width)
+            .refresh_shape_effect_bounds(scale_factor, fringe_width)
         {
             self.scene
                 .refresh_shape_effect_bounds(self.viewport.scale_factor, self.fringe_width)
@@ -46,6 +41,7 @@ impl<B: RenderBackend> Renderer<B> {
                 );
             return Err(error);
         }
+        self.viewport.scale_factor = scale_factor;
         self.fringe_width = fringe_width;
         self.resize(self.viewport.physical_size);
         Ok(())
