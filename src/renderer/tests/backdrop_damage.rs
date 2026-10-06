@@ -122,11 +122,24 @@ fn backdrop_mutations_damage_shape_and_reconstruct_current_capture() {
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, rect((15, 127), (800, 161)));
 
+    let previous_capture = renderer.scene.backdrop_effects[&node].capture_region;
     assert!(renderer
-        .update_backdrop_effect_config(node, moved.padding(-1.0))
+        .update_backdrop_effect_config(node, config.padding(-1.0))
         .is_err());
+    let attachment = renderer.scene.backdrop_effects[&node];
+    assert_eq!(attachment.config, moved);
+    assert_eq!(attachment.capture_region, previous_capture);
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, None);
+
+    let rejected_input = shape(&mut renderer, [(524.0, 140.0), (528.0, 144.0)]);
+    renderer.render(&mut surface).unwrap();
+    assert_eq!(renderer.backend.root_scissor, rect((523, 139), (529, 145)));
+    let retained_input = shape(&mut renderer, [(780.0, 140.0), (784.0, 144.0)]);
+    renderer.render(&mut surface).unwrap();
+    assert_eq!(renderer.backend.root_scissor, rect((15, 127), (800, 161)));
+    renderer.remove_subtrees([rejected_input, retained_input], |_| {});
+    renderer.render(&mut surface).unwrap();
 
     let oversized = capture([(0.0, 0.0), (1_000_000.0, 512.0)]);
     renderer

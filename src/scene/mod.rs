@@ -1,6 +1,8 @@
 //! CPU scene descriptions, tessellation caches and effect attachments.
 use self::backdrop_damage::BackdropDamage;
-use self::effects::{BackdropEffectInstance, EffectInstance, ShapeEffectInstance};
+use self::effects::{
+    resolve_backdrop_effect, BackdropEffectInstance, EffectInstance, ShapeEffectInstance,
+};
 pub use self::errors::SceneError;
 use self::types::{CachedShapeDrawData, ClipRectDrawData, DrawTreeNode};
 use crate::core::effect::ShapeEffectBounds;
@@ -183,19 +185,23 @@ impl Scene {
             self.shape_effects.remove(&node_id);
             self.remove_backdrop_effect(node_id);
         }
-        let previous = self
-            .draw_tree
-            .replace(node_id, node)
-            .expect("replacement node was validated before resource preparation");
-        if let Some(effect) = self.backdrop_effects.get(&node_id) {
-            self.update_backdrop_effect_config(
+        let refreshed_backdrop = self.backdrop_effects.get(&node_id).map(|instance| {
+            resolve_backdrop_effect(
                 node_id,
-                effect.config,
+                &node,
+                instance.effect,
+                instance.config,
                 viewport,
                 fringe_width,
                 maximum_texture_dimension,
             )
-            .expect("retained backdrop configuration was validated on attachment");
+        });
+        let previous = self
+            .draw_tree
+            .replace(node_id, node)
+            .expect("replacement node was validated before resource preparation");
+        if let Some((instance, entry)) = refreshed_backdrop {
+            self.replace_backdrop_effect(node_id, instance, entry);
         }
         previous
     }

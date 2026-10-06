@@ -5,6 +5,15 @@ use crate::scene::types::DrawTreeNode;
 use crate::scene::Scene;
 use ahash::HashSet;
 
+pub(super) fn mark_physical_dirty(
+    dirty_bounds: &mut Option<UnsignedPhysicalRect>,
+    bounds: Option<UnsignedPhysicalRect>,
+) {
+    if let Some(bounds) = bounds {
+        *dirty_bounds = Some(dirty_bounds.map_or(bounds, |dirty| dirty.union(&bounds)));
+    }
+}
+
 pub(super) fn mark_dirty(
     dirty_bounds: &mut Option<UnsignedPhysicalRect>,
     logical_screen_bounds: MathRect,
@@ -15,15 +24,6 @@ pub(super) fn mark_dirty(
         dirty_bounds,
         geometry::logical_bounds_to_viewport_rect(logical_screen_bounds, viewport, fringe_width),
     );
-}
-
-pub(super) fn mark_physical_dirty(
-    dirty_bounds: &mut Option<UnsignedPhysicalRect>,
-    bounds: Option<UnsignedPhysicalRect>,
-) {
-    if let Some(bounds) = bounds {
-        *dirty_bounds = Some(dirty_bounds.map_or(bounds, |dirty| dirty.union(&bounds)));
-    }
 }
 
 pub(super) fn mark_shape_effect_dirty(

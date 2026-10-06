@@ -27,6 +27,32 @@ pub(crate) struct EffectInstance {
     pub parameters: EffectParameters,
 }
 
+pub(super) fn resolve_backdrop_effect(
+    node_id: usize,
+    node: &DrawTreeNode,
+    effect: EffectInstance,
+    config: BackdropEffectConfig,
+    viewport: Viewport,
+    fringe_width: f32,
+    maximum_texture_dimension: u32,
+) -> (BackdropEffectInstance, Option<BackdropDamageEntry>) {
+    let instance = BackdropEffectInstance::new(
+        effect,
+        config,
+        node.logical_screen_bounds(),
+        viewport,
+        maximum_texture_dimension,
+    );
+    let entry = BackdropDamageEntry::new(
+        node_id,
+        node,
+        instance.capture_region,
+        viewport,
+        fringe_width,
+    );
+    (instance, entry)
+}
+
 fn update_effect_params(
     instance: &mut EffectInstance,
     parameters: EffectParameters,
@@ -161,6 +187,16 @@ impl Scene {
         self.group_effects.remove(&node_id);
     }
 
+    pub(super) fn replace_backdrop_effect(
+        &mut self,
+        node_id: usize,
+        instance: BackdropEffectInstance,
+        entry: Option<BackdropDamageEntry>,
+    ) {
+        self.backdrop_damage.replace(node_id, entry);
+        self.backdrop_effects.insert(node_id, instance);
+    }
+
     pub(crate) fn set_shape_backdrop_effect(
         &mut self,
         node_id: usize,
@@ -174,36 +210,21 @@ impl Scene {
             .draw_tree
             .get(node_id)
             .ok_or(SceneError::NodeNotFound(node_id))?;
-        let DrawTreeNode::CachedShape(shape) = node else {
+        let DrawTreeNode::CachedShape(_) = node else {
             return Err(SceneError::UnsupportedClipRectOperation(node_id, "effects"));
         };
         validate_backdrop_config(&config)?;
-        let instance = BackdropEffectInstance::new(
-            effect,
-            config,
-            shape.logical_screen_bounds,
-            viewport,
-            maximum_texture_dimension,
-        );
-        let entry = BackdropDamageEntry::new(
+        let (instance, entry) = resolve_backdrop_effect(
             node_id,
             node,
-            instance.capture_region,
+            effect,
+            config,
             viewport,
             fringe_width,
+            maximum_texture_dimension,
         );
         self.replace_backdrop_effect(node_id, instance, entry);
         Ok(())
-    }
-
-    fn replace_backdrop_effect(
-        &mut self,
-        node_id: usize,
-        instance: BackdropEffectInstance,
-        entry: Option<BackdropDamageEntry>,
-    ) {
-        self.backdrop_damage.replace(node_id, entry);
-        self.backdrop_effects.insert(node_id, instance);
     }
 
     pub fn update_backdrop_effect_params(
@@ -238,19 +259,14 @@ impl Scene {
             .draw_tree
             .get(node_id)
             .ok_or(SceneError::NodeNotFound(node_id))?;
-        let updated = BackdropEffectInstance::new(
-            instance.effect,
-            config,
-            node.logical_screen_bounds(),
-            viewport,
-            maximum_texture_dimension,
-        );
-        let entry = BackdropDamageEntry::new(
+        let (updated, entry) = resolve_backdrop_effect(
             node_id,
             node,
-            updated.capture_region,
+            instance.effect,
+            config,
             viewport,
             fringe_width,
+            maximum_texture_dimension,
         );
         self.replace_backdrop_effect(node_id, updated, entry);
         Ok(())
@@ -268,20 +284,17 @@ impl Scene {
             .iter_mut()
             .filter_map(|(&node_id, instance)| {
                 let node = self.draw_tree.get(node_id)?;
-                *instance = BackdropEffectInstance::new(
-                    instance.effect,
-                    instance.config,
-                    node.logical_screen_bounds(),
-                    viewport,
-                    maximum_texture_dimension,
-                );
-                BackdropDamageEntry::new(
+                let (updated, entry) = resolve_backdrop_effect(
                     node_id,
                     node,
-                    instance.capture_region,
+                    instance.effect,
+                    instance.config,
                     viewport,
                     fringe_width,
-                )
+                    maximum_texture_dimension,
+                );
+                *instance = updated;
+                entry
             });
         self.backdrop_damage.rebuild(entries);
     }

@@ -97,11 +97,10 @@ impl ShapeExecutionResources {
 
     pub(in crate::wgpu_backend) fn remove_draws(&mut self, ids: &[ShapeDrawId]) {
         for id in ids {
-            self.has_unused_draw_buffers |= self
-                .draws
-                .remove(&id.0)
-                .and_then(|draw| draw.location)
-                .is_some();
+            let removed_draw = self.draws.remove(&id.0);
+            if removed_draw.and_then(|draw| draw.location).is_some() {
+                self.has_unused_draw_buffers = true;
+            }
         }
     }
 
