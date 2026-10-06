@@ -5,7 +5,7 @@ use crate::core::{
     ShapeDrawCommandOptions, Size, UnsignedPhysicalRect, Viewport,
 };
 use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
-use crate::scene::Scene;
+use crate::scene::{Scene, SceneContext};
 
 fn rect(min: (u32, u32), max: (u32, u32)) -> UnsignedPhysicalRect {
     UnsignedPhysicalRect::new(min.into(), max.into())
@@ -36,7 +36,15 @@ fn assert_matching_nodes(damage: &BackdropDamage, query: UnsignedPhysicalRect, e
 }
 
 fn shape_node(bounds: [(f32, f32); 2]) -> DrawTreeNode {
-    let shape = Scene::default().tessellate(&Shape::rect(bounds), None);
+    let shape = Scene::new(
+        SceneContext::default(),
+        Viewport {
+            physical_size: (32, 32),
+            scale_factor: 1.0,
+        },
+        0.75,
+    )
+    .tessellate(&Shape::rect(bounds), None);
     DrawTreeNode::CachedShape(CachedShapeDrawData::new(
         shape,
         ShapeDrawCommandOptions::new(),

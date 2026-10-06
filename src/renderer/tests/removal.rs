@@ -291,13 +291,7 @@ fn replacements_and_subtree_removals_defer_compaction_and_preserve_surviving_par
             )
             .unwrap();
         renderer.remove_subtrees([converted], |_| {});
-        let plan = renderer.planner.plan(
-            &renderer.scene,
-            renderer.viewport,
-            renderer.fringe_width,
-            4096,
-            None,
-        );
+        let plan = renderer.planner.plan(&renderer.scene, 4096, None);
         assert_eq!(plan.effect_parameters.len(), 36);
         assert_eq!(plan.parameters(group_parameters), &[5; 4]);
         assert_eq!(plan.parameters(backdrop_parameters), &[6; 4]);
@@ -315,13 +309,7 @@ fn replacements_and_subtree_removals_defer_compaction_and_preserve_surviving_par
         assert_eq!(
             renderer
                 .planner
-                .plan(
-                    &renderer.scene,
-                    renderer.viewport,
-                    renderer.fringe_width,
-                    4096,
-                    None,
-                )
+                .plan(&renderer.scene, 4096, None)
                 .effect_parameters
                 .len(),
             12

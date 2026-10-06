@@ -47,13 +47,7 @@ impl PendingClipDamage {
         self.roots.insert(node_id);
     }
 
-    pub(super) fn apply(
-        &mut self,
-        scene: &Scene,
-        dirty_bounds: &mut Option<UnsignedPhysicalRect>,
-        viewport: Viewport,
-        fringe_width: f32,
-    ) {
+    pub(super) fn apply(&mut self, scene: &Scene, dirty_bounds: &mut Option<UnsignedPhysicalRect>) {
         if self.roots.is_empty() {
             return;
         }
@@ -71,12 +65,12 @@ impl PendingClipDamage {
                 mark_dirty(
                     dirty_bounds,
                     node.logical_screen_bounds(),
-                    viewport,
-                    fringe_width,
+                    scene.viewport(),
+                    scene.fringe_width(),
                 );
             }
             if let Some(effect) = scene.shape_effects.get(&node_id) {
-                mark_shape_effect_dirty(dirty_bounds, effect.bounds, viewport);
+                mark_shape_effect_dirty(dirty_bounds, effect.bounds, scene.viewport());
             }
             self.stack
                 .extend_from_slice(scene.draw_tree.children(node_id));

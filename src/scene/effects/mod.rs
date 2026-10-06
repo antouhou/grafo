@@ -202,8 +202,6 @@ impl Scene {
         node_id: usize,
         effect: EffectInstance,
         config: BackdropEffectConfig,
-        viewport: Viewport,
-        fringe_width: f32,
         maximum_texture_dimension: u32,
     ) -> Result<(), SceneError> {
         let node = self
@@ -219,8 +217,8 @@ impl Scene {
             node,
             effect,
             config,
-            viewport,
-            fringe_width,
+            self.viewport,
+            self.fringe_width,
             maximum_texture_dimension,
         );
         self.replace_backdrop_effect(node_id, instance, entry);
@@ -246,8 +244,6 @@ impl Scene {
         &mut self,
         node_id: usize,
         config: BackdropEffectConfig,
-        viewport: Viewport,
-        fringe_width: f32,
         maximum_texture_dimension: u32,
     ) -> Result<(), SceneError> {
         validate_backdrop_config(&config)?;
@@ -264,8 +260,8 @@ impl Scene {
             node,
             instance.effect,
             config,
-            viewport,
-            fringe_width,
+            self.viewport,
+            self.fringe_width,
             maximum_texture_dimension,
         );
         self.replace_backdrop_effect(node_id, updated, entry);
@@ -273,12 +269,7 @@ impl Scene {
     }
 
     /// Refreshes capture bounds, viewport overlap and allocation limits after viewport changes.
-    pub(crate) fn refresh_backdrop_capture_regions(
-        &mut self,
-        viewport: Viewport,
-        fringe_width: f32,
-        maximum_texture_dimension: u32,
-    ) {
+    pub(super) fn refresh_backdrop_capture_regions(&mut self, maximum_texture_dimension: u32) {
         let entries = self
             .backdrop_effects
             .iter_mut()
@@ -289,8 +280,8 @@ impl Scene {
                     node,
                     instance.effect,
                     instance.config,
-                    viewport,
-                    fringe_width,
+                    self.viewport,
+                    self.fringe_width,
                     maximum_texture_dimension,
                 );
                 *instance = updated;
@@ -307,7 +298,7 @@ impl Scene {
         true
     }
 
-    /// Attaches an effect and caches its bounds for the supplied rasterization settings.
+    /// Attaches an effect using the scene's rasterization settings.
     /// Leaves the previous attachment unchanged if its bounds cannot be calculated.
     pub fn set_shape_effect(
         &mut self,
@@ -315,8 +306,6 @@ impl Scene {
         effect_id: u64,
         parameters: EffectParameters,
         config: ShapeEffectConfig,
-        viewport: Viewport,
-        fringe_width: f32,
     ) -> Result<(), SceneError> {
         let shape = self.shape(node_id)?;
         validate_shape_effect_config(&config)?;
@@ -324,8 +313,8 @@ impl Scene {
             shape.cached_shape.tessellation.local_bounds,
             config,
             shape.transform,
-            viewport.scale_factor,
-            fringe_width,
+            self.viewport.scale_factor,
+            self.fringe_width,
         )
         .ok_or(SceneError::InvalidShapeEffectBounds(node_id))?;
         self.shape_effects.insert(
@@ -357,8 +346,6 @@ impl Scene {
         &mut self,
         node_id: usize,
         config: ShapeEffectConfig,
-        viewport: Viewport,
-        fringe_width: f32,
     ) -> Result<(), SceneError> {
         validate_shape_effect_config(&config)?;
         let shape = self.shape(node_id)?;
@@ -366,8 +353,8 @@ impl Scene {
             shape.cached_shape.tessellation.local_bounds,
             config,
             shape.transform,
-            viewport.scale_factor,
-            fringe_width,
+            self.viewport.scale_factor,
+            self.fringe_width,
         )
         .ok_or(SceneError::InvalidShapeEffectBounds(node_id))?;
         let instance = self
@@ -380,7 +367,7 @@ impl Scene {
     }
 
     /// Refreshes cached rectangles using the supplied rasterization settings.
-    pub(crate) fn refresh_shape_effect_bounds(
+    pub(super) fn refresh_shape_effect_bounds(
         &mut self,
         scale_factor: f64,
         fringe_width: f32,

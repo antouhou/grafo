@@ -212,8 +212,8 @@ impl<B: RenderBackend> Renderer<B> {
                     shape.instance.cached_shape.local_bounds(),
                     effect.config,
                     shape.instance.transform,
-                    self.viewport.scale_factor,
-                    self.fringe_width,
+                    self.scene.viewport().scale_factor,
+                    self.scene.fringe_width(),
                 )
                 .ok_or(SceneError::InvalidShapeEffectBounds(node_id))?,
             ),
@@ -242,8 +242,8 @@ impl<B: RenderBackend> Renderer<B> {
                     mark_dirty(
                         &mut self.dirty_bounds,
                         bounds,
-                        self.viewport,
-                        self.fringe_width,
+                        self.scene.viewport(),
+                        self.scene.fringe_width(),
                     );
                 }
             }
@@ -275,8 +275,6 @@ impl<B: RenderBackend> Renderer<B> {
             node_id,
             node,
             shape_effect_bounds,
-            self.viewport,
-            self.fringe_width,
             self.backend.maximum_texture_dimension(),
         );
         self.should_compact_effect_parameters =
@@ -285,12 +283,12 @@ impl<B: RenderBackend> Renderer<B> {
             mark_dirty(
                 &mut self.dirty_bounds,
                 bounds,
-                self.viewport,
-                self.fringe_width,
+                self.scene.viewport(),
+                self.scene.fringe_width(),
             );
         }
         for bounds in old_effect_bounds.into_iter().chain(shape_effect_bounds) {
-            mark_shape_effect_dirty(&mut self.dirty_bounds, bounds, self.viewport);
+            mark_shape_effect_dirty(&mut self.dirty_bounds, bounds, self.scene.viewport());
         }
         if has_child_clip(&previous) != clips_children
             && !self.scene.draw_tree.children(node_id).is_empty()
@@ -315,18 +313,20 @@ impl<B: RenderBackend> Renderer<B> {
     ) {
         self.removed_shape_ids.clear();
         let mut has_removed_nodes = false;
+        let viewport = self.scene.viewport();
+        let fringe_width = self.scene.fringe_width();
         self.scene
             .remove_subtrees_with(node_ids, |id, node, effect| {
                 if matches!(node, DrawTreeNode::CachedShape(_)) {
                     mark_dirty(
                         &mut self.dirty_bounds,
                         node.logical_screen_bounds(),
-                        self.viewport,
-                        self.fringe_width,
+                        viewport,
+                        fringe_width,
                     );
                 }
                 if let Some(effect) = effect {
-                    mark_shape_effect_dirty(&mut self.dirty_bounds, effect.bounds, self.viewport);
+                    mark_shape_effect_dirty(&mut self.dirty_bounds, effect.bounds, viewport);
                 }
                 has_removed_nodes = true;
                 if matches!(node, DrawTreeNode::CachedShape(_)) {

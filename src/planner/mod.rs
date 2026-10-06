@@ -1,5 +1,5 @@
 use crate::commands::{EffectParameters, RenderOperation, RenderPlan, Target, TextureComposite};
-use crate::core::{UnsignedPhysicalRect, Viewport};
+use crate::core::UnsignedPhysicalRect;
 use crate::scene::Scene;
 use ahash::HashMap;
 use groups::{GroupPlanningInput, SceneTraversal};
@@ -43,8 +43,6 @@ impl Planner {
     pub(crate) fn plan(
         &mut self,
         scene: &Scene,
-        viewport: Viewport,
-        fringe_width: f32,
         maximum_texture_dimension: u32,
         root_scissor: Option<UnsignedPhysicalRect>,
     ) -> &RenderPlan {
@@ -57,8 +55,8 @@ impl Planner {
             &mut self.shape_composites,
             &scene.draw_tree,
             &scene.shape_effects,
-            viewport,
-            fringe_width,
+            scene.viewport(),
+            scene.fringe_width(),
             maximum_texture_dimension,
         );
         self.traversal.plan(
@@ -67,8 +65,8 @@ impl Planner {
                 group_effects: &scene.group_effects,
                 backdrop_effects: &scene.backdrop_effects,
                 shape_effects: &self.shape_composites,
-                scale_factor: viewport.scale_factor,
-                physical_size: viewport.physical_size.into(),
+                scale_factor: scene.viewport().scale_factor,
+                physical_size: scene.viewport().physical_size.into(),
             },
             &mut self.commands,
         );

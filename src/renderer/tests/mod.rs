@@ -251,13 +251,8 @@ fn render_submits_planned_shapes_and_effects() {
     let mut renderer = renderer();
     let mut surface = surface();
     let shape = queue_shape(&mut renderer, true);
-    let planned_address = renderer.planner.plan(
-        &renderer.scene,
-        renderer.viewport,
-        renderer.fringe_width,
-        4096,
-        None,
-    ) as *const RenderPlan as usize;
+    let planned_address =
+        renderer.planner.plan(&renderer.scene, 4096, None) as *const RenderPlan as usize;
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.command_address, planned_address);
     assert_eq!(surface.resource().draws, [shape]);
@@ -279,13 +274,7 @@ fn effect_parameter_updates_reuse_storage() {
         .update_group_effect_params(shape, &[1, 2, 3, 4])
         .unwrap();
     renderer.render(&mut surface).unwrap();
-    let plan = renderer.planner.plan(
-        &renderer.scene,
-        renderer.viewport,
-        renderer.fringe_width,
-        4096,
-        None,
-    );
+    let plan = renderer.planner.plan(&renderer.scene, 4096, None);
     assert_eq!(plan.effect_parameters.len(), 8);
     assert_eq!(plan.parameters(parameters), &[1, 2, 3, 4]);
 }
@@ -332,13 +321,7 @@ fn clearing_queue_removes_planned_draws_and_effects() {
     assert!(surface.resource().draws.is_empty());
     assert!(surface.resource().effects.is_empty());
     assert_eq!(surface.resource().shape_masks, 0);
-    let plan = renderer.planner.plan(
-        &renderer.scene,
-        renderer.viewport,
-        renderer.fringe_width,
-        4096,
-        None,
-    );
+    let plan = renderer.planner.plan(&renderer.scene, 4096, None);
     assert!(matches!(
         plan.instructions.as_slice(),
         [
@@ -362,9 +345,7 @@ fn rendering_to_one_surface_does_not_change_another() {
     let mut second = renderer();
     let mut second_surface = surface();
     queue_shape(&mut second, false);
-    let commands = first
-        .planner
-        .plan(&first.scene, first.viewport, first.fringe_width, 4096, None);
+    let commands = first.planner.plan(&first.scene, 4096, None);
     first
         .backend
         .render(commands, (&mut first_surface).into())

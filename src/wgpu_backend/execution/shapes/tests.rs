@@ -2,8 +2,8 @@ use super::preparation::{self, InstanceTextureData};
 use super::{ShapeDrawLocation, ShapeDrawResources, ShapeExecutionResources};
 use crate::commands::ShapeDrawId;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
-use crate::core::{BorderRadii, Shape, ShapeDrawCommandOptions, ShapeInstance};
-use crate::scene::Scene;
+use crate::core::{BorderRadii, Shape, ShapeDrawCommandOptions, ShapeInstance, Viewport};
+use crate::scene::{Scene, SceneContext};
 
 fn insert_draw(resources: &mut ShapeExecutionResources, id: usize, shape: &ShapeInstance) {
     let geometry_range = preparation::append_aggregated_geometry_for_shape(
@@ -80,7 +80,14 @@ fn assert_draw_data(resources: &ShapeExecutionResources, id: usize, shape: &Shap
 
 #[test]
 fn removal_compacts_buffers_and_keeps_shared_geometry_until_its_last_draw() {
-    let mut scene = Scene::default();
+    let mut scene = Scene::new(
+        SceneContext::default(),
+        Viewport {
+            physical_size: (32, 32),
+            scale_factor: 1.0,
+        },
+        0.75,
+    );
     let shared = ShapeInstance::new(
         scene.tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1)),
         ShapeDrawCommandOptions::new(),
@@ -143,7 +150,14 @@ fn removal_compacts_buffers_and_keeps_shared_geometry_until_its_last_draw() {
 
 #[test]
 fn batch_removal_keeps_surviving_geometry_and_instances() {
-    let mut scene = Scene::default();
+    let mut scene = Scene::new(
+        SceneContext::default(),
+        Viewport {
+            physical_size: (32, 32),
+            scale_factor: 1.0,
+        },
+        0.75,
+    );
     let shared = ShapeInstance::new(
         scene.tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1)),
         ShapeDrawCommandOptions::new(),
@@ -242,7 +256,14 @@ fn batch_removal_keeps_surviving_geometry_and_instances() {
 
 #[test]
 fn batch_replacement_compacts_overwritten_instances_and_preserves_shared_geometry() {
-    let mut scene = Scene::default();
+    let mut scene = Scene::new(
+        SceneContext::default(),
+        Viewport {
+            physical_size: (32, 32),
+            scale_factor: 1.0,
+        },
+        0.75,
+    );
     let shared = ShapeInstance::new(
         scene.tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1)),
         ShapeDrawCommandOptions::new(),

@@ -9,7 +9,7 @@ use crate::core::effect::ShapeEffectBounds;
 use crate::core::shape::{CachedShapeHandle, Shape, ShapeDrawCommandOptions, ShapeInstance};
 use crate::core::util::ShapeResources;
 use crate::core::vertex::InstanceTransform;
-use crate::core::{geometry, Size, UnsignedPhysicalRect, Viewport};
+use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
 use lyon::tessellation::FillTessellator;
@@ -25,10 +25,13 @@ pub struct SceneContext {
     loaded_shapes: Arc<RwLock<HashMap<u64, CachedShapeHandle>>>,
 }
 
-/// Owns CPU descriptions. Clearing removes queued nodes while retaining caches and capacity.
+/// Owns CPU descriptions and rasterization settings.
+/// Clearing removes queued nodes while retaining settings, caches and capacity.
 pub struct Scene {
     pub(crate) draw_tree: Tree<DrawTreeNode>,
     context: SceneContext,
+    viewport: Viewport,
+    fringe_width: f32,
     tessellator: FillTessellator,
     shape_resources: ShapeResources,
     pub(crate) group_effects: HashMap<usize, EffectInstance>,
@@ -37,16 +40,13 @@ pub struct Scene {
     pub(crate) shape_effects: HashMap<usize, ShapeEffectInstance>,
 }
 
-impl Default for Scene {
-    fn default() -> Self {
-        Self::new(SceneContext::default())
-    }
-}
-
 impl Scene {
-    pub fn new(context: SceneContext) -> Self {
+    /// Creates an empty scene for the supplied output dimensions and rasterization settings.
+    pub fn new(context: SceneContext, viewport: Viewport, fringe_width: f32) -> Self {
         Self {
             context,
+            viewport,
+            fringe_width,
             draw_tree: Tree::new(),
             tessellator: FillTessellator::new(),
             shape_resources: ShapeResources::new(),
@@ -55,6 +55,43 @@ impl Scene {
             backdrop_damage: BackdropDamage::default(),
             shape_effects: HashMap::new(),
         }
+    }
+
+    /// Returns output dimensions and the logical-to-physical scale.
+    pub fn viewport(&self) -> Viewport {
+        self.viewport
+    }
+
+    /// Returns the antialiasing fringe width in physical pixels.
+    pub fn fringe_width(&self) -> f32 {
+        self.fringe_width
+    }
+
+    /// Updates effect bounds and backdrop captures for the new scale and fringe width.
+    /// Preserves settings and attachments if any shape effect cannot use the new values.
+    pub fn update_raster_settings(
+        &mut self,
+        scale_factor: f64,
+        fringe_width: f32,
+        maximum_texture_dimension: u32,
+    ) -> Result<(), SceneError> {
+        if let Err(error) = self.refresh_shape_effect_bounds(scale_factor, fringe_width) {
+            self.refresh_shape_effect_bounds(self.viewport.scale_factor, self.fringe_width)
+                .expect(
+                    "failed to restore shape effect bounds with previous rasterization settings",
+                );
+            return Err(error);
+        }
+        self.viewport.scale_factor = scale_factor;
+        self.fringe_width = fringe_width;
+        self.refresh_backdrop_capture_regions(maximum_texture_dimension);
+        Ok(())
+    }
+
+    /// Updates output dimensions and refreshes backdrop captures.
+    pub fn resize(&mut self, physical_size: (u32, u32), maximum_texture_dimension: u32) {
+        self.viewport.physical_size = physical_size;
+        self.refresh_backdrop_capture_regions(maximum_texture_dimension);
     }
 
     pub fn load_shape(
@@ -168,8 +205,6 @@ impl Scene {
         node_id: usize,
         node: DrawTreeNode,
         shape_effect_bounds: Option<ShapeEffectBounds>,
-        viewport: Viewport,
-        fringe_width: f32,
         maximum_texture_dimension: u32,
     ) -> DrawTreeNode {
         self.refresh_tessellation_cache(&node);
@@ -191,8 +226,8 @@ impl Scene {
                 &node,
                 instance.effect,
                 instance.config,
-                viewport,
-                fringe_width,
+                self.viewport,
+                self.fringe_width,
                 maximum_texture_dimension,
             )
         });
@@ -255,10 +290,10 @@ impl Scene {
 
     pub(crate) fn expand_backdrop_damage(
         &mut self,
-        physical_size: Size,
         dirty_bounds: Option<UnsignedPhysicalRect>,
     ) -> Option<UnsignedPhysicalRect> {
-        self.backdrop_damage.expand(physical_size, dirty_bounds)
+        self.backdrop_damage
+            .expand(self.viewport.physical_size.into(), dirty_bounds)
     }
 
     pub(crate) fn finish_preparation(&mut self) {

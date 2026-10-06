@@ -276,13 +276,7 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
                 .logical_screen_bounds(),
             MathRect::new((16.25, 11.0).into(), (21.0, 16.0).into())
         );
-        let commands = renderer.planner.plan(
-            &renderer.scene,
-            renderer.viewport,
-            renderer.fringe_width,
-            4096,
-            None,
-        );
+        let commands = renderer.planner.plan(&renderer.scene, 4096, None);
         let capture = commands
             .instructions
             .iter()

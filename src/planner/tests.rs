@@ -4,7 +4,7 @@ use crate::core::{
     BackdropEffectConfig, Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, Viewport,
 };
 use crate::scene::effects::EffectInstance;
-use crate::scene::Scene;
+use crate::scene::{Scene, SceneContext};
 
 #[derive(Debug, PartialEq, Eq)]
 struct EffectSnapshot {
@@ -55,16 +55,7 @@ fn add_shape(scene: &mut Scene, parent: Option<usize>) -> usize {
 }
 
 fn plan_scene(planner: &mut Planner, scene: &Scene) {
-    planner.plan(
-        scene,
-        Viewport {
-            physical_size: (32, 32),
-            scale_factor: 1.0,
-        },
-        0.75,
-        4096,
-        None,
-    );
+    planner.plan(scene, 4096, None);
 }
 
 fn viewport() -> Viewport {
@@ -76,7 +67,7 @@ fn viewport() -> Viewport {
 
 #[test]
 fn parameter_compaction_preserves_replanned_effects() {
-    let mut scene = Scene::default();
+    let mut scene = Scene::new(SceneContext::default(), viewport(), 0.75);
     let mut planner = Planner::default();
     let root = add_shape(&mut scene, None);
     let removed = add_shape(&mut scene, Some(root));
@@ -87,14 +78,7 @@ fn parameter_compaction_preserves_replanned_effects() {
     let backdrop_parameters = planner.store_effect_parameters(&[3; 4]);
     let removed_parameters = planner.store_effect_parameters(&[4; 4]);
     scene
-        .set_shape_effect(
-            root,
-            17,
-            shape_parameters,
-            ShapeEffectConfig::default(),
-            viewport(),
-            0.75,
-        )
+        .set_shape_effect(root, 17, shape_parameters, ShapeEffectConfig::default())
         .unwrap();
     scene.set_group_effect(root, 17, group_parameters).unwrap();
     scene
@@ -105,8 +89,6 @@ fn parameter_compaction_preserves_replanned_effects() {
                 parameters: backdrop_parameters,
             },
             BackdropEffectConfig::default(),
-            viewport(),
-            0.75,
             4096,
         )
         .unwrap();
@@ -119,8 +101,6 @@ fn parameter_compaction_preserves_replanned_effects() {
             17,
             removed_parameters,
             ShapeEffectConfig::default(),
-            viewport(),
-            0.75,
         )
         .unwrap();
     plan_scene(&mut planner, &scene);
@@ -162,21 +142,14 @@ fn parameter_compaction_preserves_replanned_effects() {
 
 #[test]
 fn parameter_compaction_preserves_replanned_effects_with_empty_parameters() {
-    let mut scene = Scene::default();
+    let mut scene = Scene::new(SceneContext::default(), viewport(), 0.75);
     let mut planner = Planner::default();
     let root = add_shape(&mut scene, None);
     planner.store_effect_parameters(&[99; 4]);
     let parameters = planner.store_effect_parameters(&[]);
     scene.set_group_effect(root, 17, parameters).unwrap();
     scene
-        .set_shape_effect(
-            root,
-            18,
-            parameters,
-            ShapeEffectConfig::default(),
-            viewport(),
-            0.75,
-        )
+        .set_shape_effect(root, 18, parameters, ShapeEffectConfig::default())
         .unwrap();
     scene
         .set_shape_backdrop_effect(
@@ -186,8 +159,6 @@ fn parameter_compaction_preserves_replanned_effects_with_empty_parameters() {
                 parameters,
             },
             BackdropEffectConfig::default(),
-            viewport(),
-            0.75,
             4096,
         )
         .unwrap();

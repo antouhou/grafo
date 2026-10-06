@@ -76,8 +76,6 @@ impl<B: RenderBackend> Renderer<B> {
                 parameters,
             },
             config,
-            self.viewport,
-            self.fringe_width,
             self.backend.maximum_texture_dimension(),
         )?;
         // Damage expansion includes the capture region.
@@ -93,8 +91,6 @@ impl<B: RenderBackend> Renderer<B> {
         self.scene.update_backdrop_effect_config(
             node_id,
             config,
-            self.viewport,
-            self.fringe_width,
             self.backend.maximum_texture_dimension(),
         )?;
         // Damage expansion includes the capture region.
@@ -145,14 +141,8 @@ impl<B: RenderBackend> Renderer<B> {
             .shape_effects
             .get(&node_id)
             .map(|effect| effect.bounds);
-        self.scene.set_shape_effect(
-            node_id,
-            effect_id,
-            parameters,
-            config,
-            self.viewport,
-            self.fringe_width,
-        )?;
+        self.scene
+            .set_shape_effect(node_id, effect_id, parameters, config)?;
         self.backend.set_shape_effect_geometry(
             ShapeDrawId(node_id),
             &self.scene.shape(node_id)?.cached_shape,
@@ -188,8 +178,7 @@ impl<B: RenderBackend> Renderer<B> {
         config: ShapeEffectConfig,
     ) -> Result<(), EffectError<B::Error>> {
         let old_bounds = self.scene.shape_effect(node_id)?.bounds;
-        self.scene
-            .update_shape_effect_config(node_id, config, self.viewport, self.fringe_width)?;
+        self.scene.update_shape_effect_config(node_id, config)?;
         self.mark_shape_effect_dirty(old_bounds);
         self.mark_shape_effect_dirty(self.scene.shape_effect(node_id)?.bounds);
         Ok(())
@@ -214,21 +203,18 @@ impl<B: RenderBackend> Renderer<B> {
     }
 
     fn remove_effect_attachments(&mut self, effect_id: u64) {
+        let viewport = self.scene.viewport();
+        let fringe_width = self.scene.fringe_width();
         self.scene
             .remove_effect_attachments(effect_id, |node_id, attachment| match attachment {
                 EffectAttachment::Backdrop { shape_bounds } => {
                     if let Some(shape_bounds) = shape_bounds {
-                        mark_dirty(
-                            &mut self.dirty_bounds,
-                            shape_bounds,
-                            self.viewport,
-                            self.fringe_width,
-                        );
+                        mark_dirty(&mut self.dirty_bounds, shape_bounds, viewport, fringe_width);
                     }
                     self.backend.remove_backdrop_effect(ShapeDrawId(node_id));
                 }
                 EffectAttachment::Shape(bounds) => {
-                    mark_shape_effect_dirty(&mut self.dirty_bounds, bounds, self.viewport);
+                    mark_shape_effect_dirty(&mut self.dirty_bounds, bounds, viewport);
                     self.backend.remove_shape_effect(ShapeDrawId(node_id));
                 }
             });
@@ -240,13 +226,13 @@ impl<B: RenderBackend> Renderer<B> {
             mark_dirty(
                 &mut self.dirty_bounds,
                 shape.logical_screen_bounds,
-                self.viewport,
-                self.fringe_width,
+                self.scene.viewport(),
+                self.scene.fringe_width(),
             );
         }
     }
 
     fn mark_shape_effect_dirty(&mut self, bounds: ShapeEffectBounds) {
-        mark_shape_effect_dirty(&mut self.dirty_bounds, bounds, self.viewport);
+        mark_shape_effect_dirty(&mut self.dirty_bounds, bounds, self.scene.viewport());
     }
 }

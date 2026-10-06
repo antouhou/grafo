@@ -4,7 +4,7 @@ use self::damage::PendingClipDamage;
 use self::metrics::RenderLoopMetricsTracker;
 pub use self::types::{DrawCommandError, EffectError};
 use crate::commands::ShapeDrawId;
-use crate::core::{UnsignedPhysicalRect, Viewport};
+use crate::core::UnsignedPhysicalRect;
 use crate::planner::Planner;
 use crate::render_backend::render_target::RenderTarget;
 use crate::render_backend::RenderBackend;
@@ -48,8 +48,6 @@ pub struct Renderer<B: RenderBackend> {
     scene: Scene,
     planner: Planner,
     backend: B,
-    viewport: Viewport,
-    fringe_width: f32,
     removed_shape_ids: Vec<ShapeDrawId>,
     should_compact_effect_parameters: bool,
     dirty_bounds: Option<UnsignedPhysicalRect>,
@@ -62,16 +60,15 @@ impl<B: RenderBackend> Renderer<B> {
     /// Creates a renderer with an empty draw queue using the supplied backend.
     /// Loaded shapes are shared through `context`.
     pub fn from_backend(backend: B, context: SceneContext) -> Self {
+        let viewport = backend.viewport();
         Self {
-            scene: Scene::new(context),
+            scene: Scene::new(context, viewport, backend.fringe_width()),
             planner: Planner::default(),
-            viewport: backend.viewport(),
-            fringe_width: backend.fringe_width(),
             removed_shape_ids: Vec::new(),
             should_compact_effect_parameters: false,
             pending_clip_damage: PendingClipDamage::default(),
             dirty_bounds: Some(UnsignedPhysicalRect::from_size(
-                backend.viewport().physical_size.into(),
+                viewport.physical_size.into(),
             )),
             backend,
             #[cfg(feature = "render_metrics")]
@@ -112,7 +109,7 @@ impl<B: RenderBackend> Renderer<B> {
         let target = target.into();
         let maximum = self.backend.maximum_texture_dimension();
         let size = target.validate_size(maximum)?;
-        if self.viewport.physical_size != size {
+        if self.size() != size {
             self.resize(size);
         }
         #[cfg(feature = "render_metrics")]
@@ -121,19 +118,11 @@ impl<B: RenderBackend> Renderer<B> {
             self.planner.compact_effect_parameters(&mut self.scene);
             self.should_compact_effect_parameters = false;
         }
-        self.pending_clip_damage.apply(
-            &self.scene,
-            &mut self.dirty_bounds,
-            self.viewport,
-            self.fringe_width,
-        );
-        self.dirty_bounds = self
-            .scene
-            .expand_backdrop_damage(self.viewport.physical_size.into(), self.dirty_bounds);
+        self.pending_clip_damage
+            .apply(&self.scene, &mut self.dirty_bounds);
+        self.dirty_bounds = self.scene.expand_backdrop_damage(self.dirty_bounds);
         let commands = self.planner.plan(
             &self.scene,
-            self.viewport,
-            self.fringe_width,
             self.backend.maximum_texture_dimension(),
             self.dirty_bounds,
         );
