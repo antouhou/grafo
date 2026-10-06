@@ -261,6 +261,8 @@ fn invalid_effect_can_be_replaced_with_a_valid_shader() {
                 EffectResourceError::InvalidShader { pass_index: 1, .. }
             )))
         ));
+        // Force a redraw so the preserved shader runs after each failed reload.
+        renderer.resize(renderer.size());
         render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
         assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 16, 16), [255, 0, 0, 255]);
     }
@@ -1648,7 +1650,14 @@ fn readback_targets_survive_alternating_formats_and_resize() {
     for samples in [1, 4] {
         renderer.set_msaa_samples(samples);
         for size in [(65, 7), (129, 5), (65, 7)] {
-            for format in [PixelFormat::Bgra8, PixelFormat::Rgba8, PixelFormat::Argb32] {
+            for format in [
+                PixelFormat::Bgra8,
+                PixelFormat::Rgba8,
+                PixelFormat::Bgra8,
+                PixelFormat::Argb32,
+                PixelFormat::Rgba8,
+                PixelFormat::Argb32,
+            ] {
                 assert_repeated_readback_pixels(&mut renderer, &mut pixels, size, format);
             }
         }

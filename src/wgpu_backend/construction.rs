@@ -98,8 +98,6 @@ impl WgpuBackend {
         self.format = format;
         self.recreate_pipelines();
         self.recreate_msaa_texture();
-        self.argb_readback = None;
-        self.byte_readback = None;
     }
 
     pub(in crate::wgpu_backend) fn recreate_pipelines(&mut self) {
