@@ -97,9 +97,13 @@ pub trait RenderBackend {
 
     /// Controls the transient red redraw overlay on surfaces. Disabled by default.
     /// This setting must not invalidate the retained scene or affect pixmap pixels.
-    fn set_dirty_region_overlay_enabled(&mut self, enabled: bool);
+    /// The default implementation ignores this setting.
+    fn set_dirty_region_overlay_enabled(&mut self, _enabled: bool) {}
 
-    fn is_dirty_region_overlay_enabled(&self) -> bool;
+    /// Returns whether surface redraw bounds are highlighted. Defaults to false.
+    fn is_dirty_region_overlay_enabled(&self) -> bool {
+        false
+    }
 
     /// Renders `commands` at the target's dimensions. The commands must have been
     /// planned for those dimensions.
