@@ -35,12 +35,13 @@ impl<'a> RenderTarget<'a> {
         output_view: &'a TextureView,
         multisample_view: Option<&'a TextureView>,
         depth_stencil_view: &'a TextureView,
+        needs_clear: bool,
     ) -> Self {
         Self {
             color_view: multisample_view.unwrap_or(output_view),
             resolve_target: multisample_view.map(|_| output_view),
             depth_stencil_view,
-            needs_clear: true,
+            needs_clear,
         }
     }
 

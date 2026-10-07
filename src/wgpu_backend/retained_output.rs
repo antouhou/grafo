@@ -127,13 +127,12 @@ impl RetainedOutput {
     }
 
     /// Clears changed color pixels and resets stencil before replaying the scene.
-    pub fn clear(
+    pub fn clear_region(
         &self,
         encoder: &mut CommandEncoder,
         multisample_view: Option<&TextureView>,
         depth_stencil_view: &TextureView,
         scissor: UnsignedPhysicalRect,
-        is_new: bool,
     ) {
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("clear_dirty_output"),
@@ -141,11 +140,7 @@ impl RetainedOutput {
                 view: multisample_view.unwrap_or(&self.view),
                 resolve_target: multisample_view.map(|_| &self.view),
                 ops: Operations {
-                    load: if is_new {
-                        LoadOp::Clear(Color::TRANSPARENT)
-                    } else {
-                        LoadOp::Load
-                    },
+                    load: LoadOp::Load,
                     store: StoreOp::Store,
                 },
             })],
@@ -163,11 +158,9 @@ impl RetainedOutput {
             timestamp_writes: None,
             occlusion_query_set: None,
         });
-        if !is_new {
-            targets::set_scissor(&mut pass, scissor);
-            pass.set_pipeline(&self.clear_pipeline);
-            pass.draw(0..3, 0..1);
-        }
+        targets::set_scissor(&mut pass, scissor);
+        pass.set_pipeline(&self.clear_pipeline);
+        pass.draw(0..3, 0..1);
     }
 
     /// Copies the clean scene to the disposable output.
