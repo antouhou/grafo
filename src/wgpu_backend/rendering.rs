@@ -47,7 +47,7 @@ impl WgpuBackend {
             commands.root_scissor
         };
         if let Some(scissor) = root_scissor {
-            self.render_dirty_region(commands, &retained, scissor, is_new);
+            self.render_dirty_region(commands, &retained, scissor);
         }
         self.retained_output = Some(retained);
         #[cfg(feature = "render_metrics")]
@@ -62,7 +62,6 @@ impl WgpuBackend {
         commands: &RenderPlan,
         retained: &RetainedOutput,
         root_scissor: UnsignedPhysicalRect,
-        is_new: bool,
     ) {
         self.resources
             .shape_execution
@@ -91,15 +90,18 @@ impl WgpuBackend {
                 label: Some("Render Command Encoder"),
             });
 
-        retained.clear(
-            &mut encoder,
-            self.msaa_color_texture_view.as_ref(),
-            self.depth_stencil_view
-                .as_ref()
-                .expect("depth stencil target was initialized"),
-            root_scissor,
-            is_new,
-        );
+        let is_full_redraw =
+            root_scissor == UnsignedPhysicalRect::from_size(self.viewport.physical_size.into());
+        if !is_full_redraw {
+            retained.clear_region(
+                &mut encoder,
+                self.msaa_color_texture_view.as_ref(),
+                self.depth_stencil_view
+                    .as_ref()
+                    .expect("depth stencil target was initialized"),
+                root_scissor,
+            );
+        }
 
         let pipeline_resources = &self.pipeline_resources;
         let effects = needs_scene_effects.then(|| EffectContext {
@@ -152,6 +154,7 @@ impl WgpuBackend {
                     self.depth_stencil_view
                         .as_ref()
                         .expect("depth stencil target was initialized"),
+                    is_full_redraw,
                 ),
                 capture_texture: Some(&retained.texture),
             },

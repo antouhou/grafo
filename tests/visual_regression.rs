@@ -64,6 +64,79 @@ fn render_bgra(renderer: &mut Renderer, pixels: &mut Vec<u8>) -> Result<(), Wgpu
 }
 
 #[test]
+fn root_replacement_and_partial_updates_preserve_retained_pixels() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
+        return;
+    };
+    let mut pixels = Vec::new();
+    for samples in [1, 4] {
+        renderer.set_msaa_samples(samples);
+        let root = renderer
+            .add_shape(
+                Shape::rounded_rect([(0.0, 0.0), (64.0, 64.0)], BorderRadii::new(8.0)),
+                None,
+                None,
+                ShapeDrawCommandOptions::new().color(Color::WHITE),
+            )
+            .unwrap();
+        render_bgra(&mut renderer, &mut pixels).unwrap();
+        let child = renderer
+            .add_shape(
+                Shape::rect([(4.0, 4.0), (12.0, 12.0)]),
+                Some(root),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+            )
+            .unwrap();
+        render_bgra(&mut renderer, &mut pixels).unwrap();
+        assert_eq!(read_pixel_rgba(&pixels, 64, 8, 8), [255, 0, 0, 255]);
+        assert_eq!(read_pixel_rgba(&pixels, 64, 56, 56), [255; 4]);
+
+        renderer
+            .replace_with_shape(
+                root,
+                Shape::builder()
+                    .begin((0.0, 0.0))
+                    .line_to((64.0, 0.0))
+                    .line_to((0.0, 64.0))
+                    .close()
+                    .build(),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(0, 255, 0)),
+            )
+            .unwrap();
+        renderer
+            .replace_with_shape(
+                child,
+                Shape::rect([(4.0, 4.0), (12.0, 12.0)]),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(0, 0, 255)),
+            )
+            .unwrap();
+        render_bgra(&mut renderer, &mut pixels).unwrap();
+        assert_eq!(read_pixel_rgba(&pixels, 64, 8, 8), [0, 0, 255, 255]);
+        assert_eq!(read_pixel_rgba(&pixels, 64, 20, 8), [0, 255, 0, 255]);
+        assert_eq!(read_pixel_rgba(&pixels, 64, 56, 56), [0; 4]);
+
+        renderer
+            .replace_with_shape(
+                child,
+                Shape::rect([(16.0, 16.0), (24.0, 24.0)]),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+            )
+            .unwrap();
+        render_bgra(&mut renderer, &mut pixels).unwrap();
+        assert_eq!(read_pixel_rgba(&pixels, 64, 8, 8), [0, 255, 0, 255]);
+        assert_eq!(read_pixel_rgba(&pixels, 64, 20, 20), [255, 0, 0, 255]);
+        assert_eq!(read_pixel_rgba(&pixels, 64, 56, 56), [0; 4]);
+        renderer.clear_draw_queue();
+        render_bgra(&mut renderer, &mut pixels).unwrap();
+        assert!(pixels.iter().all(|&byte| byte == 0));
+    }
+}
+
+#[test]
 fn negative_w_addition_and_removal_update_retained_pixels() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((32, 32), 1.0) else {
         return;

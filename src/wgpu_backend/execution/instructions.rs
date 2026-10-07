@@ -72,7 +72,7 @@ impl ExecutionResources<'_> {
         }
     }
 
-    fn begin_target(&mut self, target: Target) {
+    fn begin_target(&mut self, target: Target, surface: &SurfaceTarget<'_>) {
         let texture = match target {
             Target::Surface => {
                 assert!(
@@ -99,7 +99,11 @@ impl ExecutionResources<'_> {
         self.textures.active_targets.push(ActiveTarget {
             target,
             texture,
-            needs_clear: !matches!(target, Target::Surface),
+            needs_clear: if matches!(target, Target::Surface) {
+                surface.output.needs_clear
+            } else {
+                true
+            },
         });
     }
 
@@ -259,7 +263,7 @@ pub(in crate::wgpu_backend) fn execute_commands(
     let mut cursor = 0;
     while let Some(command) = commands.instructions.get(cursor) {
         match &command.operation {
-            RenderOperation::BeginTarget(target) => resources.begin_target(*target),
+            RenderOperation::BeginTarget(target) => resources.begin_target(*target, &surface),
             RenderOperation::EndTarget => resources.end_target(encoder, &surface),
             RenderOperation::DrawShapeMask(draw) => {
                 let target = resources
