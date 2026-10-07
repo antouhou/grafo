@@ -1,5 +1,5 @@
 use super::preparation::{self, InstanceTextureData};
-use super::{ShapeDrawLocation, ShapeDrawResources, ShapeExecutionResources};
+use super::{ShapeBufferLocation, ShapeDrawResources, ShapeExecutionResources};
 use crate::commands::ShapeDrawId;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
 use crate::core::{BorderRadii, Shape, ShapeDrawCommandOptions, ShapeInstance, Viewport};
@@ -28,7 +28,7 @@ fn insert_draw(resources: &mut ShapeExecutionResources, id: usize, shape: &Shape
                 }; 2],
             },
         );
-        ShapeDrawLocation {
+        ShapeBufferLocation {
             geometry_range,
             instance_index,
         }
@@ -36,14 +36,14 @@ fn insert_draw(resources: &mut ShapeExecutionResources, id: usize, shape: &Shape
     resources.register_draw(
         ShapeDrawId(id),
         ShapeDrawResources {
-            location,
+            geometry_buffer_location: location,
             ..Default::default()
         },
     );
 }
 
 fn assert_draw_data(resources: &ShapeExecutionResources, id: usize, shape: &ShapeInstance) {
-    let location = resources.draws[&id].location.unwrap();
+    let location = resources.draws[&id].geometry_buffer_location.unwrap();
     let geometry = location.geometry_range;
     let expected = shape.cached_shape.vertex_buffers();
     let vertices = &resources.vertices
@@ -214,7 +214,13 @@ fn batch_removal_keeps_surviving_geometry_and_instances() {
     .enumerate()
     {
         assert_draw_data(&resources, id, shape);
-        assert_eq!(resources.draws[&id].location.unwrap().instance_index, index);
+        assert_eq!(
+            resources.draws[&id]
+                .geometry_buffer_location
+                .unwrap()
+                .instance_index,
+            index
+        );
     }
     assert!(!resources.geometry_ranges.contains_key(&2));
     assert_eq!(
@@ -300,8 +306,14 @@ fn batch_replacement_compacts_overwritten_instances_and_preserves_shared_geometr
         assert_eq!(resources.instance_colors.len(), 3);
         assert_eq!(resources.instance_metadata.len(), 3);
         assert_eq!(
-            resources.draws[&1].location.unwrap().geometry_range,
-            resources.draws[&3].location.unwrap().geometry_range
+            resources.draws[&1]
+                .geometry_buffer_location
+                .unwrap()
+                .geometry_range,
+            resources.draws[&3]
+                .geometry_buffer_location
+                .unwrap()
+                .geometry_range
         );
         assert_eq!(
             resources.vertices.len(),
@@ -310,7 +322,7 @@ fn batch_replacement_compacts_overwritten_instances_and_preserves_shared_geometr
         );
         insert_draw(&mut resources, 1, &empty);
         resources.compact_draw_buffers();
-        assert!(resources.draws[&1].location.is_none());
+        assert!(resources.draws[&1].geometry_buffer_location.is_none());
         assert_draw_data(&resources, 2, &shared);
         assert_draw_data(&resources, 3, &replacement);
         assert_eq!(resources.instance_transforms.len(), 2);

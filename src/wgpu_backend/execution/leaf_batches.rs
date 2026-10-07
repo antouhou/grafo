@@ -70,7 +70,7 @@ impl DrawPass<'_, '_> {
             unreachable!("leaf batch starts with a shape draw");
         };
         let resources = shapes.draw_resources(draw.id);
-        let Some(location) = resources.location else {
+        let Some(location) = resources.geometry_buffer_location else {
             return 1;
         };
         if draw.material.has_gradient_fill || draw.material.under_fill_texture.is_some() {
@@ -95,7 +95,8 @@ impl DrawPass<'_, '_> {
             {
                 break;
             }
-            let Some(location) = shapes.draw_resources(next_draw.id).location else {
+            let Some(location) = shapes.draw_resources(next_draw.id).geometry_buffer_location
+            else {
                 break;
             };
             if location.geometry_range != batch.geometry_range

@@ -95,7 +95,7 @@ impl DrawPass<'_, '_> {
         increments_stencil: bool,
     ) {
         let pipelines = &self.pipelines.shapes;
-        let Some(location) = resources.location else {
+        let Some(location) = resources.geometry_buffer_location else {
             return;
         };
         let (target_pipeline, pipeline) = pipelines.material_pipeline(material, increments_stencil);
@@ -158,7 +158,7 @@ impl DrawPass<'_, '_> {
         stencil_reference: u32,
         resources: &ShapeDrawResources,
     ) {
-        let Some(location) = resources.location else {
+        let Some(location) = resources.geometry_buffer_location else {
             return;
         };
         if !matches!(self.pipeline_tracker.current, Pipeline::StencilDecrement) {
@@ -195,7 +195,7 @@ impl DrawPass<'_, '_> {
         resources: &ShapeDrawResources,
     ) {
         let pipelines = &self.pipelines.shapes;
-        let Some(location) = resources.location else {
+        let Some(location) = resources.geometry_buffer_location else {
             return;
         };
         self.render_pass

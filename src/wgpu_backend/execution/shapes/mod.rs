@@ -21,7 +21,7 @@ pub(in crate::wgpu_backend) mod preparation;
 mod sampling;
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct ShapeDrawLocation {
+pub(crate) struct ShapeBufferLocation {
     pub(crate) geometry_range: GeometryBufferRange,
     pub(crate) instance_index: usize,
 }
@@ -31,7 +31,7 @@ pub(crate) struct ShapeDrawLocation {
 pub(in crate::wgpu_backend) struct ShapeDrawResources {
     /// Retained only for draws with a shape effect, to identify cached coverage masks.
     pub(crate) mask_tessellation: Option<Arc<CachedTessellation>>,
-    pub(crate) location: Option<ShapeDrawLocation>,
+    pub(crate) geometry_buffer_location: Option<ShapeBufferLocation>,
     gradient_material: Option<Arc<GradientMaterial>>,
     texture_material_bind_group: Option<BindGroup>,
 }
@@ -88,7 +88,7 @@ impl ShapeExecutionResources {
         if self
             .draws
             .insert(id.0, resources)
-            .and_then(|previous| previous.location)
+            .and_then(|previous| previous.geometry_buffer_location)
             .is_some()
         {
             self.has_unused_draw_buffers = true;
@@ -98,7 +98,10 @@ impl ShapeExecutionResources {
     pub(in crate::wgpu_backend) fn remove_draws(&mut self, ids: &[ShapeDrawId]) {
         for id in ids {
             let removed_draw = self.draws.remove(&id.0);
-            if removed_draw.and_then(|draw| draw.location).is_some() {
+            if removed_draw
+                .and_then(|draw| draw.geometry_buffer_location)
+                .is_some()
+            {
                 self.has_unused_draw_buffers = true;
             }
         }

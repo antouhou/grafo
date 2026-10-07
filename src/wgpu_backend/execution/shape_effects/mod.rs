@@ -126,7 +126,7 @@ impl ShapeEffectExecutionResources<'_> {
                     draws::draw_shape_mask(
                         &mut pass,
                         shape
-                            .location
+                            .geometry_buffer_location
                             .expect("planned mask has uploaded geometry")
                             .geometry_range,
                         &self.pipelines.mask_pipeline,
