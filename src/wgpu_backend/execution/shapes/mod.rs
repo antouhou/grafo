@@ -88,6 +88,8 @@ impl ShapeExecutionResources {
         if self
             .draws
             .insert(id.0, resources)
+            // If insertion returns something, it means we've replaced something, and now we might
+            // need to compact buffers
             .and_then(|previous| previous.geometry_buffer_location)
             .is_some()
         {
