@@ -8,7 +8,7 @@ use crate::scene::SceneContext;
 
 fn scene() -> (Renderer<TestBackend>, Surface<TestSurface>) {
     let size = (1024, 512);
-    let mut renderer = Renderer::from_backend(
+    let mut renderer = Renderer::from_parts(
         TestBackend {
             size: Some(size),
             ..Default::default()

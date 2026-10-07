@@ -32,11 +32,6 @@ impl ShapeResources {
             aa_fringe_scratch: AaFringeScratch::new(),
         }
     }
-
-    #[cfg(feature = "render_metrics")]
-    pub fn print_sizes(&self) {
-        println!("Tessellations: {}", self.tessellation_cache.len());
-    }
 }
 
 #[inline(always)]

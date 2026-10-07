@@ -153,7 +153,7 @@ impl Scene {
             .ok_or(SceneError::NodeNotFound(node_id))
     }
 
-    pub fn set_group_effect(
+    pub(crate) fn set_group_effect(
         &mut self,
         node_id: usize,
         effect_id: u64,
@@ -170,7 +170,7 @@ impl Scene {
         Ok(())
     }
 
-    pub fn update_group_effect_params(
+    pub(crate) fn update_group_effect_params(
         &mut self,
         node_id: usize,
         parameters: EffectParameters,
@@ -183,7 +183,7 @@ impl Scene {
         )
     }
 
-    pub fn remove_group_effect(&mut self, node_id: usize) {
+    pub(crate) fn remove_group_effect(&mut self, node_id: usize) {
         self.group_effects.remove(&node_id);
     }
 
@@ -225,7 +225,7 @@ impl Scene {
         Ok(())
     }
 
-    pub fn update_backdrop_effect_params(
+    pub(crate) fn update_backdrop_effect_params(
         &mut self,
         node_id: usize,
         parameters: EffectParameters,
@@ -240,7 +240,7 @@ impl Scene {
         )
     }
 
-    pub fn update_backdrop_effect_config(
+    pub(crate) fn update_backdrop_effect_config(
         &mut self,
         node_id: usize,
         config: BackdropEffectConfig,
@@ -290,7 +290,7 @@ impl Scene {
         self.backdrop_damage.rebuild(entries);
     }
 
-    pub fn remove_backdrop_effect(&mut self, node_id: usize) -> bool {
+    pub(crate) fn remove_backdrop_effect(&mut self, node_id: usize) -> bool {
         if self.backdrop_effects.remove(&node_id).is_none() {
             return false;
         }
@@ -300,7 +300,7 @@ impl Scene {
 
     /// Attaches an effect using the scene's rasterization settings.
     /// Leaves the previous attachment unchanged if its bounds cannot be calculated.
-    pub fn set_shape_effect(
+    pub(crate) fn set_shape_effect(
         &mut self,
         node_id: usize,
         effect_id: u64,
@@ -329,7 +329,7 @@ impl Scene {
         Ok(())
     }
 
-    pub fn update_shape_effect_params(
+    pub(crate) fn update_shape_effect_params(
         &mut self,
         node_id: usize,
         parameters: EffectParameters,
@@ -342,7 +342,7 @@ impl Scene {
         Ok(())
     }
 
-    pub fn update_shape_effect_config(
+    pub(crate) fn update_shape_effect_config(
         &mut self,
         node_id: usize,
         config: ShapeEffectConfig,
@@ -392,7 +392,7 @@ impl Scene {
         Ok(())
     }
 
-    pub fn remove_shape_effect(&mut self, node_id: usize) {
+    pub(crate) fn remove_shape_effect(&mut self, node_id: usize) {
         self.shape_effects.remove(&node_id);
     }
 

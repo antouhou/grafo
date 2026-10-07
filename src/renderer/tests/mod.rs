@@ -239,7 +239,7 @@ fn queue_shape(renderer: &mut Renderer<TestBackend>, with_effects: bool) -> usiz
 }
 
 fn renderer() -> Renderer<TestBackend> {
-    Renderer::from_backend(TestBackend::default(), SceneContext::default())
+    Renderer::from_parts(TestBackend::default(), SceneContext::default())
 }
 
 fn surface() -> Surface<TestSurface> {

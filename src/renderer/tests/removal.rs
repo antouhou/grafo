@@ -213,18 +213,6 @@ fn removed_parents_are_rejected_before_resource_and_clip_preparation() {
         ));
     }
 
-    let cached_shape = renderer.scene.loaded_shape(1).unwrap();
-    for result in [
-        renderer
-            .scene
-            .add_shape(cached_shape, Some(removed), ShapeDrawCommandOptions::new()),
-        renderer
-            .scene
-            .add_clipping_rect(bounds, Some(removed), Some(transform), true),
-    ] {
-        assert!(matches!(result, Err(SceneError::InvalidShapeId(id)) if id == removed));
-    }
-
     assert!(matches!(
         renderer.add_shape(
             Shape::rect(bounds),
@@ -243,12 +231,6 @@ fn removed_parents_are_rejected_before_resource_and_clip_preparation() {
         Err(DrawCommandError::Scene(
             SceneError::UnsupportedClipRectTransform
         ))
-    ));
-    assert!(matches!(
-        renderer
-            .scene
-            .add_clipping_rect(bounds, Some(root), Some(transform), true),
-        Err(SceneError::UnsupportedClipRectTransform)
     ));
     assert_eq!(renderer.scene.next_node_id(), next_node);
     assert!(renderer.scene.draw_tree.get(removed).is_none());

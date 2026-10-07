@@ -4,6 +4,7 @@ use crate::core::{
     BackdropEffectConfig, Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, Viewport,
 };
 use crate::scene::effects::EffectInstance;
+use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
 use crate::scene::{Scene, SceneContext};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -45,13 +46,14 @@ fn non_effect_command_snapshots(plan: &RenderPlan) -> Vec<String> {
 
 fn add_shape(scene: &mut Scene, parent: Option<usize>) -> usize {
     let shape = scene.tessellate(&Shape::rect([(0.0, 0.0), (32.0, 32.0)]), Some(1));
-    scene
-        .add_shape(
+    scene.validate_parent(parent).unwrap();
+    scene.insert_node(
+        DrawTreeNode::CachedShape(CachedShapeDrawData::new(
             shape,
-            parent,
             ShapeDrawCommandOptions::new().color(Color::WHITE),
-        )
-        .unwrap()
+        )),
+        parent,
+    )
 }
 
 fn plan_scene(planner: &mut Planner, scene: &Scene) {

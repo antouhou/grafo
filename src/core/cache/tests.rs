@@ -26,9 +26,11 @@ fn frame_cache_promotes_live_values_and_collects_unreferenced_values() {
     assert!(cache.get(&7).is_some());
     drop(cache.end_frame());
 
-    assert_eq!(cache.len(), 1);
+    assert_eq!(cache.previous_frame.len(), 1);
+    assert!(cache.current_frame.is_empty());
     drop(cache.end_frame());
-    assert_eq!(cache.len(), 0);
+    assert!(cache.previous_frame.is_empty());
+    assert!(cache.current_frame.is_empty());
     assert_eq!(*drops.lock().unwrap(), 1);
 }
 
@@ -82,7 +84,8 @@ fn dropping_partial_eviction_keeps_live_entries_and_reuses_storage() {
     drop(evicted);
 
     assert_eq!(*drops.lock().unwrap(), 2);
-    assert_eq!(cache.len(), 1);
+    assert_eq!(cache.previous_frame.len(), 1);
+    assert!(cache.current_frame.is_empty());
     assert_eq!(cache.previous_frame.capacity(), retained_capacity);
     assert_eq!(cache.current_frame.capacity(), initial_capacity);
     assert!(cache.get(&0).is_some());

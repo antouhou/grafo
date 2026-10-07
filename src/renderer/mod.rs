@@ -22,25 +22,8 @@ mod viewport;
 /// CPU shape storage and backend context shared between renderers.
 #[derive(Clone)]
 pub struct RendererContext<B> {
-    backend: B,
-    scene: SceneContext,
-}
-
-impl<B> RendererContext<B> {
-    pub fn from_parts(backend: B, scene: SceneContext) -> Self {
-        Self { backend, scene }
-    }
-
-    pub fn backend(&self) -> &B {
-        &self.backend
-    }
-
-    pub fn scene(&self) -> &SceneContext {
-        &self.scene
-    }
-    pub fn into_parts(self) -> (B, SceneContext) {
-        (self.backend, self.scene)
-    }
+    pub(crate) backend: B,
+    pub(crate) scene: SceneContext,
 }
 
 /// Coordinates CPU scene construction and planning, then submits the flat command stream.
@@ -59,7 +42,7 @@ pub struct Renderer<B: RenderBackend> {
 impl<B: RenderBackend> Renderer<B> {
     /// Creates a renderer with an empty draw queue using the supplied backend.
     /// Loaded shapes are shared through `context`.
-    pub fn from_backend(backend: B, context: SceneContext) -> Self {
+    pub(crate) fn from_parts(backend: B, context: SceneContext) -> Self {
         let viewport = backend.viewport();
         Self {
             scene: Scene::new(context, viewport, backend.fringe_width()),

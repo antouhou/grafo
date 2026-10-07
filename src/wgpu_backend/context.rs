@@ -68,7 +68,7 @@ pub enum BackendCreationError {
 
 impl WgpuContext {
     /// Creates a device, command queue, and texture manager that renderers can share.
-    pub async fn try_new() -> Result<Self, BackendCreationError> {
+    pub(crate) async fn try_new() -> Result<Self, BackendCreationError> {
         let instance = Arc::new(wgpu::Instance::new(&InstanceDescriptor::default()));
         let adapter = Arc::new(
             instance
@@ -116,7 +116,7 @@ impl WgpuContext {
 impl WgpuContext {
     /// Creates a surface compatible with this context's adapter.
     /// The backend configures it on the first render.
-    pub fn create_surface(
+    pub(crate) fn create_surface(
         &self,
         target: impl Into<SurfaceTarget<'static>>,
         physical_size: (u32, u32),
@@ -155,7 +155,7 @@ impl WgpuContext {
 
 impl WgpuBackend {
     /// Creates rendering resources on the context's device.
-    pub fn new(
+    pub(crate) fn new(
         context: Arc<WgpuContext>,
         physical_size: (u32, u32),
         scale_factor: f64,
