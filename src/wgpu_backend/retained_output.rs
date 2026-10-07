@@ -5,10 +5,49 @@ use wgpu::{
     ColorTargetState, ColorWrites, CommandEncoder, CompareFunction, DepthStencilState, Device,
     Extent3d, FragmentState, LoadOp, MultisampleState, Operations, RenderPassColorAttachment,
     RenderPassDepthStencilAttachment, RenderPassDescriptor, RenderPipeline,
-    RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, StoreOp, Texture,
+    RenderPipelineDescriptor, ShaderModule, ShaderModuleDescriptor, ShaderSource, StoreOp, Texture,
     TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
     TextureViewDescriptor, VertexState,
 };
+
+fn create_output_pipeline(
+    device: &Device,
+    shader: &ShaderModule,
+    format: TextureFormat,
+    fragment_entry_point: &str,
+    sample_count: u32,
+    depth_stencil: Option<DepthStencilState>,
+    blend: Option<BlendState>,
+) -> RenderPipeline {
+    device.create_render_pipeline(&RenderPipelineDescriptor {
+        label: Some(fragment_entry_point),
+        layout: None,
+        vertex: VertexState {
+            module: shader,
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        fragment: Some(FragmentState {
+            module: shader,
+            entry_point: Some(fragment_entry_point),
+            compilation_options: Default::default(),
+            targets: &[Some(ColorTargetState {
+                format,
+                blend,
+                write_mask: ColorWrites::ALL,
+            })],
+        }),
+        primitive: Default::default(),
+        depth_stencil,
+        multisample: MultisampleState {
+            count: sample_count,
+            ..Default::default()
+        },
+        multiview: None,
+        cache: None,
+    })
+}
 
 /// One persistent image shared by surface presentation and pixmap readback.
 pub(super) struct RetainedOutput {
@@ -43,37 +82,10 @@ impl RetainedOutput {
             label: Some("retained_output"),
             source: ShaderSource::Wgsl(include_str!("../shaders/retained_output.wgsl").into()),
         });
-        let pipeline = |entry_point, samples, depth_stencil, blend| {
-            device.create_render_pipeline(&RenderPipelineDescriptor {
-                label: Some(entry_point),
-                layout: None,
-                vertex: VertexState {
-                    module: &shader,
-                    entry_point: Some("vs_main"),
-                    compilation_options: Default::default(),
-                    buffers: &[],
-                },
-                fragment: Some(FragmentState {
-                    module: &shader,
-                    entry_point: Some(entry_point),
-                    compilation_options: Default::default(),
-                    targets: &[Some(ColorTargetState {
-                        format,
-                        blend,
-                        write_mask: ColorWrites::ALL,
-                    })],
-                }),
-                primitive: Default::default(),
-                depth_stencil,
-                multisample: MultisampleState {
-                    count: samples,
-                    ..Default::default()
-                },
-                multiview: None,
-                cache: None,
-            })
-        };
-        let clear_pipeline = pipeline(
+        let clear_pipeline = create_output_pipeline(
+            device,
+            &shader,
+            format,
             "fs_clear",
             samples,
             Some(DepthStencilState {
@@ -85,8 +97,12 @@ impl RetainedOutput {
             }),
             None,
         );
-        let present_pipeline = pipeline("fs_present", 1, None, None);
-        let dirty_region_overlay_pipeline = pipeline(
+        let present_pipeline =
+            create_output_pipeline(device, &shader, format, "fs_present", 1, None, None);
+        let dirty_region_overlay_pipeline = create_output_pipeline(
+            device,
+            &shader,
+            format,
             "fs_dirty_region_overlay",
             1,
             None,
