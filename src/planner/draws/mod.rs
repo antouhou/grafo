@@ -54,9 +54,8 @@ pub(crate) struct DrawPlanningInput<'a> {
     pub(crate) backdrop_effects: &'a HashMap<usize, BackdropEffectInstance>,
     pub(crate) scale_factor: f64,
     pub(crate) physical_size: Size,
-    pub(crate) backdrop_source: Option<BackdropCaptureSource>,
     /// None disables captures when rendering a group's backdrop source.
-    pub(crate) max_capture_dimension: Option<u32>,
+    pub(crate) backdrop_source: Option<BackdropCaptureSource>,
 }
 
 /// Walks the CPU tree to emit draw commands and resolved clip operands.

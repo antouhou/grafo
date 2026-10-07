@@ -1,4 +1,4 @@
-use super::{ShapeDrawLocation, ShapeDrawResources, ShapeExecutionResources};
+use super::{ShapeBufferLocation, ShapeDrawResources, ShapeExecutionResources};
 use crate::core::shape::ShapeInstance;
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
 use crate::wgpu_backend::resources::ShapePipelines;
@@ -190,7 +190,7 @@ impl ShapeExecutionResources {
                     texture_uv_transforms,
                 },
             );
-            resources.location = Some(ShapeDrawLocation {
+            resources.geometry_buffer_location = Some(ShapeBufferLocation {
                 geometry_range,
                 instance_index,
             });

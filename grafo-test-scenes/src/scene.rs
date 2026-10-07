@@ -164,8 +164,233 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_81_shared_shape_effect_composites(renderer));
     expectations.extend(tile_82_group_dependencies_in_layered_backdrops(renderer));
     expectations.extend(tile_83_nested_target_restoration(renderer));
+    expectations.extend(tile_84_mixed_command_replacement(renderer));
+    expectations.extend(tile_85_replacement_preserves_effects_and_children(renderer));
+    expectations.extend(tile_86_negative_w_shapes_and_effects(renderer));
 
     expectations
+}
+
+fn tile_84_mixed_command_replacement(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(84);
+    let options = ShapeDrawCommandOptions::new()
+        .transform(TransformInstance::translation(origin_x, origin_y));
+    let initial = Shape::rect([(5.0, 5.0), (30.0, 30.0)]);
+    let parent = renderer
+        .add_shape(&initial, None, None, options.clone())
+        .unwrap();
+    let child = renderer
+        .add_shape(&initial, Some(parent), None, options.clone())
+        .unwrap();
+    let lower = renderer
+        .add_shape(&initial, None, None, options.clone())
+        .unwrap();
+    renderer.load_shape(
+        Shape::rect([(5.0, 5.0), (55.0, 30.0)]),
+        84_001,
+        Some(84_002),
+    );
+    let replacement = Shape::rounded_rect([(10.0, 45.0), (70.0, 70.0)], BorderRadii::new(4.0));
+    let gradient = Gradient::linear(LinearGradientDesc {
+        common: two_stop_common_canvas((220, 30, 30), (30, 30, 220), SpreadMode::Pad),
+        line: LinearGradientLine {
+            start: [origin_x + 10.0, origin_y + 55.0],
+            end: [origin_x + 70.0, origin_y + 55.0],
+        },
+    })
+    .unwrap();
+    renderer
+        .replace_with_clipping_rect(parent, [(10.0, 5.0), (50.0, 35.0)], options.transform, true)
+        .unwrap();
+    renderer
+        .replace_with_cached_shape(
+            child,
+            84_001,
+            options
+                .clone()
+                .background_texture_id(SOLID_GREEN_TEXTURE_ID),
+        )
+        .unwrap();
+    renderer
+        .replace_with_shape(
+            lower,
+            &replacement,
+            None,
+            options.fill(Fill::Gradient(gradient)),
+        )
+        .unwrap();
+    [
+        (8, 15, [255, 255, 255], 5, "t84_clip_left_edge"),
+        (20, 15, [0, 255, 0], 5, "t84_child_texture"),
+        (53, 15, [255, 255, 255], 5, "t84_clip_right_edge"),
+        (15, 55, [200, 30, 50], 45, "t84_gradient_red"),
+        (65, 55, [50, 30, 200], 45, "t84_gradient_blue"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], tolerance, label)| {
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            tolerance,
+            label,
+        )
+    })
+    .collect()
+}
+
+fn tile_85_replacement_preserves_effects_and_children(
+    renderer: &mut Renderer,
+) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(85);
+    let options = ShapeDrawCommandOptions::new()
+        .transform(TransformInstance::translation(origin_x, origin_y));
+    renderer
+        .add_shape(
+            Shape::rect([(5.0, 5.0), (75.0, 70.0)]),
+            None,
+            None,
+            options.clone().color(Color::rgb(50, 180, 80)),
+        )
+        .unwrap();
+    let parent = renderer
+        .add_shape(
+            Shape::rect([(10.0, 10.0), (30.0, 30.0)]),
+            None,
+            None,
+            options.clone(),
+        )
+        .unwrap();
+    renderer
+        .add_shape(
+            Shape::rect([(35.0, 30.0), (45.0, 40.0)]),
+            Some(parent),
+            None,
+            options.clone().color(Color::rgb(220, 30, 30)),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            parent,
+            SHAPE_DROP_EFFECT_ID,
+            &[],
+            ShapeEffectConfig::new().outset(6.0),
+        )
+        .unwrap();
+    renderer
+        .set_shape_backdrop_effect(
+            parent,
+            COLOR_CHANNEL_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::default(),
+        )
+        .unwrap();
+    renderer
+        .set_group_effect(parent, COLOR_CHANNEL_EFFECT_ID, &[])
+        .unwrap();
+    renderer
+        .replace_with_shape(
+            parent,
+            Shape::rounded_rect([(30.0, 25.0), (50.0, 45.0)], BorderRadii::new(3.0)),
+            None,
+            options,
+        )
+        .unwrap();
+    [
+        (15, 15, [50, 180, 80], "t85_old_geometry_removed"),
+        (33, 35, [180, 80, 50], "t85_backdrop_preserved"),
+        (46, 43, [0, 255, 0], "t85_geometry_effect"),
+        (53, 35, [255, 0, 0], "t85_effect_bounds"),
+        (38, 35, [30, 220, 30], "t85_child_preserved"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+    })
+    .collect()
+}
+
+fn tile_86_negative_w_shapes_and_effects(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(86);
+    let parent = renderer
+        .add_clipping_rect(
+            [(5.0, 5.0), (70.0, 70.0)],
+            None,
+            Some(TransformInstance::translation(origin_x, origin_y)),
+            true,
+        )
+        .unwrap();
+    let mut transform = TransformInstance::translation(origin_x, origin_y);
+    transform.col3[3] = -1.0;
+    renderer
+        .add_shape(
+            Shape::rect([(0.0, 10.0), (35.0, 35.0)]),
+            Some(parent),
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgb(220, 30, 30))
+                .transform(transform),
+        )
+        .unwrap();
+    let effect_shape = renderer
+        .add_shape(
+            Shape::rect([(45.0, 10.0), (65.0, 30.0)]),
+            Some(parent),
+            None,
+            ShapeDrawCommandOptions::new().transform(transform),
+        )
+        .unwrap();
+    renderer
+        .set_shape_effect(
+            effect_shape,
+            SHAPE_DROP_EFFECT_ID,
+            &[],
+            ShapeEffectConfig::new().outset(12.0),
+        )
+        .unwrap();
+    [
+        (3, 22, [255, 255, 255], "t86_negative_w_shape_respects_clip"),
+        (
+            22,
+            22,
+            [220, 30, 30],
+            "t86_negative_w_shape_projects_forward",
+        ),
+        (40, 22, [255, 255, 255], "t86_gap_between_shape_and_effect"),
+        (
+            62,
+            26,
+            [0, 0, 255],
+            "t86_negative_w_shape_effect_projects_forward",
+        ),
+        (
+            74,
+            26,
+            [255, 255, 255],
+            "t86_negative_w_shape_effect_respects_clip",
+        ),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+    })
+    .collect()
 }
 
 /// Each row checks a backdrop's color, child clip, and following sibling.

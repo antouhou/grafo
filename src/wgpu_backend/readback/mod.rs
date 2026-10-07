@@ -7,8 +7,7 @@ use crate::wgpu_backend::metrics::PhaseTimings;
 use crate::wgpu_backend::pipeline::{
     compute_padded_bytes_per_row, create_argb_row_packing_bind_group,
     create_argb_row_packing_params_buffer, create_argb_row_packing_pipeline,
-    create_offscreen_color_texture, create_readback_buffer, encode_copy_texture_to_buffer,
-    ArgbRowPackingParams,
+    create_readback_buffer, encode_copy_texture_to_buffer, ArgbRowPackingParams,
 };
 use mapping::ReadbackMapping;
 use std::iter;
@@ -18,7 +17,7 @@ use thiserror::Error;
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferAsyncError, BufferDescriptor, BufferUsages,
     CommandEncoderDescriptor, ComputePassDescriptor, ComputePipeline, Device, MapMode, PollError,
-    PollType, Texture, TextureFormat, TextureView, TextureViewDescriptor,
+    PollType, TextureFormat,
 };
 
 mod mapping;
@@ -110,20 +109,16 @@ fn copy_readback_rows(
 }
 
 pub(in crate::wgpu_backend) struct ByteReadbackResources {
-    pub(in crate::wgpu_backend) texture: Texture,
-    view: TextureView,
+    physical_size: (u32, u32),
     mapping: ReadbackMapping,
     pub(in crate::wgpu_backend) buffer: Buffer,
 }
 
 impl ByteReadbackResources {
-    fn new(device: &Device, physical_size: (u32, u32), format: TextureFormat) -> Self {
+    fn new(device: &Device, physical_size: (u32, u32)) -> Self {
         let (_, padded_bytes_per_row) = compute_padded_bytes_per_row(physical_size.0, 4);
-        let texture = create_offscreen_color_texture(device, physical_size, format);
-        let view = texture.create_view(&TextureViewDescriptor::default());
         Self {
-            texture,
-            view,
+            physical_size,
             mapping: ReadbackMapping::new(),
             buffer: create_readback_buffer(
                 device,
@@ -134,10 +129,9 @@ impl ByteReadbackResources {
     }
 }
 
-/// The texture, buffers, and bindings for one ARGB readback size.
-pub(in crate::wgpu_backend) struct ArgbReadbackTarget {
-    pub(in crate::wgpu_backend) texture: Texture,
-    view: TextureView,
+/// Buffers and bindings for one ARGB readback size.
+pub(in crate::wgpu_backend) struct ArgbReadbackBuffers {
+    physical_size: (u32, u32),
     mapping: ReadbackMapping,
     pub(in crate::wgpu_backend) input_buffer: Buffer,
     pub(in crate::wgpu_backend) output_buffer: Buffer,
@@ -147,12 +141,11 @@ pub(in crate::wgpu_backend) struct ArgbReadbackTarget {
     bind_group: BindGroup,
 }
 
-impl ArgbReadbackTarget {
+impl ArgbReadbackBuffers {
     fn new(
         device: &Device,
         bind_group_layout: &BindGroupLayout,
         physical_size: (u32, u32),
-        format: TextureFormat,
     ) -> Self {
         let (width, height) = physical_size;
         let (_, padded_bytes_per_row) = compute_padded_bytes_per_row(width, 4);
@@ -187,11 +180,8 @@ impl ArgbReadbackTarget {
             &output_buffer,
             &params_buffer,
         );
-        let texture = create_offscreen_color_texture(device, physical_size, format);
-        let view = texture.create_view(&TextureViewDescriptor::default());
         Self {
-            texture,
-            view,
+            physical_size,
             mapping: ReadbackMapping::new(),
             input_buffer,
             output_buffer,
@@ -206,24 +196,23 @@ impl ArgbReadbackTarget {
 pub(in crate::wgpu_backend) struct ArgbReadbackResources {
     pipeline: ComputePipeline,
     bind_group_layout: BindGroupLayout,
-    pub(in crate::wgpu_backend) target: ArgbReadbackTarget,
+    pub(in crate::wgpu_backend) buffers: ArgbReadbackBuffers,
 }
 
 impl ArgbReadbackResources {
-    fn new(device: &Device, physical_size: (u32, u32), format: TextureFormat) -> Self {
+    fn new(device: &Device, physical_size: (u32, u32)) -> Self {
         let (bind_group_layout, pipeline) = create_argb_row_packing_pipeline(device);
-        let target = ArgbReadbackTarget::new(device, &bind_group_layout, physical_size, format);
+        let buffers = ArgbReadbackBuffers::new(device, &bind_group_layout, physical_size);
         Self {
             pipeline,
             bind_group_layout,
-            target,
+            buffers,
         }
     }
 
-    fn resize(&mut self, device: &Device, physical_size: (u32, u32), format: TextureFormat) {
-        if (self.target.texture.width(), self.target.texture.height()) != physical_size {
-            self.target =
-                ArgbReadbackTarget::new(device, &self.bind_group_layout, physical_size, format);
+    fn resize(&mut self, device: &Device, physical_size: (u32, u32)) {
+        if self.buffers.physical_size != physical_size {
+            self.buffers = ArgbReadbackBuffers::new(device, &self.bind_group_layout, physical_size);
         }
     }
 }
@@ -294,14 +283,14 @@ impl WgpuBackend {
 
         let physical_size = (width, height);
         let resources = match self.byte_readback.take() {
-            Some(resources)
-                if (resources.texture.width(), resources.texture.height()) == physical_size =>
-            {
-                resources
-            }
-            _ => ByteReadbackResources::new(&self.device, physical_size, self.format),
+            Some(resources) if resources.physical_size == physical_size => resources,
+            _ => ByteReadbackResources::new(&self.device, physical_size),
         };
-        self.render_to_texture_view(commands, &resources.view, Some(&resources.texture));
+        let _ = self.update_retained_output(commands);
+        let retained = self
+            .retained_output
+            .as_ref()
+            .expect("retained output was initialized before readback");
 
         let (_, padded_bytes_per_row) = compute_padded_bytes_per_row(width, 4);
 
@@ -313,7 +302,7 @@ impl WgpuBackend {
 
         encode_copy_texture_to_buffer(
             &mut encoder,
-            &resources.texture,
+            &retained.texture,
             &resources.buffer,
             width,
             height,
@@ -364,12 +353,17 @@ impl WgpuBackend {
         #[cfg(feature = "render_metrics")]
         let preparation_finished_at = Instant::now();
 
-        let mut resources = self.argb_readback.take().unwrap_or_else(|| {
-            ArgbReadbackResources::new(&self.device, (width, height), self.format)
-        });
-        resources.resize(&self.device, (width, height), self.format);
-        let target = &resources.target;
-        self.render_to_texture_view(commands, &target.view, Some(&target.texture));
+        let mut resources = self
+            .argb_readback
+            .take()
+            .unwrap_or_else(|| ArgbReadbackResources::new(&self.device, (width, height)));
+        resources.resize(&self.device, (width, height));
+        let _ = self.update_retained_output(commands);
+        let retained = self
+            .retained_output
+            .as_ref()
+            .expect("retained output was initialized before readback");
+        let buffers = &resources.buffers;
 
         let (_, padded_bytes_per_row) = compute_padded_bytes_per_row(width, 4);
         let mut encoder = self
@@ -379,8 +373,8 @@ impl WgpuBackend {
             });
         encode_copy_texture_to_buffer(
             &mut encoder,
-            &target.texture,
-            &target.input_buffer,
+            &retained.texture,
+            &buffers.input_buffer,
             width,
             height,
             padded_bytes_per_row,
@@ -399,7 +393,7 @@ impl WgpuBackend {
                 timestamp_writes: None,
             });
             pass.set_pipeline(&resources.pipeline);
-            pass.set_bind_group(0, &target.bind_group, &[]);
+            pass.set_bind_group(0, &buffers.bind_group, &[]);
             let workgroup_x = width.div_ceil(16);
             let workgroup_y = height.div_ceil(16);
             pass.dispatch_workgroups(workgroup_x, workgroup_y, 1);
@@ -412,11 +406,11 @@ impl WgpuBackend {
                 label: Some("argb_readback_copy_encoder"),
             });
         readback_encoder.copy_buffer_to_buffer(
-            &target.output_buffer,
+            &buffers.output_buffer,
             0,
-            &target.readback_buffer,
+            &buffers.readback_buffer,
             0,
-            target.output_buffer.size(),
+            buffers.output_buffer.size(),
         );
         self.queue.submit(iter::once(readback_encoder.finish()));
 
@@ -426,8 +420,8 @@ impl WgpuBackend {
         let readback_bytes = &mut self.readback_bytes;
         Self::map_readback_buffer_into(
             &self.device,
-            &target.readback_buffer,
-            &target.mapping,
+            &buffers.readback_buffer,
+            &buffers.mapping,
             readback_bytes,
         )?;
         self.argb_readback = Some(resources);

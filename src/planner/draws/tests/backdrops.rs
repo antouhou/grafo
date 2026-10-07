@@ -74,8 +74,10 @@ fn consecutive_captures_follow_preceding_draws_and_keep_separate_outputs() {
     let second = scene.add(Some(root), shape(true));
     scene.attach_backdrop(first, &mut output);
     scene.attach_backdrop(second, &mut output);
-    scene.backdrops.get_mut(&first).unwrap().config =
-        BackdropEffectConfig::new().padding(4.0).downsample(0.5);
+    scene.update_backdrop_config(
+        first,
+        BackdropEffectConfig::new().padding(4.0).downsample(0.5),
+    );
     scene.backdrops.get_mut(&second).unwrap().effect.parameters = output.store_parameters(&[9, 8]);
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let ops = operations(&output);
@@ -153,11 +155,13 @@ fn rejected_capture_preserves_gradient_and_stencil_without_texture_work() {
         })
         .unwrap(),
     ));
-    scene.backdrops.get_mut(&panel).unwrap().config =
+    scene.update_backdrop_config(
+        panel,
         BackdropEffectConfig::new().capture_area(BackdropCaptureArea::ScreenRect([
             (0.0, 0.0),
             (20_000.0, 20_000.0),
-        ]));
+        ])),
+    );
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let RenderOperation::DrawShape(draw) = output.instructions[1].operation else {
         panic!("ordinary fallback draw")

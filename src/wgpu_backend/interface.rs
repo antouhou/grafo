@@ -25,7 +25,7 @@ impl RenderBackend for WgpuBackend {
             &self.pipeline_resources.shapes,
             self.viewport.scale_factor,
         )?;
-        self.resources.shape_execution.draws.insert(id.0, resources);
+        self.resources.shape_execution.register_draw(id, resources);
         Ok(())
     }
 
@@ -103,12 +103,21 @@ impl RenderBackend for WgpuBackend {
         self.set_msaa_samples(samples);
     }
 
+    fn set_dirty_region_overlay_enabled(&mut self, enabled: bool) {
+        self.is_dirty_region_overlay_enabled = enabled;
+    }
+
+    fn is_dirty_region_overlay_enabled(&self) -> bool {
+        self.is_dirty_region_overlay_enabled
+    }
+
     fn render(
         &mut self,
         commands: &RenderPlan,
         target: RenderTarget<'_, Self::Surface>,
     ) -> Result<(), Self::Error> {
         let size = target.validate_size(self.maximum_texture_dimension())?;
+        self.resources.shape_execution.compact_draw_buffers();
         if self.viewport.physical_size != size {
             self.resize(
                 Viewport {

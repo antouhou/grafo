@@ -26,7 +26,6 @@ pub(crate) struct GroupPlanningInput<'a> {
     pub shape_effects: &'a HashMap<usize, TextureComposite>,
     pub scale_factor: f64,
     pub physical_size: Size,
-    pub max_capture_dimension: u32,
 }
 
 /// Appends dependency targets and scene draws to the planner's shared stream.
@@ -81,7 +80,6 @@ impl SceneTraversal {
                 scale_factor: input.scale_factor,
                 physical_size: input.physical_size,
                 backdrop_source: Some(BackdropCaptureSource::Target),
-                max_capture_dimension: Some(input.max_capture_dimension),
             },
             output,
         );
@@ -163,7 +161,6 @@ impl SceneTraversal {
                 backdrop_source,
                 scale_factor: input.scale_factor,
                 physical_size: input.physical_size,
-                max_capture_dimension: Some(input.max_capture_dimension),
             },
             output,
         );

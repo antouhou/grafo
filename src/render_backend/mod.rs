@@ -58,8 +58,8 @@ pub trait RenderBackend {
     type Error: From<RenderTargetError>;
     type TextureManager: TextureManager<Error = Self::Error>;
 
-    /// Prepares and registers resources for a borrowed CPU instance.
-    /// An error must leave the ID unregistered.
+    /// Registers or replaces resources for a borrowed CPU instance.
+    /// An error must preserve the previous registration, if any.
     fn register_shape(&mut self, id: ShapeDrawId, shape: &ShapeInstance)
         -> Result<(), Self::Error>;
     /// Releases the given instances and their effect bindings.
@@ -94,8 +94,22 @@ pub trait RenderBackend {
     fn resize(&mut self, viewport: Viewport, fringe_width: f32);
 
     fn set_msaa_samples(&mut self, samples: u32);
+
+    /// Controls the transient red redraw overlay on surfaces. Disabled by default.
+    /// This setting must not invalidate the retained scene or affect pixmap pixels.
+    /// The default implementation ignores this setting.
+    fn set_dirty_region_overlay_enabled(&mut self, _enabled: bool) {}
+
+    /// Returns whether surface redraw bounds are highlighted. Defaults to false.
+    fn is_dirty_region_overlay_enabled(&self) -> bool {
+        false
+    }
+
     /// Renders `commands` at the target's dimensions. The commands must have been
     /// planned for those dimensions.
+    /// Preserve the previous image outside `commands.root_scissor`. Clear and redraw
+    /// inside it; None leaves the image unchanged. A newly allocated output needs a
+    /// full redraw, for which the plan still contains the entire scene.
     ///
     /// Pixmap pixels must be ready on success and remain unchanged on error.
     /// Surface rendering must submit and present the frame.

@@ -1,5 +1,4 @@
 use super::ShapeExecutionResources;
-use crate::commands::ShapeDrawId;
 use crate::wgpu_backend::vertex::GeometryBufferRange;
 use ahash::HashMap;
 
@@ -23,7 +22,11 @@ impl ShapeExecutionResources {
     fn compact_instance_buffers(&mut self) {
         let instance_relocations = &mut self.compaction.instance_relocations;
         instance_relocations.resize(self.instance_transforms.len(), None);
-        for location in self.draws.values().filter_map(|draw| draw.location) {
+        for location in self
+            .draws
+            .values()
+            .filter_map(|draw| draw.geometry_buffer_location)
+        {
             instance_relocations[location.instance_index] = Some(0);
         }
         let mut retained_count = 0;
@@ -43,7 +46,7 @@ impl ShapeExecutionResources {
         for location in self
             .draws
             .values_mut()
-            .filter_map(|draw| draw.location.as_mut())
+            .filter_map(|draw| draw.geometry_buffer_location.as_mut())
         {
             location.instance_index = instance_relocations[location.instance_index]
                 .expect("surviving draws have retained instances");
@@ -51,7 +54,11 @@ impl ShapeExecutionResources {
     }
 
     fn collect_retained_geometry(&mut self) {
-        for location in self.draws.values().filter_map(|draw| draw.location) {
+        for location in self
+            .draws
+            .values()
+            .filter_map(|draw| draw.geometry_buffer_location)
+        {
             let range = location.geometry_range;
             self.compaction
                 .geometry_relocations
@@ -104,29 +111,21 @@ impl ShapeExecutionResources {
         for location in self
             .draws
             .values_mut()
-            .filter_map(|draw| draw.location.as_mut())
+            .filter_map(|draw| draw.geometry_buffer_location.as_mut())
         {
             location.geometry_range =
                 self.compaction.geometry_relocations[&location.geometry_range.index_start];
         }
     }
 
-    /// Removes draws and compacts the instance and geometry buffers.
-    pub(in crate::wgpu_backend) fn remove_draws(&mut self, ids: &[ShapeDrawId]) {
-        let mut has_removed_instances = false;
-        for id in ids {
-            has_removed_instances |= self
-                .draws
-                .remove(&id.0)
-                .and_then(|draw| draw.location)
-                .is_some();
-        }
-        if !has_removed_instances {
+    pub(in crate::wgpu_backend) fn compact_draw_buffers(&mut self) {
+        if !self.has_unused_draw_buffers {
             return;
         }
         self.compaction.clear();
         self.compact_instance_buffers();
         self.compact_geometry_buffers();
         self.compaction.clear();
+        self.has_unused_draw_buffers = false;
     }
 }

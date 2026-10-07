@@ -53,6 +53,8 @@ impl WgpuBackend {
             },
             argb_readback: None,
             byte_readback: None,
+            retained_output: None,
+            is_dirty_region_overlay_enabled: false,
             msaa_sample_count,
             msaa_color_texture: None,
             msaa_color_texture_view: None,
@@ -62,7 +64,7 @@ impl WgpuBackend {
             #[cfg(feature = "render_metrics")]
             last_phase_timings: Default::default(),
             #[cfg(feature = "render_metrics")]
-            last_render_to_texture_view_cpu_time: Default::default(),
+            last_retained_output_update_cpu_time: Default::default(),
             resources: BackendResources {
                 shape_execution: ShapeExecutionResources::new(),
                 effect_execution: EffectExecutionResources::default(),
@@ -96,8 +98,6 @@ impl WgpuBackend {
         self.format = format;
         self.recreate_pipelines();
         self.recreate_msaa_texture();
-        self.argb_readback = None;
-        self.byte_readback = None;
     }
 
     pub(in crate::wgpu_backend) fn recreate_pipelines(&mut self) {

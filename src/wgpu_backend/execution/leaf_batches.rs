@@ -1,6 +1,5 @@
 use super::draws::{self, DrawPass};
 use super::shapes::ShapeExecutionResources;
-use super::targets;
 use crate::commands::{DrawClip, RenderCommand, RenderOperation, ShapeTextureBinding};
 use crate::wgpu_backend::types::Pipeline;
 use crate::wgpu_backend::vertex::GeometryBufferRange;
@@ -14,8 +13,8 @@ struct LeafBatch {
 
 impl DrawPass<'_, '_> {
     fn draw_batch(&mut self, batch: &LeafBatch, clip: DrawClip) {
+        self.set_scissor(clip.scissor);
         let pipelines = &self.pipelines.shapes;
-        targets::set_scissor(self.render_pass, clip.scissor);
         if self.pipeline_tracker.current != Pipeline::LeafDraw {
             self.render_pass.set_pipeline(&pipelines.leaf_draw_pipeline);
             self.render_pass
@@ -71,11 +70,11 @@ impl DrawPass<'_, '_> {
             unreachable!("leaf batch starts with a shape draw");
         };
         let resources = shapes.draw_resources(draw.id);
-        let Some(location) = resources.location else {
+        let Some(location) = resources.geometry_buffer_location else {
             return 1;
         };
         if draw.material.has_gradient_fill || draw.material.under_fill_texture.is_some() {
-            targets::set_scissor(self.render_pass, first.clip.scissor);
+            self.set_scissor(first.clip.scissor);
             self.draw_shape(first.clip.stencil_reference, draw.material, resources);
             return 1;
         }
@@ -96,7 +95,8 @@ impl DrawPass<'_, '_> {
             {
                 break;
             }
-            let Some(location) = shapes.draw_resources(next_draw.id).location else {
+            let Some(location) = shapes.draw_resources(next_draw.id).geometry_buffer_location
+            else {
                 break;
             };
             if location.geometry_range != batch.geometry_range

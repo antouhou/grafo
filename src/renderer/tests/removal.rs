@@ -186,7 +186,79 @@ fn removing_clip_subtrees_and_the_root_preserves_loaded_shapes() {
 }
 
 #[test]
-fn repeated_subtree_replacement_reclaims_parameters_and_preserves_surviving_effects() {
+fn removed_parents_are_rejected_before_resource_and_clip_preparation() {
+    let mut renderer = renderer();
+    let root = queue_shape(&mut renderer, false);
+    let removed = queue_shape(&mut renderer, false);
+    renderer.remove_subtrees([removed], |_| {});
+    let bounds = [(0.0, 0.0), (16.0, 16.0)];
+    let transform = InstanceTransform::rotation_z_deg(45.0);
+    let dirty = renderer.dirty_bounds;
+    let next_node = renderer.scene.next_node_id();
+    renderer.backend.should_fail = true;
+
+    for result in [
+        renderer.add_shape(
+            Shape::rect(bounds),
+            Some(removed),
+            None,
+            ShapeDrawCommandOptions::new(),
+        ),
+        renderer.add_cached_shape(999, Some(removed), ShapeDrawCommandOptions::new()),
+        renderer.add_clipping_rect(bounds, Some(removed), Some(transform), true),
+    ] {
+        assert!(matches!(
+            result,
+            Err(DrawCommandError::Scene(SceneError::InvalidShapeId(id))) if id == removed
+        ));
+    }
+
+    let cached_shape = renderer.scene.loaded_shape(1).unwrap();
+    for result in [
+        renderer
+            .scene
+            .add_shape(cached_shape, Some(removed), ShapeDrawCommandOptions::new()),
+        renderer
+            .scene
+            .add_clipping_rect(bounds, Some(removed), Some(transform), true),
+    ] {
+        assert!(matches!(result, Err(SceneError::InvalidShapeId(id)) if id == removed));
+    }
+
+    assert!(matches!(
+        renderer.add_shape(
+            Shape::rect(bounds),
+            Some(root),
+            None,
+            ShapeDrawCommandOptions::new(),
+        ),
+        Err(DrawCommandError::Backend(_))
+    ));
+    assert!(matches!(
+        renderer.add_cached_shape(999, Some(root), ShapeDrawCommandOptions::new()),
+        Err(DrawCommandError::Scene(SceneError::ShapeNotLoaded(999)))
+    ));
+    assert!(matches!(
+        renderer.add_clipping_rect(bounds, Some(root), Some(transform), true),
+        Err(DrawCommandError::Scene(
+            SceneError::UnsupportedClipRectTransform
+        ))
+    ));
+    assert!(matches!(
+        renderer
+            .scene
+            .add_clipping_rect(bounds, Some(root), Some(transform), true),
+        Err(SceneError::UnsupportedClipRectTransform)
+    ));
+    assert_eq!(renderer.scene.next_node_id(), next_node);
+    assert!(renderer.scene.draw_tree.get(removed).is_none());
+    assert!(renderer.scene.draw_tree.children(root).is_empty());
+    assert_eq!(renderer.backend.registered_shapes, [root]);
+    assert_eq!(renderer.dirty_bounds, dirty);
+}
+
+#[test]
+fn replacements_and_subtree_removals_defer_compaction_and_preserve_surviving_parameters() {
     let mut renderer = renderer();
     let mut surface = surface();
     queue_shape(&mut renderer, false);
@@ -195,6 +267,8 @@ fn repeated_subtree_replacement_reclaims_parameters_and_preserves_surviving_effe
     let survivor = queue_shape(&mut renderer, false);
     attach_effects(&mut renderer, survivor);
     for _ in 0..20 {
+        let converted = queue_shape(&mut renderer, false);
+        attach_effects(&mut renderer, converted);
         renderer
             .update_group_effect_params(survivor, &[5; 4])
             .unwrap();
@@ -204,16 +278,21 @@ fn repeated_subtree_replacement_reclaims_parameters_and_preserves_surviving_effe
         renderer
             .update_shape_effect_params(survivor, &[7; 4])
             .unwrap();
-        renderer.remove_subtrees([branch], |_| {});
         let group_parameters = renderer.scene.group_effect(survivor).unwrap().parameters;
         let backdrop_parameters = renderer.scene.backdrop_effect(survivor).unwrap().parameters;
         let shape_parameters = renderer.scene.shape_effect(survivor).unwrap().parameters;
-        let plan = renderer.planner.plan(
-            &renderer.scene,
-            renderer.viewport,
-            renderer.fringe_width,
-            4096,
-        );
+        renderer.remove_subtrees([branch], |_| {});
+        renderer
+            .replace_with_clipping_rect(
+                converted,
+                [(0.0, 0.0), (16.0, 16.0)],
+                None::<InstanceTransform>,
+                true,
+            )
+            .unwrap();
+        renderer.remove_subtrees([converted], |_| {});
+        let plan = renderer.planner.plan(&renderer.scene, 4096, None);
+        assert_eq!(plan.effect_parameters.len(), 36);
         assert_eq!(plan.parameters(group_parameters), &[5; 4]);
         assert_eq!(plan.parameters(backdrop_parameters), &[6; 4]);
         assert_eq!(plan.parameters(shape_parameters), &[7; 4]);
@@ -230,12 +309,7 @@ fn repeated_subtree_replacement_reclaims_parameters_and_preserves_surviving_effe
         assert_eq!(
             renderer
                 .planner
-                .plan(
-                    &renderer.scene,
-                    renderer.viewport,
-                    renderer.fringe_width,
-                    4096
-                )
+                .plan(&renderer.scene, 4096, None)
                 .effect_parameters
                 .len(),
             12

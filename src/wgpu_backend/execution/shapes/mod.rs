@@ -6,22 +6,22 @@ use crate::core::vertex::{CustomVertex, InstanceTransform};
 use crate::wgpu_backend::gradient::{GradientCache, GradientMaterial};
 use crate::wgpu_backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMetadata};
 use ahash::{HashMap, HashMapExt};
+use compaction::DrawBufferCompactionStorage;
 use materials::TextureMaterialPool;
 pub(in crate::wgpu_backend) use pipelines::TextureMaterialPipelines;
-use removal::DrawBufferCompactionStorage;
 pub(crate) use sampling::TextureSamplingUniform;
 use std::sync::Arc;
 use wgpu::{BindGroup, BindGroupLayout, Device, Queue, Sampler};
 
 mod buffers;
+mod compaction;
 mod materials;
 mod pipelines;
 pub(in crate::wgpu_backend) mod preparation;
-mod removal;
 mod sampling;
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct ShapeDrawLocation {
+pub(crate) struct ShapeBufferLocation {
     pub(crate) geometry_range: GeometryBufferRange,
     pub(crate) instance_index: usize,
 }
@@ -31,7 +31,7 @@ pub(crate) struct ShapeDrawLocation {
 pub(in crate::wgpu_backend) struct ShapeDrawResources {
     /// Retained only for draws with a shape effect, to identify cached coverage masks.
     pub(crate) mask_tessellation: Option<Arc<CachedTessellation>>,
-    pub(crate) location: Option<ShapeDrawLocation>,
+    pub(crate) geometry_buffer_location: Option<ShapeBufferLocation>,
     gradient_material: Option<Arc<GradientMaterial>>,
     texture_material_bind_group: Option<BindGroup>,
 }
@@ -76,9 +76,39 @@ pub(crate) struct ShapeExecutionResources {
     pub(crate) instance_colors: Vec<InstanceColor>,
     pub(crate) instance_metadata: Vec<InstanceMetadata>,
     compaction: DrawBufferCompactionStorage,
+    has_unused_draw_buffers: bool,
 }
 
 impl ShapeExecutionResources {
+    pub(in crate::wgpu_backend) fn register_draw(
+        &mut self,
+        id: ShapeDrawId,
+        resources: ShapeDrawResources,
+    ) {
+        if self
+            .draws
+            .insert(id.0, resources)
+            // If insertion returns something, it means we've replaced something, and now we might
+            // need to compact buffers
+            .and_then(|previous| previous.geometry_buffer_location)
+            .is_some()
+        {
+            self.has_unused_draw_buffers = true;
+        }
+    }
+
+    pub(in crate::wgpu_backend) fn remove_draws(&mut self, ids: &[ShapeDrawId]) {
+        for id in ids {
+            let removed_draw = self.draws.remove(&id.0);
+            if removed_draw
+                .and_then(|draw| draw.geometry_buffer_location)
+                .is_some()
+            {
+                self.has_unused_draw_buffers = true;
+            }
+        }
+    }
+
     pub(in crate::wgpu_backend) fn draw_resources(&self, id: ShapeDrawId) -> &ShapeDrawResources {
         &self.draws[&id.0]
     }
@@ -96,6 +126,7 @@ impl ShapeExecutionResources {
             instance_colors: Vec::new(),
             instance_metadata: Vec::new(),
             compaction: DrawBufferCompactionStorage::default(),
+            has_unused_draw_buffers: false,
         }
     }
 
@@ -108,6 +139,7 @@ impl ShapeExecutionResources {
         self.instance_transforms.clear();
         self.instance_colors.clear();
         self.instance_metadata.clear();
+        self.has_unused_draw_buffers = false;
     }
 }
 

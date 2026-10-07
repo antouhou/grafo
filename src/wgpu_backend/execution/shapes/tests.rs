@@ -1,9 +1,9 @@
 use super::preparation::{self, InstanceTextureData};
-use super::{ShapeDrawLocation, ShapeDrawResources, ShapeExecutionResources};
+use super::{ShapeBufferLocation, ShapeDrawResources, ShapeExecutionResources};
 use crate::commands::ShapeDrawId;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
-use crate::core::{BorderRadii, Shape, ShapeDrawCommandOptions, ShapeInstance};
-use crate::scene::Scene;
+use crate::core::{BorderRadii, Shape, ShapeDrawCommandOptions, ShapeInstance, Viewport};
+use crate::scene::{Scene, SceneContext};
 
 fn insert_draw(resources: &mut ShapeExecutionResources, id: usize, shape: &ShapeInstance) {
     let geometry_range = preparation::append_aggregated_geometry_for_shape(
@@ -28,22 +28,22 @@ fn insert_draw(resources: &mut ShapeExecutionResources, id: usize, shape: &Shape
                 }; 2],
             },
         );
-        ShapeDrawLocation {
+        ShapeBufferLocation {
             geometry_range,
             instance_index,
         }
     });
-    resources.draws.insert(
-        id,
+    resources.register_draw(
+        ShapeDrawId(id),
         ShapeDrawResources {
-            location,
+            geometry_buffer_location: location,
             ..Default::default()
         },
     );
 }
 
 fn assert_draw_data(resources: &ShapeExecutionResources, id: usize, shape: &ShapeInstance) {
-    let location = resources.draws[&id].location.unwrap();
+    let location = resources.draws[&id].geometry_buffer_location.unwrap();
     let geometry = location.geometry_range;
     let expected = shape.cached_shape.vertex_buffers();
     let vertices = &resources.vertices
@@ -80,7 +80,14 @@ fn assert_draw_data(resources: &ShapeExecutionResources, id: usize, shape: &Shap
 
 #[test]
 fn removal_compacts_buffers_and_keeps_shared_geometry_until_its_last_draw() {
-    let mut scene = Scene::default();
+    let mut scene = Scene::new(
+        SceneContext::default(),
+        Viewport {
+            physical_size: (32, 32),
+            scale_factor: 1.0,
+        },
+        0.75,
+    );
     let shared = ShapeInstance::new(
         scene.tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1)),
         ShapeDrawCommandOptions::new(),
@@ -100,15 +107,18 @@ fn removal_compacts_buffers_and_keeps_shared_geometry_until_its_last_draw() {
     insert_draw(&mut resources, 4, &uncached);
     let initial_vertex_count = resources.vertices.len();
     resources.remove_draws(&[ShapeDrawId(1)]);
+    resources.compact_draw_buffers();
     assert_eq!(resources.vertices.len(), initial_vertex_count);
     for (id, shape) in [(2, &unique), (3, &shared), (4, &uncached)] {
         assert_draw_data(&resources, id, shape);
     }
     resources.remove_draws(&[ShapeDrawId(3)]);
+    resources.compact_draw_buffers();
     assert!(!resources.geometry_ranges.contains_key(&1));
     assert_draw_data(&resources, 2, &unique);
     assert_draw_data(&resources, 4, &uncached);
     resources.remove_draws(&[ShapeDrawId(2)]);
+    resources.compact_draw_buffers();
     assert_draw_data(&resources, 4, &uncached);
     let retained_vertex_count = resources.vertices.len();
     for _ in 0..20 {
@@ -117,8 +127,10 @@ fn removal_compacts_buffers_and_keeps_shared_geometry_until_its_last_draw() {
         assert_draw_data(&resources, 1, &shared);
         assert_draw_data(&resources, 2, &unique);
         resources.remove_draws(&[ShapeDrawId(1)]);
+        resources.compact_draw_buffers();
         assert_draw_data(&resources, 2, &unique);
         resources.remove_draws(&[ShapeDrawId(2)]);
+        resources.compact_draw_buffers();
         assert_draw_data(&resources, 4, &uncached);
         assert_eq!(resources.vertices.len(), retained_vertex_count);
         assert_eq!(resources.instance_transforms.len(), 1);
@@ -127,6 +139,7 @@ fn removal_compacts_buffers_and_keeps_shared_geometry_until_its_last_draw() {
     }
     resources.remove_draws(&[ShapeDrawId(4)]);
     resources.remove_draws(&[ShapeDrawId(4)]);
+    resources.compact_draw_buffers();
     assert!(resources.vertices.is_empty());
     assert!(resources.indices.is_empty());
     assert!(resources.geometry_ranges.is_empty());
@@ -137,7 +150,14 @@ fn removal_compacts_buffers_and_keeps_shared_geometry_until_its_last_draw() {
 
 #[test]
 fn batch_removal_keeps_surviving_geometry_and_instances() {
-    let mut scene = Scene::default();
+    let mut scene = Scene::new(
+        SceneContext::default(),
+        Viewport {
+            physical_size: (32, 32),
+            scale_factor: 1.0,
+        },
+        0.75,
+    );
     let shared = ShapeInstance::new(
         scene.tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1)),
         ShapeDrawCommandOptions::new(),
@@ -180,6 +200,7 @@ fn batch_removal_keeps_surviving_geometry_and_instances() {
     );
     let removed_ids = [60, 30, 90, 10, 20, 30, usize::MAX].map(ShapeDrawId);
     resources.remove_draws(&removed_ids);
+    resources.compact_draw_buffers();
     for id in removed_ids {
         assert!(!resources.draws.contains_key(&id.0));
     }
@@ -193,7 +214,13 @@ fn batch_removal_keeps_surviving_geometry_and_instances() {
     .enumerate()
     {
         assert_draw_data(&resources, id, shape);
-        assert_eq!(resources.draws[&id].location.unwrap().instance_index, index);
+        assert_eq!(
+            resources.draws[&id]
+                .geometry_buffer_location
+                .unwrap()
+                .instance_index,
+            index
+        );
     }
     assert!(!resources.geometry_ranges.contains_key(&2));
     assert_eq!(
@@ -220,6 +247,7 @@ fn batch_removal_keeps_surviving_geometry_and_instances() {
     insert_draw(&mut resources, 10, &removed_shape);
     assert_draw_data(&resources, 10, &removed_shape);
     resources.remove_draws(&[70, 40, 50, 80, 10].map(ShapeDrawId));
+    resources.compact_draw_buffers();
     assert!(resources.draws.is_empty());
     assert!(resources.vertices.is_empty());
     assert!(resources.indices.is_empty());
@@ -230,4 +258,78 @@ fn batch_removal_keeps_surviving_geometry_and_instances() {
     resources.remove_draws(&[]);
     insert_draw(&mut resources, 20, &shared);
     assert_draw_data(&resources, 20, &shared);
+}
+
+#[test]
+fn batch_replacement_compacts_overwritten_instances_and_preserves_shared_geometry() {
+    let mut scene = Scene::new(
+        SceneContext::default(),
+        Viewport {
+            physical_size: (32, 32),
+            scale_factor: 1.0,
+        },
+        0.75,
+    );
+    let shared = ShapeInstance::new(
+        scene.tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1)),
+        ShapeDrawCommandOptions::new(),
+    );
+    let replacement = ShapeInstance::new(
+        scene.tessellate(
+            &Shape::rounded_rect([(20.0, 20.0), (40.0, 40.0)], BorderRadii::new(3.0)),
+            Some(2),
+        ),
+        ShapeDrawCommandOptions::new(),
+    );
+    let uncached = ShapeInstance::new(
+        scene.tessellate(&Shape::rect([(3.0, 5.0), (18.0, 21.0)]), None),
+        ShapeDrawCommandOptions::new(),
+    );
+    let empty = ShapeInstance::new(
+        scene.tessellate(&Shape::builder().build(), None),
+        ShapeDrawCommandOptions::new(),
+    );
+    let mut resources = ShapeExecutionResources::new();
+    insert_draw(&mut resources, 1, &shared);
+    insert_draw(&mut resources, 2, &shared);
+    insert_draw(&mut resources, 3, &uncached);
+    for _ in 0..20 {
+        insert_draw(&mut resources, 1, &uncached);
+        insert_draw(&mut resources, 3, &replacement);
+        insert_draw(&mut resources, 1, &replacement);
+        assert!(resources.instance_transforms.len() > resources.draws.len());
+        resources.compact_draw_buffers();
+        assert_draw_data(&resources, 1, &replacement);
+        assert_draw_data(&resources, 2, &shared);
+        assert_draw_data(&resources, 3, &replacement);
+        assert_eq!(resources.instance_transforms.len(), 3);
+        assert_eq!(resources.instance_colors.len(), 3);
+        assert_eq!(resources.instance_metadata.len(), 3);
+        assert_eq!(
+            resources.draws[&1]
+                .geometry_buffer_location
+                .unwrap()
+                .geometry_range,
+            resources.draws[&3]
+                .geometry_buffer_location
+                .unwrap()
+                .geometry_range
+        );
+        assert_eq!(
+            resources.vertices.len(),
+            shared.cached_shape.vertex_buffers().vertices.len()
+                + replacement.cached_shape.vertex_buffers().vertices.len()
+        );
+        insert_draw(&mut resources, 1, &empty);
+        resources.compact_draw_buffers();
+        assert!(resources.draws[&1].geometry_buffer_location.is_none());
+        assert_draw_data(&resources, 2, &shared);
+        assert_draw_data(&resources, 3, &replacement);
+        assert_eq!(resources.instance_transforms.len(), 2);
+    }
+    insert_draw(&mut resources, 2, &replacement);
+    resources.compact_draw_buffers();
+    assert!(!resources.geometry_ranges.contains_key(&1));
+    assert_draw_data(&resources, 2, &replacement);
+    assert_draw_data(&resources, 3, &replacement);
 }

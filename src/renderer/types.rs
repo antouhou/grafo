@@ -1,6 +1,6 @@
 use crate::scene::SceneError;
 
-/// Scene insertion or backend resource preparation failed.
+/// Scene mutation or backend resource preparation failed.
 #[derive(Debug, thiserror::Error)]
 pub enum DrawCommandError<E> {
     #[error(transparent)]

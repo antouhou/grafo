@@ -1,6 +1,4 @@
-use super::{
-    compute_shape_effect_raster_rect, resolve_capture_region_to_viewport, ShapeEffectConfig,
-};
+use super::{resolve_capture_region_to_viewport, ShapeEffectBounds, ShapeEffectConfig};
 use crate::core::{PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
 use lyon::geom::Point;
 
@@ -42,34 +40,37 @@ fn capture_region_skips_copy_when_fully_offscreen() {
 }
 
 #[test]
-fn raster_rect_rounds_outward_and_adds_fringe_guard() {
-    let raster_rect = compute_shape_effect_raster_rect(
+fn shape_effect_bounds_round_outward_and_add_fringe_guard() {
+    let bounds = ShapeEffectBounds::new(
         [(1.25, 2.75), (10.1, 20.2)],
         ShapeEffectConfig::new().outsets(1.0, 2.0, 3.0, 4.0),
+        None,
         2.0,
         0.75,
     )
     .unwrap();
 
-    assert_eq!(raster_rect.local_physical_origin, [-1, 0]);
-    assert_eq!(raster_rect.texture_size, [29, 50]);
-    assert_eq!(raster_rect.local_bounds, [(-0.5, 0.0), (14.0, 25.0)]);
+    assert_eq!(bounds.local_physical_origin, [-1, 0]);
+    assert_eq!(bounds.texture_size, [29, 50]);
+    assert_eq!(bounds.local_bounds, [(-0.5, 0.0), (14.0, 25.0)]);
 }
 
 #[test]
-fn raster_rect_downsample_shrinks_texture_but_not_coverage() {
-    let full_resolution = compute_shape_effect_raster_rect(
+fn shape_effect_bounds_downsample_shrinks_texture_but_not_coverage() {
+    let full_resolution = ShapeEffectBounds::new(
         [(1.25, 2.75), (10.1, 20.2)],
         ShapeEffectConfig::new().outsets(1.0, 2.0, 3.0, 4.0),
+        None,
         2.0,
         0.75,
     )
     .unwrap();
-    let downsampled = compute_shape_effect_raster_rect(
+    let downsampled = ShapeEffectBounds::new(
         [(1.25, 2.75), (10.1, 20.2)],
         ShapeEffectConfig::new()
             .outsets(1.0, 2.0, 3.0, 4.0)
             .downsample(0.5),
+        None,
         2.0,
         0.75,
     )
@@ -84,25 +85,27 @@ fn raster_rect_downsample_shrinks_texture_but_not_coverage() {
 }
 
 #[test]
-fn raster_rect_downsample_keeps_at_least_one_texel() {
-    let raster_rect = compute_shape_effect_raster_rect(
+fn shape_effect_bounds_downsample_keeps_at_least_one_texel() {
+    let bounds = ShapeEffectBounds::new(
         [(0.0, 0.0), (1.0, 1.0)],
         ShapeEffectConfig::new().downsample(0.1),
+        None,
         1.0,
         0.75,
     )
     .unwrap();
 
-    assert!(raster_rect.texture_size[0] >= 1);
-    assert!(raster_rect.texture_size[1] >= 1);
+    assert!(bounds.texture_size[0] >= 1);
+    assert!(bounds.texture_size[1] >= 1);
 }
 
 #[test]
-fn raster_rect_rejects_out_of_range_downsample() {
+fn shape_effect_bounds_reject_out_of_range_downsample() {
     for downsample in [0.0, -0.5, f32::NAN, 1.5] {
-        assert!(compute_shape_effect_raster_rect(
+        assert!(ShapeEffectBounds::new(
             [(0.0, 0.0), (10.0, 10.0)],
             ShapeEffectConfig::new().downsample(downsample),
+            None,
             1.0,
             0.75,
         )
@@ -111,10 +114,11 @@ fn raster_rect_rejects_out_of_range_downsample() {
 }
 
 #[test]
-fn raster_rect_rejects_non_finite_inputs() {
-    assert!(compute_shape_effect_raster_rect(
+fn shape_effect_bounds_reject_non_finite_inputs() {
+    assert!(ShapeEffectBounds::new(
         [(0.0, 0.0), (f32::NAN, 10.0)],
         ShapeEffectConfig::default(),
+        None,
         1.0,
         0.75,
     )

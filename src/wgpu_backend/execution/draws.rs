@@ -1,7 +1,9 @@
 use super::shapes::ShapeDrawResources;
+use super::targets;
 use super::textures::IntermediateTextureResources;
 use crate::commands::{IntermediateTextureId, ShapeDrawMaterial, ShapeTextureBinding};
 use crate::core::vertex::InstanceTransform;
+use crate::core::UnsignedPhysicalRect;
 use crate::wgpu_backend::resources::{Buffers, RendererPipelineResources, ShapePipelines};
 use crate::wgpu_backend::types::{BoundTextureState, Pipeline, PipelineTracker};
 use crate::wgpu_backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMetadata};
@@ -55,6 +57,7 @@ fn bind_decrement_pipeline(render_pass: &mut RenderPass<'_>, pipelines: &ShapePi
 }
 
 pub(super) struct DrawPass<'pass, 'encoder> {
+    pub(super) root_scissor: Option<UnsignedPhysicalRect>,
     pub(super) render_pass: &'pass mut RenderPass<'encoder>,
     pub(super) pipeline_tracker: &'pass mut PipelineTracker,
     pub(super) bound_textures: &'pass mut BoundTextureState,
@@ -64,6 +67,14 @@ pub(super) struct DrawPass<'pass, 'encoder> {
 }
 
 impl DrawPass<'_, '_> {
+    pub(super) fn set_scissor(&mut self, scissor: UnsignedPhysicalRect) {
+        let scissor = self.root_scissor.map_or(scissor, |root| {
+            root.intersection(&scissor)
+                .unwrap_or_else(UnsignedPhysicalRect::zero)
+        });
+        targets::set_scissor(self.render_pass, scissor);
+    }
+
     fn draw_stencil_geometry(
         &mut self,
         stencil_reference: u32,
@@ -84,7 +95,7 @@ impl DrawPass<'_, '_> {
         increments_stencil: bool,
     ) {
         let pipelines = &self.pipelines.shapes;
-        let Some(location) = resources.location else {
+        let Some(location) = resources.geometry_buffer_location else {
             return;
         };
         let (target_pipeline, pipeline) = pipelines.material_pipeline(material, increments_stencil);
@@ -147,7 +158,7 @@ impl DrawPass<'_, '_> {
         stencil_reference: u32,
         resources: &ShapeDrawResources,
     ) {
-        let Some(location) = resources.location else {
+        let Some(location) = resources.geometry_buffer_location else {
             return;
         };
         if !matches!(self.pipeline_tracker.current, Pipeline::StencilDecrement) {
@@ -184,7 +195,7 @@ impl DrawPass<'_, '_> {
         resources: &ShapeDrawResources,
     ) {
         let pipelines = &self.pipelines.shapes;
-        let Some(location) = resources.location else {
+        let Some(location) = resources.geometry_buffer_location else {
             return;
         };
         self.render_pass

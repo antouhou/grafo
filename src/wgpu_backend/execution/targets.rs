@@ -119,6 +119,7 @@ pub(super) struct ActiveTarget {
 }
 
 pub(in crate::wgpu_backend) struct SurfaceTarget<'a> {
+    pub(in crate::wgpu_backend) root_scissor: UnsignedPhysicalRect,
     pub(in crate::wgpu_backend) output: RenderTarget<'a>,
     pub(in crate::wgpu_backend) capture_texture: Option<&'a Texture>,
 }

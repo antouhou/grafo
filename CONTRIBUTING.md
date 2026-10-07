@@ -49,3 +49,5 @@ some shape or form in the core module.
 - Do not add tests that simply check setters or trivial functionality;
 - Do not add tests that require a GPU. That's because my CI doesn't have a GPU right now; There's only exception to this
 rule: visual regression test scene. I run it manually to check that everything is fine.
+- Visual test grid and visual tests are only for visual tests. Do not add assertions that can't be visually examined
+into those tests.

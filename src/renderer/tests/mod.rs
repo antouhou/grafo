@@ -3,7 +3,7 @@ use super::{RenderBackend, Renderer};
 use crate::commands::{RenderCommand, RenderOperation, RenderPlan, ShapeDrawId, Target};
 use crate::core::{
     CachedShapeHandle, Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeInstance,
-    Viewport,
+    UnsignedPhysicalRect, Viewport,
 };
 use crate::render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError, Surface,
@@ -12,7 +12,11 @@ use crate::render_backend::TextureManager;
 use crate::scene::SceneContext;
 use thiserror::Error;
 
+mod backdrop_damage;
+mod dirty_bounds;
 mod removal;
+mod replacement;
+mod shape_effect_damage;
 
 #[derive(Default)]
 struct TestSurface {
@@ -63,10 +67,13 @@ impl TextureManager for TestTextureManager {
 
 #[derive(Default)]
 struct TestBackend {
+    root_scissor: Option<UnsignedPhysicalRect>,
+    is_dirty_region_overlay_enabled: bool,
     registered_shapes: Vec<usize>,
     command_address: usize,
     instruction_address: usize,
     should_fail: bool,
+    registration_failure: Option<usize>,
     size: Option<(u32, u32)>,
 }
 
@@ -79,11 +86,13 @@ impl RenderBackend for TestBackend {
         id: ShapeDrawId,
         shape: &ShapeInstance,
     ) -> Result<(), TestBackendError> {
-        if self.should_fail {
+        if self.should_fail || self.registration_failure == Some(id.0) {
             return Err(TestBackendError);
         }
         assert!(!shape.cached_shape.vertex_buffers().vertices.is_empty());
-        self.registered_shapes.push(id.0);
+        if !self.registered_shapes.contains(&id.0) {
+            self.registered_shapes.push(id.0);
+        }
         Ok(())
     }
 
@@ -139,6 +148,14 @@ impl RenderBackend for TestBackend {
         self.size = Some(viewport.physical_size);
     }
     fn set_msaa_samples(&mut self, _: u32) {}
+    fn set_dirty_region_overlay_enabled(&mut self, enabled: bool) {
+        self.is_dirty_region_overlay_enabled = enabled;
+    }
+
+    fn is_dirty_region_overlay_enabled(&self) -> bool {
+        self.is_dirty_region_overlay_enabled
+    }
+
     fn render(
         &mut self,
         commands: &RenderPlan,
@@ -148,6 +165,7 @@ impl RenderBackend for TestBackend {
             return Err(TestBackendError);
         }
         self.command_address = commands as *const RenderPlan as usize;
+        self.root_scissor = commands.root_scissor;
         self.instruction_address = commands.instructions.as_ptr() as usize;
         let surface = match surface {
             RenderTarget::Surface(surface) => surface.resource_mut(),
@@ -233,12 +251,8 @@ fn render_submits_planned_shapes_and_effects() {
     let mut renderer = renderer();
     let mut surface = surface();
     let shape = queue_shape(&mut renderer, true);
-    let planned_address = renderer.planner.plan(
-        &renderer.scene,
-        renderer.viewport,
-        renderer.fringe_width,
-        4096,
-    ) as *const RenderPlan as usize;
+    let planned_address =
+        renderer.planner.plan(&renderer.scene, 4096, None) as *const RenderPlan as usize;
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.command_address, planned_address);
     assert_eq!(surface.resource().draws, [shape]);
@@ -260,12 +274,7 @@ fn effect_parameter_updates_reuse_storage() {
         .update_group_effect_params(shape, &[1, 2, 3, 4])
         .unwrap();
     renderer.render(&mut surface).unwrap();
-    let plan = renderer.planner.plan(
-        &renderer.scene,
-        renderer.viewport,
-        renderer.fringe_width,
-        4096,
-    );
+    let plan = renderer.planner.plan(&renderer.scene, 4096, None);
     assert_eq!(plan.effect_parameters.len(), 8);
     assert_eq!(plan.parameters(parameters), &[1, 2, 3, 4]);
 }
@@ -312,12 +321,7 @@ fn clearing_queue_removes_planned_draws_and_effects() {
     assert!(surface.resource().draws.is_empty());
     assert!(surface.resource().effects.is_empty());
     assert_eq!(surface.resource().shape_masks, 0);
-    let plan = renderer.planner.plan(
-        &renderer.scene,
-        renderer.viewport,
-        renderer.fringe_width,
-        4096,
-    );
+    let plan = renderer.planner.plan(&renderer.scene, 4096, None);
     assert!(matches!(
         plan.instructions.as_slice(),
         [
@@ -341,9 +345,7 @@ fn rendering_to_one_surface_does_not_change_another() {
     let mut second = renderer();
     let mut second_surface = surface();
     queue_shape(&mut second, false);
-    let commands = first
-        .planner
-        .plan(&first.scene, first.viewport, first.fringe_width, 4096);
+    let commands = first.planner.plan(&first.scene, 4096, None);
     first
         .backend
         .render(commands, (&mut first_surface).into())

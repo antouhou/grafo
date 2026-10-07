@@ -6,6 +6,7 @@ use crate::core::gradient::types::{
     LinearGradientLine,
 };
 use crate::core::util::ShapeResources;
+use crate::core::Viewport;
 use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::DrawTreeNode;
@@ -98,6 +99,12 @@ fn skip_visible_rect_draw_rejects_effect_nodes() {
                 },
             },
             BackdropEffectConfig::default(),
+            draw_tree_node.logical_screen_bounds(),
+            Viewport {
+                physical_size: (100, 100),
+                scale_factor: 1.0,
+            },
+            1024,
         ),
     );
 

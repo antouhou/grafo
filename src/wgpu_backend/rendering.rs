@@ -1,5 +1,6 @@
 use super::WgpuBackend;
 use crate::commands::RenderPlan;
+use crate::core::UnsignedPhysicalRect;
 use crate::wgpu_backend::execution::effects::EffectContext;
 use crate::wgpu_backend::execution::instructions::{
     execute_commands, ExecutionContext, ExecutionResources,
@@ -7,25 +8,62 @@ use crate::wgpu_backend::execution::instructions::{
 use crate::wgpu_backend::execution::targets::{RenderTarget, SurfaceTarget};
 #[cfg(feature = "render_metrics")]
 use crate::wgpu_backend::metrics::{PhaseTimings, ShapeEffectCacheMetrics};
+use crate::wgpu_backend::retained_output::RetainedOutput;
 use crate::wgpu_backend::types::BackdropContext;
 use std::iter;
 #[cfg(feature = "render_metrics")]
 use std::time::Instant;
 #[cfg(feature = "render_metrics")]
 use wgpu::MaintainBase;
-use wgpu::{
-    CommandEncoderDescriptor, Surface, SurfaceError, Texture, TextureView, TextureViewDescriptor,
-};
+use wgpu::{CommandEncoderDescriptor, Surface, SurfaceError, TextureViewDescriptor};
 
 impl WgpuBackend {
-    pub(in crate::wgpu_backend) fn render_to_texture_view(
+    /// Updates the clean scene and returns the redrawn bounds.
+    pub(in crate::wgpu_backend) fn update_retained_output(
         &mut self,
         commands: &RenderPlan,
-        texture_view: &TextureView,
-        output_texture: Option<&Texture>,
-    ) {
+    ) -> Option<UnsignedPhysicalRect> {
         #[cfg(feature = "render_metrics")]
-        let render_to_texture_view_started_at = Instant::now();
+        let update_started_at = Instant::now();
+        #[cfg(feature = "render_metrics")]
+        {
+            self.resources.pipeline_switch_counts = Default::default();
+            self.resources.shape_effect_cache_metrics = ShapeEffectCacheMetrics::default();
+        }
+        let is_new = self.retained_output.is_none();
+        let retained = self.retained_output.take().unwrap_or_else(|| {
+            RetainedOutput::new(
+                &self.device,
+                self.viewport.physical_size,
+                self.format,
+                self.msaa_sample_count,
+            )
+        });
+        let root_scissor = if is_new {
+            Some(UnsignedPhysicalRect::from_size(
+                self.viewport.physical_size.into(),
+            ))
+        } else {
+            commands.root_scissor
+        };
+        if let Some(scissor) = root_scissor {
+            self.render_dirty_region(commands, &retained, scissor, is_new);
+        }
+        self.retained_output = Some(retained);
+        #[cfg(feature = "render_metrics")]
+        {
+            self.last_retained_output_update_cpu_time = update_started_at.elapsed();
+        }
+        root_scissor
+    }
+
+    fn render_dirty_region(
+        &mut self,
+        commands: &RenderPlan,
+        retained: &RetainedOutput,
+        root_scissor: UnsignedPhysicalRect,
+        is_new: bool,
+    ) {
         self.resources
             .shape_execution
             .texture_materials
@@ -47,16 +85,21 @@ impl WgpuBackend {
             self.recreate_depth_stencil_texture();
         }
 
-        #[cfg(feature = "render_metrics")]
-        {
-            self.resources.shape_effect_cache_metrics = ShapeEffectCacheMetrics::default();
-        }
-
         let mut encoder = self
             .device
             .create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("Render Command Encoder"),
             });
+
+        retained.clear(
+            &mut encoder,
+            self.msaa_color_texture_view.as_ref(),
+            self.depth_stencil_view
+                .as_ref()
+                .expect("depth stencil target was initialized"),
+            root_scissor,
+            is_new,
+        );
 
         let pipeline_resources = &self.pipeline_resources;
         let effects = needs_scene_effects.then(|| EffectContext {
@@ -102,14 +145,15 @@ impl WgpuBackend {
             &mut encoder,
             commands,
             SurfaceTarget {
+                root_scissor,
                 output: RenderTarget::for_output(
-                    texture_view,
+                    &retained.view,
                     self.msaa_color_texture_view.as_ref(),
                     self.depth_stencil_view
                         .as_ref()
                         .expect("depth stencil target was initialized"),
                 ),
-                capture_texture: output_texture,
+                capture_texture: Some(&retained.texture),
             },
             ExecutionResources {
                 context: &execution_context,
@@ -129,11 +173,6 @@ impl WgpuBackend {
         self.queue.submit(iter::once(encoder.finish()));
         resources.shape_execution.texture_materials.finish_render();
         resources.effect_execution.finish_render();
-
-        #[cfg(feature = "render_metrics")]
-        {
-            self.last_render_to_texture_view_cpu_time = render_to_texture_view_started_at.elapsed();
-        }
 
         let (_collected_shape_effect_results, _collected_shape_effect_masks) =
             resources.textures.collect_unused_shape_effects();
@@ -176,7 +215,27 @@ impl WgpuBackend {
             .texture
             .create_view(&TextureViewDescriptor::default());
 
-        self.render_to_texture_view(commands, &output_texture_view, Some(&output.texture));
+        let root_scissor = self.update_retained_output(commands);
+        let retained = self
+            .retained_output
+            .as_ref()
+            .expect("retained output was initialized before presentation");
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("present_retained_output"),
+            });
+        retained.present(&mut encoder, &output_texture_view);
+        self.queue.submit(iter::once(encoder.finish()));
+        if let Some(scissor) = root_scissor.filter(|_| self.is_dirty_region_overlay_enabled) {
+            let mut encoder = self
+                .device
+                .create_command_encoder(&CommandEncoderDescriptor {
+                    label: Some("draw_dirty_region_overlay"),
+                });
+            retained.draw_dirty_region_overlay(&mut encoder, &output_texture_view, scissor);
+            self.queue.submit(iter::once(encoder.finish()));
+        }
 
         #[cfg(feature = "render_metrics")]
         let after_submit = Instant::now();

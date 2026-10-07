@@ -3,7 +3,8 @@ use crate::commands::{DrawClip, IntermediateTextureId, RenderOperation, RenderPl
 use crate::core::{
     BackdropEffectConfig, Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, Viewport,
 };
-use crate::scene::Scene;
+use crate::scene::effects::EffectInstance;
+use crate::scene::{Scene, SceneContext};
 
 #[derive(Debug, PartialEq, Eq)]
 struct EffectSnapshot {
@@ -54,20 +55,19 @@ fn add_shape(scene: &mut Scene, parent: Option<usize>) -> usize {
 }
 
 fn plan_scene(planner: &mut Planner, scene: &Scene) {
-    planner.plan(
-        scene,
-        Viewport {
-            physical_size: (32, 32),
-            scale_factor: 1.0,
-        },
-        0.75,
-        4096,
-    );
+    planner.plan(scene, 4096, None);
+}
+
+fn viewport() -> Viewport {
+    Viewport {
+        physical_size: (32, 32),
+        scale_factor: 1.0,
+    }
 }
 
 #[test]
 fn parameter_compaction_preserves_replanned_effects() {
-    let mut scene = Scene::default();
+    let mut scene = Scene::new(SceneContext::default(), viewport(), 0.75);
     let mut planner = Planner::default();
     let root = add_shape(&mut scene, None);
     let removed = add_shape(&mut scene, Some(root));
@@ -84,9 +84,12 @@ fn parameter_compaction_preserves_replanned_effects() {
     scene
         .set_shape_backdrop_effect(
             root,
-            17,
-            backdrop_parameters,
+            EffectInstance {
+                effect_id: 17,
+                parameters: backdrop_parameters,
+            },
             BackdropEffectConfig::default(),
+            4096,
         )
         .unwrap();
     scene
@@ -103,7 +106,7 @@ fn parameter_compaction_preserves_replanned_effects() {
     plan_scene(&mut planner, &scene);
 
     assert!(planner.shape_composites.contains_key(&removed));
-    scene.remove_subtrees_with([removed], |_, _| {});
+    scene.remove_subtrees_with([removed], |_, _, _| {});
     plan_scene(&mut planner, &scene);
     let expected_effects = effect_snapshots(&planner.commands);
     for parameters in [[1; 4], [2; 4], [3; 4]] {
@@ -139,7 +142,7 @@ fn parameter_compaction_preserves_replanned_effects() {
 
 #[test]
 fn parameter_compaction_preserves_replanned_effects_with_empty_parameters() {
-    let mut scene = Scene::default();
+    let mut scene = Scene::new(SceneContext::default(), viewport(), 0.75);
     let mut planner = Planner::default();
     let root = add_shape(&mut scene, None);
     planner.store_effect_parameters(&[99; 4]);
@@ -149,7 +152,15 @@ fn parameter_compaction_preserves_replanned_effects_with_empty_parameters() {
         .set_shape_effect(root, 18, parameters, ShapeEffectConfig::default())
         .unwrap();
     scene
-        .set_shape_backdrop_effect(root, 19, parameters, BackdropEffectConfig::default())
+        .set_shape_backdrop_effect(
+            root,
+            EffectInstance {
+                effect_id: 19,
+                parameters,
+            },
+            BackdropEffectConfig::default(),
+            4096,
+        )
         .unwrap();
     plan_scene(&mut planner, &scene);
     let expected_effects = effect_snapshots(&planner.commands);

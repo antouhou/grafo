@@ -4,10 +4,8 @@ use crate::commands::{
     ShapeDraw, ShapeDrawId, ShapeTextureBinding, ShapeTextureLayer, TextureSampling,
 };
 use crate::core::geometry;
-use crate::planner::backdrops::compute_backdrop_capture_region;
 use crate::planner::draws;
 use crate::scene::types::DrawTreeNode;
-use crate::MathRect;
 
 impl DrawPlanner {
     /// Captures preceding color before entering the shape's stencil coverage.
@@ -18,9 +16,7 @@ impl DrawPlanner {
         input: &DrawPlanningInput<'_>,
         output: &mut RenderPlan,
     ) -> bool {
-        let (Some(max_dimension), Some(source)) =
-            (input.max_capture_dimension, input.backdrop_source)
-        else {
+        let Some(source) = input.backdrop_source else {
             return false;
         };
         let Some(effect) = input.backdrop_effects.get(&node_id) else {
@@ -36,15 +32,7 @@ impl DrawPlanner {
             id: ShapeDrawId(node_id),
             material: draws::shape_material(&description.instance),
         };
-        let bounds = node.local_bounds();
-        if let Some(region) = compute_backdrop_capture_region(
-            MathRect::new(bounds[0].into(), bounds[1].into()),
-            node.transform(),
-            effect.config,
-            input.scale_factor,
-            input.physical_size,
-            max_dimension,
-        ) {
+        if let Some(region) = effect.capture_region {
             let capture = output.allocate_texture();
             let filtered = output.allocate_texture();
             output.push(RenderOperation::CaptureBackdrop(BackdropCapture {

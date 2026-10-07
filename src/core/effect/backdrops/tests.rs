@@ -2,11 +2,8 @@ use super::{
     compute_backdrop_capture_region, does_capture_size_exceeds_budget,
     does_capture_size_exceeds_limits,
 };
-use crate::core::effect::BackdropCaptureRegion;
-use crate::core::effect::{BackdropCaptureArea, BackdropEffectConfig};
-
+use crate::core::effect::{BackdropCaptureArea, BackdropCaptureRegion, BackdropEffectConfig};
 use crate::core::geometry::compute_downsampled_dimensions;
-use crate::core::vertex::InstanceTransform;
 use crate::{MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
 use lyon::geom::Point;
 
@@ -40,7 +37,6 @@ fn capture_texel_budget_rejects_large_dimension_valid_regions() {
 fn padded_capture_preserves_full_resolution_bounds() {
     let capture_region = compute_backdrop_capture_region(
         MathRect::new(Point::new(100.0, 100.0), Point::new(200.0, 200.0)),
-        None,
         BackdropEffectConfig::new().padding(20.0),
         1.0,
         Size::new(1_000, 1_000),
@@ -53,12 +49,9 @@ fn padded_capture_preserves_full_resolution_bounds() {
 }
 
 #[test]
-fn node_capture_applies_transform_padding_and_scale_before_viewport_overlap() {
+fn node_capture_applies_padding_and_scale_before_viewport_overlap() {
     let capture_region = compute_backdrop_capture_region(
-        MathRect::new(Point::new(1.0, 2.0), Point::new(11.0, 7.0)),
-        Some(InstanceTransform::affine_2d(
-            -2.0, 0.0, 0.0, 3.0, 20.0, -10.0,
-        )),
+        MathRect::new(Point::new(-2.0, -4.0), Point::new(18.0, 11.0)),
         BackdropEffectConfig::new().padding(1.25),
         1.5,
         Size::new(24, 16),
@@ -81,8 +74,7 @@ fn node_capture_applies_transform_padding_and_scale_before_viewport_overlap() {
 
 #[test]
 fn screen_capture_keeps_physical_mapping_when_downsampled() {
-    let local_bounds = MathRect::new(Point::new(10.0, 20.0), Point::new(30.0, 40.0));
-    let transform = Some(InstanceTransform::translation(50.0, 60.0));
+    let logical_screen_bounds = MathRect::new(Point::new(60.0, 80.0), Point::new(80.0, 100.0));
     let config = BackdropEffectConfig::new()
         .capture_area(BackdropCaptureArea::ScreenRect([
             (3.75, 3.25),
@@ -90,8 +82,7 @@ fn screen_capture_keeps_physical_mapping_when_downsampled() {
         ]))
         .padding(0.5);
     let full_resolution = compute_backdrop_capture_region(
-        local_bounds,
-        transform,
+        logical_screen_bounds,
         config,
         2.0,
         Size::new(100, 80),
@@ -113,8 +104,7 @@ fn screen_capture_keeps_physical_mapping_when_downsampled() {
     for (downsample, expected_texture_size) in [(0.5, Size::new(8, 7)), (0.01, Size::new(1, 1))] {
         let downsampled_config = config.downsample(downsample);
         let capture_region = compute_backdrop_capture_region(
-            local_bounds,
-            transform,
+            logical_screen_bounds,
             downsampled_config,
             2.0,
             Size::new(100, 80),
@@ -132,8 +122,7 @@ fn screen_capture_keeps_physical_mapping_when_downsampled() {
 
 #[test]
 fn full_scene_capture_preserves_viewport_mapping_across_scales_and_padding() {
-    let local_bounds = MathRect::new(Point::new(10.0, 20.0), Point::new(30.0, 40.0));
-    let transform = Some(InstanceTransform::translation(50.0, 60.0));
+    let logical_screen_bounds = MathRect::new(Point::new(60.0, 80.0), Point::new(80.0, 100.0));
     for (scale_factor, padding, expected_region) in [
         (
             2.0,
@@ -161,8 +150,7 @@ fn full_scene_capture_preserves_viewport_mapping_across_scales_and_padding() {
         ),
     ] {
         let capture_region = compute_backdrop_capture_region(
-            local_bounds,
-            transform,
+            logical_screen_bounds,
             BackdropEffectConfig::new()
                 .capture_area(BackdropCaptureArea::FullScene)
                 .padding(padding),
@@ -178,13 +166,12 @@ fn full_scene_capture_preserves_viewport_mapping_across_scales_and_padding() {
 
 #[test]
 fn capture_rejects_invalid_bounds_and_full_resolution_allocation_excesses() {
-    let local_bounds = MathRect::new(Point::new(0.0, 0.0), Point::new(10.0, 10.0));
+    let logical_screen_bounds = MathRect::new(Point::new(0.0, 0.0), Point::new(10.0, 10.0));
     let config = BackdropEffectConfig::new().downsample(0.01);
     let accepted_config =
         config.capture_area(BackdropCaptureArea::ScreenRect([(0.0, 0.0), (64.0, 64.0)]));
     assert!(compute_backdrop_capture_region(
-        local_bounds,
-        None,
+        logical_screen_bounds,
         accepted_config,
         1.0,
         Size::new(32, 32),
@@ -203,8 +190,7 @@ fn capture_rejects_invalid_bounds_and_full_resolution_allocation_excesses() {
         let rejected_config = config.capture_area(BackdropCaptureArea::ScreenRect(rejected_bounds));
         assert!(
             compute_backdrop_capture_region(
-                local_bounds,
-                None,
+                logical_screen_bounds,
                 rejected_config,
                 1.0,
                 Size::new(32, 32),

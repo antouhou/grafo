@@ -70,12 +70,13 @@ pub struct PhaseTimings {
 }
 
 impl WgpuBackend {
-    /// Returns CPU time for render setup, command execution and submission.
-    /// Includes composite and effect uploads performed during execution.
+    /// Returns CPU time spent updating the retained scene image.
+    /// Includes image allocation, render setup, command execution, submission,
+    /// and composite and effect uploads performed during execution.
     /// Excludes scene planning, geometry uploads before execution, presentation,
     /// readback and explicit GPU waits after submission.
-    pub fn last_render_to_texture_view_cpu_time(&self) -> Duration {
-        self.last_render_to_texture_view_cpu_time
+    pub fn last_retained_output_update_cpu_time(&self) -> Duration {
+        self.last_retained_output_update_cpu_time
     }
 
     /// Returns the WGPU phase timings for the most recently completed render.

@@ -5,6 +5,7 @@ use grafo::{RendererContext, Surface};
 use image::ImageReader;
 use std::sync::Arc;
 use std::time::Instant;
+use tracing::warn;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -134,7 +135,9 @@ impl ApplicationHandler for App {
                 println!("Render time: {:?}", timer.elapsed());
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                renderer.change_scale_factor(scale_factor);
+                if let Err(error) = renderer.change_scale_factor(scale_factor) {
+                    warn!(%error, scale_factor, "scale factor change rejected");
+                }
             }
             _ => {}
         }

@@ -1,5 +1,5 @@
 use crate::core::geometry;
-use crate::core::{MathRect, Size, UnsignedPhysicalRect};
+use crate::core::{Size, UnsignedPhysicalRect};
 use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
 use crate::scene::types::DrawTreeNode;
 use ahash::HashMap;
@@ -10,7 +10,7 @@ pub(super) fn should_skip_visible_rect_draw(
     group_effects: &HashMap<usize, EffectInstance>,
     backdrop_effects: &HashMap<usize, BackdropEffectInstance>,
 ) -> bool {
-    if !draw_tree_node.is_rect() {
+    if !draw_tree_node.is_axis_aligned_rect() {
         return false;
     }
 
@@ -34,7 +34,7 @@ pub(super) fn should_skip_visible_rect_draw(
         return false;
     }
 
-    geometry::extract_axis_aligned_rect_transform(draw_tree_node.transform()).is_some()
+    true
 }
 
 /// Returns a scissor rect when the draw tree node's transform preserves axis alignment.
@@ -43,14 +43,11 @@ pub(super) fn try_scissor_for_rect(
     scale_factor: f64,
     physical_size: Size,
 ) -> Option<UnsignedPhysicalRect> {
-    if !draw_tree_node.is_rect() {
+    if !draw_tree_node.is_axis_aligned_rect() {
         return None;
     }
-    let rect_bounds = draw_tree_node.rect_bounds()?;
-    let rect = MathRect::new(rect_bounds[0].into(), rect_bounds[1].into());
-    geometry::compute_scissor_rect(
-        rect,
-        draw_tree_node.transform(),
+    geometry::logical_rect_to_scissor_rect(
+        draw_tree_node.logical_screen_bounds(),
         scale_factor,
         physical_size,
     )

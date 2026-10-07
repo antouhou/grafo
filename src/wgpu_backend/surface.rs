@@ -71,6 +71,7 @@ impl WgpuBackend {
     }
 
     pub(in crate::wgpu_backend) fn recreate_msaa_texture(&mut self) {
+        self.retained_output = None;
         if self.msaa_sample_count > 1 {
             let texture = create_msaa_color_texture(
                 &self.device,
