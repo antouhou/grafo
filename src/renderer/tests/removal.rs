@@ -251,17 +251,15 @@ fn replacements_and_subtree_removals_defer_compaction_and_preserve_surviving_par
     for _ in 0..20 {
         let converted = queue_shape(&mut renderer, false);
         attach_effects(&mut renderer, converted);
+        renderer.set_group_effect(survivor, 8, &[5; 4]).unwrap();
         renderer
-            .update_group_effect_params(survivor, &[5; 4])
+            .set_shape_backdrop_effect(survivor, 9, &[6; 4], BackdropEffectConfig::default())
             .unwrap();
         renderer
-            .update_backdrop_effect_params(survivor, &[6; 4])
+            .set_shape_effect(survivor, 7, &[7; 4], ShapeEffectConfig::default())
             .unwrap();
-        renderer
-            .update_shape_effect_params(survivor, &[7; 4])
-            .unwrap();
-        let group_parameters = renderer.scene.group_effect(survivor).unwrap().parameters;
-        let backdrop_parameters = renderer.scene.backdrop_effect(survivor).unwrap().parameters;
+        let group_parameters = renderer.scene.group_effects[&survivor].parameters;
+        let backdrop_parameters = renderer.scene.backdrop_effects[&survivor].effect.parameters;
         let shape_parameters = renderer.scene.shape_effect(survivor).unwrap().parameters;
         renderer.remove_subtrees([branch], |_| {});
         renderer
@@ -274,18 +272,18 @@ fn replacements_and_subtree_removals_defer_compaction_and_preserve_surviving_par
             .unwrap();
         renderer.remove_subtrees([converted], |_| {});
         let plan = renderer.planner.plan(&renderer.scene, 4096, None);
-        assert_eq!(plan.effect_parameters.len(), 36);
+        assert_eq!(plan.effect_parameters.len(), 48);
         assert_eq!(plan.parameters(group_parameters), &[5; 4]);
         assert_eq!(plan.parameters(backdrop_parameters), &[6; 4]);
         assert_eq!(plan.parameters(shape_parameters), &[7; 4]);
         renderer
-            .update_group_effect_params(survivor, &[1, 2, 3, 4])
+            .set_group_effect(survivor, 8, &[1, 2, 3, 4])
             .unwrap();
         renderer
-            .update_backdrop_effect_params(survivor, &[1, 2, 3, 4])
+            .set_shape_backdrop_effect(survivor, 9, &[1, 2, 3, 4], BackdropEffectConfig::default())
             .unwrap();
         renderer
-            .update_shape_effect_params(survivor, &[1, 2, 3, 4])
+            .set_shape_effect(survivor, 7, &[1, 2, 3, 4], ShapeEffectConfig::default())
             .unwrap();
         renderer.render(&mut surface).unwrap();
         assert_eq!(

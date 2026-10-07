@@ -176,21 +176,18 @@ fn retained_shape_effect_changes_clear_old_footprints() {
     assert_eq!(renderer.backend.root_scissor, Some(large));
 
     renderer
-        .update_shape_effect_config(node, ShapeEffectConfig::new().outset(1.0))
+        .set_shape_effect(node, 7, &[1, 2, 3, 4], ShapeEffectConfig::new().outset(1.0))
         .unwrap();
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, Some(large));
     let small = UnsignedPhysicalRect::new((8, 8).into(), (16, 16).into());
     renderer
-        .update_shape_effect_params(node, &[1, 2, 3, 4])
+        .set_shape_effect(node, 7, &[1, 2, 3, 4], ShapeEffectConfig::new().outset(1.0))
         .unwrap();
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, Some(small));
 
     let old_effect = *renderer.scene.shape_effect(node).unwrap();
-    assert!(renderer
-        .update_shape_effect_config(node, unrepresentable)
-        .is_err());
     assert!(renderer
         .set_shape_effect(node, 7, &[3; 4], unrepresentable)
         .is_err());
@@ -200,9 +197,8 @@ fn retained_shape_effect_changes_clear_old_footprints() {
     assert_eq!(effect.parameters.range, old_effect.parameters.range);
     assert_eq!(effect.parameters.hash, old_effect.parameters.hash);
     assert!(renderer
-        .update_shape_effect_config(node, ShapeEffectConfig::new().outset(-1.0))
+        .set_shape_effect(node, 7, &[3; 3], old_effect.config)
         .is_err());
-    assert!(renderer.update_shape_effect_params(node, &[3; 3]).is_err());
     assert!(renderer
         .set_shape_effect(node, 7, &[3; 4], ShapeEffectConfig::new().outset(-1.0))
         .is_err());
@@ -286,7 +282,7 @@ fn cached_effect_bounds_follow_rasterization_and_keep_offscreen_coverage() {
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.scene.shape_effect(node).unwrap().bounds, padded);
     renderer
-        .update_shape_effect_config(node, config.downsample(0.25))
+        .set_shape_effect(node, 7, &[1, 2, 3, 4], config.downsample(0.25))
         .unwrap();
     let downsampled = renderer.scene.shape_effect(node).unwrap().bounds;
     assert_eq!(
@@ -323,7 +319,7 @@ fn cached_effect_bounds_follow_rasterization_and_keep_offscreen_coverage() {
         downsampled
     );
     renderer
-        .update_shape_effect_params(node, &[1, 2, 3, 4])
+        .set_shape_effect(node, 7, &[1, 2, 3, 4], config.downsample(0.25))
         .unwrap();
     renderer.render(&mut surface).unwrap();
     assert_eq!(
@@ -370,13 +366,13 @@ fn shape_effect_damage_uses_configured_bounds_with_other_effects() {
         renderer.render(&mut surface).unwrap();
         assert_eq!(renderer.backend.root_scissor, Some(bounds));
         renderer
-            .update_shape_effect_config(node, ShapeEffectConfig::new().outset(1.0))
+            .set_shape_effect(node, 7, &[1, 2, 3, 4], ShapeEffectConfig::new().outset(1.0))
             .unwrap();
         renderer.render(&mut surface).unwrap();
         assert_eq!(renderer.backend.root_scissor, Some(bounds));
         let smaller_bounds = UnsignedPhysicalRect::new((8, 8).into(), (16, 16).into());
         renderer
-            .update_shape_effect_params(node, &[1, 2, 3, 4])
+            .set_shape_effect(node, 7, &[1, 2, 3, 4], ShapeEffectConfig::new().outset(1.0))
             .unwrap();
         renderer.render(&mut surface).unwrap();
         assert_eq!(renderer.backend.root_scissor, Some(smaller_bounds));

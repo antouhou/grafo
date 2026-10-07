@@ -177,22 +177,6 @@ impl RenderPlan {
         }
     }
 
-    pub(crate) fn update_parameters(
-        &mut self,
-        stored: EffectParameters,
-        parameters: &[u8],
-    ) -> EffectParameters {
-        let range = stored.range;
-        if range.end - range.start != parameters.len() {
-            return self.store_parameters(parameters);
-        }
-        self.effect_parameters[range.start..range.end].copy_from_slice(parameters);
-        EffectParameters {
-            range,
-            hash: self.parameter_hasher.hash_one(parameters),
-        }
-    }
-
     pub fn parameters(&self, parameters: EffectParameters) -> &[u8] {
         &self.effect_parameters[parameters.range.start..parameters.range.end]
     }

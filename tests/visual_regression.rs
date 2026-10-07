@@ -1653,7 +1653,7 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
         .padding(4.0)
         .downsample(0.5);
     renderer
-        .update_backdrop_effect_config(panel, moved_capture)
+        .set_shape_backdrop_effect(panel, effect_id, &[], moved_capture)
         .unwrap();
     assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
 
@@ -1670,7 +1670,7 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
     }
 
     renderer
-        .update_backdrop_effect_config(panel, moved_capture.downsample(1.0))
+        .set_shape_backdrop_effect(panel, effect_id, &[], moved_capture.downsample(1.0))
         .unwrap();
     assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
 

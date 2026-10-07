@@ -261,25 +261,6 @@ fn render_submits_planned_shapes_and_effects() {
 }
 
 #[test]
-fn effect_parameter_updates_reuse_storage() {
-    let mut renderer = renderer();
-    let mut surface = surface();
-    let shape = queue_shape(&mut renderer, true);
-    renderer.render(&mut surface).unwrap();
-    let parameters = renderer.scene.shape_effect(shape).unwrap().parameters;
-    renderer
-        .update_shape_effect_params(shape, &[1, 2, 3, 4])
-        .unwrap();
-    renderer
-        .update_group_effect_params(shape, &[1, 2, 3, 4])
-        .unwrap();
-    renderer.render(&mut surface).unwrap();
-    let plan = renderer.planner.plan(&renderer.scene, 4096, None);
-    assert_eq!(plan.effect_parameters.len(), 8);
-    assert_eq!(plan.parameters(parameters), &[1, 2, 3, 4]);
-}
-
-#[test]
 fn queue_rebuilds_reuse_command_storage() {
     let mut renderer = renderer();
     let mut surface = surface();

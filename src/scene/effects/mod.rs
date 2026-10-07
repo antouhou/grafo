@@ -53,23 +53,6 @@ pub(super) fn resolve_backdrop_effect(
     (instance, entry)
 }
 
-fn update_effect_params(
-    instance: &mut EffectInstance,
-    parameters: EffectParameters,
-) -> Result<(), SceneError> {
-    let expected_size = instance.parameters.range.end - instance.parameters.range.start;
-    let actual_size = parameters.range.end - parameters.range.start;
-    if expected_size != actual_size {
-        return Err(SceneError::ParameterSizeMismatch {
-            effect_id: instance.effect_id,
-            expected_size: expected_size as u64,
-            actual_size: actual_size as u64,
-        });
-    }
-    instance.parameters = parameters;
-    Ok(())
-}
-
 fn validate_shape_effect_config(config: &ShapeEffectConfig) -> Result<(), SceneError> {
     if !(config.downsample > 0.0 && config.downsample <= 1.0) {
         return Err(SceneError::InvalidParams(format!(
@@ -133,20 +116,6 @@ impl Scene {
         compacted.clear();
     }
 
-    pub(crate) fn group_effect(&self, node_id: usize) -> Result<&EffectInstance, SceneError> {
-        self.group_effects
-            .get(&node_id)
-            .ok_or(SceneError::NodeNotFound(node_id))
-    }
-
-    pub(crate) fn backdrop_effect(&self, node_id: usize) -> Result<&EffectInstance, SceneError> {
-        Ok(&self
-            .backdrop_effects
-            .get(&node_id)
-            .ok_or(SceneError::NodeNotFound(node_id))?
-            .effect)
-    }
-
     pub(crate) fn shape_effect(&self, node_id: usize) -> Result<&ShapeEffectInstance, SceneError> {
         self.shape_effects
             .get(&node_id)
@@ -168,19 +137,6 @@ impl Scene {
             },
         );
         Ok(())
-    }
-
-    pub(crate) fn update_group_effect_params(
-        &mut self,
-        node_id: usize,
-        parameters: EffectParameters,
-    ) -> Result<(), SceneError> {
-        update_effect_params(
-            self.group_effects
-                .get_mut(&node_id)
-                .ok_or(SceneError::NodeNotFound(node_id))?,
-            parameters,
-        )
     }
 
     pub(crate) fn remove_group_effect(&mut self, node_id: usize) {
@@ -222,49 +178,6 @@ impl Scene {
             maximum_texture_dimension,
         );
         self.replace_backdrop_effect(node_id, instance, entry);
-        Ok(())
-    }
-
-    pub(crate) fn update_backdrop_effect_params(
-        &mut self,
-        node_id: usize,
-        parameters: EffectParameters,
-    ) -> Result<(), SceneError> {
-        update_effect_params(
-            &mut self
-                .backdrop_effects
-                .get_mut(&node_id)
-                .ok_or(SceneError::NodeNotFound(node_id))?
-                .effect,
-            parameters,
-        )
-    }
-
-    pub(crate) fn update_backdrop_effect_config(
-        &mut self,
-        node_id: usize,
-        config: BackdropEffectConfig,
-        maximum_texture_dimension: u32,
-    ) -> Result<(), SceneError> {
-        validate_backdrop_config(&config)?;
-        let instance = self
-            .backdrop_effects
-            .get(&node_id)
-            .ok_or(SceneError::NodeNotFound(node_id))?;
-        let node = self
-            .draw_tree
-            .get(node_id)
-            .ok_or(SceneError::NodeNotFound(node_id))?;
-        let (updated, entry) = resolve_backdrop_effect(
-            node_id,
-            node,
-            instance.effect,
-            config,
-            self.viewport,
-            self.fringe_width,
-            maximum_texture_dimension,
-        );
-        self.replace_backdrop_effect(node_id, updated, entry);
         Ok(())
     }
 
@@ -326,43 +239,6 @@ impl Scene {
                 bounds,
             },
         );
-        Ok(())
-    }
-
-    pub(crate) fn update_shape_effect_params(
-        &mut self,
-        node_id: usize,
-        parameters: EffectParameters,
-    ) -> Result<(), SceneError> {
-        let instance = self
-            .shape_effects
-            .get_mut(&node_id)
-            .ok_or(SceneError::NodeNotFound(node_id))?;
-        instance.parameters = parameters;
-        Ok(())
-    }
-
-    pub(crate) fn update_shape_effect_config(
-        &mut self,
-        node_id: usize,
-        config: ShapeEffectConfig,
-    ) -> Result<(), SceneError> {
-        validate_shape_effect_config(&config)?;
-        let shape = self.shape(node_id)?;
-        let bounds = ShapeEffectBounds::new(
-            shape.cached_shape.tessellation.local_bounds,
-            config,
-            shape.transform,
-            self.viewport.scale_factor,
-            self.fringe_width,
-        )
-        .ok_or(SceneError::InvalidShapeEffectBounds(node_id))?;
-        let instance = self
-            .shape_effects
-            .get_mut(&node_id)
-            .ok_or(SceneError::NodeNotFound(node_id))?;
-        instance.config = config;
-        instance.bounds = bounds;
         Ok(())
     }
 

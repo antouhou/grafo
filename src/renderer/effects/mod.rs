@@ -38,21 +38,6 @@ impl<B: RenderBackend> Renderer<B> {
             .set_group_effect(node_id, effect_id, parameters)?)
     }
 
-    pub fn update_group_effect_params(
-        &mut self,
-        node_id: usize,
-        params: &[u8],
-    ) -> Result<(), EffectError<B::Error>> {
-        let effect = self.scene.group_effect(node_id)?;
-        self.backend
-            .validate_effect_params(effect.effect_id, params)
-            .map_err(EffectError::Backend)?;
-        let parameters = self
-            .planner
-            .update_effect_parameters(effect.parameters, params);
-        Ok(self.scene.update_group_effect_params(node_id, parameters)?)
-    }
-
     pub fn remove_group_effect(&mut self, node_id: usize) {
         self.scene.remove_group_effect(node_id);
     }
@@ -78,40 +63,6 @@ impl<B: RenderBackend> Renderer<B> {
             config,
             self.backend.maximum_texture_dimension(),
         )?;
-        // Damage expansion performed before planning will include the capture region
-        self.mark_shape_dirty(node_id);
-        Ok(())
-    }
-
-    pub fn update_backdrop_effect_config(
-        &mut self,
-        node_id: usize,
-        config: BackdropEffectConfig,
-    ) -> Result<(), EffectError<B::Error>> {
-        self.scene.update_backdrop_effect_config(
-            node_id,
-            config,
-            self.backend.maximum_texture_dimension(),
-        )?;
-        // Damage expansion performed before planning will include the capture region
-        self.mark_shape_dirty(node_id);
-        Ok(())
-    }
-
-    pub fn update_backdrop_effect_params(
-        &mut self,
-        node_id: usize,
-        params: &[u8],
-    ) -> Result<(), EffectError<B::Error>> {
-        let effect = self.scene.backdrop_effect(node_id)?;
-        self.backend
-            .validate_effect_params(effect.effect_id, params)
-            .map_err(EffectError::Backend)?;
-        let parameters = self
-            .planner
-            .update_effect_parameters(effect.parameters, params);
-        self.scene
-            .update_backdrop_effect_params(node_id, parameters)?;
         // Damage expansion performed before planning will include the capture region
         self.mark_shape_dirty(node_id);
         Ok(())
@@ -150,36 +101,6 @@ impl<B: RenderBackend> Renderer<B> {
         if let Some(bounds) = old_bounds {
             self.mark_shape_effect_dirty(bounds);
         }
-        self.mark_shape_effect_dirty(self.scene.shape_effect(node_id)?.bounds);
-        Ok(())
-    }
-
-    pub fn update_shape_effect_params(
-        &mut self,
-        node_id: usize,
-        params: &[u8],
-    ) -> Result<(), EffectError<B::Error>> {
-        let effect = self.scene.shape_effect(node_id)?;
-        let bounds = effect.bounds;
-        self.backend
-            .validate_effect_params(effect.effect_id, params)
-            .map_err(EffectError::Backend)?;
-        let parameters = self
-            .planner
-            .update_effect_parameters(effect.parameters, params);
-        self.scene.update_shape_effect_params(node_id, parameters)?;
-        self.mark_shape_effect_dirty(bounds);
-        Ok(())
-    }
-
-    pub fn update_shape_effect_config(
-        &mut self,
-        node_id: usize,
-        config: ShapeEffectConfig,
-    ) -> Result<(), EffectError<B::Error>> {
-        let old_bounds = self.scene.shape_effect(node_id)?.bounds;
-        self.scene.update_shape_effect_config(node_id, config)?;
-        self.mark_shape_effect_dirty(old_bounds);
         self.mark_shape_effect_dirty(self.scene.shape_effect(node_id)?.bounds);
         Ok(())
     }

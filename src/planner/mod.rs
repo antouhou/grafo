@@ -31,14 +31,6 @@ impl Planner {
         self.commands.store_parameters(parameters)
     }
 
-    pub(crate) fn update_effect_parameters(
-        &mut self,
-        stored: EffectParameters,
-        parameters: &[u8],
-    ) -> EffectParameters {
-        self.commands.update_parameters(stored, parameters)
-    }
-
     /// Rebuilds commands and composites
     pub(crate) fn plan(
         &mut self,
