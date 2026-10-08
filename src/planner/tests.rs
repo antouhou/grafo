@@ -57,7 +57,7 @@ fn add_shape(scene: &mut Scene, parent: Option<usize>) -> usize {
 }
 
 fn plan_scene(planner: &mut Planner, scene: &Scene) {
-    planner.plan(scene, 4096, None);
+    planner.plan(scene, 4096);
 }
 
 fn viewport() -> Viewport {

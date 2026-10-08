@@ -158,6 +158,7 @@ impl RenderBackend for TestBackend {
 
     fn render(
         &mut self,
+        root_scissor: Option<UnsignedPhysicalRect>,
         commands: &RenderPlan,
         surface: RenderTarget<'_, TestSurface>,
     ) -> Result<(), Self::Error> {
@@ -165,7 +166,7 @@ impl RenderBackend for TestBackend {
             return Err(TestBackendError);
         }
         self.command_address = commands as *const RenderPlan as usize;
-        self.root_scissor = commands.root_scissor;
+        self.root_scissor = root_scissor;
         self.instruction_address = commands.instructions.as_ptr() as usize;
         let surface = match surface {
             RenderTarget::Surface(surface) => surface.resource_mut(),
@@ -252,7 +253,7 @@ fn render_submits_planned_shapes_and_effects() {
     let mut surface = surface();
     let shape = queue_shape(&mut renderer, true);
     let planned_address =
-        renderer.planner.plan(&renderer.scene, 4096, None) as *const RenderPlan as usize;
+        renderer.planner.plan(&renderer.scene, 4096) as *const RenderPlan as usize;
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.command_address, planned_address);
     assert_eq!(surface.resource().draws, [shape]);
@@ -302,7 +303,7 @@ fn clearing_queue_removes_planned_draws_and_effects() {
     assert!(surface.resource().draws.is_empty());
     assert!(surface.resource().effects.is_empty());
     assert_eq!(surface.resource().shape_masks, 0);
-    let plan = renderer.planner.plan(&renderer.scene, 4096, None);
+    let plan = renderer.planner.plan(&renderer.scene, 4096);
     assert!(matches!(
         plan.instructions.as_slice(),
         [
@@ -326,14 +327,14 @@ fn rendering_to_one_surface_does_not_change_another() {
     let mut second = renderer();
     let mut second_surface = surface();
     queue_shape(&mut second, false);
-    let commands = first.planner.plan(&first.scene, 4096, None);
+    let commands = first.planner.plan(&first.scene, 4096);
     first
         .backend
-        .render(commands, (&mut first_surface).into())
+        .render(first.dirty_bounds, commands, (&mut first_surface).into())
         .unwrap();
     second
         .backend
-        .render(commands, (&mut second_surface).into())
+        .render(second.dirty_bounds, commands, (&mut second_surface).into())
         .unwrap();
     assert_eq!(first_surface.resource().draws, [shape]);
     assert_eq!(second_surface.resource().draws, [shape]);

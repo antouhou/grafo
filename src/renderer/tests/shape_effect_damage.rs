@@ -295,7 +295,7 @@ fn cached_effect_bounds_follow_rasterization_and_keep_offscreen_coverage() {
         renderer.backend.root_scissor,
         Some(UnsignedPhysicalRect::new((18, 0).into(), (42, 44).into()))
     );
-    let plan = renderer.planner.plan(&renderer.scene, 4096, None);
+    let plan = renderer.planner.plan(&renderer.scene, 4096);
     let mask = plan
         .instructions
         .iter()
