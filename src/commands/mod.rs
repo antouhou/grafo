@@ -134,8 +134,6 @@ pub struct ShapeMaskDraw {
 /// One ordered command stream, with storage reused when the draw queue is rebuilt.
 #[derive(Default)]
 pub struct RenderPlan {
-    /// Changed surface pixels. None preserves the retained image without drawing.
-    pub root_scissor: Option<UnsignedPhysicalRect>,
     pub instructions: Vec<RenderCommand>,
     pub effect_parameters: Vec<u8>,
 }

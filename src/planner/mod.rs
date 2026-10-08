@@ -1,7 +1,6 @@
 use crate::commands::{
     EffectParameters, IntermediateTextureId, RenderOperation, RenderPlan, Target, TextureComposite,
 };
-use crate::core::UnsignedPhysicalRect;
 use crate::scene::Scene;
 use ahash::HashMap;
 use groups::{GroupPlanningInput, SceneTraversal};
@@ -47,15 +46,9 @@ impl Planner {
     }
 
     /// Rebuilds commands and composites
-    pub(crate) fn plan(
-        &mut self,
-        scene: &Scene,
-        maximum_texture_dimension: u32,
-        root_scissor: Option<UnsignedPhysicalRect>,
-    ) -> &RenderPlan {
+    pub(crate) fn plan(&mut self, scene: &Scene, maximum_texture_dimension: u32) -> &RenderPlan {
         self.commands.clear_commands();
         let mut texture_ids = TextureIdAllocator::default();
-        self.commands.root_scissor = root_scissor;
         self.commands
             .push(RenderOperation::BeginTarget(Target::Surface));
         append_shape_effects(

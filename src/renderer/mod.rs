@@ -104,13 +104,11 @@ impl<B: RenderBackend> Renderer<B> {
         self.pending_clip_damage
             .apply(&self.scene, &mut self.dirty_bounds);
         self.dirty_bounds = self.scene.expand_backdrop_damage(self.dirty_bounds);
-        let commands = self.planner.plan(
-            &self.scene,
-            self.backend.maximum_texture_dimension(),
-            self.dirty_bounds,
-        );
+        let commands = self
+            .planner
+            .plan(&self.scene, self.backend.maximum_texture_dimension());
         self.scene.finish_preparation();
-        self.backend.render(commands, target)?;
+        self.backend.render(self.dirty_bounds, commands, target)?;
         self.dirty_bounds = None;
         #[cfg(feature = "render_metrics")]
         self.render_loop_metrics_tracker

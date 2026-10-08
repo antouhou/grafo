@@ -21,6 +21,7 @@ impl WgpuBackend {
     /// Updates the clean scene and returns the redrawn bounds.
     pub(in crate::wgpu_backend) fn update_retained_output(
         &mut self,
+        root_scissor: Option<UnsignedPhysicalRect>,
         commands: &RenderPlan,
     ) -> Option<UnsignedPhysicalRect> {
         #[cfg(feature = "render_metrics")]
@@ -44,7 +45,7 @@ impl WgpuBackend {
                 self.viewport.physical_size.into(),
             ))
         } else {
-            commands.root_scissor
+            root_scissor
         };
         if let Some(scissor) = root_scissor {
             self.render_dirty_region(commands, &retained, scissor);
@@ -180,6 +181,7 @@ impl WgpuBackend {
     /// Returns an error if surface acquisition fails.
     pub(super) fn render_surface(
         &mut self,
+        root_scissor: Option<UnsignedPhysicalRect>,
         commands: &RenderPlan,
         surface: &Surface<'_>,
     ) -> Result<(), SurfaceError> {
@@ -195,7 +197,7 @@ impl WgpuBackend {
             .texture
             .create_view(&TextureViewDescriptor::default());
 
-        let root_scissor = self.update_retained_output(commands);
+        let root_scissor = self.update_retained_output(root_scissor, commands);
         let retained = self
             .retained_output
             .as_ref()

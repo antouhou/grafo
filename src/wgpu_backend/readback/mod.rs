@@ -9,6 +9,7 @@ use crate::wgpu_backend::pipeline::{
     create_argb_row_packing_params_buffer, create_argb_row_packing_pipeline,
     create_readback_buffer, encode_copy_texture_to_buffer, ArgbRowPackingParams,
 };
+use crate::UnsignedPhysicalRect;
 use mapping::ReadbackMapping;
 use std::iter;
 #[cfg(feature = "render_metrics")]
@@ -267,6 +268,7 @@ impl WgpuBackend {
 
     pub(in crate::wgpu_backend) fn render_byte_pixels(
         &mut self,
+        root_scissor: Option<UnsignedPhysicalRect>,
         commands: &RenderPlan,
         output: &mut PixmapMut<'_>,
     ) -> Result<(), ReadbackError> {
@@ -286,7 +288,7 @@ impl WgpuBackend {
             Some(resources) if resources.physical_size == physical_size => resources,
             _ => ByteReadbackResources::new(&self.device, physical_size),
         };
-        let _ = self.update_retained_output(commands);
+        let _ = self.update_retained_output(root_scissor, commands);
         let retained = self
             .retained_output
             .as_ref()
@@ -340,6 +342,7 @@ impl WgpuBackend {
 
     pub(in crate::wgpu_backend) fn render_argb_pixels(
         &mut self,
+        root_scissor: Option<UnsignedPhysicalRect>,
         commands: &RenderPlan,
         output: &mut PixmapMut<'_>,
     ) -> Result<(), ReadbackError> {
@@ -358,7 +361,7 @@ impl WgpuBackend {
             .take()
             .unwrap_or_else(|| ArgbReadbackResources::new(&self.device, (width, height)));
         resources.resize(&self.device, (width, height));
-        let _ = self.update_retained_output(commands);
+        let _ = self.update_retained_output(root_scissor, commands);
         let retained = self
             .retained_output
             .as_ref()
