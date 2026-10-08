@@ -5,6 +5,7 @@ use crate::commands::{
 };
 use crate::core::geometry;
 use crate::planner::draws;
+use crate::planner::TextureIdAllocator;
 use crate::scene::types::DrawTreeNode;
 
 impl DrawPlanner {
@@ -15,6 +16,7 @@ impl DrawPlanner {
         node: &DrawTreeNode,
         input: &DrawPlanningInput<'_>,
         output: &mut RenderPlan,
+        texture_ids: &mut TextureIdAllocator,
     ) -> bool {
         let Some(source) = input.backdrop_source else {
             return false;
@@ -33,8 +35,8 @@ impl DrawPlanner {
             material: draws::shape_material(&description.instance),
         };
         if let Some(region) = effect.capture_region {
-            let capture = output.allocate_texture();
-            let filtered = output.allocate_texture();
+            let capture = texture_ids.allocate();
+            let filtered = texture_ids.allocate();
             output.push(RenderOperation::CaptureBackdrop(BackdropCapture {
                 source,
                 region,

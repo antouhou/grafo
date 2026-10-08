@@ -118,9 +118,11 @@ fn parameter_compaction_preserves_replanned_effects() {
     }
     let expected_non_effect_commands = non_effect_command_snapshots(&planner.commands);
     let instructions_address = planner.commands.instructions.as_ptr();
-    let expected_composites = planner.commands.composite_draws.clone();
-    let texture_count = planner.commands.texture_count;
-    assert!(planner.commands.has_backdrop_captures);
+    assert!(planner
+        .commands
+        .instructions
+        .iter()
+        .any(|command| { matches!(command.operation, RenderOperation::CaptureBackdrop(_)) }));
 
     for _ in 0..2 {
         planner.compact_effect_parameters(&mut scene);
@@ -133,12 +135,13 @@ fn parameter_compaction_preserves_replanned_effects() {
         );
         assert_eq!(planner.commands.instructions.as_ptr(), instructions_address);
         assert_eq!(planner.commands.effect_parameters.len(), 12);
-        assert_eq!(planner.commands.texture_count, texture_count);
-        assert!(planner.commands.has_backdrop_captures);
+        assert!(planner
+            .commands
+            .instructions
+            .iter()
+            .any(|command| { matches!(command.operation, RenderOperation::CaptureBackdrop(_)) }));
         assert!(planner.shape_composites.contains_key(&root));
         assert!(!planner.shape_composites.contains_key(&removed));
-        assert!(!expected_composites.is_empty());
-        assert_eq!(planner.commands.composite_draws, expected_composites);
     }
 }
 

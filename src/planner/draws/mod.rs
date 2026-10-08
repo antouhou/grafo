@@ -4,6 +4,7 @@ use crate::commands::{
     Target, TextureComposite, TexturePlacement,
 };
 use crate::core::shape::ShapeInstance;
+use crate::planner::TextureIdAllocator;
 use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
 use crate::scene::types::DrawTreeNode;
 use crate::{Size, UnsignedPhysicalRect};
@@ -67,7 +68,12 @@ pub(crate) struct DrawPlanner {
 
 impl DrawPlanner {
     /// Appends a selected tree with its own resolved clip state.
-    pub(crate) fn append(&mut self, input: DrawPlanningInput<'_>, output: &mut RenderPlan) {
+    pub(crate) fn append(
+        &mut self,
+        input: DrawPlanningInput<'_>,
+        output: &mut RenderPlan,
+        texture_ids: &mut TextureIdAllocator,
+    ) {
         self.parents.clear();
         self.current = ClipState {
             clip: DrawClip {
@@ -78,8 +84,8 @@ impl DrawPlanner {
         };
         let mut next_node = Some(input.selection.subtree_root.unwrap_or(0));
         while let Some(node_id) = next_node {
-            self.plan_node(node_id, &input, output);
-            next_node = self.next_node(&input, output);
+            self.plan_node(node_id, &input, output, texture_ids);
+            next_node = self.next_node(&input, output, texture_ids);
         }
         debug_assert!(
             self.parents.is_empty(),
@@ -92,6 +98,7 @@ impl DrawPlanner {
         node_id: usize,
         input: &DrawPlanningInput<'_>,
         output: &mut RenderPlan,
+        texture_ids: &mut TextureIdAllocator,
     ) {
         if input.selection.excluded_subtree == Some(node_id) {
             return;
@@ -114,7 +121,7 @@ impl DrawPlanner {
             && input.selection.subtree_root != Some(node_id)
             && input.group_effects.contains_key(&node_id)
         {
-            let texture = output.allocate_texture();
+            let texture = texture_ids.allocate();
             output.push(RenderOperation::BeginTarget(Target::Texture {
                 texture,
                 size: input.physical_size,
@@ -143,7 +150,7 @@ impl DrawPlanner {
             });
             self.current.decrements_stencil = false;
         }
-        if self.plan_backdrop(node_id, node, input, output) {
+        if self.plan_backdrop(node_id, node, input, output, texture_ids) {
             return;
         }
         let draw = match node {
@@ -155,7 +162,7 @@ impl DrawPlanner {
             }
             _ => None,
         };
-        if let Some(instruction) = self.enter_node(node_id, node, draw, input, output) {
+        if let Some(instruction) = self.enter_node(node_id, node, draw, input) {
             output.push_command(instruction);
         }
     }
@@ -165,6 +172,7 @@ impl DrawPlanner {
         &mut self,
         input: &DrawPlanningInput<'_>,
         output: &mut RenderPlan,
+        texture_ids: &mut TextureIdAllocator,
     ) -> Option<usize> {
         while let Some(parent) = self.parents.last_mut() {
             if let Some(&child) = input.tree.children(parent.node_id).get(parent.next_child) {
@@ -190,7 +198,7 @@ impl DrawPlanner {
                 output.push(RenderOperation::EndTarget);
                 let effect = &input.group_effects[&node_id];
                 let parameters = effect.parameters;
-                let texture = output.allocate_texture();
+                let texture = texture_ids.allocate();
                 output.push(RenderOperation::ApplyEffect(EffectApplication {
                     effect_id: effect.effect_id,
                     parameters,
@@ -222,7 +230,6 @@ impl DrawPlanner {
         node: &DrawTreeNode,
         draw: Option<ShapeDraw>,
         input: &DrawPlanningInput<'_>,
-        _output: &mut RenderPlan,
     ) -> Option<RenderCommand> {
         let should_draw = !rectangles::should_skip_visible_rect_draw(
             node_id,
@@ -246,10 +253,6 @@ impl DrawPlanner {
                 .scissor
                 .intersection(&scissor)
                 .unwrap_or_else(UnsignedPhysicalRect::zero);
-            #[cfg(feature = "render_metrics")]
-            {
-                _output.scissor_clip_count += 1;
-            }
             return visible_draw.map(|draw| self.draw_shape(draw));
         }
         let draw = draw?;

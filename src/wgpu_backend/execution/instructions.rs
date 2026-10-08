@@ -23,8 +23,8 @@ pub(in crate::wgpu_backend) struct ExecutionContext<'a> {
     pub device: &'a Device,
     pub queue: &'a Queue,
     pub pipelines: &'a RendererPipelineResources,
-    pub effects: Option<EffectContext<'a>>,
-    pub backdrops: Option<BackdropContext<'a>>,
+    pub effects: EffectContext<'a>,
+    pub backdrops: BackdropContext<'a>,
     pub format: TextureFormat,
     pub sample_count: u32,
 }
@@ -46,11 +46,7 @@ pub(in crate::wgpu_backend) struct ExecutionMetrics {
 
 impl ExecutionResources<'_> {
     fn mask_resources(&mut self) -> ShapeEffectExecutionResources<'_> {
-        let effects = self
-            .context
-            .effects
-            .as_ref()
-            .expect("mask effects have execution resources");
+        let effects = &self.context.effects;
         ShapeEffectExecutionResources {
             device: self.context.device,
             queue: self.context.queue,
@@ -120,11 +116,7 @@ impl ExecutionResources<'_> {
         target.attachments(surface).clear_if_needed(encoder);
         if let Target::Texture { texture, .. } = target.target {
             let mut output = target.texture.expect("target owns its texture");
-            let context = self
-                .context
-                .effects
-                .as_ref()
-                .expect("texture resources are initialized");
+            let context = &self.context.effects;
             output.composite_bind_group(context.device, context.composite_layout, context.sampler);
             self.textures.insert_planned(texture, output);
         }
@@ -302,11 +294,7 @@ pub(in crate::wgpu_backend) fn execute_commands(
                         encoder,
                         effect,
                         commands,
-                        resources
-                            .context
-                            .effects
-                            .as_ref()
-                            .expect("effect resources are initialized"),
+                        &resources.context.effects,
                         true,
                         resources.effects,
                         resources.textures,
@@ -347,11 +335,7 @@ pub(in crate::wgpu_backend) fn execute_commands(
                 };
                 backdrops::execute_capture(
                     encoder,
-                    resources
-                        .context
-                        .backdrops
-                        .as_ref()
-                        .expect("capture resources are initialized"),
+                    &resources.context.backdrops,
                     source,
                     *capture,
                     resources.effects,
@@ -379,10 +363,6 @@ pub(in crate::wgpu_backend) fn execute_commands(
         "command stream must close every target"
     );
     resources.textures.finish_plan();
-    #[cfg(feature = "render_metrics")]
-    {
-        pipeline_tracker.counts.scissor_clips = commands.scissor_clip_count;
-    }
     ExecutionMetrics {
         #[cfg(feature = "render_metrics")]
         pipeline_switches: pipeline_tracker.counts,

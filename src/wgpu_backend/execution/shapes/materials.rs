@@ -163,10 +163,7 @@ impl ShapeDrawResources {
             return;
         }
 
-        let layouts = pipelines
-            .under_fill_pipelines
-            .as_ref()
-            .expect("texture material pipelines are initialized before preparation");
+        let layouts = &pipelines.under_fill_pipelines;
         let layout = if gradient_view.is_some() {
             &layouts.gradient_layout
         } else {

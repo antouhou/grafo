@@ -4,7 +4,7 @@ use crate::wgpu_backend::resources::ShapePipelines;
 use crate::wgpu_backend::types::Pipeline;
 use wgpu::{BindGroupLayout, Device, RenderPipeline, TextureFormat};
 
-/// Shape-material variants created only when a draw needs an under-fill texture.
+/// Shape-material variants for draws with an under-fill texture.
 pub(in crate::wgpu_backend) struct TextureMaterialPipelines {
     pub(in crate::wgpu_backend) solid_layout: BindGroupLayout,
     pub(in crate::wgpu_backend) gradient_layout: BindGroupLayout,
@@ -19,17 +19,11 @@ impl TextureMaterialPipelines {
         device: &Device,
         format: TextureFormat,
         sample_count: u32,
-        shapes: &ShapePipelines,
+        layouts: [&BindGroupLayout; 3],
     ) -> Self {
         let solid_layout = pipeline::create_texture_material_bind_group_layout(device);
         let gradient_layout = pipeline::create_gradient_texture_material_bind_group_layout(device);
-        let uniforms = shapes.and_pipeline.get_bind_group_layout(0);
-        let solid_layouts = [
-            &uniforms,
-            &shapes.shape_texture_bind_group_layout_background,
-            &shapes.shape_texture_bind_group_layout_foreground,
-            &solid_layout,
-        ];
+        let solid_layouts = [layouts[0], layouts[1], layouts[2], &solid_layout];
         let gradient_layouts = [
             solid_layouts[0],
             solid_layouts[1],
@@ -83,10 +77,7 @@ impl ShapePipelines {
     ) -> (Pipeline, &RenderPipeline) {
         let uses_gradient = material.has_gradient_fill;
         if material.under_fill_texture.is_some() {
-            let pipelines = self
-                .under_fill_pipelines
-                .as_ref()
-                .expect("texture material pipelines are initialized before drawing");
+            let pipelines = &self.under_fill_pipelines;
             return match (uses_gradient, increments_stencil) {
                 (false, false) => (Pipeline::LeafDrawTexture, &pipelines.solid_keep),
                 (true, false) => (Pipeline::LeafDrawGradientTexture, &pipelines.gradient_keep),

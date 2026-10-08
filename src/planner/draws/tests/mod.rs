@@ -8,6 +8,7 @@ use crate::core::shape::CachedShapeHandle;
 use crate::core::util::ShapeResources;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
 use crate::core::Viewport;
+use crate::planner::TextureIdAllocator;
 use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::{ClipRectDrawData, DrawTreeNode};
@@ -137,6 +138,7 @@ impl Scene {
                 backdrop_source: self.backdrop_source,
             },
             output,
+            &mut TextureIdAllocator::default(),
         );
     }
 

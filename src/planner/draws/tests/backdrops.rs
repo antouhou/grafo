@@ -93,7 +93,8 @@ fn consecutive_captures_follow_preceding_draws_and_keep_separate_outputs() {
     );
     assert_eq!(first_effect.input, first_capture.output);
     assert_eq!(second_effect.input, second_capture.output);
-    assert_eq!(output.texture_count, 4);
+    assert_eq!(first_effect.output, IntermediateTextureId::Planned(1));
+    assert_eq!(second_effect.output, IntermediateTextureId::Planned(3));
     assert_ne!(first_effect.output, second_effect.output);
     assert_eq!(output.parameters(first_effect.parameters), &[1, 2, 3, 4]);
     assert_eq!(output.parameters(second_effect.parameters), &[9, 8]);
@@ -124,7 +125,6 @@ fn layered_capture_references_registered_resources_and_disabling_capture_removes
             rect((0, 0), (100, 100)),
         )]
     );
-    assert_eq!(output.texture_count, 0);
 }
 
 #[test]
@@ -168,7 +168,6 @@ fn rejected_capture_preserves_gradient_and_stencil_without_texture_work() {
     };
     assert!(draw.material.has_gradient_fill);
     assert!(draw.material.under_fill_texture.is_none());
-    assert_eq!(output.texture_count, 0);
     let viewport = rect((0, 0), (100, 100));
     assert_eq!(
         snapshot(&output),
@@ -243,7 +242,6 @@ fn rebuilt_queues_reuse_storage_and_replace_all_commands_and_parameters() {
             )
         );
         assert_eq!(output.effect_parameters.is_empty(), !has_backdrop);
-        assert_eq!(output.texture_count, if has_backdrop { 2 } else { 0 });
     }
     scene.tree.clear();
     scene.backdrops.clear();
@@ -251,7 +249,6 @@ fn rebuilt_queues_reuse_storage_and_replace_all_commands_and_parameters() {
     scene.plan(&mut planner, &mut output);
     assert!(output.instructions.is_empty());
     assert!(output.effect_parameters.is_empty());
-    assert_eq!(output.texture_count, 0);
 }
 
 #[test]
@@ -284,7 +281,6 @@ fn shape_effect_composite_precedes_its_source_backdrop_capture_under_inherited_c
             ..
         ]
     ));
-    assert_eq!(output.composite_draws, [1]);
     assert_eq!(
         snapshot(&output)[1],
         (

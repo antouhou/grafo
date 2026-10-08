@@ -1,8 +1,11 @@
-use super::execution::effects::{EffectExecutionResources, EffectRegistry};
-use super::execution::shape_effects::ShapeEffectRendererResources;
+use super::execution::effects::{
+    compile_composite_pipeline, EffectExecutionResources, EffectRegistry,
+};
 use super::execution::shapes::ShapeExecutionResources;
 use super::execution::textures::IntermediateTextureResources;
-use super::resources::{BackendResources, Buffers, RendererPipelineResources, ShapePipelines};
+use super::resources::{
+    BackdropPipelineResources, BackendResources, Buffers, RendererPipelineResources, ShapePipelines,
+};
 use super::{WgpuBackend, WgpuContext};
 use crate::core::Viewport;
 use std::sync::Arc;
@@ -19,17 +22,15 @@ impl WgpuBackend {
         msaa_sample_count: u32,
     ) -> Self {
         let device = context.device.clone();
-        let resources = ShapePipelines::new(
+        let pipeline_resources = RendererPipelineResources::new(
             &context,
             format,
             physical_size,
             scale_factor,
             DEFAULT_FRINGE_WIDTH,
             msaa_sample_count,
-            None,
         );
         let queue = context.queue.clone();
-        let shape_effect_resources = ShapeEffectRendererResources::new(&device, format);
         let effect_registry = EffectRegistry::new(&device);
 
         let supports_base_vertex = context.supports_base_vertex;
@@ -44,13 +45,7 @@ impl WgpuBackend {
                 physical_size,
                 scale_factor,
             },
-            pipeline_resources: RendererPipelineResources {
-                shapes: resources,
-                shape_effects: shape_effect_resources,
-                effect_sampler: None,
-                composite_resources: None,
-                backdrops: None,
-            },
+            pipeline_resources,
             argb_readback: None,
             byte_readback: None,
             retained_output: None,
@@ -122,13 +117,20 @@ impl WgpuBackend {
             .invalidate_bindings();
 
         self.resources.textures.clear_shape_effects();
-        self.pipeline_resources.composite_resources = None;
+        self.pipeline_resources.composite_resources =
+            compile_composite_pipeline(&self.device, self.format, self.msaa_sample_count);
         self.pipeline_resources
             .shape_effects
             .recreate_pipeline(&self.device, self.format);
 
-        // Reset lazily-created pipelines so they pick up the new layout
-        self.pipeline_resources.backdrops = None;
+        self.pipeline_resources.backdrops = BackdropPipelineResources::new(
+            &self.device,
+            self.format,
+            &self
+                .pipeline_resources
+                .composite_resources
+                .bind_group_layout,
+        );
 
         // Gradient layouts and their uploaded resources remain valid across MSAA changes.
         for resources in self.resources.shape_execution.draws.values_mut() {

@@ -85,13 +85,13 @@ pub(in crate::wgpu_backend) struct ShapePipelines {
     pub(in crate::wgpu_backend) and_uniform_buffer: Buffer,
     pub(in crate::wgpu_backend) decrementing_uniforms: Uniforms,
     pub(in crate::wgpu_backend) decrementing_uniform_buffer: Buffer,
-    pub(in crate::wgpu_backend) under_fill_pipelines: Option<TextureMaterialPipelines>,
+    pub(in crate::wgpu_backend) under_fill_pipelines: TextureMaterialPipelines,
     pub(in crate::wgpu_backend) stencil_only_pipeline: RenderPipeline,
     pub(in crate::wgpu_backend) gradient_bind_group_layout: BindGroupLayout,
     pub(in crate::wgpu_backend) linear_clamp_sampler: Sampler,
 }
 
-/// Pipelines created together when rendering first needs a backdrop effect.
+/// Built-in pipelines for backdrop capture and composition.
 pub(in crate::wgpu_backend) struct BackdropPipelineResources {
     /// Downsamples captured backdrop pixels before applying an effect.
     pub(in crate::wgpu_backend) texture_blit_pipeline: RenderPipeline,
@@ -103,9 +103,9 @@ pub(in crate::wgpu_backend) struct BackdropPipelineResources {
 pub(in crate::wgpu_backend) struct RendererPipelineResources {
     pub(in crate::wgpu_backend) shapes: ShapePipelines,
     pub(in crate::wgpu_backend) shape_effects: ShapeEffectRendererResources,
-    pub(in crate::wgpu_backend) effect_sampler: Option<Sampler>,
-    pub(in crate::wgpu_backend) composite_resources: Option<CompositePipelineResources>,
-    pub(in crate::wgpu_backend) backdrops: Option<BackdropPipelineResources>,
+    pub(in crate::wgpu_backend) effect_sampler: Sampler,
+    pub(in crate::wgpu_backend) composite_resources: CompositePipelineResources,
+    pub(in crate::wgpu_backend) backdrops: BackdropPipelineResources,
 }
 
 /// Uploaded resources and execution caches. No scene or planning state is retained.

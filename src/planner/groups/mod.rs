@@ -3,6 +3,7 @@ use crate::commands::{
     BackdropCaptureSource, EffectApplication, IntermediateTextureId, RenderOperation, RenderPlan,
     Target, TextureComposite,
 };
+use crate::planner::TextureIdAllocator;
 use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
 use crate::scene::types::DrawTreeNode;
 use crate::Size;
@@ -38,13 +39,18 @@ pub(crate) struct SceneTraversal {
 }
 
 impl SceneTraversal {
-    pub fn plan(&mut self, input: GroupPlanningInput<'_>, output: &mut RenderPlan) {
+    pub fn plan(
+        &mut self,
+        input: GroupPlanningInput<'_>,
+        output: &mut RenderPlan,
+        texture_ids: &mut TextureIdAllocator,
+    ) {
         self.results.clear();
         self.schedule(&input);
         for index in 0..self.groups.len() {
             let node = self.groups[index].0;
-            let backdrop_source = self.plan_backdrop_source(node, &input, output);
-            let source = output.allocate_texture();
+            let backdrop_source = self.plan_backdrop_source(node, &input, output, texture_ids);
+            let source = texture_ids.allocate();
             self.append_target(
                 Target::Texture {
                     texture: source,
@@ -57,8 +63,9 @@ impl SceneTraversal {
                 backdrop_source,
                 &input,
                 output,
+                texture_ids,
             );
-            let result = output.allocate_texture();
+            let result = texture_ids.allocate();
             let effect = &input.group_effects[&node];
             let parameters = effect.parameters;
             output.push(RenderOperation::ApplyEffect(EffectApplication {
@@ -82,6 +89,7 @@ impl SceneTraversal {
                 backdrop_source: Some(BackdropCaptureSource::Target),
             },
             output,
+            texture_ids,
         );
     }
 
@@ -120,11 +128,12 @@ impl SceneTraversal {
         node: usize,
         input: &GroupPlanningInput<'_>,
         output: &mut RenderPlan,
+        texture_ids: &mut TextureIdAllocator,
     ) -> Option<BackdropCaptureSource> {
         if !self.backdrop_ancestors.contains(&node) {
             return None;
         }
-        let base = output.allocate_texture();
+        let base = texture_ids.allocate();
         self.append_target(
             Target::Texture {
                 texture: base,
@@ -137,6 +146,7 @@ impl SceneTraversal {
             None,
             input,
             output,
+            texture_ids,
         );
         Some(BackdropCaptureSource::Layered { base })
     }
@@ -148,6 +158,7 @@ impl SceneTraversal {
         backdrop_source: Option<BackdropCaptureSource>,
         input: &GroupPlanningInput<'_>,
         output: &mut RenderPlan,
+        texture_ids: &mut TextureIdAllocator,
     ) {
         output.push(RenderOperation::BeginTarget(target));
         self.draws.append(
@@ -163,6 +174,7 @@ impl SceneTraversal {
                 physical_size: input.physical_size,
             },
             output,
+            texture_ids,
         );
         output.push(RenderOperation::EndTarget);
     }
