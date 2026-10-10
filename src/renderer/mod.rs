@@ -22,25 +22,8 @@ mod viewport;
 /// CPU shape storage and backend context shared between renderers.
 #[derive(Clone)]
 pub struct RendererContext<B> {
-    backend: B,
-    scene: SceneContext,
-}
-
-impl<B> RendererContext<B> {
-    pub fn from_parts(backend: B, scene: SceneContext) -> Self {
-        Self { backend, scene }
-    }
-
-    pub fn backend(&self) -> &B {
-        &self.backend
-    }
-
-    pub fn scene(&self) -> &SceneContext {
-        &self.scene
-    }
-    pub fn into_parts(self) -> (B, SceneContext) {
-        (self.backend, self.scene)
-    }
+    pub(crate) backend: B,
+    pub(crate) scene: SceneContext,
 }
 
 /// Coordinates CPU scene construction and planning, then submits the flat command stream.
@@ -59,7 +42,7 @@ pub struct Renderer<B: RenderBackend> {
 impl<B: RenderBackend> Renderer<B> {
     /// Creates a renderer with an empty draw queue using the supplied backend.
     /// Loaded shapes are shared through `context`.
-    pub fn from_backend(backend: B, context: SceneContext) -> Self {
+    pub(crate) fn from_parts(backend: B, context: SceneContext) -> Self {
         let viewport = backend.viewport();
         Self {
             scene: Scene::new(context, viewport, backend.fringe_width()),
@@ -121,13 +104,11 @@ impl<B: RenderBackend> Renderer<B> {
         self.pending_clip_damage
             .apply(&self.scene, &mut self.dirty_bounds);
         self.dirty_bounds = self.scene.expand_backdrop_damage(self.dirty_bounds);
-        let commands = self.planner.plan(
-            &self.scene,
-            self.backend.maximum_texture_dimension(),
-            self.dirty_bounds,
-        );
+        let commands = self
+            .planner
+            .plan(&self.scene, self.backend.maximum_texture_dimension());
         self.scene.finish_preparation();
-        self.backend.render(commands, target)?;
+        self.backend.render(self.dirty_bounds, commands, target)?;
         self.dirty_bounds = None;
         #[cfg(feature = "render_metrics")]
         self.render_loop_metrics_tracker

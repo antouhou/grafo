@@ -134,17 +134,8 @@ pub struct ShapeMaskDraw {
 /// One ordered command stream, with storage reused when the draw queue is rebuilt.
 #[derive(Default)]
 pub struct RenderPlan {
-    /// Changed surface pixels. None preserves the retained image without drawing.
-    pub root_scissor: Option<UnsignedPhysicalRect>,
     pub instructions: Vec<RenderCommand>,
     pub effect_parameters: Vec<u8>,
-    /// Local composite commands whose instance data must be uploaded.
-    pub composite_draws: Vec<usize>,
-    pub texture_count: usize,
-    pub has_backdrop_captures: bool,
-    #[cfg(feature = "render_metrics")]
-    pub scissor_clip_count: u32,
-    parameter_hasher: RandomState,
 }
 
 impl RenderPlan {
@@ -156,13 +147,6 @@ impl RenderPlan {
     /// Rebuild commands while preserving parameters written during queuing.
     pub(crate) fn clear_commands(&mut self) {
         self.instructions.clear();
-        self.composite_draws.clear();
-        self.texture_count = 0;
-        self.has_backdrop_captures = false;
-        #[cfg(feature = "render_metrics")]
-        {
-            self.scissor_clip_count = 0;
-        }
     }
 
     pub fn store_parameters(&mut self, parameters: &[u8]) -> EffectParameters {
@@ -173,34 +157,12 @@ impl RenderPlan {
                 start,
                 end: self.effect_parameters.len(),
             },
-            hash: self.parameter_hasher.hash_one(parameters),
-        }
-    }
-
-    pub(crate) fn update_parameters(
-        &mut self,
-        stored: EffectParameters,
-        parameters: &[u8],
-    ) -> EffectParameters {
-        let range = stored.range;
-        if range.end - range.start != parameters.len() {
-            return self.store_parameters(parameters);
-        }
-        self.effect_parameters[range.start..range.end].copy_from_slice(parameters);
-        EffectParameters {
-            range,
-            hash: self.parameter_hasher.hash_one(parameters),
+            hash: RandomState::with_seeds(0, 0, 0, 0).hash_one(parameters),
         }
     }
 
     pub fn parameters(&self, parameters: EffectParameters) -> &[u8] {
         &self.effect_parameters[parameters.range.start..parameters.range.end]
-    }
-
-    pub fn allocate_texture(&mut self) -> IntermediateTextureId {
-        let texture = IntermediateTextureId::Planned(self.texture_count);
-        self.texture_count += 1;
-        texture
     }
 
     pub fn push(&mut self, operation: RenderOperation) {
@@ -218,17 +180,6 @@ impl RenderPlan {
     }
 
     pub fn push_command(&mut self, instruction: RenderCommand) {
-        self.has_backdrop_captures |=
-            matches!(instruction.operation, RenderOperation::CaptureBackdrop(_));
-        if matches!(
-            instruction.operation,
-            RenderOperation::CompositeTexture(TextureComposite {
-                placement: TexturePlacement::Local { .. },
-                ..
-            })
-        ) {
-            self.composite_draws.push(self.instructions.len());
-        }
         self.instructions.push(instruction);
     }
 }

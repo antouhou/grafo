@@ -81,7 +81,7 @@ fn replacements_preserve_topology_and_refresh_or_remove_only_the_nodes_effects()
     assert!(!renderer.scene.backdrop_effects.contains_key(&parent));
     assert!(!renderer.scene.group_effects.contains_key(&parent));
     assert!(renderer.scene.group_effects.contains_key(&first));
-    let plan = renderer.planner.plan(&renderer.scene, 4096, None);
+    let plan = renderer.planner.plan(&renderer.scene, 4096);
     assert_eq!(plan.effect_parameters.len(), 16);
     renderer
         .replace_with_cached_shape(parent, 1, ShapeDrawCommandOptions::new())
@@ -93,7 +93,7 @@ fn replacements_preserve_topology_and_refresh_or_remove_only_the_nodes_effects()
     assert_eq!(
         renderer
             .planner
-            .plan(&renderer.scene, 4096, None)
+            .plan(&renderer.scene, 4096)
             .effect_parameters
             .len(),
         4

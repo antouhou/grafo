@@ -8,6 +8,7 @@ use crate::core::shape::CachedShapeHandle;
 use crate::core::util::ShapeResources;
 use crate::core::vertex::InstanceTransform;
 use crate::core::Viewport;
+use crate::planner::TextureIdAllocator;
 use crate::scene::effects::ShapeEffectInstance;
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::DrawTreeNode;
@@ -39,6 +40,7 @@ impl MaskCommands {
         self.commands.clear_commands();
         append_shape_effects(
             &mut self.commands,
+            &mut TextureIdAllocator::default(),
             &mut self.composites,
             tree,
             effects,

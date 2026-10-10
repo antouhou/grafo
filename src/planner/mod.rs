@@ -1,5 +1,6 @@
-use crate::commands::{EffectParameters, RenderOperation, RenderPlan, Target, TextureComposite};
-use crate::core::UnsignedPhysicalRect;
+use crate::commands::{
+    EffectParameters, IntermediateTextureId, RenderOperation, RenderPlan, Target, TextureComposite,
+};
 use crate::scene::Scene;
 use ahash::HashMap;
 use groups::{GroupPlanningInput, SceneTraversal};
@@ -8,6 +9,19 @@ use shape_effects::append_shape_effects;
 pub(super) mod draws;
 pub(super) mod groups;
 pub(super) mod shape_effects;
+
+#[derive(Default)]
+pub(super) struct TextureIdAllocator {
+    next_id: usize,
+}
+
+impl TextureIdAllocator {
+    fn allocate(&mut self) -> IntermediateTextureId {
+        let texture = IntermediateTextureId::Planned(self.next_id);
+        self.next_id += 1;
+        texture
+    }
+}
 
 /// Reusable planning scratch and flat command storage.
 #[derive(Default)]
@@ -31,27 +45,15 @@ impl Planner {
         self.commands.store_parameters(parameters)
     }
 
-    pub(crate) fn update_effect_parameters(
-        &mut self,
-        stored: EffectParameters,
-        parameters: &[u8],
-    ) -> EffectParameters {
-        self.commands.update_parameters(stored, parameters)
-    }
-
     /// Rebuilds commands and composites
-    pub(crate) fn plan(
-        &mut self,
-        scene: &Scene,
-        maximum_texture_dimension: u32,
-        root_scissor: Option<UnsignedPhysicalRect>,
-    ) -> &RenderPlan {
+    pub(crate) fn plan(&mut self, scene: &Scene, maximum_texture_dimension: u32) -> &RenderPlan {
         self.commands.clear_commands();
-        self.commands.root_scissor = root_scissor;
+        let mut texture_ids = TextureIdAllocator::default();
         self.commands
             .push(RenderOperation::BeginTarget(Target::Surface));
         append_shape_effects(
             &mut self.commands,
+            &mut texture_ids,
             &mut self.shape_composites,
             &scene.draw_tree,
             &scene.shape_effects,
@@ -69,6 +71,7 @@ impl Planner {
                 physical_size: scene.viewport().physical_size.into(),
             },
             &mut self.commands,
+            &mut texture_ids,
         );
         self.commands.push(RenderOperation::EndTarget);
         &self.commands

@@ -35,7 +35,23 @@ impl CompositeExecutionResources {
         queue: &Queue,
         commands: &RenderPlan,
     ) -> Option<CompositeInstanceBuffer> {
-        if commands.composite_draws.is_empty() {
+        let composites =
+            commands
+                .instructions
+                .iter()
+                .filter_map(|command| match command.operation {
+                    RenderOperation::CompositeTexture(TextureComposite {
+                        placement:
+                            TexturePlacement::Local {
+                                transform,
+                                sampling,
+                            },
+                        ..
+                    }) => Some((transform, sampling)),
+                    _ => None,
+                });
+        let count = composites.clone().count();
+        if count == 0 {
             return None;
         }
         self.quad.get_or_insert_with(|| QuadBuffers {
@@ -50,7 +66,6 @@ impl CompositeExecutionResources {
                 usage: BufferUsages::INDEX,
             }),
         });
-        let count = commands.composite_draws.len();
         let color_offset = count * InstanceTransform::STRIDE as usize;
         let metadata_offset = color_offset + count * InstanceColor::STRIDE as usize;
         let size = metadata_offset + count * InstanceMetadata::STRIDE as usize;
@@ -77,19 +92,7 @@ impl CompositeExecutionResources {
             )
             .expect("composite upload fits its buffer");
         upload[color_offset..metadata_offset].fill(0);
-        for (instance, &index) in commands.composite_draws.iter().enumerate() {
-            let RenderOperation::CompositeTexture(composite) =
-                &commands.instructions[index].operation
-            else {
-                unreachable!("composite instance must reference texture parameters");
-            };
-            let TexturePlacement::Local {
-                transform,
-                sampling,
-            } = composite.placement
-            else {
-                unreachable!("only local composites need instances");
-            };
+        for (instance, (transform, sampling)) in composites.enumerate() {
             let metadata = InstanceMetadata {
                 texture_flags: 1.0,
                 texture_uv_transform_layer0: sampling,

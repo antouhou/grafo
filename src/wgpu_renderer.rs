@@ -10,10 +10,10 @@ use wgpu::SurfaceTarget;
 impl RendererContext<Arc<WgpuContext>> {
     /// Creates a WGPU context and shared CPU shape storage.
     pub async fn try_new() -> Result<Self, BackendCreationError> {
-        Ok(Self::from_parts(
-            Arc::new(WgpuContext::try_new().await?),
-            SceneContext::default(),
-        ))
+        Ok(Self {
+            backend: Arc::new(WgpuContext::try_new().await?),
+            scene: SceneContext::default(),
+        })
     }
 
     pub async fn new() -> Self {
@@ -34,7 +34,7 @@ impl Surface<WgpuSurface> {
         transparent: bool,
     ) -> Result<Self, BackendCreationError> {
         context
-            .backend()
+            .backend
             .create_surface(target, physical_size, vsync, transparent)
     }
 }
@@ -77,8 +77,8 @@ impl Renderer<WgpuBackend> {
         scale_factor: f64,
         msaa_samples: u32,
     ) -> Result<Self, BackendCreationError> {
-        let (backend_context, scene_context) = context.into_parts();
-        let backend = WgpuBackend::new(backend_context, physical_size, scale_factor, msaa_samples)?;
-        Ok(Self::from_backend(backend, scene_context))
+        let RendererContext { backend, scene } = context;
+        let backend = WgpuBackend::new(backend, physical_size, scale_factor, msaa_samples)?;
+        Ok(Self::from_parts(backend, scene))
     }
 }

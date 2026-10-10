@@ -29,11 +29,6 @@ where
         }
     }
 
-    #[cfg(any(feature = "render_metrics", test))]
-    pub(crate) fn len(&self) -> usize {
-        self.previous_frame.len() + self.current_frame.len()
-    }
-
     pub(crate) fn get(&mut self, cache_key: &K) -> Option<V>
     where
         V: Clone,
@@ -99,11 +94,6 @@ impl Cache {
         Self {
             entries: FrameCache::new(),
         }
-    }
-
-    #[cfg(feature = "render_metrics")]
-    pub fn len(&self) -> usize {
-        self.entries.len()
     }
 
     pub(crate) fn get_tessellation(&mut self, cache_key: &u64) -> Option<Arc<CachedTessellation>> {

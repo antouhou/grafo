@@ -7,6 +7,7 @@ use crate::core::effect::BackdropEffectConfig;
 use crate::core::shape::CachedShapeHandle;
 use crate::core::util::ShapeResources;
 use crate::core::Viewport;
+use crate::planner::TextureIdAllocator;
 use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::{ClipRectDrawData, DrawTreeNode};
@@ -32,7 +33,7 @@ fn planned_index(texture: IntermediateTextureId) -> usize {
 
 /// Consumes only completed commands, including after dropping their scene and planner.
 fn validate_dependencies(plan: &RenderPlan) {
-    let mut produced = vec![false; plan.texture_count];
+    let mut produced = Vec::new();
     let mut targets = Vec::new();
     let mut surface_count = 0;
     for command in &plan.instructions {
@@ -40,6 +41,10 @@ fn validate_dependencies(plan: &RenderPlan) {
             RenderOperation::BeginTarget(target) => {
                 if matches!(target, Target::Surface) {
                     surface_count += 1;
+                }
+                if let Target::Texture { texture, .. } = target {
+                    assert_eq!(planned_index(*texture), produced.len());
+                    produced.push(false);
                 }
                 targets.push(*target);
             }
@@ -50,14 +55,16 @@ fn validate_dependencies(plan: &RenderPlan) {
             }
             RenderOperation::ApplyEffect(effect) => {
                 assert!(produced[planned_index(effect.input)]);
-                produced[planned_index(effect.output)] = true;
+                assert_eq!(planned_index(effect.output), produced.len());
+                produced.push(true);
             }
             RenderOperation::CaptureBackdrop(capture) => {
                 assert!(!targets.is_empty());
                 if let BackdropCaptureSource::Layered { base } = capture.source {
                     assert!(produced[planned_index(base)]);
                 }
-                produced[planned_index(capture.output)] = true;
+                assert_eq!(planned_index(capture.output), produced.len());
+                produced.push(true);
             }
             operation => {
                 assert!(!targets.is_empty());
@@ -193,6 +200,7 @@ impl Scene {
                 physical_size: Size::new(100, 100),
             },
             output,
+            &mut TextureIdAllocator::default(),
         );
         output.push(RenderOperation::EndTarget);
     }

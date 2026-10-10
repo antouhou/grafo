@@ -66,7 +66,7 @@ pub mod core;
 pub(crate) mod planner;
 pub mod render_backend;
 pub mod renderer;
-pub mod scene;
+mod scene;
 pub mod wgpu_backend;
 mod wgpu_renderer;
 

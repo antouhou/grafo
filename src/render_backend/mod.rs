@@ -3,6 +3,7 @@
 use self::render_target::{RenderTarget, RenderTargetError};
 use crate::commands::{RenderPlan, ShapeDrawId};
 use crate::core::{CachedShapeHandle, ShapeInstance, Viewport};
+use crate::UnsignedPhysicalRect;
 
 pub mod render_target;
 
@@ -115,6 +116,7 @@ pub trait RenderBackend {
     /// Surface rendering must submit and present the frame.
     fn render(
         &mut self,
+        root_scissor: Option<UnsignedPhysicalRect>,
         commands: &RenderPlan,
         target: RenderTarget<'_, Self::Surface>,
     ) -> Result<(), Self::Error>;

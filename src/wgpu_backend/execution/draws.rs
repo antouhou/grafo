@@ -222,9 +222,7 @@ impl DrawPass<'_, '_> {
         stencil_reference: u32,
         texture_id: IntermediateTextureId,
     ) {
-        let Some(resources) = &self.pipelines.composite_resources else {
-            return;
-        };
+        let resources = &self.pipelines.composite_resources;
         self.render_pass.set_pipeline(&resources.pipeline);
         self.render_pass
             .set_bind_group(0, self.textures.bind_group(texture_id), &[]);

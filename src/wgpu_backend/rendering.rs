@@ -21,6 +21,7 @@ impl WgpuBackend {
     /// Updates the clean scene and returns the redrawn bounds.
     pub(in crate::wgpu_backend) fn update_retained_output(
         &mut self,
+        root_scissor: Option<UnsignedPhysicalRect>,
         commands: &RenderPlan,
     ) -> Option<UnsignedPhysicalRect> {
         #[cfg(feature = "render_metrics")]
@@ -44,7 +45,7 @@ impl WgpuBackend {
                 self.viewport.physical_size.into(),
             ))
         } else {
-            commands.root_scissor
+            root_scissor
         };
         if let Some(scissor) = root_scissor {
             self.render_dirty_region(commands, &retained, scissor);
@@ -68,17 +69,6 @@ impl WgpuBackend {
             .texture_materials
             .begin_render();
         self.resources.effect_execution.begin_render();
-
-        let needs_scene_effects = commands.texture_count != 0;
-        let has_backdrop_effects = commands.has_backdrop_captures;
-
-        if needs_scene_effects {
-            self.ensure_composite_pipeline();
-            self.ensure_effect_sampler();
-        }
-        if has_backdrop_effects {
-            self.ensure_backdrop_pipelines();
-        }
 
         if self.depth_stencil_view.is_none() {
             self.recreate_depth_stencil_texture();
@@ -104,35 +94,23 @@ impl WgpuBackend {
         }
 
         let pipeline_resources = &self.pipeline_resources;
-        let effects = needs_scene_effects.then(|| EffectContext {
+        let effects = EffectContext {
             device: &self.device,
             queue: &self.queue,
             registry: &self.effect_registry,
-            sampler: pipeline_resources
-                .effect_sampler
-                .as_ref()
-                .expect("effect sampler was initialized"),
-            composite_layout: &pipeline_resources
-                .composite_resources
-                .as_ref()
-                .expect("effect composites were initialized")
-                .bind_group_layout,
+            sampler: &pipeline_resources.effect_sampler,
+            composite_layout: &pipeline_resources.composite_resources.bind_group_layout,
             format: self.format,
-        });
-        let backdrops = has_backdrop_effects.then(|| {
-            let backdrops = pipeline_resources
-                .backdrops
-                .as_ref()
-                .expect("backdrop pipelines were initialized");
-            BackdropContext {
-                effects: effects.expect("backdrops require effect resources"),
-                texture_blit_pipeline: &backdrops.texture_blit_pipeline,
-                backdrop_layer_composite_pipeline: &backdrops.layer_composite_resources.pipeline,
-                backdrop_layer_composite_bind_group_layout: &backdrops
-                    .layer_composite_resources
-                    .bind_group_layout,
-            }
-        });
+        };
+        let backdrops = &pipeline_resources.backdrops;
+        let backdrops = BackdropContext {
+            effects,
+            texture_blit_pipeline: &backdrops.texture_blit_pipeline,
+            backdrop_layer_composite_pipeline: &backdrops.layer_composite_resources.pipeline,
+            backdrop_layer_composite_bind_group_layout: &backdrops
+                .layer_composite_resources
+                .bind_group_layout,
+        };
         let execution_context = ExecutionContext {
             device: &self.device,
             queue: &self.queue,
@@ -203,6 +181,7 @@ impl WgpuBackend {
     /// Returns an error if surface acquisition fails.
     pub(super) fn render_surface(
         &mut self,
+        root_scissor: Option<UnsignedPhysicalRect>,
         commands: &RenderPlan,
         surface: &Surface<'_>,
     ) -> Result<(), SurfaceError> {
@@ -218,7 +197,7 @@ impl WgpuBackend {
             .texture
             .create_view(&TextureViewDescriptor::default());
 
-        let root_scissor = self.update_retained_output(commands);
+        let root_scissor = self.update_retained_output(root_scissor, commands);
         let retained = self
             .retained_output
             .as_ref()

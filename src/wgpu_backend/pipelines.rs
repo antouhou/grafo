@@ -1,5 +1,7 @@
 use super::execution::effects;
-use super::resources::{BackdropPipelineResources, ShapePipelines};
+use super::execution::shape_effects::ShapeEffectRendererResources;
+use super::execution::shapes::TextureMaterialPipelines;
+use super::resources::{BackdropPipelineResources, RendererPipelineResources, ShapePipelines};
 use super::{WgpuBackend, WgpuContext};
 use crate::core::util::to_logical;
 use crate::wgpu_backend::pipeline::{
@@ -8,7 +10,7 @@ use crate::wgpu_backend::pipeline::{
     create_stencil_keep_color_pipeline, create_stencil_only_pipeline, PipelineType,
 };
 use std::sync::Arc;
-use wgpu::{BindGroupLayout, Device, TextureFormat};
+use wgpu::{AddressMode, BindGroupLayout, Device, FilterMode, SamplerDescriptor, TextureFormat};
 
 fn create_transparent_texture_view_and_sampler(
     device: &wgpu::Device,
@@ -172,6 +174,16 @@ impl ShapePipelines {
             &background_texture_layout,
             &foreground_texture_layout,
         );
+        let under_fill_pipelines = TextureMaterialPipelines::new(
+            device,
+            format,
+            msaa_sample_count,
+            [
+                &and_pipeline.get_bind_group_layout(0),
+                &background_texture_layout,
+                &foreground_texture_layout,
+            ],
+        );
 
         Self {
             and_pipeline: Arc::new(and_pipeline),
@@ -192,7 +204,7 @@ impl ShapePipelines {
             and_uniform_buffer,
             decrementing_uniforms,
             decrementing_uniform_buffer,
-            under_fill_pipelines: None,
+            under_fill_pipelines,
             stencil_only_pipeline,
             gradient_bind_group_layout,
             linear_clamp_sampler,
@@ -215,6 +227,46 @@ impl BackdropPipelineResources {
             layer_composite_resources: effects::compile_backdrop_layer_composite_pipeline(
                 device, format,
             ),
+        }
+    }
+}
+
+impl RendererPipelineResources {
+    pub(in crate::wgpu_backend) fn new(
+        context: &WgpuContext,
+        format: TextureFormat,
+        physical_size: (u32, u32),
+        scale_factor: f64,
+        fringe_width: f32,
+        msaa_sample_count: u32,
+    ) -> Self {
+        let device = &context.device;
+        let composite_resources =
+            effects::compile_composite_pipeline(device, format, msaa_sample_count);
+        let backdrops =
+            BackdropPipelineResources::new(device, format, &composite_resources.bind_group_layout);
+        Self {
+            shapes: ShapePipelines::new(
+                context,
+                format,
+                physical_size,
+                scale_factor,
+                fringe_width,
+                msaa_sample_count,
+                None,
+            ),
+            shape_effects: ShapeEffectRendererResources::new(device, format),
+            effect_sampler: device.create_sampler(&SamplerDescriptor {
+                address_mode_u: AddressMode::ClampToEdge,
+                address_mode_v: AddressMode::ClampToEdge,
+                address_mode_w: AddressMode::ClampToEdge,
+                mag_filter: FilterMode::Linear,
+                min_filter: FilterMode::Linear,
+                mipmap_filter: FilterMode::Linear,
+                ..Default::default()
+            }),
+            composite_resources,
+            backdrops,
         }
     }
 }

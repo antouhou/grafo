@@ -20,7 +20,6 @@ mod construction;
 mod context;
 #[cfg(feature = "render_metrics")]
 mod diagnostics;
-mod effects;
 mod errors;
 pub(in crate::wgpu_backend) mod execution;
 mod gradient;

@@ -5,6 +5,7 @@ use crate::core::shape::{CachedShapeHandle, ShapeInstance};
 use crate::core::Viewport;
 use crate::render_backend::render_target::{PixelFormat, RenderTarget};
 use crate::render_backend::RenderBackend;
+use crate::UnsignedPhysicalRect;
 use std::sync::Arc;
 use wgpu::TextureFormat;
 
@@ -113,6 +114,7 @@ impl RenderBackend for WgpuBackend {
 
     fn render(
         &mut self,
+        root_scissor: Option<UnsignedPhysicalRect>,
         commands: &RenderPlan,
         target: RenderTarget<'_, Self::Surface>,
     ) -> Result<(), Self::Error> {
@@ -130,7 +132,7 @@ impl RenderBackend for WgpuBackend {
         match target {
             RenderTarget::Surface(surface) => {
                 self.prepare_surface(surface)?;
-                self.render_surface(commands, &surface.resource().surface)
+                self.render_surface(root_scissor, commands, &surface.resource().surface)
                     .map_err(WgpuBackendError::Surface)
             }
             RenderTarget::Pixmap(mut pixels) => {
@@ -140,9 +142,9 @@ impl RenderBackend for WgpuBackend {
                 };
                 self.set_format(format);
                 if pixels.layout().format() == PixelFormat::Argb32 {
-                    self.render_argb_pixels(commands, &mut pixels)?;
+                    self.render_argb_pixels(root_scissor, commands, &mut pixels)?;
                 } else {
-                    self.render_byte_pixels(commands, &mut pixels)?;
+                    self.render_byte_pixels(root_scissor, commands, &mut pixels)?;
                 }
                 Ok(())
             }

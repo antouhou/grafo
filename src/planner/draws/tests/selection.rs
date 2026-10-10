@@ -93,7 +93,6 @@ fn exclusion_precedes_effect_substitution_and_restores_clips_for_siblings() {
         .instructions
         .iter()
         .any(|c| matches!(c.operation, RenderOperation::CompositeTexture(_))));
-    assert_eq!(output.texture_count, 0);
 
     scene.plan_selection(
         DrawTreeSelection {
@@ -172,7 +171,6 @@ fn substituted_group_omits_its_clips_effects_and_deep_descendants() {
             .count(),
         1
     );
-    assert_eq!(output.texture_count, 0);
 
     scene.plan_selection(
         DrawTreeSelection {
@@ -251,6 +249,4 @@ fn deep_and_wide_rebuilt_trees_reuse_parent_and_command_storage() {
         (planner.parents.as_ptr(), output.instructions.as_ptr(),)
     );
     assert!(planner.parents.is_empty());
-    #[cfg(feature = "render_metrics")]
-    assert_eq!(output.scissor_clip_count, 1);
 }

@@ -4,9 +4,9 @@ use self::effects::{
     resolve_backdrop_effect, BackdropEffectInstance, EffectInstance, ShapeEffectInstance,
 };
 pub use self::errors::SceneError;
-use self::types::{CachedShapeDrawData, ClipRectDrawData, DrawTreeNode};
+use self::types::{ClipRectDrawData, DrawTreeNode};
 use crate::core::effect::ShapeEffectBounds;
-use crate::core::shape::{CachedShapeHandle, Shape, ShapeDrawCommandOptions, ShapeInstance};
+use crate::core::shape::{CachedShapeHandle, Shape, ShapeInstance};
 use crate::core::util::ShapeResources;
 use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
@@ -21,13 +21,12 @@ pub(crate) mod types;
 
 /// Loaded CPU geometry shared by scenes. Keys identify shape content.
 #[derive(Clone, Default)]
-pub struct SceneContext {
+pub(crate) struct SceneContext {
     loaded_shapes: Arc<RwLock<HashMap<u64, CachedShapeHandle>>>,
 }
 
 /// Owns CPU descriptions and rasterization settings.
-/// Clearing removes queued nodes while retaining settings, caches and capacity.
-pub struct Scene {
+pub(crate) struct Scene {
     pub(crate) draw_tree: Tree<DrawTreeNode>,
     context: SceneContext,
     viewport: Viewport,
@@ -42,7 +41,7 @@ pub struct Scene {
 
 impl Scene {
     /// Creates an empty scene for the supplied output dimensions and rasterization settings.
-    pub fn new(context: SceneContext, viewport: Viewport, fringe_width: f32) -> Self {
+    pub(crate) fn new(context: SceneContext, viewport: Viewport, fringe_width: f32) -> Self {
         Self {
             context,
             viewport,
@@ -58,18 +57,18 @@ impl Scene {
     }
 
     /// Returns output dimensions and the logical-to-physical scale.
-    pub fn viewport(&self) -> Viewport {
+    pub(crate) fn viewport(&self) -> Viewport {
         self.viewport
     }
 
     /// Returns the antialiasing fringe width in physical pixels.
-    pub fn fringe_width(&self) -> f32 {
+    pub(crate) fn fringe_width(&self) -> f32 {
         self.fringe_width
     }
 
     /// Updates effect bounds and backdrop captures for the new scale and fringe width.
     /// Preserves settings and attachments if any shape effect cannot use the new values.
-    pub fn update_raster_settings(
+    pub(crate) fn update_raster_settings(
         &mut self,
         scale_factor: f64,
         fringe_width: f32,
@@ -89,12 +88,12 @@ impl Scene {
     }
 
     /// Updates output dimensions and refreshes backdrop captures.
-    pub fn resize(&mut self, physical_size: (u32, u32), maximum_texture_dimension: u32) {
+    pub(crate) fn resize(&mut self, physical_size: (u32, u32), maximum_texture_dimension: u32) {
         self.viewport.physical_size = physical_size;
         self.refresh_backdrop_capture_regions(maximum_texture_dimension);
     }
 
-    pub fn load_shape(
+    pub(crate) fn load_shape(
         &mut self,
         shape: impl AsRef<Shape>,
         cache_key: u64,
@@ -108,7 +107,7 @@ impl Scene {
             .insert(cache_key, shape);
     }
 
-    pub fn remove_shape(&mut self, cache_key: u64) {
+    pub(crate) fn remove_shape(&mut self, cache_key: u64) {
         self.context
             .loaded_shapes
             .write()
@@ -116,7 +115,11 @@ impl Scene {
             .remove(&cache_key);
     }
 
-    pub fn tessellate(&mut self, shape: &Shape, geometry_id: Option<u64>) -> CachedShapeHandle {
+    pub(crate) fn tessellate(
+        &mut self,
+        shape: &Shape,
+        geometry_id: Option<u64>,
+    ) -> CachedShapeHandle {
         CachedShapeHandle::new(
             shape,
             &mut self.tessellator,
@@ -125,7 +128,7 @@ impl Scene {
         )
     }
 
-    pub fn loaded_shape(&self, cache_key: u64) -> Result<CachedShapeHandle, SceneError> {
+    pub(crate) fn loaded_shape(&self, cache_key: u64) -> Result<CachedShapeHandle, SceneError> {
         self.context
             .loaded_shapes
             .read()
@@ -147,33 +150,6 @@ impl Scene {
     /// Removed node slots can be reused by the next insertion.
     pub(crate) fn next_node_id(&self) -> usize {
         self.draw_tree.next_node_id()
-    }
-
-    pub fn add_shape(
-        &mut self,
-        shape: CachedShapeHandle,
-        parent: Option<usize>,
-        options: ShapeDrawCommandOptions,
-    ) -> Result<usize, SceneError> {
-        self.validate_parent(parent)?;
-        Ok(self.insert_node(
-            DrawTreeNode::CachedShape(CachedShapeDrawData::new(shape, options)),
-            parent,
-        ))
-    }
-
-    pub fn add_clipping_rect(
-        &mut self,
-        rect_bounds: [(f32, f32); 2],
-        parent: Option<usize>,
-        transform: Option<InstanceTransform>,
-        clips_children: bool,
-    ) -> Result<usize, SceneError> {
-        self.validate_parent(parent)?;
-        Ok(self.insert_node(
-            Self::prepare_clipping_rect(rect_bounds, transform, clips_children)?,
-            parent,
-        ))
     }
 
     pub(crate) fn prepare_clipping_rect(
@@ -251,7 +227,7 @@ impl Scene {
         }
     }
 
-    pub fn shape(&self, node_id: usize) -> Result<&ShapeInstance, SceneError> {
+    pub(crate) fn shape(&self, node_id: usize) -> Result<&ShapeInstance, SceneError> {
         match self
             .draw_tree
             .get(node_id)
@@ -280,14 +256,6 @@ impl Scene {
         });
     }
 
-    pub fn clear(&mut self) {
-        self.draw_tree.clear();
-        self.group_effects.clear();
-        self.backdrop_effects.clear();
-        self.backdrop_damage.clear();
-        self.shape_effects.clear();
-    }
-
     pub(crate) fn expand_backdrop_damage(
         &mut self,
         dirty_bounds: Option<UnsignedPhysicalRect>,
@@ -298,19 +266,5 @@ impl Scene {
 
     pub(crate) fn finish_preparation(&mut self) {
         self.shape_resources.tessellation_cache.end_frame();
-    }
-
-    #[cfg(feature = "render_metrics")]
-    pub fn print_memory_usage_info(&self) {
-        println!(
-            "Cached shapes: {}",
-            self.context
-                .loaded_shapes
-                .read()
-                .expect("shared shape cache lock poisoned")
-                .len()
-        );
-        println!("Draw tree size: {}", self.draw_tree.len());
-        self.shape_resources.print_sizes();
     }
 }
