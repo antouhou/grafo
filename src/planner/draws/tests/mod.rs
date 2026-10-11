@@ -1,7 +1,7 @@
 use super::{DrawPlanner, DrawPlanningInput, DrawTreeSelection};
 use crate::commands::{
-    BackdropCaptureSource, IntermediateTextureId, RenderCommand, RenderOperation, RenderPlan,
-    ShapeDrawId, TextureComposite, TexturePlacement,
+    CaptureSource, IntermediateTextureId, RenderCommand, RenderOperation, RenderPlan, ShapeDrawId,
+    TextureComposite, TexturePlacement,
 };
 use crate::core::effect::BackdropEffectConfig;
 use crate::core::shape::CachedShapeHandle;
@@ -87,7 +87,7 @@ struct Scene {
     shape_effects: HashMap<usize, TextureComposite>,
     groups: HashMap<usize, EffectInstance>,
     backdrops: HashMap<usize, BackdropEffectInstance>,
-    backdrop_source: Option<BackdropCaptureSource>,
+    backdrop_source: Option<CaptureSource>,
 }
 
 impl Scene {
@@ -98,7 +98,7 @@ impl Scene {
             shape_effects: HashMap::new(),
             groups: HashMap::new(),
             backdrops: HashMap::new(),
-            backdrop_source: Some(BackdropCaptureSource::Target),
+            backdrop_source: Some(CaptureSource::Target),
         }
     }
 

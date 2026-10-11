@@ -1,5 +1,5 @@
 use super::types::DrawTreeNode;
-use crate::core::effect::BackdropCaptureRegion;
+use crate::core::effect::CaptureRegion;
 use crate::core::geometry;
 use crate::core::{Size, UnsignedPhysicalRect, Viewport};
 use ahash::{HashMap, HashSet};
@@ -24,7 +24,7 @@ impl BackdropDamageEntry {
     pub(super) fn new(
         node_id: usize,
         node: &DrawTreeNode,
-        capture_region: Option<BackdropCaptureRegion>,
+        capture_region: Option<CaptureRegion>,
         viewport: Viewport,
         fringe_width: f32,
     ) -> Option<Self> {

@@ -1,4 +1,4 @@
-use crate::core::effect::{self, BackdropCaptureArea, BackdropCaptureRegion, BackdropEffectConfig};
+use crate::core::effect::{self, BackdropCaptureArea, BackdropEffectConfig, CaptureRegion};
 use crate::core::geometry;
 use crate::core::{MathRect, Size};
 use tracing::warn;
@@ -26,7 +26,7 @@ pub(crate) fn compute_backdrop_capture_region(
     scale_factor: f64,
     physical_size: Size,
     max_capture_dimension: u32,
-) -> Option<BackdropCaptureRegion> {
+) -> Option<CaptureRegion> {
     let logical_rect = match backdrop_config.capture_area {
         BackdropCaptureArea::NodeBounds => logical_screen_bounds,
         BackdropCaptureArea::FullScene => {

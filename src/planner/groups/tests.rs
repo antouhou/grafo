@@ -1,7 +1,7 @@
 use super::{GroupPlanningInput, SceneTraversal};
 use crate::commands::{
-    BackdropCaptureSource, IntermediateTextureId, RenderOperation, RenderPlan, ShapeTextureBinding,
-    Target, TextureComposite,
+    CaptureSource, IntermediateTextureId, RenderOperation, RenderPlan, ShapeTextureBinding, Target,
+    TextureComposite,
 };
 use crate::core::effect::BackdropEffectConfig;
 use crate::core::shape::CachedShapeHandle;
@@ -58,9 +58,9 @@ fn validate_dependencies(plan: &RenderPlan) {
                 assert_eq!(planned_index(effect.output), produced.len());
                 produced.push(true);
             }
-            RenderOperation::CaptureBackdrop(capture) => {
+            RenderOperation::Capture(capture) => {
                 assert!(!targets.is_empty());
-                if let BackdropCaptureSource::Layered { base } = capture.source {
+                if let CaptureSource::Layered { base } = capture.source {
                     assert!(produced[planned_index(base)]);
                 }
                 assert_eq!(planned_index(capture.output), produced.len());
@@ -307,7 +307,7 @@ fn layered_backdrop_sources_finish_before_captures_and_skip_their_group() {
         .iter()
         .map(|command| &command.operation)
         .filter_map(|operation| {
-            if let RenderOperation::CaptureBackdrop(capture) = operation {
+            if let RenderOperation::Capture(capture) = operation {
                 Some(capture)
             } else {
                 None
@@ -317,17 +317,17 @@ fn layered_backdrop_sources_finish_before_captures_and_skip_their_group() {
     assert_eq!(captures.len(), 3);
     assert_eq!(
         captures[0].source,
-        BackdropCaptureSource::Layered {
+        CaptureSource::Layered {
             base: IntermediateTextureId::Planned(0)
         }
     );
     assert_eq!(
         captures[1].source,
-        BackdropCaptureSource::Layered {
+        CaptureSource::Layered {
             base: IntermediateTextureId::Planned(5)
         }
     );
-    assert_eq!(captures[2].source, BackdropCaptureSource::Target);
+    assert_eq!(captures[2].source, CaptureSource::Target);
     for capture in captures {
         assert_eq!(capture.sampling_size, Size::new(19, 19));
     }

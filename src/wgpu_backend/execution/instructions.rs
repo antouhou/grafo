@@ -8,8 +8,7 @@ use super::shapes::ShapeExecutionResources;
 use super::targets::{ActiveTarget, SurfaceTarget};
 use super::textures::{IntermediateTextureResources, PlannedTexture};
 use crate::commands::{
-    BackdropCaptureSource, IntermediateTextureId, RenderOperation, RenderPlan, Target,
-    TexturePlacement,
+    CaptureSource, IntermediateTextureId, RenderOperation, RenderPlan, Target, TexturePlacement,
 };
 #[cfg(feature = "render_metrics")]
 use crate::wgpu_backend::metrics::{PipelineSwitchCounts, ShapeEffectCacheMetrics};
@@ -282,7 +281,7 @@ pub(in crate::wgpu_backend) fn execute_commands(
                     );
                 }
             }
-            RenderOperation::CaptureBackdrop(capture) => {
+            RenderOperation::Capture(capture) => {
                 let target = resources
                     .textures
                     .active_targets
@@ -292,7 +291,7 @@ pub(in crate::wgpu_backend) fn execute_commands(
                 target.needs_clear = false;
                 let foreground = target.attachments(&surface).resolved_view().clone();
                 let base = match capture.source {
-                    BackdropCaptureSource::Target => match &target.texture {
+                    CaptureSource::Target => match &target.texture {
                         Some(texture) => texture
                             .resolve_texture
                             .as_ref()
@@ -303,13 +302,11 @@ pub(in crate::wgpu_backend) fn execute_commands(
                             .expect("surface has a capture texture")
                             .clone(),
                     },
-                    BackdropCaptureSource::Layered { base } => {
-                        resources.textures.texture(base).clone()
-                    }
+                    CaptureSource::Layered { base } => resources.textures.texture(base).clone(),
                 };
                 let source = match capture.source {
-                    BackdropCaptureSource::Target => BackdropSource::Flattened { texture: &base },
-                    BackdropCaptureSource::Layered { .. } => BackdropSource::Layered {
+                    CaptureSource::Target => BackdropSource::Flattened { texture: &base },
+                    CaptureSource::Layered { .. } => BackdropSource::Layered {
                         base_texture: &base,
                         foreground_view: &foreground,
                     },

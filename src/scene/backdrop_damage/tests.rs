@@ -1,7 +1,7 @@
 use super::{envelope, BackdropDamage, BackdropDamageEntry};
 use crate::core::effect::backdrops;
 use crate::core::{
-    BackdropCaptureArea, BackdropCaptureRegion, BackdropEffectConfig, MathRect, Shape,
+    BackdropCaptureArea, BackdropEffectConfig, CaptureRegion, MathRect, Shape,
     ShapeDrawCommandOptions, Size, UnsignedPhysicalRect, Viewport,
 };
 use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
@@ -51,7 +51,7 @@ fn shape_node(bounds: [(f32, f32); 2]) -> DrawTreeNode {
     ))
 }
 
-fn capture(bounds: [(f32, f32); 2], viewport: Viewport) -> Option<BackdropCaptureRegion> {
+fn capture(bounds: [(f32, f32); 2], viewport: Viewport) -> Option<CaptureRegion> {
     backdrops::compute_backdrop_capture_region(
         MathRect::zero(),
         BackdropEffectConfig::new().capture_area(BackdropCaptureArea::ScreenRect(bounds)),
