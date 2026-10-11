@@ -32,7 +32,6 @@ pub struct ShapeDraw {
 
 #[derive(Clone, Copy, Debug)]
 pub enum RenderOperation {
-    IncrementStencil(ShapeDrawId),
     DecrementStencil(ShapeDraw),
     DrawShape(ShapeDraw),
     DrawShapeAndIncrementStencil(ShapeDraw),

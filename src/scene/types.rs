@@ -61,17 +61,6 @@ impl ClipRectDrawData {
 }
 
 impl DrawTreeNode {
-    pub(crate) fn texture_id(&self, layer: usize) -> Option<u64> {
-        match self {
-            DrawTreeNode::CachedShape(cached_shape) => cached_shape
-                .instance
-                .textures
-                .get(layer)
-                .and_then(|texture| texture.texture_id),
-            DrawTreeNode::ClipRect(_) => None,
-        }
-    }
-
     /// Unpadded bounds cached for the node's fixed geometry and transform.
     pub(crate) fn logical_screen_bounds(&self) -> MathRect {
         match self {
@@ -84,13 +73,6 @@ impl DrawTreeNode {
         match self {
             DrawTreeNode::CachedShape(cached_shape) => cached_shape.instance.color_override,
             DrawTreeNode::ClipRect(_) => None,
-        }
-    }
-
-    pub(crate) fn has_gradient_fill(&self) -> bool {
-        match self {
-            DrawTreeNode::CachedShape(cached_shape) => cached_shape.instance.has_gradient_fill(),
-            DrawTreeNode::ClipRect(_) => false,
         }
     }
 

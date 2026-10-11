@@ -7,7 +7,7 @@ use crate::core::util::to_logical;
 use crate::wgpu_backend::pipeline::{
     create_gradient_bind_group_layout, create_gradient_increment_pipeline,
     create_gradient_stencil_keep_color_pipeline, create_pipeline,
-    create_stencil_keep_color_pipeline, create_stencil_only_pipeline, PipelineType,
+    create_stencil_keep_color_pipeline, PipelineType,
 };
 use std::sync::Arc;
 use wgpu::{AddressMode, BindGroupLayout, Device, FilterMode, SamplerDescriptor, TextureFormat};
@@ -166,14 +166,6 @@ impl ShapePipelines {
                 queue,
                 &foreground_texture_layout,
             );
-        let stencil_only_pipeline = create_stencil_only_pipeline(
-            device,
-            format,
-            msaa_sample_count,
-            &and_pipeline.get_bind_group_layout(0),
-            &background_texture_layout,
-            &foreground_texture_layout,
-        );
         let under_fill_pipelines = TextureMaterialPipelines::new(
             device,
             format,
@@ -205,7 +197,6 @@ impl ShapePipelines {
             decrementing_uniforms,
             decrementing_uniform_buffer,
             under_fill_pipelines,
-            stencil_only_pipeline,
             gradient_bind_group_layout,
             linear_clamp_sampler,
         }

@@ -188,34 +188,6 @@ impl DrawPass<'_, '_> {
         self.draw_material(stencil_reference, material, resources, false);
     }
 
-    /// Increments stencil within the shape without drawing color.
-    pub(super) fn increment_stencil(
-        &mut self,
-        stencil_reference: u32,
-        resources: &ShapeDrawResources,
-    ) {
-        let pipelines = &self.pipelines.shapes;
-        let Some(location) = resources.geometry_buffer_location else {
-            return;
-        };
-        self.render_pass
-            .set_pipeline(&pipelines.stencil_only_pipeline);
-        self.pipeline_tracker
-            .switch_to(Pipeline::StencilIncrementOnly);
-        self.render_pass
-            .set_bind_group(0, &pipelines.and_bind_group, &[]);
-        self.render_pass
-            .set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
-        self.render_pass
-            .set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
-        self.bound_textures.mark_bound(0, ShapeTextureBinding::None);
-        self.bound_textures.mark_bound(1, ShapeTextureBinding::None);
-        bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
-        bind_instance_buffers(self.render_pass, location.instance_index, self.buffers);
-
-        self.draw_stencil_geometry(stencil_reference, location.geometry_range);
-    }
-
     /// Composites an intermediate texture under the active scissor and stencil reference.
     pub(super) fn composite_texture(
         &mut self,

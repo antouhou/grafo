@@ -1,13 +1,15 @@
 use super::{should_skip_visible_rect_draw, try_scissor_for_rect};
-use crate::commands::{EffectParameterRange, EffectParameters};
-use crate::core::effect::BackdropEffectConfig;
+use crate::commands::{
+    EffectParameterRange, EffectParameters, IntermediateTextureId, ShapeTextureBinding,
+    ShapeTextureLayer, TextureSampling,
+};
 use crate::core::gradient::types::{
     ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset, LinearGradientDesc,
     LinearGradientLine,
 };
 use crate::core::util::ShapeResources;
-use crate::core::Viewport;
-use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
+use crate::planner::draws::shape_material;
+use crate::scene::effects::EffectInstance;
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::DrawTreeNode;
 use crate::{CachedShapeHandle, Color, Shape, ShapeDrawCommandOptions, Size, TransformInstance};
@@ -53,6 +55,18 @@ fn rect_draw_tree_node() -> DrawTreeNode {
     rect_draw_tree_node_with_options(ShapeDrawCommandOptions::new())
 }
 
+fn should_skip(
+    node_id: usize,
+    node: &DrawTreeNode,
+    groups: &HashMap<usize, EffectInstance>,
+) -> bool {
+    let material = match node {
+        DrawTreeNode::CachedShape(description) => Some(shape_material(&description.instance)),
+        _ => None,
+    };
+    should_skip_visible_rect_draw(node_id, node, material, groups)
+}
+
 #[test]
 fn scissor_rejects_non_axis_aligned_transform() {
     let draw_tree_node = rect_draw_tree_node_with_options(
@@ -64,7 +78,7 @@ fn scissor_rejects_non_axis_aligned_transform() {
 }
 
 #[test]
-fn skip_visible_rect_draw_rejects_effect_nodes() {
+fn skip_visible_rect_draw_rejects_group_effect_nodes() {
     let draw_tree_node = rect_draw_tree_node();
     let node_id = 7usize;
 
@@ -80,52 +94,14 @@ fn skip_visible_rect_draw_rejects_effect_nodes() {
         },
     );
 
-    assert!(!should_skip_visible_rect_draw(
-        node_id,
-        &draw_tree_node,
-        &group_effects,
-        &HashMap::new(),
-    ));
-
-    let mut backdrop_effects = HashMap::new();
-    backdrop_effects.insert(
-        node_id,
-        BackdropEffectInstance::new(
-            EffectInstance {
-                effect_id: 2,
-                parameters: EffectParameters {
-                    range: EffectParameterRange { start: 0, end: 0 },
-                    hash: 0,
-                },
-            },
-            BackdropEffectConfig::default(),
-            draw_tree_node.logical_screen_bounds(),
-            Viewport {
-                physical_size: (100, 100),
-                scale_factor: 1.0,
-            },
-            1024,
-        ),
-    );
-
-    assert!(!should_skip_visible_rect_draw(
-        node_id,
-        &draw_tree_node,
-        &HashMap::new(),
-        &backdrop_effects,
-    ));
+    assert!(!should_skip(node_id, &draw_tree_node, &group_effects,));
 }
 
 #[test]
 fn skip_visible_rect_draw_accepts_untextured_none_color_rect() {
     let draw_tree_node = rect_draw_tree_node();
 
-    assert!(should_skip_visible_rect_draw(
-        1,
-        &draw_tree_node,
-        &HashMap::new(),
-        &HashMap::new(),
-    ));
+    assert!(should_skip(1, &draw_tree_node, &HashMap::new(),));
 }
 
 #[test]
@@ -133,22 +109,12 @@ fn skip_visible_rect_draw_rejects_opaque_color_and_textures() {
     let opaque_draw_tree_node =
         rect_draw_tree_node_with_options(ShapeDrawCommandOptions::new().color(Color::WHITE));
 
-    assert!(!should_skip_visible_rect_draw(
-        1,
-        &opaque_draw_tree_node,
-        &HashMap::new(),
-        &HashMap::new(),
-    ));
+    assert!(!should_skip(1, &opaque_draw_tree_node, &HashMap::new(),));
 
     let textured_draw_tree_node =
         rect_draw_tree_node_with_options(ShapeDrawCommandOptions::new().background_texture_id(9));
 
-    assert!(!should_skip_visible_rect_draw(
-        2,
-        &textured_draw_tree_node,
-        &HashMap::new(),
-        &HashMap::new(),
-    ));
+    assert!(!should_skip(2, &textured_draw_tree_node, &HashMap::new(),));
 }
 
 #[test]
@@ -162,10 +128,24 @@ fn skip_visible_rect_draw_rejects_gradient_rects() {
         _ => unreachable!(),
     }
 
+    assert!(!should_skip(3, &draw_tree_node, &HashMap::new(),));
+}
+
+#[test]
+fn texture_below_transparent_fill_keeps_the_rectangle_draw() {
+    let node = rect_draw_tree_node();
+    let DrawTreeNode::CachedShape(description) = &node else {
+        unreachable!()
+    };
+    let mut material = shape_material(&description.instance);
+    material.under_fill_texture = Some(ShapeTextureLayer {
+        texture: ShapeTextureBinding::Intermediate(IntermediateTextureId::Planned(0)),
+        sampling: TextureSampling::ShapeUv,
+    });
     assert!(!should_skip_visible_rect_draw(
-        3,
-        &draw_tree_node,
-        &HashMap::new(),
-        &HashMap::new(),
+        1,
+        &node,
+        Some(material),
+        &HashMap::new()
     ));
 }
