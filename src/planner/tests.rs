@@ -122,7 +122,7 @@ fn parameter_compaction_preserves_replanned_effects() {
         .commands
         .instructions
         .iter()
-        .any(|command| { matches!(command.operation, RenderOperation::CaptureBackdrop(_)) }));
+        .any(|command| { matches!(command.operation, RenderOperation::Capture(_)) }));
 
     for _ in 0..2 {
         planner.compact_effect_parameters(&mut scene);
@@ -139,7 +139,7 @@ fn parameter_compaction_preserves_replanned_effects() {
             .commands
             .instructions
             .iter()
-            .any(|command| { matches!(command.operation, RenderOperation::CaptureBackdrop(_)) }));
+            .any(|command| { matches!(command.operation, RenderOperation::Capture(_)) }));
         assert!(planner.shape_composites.contains_key(&root));
         assert!(!planner.shape_composites.contains_key(&removed));
     }

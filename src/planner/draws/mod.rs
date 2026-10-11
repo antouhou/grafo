@@ -1,5 +1,5 @@
 use crate::commands::{
-    BackdropCaptureSource, DrawClip, EffectApplication, IntermediateTextureId, RenderCommand,
+    CaptureSource, DrawClip, EffectApplication, IntermediateTextureId, RenderCommand,
     RenderOperation, RenderPlan, ShapeDraw, ShapeDrawId, ShapeDrawMaterial, ShapeTextureBinding,
     Target, TextureComposite, TexturePlacement,
 };
@@ -56,7 +56,7 @@ pub(crate) struct DrawPlanningInput<'a> {
     pub(crate) scale_factor: f64,
     pub(crate) physical_size: Size,
     /// None disables captures when rendering a group's backdrop source.
-    pub(crate) backdrop_source: Option<BackdropCaptureSource>,
+    pub(crate) backdrop_source: Option<CaptureSource>,
 }
 
 /// Walks the CPU tree to emit draw commands and resolved clip operands.

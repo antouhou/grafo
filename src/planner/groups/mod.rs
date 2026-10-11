@@ -1,7 +1,7 @@
 use super::draws::{DrawPlanner, DrawPlanningInput, DrawTreeSelection};
 use crate::commands::{
-    BackdropCaptureSource, EffectApplication, IntermediateTextureId, RenderOperation, RenderPlan,
-    Target, TextureComposite,
+    CaptureSource, EffectApplication, IntermediateTextureId, RenderOperation, RenderPlan, Target,
+    TextureComposite,
 };
 use crate::planner::TextureIdAllocator;
 use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
@@ -86,7 +86,7 @@ impl SceneTraversal {
                 backdrop_effects: input.backdrop_effects,
                 scale_factor: input.scale_factor,
                 physical_size: input.physical_size,
-                backdrop_source: Some(BackdropCaptureSource::Target),
+                backdrop_source: Some(CaptureSource::Target),
             },
             output,
             texture_ids,
@@ -129,7 +129,7 @@ impl SceneTraversal {
         input: &GroupPlanningInput<'_>,
         output: &mut RenderPlan,
         texture_ids: &mut TextureIdAllocator,
-    ) -> Option<BackdropCaptureSource> {
+    ) -> Option<CaptureSource> {
         if !self.backdrop_ancestors.contains(&node) {
             return None;
         }
@@ -148,14 +148,14 @@ impl SceneTraversal {
             output,
             texture_ids,
         );
-        Some(BackdropCaptureSource::Layered { base })
+        Some(CaptureSource::Layered { base })
     }
 
     fn append_target(
         &mut self,
         target: Target,
         selection: DrawTreeSelection,
-        backdrop_source: Option<BackdropCaptureSource>,
+        backdrop_source: Option<CaptureSource>,
         input: &GroupPlanningInput<'_>,
         output: &mut RenderPlan,
         texture_ids: &mut TextureIdAllocator,

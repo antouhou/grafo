@@ -1,7 +1,5 @@
 use super::{EffectInstance, SceneError};
-use crate::core::effect::{
-    backdrops, BackdropCaptureArea, BackdropCaptureRegion, BackdropEffectConfig,
-};
+use crate::core::effect::{backdrops, BackdropCaptureArea, BackdropEffectConfig, CaptureRegion};
 use crate::core::{MathRect, Viewport};
 
 /// A backdrop attachment with its resolved capture region.
@@ -9,7 +7,7 @@ use crate::core::{MathRect, Viewport};
 pub(crate) struct BackdropEffectInstance {
     pub effect: EffectInstance,
     pub config: BackdropEffectConfig,
-    pub capture_region: Option<BackdropCaptureRegion>,
+    pub capture_region: Option<CaptureRegion>,
 }
 
 impl BackdropEffectInstance {

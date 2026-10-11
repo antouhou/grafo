@@ -138,7 +138,7 @@ impl ShapeEffectConfig {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct BackdropCaptureRegion {
+pub struct CaptureRegion {
     /// Requested bounds in full-resolution physical pixels, including offscreen padding.
     pub bounds: PhysicalRect,
     /// Viewport overlap to copy, or None when the requested bounds are fully offscreen.
@@ -149,7 +149,7 @@ pub struct BackdropCaptureRegion {
 pub(crate) fn resolve_capture_region_to_viewport(
     requested_rect: PhysicalRect,
     physical_size: Size,
-) -> BackdropCaptureRegion {
+) -> CaptureRegion {
     let viewport = UnsignedPhysicalRect::from_size(physical_size).to_i64();
     let source_rect = requested_rect
         .to_i64()
@@ -162,7 +162,7 @@ pub(crate) fn resolve_capture_region_to_viewport(
                 .to_point()
         })
         .unwrap_or_else(UnsignedPhysicalPoint::zero);
-    BackdropCaptureRegion {
+    CaptureRegion {
         bounds: requested_rect,
         source_rect,
         copy_destination_origin,

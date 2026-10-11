@@ -1,7 +1,7 @@
 use super::effects::{self, EffectExecutionResources, OffscreenTexturePool, PooledTexture};
 use super::textures::IntermediateTextureResources;
-use crate::commands::BackdropCapture;
-use crate::core::effect::BackdropCaptureRegion;
+use crate::commands::CaptureConfig;
+use crate::core::effect::CaptureRegion;
 use crate::wgpu_backend::types::{BackdropContext, BackdropSource};
 use crate::Size;
 use wgpu::{
@@ -57,7 +57,7 @@ fn capture_backdrop(
     encoder: &mut CommandEncoder,
     context: &BackdropContext<'_>,
     source: BackdropSource<'_>,
-    region: BackdropCaptureRegion,
+    region: CaptureRegion,
     resources: &mut EffectExecutionResources,
     texture_pool: &mut OffscreenTexturePool,
 ) -> PooledTexture {
@@ -165,7 +165,7 @@ pub(in crate::wgpu_backend) fn execute_capture(
     encoder: &mut CommandEncoder,
     context: &BackdropContext<'_>,
     source: BackdropSource<'_>,
-    command: BackdropCapture,
+    command: CaptureConfig,
     resources: &mut EffectExecutionResources,
     textures: &mut IntermediateTextureResources,
 ) {

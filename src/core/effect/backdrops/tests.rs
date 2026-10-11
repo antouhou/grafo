@@ -2,7 +2,7 @@ use super::{
     compute_backdrop_capture_region, does_capture_size_exceeds_budget,
     does_capture_size_exceeds_limits,
 };
-use crate::core::effect::{BackdropCaptureArea, BackdropCaptureRegion, BackdropEffectConfig};
+use crate::core::effect::{BackdropCaptureArea, BackdropEffectConfig, CaptureRegion};
 use crate::core::geometry::compute_downsampled_dimensions;
 use crate::{MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
 use lyon::geom::Point;
@@ -61,7 +61,7 @@ fn node_capture_applies_padding_and_scale_before_viewport_overlap() {
 
     assert_eq!(
         capture_region,
-        BackdropCaptureRegion {
+        CaptureRegion {
             bounds: PhysicalRect::new(Point::new(-5, -8), Point::new(29, 19)),
             source_rect: Some(UnsignedPhysicalRect::new(
                 Point::new(0, 0),
@@ -92,7 +92,7 @@ fn screen_capture_keeps_physical_mapping_when_downsampled() {
 
     assert_eq!(
         full_resolution,
-        BackdropCaptureRegion {
+        CaptureRegion {
             bounds: PhysicalRect::new(Point::new(-6, -5), Point::new(9, 8)),
             source_rect: Some(UnsignedPhysicalRect::new(
                 Point::new(0, 0),
@@ -127,7 +127,7 @@ fn full_scene_capture_preserves_viewport_mapping_across_scales_and_padding() {
         (
             2.0,
             1.25,
-            BackdropCaptureRegion {
+            CaptureRegion {
                 bounds: PhysicalRect::new(Point::new(-3, -3), Point::new(104, 82)),
                 source_rect: Some(UnsignedPhysicalRect::new(
                     Point::new(0, 0),
@@ -139,7 +139,7 @@ fn full_scene_capture_preserves_viewport_mapping_across_scales_and_padding() {
         (
             1.1,
             0.0,
-            BackdropCaptureRegion {
+            CaptureRegion {
                 bounds: PhysicalRect::new(Point::new(0, 0), Point::new(101, 80)),
                 source_rect: Some(UnsignedPhysicalRect::new(
                     Point::new(0, 0),

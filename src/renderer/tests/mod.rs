@@ -204,8 +204,9 @@ impl RenderBackend for TestBackend {
                         RenderOperation::DrawShape(draw)
                         | RenderOperation::DrawShapeAndIncrementStencil(draw)
                         | RenderOperation::DecrementStencil(draw) => draw.id,
-                        RenderOperation::CompositeTexture(_)
-                        | RenderOperation::CaptureBackdrop(_) => continue,
+                        RenderOperation::CompositeTexture(_) | RenderOperation::Capture(_) => {
+                            continue
+                        }
                         _ => panic!("unexpected operation"),
                     };
                     assert!(self.registered_shapes.contains(&shape.0));

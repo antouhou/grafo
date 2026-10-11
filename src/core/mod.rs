@@ -12,9 +12,7 @@ pub(crate) mod vertex;
 pub use cache::CachedTessellation;
 pub(crate) use color::linear_to_srgb_u8;
 pub use color::{premultiply_rgba8_srgb_inplace, Color};
-pub use effect::{
-    BackdropCaptureArea, BackdropCaptureRegion, BackdropEffectConfig, ShapeEffectConfig,
-};
+pub use effect::{BackdropCaptureArea, BackdropEffectConfig, CaptureRegion, ShapeEffectConfig};
 pub use geometry::{
     MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect, Viewport,
 };

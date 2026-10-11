@@ -97,7 +97,7 @@ fn capture_and_effect_precede_backdrop_draws_and_restore_clips() {
         scene.attach_backdrop(backdrop, &mut output);
         scene.plan(&mut DrawPlanner::default(), &mut output);
         let ops = operations(&output);
-        let [RenderOperation::DrawShapeAndIncrementStencil(_), RenderOperation::CaptureBackdrop(capture), RenderOperation::ApplyEffect(effect), draw_command, ..] =
+        let [RenderOperation::DrawShapeAndIncrementStencil(_), RenderOperation::Capture(capture), RenderOperation::ApplyEffect(effect), draw_command, ..] =
             ops.as_slice()
         else {
             panic!("capture and effect precede the backdrop draw");
@@ -107,7 +107,7 @@ fn capture_and_effect_precede_backdrop_draws_and_restore_clips() {
             | RenderOperation::DrawShapeAndIncrementStencil(draw) => draw,
             _ => panic!("filtered texture is used by a shape draw"),
         };
-        assert_eq!(capture.source, BackdropCaptureSource::Target);
+        assert_eq!(capture.source, CaptureSource::Target);
         assert_eq!(capture.output, IntermediateTextureId::Planned(0));
         assert_eq!(effect.input, capture.output);
         assert_eq!(effect.output, IntermediateTextureId::Planned(1));
@@ -170,7 +170,7 @@ fn consecutive_captures_follow_preceding_draws_and_keep_separate_outputs() {
     scene.backdrops.get_mut(&second).unwrap().effect.parameters = output.store_parameters(&[9, 8]);
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let ops = operations(&output);
-    let [RenderOperation::CaptureBackdrop(first_capture), RenderOperation::ApplyEffect(first_effect), RenderOperation::DrawShape(_), RenderOperation::CaptureBackdrop(second_capture), RenderOperation::ApplyEffect(second_effect), RenderOperation::DrawShape(_)] =
+    let [RenderOperation::Capture(first_capture), RenderOperation::ApplyEffect(first_effect), RenderOperation::DrawShape(_), RenderOperation::Capture(second_capture), RenderOperation::ApplyEffect(second_effect), RenderOperation::DrawShape(_)] =
         ops.as_slice()
     else {
         panic!("each capture follows all earlier draws");
@@ -196,12 +196,12 @@ fn layered_capture_references_registered_resources_and_disabling_capture_removes
     let panel = scene.add(None, shape(true));
     scene.attach_backdrop(panel, &mut output);
     let base = IntermediateTextureId::Registered(0);
-    scene.backdrop_source = Some(BackdropCaptureSource::Layered { base });
+    scene.backdrop_source = Some(CaptureSource::Layered { base });
     scene.plan(&mut DrawPlanner::default(), &mut output);
-    let RenderOperation::CaptureBackdrop(capture) = output.instructions[0].operation else {
+    let RenderOperation::Capture(capture) = output.instructions[0].operation else {
         panic!("capture precedes the first draw")
     };
-    assert_eq!(capture.source, BackdropCaptureSource::Layered { base });
+    assert_eq!(capture.source, CaptureSource::Layered { base });
     assert_ne!(capture.output, base);
 
     scene.backdrop_source = None;
@@ -361,7 +361,7 @@ fn shape_effect_composite_precedes_its_source_backdrop_capture_under_inherited_c
         [
             RenderOperation::DrawShapeAndIncrementStencil(_),
             RenderOperation::CompositeTexture(_),
-            RenderOperation::CaptureBackdrop(_),
+            RenderOperation::Capture(_),
             RenderOperation::ApplyEffect(_),
             ..
         ]

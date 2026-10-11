@@ -1,6 +1,6 @@
 use super::{DrawPlanner, DrawPlanningInput};
 use crate::commands::{
-    BackdropCapture, EffectApplication, RenderOperation, RenderPlan, ShapeTextureBinding,
+    CaptureConfig, EffectApplication, RenderOperation, RenderPlan, ShapeTextureBinding,
     ShapeTextureLayer, TextureSampling,
 };
 use crate::core::geometry;
@@ -20,7 +20,7 @@ impl DrawPlanner {
         let region = effect.capture_region?;
         let capture = texture_ids.allocate();
         let filtered = texture_ids.allocate();
-        output.push(RenderOperation::CaptureBackdrop(BackdropCapture {
+        output.push(RenderOperation::Capture(CaptureConfig {
             source,
             region,
             output: capture,

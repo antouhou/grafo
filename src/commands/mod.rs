@@ -3,7 +3,7 @@
 //! Plans store resource IDs, parameters, and resolved clips. Execution looks up
 //! uploaded resources by ID after planning has finished.
 
-use crate::core::effect::BackdropCaptureRegion;
+use crate::core::effect::CaptureRegion;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
 use crate::core::{Size, UnsignedPhysicalRect};
 use ahash::RandomState;
@@ -39,7 +39,7 @@ pub enum RenderOperation {
     BeginTarget(Target),
     EndTarget,
     DrawShapeMask(ShapeMaskDraw),
-    CaptureBackdrop(BackdropCapture),
+    Capture(CaptureConfig),
     ApplyEffect(EffectApplication),
 }
 
@@ -50,15 +50,17 @@ pub struct RenderCommand {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BackdropCaptureSource {
+pub enum CaptureSource {
+    /// Pixels already rendered into the active target
     Target,
+    /// The active target composited over a separate base texture
     Layered { base: IntermediateTextureId },
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct BackdropCapture {
-    pub source: BackdropCaptureSource,
-    pub region: BackdropCaptureRegion,
+pub struct CaptureConfig {
+    pub source: CaptureSource,
+    pub region: CaptureRegion,
     pub output: IntermediateTextureId,
     pub sampling_size: Size,
 }
