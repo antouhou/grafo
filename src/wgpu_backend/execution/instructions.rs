@@ -135,21 +135,9 @@ fn execute_draws(
     composite_instances: Option<CompositeInstanceBuffer>,
     composite_instance: &mut u32,
 ) {
-    // A backdrop's stencil increment and under-fill draw share one GPU pass.
-    let material_command = if matches!(
-        commands.instructions[*cursor].operation,
-        RenderOperation::IncrementStencil(_)
-    ) {
-        *cursor + 1
-    } else {
-        *cursor
-    };
-    if let Some(
-        RenderOperation::DrawShape(draw) | RenderOperation::DrawShapeAndIncrementStencil(draw),
-    ) = commands
-        .instructions
-        .get(material_command)
-        .map(|command| &command.operation)
+    let first_command_index = *cursor;
+    if let RenderOperation::DrawShape(draw) | RenderOperation::DrawShapeAndIncrementStencil(draw) =
+        &commands.instructions[first_command_index].operation
     {
         resources.shapes.prepare_texture_material(
             encoder,
@@ -181,7 +169,7 @@ fn execute_draws(
         textures: resources.textures,
     };
     while let Some(command) = commands.instructions.get(*cursor) {
-        if *cursor != material_command
+        if *cursor != first_command_index
             && matches!(&command.operation,
             RenderOperation::DrawShape(draw) | RenderOperation::DrawShapeAndIncrementStencil(draw)
             if draw.material.under_fill_texture.is_some())
@@ -193,13 +181,6 @@ fn execute_draws(
                 *cursor +=
                     pass.execute_leaf_draws(&commands.instructions[*cursor..], resources.shapes);
                 continue;
-            }
-            RenderOperation::IncrementStencil(shape) => {
-                pass.set_scissor(command.clip.scissor);
-                pass.increment_stencil(
-                    command.clip.stencil_reference,
-                    resources.shapes.draw_resources(*shape),
-                );
             }
             RenderOperation::DrawShapeAndIncrementStencil(draw) => {
                 pass.set_scissor(command.clip.scissor);

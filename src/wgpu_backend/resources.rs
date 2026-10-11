@@ -86,7 +86,6 @@ pub(in crate::wgpu_backend) struct ShapePipelines {
     pub(in crate::wgpu_backend) decrementing_uniforms: Uniforms,
     pub(in crate::wgpu_backend) decrementing_uniform_buffer: Buffer,
     pub(in crate::wgpu_backend) under_fill_pipelines: TextureMaterialPipelines,
-    pub(in crate::wgpu_backend) stencil_only_pipeline: RenderPipeline,
     pub(in crate::wgpu_backend) gradient_bind_group_layout: BindGroupLayout,
     pub(in crate::wgpu_backend) linear_clamp_sampler: Sampler,
 }

@@ -20,7 +20,6 @@ use lyon::tessellation::FillTessellator;
 #[derive(Debug, PartialEq)]
 enum Operation {
     Draw(ShapeDrawId),
-    Increment(ShapeDrawId),
     DrawAndIncrement(ShapeDrawId),
     Decrement(ShapeDrawId),
     Composite(IntermediateTextureId),
@@ -32,7 +31,6 @@ fn snapshot(plan: &RenderPlan) -> Vec<(Operation, u32, UnsignedPhysicalRect)> {
         .filter_map(|instruction| {
             let operation = match instruction.operation {
                 RenderOperation::DrawShape(draw) => Operation::Draw(draw.id),
-                RenderOperation::IncrementStencil(id) => Operation::Increment(id),
                 RenderOperation::DrawShapeAndIncrementStencil(draw) => {
                     Operation::DrawAndIncrement(draw.id)
                 }

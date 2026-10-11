@@ -7,7 +7,85 @@ use crate::{
 };
 
 #[test]
-fn capture_and_effect_precede_ordinary_backdrop_draws_and_restore_clips() {
+fn backdrop_texture_preserves_ordinary_draw_and_clip_commands() {
+    for is_rectangle in [false, true] {
+        for (has_child, clips_children) in [(false, true), (true, false), (true, true)] {
+            let mut scene = Scene::new();
+            let root = scene.add(None, shape(true));
+            let panel = scene.add(
+                Some(root),
+                if is_rectangle {
+                    DrawTreeNode::CachedShape(shape_description(
+                        Shape::rect([(10.0, 10.0), (60.0, 60.0)]),
+                        clips_children,
+                    ))
+                } else {
+                    shape(clips_children)
+                },
+            );
+            if has_child {
+                scene.add(Some(panel), shape(true));
+            }
+            scene.add(Some(root), shape(true));
+            let mut ordinary = RenderPlan::default();
+            scene.plan(&mut DrawPlanner::default(), &mut ordinary);
+            let mut backdrop = RenderPlan::default();
+            scene.attach_backdrop(panel, &mut backdrop);
+            scene.plan(&mut DrawPlanner::default(), &mut backdrop);
+            assert_eq!(
+                snapshot(&backdrop),
+                snapshot(&ordinary),
+                "rectangle={is_rectangle}, has_child={has_child}, clips_children={clips_children}",
+            );
+            assert!(backdrop.instructions.iter().any(|command| {
+                matches!(command.operation,
+                    RenderOperation::DrawShape(draw)
+                    | RenderOperation::DrawShapeAndIncrementStencil(draw)
+                    if draw.id == ShapeDrawId(panel) && draw.material.under_fill_texture.is_some())
+            }));
+        }
+    }
+}
+
+#[test]
+fn texture_only_rectangle_draws_only_when_capture_produces_a_texture() {
+    let mut scene = Scene::new();
+    let panel = scene.add(
+        None,
+        DrawTreeNode::CachedShape(shape_description(
+            Shape::rect([(0.0, 0.0), (80.0, 80.0)]),
+            true,
+        )),
+    );
+    let DrawTreeNode::CachedShape(description) = scene.tree.get_mut(panel).unwrap() else {
+        unreachable!()
+    };
+    description.instance.fill = None;
+    description.instance.color_override = None;
+    let mut output = RenderPlan::default();
+    scene.attach_backdrop(panel, &mut output);
+    scene.plan(&mut DrawPlanner::default(), &mut output);
+    assert_eq!(
+        snapshot(&output),
+        [(
+            Operation::Draw(ShapeDrawId(panel)),
+            0,
+            rect((0, 0), (100, 100))
+        )],
+    );
+    scene.update_backdrop_config(
+        panel,
+        BackdropEffectConfig::new().capture_area(BackdropCaptureArea::ScreenRect([
+            (0.0, 0.0),
+            (20_000.0, 20_000.0),
+        ])),
+    );
+    scene.plan(&mut DrawPlanner::default(), &mut output);
+    assert!(output.instructions.is_empty());
+}
+
+#[test]
+fn capture_and_effect_precede_backdrop_draws_and_restore_clips() {
     for (has_child, clips_children) in [(false, true), (true, false), (true, true)] {
         let mut output = RenderPlan::default();
         let mut scene = Scene::new();
@@ -19,10 +97,15 @@ fn capture_and_effect_precede_ordinary_backdrop_draws_and_restore_clips() {
         scene.attach_backdrop(backdrop, &mut output);
         scene.plan(&mut DrawPlanner::default(), &mut output);
         let ops = operations(&output);
-        let [RenderOperation::DrawShapeAndIncrementStencil(_), RenderOperation::CaptureBackdrop(capture), RenderOperation::ApplyEffect(effect), RenderOperation::IncrementStencil(_), RenderOperation::DrawShape(_), ..] =
+        let [RenderOperation::DrawShapeAndIncrementStencil(_), RenderOperation::CaptureBackdrop(capture), RenderOperation::ApplyEffect(effect), draw_command, ..] =
             ops.as_slice()
         else {
             panic!("capture and effect precede the backdrop draw");
+        };
+        let draw = match draw_command {
+            RenderOperation::DrawShape(draw)
+            | RenderOperation::DrawShapeAndIncrementStencil(draw) => draw,
+            _ => panic!("filtered texture is used by a shape draw"),
         };
         assert_eq!(capture.source, BackdropCaptureSource::Target);
         assert_eq!(capture.output, IntermediateTextureId::Planned(0));
@@ -30,9 +113,6 @@ fn capture_and_effect_precede_ordinary_backdrop_draws_and_restore_clips() {
         assert_eq!(effect.output, IntermediateTextureId::Planned(1));
         assert_eq!(effect.effect_id, 42);
         assert_eq!(output.parameters(effect.parameters), &[1, 2, 3, 4]);
-        let RenderOperation::DrawShape(draw) = output.instructions[4].operation else {
-            panic!("ordinary shape draw")
-        };
         let layer = draw.material.under_fill_texture.unwrap();
         assert_eq!(
             layer.texture,
@@ -46,14 +126,23 @@ fn capture_and_effect_precede_ordinary_backdrop_draws_and_restore_clips() {
         let inherited = rect((10, 10), (60, 60));
         let mut expected = vec![
             (Operation::DrawAndIncrement(ShapeDrawId(root)), 0, viewport),
-            (Operation::Increment(ShapeDrawId(backdrop)), 1, inherited),
-            (Operation::Draw(ShapeDrawId(backdrop)), 2, inherited),
+            (
+                if has_child && clips_children {
+                    Operation::DrawAndIncrement(ShapeDrawId(backdrop))
+                } else {
+                    Operation::Draw(ShapeDrawId(backdrop))
+                },
+                1,
+                inherited,
+            ),
         ];
         let decrement = (Operation::Decrement(ShapeDrawId(backdrop)), 2, inherited);
         if let Some(child) = child.filter(|_| clips_children) {
             expected.push((Operation::Draw(ShapeDrawId(child)), 2, inherited));
         }
-        expected.push(decrement);
+        if has_child && clips_children {
+            expected.push(decrement);
+        }
         if let Some(child) = child.filter(|_| !clips_children) {
             expected.push((Operation::Draw(ShapeDrawId(child)), 1, inherited));
         }
@@ -81,7 +170,7 @@ fn consecutive_captures_follow_preceding_draws_and_keep_separate_outputs() {
     scene.backdrops.get_mut(&second).unwrap().effect.parameters = output.store_parameters(&[9, 8]);
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let ops = operations(&output);
-    let [RenderOperation::CaptureBackdrop(first_capture), RenderOperation::ApplyEffect(first_effect), RenderOperation::IncrementStencil(_), RenderOperation::DrawShape(_), RenderOperation::DecrementStencil(_), RenderOperation::CaptureBackdrop(second_capture), RenderOperation::ApplyEffect(second_effect), RenderOperation::IncrementStencil(_), RenderOperation::DrawShape(_), RenderOperation::DecrementStencil(_)] =
+    let [RenderOperation::CaptureBackdrop(first_capture), RenderOperation::ApplyEffect(first_effect), RenderOperation::DrawShape(_), RenderOperation::CaptureBackdrop(second_capture), RenderOperation::ApplyEffect(second_effect), RenderOperation::DrawShape(_)] =
         ops.as_slice()
     else {
         panic!("each capture follows all earlier draws");
@@ -128,7 +217,7 @@ fn layered_capture_references_registered_resources_and_disabling_capture_removes
 }
 
 #[test]
-fn rejected_capture_preserves_gradient_and_stencil_without_texture_work() {
+fn rejected_capture_preserves_ordinary_gradient_draw_without_texture_work() {
     let mut output = RenderPlan::default();
     let mut scene = Scene::new();
     let panel = scene.add(None, shape(true));
@@ -163,19 +252,15 @@ fn rejected_capture_preserves_gradient_and_stencil_without_texture_work() {
         ])),
     );
     scene.plan(&mut DrawPlanner::default(), &mut output);
-    let RenderOperation::DrawShape(draw) = output.instructions[1].operation else {
-        panic!("ordinary fallback draw")
+    let RenderOperation::DrawShape(draw) = output.instructions[0].operation else {
+        panic!("fallback uses the ordinary shape draw")
     };
     assert!(draw.material.has_gradient_fill);
     assert!(draw.material.under_fill_texture.is_none());
     let viewport = rect((0, 0), (100, 100));
     assert_eq!(
         snapshot(&output),
-        [
-            (Operation::Increment(ShapeDrawId(panel)), 0, viewport),
-            (Operation::Draw(ShapeDrawId(panel)), 1, viewport),
-            (Operation::Decrement(ShapeDrawId(panel)), 1, viewport),
-        ]
+        [(Operation::Draw(ShapeDrawId(panel)), 0, viewport)]
     );
 }
 
@@ -189,13 +274,13 @@ fn commands_remain_complete_after_planner_and_scene_are_dropped() {
         scene.attach_backdrop(panel, &mut output);
         scene.plan(&mut DrawPlanner::default(), &mut output);
     }
-    assert_eq!(output.instructions.len(), 7);
+    assert_eq!(output.instructions.len(), 5);
     let RenderOperation::ApplyEffect(command) = &output.instructions[2].operation else {
         panic!("effect command")
     };
     assert_eq!(command.effect_id, 42);
     assert_eq!(output.parameters(command.parameters), &[1, 2, 3, 4]);
-    let RenderOperation::DrawShape(draw) = output.instructions[4].operation else {
+    let RenderOperation::DrawShape(draw) = output.instructions[3].operation else {
         panic!("backdrop draw")
     };
     assert_eq!(draw.id, ShapeDrawId(1));
@@ -292,7 +377,7 @@ fn shape_effect_composite_precedes_its_source_backdrop_capture_under_inherited_c
     assert_eq!(
         snapshot(&output)[2],
         (
-            Operation::Increment(ShapeDrawId(source)),
+            Operation::Draw(ShapeDrawId(source)),
             1,
             rect((10, 10), (60, 60))
         )

@@ -18,7 +18,6 @@ pub(crate) enum Pipeline {
     None,
     StencilIncrement,
     StencilIncrementGradient,
-    StencilIncrementOnly,
     StencilIncrementTexture,
     StencilIncrementGradientTexture,
     StencilDecrement,
@@ -60,7 +59,6 @@ impl PipelineTracker {
             match pipeline {
                 Pipeline::StencilIncrement
                 | Pipeline::StencilIncrementGradient
-                | Pipeline::StencilIncrementOnly
                 | Pipeline::StencilIncrementTexture
                 | Pipeline::StencilIncrementGradientTexture => {
                     self.counts.to_stencil_increment += 1

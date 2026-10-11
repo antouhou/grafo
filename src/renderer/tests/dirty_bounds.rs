@@ -290,7 +290,10 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
                 .instructions
                 .iter()
                 .find_map(|command| match command.operation {
-                    RenderOperation::DrawShape(draw) if draw.id.0 == node_id => {
+                    RenderOperation::DrawShape(draw)
+                    | RenderOperation::DrawShapeAndIncrementStencil(draw)
+                        if draw.id.0 == node_id =>
+                    {
                         Some(command.clip.scissor)
                     }
                     _ => None,

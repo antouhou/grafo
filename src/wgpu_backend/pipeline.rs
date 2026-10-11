@@ -669,37 +669,6 @@ pub fn create_msaa_color_texture(
     })
 }
 
-/// Creates a pipeline that increments stencil without writing color.
-pub fn create_stencil_only_pipeline(
-    device: &Device,
-    format: wgpu::TextureFormat,
-    sample_count: u32,
-    uniform_layout: &BindGroupLayout,
-    background_texture_layout: &BindGroupLayout,
-    foreground_texture_layout: &BindGroupLayout,
-) -> RenderPipeline {
-    create_shape_pipeline(
-        device,
-        ShapePipelineDescriptor {
-            label: Some("stencil_only_pipeline"),
-            bind_group_layouts: &[
-                uniform_layout,
-                background_texture_layout,
-                foreground_texture_layout,
-            ],
-            vertex_entry_point: "vs_main",
-            fragment_entry_point: "fs_stencil_only",
-            color_target: wgpu::ColorTargetState {
-                format,
-                blend: None,
-                write_mask: wgpu::ColorWrites::empty(),
-            },
-            depth_stencil: create_equal_increment_depth_state(),
-            sample_count,
-        },
-    )
-}
-
 fn create_color_pipeline_with_stencil_keep(
     device: &Device,
     format: wgpu::TextureFormat,

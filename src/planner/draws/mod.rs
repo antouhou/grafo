@@ -150,14 +150,16 @@ impl DrawPlanner {
             });
             self.current.decrements_stencil = false;
         }
-        if self.plan_backdrop(node_id, node, input, output, texture_ids) {
-            return;
-        }
         let draw = match node {
             DrawTreeNode::CachedShape(description) if description.has_geometry() => {
+                let mut material = shape_material(&description.instance);
+                // If there's a backdrop filter attached to this shape, plan it first
+                // and set filter output texture as this shape underfill
+                material.under_fill_texture =
+                    self.plan_backdrop_texture(node_id, input, output, texture_ids);
                 Some(ShapeDraw {
                     id: ShapeDrawId(node_id),
-                    material: shape_material(&description.instance),
+                    material,
                 })
             }
             _ => None,
@@ -234,8 +236,8 @@ impl DrawPlanner {
         let should_draw = !rectangles::should_skip_visible_rect_draw(
             node_id,
             node,
+            draw.map(|draw| draw.material),
             input.group_effects,
-            input.backdrop_effects,
         );
         let visible_draw = draw.filter(|_| should_draw);
         if input.tree.children(node_id).is_empty() {

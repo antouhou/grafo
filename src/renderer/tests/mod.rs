@@ -204,7 +204,6 @@ impl RenderBackend for TestBackend {
                         RenderOperation::DrawShape(draw)
                         | RenderOperation::DrawShapeAndIncrementStencil(draw)
                         | RenderOperation::DecrementStencil(draw) => draw.id,
-                        RenderOperation::IncrementStencil(shape) => *shape,
                         RenderOperation::CompositeTexture(_)
                         | RenderOperation::CaptureBackdrop(_) => continue,
                         _ => panic!("unexpected operation"),
