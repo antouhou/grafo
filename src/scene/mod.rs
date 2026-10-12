@@ -1,11 +1,4 @@
 //! CPU scene descriptions, tessellation caches and effect attachments.
-use self::backdrop_damage::BackdropDamage;
-use self::effects::{
-    resolve_backdrop_effect, BackdropEffectInstance, EffectInstance, ShapeEffectInstance,
-};
-pub use self::errors::SceneError;
-use self::texture_index::TextureIndex;
-use self::types::{ClipRectDrawData, DrawTreeNode};
 use crate::core::effect::ShapeEffectBounds;
 use crate::core::shape::{CachedShapeHandle, Shape, ShapeInstance};
 use crate::core::util::ShapeResources;
@@ -13,9 +6,16 @@ use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
 use crate::render_backend::{TextureUpdatePublisher, TextureUpdateSubscription};
 use ahash::{HashMap, HashMapExt};
+use backdrop_damage::BackdropDamage;
 use easy_tree::Tree;
+use effects::{
+    resolve_backdrop_effect, BackdropEffectInstance, EffectInstance, ShapeEffectInstance,
+};
+pub use errors::SceneError;
 use lyon::tessellation::FillTessellator;
 use std::sync::{Arc, RwLock};
+use texture_index::TextureIndex;
+use types::{ClipRectDrawData, DrawTreeNode};
 mod backdrop_damage;
 pub(crate) mod effects;
 mod errors;

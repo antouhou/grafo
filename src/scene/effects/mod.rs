@@ -1,10 +1,10 @@
-use self::backdrops::validate_backdrop_config;
 use super::backdrop_damage::BackdropDamageEntry;
 use super::types::DrawTreeNode;
 use super::{Scene, SceneError};
 use crate::commands::EffectParameters;
 use crate::core::effect::{BackdropEffectConfig, ShapeEffectBounds, ShapeEffectConfig};
 use crate::core::{MathRect, Viewport};
+use backdrops::validate_backdrop_config;
 pub(crate) use backdrops::BackdropEffectInstance;
 use std::mem;
 

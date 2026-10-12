@@ -1,16 +1,16 @@
 //! Coordinates scene mutation, planning and backend execution.
-use self::damage::{mark_physical_dirty, PendingClipDamage};
-#[cfg(feature = "render_metrics")]
-use self::metrics::RenderLoopMetricsTracker;
-pub use self::types::{DrawCommandError, EffectError};
 use crate::commands::ShapeDrawId;
 use crate::core::UnsignedPhysicalRect;
 use crate::planner::Planner;
 use crate::render_backend::render_target::RenderTarget;
 use crate::render_backend::RenderBackend;
 use crate::scene::{Scene, SceneContext};
+use damage::{mark_physical_dirty, PendingClipDamage};
+#[cfg(feature = "render_metrics")]
+use metrics::RenderLoopMetricsTracker;
 #[cfg(feature = "render_metrics")]
 use std::time::Instant;
+pub use types::{DrawCommandError, EffectError};
 mod damage;
 mod draw_queue;
 mod effects;

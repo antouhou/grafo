@@ -1,10 +1,10 @@
 //! Contracts shared by the renderer coordinator and backend implementations.
 
-use self::render_target::{RenderTarget, RenderTargetError};
-pub(crate) use self::texture_updates::{TextureUpdatePublisher, TextureUpdateSubscription};
 use crate::commands::{RenderPlan, ShapeDrawId};
 use crate::core::{CachedShapeHandle, ShapeInstance, Viewport};
 use crate::UnsignedPhysicalRect;
+use render_target::{RenderTarget, RenderTargetError};
+pub(crate) use texture_updates::{TextureUpdatePublisher, TextureUpdateSubscription};
 
 pub mod render_target;
 mod texture_updates;
