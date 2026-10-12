@@ -20,24 +20,18 @@ fn texture_ids(node: &DrawTreeNode) -> SmallVec<[u64; 2]> {
 }
 
 #[derive(Default)]
-pub(crate) struct TextureIndex {
+pub(super) struct TextureIndex {
     shapes_by_texture: HashMap<u64, HashSet<usize>>,
     // A SmallVec since having a fixed array of Option<u64> seems a bit of a hassle
     textures_by_shape: HashMap<usize, SmallVec<[u64; 2]>>,
 }
 
 impl TextureIndex {
-    pub(crate) fn shapes_using(&self, texture_id: u64) -> impl Iterator<Item = usize> + '_ {
+    pub(super) fn shapes_using(&self, texture_id: u64) -> impl Iterator<Item = usize> + '_ {
         self.shapes_by_texture
             .get(&texture_id)
             .into_iter()
             .flat_map(|shapes| shapes.iter().copied())
-    }
-
-    pub(crate) fn textures_used_by(&self, shape_id: usize) -> &[u64] {
-        self.textures_by_shape
-            .get(&shape_id)
-            .map_or(&[], |textures| textures.as_slice())
     }
 
     pub(super) fn replace(&mut self, shape_id: usize, node: &DrawTreeNode) {

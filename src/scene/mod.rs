@@ -11,6 +11,7 @@ use crate::core::shape::{CachedShapeHandle, Shape, ShapeInstance};
 use crate::core::util::ShapeResources;
 use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
+use crate::render_backend::{TextureUpdatePublisher, TextureUpdateSubscription};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
 use lyon::tessellation::FillTessellator;
@@ -25,12 +26,24 @@ pub(crate) mod types;
 #[derive(Clone, Default)]
 pub(crate) struct SceneContext {
     loaded_shapes: Arc<RwLock<HashMap<u64, CachedShapeHandle>>>,
+    texture_updates: TextureUpdatePublisher,
+}
+
+impl SceneContext {
+    pub(crate) fn new(texture_updates: TextureUpdatePublisher) -> Self {
+        Self {
+            loaded_shapes: Arc::new(RwLock::new(HashMap::new())),
+            texture_updates,
+        }
+    }
 }
 
 /// Owns CPU descriptions and rasterization settings.
 pub(crate) struct Scene {
     pub(crate) draw_tree: Tree<DrawTreeNode>,
-    pub(crate) texture_index: TextureIndex,
+    texture_index: TextureIndex,
+    texture_updates: TextureUpdateSubscription,
+    updated_texture_ids: Vec<u64>,
     context: SceneContext,
     viewport: Viewport,
     fringe_width: f32,
@@ -46,6 +59,8 @@ impl Scene {
     /// Creates an empty scene for the supplied output dimensions and rasterization settings.
     pub(crate) fn new(context: SceneContext, viewport: Viewport, fringe_width: f32) -> Self {
         Self {
+            texture_updates: context.texture_updates.subscribe(),
+            updated_texture_ids: Vec::new(),
             context,
             viewport,
             fringe_width,
@@ -261,6 +276,28 @@ impl Scene {
             let shape_effect = self.shape_effects.remove(&id);
             removed(id, node, shape_effect);
         });
+    }
+
+    pub(crate) fn texture_damage(&mut self) -> Option<UnsignedPhysicalRect> {
+        self.texture_updates
+            .drain_into(&mut self.updated_texture_ids);
+        let mut dirty_bounds: Option<UnsignedPhysicalRect> = None;
+        for &texture_id in &self.updated_texture_ids {
+            for shape_id in self.texture_index.shapes_using(texture_id) {
+                let Some(node) = self.draw_tree.get(shape_id) else {
+                    continue;
+                };
+                let Some(bounds) = geometry::logical_bounds_to_viewport_rect(
+                    node.logical_screen_bounds(),
+                    self.viewport,
+                    self.fringe_width,
+                ) else {
+                    continue;
+                };
+                dirty_bounds = Some(dirty_bounds.map_or(bounds, |dirty| dirty.union(&bounds)));
+            }
+        }
+        dirty_bounds
     }
 
     pub(crate) fn expand_backdrop_damage(

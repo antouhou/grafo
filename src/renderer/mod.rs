@@ -1,5 +1,5 @@
 //! Coordinates scene mutation, planning and backend execution.
-use self::damage::PendingClipDamage;
+use self::damage::{mark_physical_dirty, PendingClipDamage};
 #[cfg(feature = "render_metrics")]
 use self::metrics::RenderLoopMetricsTracker;
 pub use self::types::{DrawCommandError, EffectError};
@@ -80,8 +80,8 @@ impl<B: RenderBackend> Renderer<B> {
     ///
     /// Pixmap pixels are ready on success and unchanged on error. Surface rendering
     /// submits and presents the frame, though GPU work may still be pending.
-    /// The draw queue and output image are retained for another render. Additions and
-    /// removals redraw their combined bounds; an unchanged queue preserves the image.
+    /// The draw queue and output image are retained for another render. Changes to the scene made
+    /// in between to `render` calls only affected areas; an unchanged queue preserves the image.
     pub fn render<'target>(
         &mut self,
         target: impl Into<RenderTarget<'target, B::Surface>>,
@@ -103,6 +103,7 @@ impl<B: RenderBackend> Renderer<B> {
         }
         self.pending_clip_damage
             .apply(&self.scene, &mut self.dirty_bounds);
+        mark_physical_dirty(&mut self.dirty_bounds, self.scene.texture_damage());
         self.dirty_bounds = self.scene.expand_backdrop_damage(self.dirty_bounds);
         let commands = self
             .planner

@@ -1,5 +1,5 @@
 use super::WgpuBackendError;
-use crate::render_backend::TextureManager;
+use crate::render_backend::{TextureManager, TextureUpdatePublisher};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use wgpu::Texture;
@@ -41,12 +41,17 @@ pub struct WgpuTextureManager {
     texture_storage: Arc<RwLock<HashMap<u64, wgpu::Texture>>>,
     /// Both shape texture layers use the same layout across renderers and MSAA settings.
     shape_bind_group_cache: Arc<RwLock<BindGroupCache>>,
+    updates: TextureUpdatePublisher,
 }
 
 type BindGroupCache = HashMap<u64, Arc<wgpu::BindGroup>>;
 
 impl WgpuTextureManager {
-    pub(crate) fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+    pub(crate) fn new(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        updates: TextureUpdatePublisher,
+    ) -> Self {
         let sampler = Self::create_sampler(&device);
         Self {
             device,
@@ -54,6 +59,7 @@ impl WgpuTextureManager {
             sampler: Arc::new(sampler),
             texture_storage: Arc::new(RwLock::new(HashMap::new())),
             shape_bind_group_cache: Arc::new(RwLock::new(HashMap::new())),
+            updates,
         }
     }
 
@@ -101,6 +107,7 @@ impl WgpuTextureManager {
         // Invalidate old bindings while both locks exclude concurrent cache insertion.
         bind_group_cache.remove(&texture_id);
         texture_storage.insert(texture_id, texture);
+        self.updates.publish(texture_id);
     }
 
     fn write_pixels_to_texture(
@@ -198,6 +205,9 @@ impl TextureManager for WgpuTextureManager {
     fn clear(&self) {
         let mut texture_storage = self.texture_storage.write().unwrap();
         let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
+        for &texture_id in texture_storage.keys() {
+            self.updates.publish(texture_id);
+        }
         texture_storage.clear();
         bind_group_cache.clear();
     }
@@ -235,6 +245,7 @@ impl TextureManager for WgpuTextureManager {
         };
 
         self.write_pixels_to_texture(texture, texture_dimensions, texture_extent, texture_data);
+        self.updates.publish(texture_id);
 
         Ok(())
     }
@@ -243,7 +254,9 @@ impl TextureManager for WgpuTextureManager {
         let mut texture_storage = self.texture_storage.write().unwrap();
         let mut bind_group_cache = self.shape_bind_group_cache.write().unwrap();
         bind_group_cache.remove(&texture_id);
-        texture_storage.remove(&texture_id);
+        if texture_storage.remove(&texture_id).is_some() {
+            self.updates.publish(texture_id);
+        }
     }
 
     fn is_texture_loaded(&self, texture_id: u64) -> bool {

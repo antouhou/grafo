@@ -1,11 +1,13 @@
 //! Contracts shared by the renderer coordinator and backend implementations.
 
 use self::render_target::{RenderTarget, RenderTargetError};
+pub(crate) use self::texture_updates::{TextureUpdatePublisher, TextureUpdateSubscription};
 use crate::commands::{RenderPlan, ShapeDrawId};
 use crate::core::{CachedShapeHandle, ShapeInstance, Viewport};
 use crate::UnsignedPhysicalRect;
 
 pub mod render_target;
+mod texture_updates;
 
 /// Source textures addressed by ID. Dimensions are `(width, height)` in pixels.
 pub trait TextureManager {

@@ -751,7 +751,121 @@ fn assert_incremental_pixels_match_full_redraw(renderer: &mut Renderer, pixels: 
     let incremental = pixels.clone();
     renderer.resize(renderer.size());
     render_bgra(renderer, pixels).unwrap();
-    assert_eq!(pixels, &incremental, "replacement must match a full redraw");
+    assert_eq!(
+        pixels, &incremental,
+        "partial updates must match a full redraw"
+    );
+}
+
+enum TextureMutation {
+    Allocate([u8; 4]),
+    Upload([u8; 4]),
+    Remove,
+    Clear,
+}
+
+#[test]
+fn texture_mutations_redraw_retained_layers_and_backdrop_captures() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 64), 1.0) else {
+        return;
+    };
+    let texture_id = 9_402;
+    renderer.load_effect(9_402, &[PASSTHROUGH_WGSL]).unwrap();
+    let manager = renderer.texture_manager().clone();
+    let mut pixels = Vec::new();
+    for samples in [1, 4] {
+        renderer.set_msaa_samples(samples);
+        let root = renderer
+            .add_shape(
+                Shape::rect([(0.0, 0.0), (96.0, 64.0)]),
+                None,
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(30, 40, 50)),
+            )
+            .unwrap();
+        for (bounds, options) in [
+            (
+                [(8.0, 8.0), (24.0, 24.0)],
+                ShapeDrawCommandOptions::new()
+                    .color(Color::WHITE)
+                    .background_texture_id(texture_id),
+            ),
+            (
+                [(8.0, 36.0), (24.0, 52.0)],
+                ShapeDrawCommandOptions::new()
+                    .color(Color::WHITE)
+                    .foreground_texture_id(texture_id),
+            ),
+            (
+                [(80.0, 36.0), (88.0, 44.0)],
+                ShapeDrawCommandOptions::new().color(Color::rgb(0, 0, 255)),
+            ),
+        ] {
+            renderer
+                .add_shape(Shape::rect(bounds), Some(root), None, options)
+                .unwrap();
+        }
+        let backdrop = renderer
+            .add_shape(
+                Shape::rect([(48.0, 8.0), (64.0, 24.0)]),
+                Some(root),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::TRANSPARENT),
+            )
+            .unwrap();
+        renderer
+            .set_shape_backdrop_effect(
+                backdrop,
+                9_402,
+                &[],
+                BackdropEffectConfig::new()
+                    .capture_area(BackdropCaptureArea::ScreenRect([(8.0, 8.0), (24.0, 24.0)])),
+            )
+            .unwrap();
+        render_bgra(&mut renderer, &mut pixels).unwrap();
+        assert_eq!(read_pixel_rgba(&pixels, 96, 16, 16), [255; 4]);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 16, 44), [255; 4]);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 56, 16), [255; 4]);
+
+        for (mutation, expected) in [
+            (
+                TextureMutation::Allocate([255, 0, 0, 255]),
+                [255, 0, 0, 255],
+            ),
+            (TextureMutation::Upload([0, 255, 0, 255]), [0, 255, 0, 255]),
+            (
+                TextureMutation::Allocate([0, 0, 255, 255]),
+                [0, 0, 255, 255],
+            ),
+            (TextureMutation::Remove, [255; 4]),
+            (
+                TextureMutation::Allocate([255, 0, 0, 255]),
+                [255, 0, 0, 255],
+            ),
+            (TextureMutation::Clear, [255; 4]),
+        ] {
+            match mutation {
+                TextureMutation::Allocate(data) => {
+                    manager.allocate_texture_with_data(texture_id, (1, 1), &data);
+                }
+                TextureMutation::Upload(data) => {
+                    manager
+                        .load_data_into_texture(texture_id, (1, 1), &data)
+                        .unwrap();
+                }
+                TextureMutation::Remove => manager.remove_texture(texture_id),
+                TextureMutation::Clear => manager.clear(),
+            }
+            render_bgra(&mut renderer, &mut pixels).unwrap();
+            for (x, y) in [(16, 16), (16, 44), (56, 16)] {
+                assert_eq!(read_pixel_rgba(&pixels, 96, x, y), expected);
+            }
+            assert_eq!(read_pixel_rgba(&pixels, 96, 84, 40), [0, 0, 255, 255]);
+            assert_eq!(read_pixel_rgba(&pixels, 96, 40, 44), [30, 40, 50, 255]);
+            assert_incremental_pixels_match_full_redraw(&mut renderer, &mut pixels);
+        }
+        renderer.clear_draw_queue();
+    }
 }
 
 #[test]

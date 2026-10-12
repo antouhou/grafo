@@ -1,6 +1,16 @@
-use crate::core::{Shape, ShapeDrawCommandOptions, Viewport};
+use super::TextureIndex;
+use crate::core::{Shape, ShapeDrawCommandOptions, UnsignedPhysicalRect, Viewport};
+use crate::render_backend::TextureUpdatePublisher;
 use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
 use crate::scene::{Scene, SceneContext};
+
+impl TextureIndex {
+    fn textures_used_by(&self, shape_id: usize) -> &[u64] {
+        self.textures_by_shape
+            .get(&shape_id)
+            .map_or(&[], |textures| textures.as_slice())
+    }
+}
 
 fn scene() -> Scene {
     Scene::new(
@@ -16,6 +26,28 @@ fn scene() -> Scene {
 fn shape(scene: &mut Scene, options: ShapeDrawCommandOptions) -> DrawTreeNode {
     let cached_shape = scene.tessellate(&Shape::rect([(0.0, 0.0), (16.0, 16.0)]), Some(1));
     DrawTreeNode::CachedShape(CachedShapeDrawData::new(cached_shape, options))
+}
+
+fn textured_scene(context: SceneContext, bounds: [(f32, f32); 2]) -> Scene {
+    let mut scene = Scene::new(
+        context,
+        Viewport {
+            physical_size: (32, 32),
+            scale_factor: 1.0,
+        },
+        0.75,
+    );
+    let shape = scene.tessellate(&Shape::rect(bounds), None);
+    scene.insert_node(
+        DrawTreeNode::CachedShape(CachedShapeDrawData::new(
+            shape,
+            ShapeDrawCommandOptions::new()
+                .background_texture_id(11)
+                .foreground_texture_id(11),
+        )),
+        None,
+    );
+    scene
 }
 
 fn assert_texture_shapes(scene: &Scene, texture_id: u64, expected: &[usize]) {
@@ -173,4 +205,30 @@ fn subtree_removal_clears_descendants_and_keeps_reused_ids_free_of_old_textures(
     assert_eq!(rebuilt, 0);
     assert!(scene.texture_index.textures_used_by(rebuilt).is_empty());
     assert!(scene.texture_index.shapes_by_texture.is_empty());
+}
+
+#[test]
+fn shared_context_scenes_consume_texture_damage_independently() {
+    let updates = TextureUpdatePublisher::default();
+    let context = SceneContext::new(updates.clone());
+    let mut first = textured_scene(context.clone(), [(8.0, 8.0), (16.0, 16.0)]);
+    let mut second = textured_scene(context.clone(), [(20.0, 20.0), (28.0, 28.0)]);
+    let first_bounds = Some(UnsignedPhysicalRect::new((7, 7).into(), (17, 17).into()));
+    let second_bounds = Some(UnsignedPhysicalRect::new((19, 19).into(), (29, 29).into()));
+
+    updates.publish(11);
+    updates.publish(11);
+    assert_eq!(first.texture_damage(), first_bounds);
+    assert_eq!(first.texture_damage(), None);
+
+    updates.publish(11);
+    drop(first);
+    let mut replacement = textured_scene(context, [(8.0, 8.0), (16.0, 16.0)]);
+    assert_eq!(replacement.texture_damage(), None);
+    assert_eq!(second.texture_damage(), second_bounds);
+    assert_eq!(second.texture_damage(), None);
+
+    updates.clone().publish(11);
+    assert_eq!(replacement.texture_damage(), first_bounds);
+    assert_eq!(second.texture_damage(), second_bounds);
 }

@@ -1,6 +1,7 @@
 use super::texture_manager::WgpuTextureManager;
 use super::{WgpuBackend, WgpuContext, WgpuSurface};
 use crate::render_backend::render_target::Surface;
+use crate::render_backend::TextureUpdatePublisher;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 use wgpu::{CompositeAlphaMode, DownlevelFlags, InstanceDescriptor, SurfaceTarget};
@@ -68,7 +69,9 @@ pub enum BackendCreationError {
 
 impl WgpuContext {
     /// Creates a device, command queue, and texture manager that renderers can share.
-    pub(crate) async fn try_new() -> Result<Self, BackendCreationError> {
+    pub(crate) async fn try_new(
+        texture_updates: TextureUpdatePublisher,
+    ) -> Result<Self, BackendCreationError> {
         let instance = Arc::new(wgpu::Instance::new(&InstanceDescriptor::default()));
         let adapter = Arc::new(
             instance
@@ -106,7 +109,11 @@ impl WgpuContext {
                 .flags
                 .contains(DownlevelFlags::BASE_VERTEX),
             adapter,
-            texture_manager: WgpuTextureManager::new(device.clone(), queue.clone()),
+            texture_manager: WgpuTextureManager::new(
+                device.clone(),
+                queue.clone(),
+                texture_updates,
+            ),
             device,
             queue,
         })
