@@ -4,7 +4,7 @@ use crate::core::{
     BackdropCaptureArea, BackdropEffectConfig, Shape, ShapeDrawCommandOptions, UnsignedPhysicalRect,
 };
 use crate::render_backend::render_target::Surface;
-use crate::render_backend::TextureManager;
+use crate::render_backend::texture_manager::TextureManager;
 use crate::scene::SceneContext;
 
 fn scene(texture_manager: TestTextureManager) -> (Renderer<TestBackend>, Surface<TestSurface>) {

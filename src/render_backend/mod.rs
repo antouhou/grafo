@@ -4,53 +4,10 @@ use crate::commands::{RenderPlan, ShapeDrawId};
 use crate::core::{CachedShapeHandle, ShapeInstance, Viewport};
 use crate::UnsignedPhysicalRect;
 use render_target::{RenderTarget, RenderTargetError};
-pub(crate) use texture_updates::{TextureUpdatePublisher, TextureUpdateSubscription};
+use texture_manager::TextureManager;
 
 pub mod render_target;
-mod texture_updates;
-
-/// Source textures addressed by ID. Dimensions are `(width, height)` in pixels.
-pub trait TextureManager {
-    type Error;
-
-    /// Removes all source textures and their cached bindings.
-    fn clear(&self);
-
-    /// Allocates an RGBA8 sRGB texture, replacing any texture with the same ID.
-    /// Upload pixels with [`Self::load_data_into_texture`].
-    fn allocate_texture(&self, texture_id: u64, texture_dimensions: (u32, u32));
-
-    /// Allocates and uploads a texture, replacing any texture with the same ID.
-    /// See [`Self::load_data_into_texture`] for the required pixel format.
-    fn allocate_texture_with_data(
-        &self,
-        texture_id: u64,
-        texture_dimensions: (u32, u32),
-        texture_data: &[u8],
-    );
-
-    /// Uploads RGBA8 sRGB pixels to the top-left corner of an allocated texture.
-    ///
-    /// The upload dimensions must fit inside the texture. Supply four bytes per pixel
-    /// with no padding between rows. RGB must be premultiplied by alpha in linear space,
-    /// then encoded as sRGB. Use
-    /// [`premultiply_rgba8_srgb_inplace`](crate::core::premultiply_rgba8_srgb_inplace)
-    /// to convert straight-alpha input before uploading.
-    ///
-    /// Returns an error if the texture ID has not been allocated.
-    fn load_data_into_texture(
-        &self,
-        texture_id: u64,
-        texture_dimensions: (u32, u32),
-        texture_data: &[u8],
-    ) -> Result<(), Self::Error>;
-
-    /// Removes the texture identified by `texture_id` and its cached bindings.
-    fn remove_texture(&self, texture_id: u64);
-
-    /// Returns whether the ID has an allocated texture, even if no pixels were uploaded.
-    fn is_texture_loaded(&self, texture_id: u64) -> bool;
-}
+pub mod texture_manager;
 
 /// Owns execution resources and interprets completed commands, without scene access.
 /// Resource preparation happens while queuing; rendering consumes the finished plan.

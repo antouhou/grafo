@@ -8,7 +8,7 @@ use crate::core::{
 use crate::render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError, Surface,
 };
-use crate::render_backend::{TextureManager, TextureUpdatePublisher};
+use crate::render_backend::texture_manager::{TextureManager, TextureUpdatePublisher};
 use crate::scene::SceneContext;
 use ahash::HashSet;
 use std::sync::{Arc, Mutex};

@@ -1,5 +1,5 @@
 use super::WgpuBackendError;
-use crate::render_backend::{TextureManager, TextureUpdatePublisher};
+use crate::render_backend::texture_manager::{TextureManager, TextureUpdatePublisher};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use wgpu::Texture;

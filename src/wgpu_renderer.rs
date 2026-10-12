@@ -1,7 +1,7 @@
 //! WGPU constructors for renderers, contexts, and surfaces.
 
 use crate::render_backend::render_target::Surface;
-use crate::render_backend::TextureUpdatePublisher;
+use crate::render_backend::texture_manager::TextureUpdatePublisher;
 use crate::renderer::{Renderer, RendererContext};
 use crate::scene::SceneContext;
 use crate::wgpu_backend::{BackendCreationError, WgpuBackend, WgpuContext, WgpuSurface};

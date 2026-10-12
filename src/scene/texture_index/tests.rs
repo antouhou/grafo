@@ -1,6 +1,6 @@
 use super::TextureIndex;
 use crate::core::{Shape, ShapeDrawCommandOptions, UnsignedPhysicalRect, Viewport};
-use crate::render_backend::TextureUpdatePublisher;
+use crate::render_backend::texture_manager::TextureUpdatePublisher;
 use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
 use crate::scene::{Scene, SceneContext};
 

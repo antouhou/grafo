@@ -48,7 +48,8 @@ pub use lyon;
 pub use render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError,
 };
-pub use render_backend::{RenderBackend, TextureManager};
+pub use render_backend::texture_manager::TextureManager;
+pub use render_backend::RenderBackend;
 pub use scene::SceneError;
 use std::sync::Arc;
 pub use wgpu;

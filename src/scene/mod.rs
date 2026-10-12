@@ -4,7 +4,7 @@ use crate::core::shape::{CachedShapeHandle, Shape, ShapeInstance};
 use crate::core::util::ShapeResources;
 use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
-use crate::render_backend::{TextureUpdatePublisher, TextureUpdateSubscription};
+use crate::render_backend::texture_manager::{TextureUpdatePublisher, TextureUpdateSubscription};
 use ahash::{HashMap, HashMapExt};
 use backdrop_damage::BackdropDamage;
 use easy_tree::Tree;

@@ -1,6 +1,6 @@
 use super::IntermediateTextureResources;
 use crate::commands::ShapeTextureBinding;
-use crate::render_backend::TextureManager;
+use crate::render_backend::texture_manager::TextureManager;
 use crate::wgpu_backend::texture_manager::WgpuTextureManager;
 use crate::wgpu_backend::types::BoundTextureState;
 use std::sync::Arc;

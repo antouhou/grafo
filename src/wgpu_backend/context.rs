@@ -1,7 +1,7 @@
 use super::texture_manager::WgpuTextureManager;
 use super::{WgpuBackend, WgpuContext, WgpuSurface};
 use crate::render_backend::render_target::Surface;
-use crate::render_backend::TextureUpdatePublisher;
+use crate::render_backend::texture_manager::TextureUpdatePublisher;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 use wgpu::{CompositeAlphaMode, DownlevelFlags, InstanceDescriptor, SurfaceTarget};

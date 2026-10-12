@@ -1,6 +1,48 @@
 use ahash::HashSet;
 use std::sync::{Arc, Mutex, Weak};
 
+/// Textures are addressed by ID. Dimensions are `(width, height)` in pixels
+pub trait TextureManager {
+    type Error;
+
+    /// Removes all textures and their cached bindings.
+    fn clear(&self);
+
+    /// Allocates an RGBA8 sRGB texture, replacing any texture with the same ID.
+    /// Upload pixels with [`Self::load_data_into_texture`].
+    fn allocate_texture(&self, texture_id: u64, texture_dimensions: (u32, u32));
+
+    /// Allocates and uploads a texture, replacing any texture with the same ID.
+    /// See [`Self::load_data_into_texture`] for the required pixel format.
+    fn allocate_texture_with_data(
+        &self,
+        texture_id: u64,
+        texture_dimensions: (u32, u32),
+        texture_data: &[u8],
+    );
+
+    /// Uploads RGBA8 sRGB pixels to the top-left corner of an allocated texture.
+    ///
+    /// The upload dimensions must fit inside the texture. RGB must be premultiplied by alpha in
+    /// linear space, then encoded as sRGB. Use
+    /// [`premultiply_rgba8_srgb_inplace`](crate::core::premultiply_rgba8_srgb_inplace)
+    /// to convert straight-alpha input before uploading.
+    ///
+    /// Returns an error if the texture ID has not been allocated
+    fn load_data_into_texture(
+        &self,
+        texture_id: u64,
+        texture_dimensions: (u32, u32),
+        texture_data: &[u8],
+    ) -> Result<(), Self::Error>;
+
+    /// Removes the texture identified by `texture_id` and its cached bindings.
+    fn remove_texture(&self, texture_id: u64);
+
+    /// Returns whether the ID has an allocated texture, even if no pixels were uploaded.
+    fn is_texture_loaded(&self, texture_id: u64) -> bool;
+}
+
 type PendingTextureUpdates = Mutex<HashSet<u64>>;
 
 /// An independent collection of changed source texture IDs.
@@ -22,7 +64,7 @@ impl TextureUpdateSubscription {
     }
 }
 
-/// Delivers source texture changes to independent subscribers.
+/// Delivers source texture changes to subscribers.
 /// Cloned publishers share subscriptions; dropping a subscription releases its pending changes.
 #[derive(Clone, Default)]
 pub(crate) struct TextureUpdatePublisher {
@@ -30,7 +72,7 @@ pub(crate) struct TextureUpdatePublisher {
 }
 
 impl TextureUpdatePublisher {
-    /// Subscribes to changes published after this call.
+    /// Subscribes to changes published after this call
     pub(crate) fn subscribe(&self) -> TextureUpdateSubscription {
         let pending = Arc::new(Mutex::new(HashSet::default()));
         let mut subscriptions = self
@@ -42,7 +84,7 @@ impl TextureUpdatePublisher {
         TextureUpdateSubscription { pending }
     }
 
-    /// Records a change for every current subscriber.
+    /// Records a change for every current subscriber
     pub(crate) fn publish(&self, texture_id: u64) {
         self.subscriptions
             .lock()
