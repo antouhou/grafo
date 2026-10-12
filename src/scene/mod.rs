@@ -4,6 +4,7 @@ use self::effects::{
     resolve_backdrop_effect, BackdropEffectInstance, EffectInstance, ShapeEffectInstance,
 };
 pub use self::errors::SceneError;
+use self::texture_index::TextureIndex;
 use self::types::{ClipRectDrawData, DrawTreeNode};
 use crate::core::effect::ShapeEffectBounds;
 use crate::core::shape::{CachedShapeHandle, Shape, ShapeInstance};
@@ -17,6 +18,7 @@ use std::sync::{Arc, RwLock};
 mod backdrop_damage;
 pub(crate) mod effects;
 mod errors;
+mod texture_index;
 pub(crate) mod types;
 
 /// Loaded CPU geometry shared by scenes. Keys identify shape content.
@@ -28,6 +30,7 @@ pub(crate) struct SceneContext {
 /// Owns CPU descriptions and rasterization settings.
 pub(crate) struct Scene {
     pub(crate) draw_tree: Tree<DrawTreeNode>,
+    pub(crate) texture_index: TextureIndex,
     context: SceneContext,
     viewport: Viewport,
     fringe_width: f32,
@@ -47,6 +50,7 @@ impl Scene {
             viewport,
             fringe_width,
             draw_tree: Tree::new(),
+            texture_index: TextureIndex::default(),
             tessellator: FillTessellator::new(),
             shape_resources: ShapeResources::new(),
             group_effects: HashMap::new(),
@@ -170,6 +174,7 @@ impl Scene {
     /// The parent must be validated before insertion.
     pub(crate) fn insert_node(&mut self, node: DrawTreeNode, parent: Option<usize>) -> usize {
         self.refresh_tessellation_cache(&node);
+        self.texture_index.replace(self.next_node_id(), &node);
         if self.draw_tree.is_empty() {
             return self.draw_tree.add_node(node);
         }
@@ -184,6 +189,7 @@ impl Scene {
         maximum_texture_dimension: u32,
     ) -> DrawTreeNode {
         self.refresh_tessellation_cache(&node);
+        self.texture_index.replace(node_id, &node);
         if matches!(node, DrawTreeNode::CachedShape(_)) {
             if let Some(bounds) = shape_effect_bounds {
                 self.shape_effects
@@ -248,6 +254,7 @@ impl Scene {
         mut removed: impl FnMut(usize, DrawTreeNode, Option<ShapeEffectInstance>),
     ) {
         self.draw_tree.remove_subtrees_with(node_ids, |id, node| {
+            self.texture_index.remove(id);
             self.group_effects.remove(&id);
             self.backdrop_effects.remove(&id);
             self.backdrop_damage.remove(id);
