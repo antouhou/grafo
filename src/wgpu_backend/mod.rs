@@ -1,20 +1,20 @@
 //! WGPU uploads, resource caches and command execution.
-pub use self::context::BackendCreationError;
-pub use self::errors::{EffectResourceError, EffectShaderError, WgpuBackendError};
-use self::execution::effects::EffectRegistry;
-#[cfg(feature = "render_metrics")]
-use self::metrics::PhaseTimings;
-pub use self::readback::ReadbackError;
-use self::readback::{ArgbReadbackResources, ByteReadbackResources};
-use self::resources::{BackendResources, RendererPipelineResources};
-use self::retained_output::RetainedOutput;
-pub use self::surface::WgpuSurface;
-use self::texture_manager::WgpuTextureManager;
-pub use self::types::GeometryBufferError;
 use crate::core::Viewport;
+pub use context::BackendCreationError;
+pub use errors::{EffectResourceError, EffectShaderError, WgpuBackendError};
+use execution::effects::EffectRegistry;
+#[cfg(feature = "render_metrics")]
+use metrics::PhaseTimings;
+pub use readback::ReadbackError;
+use readback::{ArgbReadbackResources, ByteReadbackResources};
+use resources::{BackendResources, RendererPipelineResources};
+use retained_output::RetainedOutput;
 use std::sync::Arc;
 #[cfg(feature = "render_metrics")]
 use std::time::Duration;
+pub use surface::WgpuSurface;
+use texture_manager::WgpuTextureManager;
+pub use types::GeometryBufferError;
 
 mod construction;
 mod context;

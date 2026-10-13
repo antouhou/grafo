@@ -1,6 +1,7 @@
 //! WGPU constructors for renderers, contexts, and surfaces.
 
 use crate::render_backend::render_target::Surface;
+use crate::render_backend::texture_manager::TextureUpdatePublisher;
 use crate::renderer::{Renderer, RendererContext};
 use crate::scene::SceneContext;
 use crate::wgpu_backend::{BackendCreationError, WgpuBackend, WgpuContext, WgpuSurface};
@@ -10,9 +11,10 @@ use wgpu::SurfaceTarget;
 impl RendererContext<Arc<WgpuContext>> {
     /// Creates a WGPU context and shared CPU shape storage.
     pub async fn try_new() -> Result<Self, BackendCreationError> {
+        let texture_updates = TextureUpdatePublisher::default();
         Ok(Self {
-            backend: Arc::new(WgpuContext::try_new().await?),
-            scene: SceneContext::default(),
+            backend: Arc::new(WgpuContext::try_new(texture_updates.clone()).await?),
+            scene: SceneContext::new(texture_updates),
         })
     }
 

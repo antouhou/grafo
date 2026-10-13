@@ -8,8 +8,10 @@ use crate::core::{
 use crate::render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError, Surface,
 };
-use crate::render_backend::TextureManager;
+use crate::render_backend::texture_manager::{TextureManager, TextureUpdatePublisher};
 use crate::scene::SceneContext;
+use ahash::HashSet;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 mod backdrop_damage;
@@ -17,6 +19,7 @@ mod dirty_bounds;
 mod removal;
 mod replacement;
 mod shape_effect_damage;
+mod texture_damage;
 
 #[derive(Default)]
 struct TestSurface {
@@ -35,46 +38,68 @@ impl From<RenderTargetError> for TestBackendError {
     }
 }
 
-struct TestTextureManager;
+#[derive(Clone, Default)]
+struct TestTextureManager {
+    textures: Arc<Mutex<HashSet<u64>>>,
+    updates: TextureUpdatePublisher,
+}
 
 impl TextureManager for TestTextureManager {
     type Error = TestBackendError;
 
     fn clear(&self) {
-        unreachable!("this test backend does not use textures");
+        let mut textures = self.textures.lock().unwrap();
+        for texture_id in textures.drain() {
+            self.updates.publish(texture_id);
+        }
     }
 
-    fn allocate_texture(&self, _: u64, _: (u32, u32)) {
-        unreachable!("this test backend does not use textures");
+    fn allocate_texture(&self, texture_id: u64, _: (u32, u32)) {
+        self.textures.lock().unwrap().insert(texture_id);
+        self.updates.publish(texture_id);
     }
 
-    fn allocate_texture_with_data(&self, _: u64, _: (u32, u32), _: &[u8]) {
-        unreachable!("this test backend does not use textures");
+    fn allocate_texture_with_data(&self, texture_id: u64, dimensions: (u32, u32), _: &[u8]) {
+        self.allocate_texture(texture_id, dimensions);
     }
 
-    fn load_data_into_texture(&self, _: u64, _: (u32, u32), _: &[u8]) -> Result<(), Self::Error> {
-        unreachable!("this test backend does not use textures");
+    fn load_data_into_texture(
+        &self,
+        texture_id: u64,
+        _: (u32, u32),
+        _: &[u8],
+    ) -> Result<(), Self::Error> {
+        if !self.is_texture_loaded(texture_id) {
+            return Err(TestBackendError);
+        }
+        self.updates.publish(texture_id);
+        Ok(())
     }
 
-    fn remove_texture(&self, _: u64) {
-        unreachable!("this test backend does not use textures");
+    fn remove_texture(&self, texture_id: u64) {
+        if self.textures.lock().unwrap().remove(&texture_id) {
+            self.updates.publish(texture_id);
+        }
     }
 
-    fn is_texture_loaded(&self, _: u64) -> bool {
-        unreachable!("this test backend does not use textures");
+    fn is_texture_loaded(&self, texture_id: u64) -> bool {
+        self.textures.lock().unwrap().contains(&texture_id)
     }
 }
 
 #[derive(Default)]
 struct TestBackend {
+    texture_manager: TestTextureManager,
     root_scissor: Option<UnsignedPhysicalRect>,
     is_dirty_region_overlay_enabled: bool,
     registered_shapes: Vec<usize>,
+    refreshed_uvs: Vec<usize>,
     command_address: usize,
     instruction_address: usize,
     should_fail: bool,
     registration_failure: Option<usize>,
     size: Option<(u32, u32)>,
+    texture_upload_during_render: Option<u64>,
 }
 
 impl RenderBackend for TestBackend {
@@ -96,6 +121,15 @@ impl RenderBackend for TestBackend {
         Ok(())
     }
 
+    fn refresh_uv(&mut self, id: ShapeDrawId, shape: &ShapeInstance) {
+        assert!(self.registered_shapes.contains(&id.0));
+        assert!(shape
+            .textures
+            .iter()
+            .any(|texture| texture.texture_id.is_some()));
+        self.refreshed_uvs.push(id.0);
+    }
+
     fn unregister_shapes(&mut self, ids: &[ShapeDrawId]) {
         self.registered_shapes
             .retain(|&registered| !ids.contains(&ShapeDrawId(registered)));
@@ -106,7 +140,7 @@ impl RenderBackend for TestBackend {
     }
 
     fn texture_manager(&self) -> &TestTextureManager {
-        &TestTextureManager
+        &self.texture_manager
     }
 
     fn maximum_texture_dimension(&self) -> u32 {
@@ -164,6 +198,10 @@ impl RenderBackend for TestBackend {
     ) -> Result<(), Self::Error> {
         if self.should_fail {
             return Err(TestBackendError);
+        }
+        if let Some(texture_id) = self.texture_upload_during_render.take() {
+            self.texture_manager
+                .load_data_into_texture(texture_id, (1, 1), &[255; 4])?;
         }
         self.command_address = commands as *const RenderPlan as usize;
         self.root_scissor = root_scissor;
@@ -240,7 +278,9 @@ fn queue_shape(renderer: &mut Renderer<TestBackend>, with_effects: bool) -> usiz
 }
 
 fn renderer() -> Renderer<TestBackend> {
-    Renderer::from_parts(TestBackend::default(), SceneContext::default())
+    let backend = TestBackend::default();
+    let context = SceneContext::new(backend.texture_manager.updates.clone());
+    Renderer::from_parts(backend, context)
 }
 
 fn surface() -> Surface<TestSurface> {

@@ -1,16 +1,16 @@
 //! Coordinates scene mutation, planning and backend execution.
-use self::damage::PendingClipDamage;
-#[cfg(feature = "render_metrics")]
-use self::metrics::RenderLoopMetricsTracker;
-pub use self::types::{DrawCommandError, EffectError};
 use crate::commands::ShapeDrawId;
 use crate::core::UnsignedPhysicalRect;
 use crate::planner::Planner;
 use crate::render_backend::render_target::RenderTarget;
 use crate::render_backend::RenderBackend;
 use crate::scene::{Scene, SceneContext};
+use damage::{mark_dirty, PendingClipDamage};
+#[cfg(feature = "render_metrics")]
+use metrics::RenderLoopMetricsTracker;
 #[cfg(feature = "render_metrics")]
 use std::time::Instant;
+pub use types::{DrawCommandError, EffectError};
 mod damage;
 mod draw_queue;
 mod effects;
@@ -80,8 +80,9 @@ impl<B: RenderBackend> Renderer<B> {
     ///
     /// Pixmap pixels are ready on success and unchanged on error. Surface rendering
     /// submits and presents the frame, though GPU work may still be pending.
-    /// The draw queue and output image are retained for another render. Additions and
-    /// removals redraw their combined bounds; an unchanged queue preserves the image.
+    /// The draw queue and output image are retained for another render. Changes to the scene/textures
+    /// made in between two `render` calls result in only affected areas being re-rendered; an
+    /// unchanged queue preserves the image.
     pub fn render<'target>(
         &mut self,
         target: impl Into<RenderTarget<'target, B::Surface>>,
@@ -103,6 +104,17 @@ impl<B: RenderBackend> Renderer<B> {
         }
         self.pending_clip_damage
             .apply(&self.scene, &mut self.dirty_bounds);
+        let viewport = self.scene.viewport();
+        let fringe_width = self.scene.fringe_width();
+        for (id, shape) in self.scene.shapes_with_updated_textures() {
+            self.backend.refresh_uv(ShapeDrawId(id), &shape.instance);
+            mark_dirty(
+                &mut self.dirty_bounds,
+                shape.logical_screen_bounds,
+                viewport,
+                fringe_width,
+            );
+        }
         self.dirty_bounds = self.scene.expand_backdrop_damage(self.dirty_bounds);
         let commands = self
             .planner

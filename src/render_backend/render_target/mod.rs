@@ -1,6 +1,6 @@
 //! Surface and pixmap render targets.
 
-pub use self::pixels::{PixelFormat, PixelLayout, Pixmap, PixmapMut};
+pub use pixels::{PixelFormat, PixelLayout, Pixmap, PixmapMut};
 use thiserror::Error;
 
 mod pixels;

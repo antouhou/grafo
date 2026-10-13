@@ -1,33 +1,50 @@
 //! CPU scene descriptions, tessellation caches and effect attachments.
-use self::backdrop_damage::BackdropDamage;
-use self::effects::{
-    resolve_backdrop_effect, BackdropEffectInstance, EffectInstance, ShapeEffectInstance,
-};
-pub use self::errors::SceneError;
-use self::types::{ClipRectDrawData, DrawTreeNode};
 use crate::core::effect::ShapeEffectBounds;
 use crate::core::shape::{CachedShapeHandle, Shape, ShapeInstance};
 use crate::core::util::ShapeResources;
 use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
-use ahash::{HashMap, HashMapExt};
+use crate::render_backend::texture_manager::{TextureUpdatePublisher, TextureUpdateSubscription};
+use ahash::{HashMap, HashMapExt, HashSet};
+use backdrop_damage::BackdropDamage;
 use easy_tree::Tree;
+use effects::{
+    resolve_backdrop_effect, BackdropEffectInstance, EffectInstance, ShapeEffectInstance,
+};
+pub use errors::SceneError;
 use lyon::tessellation::FillTessellator;
 use std::sync::{Arc, RwLock};
+use texture_index::TextureIndex;
+use types::{CachedShapeDrawData, ClipRectDrawData, DrawTreeNode};
 mod backdrop_damage;
 pub(crate) mod effects;
 mod errors;
+mod texture_index;
 pub(crate) mod types;
 
 /// Loaded CPU geometry shared by scenes. Keys identify shape content.
 #[derive(Clone, Default)]
 pub(crate) struct SceneContext {
     loaded_shapes: Arc<RwLock<HashMap<u64, CachedShapeHandle>>>,
+    texture_updates: TextureUpdatePublisher,
+}
+
+impl SceneContext {
+    pub(crate) fn new(texture_updates: TextureUpdatePublisher) -> Self {
+        Self {
+            loaded_shapes: Arc::new(RwLock::new(HashMap::new())),
+            texture_updates,
+        }
+    }
 }
 
 /// Owns CPU descriptions and rasterization settings.
 pub(crate) struct Scene {
     pub(crate) draw_tree: Tree<DrawTreeNode>,
+    texture_index: TextureIndex,
+    texture_updates: TextureUpdateSubscription,
+    updated_texture_ids: Vec<u64>,
+    updated_shape_ids: HashSet<usize>,
     context: SceneContext,
     viewport: Viewport,
     fringe_width: f32,
@@ -43,10 +60,14 @@ impl Scene {
     /// Creates an empty scene for the supplied output dimensions and rasterization settings.
     pub(crate) fn new(context: SceneContext, viewport: Viewport, fringe_width: f32) -> Self {
         Self {
+            texture_updates: context.texture_updates.subscribe(),
+            updated_texture_ids: Vec::new(),
+            updated_shape_ids: HashSet::default(),
             context,
             viewport,
             fringe_width,
             draw_tree: Tree::new(),
+            texture_index: TextureIndex::default(),
             tessellator: FillTessellator::new(),
             shape_resources: ShapeResources::new(),
             group_effects: HashMap::new(),
@@ -170,6 +191,7 @@ impl Scene {
     /// The parent must be validated before insertion.
     pub(crate) fn insert_node(&mut self, node: DrawTreeNode, parent: Option<usize>) -> usize {
         self.refresh_tessellation_cache(&node);
+        self.texture_index.replace(self.next_node_id(), &node);
         if self.draw_tree.is_empty() {
             return self.draw_tree.add_node(node);
         }
@@ -184,6 +206,7 @@ impl Scene {
         maximum_texture_dimension: u32,
     ) -> DrawTreeNode {
         self.refresh_tessellation_cache(&node);
+        self.texture_index.replace(node_id, &node);
         if matches!(node, DrawTreeNode::CachedShape(_)) {
             if let Some(bounds) = shape_effect_bounds {
                 self.shape_effects
@@ -248,12 +271,35 @@ impl Scene {
         mut removed: impl FnMut(usize, DrawTreeNode, Option<ShapeEffectInstance>),
     ) {
         self.draw_tree.remove_subtrees_with(node_ids, |id, node| {
+            self.texture_index.remove(id);
             self.group_effects.remove(&id);
             self.backdrop_effects.remove(&id);
             self.backdrop_damage.remove(id);
             let shape_effect = self.shape_effects.remove(&id);
             removed(id, node, shape_effect);
         });
+    }
+
+    /// Consumes pending texture updates and yields each affected shape once.
+    pub(crate) fn shapes_with_updated_textures(
+        &mut self,
+    ) -> impl Iterator<Item = (usize, &CachedShapeDrawData)> {
+        self.texture_updates
+            .drain_into(&mut self.updated_texture_ids);
+        self.updated_shape_ids.clear();
+        let texture_index = &self.texture_index;
+        let draw_tree = &self.draw_tree;
+        let updated_shape_ids = &mut self.updated_shape_ids;
+        self.updated_texture_ids
+            .iter()
+            .flat_map(move |&texture_id| texture_index.shapes_using(texture_id))
+            .filter(move |&shape_id| updated_shape_ids.insert(shape_id))
+            .map(move |shape_id| {
+                let DrawTreeNode::CachedShape(shape) = draw_tree.get_unchecked(shape_id) else {
+                    unreachable!("texture index contains only shape nodes");
+                };
+                (shape_id, shape)
+            })
     }
 
     pub(crate) fn expand_backdrop_damage(

@@ -751,7 +751,265 @@ fn assert_incremental_pixels_match_full_redraw(renderer: &mut Renderer, pixels: 
     let incremental = pixels.clone();
     renderer.resize(renderer.size());
     render_bgra(renderer, pixels).unwrap();
-    assert_eq!(pixels, &incremental, "replacement must match a full redraw");
+    assert_eq!(
+        pixels, &incremental,
+        "partial updates must match a full redraw"
+    );
+}
+
+enum TextureMutation {
+    Allocate([u8; 4]),
+    Upload([u8; 4]),
+    Remove,
+    Clear,
+}
+
+fn fitted_texture_data(fit_mode: ShapeTextureFitMode, size: (u32, u32)) -> Vec<u8> {
+    let colors = [
+        [255, 0, 0, 255],
+        [0, 255, 0, 255],
+        [0, 0, 255, 255],
+        [255, 255, 0, 255],
+    ];
+    let mut pixels = Vec::new();
+    for y in 0..size.1 {
+        for x in 0..size.0 {
+            let stripe = if fit_mode == ShapeTextureFitMode::OriginalSize {
+                usize::from(size.0 > size.1)
+            } else if size.0 < size.1 {
+                (y * 4 / size.1) as usize
+            } else {
+                (x * 4 / size.0) as usize
+            };
+            pixels.extend_from_slice(&colors[stripe]);
+        }
+    }
+    pixels
+}
+
+fn assert_fitted_texture_pixels(pixels: &[u8], fit_mode: ShapeTextureFitMode, size: (u32, u32)) {
+    let red = [255, 0, 0, 255];
+    let green = [0, 255, 0, 255];
+    let blue = [0, 0, 255, 255];
+    let yellow = [255, 255, 0, 255];
+    let white = [255; 4];
+    let expectations: &[((u32, u32), [u8; 4])] = match (fit_mode, size) {
+        (ShapeTextureFitMode::OriginalSize, (8, 16)) => {
+            &[((2, 2), red), ((12, 2), white), ((2, 12), red)]
+        }
+        (ShapeTextureFitMode::OriginalSize, (16, 8)) => {
+            &[((2, 2), green), ((12, 2), green), ((2, 12), white)]
+        }
+        (ShapeTextureFitMode::Cover, (8, 16)) => &[((16, 6), green), ((16, 26), blue)],
+        (ShapeTextureFitMode::Cover, (16, 8)) => &[((6, 16), green), ((26, 16), blue)],
+        (ShapeTextureFitMode::Contain, (8, 16)) => &[
+            ((4, 16), white),
+            ((28, 16), white),
+            ((16, 4), red),
+            ((16, 28), yellow),
+        ],
+        (ShapeTextureFitMode::Contain, (16, 8)) => &[
+            ((16, 4), white),
+            ((16, 28), white),
+            ((4, 16), red),
+            ((28, 16), yellow),
+        ],
+        _ => unreachable!(),
+    };
+    for &((x, y), expected) in expectations {
+        assert_eq!(
+            read_pixel_rgba(pixels, 96, 8 + x, 8 + y),
+            expected,
+            "{fit_mode:?}, texture {size:?}, offset ({x}, {y})"
+        );
+    }
+}
+
+#[test]
+fn retained_texture_fits_follow_allocation_dimensions() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 96), 1.0) else {
+        return;
+    };
+    let texture_id = 9_410;
+    renderer.load_effect(9_410, &[PASSTHROUGH_WGSL]).unwrap();
+    let manager = renderer.texture_manager().clone();
+    let mut pixels = Vec::new();
+    for samples in [1, 4] {
+        renderer.set_msaa_samples(samples);
+        for fit_mode in [
+            ShapeTextureFitMode::OriginalSize,
+            ShapeTextureFitMode::Cover,
+            ShapeTextureFitMode::Contain,
+        ] {
+            for is_foreground in [false, true] {
+                renderer.clear_draw_queue();
+                manager.clear();
+                renderer.change_scale_factor(1.0).unwrap();
+                let root = renderer
+                    .add_clipping_rect(
+                        [(0.0, 0.0), (96.0, 96.0)],
+                        None,
+                        None::<TransformInstance>,
+                        false,
+                    )
+                    .unwrap();
+                let discarded = renderer
+                    .add_shape(
+                        Shape::rect([(90.0, 90.0), (94.0, 94.0)]),
+                        Some(root),
+                        None,
+                        ShapeDrawCommandOptions::new().color(Color::WHITE),
+                    )
+                    .unwrap();
+                let texture = ShapeTextureOptions::new(texture_id).fit_mode(fit_mode);
+                let options = ShapeDrawCommandOptions::new().color(Color::WHITE);
+                let options = if is_foreground {
+                    options.foreground_texture(texture)
+                } else {
+                    options.background_texture(texture)
+                };
+                let shape = renderer
+                    .add_shape(
+                        Shape::rect([(8.0, 8.0), (40.0, 40.0)]),
+                        Some(root),
+                        None,
+                        options,
+                    )
+                    .unwrap();
+                renderer
+                    .set_shape_effect(shape, 9_410, &[], ShapeEffectConfig::new())
+                    .unwrap();
+                render_bgra(&mut renderer, &mut pixels).unwrap();
+                assert_eq!(read_pixel_rgba(&pixels, 96, 10, 10), [255; 4]);
+                renderer.remove_subtrees([discarded], |_| {});
+
+                for size in [(8, 16), (16, 8)] {
+                    manager.allocate_texture_with_data(
+                        texture_id,
+                        size,
+                        &fitted_texture_data(fit_mode, size),
+                    );
+                    render_bgra(&mut renderer, &mut pixels).unwrap();
+                    assert_fitted_texture_pixels(&pixels, fit_mode, size);
+                    assert_incremental_pixels_match_full_redraw(&mut renderer, &mut pixels);
+                }
+                manager.remove_texture(texture_id);
+                render_bgra(&mut renderer, &mut pixels).unwrap();
+                assert_eq!(read_pixel_rgba(&pixels, 96, 10, 10), [255; 4]);
+                manager.allocate_texture_with_data(
+                    texture_id,
+                    (8, 16),
+                    &fitted_texture_data(fit_mode, (8, 16)),
+                );
+                render_bgra(&mut renderer, &mut pixels).unwrap();
+                assert_fitted_texture_pixels(&pixels, fit_mode, (8, 16));
+            }
+        }
+    }
+}
+
+#[test]
+fn texture_mutations_redraw_retained_layers_and_backdrop_captures() {
+    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 64), 1.0) else {
+        return;
+    };
+    let texture_id = 9_402;
+    renderer.load_effect(9_402, &[PASSTHROUGH_WGSL]).unwrap();
+    let manager = renderer.texture_manager().clone();
+    let mut pixels = Vec::new();
+    for samples in [1, 4] {
+        renderer.set_msaa_samples(samples);
+        let root = renderer
+            .add_shape(
+                Shape::rect([(0.0, 0.0), (96.0, 64.0)]),
+                None,
+                None,
+                ShapeDrawCommandOptions::new().color(Color::rgb(30, 40, 50)),
+            )
+            .unwrap();
+        for (bounds, options) in [
+            (
+                [(8.0, 8.0), (24.0, 24.0)],
+                ShapeDrawCommandOptions::new()
+                    .color(Color::WHITE)
+                    .background_texture_id(texture_id),
+            ),
+            (
+                [(8.0, 36.0), (24.0, 52.0)],
+                ShapeDrawCommandOptions::new()
+                    .color(Color::WHITE)
+                    .foreground_texture_id(texture_id),
+            ),
+            (
+                [(80.0, 36.0), (88.0, 44.0)],
+                ShapeDrawCommandOptions::new().color(Color::rgb(0, 0, 255)),
+            ),
+        ] {
+            renderer
+                .add_shape(Shape::rect(bounds), Some(root), None, options)
+                .unwrap();
+        }
+        let backdrop = renderer
+            .add_shape(
+                Shape::rect([(48.0, 8.0), (64.0, 24.0)]),
+                Some(root),
+                None,
+                ShapeDrawCommandOptions::new().color(Color::TRANSPARENT),
+            )
+            .unwrap();
+        renderer
+            .set_shape_backdrop_effect(
+                backdrop,
+                9_402,
+                &[],
+                BackdropEffectConfig::new()
+                    .capture_area(BackdropCaptureArea::ScreenRect([(8.0, 8.0), (24.0, 24.0)])),
+            )
+            .unwrap();
+        render_bgra(&mut renderer, &mut pixels).unwrap();
+        assert_eq!(read_pixel_rgba(&pixels, 96, 16, 16), [255; 4]);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 16, 44), [255; 4]);
+        assert_eq!(read_pixel_rgba(&pixels, 96, 56, 16), [255; 4]);
+
+        for (mutation, expected) in [
+            (
+                TextureMutation::Allocate([255, 0, 0, 255]),
+                [255, 0, 0, 255],
+            ),
+            (TextureMutation::Upload([0, 255, 0, 255]), [0, 255, 0, 255]),
+            (
+                TextureMutation::Allocate([0, 0, 255, 255]),
+                [0, 0, 255, 255],
+            ),
+            (TextureMutation::Remove, [255; 4]),
+            (
+                TextureMutation::Allocate([255, 0, 0, 255]),
+                [255, 0, 0, 255],
+            ),
+            (TextureMutation::Clear, [255; 4]),
+        ] {
+            match mutation {
+                TextureMutation::Allocate(data) => {
+                    manager.allocate_texture_with_data(texture_id, (1, 1), &data);
+                }
+                TextureMutation::Upload(data) => {
+                    manager
+                        .load_data_into_texture(texture_id, (1, 1), &data)
+                        .unwrap();
+                }
+                TextureMutation::Remove => manager.remove_texture(texture_id),
+                TextureMutation::Clear => manager.clear(),
+            }
+            render_bgra(&mut renderer, &mut pixels).unwrap();
+            for (x, y) in [(16, 16), (16, 44), (56, 16)] {
+                assert_eq!(read_pixel_rgba(&pixels, 96, x, y), expected);
+            }
+            assert_eq!(read_pixel_rgba(&pixels, 96, 84, 40), [0, 0, 255, 255]);
+            assert_eq!(read_pixel_rgba(&pixels, 96, 40, 44), [30, 40, 50, 255]);
+            assert_incremental_pixels_match_full_redraw(&mut renderer, &mut pixels);
+        }
+        renderer.clear_draw_queue();
+    }
 }
 
 #[test]

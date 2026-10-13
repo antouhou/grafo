@@ -1,4 +1,5 @@
 use super::{ShapeBufferLocation, ShapeDrawResources, ShapeExecutionResources};
+use crate::commands::ShapeDrawId;
 use crate::core::shape::ShapeInstance;
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
 use crate::wgpu_backend::resources::ShapePipelines;
@@ -145,6 +146,27 @@ fn compute_texture_uv_transforms(
 }
 
 impl ShapeExecutionResources {
+    pub(in crate::wgpu_backend) fn refresh_uv(
+        &mut self,
+        id: ShapeDrawId,
+        shape: &ShapeInstance,
+        texture_manager: &WgpuTextureManager,
+        scale_factor: f64,
+    ) {
+        let Some(location) = self.draw_resources(id).geometry_buffer_location else {
+            return;
+        };
+        let [background, foreground] = compute_texture_uv_transforms(
+            shape.cached_shape.texture_mapping_size(),
+            shape,
+            texture_manager,
+            scale_factor,
+        );
+        let metadata = &mut self.instance_metadata[location.instance_index];
+        metadata.texture_uv_transform_layer0 = background;
+        metadata.texture_uv_transform_layer1 = foreground;
+    }
+
     /// Appends shape data to shared buffers and resolves material bindings.
     pub(in crate::wgpu_backend) fn prepare_draw(
         &mut self,
