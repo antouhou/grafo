@@ -80,8 +80,9 @@ impl<B: RenderBackend> Renderer<B> {
     ///
     /// Pixmap pixels are ready on success and unchanged on error. Surface rendering
     /// submits and presents the frame, though GPU work may still be pending.
-    /// The draw queue and output image are retained for another render. Changes to the scene made
-    /// in between to `render` calls only affected areas; an unchanged queue preserves the image.
+    /// The draw queue and output image are retained for another render. Changes to the scene/textures
+    /// made in between to `render` calls result in only affected areas being re-rendered; an
+    /// unchanged queue preserves the image.
     pub fn render<'target>(
         &mut self,
         target: impl Into<RenderTarget<'target, B::Surface>>,
