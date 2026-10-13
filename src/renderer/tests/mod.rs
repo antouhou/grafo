@@ -93,6 +93,7 @@ struct TestBackend {
     root_scissor: Option<UnsignedPhysicalRect>,
     is_dirty_region_overlay_enabled: bool,
     registered_shapes: Vec<usize>,
+    refreshed_uvs: Vec<usize>,
     command_address: usize,
     instruction_address: usize,
     should_fail: bool,
@@ -118,6 +119,15 @@ impl RenderBackend for TestBackend {
             self.registered_shapes.push(id.0);
         }
         Ok(())
+    }
+
+    fn refresh_uv(&mut self, id: ShapeDrawId, shape: &ShapeInstance) {
+        assert!(self.registered_shapes.contains(&id.0));
+        assert!(shape
+            .textures
+            .iter()
+            .any(|texture| texture.texture_id.is_some()));
+        self.refreshed_uvs.push(id.0);
     }
 
     fn unregister_shapes(&mut self, ids: &[ShapeDrawId]) {

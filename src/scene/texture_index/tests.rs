@@ -1,5 +1,5 @@
 use super::TextureIndex;
-use crate::core::{Shape, ShapeDrawCommandOptions, UnsignedPhysicalRect, Viewport};
+use crate::core::{MathRect, Shape, ShapeDrawCommandOptions, Viewport};
 use crate::render_backend::texture_manager::TextureUpdatePublisher;
 use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
 use crate::scene::{Scene, SceneContext};
@@ -54,6 +54,18 @@ fn assert_texture_shapes(scene: &Scene, texture_id: u64, expected: &[usize]) {
     let mut shapes: Vec<_> = scene.texture_index.shapes_using(texture_id).collect();
     shapes.sort_unstable();
     assert_eq!(shapes, expected);
+}
+
+fn assert_texture_dirty_shapes(scene: &mut Scene, expected: Option<MathRect>) {
+    let mut shapes = scene.shapes_with_updated_textures();
+    assert_eq!(
+        shapes.next().map(|(id, shape)| {
+            assert_eq!(id, 0);
+            shape.logical_screen_bounds
+        }),
+        expected
+    );
+    assert!(shapes.next().is_none());
 }
 
 #[test]
@@ -208,27 +220,27 @@ fn subtree_removal_clears_descendants_and_keeps_reused_ids_free_of_old_textures(
 }
 
 #[test]
-fn shared_context_scenes_consume_texture_damage_independently() {
+fn shared_context_scenes_consume_texture_dirty_shapes_independently() {
     let updates = TextureUpdatePublisher::default();
     let context = SceneContext::new(updates.clone());
     let mut first = textured_scene(context.clone(), [(8.0, 8.0), (16.0, 16.0)]);
     let mut second = textured_scene(context.clone(), [(20.0, 20.0), (28.0, 28.0)]);
-    let first_bounds = Some(UnsignedPhysicalRect::new((7, 7).into(), (17, 17).into()));
-    let second_bounds = Some(UnsignedPhysicalRect::new((19, 19).into(), (29, 29).into()));
+    let first_bounds = Some(MathRect::new((8.0, 8.0).into(), (16.0, 16.0).into()));
+    let second_bounds = Some(MathRect::new((20.0, 20.0).into(), (28.0, 28.0).into()));
 
     updates.publish(11);
     updates.publish(11);
-    assert_eq!(first.texture_damage(), first_bounds);
-    assert_eq!(first.texture_damage(), None);
+    assert_texture_dirty_shapes(&mut first, first_bounds);
+    assert_texture_dirty_shapes(&mut first, None);
 
     updates.publish(11);
     drop(first);
     let mut replacement = textured_scene(context, [(8.0, 8.0), (16.0, 16.0)]);
-    assert_eq!(replacement.texture_damage(), None);
-    assert_eq!(second.texture_damage(), second_bounds);
-    assert_eq!(second.texture_damage(), None);
+    assert_texture_dirty_shapes(&mut replacement, None);
+    assert_texture_dirty_shapes(&mut second, second_bounds);
+    assert_texture_dirty_shapes(&mut second, None);
 
     updates.clone().publish(11);
-    assert_eq!(replacement.texture_damage(), first_bounds);
-    assert_eq!(second.texture_damage(), second_bounds);
+    assert_texture_dirty_shapes(&mut replacement, first_bounds);
+    assert_texture_dirty_shapes(&mut second, second_bounds);
 }

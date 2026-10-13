@@ -5,7 +5,7 @@ use crate::core::util::ShapeResources;
 use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
 use crate::render_backend::texture_manager::{TextureUpdatePublisher, TextureUpdateSubscription};
-use ahash::{HashMap, HashMapExt};
+use ahash::{HashMap, HashMapExt, HashSet};
 use backdrop_damage::BackdropDamage;
 use easy_tree::Tree;
 use effects::{
@@ -15,7 +15,7 @@ pub use errors::SceneError;
 use lyon::tessellation::FillTessellator;
 use std::sync::{Arc, RwLock};
 use texture_index::TextureIndex;
-use types::{ClipRectDrawData, DrawTreeNode};
+use types::{CachedShapeDrawData, ClipRectDrawData, DrawTreeNode};
 mod backdrop_damage;
 pub(crate) mod effects;
 mod errors;
@@ -44,6 +44,7 @@ pub(crate) struct Scene {
     texture_index: TextureIndex,
     texture_updates: TextureUpdateSubscription,
     updated_texture_ids: Vec<u64>,
+    updated_shape_ids: HashSet<usize>,
     context: SceneContext,
     viewport: Viewport,
     fringe_width: f32,
@@ -61,6 +62,7 @@ impl Scene {
         Self {
             texture_updates: context.texture_updates.subscribe(),
             updated_texture_ids: Vec::new(),
+            updated_shape_ids: HashSet::default(),
             context,
             viewport,
             fringe_width,
@@ -278,26 +280,26 @@ impl Scene {
         });
     }
 
-    pub(crate) fn texture_damage(&mut self) -> Option<UnsignedPhysicalRect> {
+    /// Consumes pending texture updates and yields each affected shape once.
+    pub(crate) fn shapes_with_updated_textures(
+        &mut self,
+    ) -> impl Iterator<Item = (usize, &CachedShapeDrawData)> {
         self.texture_updates
             .drain_into(&mut self.updated_texture_ids);
-        let mut dirty_bounds: Option<UnsignedPhysicalRect> = None;
-        for &texture_id in &self.updated_texture_ids {
-            for shape_id in self.texture_index.shapes_using(texture_id) {
-                let Some(node) = self.draw_tree.get(shape_id) else {
-                    continue;
+        self.updated_shape_ids.clear();
+        let texture_index = &self.texture_index;
+        let draw_tree = &self.draw_tree;
+        let updated_shape_ids = &mut self.updated_shape_ids;
+        self.updated_texture_ids
+            .iter()
+            .flat_map(move |&texture_id| texture_index.shapes_using(texture_id))
+            .filter(move |&shape_id| updated_shape_ids.insert(shape_id))
+            .map(move |shape_id| {
+                let DrawTreeNode::CachedShape(shape) = draw_tree.get_unchecked(shape_id) else {
+                    unreachable!("texture index contains only shape nodes");
                 };
-                let Some(bounds) = geometry::logical_bounds_to_viewport_rect(
-                    node.logical_screen_bounds(),
-                    self.viewport,
-                    self.fringe_width,
-                ) else {
-                    continue;
-                };
-                dirty_bounds = Some(dirty_bounds.map_or(bounds, |dirty| dirty.union(&bounds)));
-            }
-        }
-        dirty_bounds
+                (shape_id, shape)
+            })
     }
 
     pub(crate) fn expand_backdrop_damage(

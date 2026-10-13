@@ -30,6 +30,15 @@ impl RenderBackend for WgpuBackend {
         Ok(())
     }
 
+    fn refresh_uv(&mut self, id: ShapeDrawId, shape: &ShapeInstance) {
+        self.resources.shape_execution.refresh_uv(
+            id,
+            shape,
+            &self.pipeline_resources.shapes.texture_manager,
+            self.viewport.scale_factor,
+        );
+    }
+
     fn unregister_shapes(&mut self, ids: &[ShapeDrawId]) {
         self.resources.shape_execution.remove_draws(ids);
     }

@@ -10,7 +10,7 @@ pub mod render_target;
 pub mod texture_manager;
 
 /// Owns execution resources and interprets completed commands, without scene access.
-/// Resource preparation happens while queuing; rendering consumes the finished plan.
+/// Shapes are registered while queuing; rendering consumes the finished plan.
 pub trait RenderBackend {
     /// Backend resources stored in a `Surface`.
     type Surface;
@@ -22,6 +22,9 @@ pub trait RenderBackend {
     /// An error must preserve the previous registration, if any.
     fn register_shape(&mut self, id: ShapeDrawId, shape: &ShapeInstance)
         -> Result<(), Self::Error>;
+    /// Updates texture coordinates using current texture dimensions and viewport scale.
+    /// `shape` must describe the registered instance. Preserves geometry and attached effects.
+    fn refresh_uv(&mut self, id: ShapeDrawId, shape: &ShapeInstance);
     /// Releases the given instances and their effect bindings.
     /// Preserve other instances and resource caches.
     fn unregister_shapes(&mut self, ids: &[ShapeDrawId]);

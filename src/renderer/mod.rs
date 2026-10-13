@@ -5,7 +5,7 @@ use crate::planner::Planner;
 use crate::render_backend::render_target::RenderTarget;
 use crate::render_backend::RenderBackend;
 use crate::scene::{Scene, SceneContext};
-use damage::{mark_physical_dirty, PendingClipDamage};
+use damage::{mark_dirty, PendingClipDamage};
 #[cfg(feature = "render_metrics")]
 use metrics::RenderLoopMetricsTracker;
 #[cfg(feature = "render_metrics")]
@@ -103,7 +103,17 @@ impl<B: RenderBackend> Renderer<B> {
         }
         self.pending_clip_damage
             .apply(&self.scene, &mut self.dirty_bounds);
-        mark_physical_dirty(&mut self.dirty_bounds, self.scene.texture_damage());
+        let viewport = self.scene.viewport();
+        let fringe_width = self.scene.fringe_width();
+        for (id, shape) in self.scene.shapes_with_updated_textures() {
+            self.backend.refresh_uv(ShapeDrawId(id), &shape.instance);
+            mark_dirty(
+                &mut self.dirty_bounds,
+                shape.logical_screen_bounds,
+                viewport,
+                fringe_width,
+            );
+        }
         self.dirty_bounds = self.scene.expand_backdrop_damage(self.dirty_bounds);
         let commands = self
             .planner
