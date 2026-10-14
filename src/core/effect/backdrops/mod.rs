@@ -69,6 +69,7 @@ pub(crate) fn compute_backdrop_capture_region(
 
         Some(effect::resolve_capture_region_to_viewport(
             requested_rect,
+            requested_rect,
             physical_size,
         ))
     })

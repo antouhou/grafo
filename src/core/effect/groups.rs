@@ -1,5 +1,5 @@
 use crate::core::effect::{self, CaptureRegion, ShapeEffectBounds};
-use crate::core::{geometry, MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, Viewport};
+use crate::core::{geometry, MathRect, Size, Viewport};
 use tracing::warn;
 
 /// Output padding around a group effect's input, in logical screen pixels.
@@ -98,27 +98,6 @@ fn input_bounds(
     shape_bounds.union(&bounds.logical_screen_bounds)
 }
 
-fn resolve_capture_region(
-    input_bounds: PhysicalRect,
-    output_bounds: PhysicalRect,
-    viewport_size: Size,
-) -> CaptureRegion {
-    let source_rect =
-        effect::resolve_capture_region_to_viewport(input_bounds, viewport_size).source_rect;
-    let copy_destination_origin = source_rect
-        .map(|source_rect| {
-            (source_rect.min.to_i32() - output_bounds.min)
-                .to_u32()
-                .to_point()
-        })
-        .unwrap_or_else(UnsignedPhysicalPoint::zero);
-    CaptureRegion {
-        bounds: output_bounds,
-        source_rect,
-        copy_destination_origin,
-    }
-}
-
 /// Input and padded output bounds for a group effect.
 #[derive(Clone, Copy)]
 pub(crate) struct GroupEffectBounds {
@@ -157,7 +136,11 @@ impl GroupEffectBounds {
         }
         let logical_output_bounds = output_bounds.to_f32() / viewport.scale_factor as f32;
         Some(Self {
-            capture_region: resolve_capture_region(input_bounds, output_bounds, viewport_size),
+            capture_region: effect::resolve_capture_region_to_viewport(
+                input_bounds,
+                output_bounds,
+                viewport_size,
+            ),
             sampling_size: geometry::compute_downsampled_dimensions(
                 capture_size,
                 config.downsample,

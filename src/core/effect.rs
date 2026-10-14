@@ -165,23 +165,24 @@ pub struct CaptureRegion {
 }
 
 pub(crate) fn resolve_capture_region_to_viewport(
-    requested_rect: PhysicalRect,
+    input_bounds: PhysicalRect,
+    output_bounds: PhysicalRect,
     physical_size: Size,
 ) -> CaptureRegion {
     let viewport = UnsignedPhysicalRect::from_size(physical_size).to_i64();
-    let source_rect = requested_rect
+    let source_rect = input_bounds
         .to_i64()
         .intersection(&viewport)
         .map(|overlap| overlap.to_u32());
     let copy_destination_origin = source_rect
         .map(|source_rect| {
-            (source_rect.min.to_i32() - requested_rect.min)
+            (source_rect.min.to_i32() - output_bounds.min)
                 .to_u32()
                 .to_point()
         })
         .unwrap_or_else(UnsignedPhysicalPoint::zero);
     CaptureRegion {
-        bounds: requested_rect,
+        bounds: output_bounds,
         source_rect,
         copy_destination_origin,
     }

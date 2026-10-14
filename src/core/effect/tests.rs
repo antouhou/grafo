@@ -1,13 +1,11 @@
-use super::{resolve_capture_region_to_viewport, ShapeEffectBounds, ShapeEffectConfig};
-use crate::core::{PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
+use super::{ShapeEffectBounds, ShapeEffectConfig};
+use crate::core::{effect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
 use lyon::geom::Point;
 
 #[test]
 fn capture_region_offsets_visible_copy_into_transparent_texture() {
-    let region = resolve_capture_region_to_viewport(
-        PhysicalRect::new(Point::new(-10, 5), Point::new(30, 25)),
-        Size::new(100, 100),
-    );
+    let bounds = PhysicalRect::new(Point::new(-10, 5), Point::new(30, 25));
+    let region = effect::resolve_capture_region_to_viewport(bounds, bounds, Size::new(100, 100));
 
     assert_eq!(region.bounds.min, Point::new(-10, 5));
     assert_eq!(
@@ -26,12 +24,13 @@ fn capture_region_offsets_visible_copy_into_transparent_texture() {
 
 #[test]
 fn capture_region_skips_copy_when_fully_offscreen() {
-    let offscreen_right = resolve_capture_region_to_viewport(
-        PhysicalRect::new(Point::new(110, 5), Point::new(130, 25)),
-        Size::new(100, 100),
-    );
-    let offscreen_bottom = resolve_capture_region_to_viewport(
-        PhysicalRect::new(Point::new(5, 110), Point::new(25, 130)),
+    let right_bounds = PhysicalRect::new(Point::new(110, 5), Point::new(130, 25));
+    let bottom_bounds = PhysicalRect::new(Point::new(5, 110), Point::new(25, 130));
+    let offscreen_right =
+        effect::resolve_capture_region_to_viewport(right_bounds, right_bounds, Size::new(100, 100));
+    let offscreen_bottom = effect::resolve_capture_region_to_viewport(
+        bottom_bounds,
+        bottom_bounds,
         Size::new(100, 100),
     );
 
