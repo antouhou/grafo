@@ -1,4 +1,4 @@
-use super::backdrop_damage::BackdropDamageEntry;
+use super::backdrop_damage::{EffectDamageEntry, EffectDamageKind};
 use super::types::DrawTreeNode;
 use super::{Scene, SceneError};
 use crate::commands::EffectParameters;
@@ -6,7 +6,7 @@ use crate::core::effect::{
     BackdropEffectConfig, GroupEffectBounds, GroupEffectConfig, ShapeEffectBounds,
     ShapeEffectConfig,
 };
-use crate::core::{MathRect, Viewport};
+use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
 use backdrops::validate_backdrop_config;
 pub(crate) use backdrops::BackdropEffectInstance;
 use std::mem;
@@ -66,6 +66,27 @@ impl GroupEffectInstance {
     }
 }
 
+fn resolve_group_effect(
+    node_id: usize,
+    node: &DrawTreeNode,
+    effect: EffectInstance,
+    config: GroupEffectConfig,
+    shape_effect: Option<&ShapeEffectInstance>,
+    viewport: Viewport,
+    maximum_texture_dimension: u32,
+) -> (GroupEffectInstance, Option<EffectDamageEntry>) {
+    let instance = GroupEffectInstance::new(
+        effect,
+        config,
+        node,
+        shape_effect,
+        viewport,
+        maximum_texture_dimension,
+    );
+    let entry = EffectDamageEntry::group(node_id, instance.bounds, viewport.physical_size.into());
+    (instance, entry)
+}
+
 pub(super) fn resolve_backdrop_effect(
     node_id: usize,
     node: &DrawTreeNode,
@@ -74,7 +95,7 @@ pub(super) fn resolve_backdrop_effect(
     viewport: Viewport,
     fringe_width: f32,
     maximum_texture_dimension: u32,
-) -> (BackdropEffectInstance, Option<BackdropDamageEntry>) {
+) -> (BackdropEffectInstance, Option<EffectDamageEntry>) {
     let instance = BackdropEffectInstance::new(
         effect,
         config,
@@ -82,7 +103,7 @@ pub(super) fn resolve_backdrop_effect(
         viewport,
         maximum_texture_dimension,
     );
-    let entry = BackdropDamageEntry::new(
+    let entry = EffectDamageEntry::backdrop(
         node_id,
         node,
         instance.capture_region,
@@ -119,9 +140,17 @@ fn validate_shape_effect_config(config: &ShapeEffectConfig) -> Result<(), SceneE
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum EffectAttachment {
-    Backdrop { shape_bounds: Option<MathRect> },
-    Shape(ShapeEffectBounds),
+pub(crate) enum EffectAttachmentKind {
+    Group,
+    Backdrop,
+    Shape,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct RemovedEffectAttachment {
+    pub node_id: usize,
+    pub kind: EffectAttachmentKind,
+    pub damage_bounds: Option<UnsignedPhysicalRect>,
 }
 
 impl Scene {
@@ -175,32 +204,49 @@ impl Scene {
                 "group effect outsets must be finite and non-negative, and downsample must be in the range (0.0, 1.0]".to_string(),
             ));
         }
-        let instance = GroupEffectInstance::new(
+        let (instance, entry) = resolve_group_effect(
+            node_id,
+            self.draw_tree.get_unchecked(node_id),
             EffectInstance {
                 effect_id,
                 parameters,
             },
             config,
-            self.draw_tree.get_unchecked(node_id),
             self.shape_effects.get(&node_id),
             self.viewport,
             maximum_texture_dimension,
         );
-        self.group_effects.insert(node_id, instance);
+        self.replace_group_effect(node_id, instance, entry);
         Ok(())
     }
 
-    pub(crate) fn remove_group_effect(&mut self, node_id: usize) {
-        self.group_effects.remove(&node_id);
+    fn replace_group_effect(
+        &mut self,
+        node_id: usize,
+        instance: GroupEffectInstance,
+        entry: Option<EffectDamageEntry>,
+    ) {
+        self.effect_damage
+            .replace(EffectDamageKind::Group, node_id, entry);
+        self.group_effects.insert(node_id, instance);
+    }
+
+    pub(crate) fn remove_group_effect(&mut self, node_id: usize) -> bool {
+        if self.group_effects.remove(&node_id).is_none() {
+            return false;
+        }
+        self.effect_damage.remove(EffectDamageKind::Group, node_id);
+        true
     }
 
     pub(super) fn replace_backdrop_effect(
         &mut self,
         node_id: usize,
         instance: BackdropEffectInstance,
-        entry: Option<BackdropDamageEntry>,
+        entry: Option<EffectDamageEntry>,
     ) {
-        self.backdrop_damage.replace(node_id, entry);
+        self.effect_damage
+            .replace(EffectDamageKind::Backdrop, node_id, entry);
         self.backdrop_effects.insert(node_id, instance);
     }
 
@@ -251,14 +297,15 @@ impl Scene {
                 *instance = updated;
                 entry
             });
-        self.backdrop_damage.rebuild(entries);
+        self.effect_damage.rebuild(entries);
     }
 
     pub(crate) fn remove_backdrop_effect(&mut self, node_id: usize) -> bool {
         if self.backdrop_effects.remove(&node_id).is_none() {
             return false;
         }
-        self.backdrop_damage.remove(node_id);
+        self.effect_damage
+            .remove(EffectDamageKind::Backdrop, node_id);
         true
     }
 
@@ -331,43 +378,88 @@ impl Scene {
         &mut self,
         effect_id: u64,
         maximum_texture_dimension: u32,
-        mut removed: impl FnMut(usize, EffectAttachment),
+        mut removed: impl FnMut(RemovedEffectAttachment),
     ) {
-        self.group_effects
-            .retain(|_, instance| instance.effect_id != effect_id);
+        self.group_effects.retain(|node_id, instance| {
+            if instance.effect_id != effect_id {
+                return true;
+            }
+            let damage_bounds = self
+                .effect_damage
+                .output_region(EffectDamageKind::Group, *node_id);
+            self.effect_damage.remove(EffectDamageKind::Group, *node_id);
+            removed(RemovedEffectAttachment {
+                node_id: *node_id,
+                kind: EffectAttachmentKind::Group,
+                damage_bounds,
+            });
+            false
+        });
         self.backdrop_effects.retain(|node_id, instance| {
             if instance.effect.effect_id != effect_id {
                 return true;
             }
-            self.backdrop_damage.remove(*node_id);
-            let shape_bounds = self
-                .draw_tree
-                .get(*node_id)
-                .map(DrawTreeNode::logical_screen_bounds);
-            removed(*node_id, EffectAttachment::Backdrop { shape_bounds });
+            self.effect_damage
+                .remove(EffectDamageKind::Backdrop, *node_id);
+            let damage_bounds = self.draw_tree.get(*node_id).and_then(|node| {
+                geometry::logical_bounds_to_viewport_rect(
+                    node.logical_screen_bounds(),
+                    self.viewport,
+                    self.fringe_width,
+                )
+            });
+            removed(RemovedEffectAttachment {
+                node_id: *node_id,
+                kind: EffectAttachmentKind::Backdrop,
+                damage_bounds,
+            });
             false
         });
         self.shape_effects.retain(|node_id, instance| {
             if instance.effect_id != effect_id {
                 return true;
             }
+            let mut damage_bounds = geometry::logical_bounds_to_viewport_rect(
+                instance.bounds.logical_screen_bounds,
+                self.viewport,
+                0.0,
+            );
             if let (Some(group), Some(node)) = (
                 self.group_effects.get_mut(node_id),
                 self.draw_tree.get(*node_id),
             ) {
-                *group = GroupEffectInstance::new(
+                if let Some(output) = self
+                    .effect_damage
+                    .output_region(EffectDamageKind::Group, *node_id)
+                {
+                    damage_bounds =
+                        Some(damage_bounds.map_or(output, |bounds| bounds.union(&output)));
+                }
+                let (updated, entry) = resolve_group_effect(
+                    *node_id,
+                    node,
                     EffectInstance {
                         effect_id: group.effect_id,
                         parameters: group.parameters,
                     },
                     group.config,
-                    node,
                     None,
                     self.viewport,
                     maximum_texture_dimension,
                 );
+                *group = updated;
+                if let Some(output) = entry.and_then(|entry| entry.target_region) {
+                    damage_bounds =
+                        Some(damage_bounds.map_or(output, |bounds| bounds.union(&output)));
+                }
+                self.effect_damage
+                    .replace(EffectDamageKind::Group, *node_id, entry);
             }
-            removed(*node_id, EffectAttachment::Shape(instance.bounds));
+            removed(RemovedEffectAttachment {
+                node_id: *node_id,
+                kind: EffectAttachmentKind::Shape,
+                damage_bounds,
+            });
             false
         });
     }
@@ -377,23 +469,25 @@ impl Scene {
         node_id: usize,
         maximum_texture_dimension: u32,
     ) {
-        let Some(instance) = self.group_effects.get_mut(&node_id) else {
+        let Some(instance) = self.group_effects.get(&node_id) else {
             return;
         };
         let Some(node) = self.draw_tree.get(node_id) else {
             return;
         };
-        *instance = GroupEffectInstance::new(
+        let (updated, entry) = resolve_group_effect(
+            node_id,
+            node,
             EffectInstance {
                 effect_id: instance.effect_id,
                 parameters: instance.parameters,
             },
             instance.config,
-            node,
             self.shape_effects.get(&node_id),
             self.viewport,
             maximum_texture_dimension,
         );
+        self.replace_group_effect(node_id, updated, entry);
     }
 
     pub(super) fn refresh_all_group_effect_bounds(&mut self, maximum_texture_dimension: u32) {
@@ -401,17 +495,21 @@ impl Scene {
             let Some(node) = self.draw_tree.get(node_id) else {
                 continue;
             };
-            *instance = GroupEffectInstance::new(
+            let (updated, entry) = resolve_group_effect(
+                node_id,
+                node,
                 EffectInstance {
                     effect_id: instance.effect_id,
                     parameters: instance.parameters,
                 },
                 instance.config,
-                node,
                 self.shape_effects.get(&node_id),
                 self.viewport,
                 maximum_texture_dimension,
             );
+            *instance = updated;
+            self.effect_damage
+                .replace(EffectDamageKind::Group, node_id, entry);
         }
     }
 }

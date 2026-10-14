@@ -191,7 +191,7 @@ fn subtree_removal_clears_descendants_and_keeps_reused_ids_free_of_old_textures(
         ShapeDrawCommandOptions::new().background_texture_id(1),
     );
     let sibling = scene.insert_node(node, Some(root));
-    scene.remove_subtrees_with([child, branch, child, usize::MAX], |_, _, _| {});
+    scene.remove_subtrees_with([child, branch, child, usize::MAX], |_, _, _, _| {});
 
     for removed in [branch, child, descendant] {
         assert!(scene.texture_index.textures_used_by(removed).is_empty());
@@ -208,7 +208,7 @@ fn subtree_removal_clears_descendants_and_keeps_reused_ids_free_of_old_textures(
     assert_eq!(scene.texture_index.textures_used_by(reused), &[3]);
     assert_texture_shapes(&scene, 1, &[sibling]);
     assert_texture_shapes(&scene, 3, &[reused]);
-    scene.remove_subtrees_with([root, reused, root], |_, _, _| {});
+    scene.remove_subtrees_with([root, reused, root], |_, _, _, _| {});
     assert!(scene.texture_index.shapes_by_texture.is_empty());
     assert!(scene.texture_index.textures_by_shape.is_empty());
 

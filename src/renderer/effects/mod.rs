@@ -1,10 +1,10 @@
-use super::damage::{mark_dirty, mark_shape_effect_dirty};
+use super::damage::{mark_dirty, mark_physical_dirty, mark_shape_effect_dirty};
 use super::{EffectError, RenderBackend, Renderer};
 use crate::commands::ShapeDrawId;
 use crate::core::effect::{
     BackdropEffectConfig, GroupEffectConfig, ShapeEffectBounds, ShapeEffectConfig,
 };
-use crate::scene::effects::{EffectAttachment, EffectInstance};
+use crate::scene::effects::{EffectAttachmentKind, EffectInstance};
 use crate::scene::types::DrawTreeNode;
 
 impl<B: RenderBackend> Renderer<B> {
@@ -39,17 +39,29 @@ impl<B: RenderBackend> Renderer<B> {
             .validate_effect_params(effect_id, params)
             .map_err(EffectError::Backend)?;
         let parameters = self.planner.store_effect_parameters(params);
-        Ok(self.scene.set_group_effect(
+        let previous_output = self.scene.group_effect_output(node_id);
+        self.scene.set_group_effect(
             node_id,
             effect_id,
             parameters,
             config,
             self.backend.maximum_texture_dimension(),
-        )?)
+        )?;
+        mark_physical_dirty(&mut self.dirty_bounds, previous_output);
+        mark_physical_dirty(
+            &mut self.dirty_bounds,
+            self.scene.group_effect_output(node_id),
+        );
+        self.mark_shape_dirty(node_id);
+        Ok(())
     }
 
     pub fn remove_group_effect(&mut self, node_id: usize) {
-        self.scene.remove_group_effect(node_id);
+        let previous_output = self.scene.group_effect_output(node_id);
+        if self.scene.remove_group_effect(node_id) {
+            mark_physical_dirty(&mut self.dirty_bounds, previous_output);
+            self.mark_shape_dirty(node_id);
+        }
     }
 
     pub fn set_shape_backdrop_effect(
@@ -102,6 +114,7 @@ impl<B: RenderBackend> Renderer<B> {
             .shape_effects
             .get(&node_id)
             .map(|effect| effect.bounds);
+        let previous_group_output = self.scene.group_effect_output(node_id);
         self.scene.set_shape_effect(
             node_id,
             effect_id,
@@ -117,10 +130,16 @@ impl<B: RenderBackend> Renderer<B> {
             self.mark_shape_effect_dirty(bounds);
         }
         self.mark_shape_effect_dirty(self.scene.shape_effect(node_id)?.bounds);
+        mark_physical_dirty(&mut self.dirty_bounds, previous_group_output);
+        mark_physical_dirty(
+            &mut self.dirty_bounds,
+            self.scene.group_effect_output(node_id),
+        );
         Ok(())
     }
 
     pub fn remove_shape_effect(&mut self, node_id: usize) {
+        let previous_group_output = self.scene.group_effect_output(node_id);
         let bounds = self
             .scene
             .shape_effects
@@ -132,29 +151,36 @@ impl<B: RenderBackend> Renderer<B> {
             self.mark_shape_effect_dirty(bounds);
         }
         self.backend.remove_shape_effect(ShapeDrawId(node_id));
+        if bounds.is_some() {
+            mark_physical_dirty(&mut self.dirty_bounds, previous_group_output);
+            mark_physical_dirty(
+                &mut self.dirty_bounds,
+                self.scene.group_effect_output(node_id),
+            );
+        }
     }
 
     pub fn unload_effect(&mut self, effect_id: u64) {
-        self.backend.unload_effect(effect_id);
         self.remove_effect_attachments(effect_id);
+        self.backend.unload_effect(effect_id);
     }
 
     fn remove_effect_attachments(&mut self, effect_id: u64) {
-        let viewport = self.scene.viewport();
-        let fringe_width = self.scene.fringe_width();
         self.scene.remove_effect_attachments(
             effect_id,
             self.backend.maximum_texture_dimension(),
-            |node_id, attachment| match attachment {
-                EffectAttachment::Backdrop { shape_bounds } => {
-                    if let Some(shape_bounds) = shape_bounds {
-                        mark_dirty(&mut self.dirty_bounds, shape_bounds, viewport, fringe_width);
+            |attachment| {
+                mark_physical_dirty(&mut self.dirty_bounds, attachment.damage_bounds);
+                match attachment.kind {
+                    EffectAttachmentKind::Group => {}
+                    EffectAttachmentKind::Backdrop => {
+                        self.backend
+                            .remove_backdrop_effect(ShapeDrawId(attachment.node_id));
                     }
-                    self.backend.remove_backdrop_effect(ShapeDrawId(node_id));
-                }
-                EffectAttachment::Shape(bounds) => {
-                    mark_shape_effect_dirty(&mut self.dirty_bounds, bounds, viewport);
-                    self.backend.remove_shape_effect(ShapeDrawId(node_id));
+                    EffectAttachmentKind::Shape => {
+                        self.backend
+                            .remove_shape_effect(ShapeDrawId(attachment.node_id));
+                    }
                 }
             },
         );

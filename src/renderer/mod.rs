@@ -115,7 +115,7 @@ impl<B: RenderBackend> Renderer<B> {
                 fringe_width,
             );
         }
-        self.dirty_bounds = self.scene.expand_backdrop_damage(self.dirty_bounds);
+        self.dirty_bounds = self.scene.expand_effect_damage(self.dirty_bounds);
         let commands = self
             .planner
             .plan(&self.scene, self.backend.maximum_texture_dimension());
