@@ -1,11 +1,11 @@
 use crate::commands::{
-    CaptureSource, DrawClip, EffectApplication, IntermediateTextureId, RenderCommand,
-    RenderOperation, RenderPlan, ShapeDraw, ShapeDrawId, ShapeDrawMaterial, ShapeTextureBinding,
-    Target, TextureComposite, TexturePlacement,
+    CaptureSource, DrawClip, RenderCommand, RenderOperation, RenderPlan, ShapeDraw, ShapeDrawId,
+    ShapeDrawMaterial, ShapeTextureBinding, Target, TextureComposite,
 };
 use crate::core::shape::ShapeInstance;
+use crate::planner::groups::GroupCapture;
 use crate::planner::TextureIdAllocator;
-use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
+use crate::scene::effects::{BackdropEffectInstance, GroupEffectInstance};
 use crate::scene::types::DrawTreeNode;
 use crate::{Size, UnsignedPhysicalRect};
 use ahash::HashMap;
@@ -32,11 +32,23 @@ struct ClipState {
     decrements_stencil: bool,
 }
 
+impl ClipState {
+    fn for_viewport(size: Size) -> Self {
+        Self {
+            clip: DrawClip {
+                scissor: UnsignedPhysicalRect::from_size(size),
+                stencil_reference: 0,
+            },
+            decrements_stencil: false,
+        }
+    }
+}
+
 struct ParentDrawState {
     node_id: usize,
     next_child: usize,
     clip_state: ClipState,
-    group_target: Option<IntermediateTextureId>,
+    group_capture: Option<GroupCapture>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -49,14 +61,26 @@ pub(crate) struct DrawTreeSelection {
 pub(crate) struct DrawPlanningInput<'a> {
     pub(crate) tree: &'a Tree<DrawTreeNode>,
     pub(crate) selection: DrawTreeSelection,
-    pub(crate) effect_results: &'a HashMap<usize, IntermediateTextureId>,
+    pub(crate) effect_results: &'a HashMap<usize, TextureComposite>,
     pub(crate) shape_effects: &'a HashMap<usize, TextureComposite>,
-    pub(crate) group_effects: &'a HashMap<usize, EffectInstance>,
+    pub(crate) group_effects: &'a HashMap<usize, GroupEffectInstance>,
     pub(crate) backdrop_effects: &'a HashMap<usize, BackdropEffectInstance>,
     pub(crate) scale_factor: f64,
     pub(crate) physical_size: Size,
     /// None disables captures when rendering a group's backdrop source.
     pub(crate) backdrop_source: Option<CaptureSource>,
+}
+
+impl DrawPlanningInput<'_> {
+    fn resolve_group_capture(&self, node_id: usize) -> Option<GroupCapture> {
+        let can_capture_inline =
+            self.backdrop_effects.is_empty() && self.selection.subtree_root != Some(node_id);
+        if !can_capture_inline {
+            return None;
+        }
+        let effect = self.group_effects.get(&node_id)?;
+        GroupCapture::new(*effect)
+    }
 }
 
 /// Walks the CPU tree to emit draw commands and resolved clip operands.
@@ -75,22 +99,12 @@ impl DrawPlanner {
         texture_ids: &mut TextureIdAllocator,
     ) {
         self.parents.clear();
-        self.current = ClipState {
-            clip: DrawClip {
-                scissor: UnsignedPhysicalRect::from_size(input.physical_size),
-                stencil_reference: 0,
-            },
-            decrements_stencil: false,
-        };
+        self.current = ClipState::for_viewport(input.physical_size);
         let mut next_node = Some(input.selection.subtree_root.unwrap_or(0));
         while let Some(node_id) = next_node {
             self.plan_node(node_id, &input, output, texture_ids);
             next_node = self.next_node(&input, output, texture_ids);
         }
-        debug_assert!(
-            self.parents.is_empty(),
-            "draw traversal must balance parent clips"
-        );
     }
 
     fn plan_node(
@@ -106,47 +120,30 @@ impl DrawPlanner {
         let Some(node) = input.tree.get(node_id) else {
             return;
         };
-        if let Some(&texture) = input.effect_results.get(&node_id) {
-            output.push_composite(
-                TextureComposite {
-                    texture,
-                    placement: TexturePlacement::Target,
-                },
-                self.current.clip,
-            );
+        if let Some(&composite) = input.effect_results.get(&node_id) {
+            output.push_composite(composite, self.current.clip);
             return;
         }
         let parent_clip = self.current;
-        let group_target = if input.backdrop_effects.is_empty()
-            && input.selection.subtree_root != Some(node_id)
-            && input.group_effects.contains_key(&node_id)
-        {
+        let group_capture = input.resolve_group_capture(node_id);
+        if group_capture.is_some() {
             let texture = texture_ids.allocate();
             output.push(RenderOperation::BeginTarget(Target::Texture {
                 texture,
                 size: input.physical_size,
             }));
-            self.current = ClipState {
-                clip: DrawClip {
-                    scissor: UnsignedPhysicalRect::from_size(input.physical_size),
-                    stencil_reference: 0,
-                },
-                decrements_stencil: false,
-            };
-            Some(texture)
-        } else {
-            None
-        };
+            self.current = ClipState::for_viewport(input.physical_size);
+        }
         if let Some(&composite) = input.shape_effects.get(&node_id) {
             output.push_composite(composite, self.current.clip);
         }
         let has_children = !input.tree.children(node_id).is_empty();
-        if has_children || group_target.is_some() {
+        if has_children || group_capture.is_some() {
             self.parents.push(ParentDrawState {
                 node_id,
                 next_child: 0,
                 clip_state: parent_clip,
-                group_target,
+                group_capture,
             });
             self.current.decrements_stencil = false;
         }
@@ -196,24 +193,11 @@ impl DrawPlanner {
             }
             let parent = self.parents.pop().expect("parent clip is balanced");
             self.current = parent.clip_state;
-            if let Some(input_texture) = parent.group_target {
+            if let Some(capture) = parent.group_capture {
+                let input_texture = capture.append_capture(output, texture_ids);
                 output.push(RenderOperation::EndTarget);
-                let effect = &input.group_effects[&node_id];
-                let parameters = effect.parameters;
-                let texture = texture_ids.allocate();
-                output.push(RenderOperation::ApplyEffect(EffectApplication {
-                    effect_id: effect.effect_id,
-                    parameters,
-                    input: input_texture,
-                    output: texture,
-                }));
-                output.push_composite(
-                    TextureComposite {
-                        texture,
-                        placement: TexturePlacement::Target,
-                    },
-                    self.current.clip,
-                );
+                let composite = capture.append_effect(input_texture, output, texture_ids);
+                output.push_composite(composite, self.current.clip);
             }
         }
         None

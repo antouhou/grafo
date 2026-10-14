@@ -1,7 +1,7 @@
 use crate::commands::ShapeDrawMaterial;
 use crate::core::geometry;
 use crate::core::{Size, UnsignedPhysicalRect};
-use crate::scene::effects::EffectInstance;
+use crate::scene::effects::GroupEffectInstance;
 use crate::scene::types::DrawTreeNode;
 use ahash::HashMap;
 
@@ -9,7 +9,7 @@ pub(super) fn should_skip_visible_rect_draw(
     node_id: usize,
     draw_tree_node: &DrawTreeNode,
     material: Option<ShapeDrawMaterial>,
-    group_effects: &HashMap<usize, EffectInstance>,
+    group_effects: &HashMap<usize, GroupEffectInstance>,
 ) -> bool {
     if !draw_tree_node.is_axis_aligned_rect() {
         return false;

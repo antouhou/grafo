@@ -1,7 +1,9 @@
 use super::damage::{mark_dirty, mark_shape_effect_dirty};
 use super::{EffectError, RenderBackend, Renderer};
 use crate::commands::ShapeDrawId;
-use crate::core::effect::{BackdropEffectConfig, ShapeEffectBounds, ShapeEffectConfig};
+use crate::core::effect::{
+    BackdropEffectConfig, GroupEffectConfig, ShapeEffectBounds, ShapeEffectConfig,
+};
 use crate::scene::effects::{EffectAttachment, EffectInstance};
 use crate::scene::types::DrawTreeNode;
 
@@ -22,20 +24,28 @@ impl<B: RenderBackend> Renderer<B> {
         Ok(())
     }
 
+    /// Processes the rendered group within the attached shape's bounds.
+    /// Includes any attached shape-effect output in the input bounds.
+    /// Outsets reserve transparent space for output beyond those bounds.
     pub fn set_group_effect(
         &mut self,
         node_id: usize,
         effect_id: u64,
         params: &[u8],
+        config: GroupEffectConfig,
     ) -> Result<(), EffectError<B::Error>> {
         self.scene.shape(node_id)?;
         self.backend
             .validate_effect_params(effect_id, params)
             .map_err(EffectError::Backend)?;
         let parameters = self.planner.store_effect_parameters(params);
-        Ok(self
-            .scene
-            .set_group_effect(node_id, effect_id, parameters)?)
+        Ok(self.scene.set_group_effect(
+            node_id,
+            effect_id,
+            parameters,
+            config,
+            self.backend.maximum_texture_dimension(),
+        )?)
     }
 
     pub fn remove_group_effect(&mut self, node_id: usize) {
@@ -92,8 +102,13 @@ impl<B: RenderBackend> Renderer<B> {
             .shape_effects
             .get(&node_id)
             .map(|effect| effect.bounds);
-        self.scene
-            .set_shape_effect(node_id, effect_id, parameters, config)?;
+        self.scene.set_shape_effect(
+            node_id,
+            effect_id,
+            parameters,
+            config,
+            self.backend.maximum_texture_dimension(),
+        )?;
         self.backend.set_shape_effect_geometry(
             ShapeDrawId(node_id),
             &self.scene.shape(node_id)?.cached_shape,
@@ -111,7 +126,8 @@ impl<B: RenderBackend> Renderer<B> {
             .shape_effects
             .get(&node_id)
             .map(|effect| effect.bounds);
-        self.scene.remove_shape_effect(node_id);
+        self.scene
+            .remove_shape_effect(node_id, self.backend.maximum_texture_dimension());
         if let Some(bounds) = bounds {
             self.mark_shape_effect_dirty(bounds);
         }
@@ -126,8 +142,10 @@ impl<B: RenderBackend> Renderer<B> {
     fn remove_effect_attachments(&mut self, effect_id: u64) {
         let viewport = self.scene.viewport();
         let fringe_width = self.scene.fringe_width();
-        self.scene
-            .remove_effect_attachments(effect_id, |node_id, attachment| match attachment {
+        self.scene.remove_effect_attachments(
+            effect_id,
+            self.backend.maximum_texture_dimension(),
+            |node_id, attachment| match attachment {
                 EffectAttachment::Backdrop { shape_bounds } => {
                     if let Some(shape_bounds) = shape_bounds {
                         mark_dirty(&mut self.dirty_bounds, shape_bounds, viewport, fringe_width);
@@ -138,7 +156,8 @@ impl<B: RenderBackend> Renderer<B> {
                     mark_shape_effect_dirty(&mut self.dirty_bounds, bounds, viewport);
                     self.backend.remove_shape_effect(ShapeDrawId(node_id));
                 }
-            });
+            },
+        );
         self.backend.invalidate_effect(effect_id);
     }
 

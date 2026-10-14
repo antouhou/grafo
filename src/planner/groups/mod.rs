@@ -1,15 +1,15 @@
 use super::draws::{DrawPlanner, DrawPlanningInput, DrawTreeSelection};
-use crate::commands::{
-    CaptureSource, EffectApplication, IntermediateTextureId, RenderOperation, RenderPlan, Target,
-    TextureComposite,
-};
+use crate::commands::{CaptureSource, RenderOperation, RenderPlan, Target, TextureComposite};
 use crate::planner::TextureIdAllocator;
-use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
+use crate::scene::effects::{BackdropEffectInstance, GroupEffectInstance};
 use crate::scene::types::DrawTreeNode;
 use crate::Size;
 use ahash::{HashMap, HashSet};
+pub(crate) use capture::GroupCapture;
 use easy_tree::Tree;
 use std::cmp::Reverse;
+
+mod capture;
 
 fn node_depth(tree: &Tree<DrawTreeNode>, mut node: usize) -> usize {
     let mut depth = 0;
@@ -22,7 +22,7 @@ fn node_depth(tree: &Tree<DrawTreeNode>, mut node: usize) -> usize {
 
 pub(crate) struct GroupPlanningInput<'a> {
     pub tree: &'a Tree<DrawTreeNode>,
-    pub group_effects: &'a HashMap<usize, EffectInstance>,
+    pub group_effects: &'a HashMap<usize, GroupEffectInstance>,
     pub backdrop_effects: &'a HashMap<usize, BackdropEffectInstance>,
     pub shape_effects: &'a HashMap<usize, TextureComposite>,
     pub scale_factor: f64,
@@ -33,7 +33,7 @@ pub(crate) struct GroupPlanningInput<'a> {
 #[derive(Default)]
 pub(crate) struct SceneTraversal {
     groups: Vec<(usize, usize)>,
-    results: HashMap<usize, IntermediateTextureId>,
+    results: HashMap<usize, TextureComposite>,
     backdrop_ancestors: HashSet<usize>,
     draws: DrawPlanner,
 }
@@ -48,46 +48,15 @@ impl SceneTraversal {
         self.results.clear();
         self.schedule(&input);
         for index in 0..self.groups.len() {
-            let node = self.groups[index].0;
-            let backdrop_source = self.plan_backdrop_source(node, &input, output, texture_ids);
-            let source = texture_ids.allocate();
-            self.append_target(
-                Target::Texture {
-                    texture: source,
-                    size: input.physical_size,
-                },
-                DrawTreeSelection {
-                    subtree_root: Some(node),
-                    ..Default::default()
-                },
-                backdrop_source,
-                &input,
-                output,
-                texture_ids,
-            );
-            let result = texture_ids.allocate();
-            let effect = &input.group_effects[&node];
-            let parameters = effect.parameters;
-            output.push(RenderOperation::ApplyEffect(EffectApplication {
-                effect_id: effect.effect_id,
-                parameters,
-                input: source,
-                output: result,
-            }));
-            self.results.insert(node, result);
+            let node_id = self.groups[index].0;
+            if let Some(composite) = self.plan_group_effect(node_id, &input, output, texture_ids) {
+                self.results.insert(node_id, composite);
+            }
         }
-        self.draws.append(
-            DrawPlanningInput {
-                tree: input.tree,
-                selection: DrawTreeSelection::default(),
-                effect_results: &self.results,
-                shape_effects: input.shape_effects,
-                group_effects: input.group_effects,
-                backdrop_effects: input.backdrop_effects,
-                scale_factor: input.scale_factor,
-                physical_size: input.physical_size,
-                backdrop_source: Some(CaptureSource::Target),
-            },
+        self.append_draws(
+            DrawTreeSelection::default(),
+            Some(CaptureSource::Target),
+            &input,
             output,
             texture_ids,
         );
@@ -161,6 +130,18 @@ impl SceneTraversal {
         texture_ids: &mut TextureIdAllocator,
     ) {
         output.push(RenderOperation::BeginTarget(target));
+        self.append_draws(selection, backdrop_source, input, output, texture_ids);
+        output.push(RenderOperation::EndTarget);
+    }
+
+    fn append_draws(
+        &mut self,
+        selection: DrawTreeSelection,
+        backdrop_source: Option<CaptureSource>,
+        input: &GroupPlanningInput<'_>,
+        output: &mut RenderPlan,
+        texture_ids: &mut TextureIdAllocator,
+    ) {
         self.draws.append(
             DrawPlanningInput {
                 tree: input.tree,
@@ -176,7 +157,35 @@ impl SceneTraversal {
             output,
             texture_ids,
         );
+    }
+
+    fn plan_group_effect(
+        &mut self,
+        node_id: usize,
+        input: &GroupPlanningInput<'_>,
+        output: &mut RenderPlan,
+        texture_ids: &mut TextureIdAllocator,
+    ) -> Option<TextureComposite> {
+        let capture = GroupCapture::new(input.group_effects[&node_id])?;
+        let backdrop_source = self.plan_backdrop_source(node_id, input, output, texture_ids);
+        let group_texture = texture_ids.allocate();
+        output.push(RenderOperation::BeginTarget(Target::Texture {
+            texture: group_texture,
+            size: input.physical_size,
+        }));
+        self.append_draws(
+            DrawTreeSelection {
+                subtree_root: Some(node_id),
+                ..Default::default()
+            },
+            backdrop_source,
+            input,
+            output,
+            texture_ids,
+        );
+        let input_texture = capture.append_capture(output, texture_ids);
         output.push(RenderOperation::EndTarget);
+        Some(capture.append_effect(input_texture, output, texture_ids))
     }
 }
 

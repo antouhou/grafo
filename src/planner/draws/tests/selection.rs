@@ -12,7 +12,13 @@ fn selected_subtree_starts_at_the_viewport_and_substitutes_nested_effects() {
     let sibling = scene.add(Some(selected), shape(true));
     scene.add(Some(ancestor), shape(true));
     let texture = IntermediateTextureId::Registered(4);
-    scene.results.insert(nested_group, texture);
+    scene.results.insert(
+        nested_group,
+        TextureComposite {
+            texture,
+            placement: TexturePlacement::Target,
+        },
+    );
     let mut planner = DrawPlanner::default();
     let mut output = RenderPlan::default();
     scene.plan_selection(
@@ -53,12 +59,20 @@ fn exclusion_precedes_effect_substitution_and_restores_clips_for_siblings() {
     let outside = scene.add(Some(root), shape(true));
     scene.attach_backdrop(excluded, &mut output);
     scene.attach_backdrop(descendant, &mut output);
-    scene
-        .results
-        .insert(excluded, IntermediateTextureId::Registered(0));
-    scene
-        .results
-        .insert(descendant, IntermediateTextureId::Registered(1));
+    scene.results.insert(
+        excluded,
+        TextureComposite {
+            texture: IntermediateTextureId::Registered(0),
+            placement: TexturePlacement::Target,
+        },
+    );
+    scene.results.insert(
+        descendant,
+        TextureComposite {
+            texture: IntermediateTextureId::Registered(1),
+            placement: TexturePlacement::Target,
+        },
+    );
     scene.shape_effects.insert(
         excluded,
         TextureComposite {
@@ -127,10 +141,20 @@ fn substituted_group_omits_its_clips_effects_and_deep_descendants() {
     scene.attach_backdrop(group, &mut output);
     scene.attach_backdrop(nested, &mut output);
     let texture = IntermediateTextureId::Registered(1);
-    scene.results.insert(group, texture);
-    scene
-        .results
-        .insert(nested, IntermediateTextureId::Registered(2));
+    scene.results.insert(
+        group,
+        TextureComposite {
+            texture,
+            placement: TexturePlacement::Target,
+        },
+    );
+    scene.results.insert(
+        nested,
+        TextureComposite {
+            texture: IntermediateTextureId::Registered(2),
+            placement: TexturePlacement::Target,
+        },
+    );
     scene.shape_effects.insert(
         group,
         TextureComposite {

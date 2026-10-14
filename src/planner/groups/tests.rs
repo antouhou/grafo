@@ -3,12 +3,12 @@ use crate::commands::{
     CaptureSource, IntermediateTextureId, RenderOperation, RenderPlan, ShapeTextureBinding, Target,
     TextureComposite,
 };
-use crate::core::effect::BackdropEffectConfig;
+use crate::core::effect::{BackdropEffectConfig, GroupEffectConfig};
 use crate::core::shape::CachedShapeHandle;
 use crate::core::util::ShapeResources;
 use crate::core::Viewport;
 use crate::planner::TextureIdAllocator;
-use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
+use crate::scene::effects::{BackdropEffectInstance, EffectInstance, GroupEffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::{ClipRectDrawData, DrawTreeNode};
 use crate::{Shape, ShapeDrawCommandOptions, Size};
@@ -20,6 +20,7 @@ use lyon::tessellation::FillTessellator;
 enum Command {
     Begin(Option<usize>),
     End,
+    Capture(usize),
     Effect(u64, usize, usize),
     Composite(usize),
 }
@@ -100,6 +101,7 @@ fn snapshot(plan: &RenderPlan) -> Vec<Command> {
             }
             RenderOperation::BeginTarget(Target::Surface) => Command::Begin(None),
             RenderOperation::EndTarget => Command::End,
+            RenderOperation::Capture(capture) => Command::Capture(planned_index(capture.output)),
             RenderOperation::ApplyEffect(effect) => Command::Effect(
                 effect.effect_id,
                 planned_index(effect.input),
@@ -115,7 +117,7 @@ fn snapshot(plan: &RenderPlan) -> Vec<Command> {
 
 struct Scene {
     tree: Tree<DrawTreeNode>,
-    groups: HashMap<usize, EffectInstance>,
+    groups: HashMap<usize, GroupEffectInstance>,
     backdrops: HashMap<usize, BackdropEffectInstance>,
     shapes: HashMap<usize, TextureComposite>,
 }
@@ -147,10 +149,20 @@ impl Scene {
         let node = self.add(parent);
         self.groups.insert(
             node,
-            EffectInstance {
-                effect_id,
-                parameters: output.store_parameters(&effect_id.to_le_bytes()),
-            },
+            GroupEffectInstance::new(
+                EffectInstance {
+                    effect_id,
+                    parameters: output.store_parameters(&effect_id.to_le_bytes()),
+                },
+                GroupEffectConfig::default(),
+                self.tree.get(node).unwrap(),
+                None,
+                Viewport {
+                    physical_size: (100, 100),
+                    scale_factor: 1.0,
+                },
+                4096,
+            ),
         );
         node
     }
@@ -223,15 +235,18 @@ fn nested_groups_close_into_their_parent_targets() {
             Command::Begin(Some(0)),
             Command::Begin(Some(1)),
             Command::Begin(Some(2)),
+            Command::Capture(3),
             Command::End,
-            Command::Effect(3, 2, 3),
-            Command::Composite(3),
-            Command::End,
-            Command::Effect(2, 1, 4),
+            Command::Effect(3, 3, 4),
             Command::Composite(4),
+            Command::Capture(5),
             Command::End,
-            Command::Effect(1, 0, 5),
-            Command::Composite(5),
+            Command::Effect(2, 5, 6),
+            Command::Composite(6),
+            Command::Capture(7),
+            Command::End,
+            Command::Effect(1, 7, 8),
+            Command::Composite(8),
             Command::End,
         ]
     );
@@ -272,19 +287,23 @@ fn uneven_groups_resume_the_parent_between_siblings() {
             Command::Begin(Some(0)),
             Command::Begin(Some(1)),
             Command::Begin(Some(2)),
+            Command::Capture(3),
             Command::End,
-            Command::Effect(3, 2, 3),
-            Command::Composite(3),
-            Command::End,
-            Command::Effect(2, 1, 4),
+            Command::Effect(3, 3, 4),
             Command::Composite(4),
+            Command::Capture(5),
             Command::End,
-            Command::Effect(1, 0, 5),
-            Command::Composite(5),
-            Command::Begin(Some(6)),
+            Command::Effect(2, 5, 6),
+            Command::Composite(6),
+            Command::Capture(7),
             Command::End,
-            Command::Effect(4, 6, 7),
-            Command::Composite(7),
+            Command::Effect(1, 7, 8),
+            Command::Composite(8),
+            Command::Begin(Some(9)),
+            Command::Capture(10),
+            Command::End,
+            Command::Effect(4, 10, 11),
+            Command::Composite(11),
             Command::End,
         ]
     );
@@ -304,15 +323,17 @@ fn layered_backdrop_sources_finish_before_captures_and_skip_their_group() {
     validate_dependencies(&output);
     let captures: Vec<_> = output
         .instructions
-        .iter()
-        .map(|command| &command.operation)
-        .filter_map(|operation| {
-            if let RenderOperation::Capture(capture) = operation {
-                Some(capture)
-            } else {
-                None
-            }
-        })
+        .windows(2)
+        .filter_map(
+            |commands| match (&commands[0].operation, &commands[1].operation) {
+                (RenderOperation::Capture(capture), RenderOperation::ApplyEffect(effect))
+                    if effect.effect_id == 99 =>
+                {
+                    Some(capture)
+                }
+                _ => None,
+            },
+        )
         .collect();
     assert_eq!(captures.len(), 3);
     assert_eq!(
@@ -324,7 +345,7 @@ fn layered_backdrop_sources_finish_before_captures_and_skip_their_group() {
     assert_eq!(
         captures[1].source,
         CaptureSource::Layered {
-            base: IntermediateTextureId::Planned(5)
+            base: IntermediateTextureId::Planned(6)
         }
     );
     assert_eq!(captures[2].source, CaptureSource::Target);
@@ -339,7 +360,7 @@ fn layered_backdrop_sources_finish_before_captures_and_skip_their_group() {
             RenderOperation::BeginTarget(Target::Texture { texture, .. }) => target = Some(texture),
             RenderOperation::EndTarget => target = None,
             RenderOperation::CompositeTexture(composite)
-                if target == Some(IntermediateTextureId::Planned(5)) =>
+                if target == Some(IntermediateTextureId::Planned(6)) =>
             {
                 composites.push(composite)
             }

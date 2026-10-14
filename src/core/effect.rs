@@ -2,7 +2,9 @@
 //!
 //! Each attachment supplies different input pixels:
 //!
-//! - Group effects process a rendered subtree captured into an offscreen texture.
+//! - Group effects process a rendered subtree captured within the attached shape's
+//!   bounds, including its shape-effect output. Output outsets reserve transparent
+//!   space around the capture.
 //! - Backdrop effects process previously rendered scene pixels behind the node.
 //! - Shape effects process a padded white coverage mask of one shape. The result
 //!   texture is cached while the shape and effect inputs are unchanged.
@@ -17,8 +19,24 @@
 use crate::core::geometry;
 use crate::core::vertex::InstanceTransform;
 use crate::core::{MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
+pub(crate) use groups::GroupEffectBounds;
+pub use groups::GroupEffectConfig;
 
 pub(crate) mod backdrops;
+mod groups;
+
+pub(crate) fn can_allocate_texture(
+    texture_size: Size,
+    viewport_size: Size,
+    maximum_texture_dimension: u32,
+) -> bool {
+    let viewport_texels = u64::from(viewport_size.width) * u64::from(viewport_size.height);
+    let maximum_texels = viewport_texels.saturating_mul(4);
+    let texture_texels = u64::from(texture_size.width) * u64::from(texture_size.height);
+    texture_size.width <= maximum_texture_dimension
+        && texture_size.height <= maximum_texture_dimension
+        && texture_texels <= maximum_texels
+}
 
 /// The rendered region to capture as input to a backdrop effect.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -139,9 +157,9 @@ impl ShapeEffectConfig {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct CaptureRegion {
-    /// Requested bounds in full-resolution physical pixels, including offscreen padding.
+    /// Destination bounds in full-resolution physical pixels, including padding.
     pub bounds: PhysicalRect,
-    /// Viewport overlap to copy, or None when the requested bounds are fully offscreen.
+    /// Source pixels to copy, or None when the input is fully offscreen.
     pub source_rect: Option<UnsignedPhysicalRect>,
     pub copy_destination_origin: UnsignedPhysicalPoint,
 }

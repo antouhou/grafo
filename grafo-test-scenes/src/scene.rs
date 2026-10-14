@@ -9,9 +9,9 @@ use crate::shaders::{
 use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
     ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
-    GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits, LinearGradientDesc,
-    LinearGradientLine, RadialGradientDesc, RadialGradientSize, Renderer, Shape,
-    ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
+    GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits, GroupEffectConfig,
+    LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientSize, Renderer,
+    Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
     SpreadMode, TextureManager, TransformInstance,
 };
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
@@ -288,7 +288,12 @@ fn tile_85_replacement_preserves_effects_and_children(
         )
         .unwrap();
     renderer
-        .set_group_effect(parent, COLOR_CHANNEL_EFFECT_ID, &[])
+        .set_group_effect(
+            parent,
+            COLOR_CHANNEL_EFFECT_ID,
+            &[],
+            GroupEffectConfig::default(),
+        )
         .unwrap();
     renderer
         .replace_with_shape(
@@ -2304,7 +2309,12 @@ fn tile_27_group_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 
     let blur_params = BlurParams::new(8.0);
     renderer
-        .set_group_effect(id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
+        .set_group_effect(
+            id,
+            BLUR_EFFECT_ID,
+            bytemuck::bytes_of(&blur_params),
+            GroupEffectConfig::new().outset(blur_params.radius),
+        )
         .expect("Failed to set group effect");
 
     vec![
@@ -2369,7 +2379,12 @@ fn tile_28_group_blur_with_children(renderer: &mut Renderer) -> Vec<PixelExpecta
 
     let blur_params = BlurParams::new(6.0);
     renderer
-        .set_group_effect(parent_id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
+        .set_group_effect(
+            parent_id,
+            BLUR_EFFECT_ID,
+            bytemuck::bytes_of(&blur_params),
+            GroupEffectConfig::new().outset(blur_params.radius),
+        )
         .expect("Failed to set group effect");
 
     vec![
@@ -3476,7 +3491,12 @@ fn tile_45_gradient_group_blur(renderer: &mut Renderer) -> Vec<PixelExpectation>
 
     let blur_params = BlurParams::new(8.0);
     renderer
-        .set_group_effect(id, BLUR_EFFECT_ID, bytemuck::bytes_of(&blur_params))
+        .set_group_effect(
+            id,
+            BLUR_EFFECT_ID,
+            bytemuck::bytes_of(&blur_params),
+            GroupEffectConfig::new().outset(blur_params.radius),
+        )
         .expect("Failed to set group effect");
 
     vec![
@@ -4716,7 +4736,12 @@ fn tile_62_cached_shape_effect_inside_group_effect(
         )
         .unwrap();
     renderer
-        .set_group_effect(shape_id, PASSTHROUGH_EFFECT_ID, &[])
+        .set_group_effect(
+            shape_id,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            GroupEffectConfig::default(),
+        )
         .unwrap();
 
     vec![
@@ -4987,7 +5012,12 @@ fn tile_65_grouped_shape_effect_in_backdrop(renderer: &mut Renderer) -> Vec<Pixe
         )
         .expect("Failed to attach grouped backdrop effect");
     renderer
-        .set_group_effect(group_root_id, PASSTHROUGH_EFFECT_ID, &[])
+        .set_group_effect(
+            group_root_id,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            GroupEffectConfig::default(),
+        )
         .expect("Failed to attach enclosing group effect");
 
     vec![
@@ -5060,7 +5090,12 @@ fn tile_66_same_node_shape_backdrop_and_group_effects(
         )
         .expect("Failed to attach same-node backdrop effect");
     renderer
-        .set_group_effect(panel_id, PASSTHROUGH_EFFECT_ID, &[])
+        .set_group_effect(
+            panel_id,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            GroupEffectConfig::default(),
+        )
         .expect("Failed to attach same-node group effect");
 
     vec![
@@ -5362,7 +5397,7 @@ fn tile_72_nested_group_textures(renderer: &mut Renderer) -> Vec<PixelExpectatio
         )
         .unwrap();
     renderer
-        .set_group_effect(nested, nested_effect_id, &[])
+        .set_group_effect(nested, nested_effect_id, &[], GroupEffectConfig::default())
         .unwrap();
     let tint = DropShadowParams {
         radius: 0.0,
@@ -5371,7 +5406,12 @@ fn tile_72_nested_group_textures(renderer: &mut Renderer) -> Vec<PixelExpectatio
         color: [0.5, 0.0, 0.0, 0.5],
     };
     renderer
-        .set_group_effect(outer, tint_effect_id, bytemuck::bytes_of(&tint))
+        .set_group_effect(
+            outer,
+            tint_effect_id,
+            bytemuck::bytes_of(&tint),
+            GroupEffectConfig::default(),
+        )
         .unwrap();
 
     [
@@ -5433,7 +5473,12 @@ fn tile_73_padded_layered_backdrops(renderer: &mut Renderer) -> Vec<PixelExpecta
         )
         .unwrap();
     renderer
-        .set_group_effect(group, PASSTHROUGH_EFFECT_ID, &[])
+        .set_group_effect(
+            group,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            GroupEffectConfig::default(),
+        )
         .unwrap();
     renderer
         .add_shape(
@@ -5651,7 +5696,12 @@ fn tile_76_rotated_under_fill_sampling(renderer: &mut Renderer) -> Vec<PixelExpe
         )
         .unwrap();
     renderer
-        .set_group_effect(group, PASSTHROUGH_EFFECT_ID, &[])
+        .set_group_effect(
+            group,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            GroupEffectConfig::default(),
+        )
         .unwrap();
     let rotation = TransformInstance::rotation_z_deg(45.0);
     let translation = TransformInstance::translation(origin_x + 40.0, origin_y + 40.0);
@@ -5735,7 +5785,12 @@ fn tile_consecutive_captures_under_inherited_clips(
         .unwrap();
     if has_group_effect {
         renderer
-            .set_group_effect(container, PASSTHROUGH_EFFECT_ID, &[])
+            .set_group_effect(
+                container,
+                PASSTHROUGH_EFFECT_ID,
+                &[],
+                GroupEffectConfig::default(),
+            )
             .unwrap();
     }
     let stencil_parent = renderer
@@ -5996,7 +6051,12 @@ fn tile_79_capture_before_first_group_draw(renderer: &mut Renderer) -> Vec<Pixel
         )
         .unwrap();
     renderer
-        .set_group_effect(group, PASSTHROUGH_EFFECT_ID, &[])
+        .set_group_effect(
+            group,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            GroupEffectConfig::default(),
+        )
         .unwrap();
     renderer
         .set_shape_backdrop_effect(
@@ -6106,10 +6166,10 @@ fn tile_80_group_composite_under_mixed_clips(renderer: &mut Renderer) -> Vec<Pix
         .unwrap();
     let group = renderer
         .add_shape(
-            Shape::builder().build(),
+            Shape::rect(bounds(6.0, 8.0, 72.0, 64.0)),
             Some(scissor),
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawCommandOptions::new().clips_children(false),
         )
         .unwrap();
     let overflow = renderer
@@ -6139,7 +6199,12 @@ fn tile_80_group_composite_under_mixed_clips(renderer: &mut Renderer) -> Vec<Pix
         )
         .unwrap();
     renderer
-        .set_group_effect(group, PASSTHROUGH_EFFECT_ID, &[])
+        .set_group_effect(
+            group,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            GroupEffectConfig::default(),
+        )
         .unwrap();
     let empty_backdrop = renderer
         .add_shape(
@@ -6251,10 +6316,13 @@ fn tile_81_shared_shape_effect_composites(renderer: &mut Renderer) -> Vec<PixelE
         .unwrap();
     let group = renderer
         .add_shape(
-            Shape::builder().build(),
+            Shape::rect([
+                (origin_x + 8.0, origin_y + 8.0),
+                (origin_x + 68.0, origin_y + 68.0),
+            ]),
             Some(clip),
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawCommandOptions::new().clips_children(false),
         )
         .unwrap();
     let shadow_parameters = DropShadowParams {
@@ -6307,7 +6375,12 @@ fn tile_81_shared_shape_effect_composites(renderer: &mut Renderer) -> Vec<PixelE
             .unwrap();
     }
     renderer
-        .set_group_effect(group, PASSTHROUGH_EFFECT_ID, &[])
+        .set_group_effect(
+            group,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            GroupEffectConfig::default(),
+        )
         .unwrap();
     renderer
         .add_shape(
@@ -6418,15 +6491,20 @@ fn tile_82_group_dependencies_in_layered_backdrops(
             .unwrap();
     }
     renderer
-        .set_group_effect(wavy_card, WAVE_DISTORTION_EFFECT_ID, &[])
+        .set_group_effect(
+            wavy_card,
+            WAVE_DISTORTION_EFFECT_ID,
+            &[],
+            GroupEffectConfig::new().outsets(4.0, 2.0, 4.0, 2.0),
+        )
         .unwrap();
 
     let frosted_group = renderer
         .add_shape(
-            Shape::builder().build(),
+            Shape::rect(bounds(24.0, 24.0, 76.0, 76.0)),
             Some(outer_group),
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawCommandOptions::new().clips_children(false),
         )
         .unwrap();
     // This stripe must enter the layered capture before the panel covers it.
@@ -6459,22 +6537,28 @@ fn tile_82_group_dependencies_in_layered_backdrops(
             frosted_group,
             BLUR_EFFECT_ID,
             bytemuck::bytes_of(&BlurParams::new(4.0)),
+            GroupEffectConfig::new().outset(4.0),
         )
         .unwrap();
     renderer
-        .set_group_effect(outer_group, PASSTHROUGH_EFFECT_ID, &[])
+        .set_group_effect(
+            outer_group,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            GroupEffectConfig::default(),
+        )
         .unwrap();
 
     [
         (
-            20,
+            18,
             18,
             [200, 240, 230],
             "t82_wave_moves_mint_over_original_stripe",
         ),
         (
             22,
-            38,
+            18,
             [25, 65, 100],
             "t82_wave_moves_navy_into_original_gap",
         ),
@@ -6493,7 +6577,7 @@ fn tile_82_group_dependencies_in_layered_backdrops(
         (
             46,
             50,
-            [222, 95, 120],
+            [225, 109, 129],
             "t82_layered_capture_keeps_coral_stripe",
         ),
         (
@@ -6637,7 +6721,7 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
         .unwrap();
     let empty = renderer
         .add_shape(
-            Shape::builder().build(),
+            Shape::rect(bounds(0.0, 0.0, 1.0, 1.0)),
             Some(outer),
             None,
             ShapeDrawCommandOptions::new(),
@@ -6662,18 +6746,29 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
             .unwrap();
     }
     renderer
-        .set_group_effect(middle, WAVE_DISTORTION_EFFECT_ID, &[])
+        .set_group_effect(
+            middle,
+            WAVE_DISTORTION_EFFECT_ID,
+            &[],
+            GroupEffectConfig::new().outsets(4.0, 2.0, 4.0, 2.0),
+        )
         .unwrap();
     renderer
         .set_group_effect(
             inner,
             BLUR_EFFECT_ID,
             bytemuck::bytes_of(&BlurParams::new(4.0)),
+            GroupEffectConfig::new().outset(4.0),
         )
         .unwrap();
     for group in [outer, empty] {
         renderer
-            .set_group_effect(group, PASSTHROUGH_EFFECT_ID, &[])
+            .set_group_effect(
+                group,
+                PASSTHROUGH_EFFECT_ID,
+                &[],
+                GroupEffectConfig::default(),
+            )
             .unwrap();
     }
     // This sibling still uses the parent's stencil after the outer group closes.
@@ -6718,14 +6813,14 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
         ),
         (
             24,
-            25,
+            14,
             [240, 135, 95],
             "t83_wave_moves_coral_into_plum_stripe",
         ),
         (
             40,
             25,
-            [220, 198, 150],
+            [139, 142, 150],
             "t83_wave_samples_blurred_inner_stripes",
         ),
         (

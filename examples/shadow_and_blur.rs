@@ -2,9 +2,10 @@
 //! The child covers the same area and blurs the colored rectangles behind it.
 
 use futures::executor::block_on;
-use grafo::{BackdropEffectConfig, BorderRadii, Shape};
-use grafo::{Color, ShapeDrawCommandOptions};
-use grafo::{RendererContext, Surface};
+use grafo::{
+    BackdropEffectConfig, BorderRadii, Color, GroupEffectConfig, RendererContext, Shape,
+    ShapeDrawCommandOptions, Surface,
+};
 use grafo_test_scenes::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -27,8 +28,6 @@ struct BoxShadowParams {
     offset: [f32; 2],
     sigma: f32,
     corner_radius: f32,
-    tex_size: [f32; 2],
-    _pad: [f32; 2],
 }
 
 const BOX_SHADOW_WGSL: &str = r#"
@@ -39,8 +38,6 @@ struct Params {
     offset: vec2<f32>,
     sigma: f32,
     corner_radius: f32,
-    tex_size: vec2<f32>,
-    _pad: vec2<f32>,
 }
 @group(1) @binding(0) var<uniform> params: Params;
 
@@ -66,7 +63,7 @@ fn sd_rounded_box(p: vec2<f32>, half: vec2<f32>, r: f32) -> f32 {
 @fragment
 fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     let original = textureSample(t_input, s_input, uv);
-    let pixel_pos = uv * params.tex_size;
+    let pixel_pos = uv * vec2<f32>(textureDimensions(t_input));
     let center = (params.box_min + params.box_max) * 0.5 + params.offset;
     let half = (params.box_max - params.box_min) * 0.5;
     let sigma = max(params.sigma, 0.0001);
@@ -228,18 +225,30 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
+                let shadow_padding = 54.0;
+                let scale_factor = window.scale_factor() as f32;
+                let shadow_box_minimum = [
+                    panel_x * scale_factor - ((panel_x - shadow_padding) * scale_factor).floor(),
+                    panel_y * scale_factor - ((panel_y - shadow_padding) * scale_factor).floor(),
+                ];
                 let shadow_params = BoxShadowParams {
-                    box_min: [panel_x, panel_y],
-                    box_max: [panel_x + panel_w, panel_y + panel_h],
+                    box_min: shadow_box_minimum,
+                    box_max: [
+                        shadow_box_minimum[0] + panel_w * scale_factor,
+                        shadow_box_minimum[1] + panel_h * scale_factor,
+                    ],
                     shadow_color: [0.0, 0.0, 0.0, 0.4],
-                    offset: [0.0, 6.0],
-                    sigma: 16.0,
-                    corner_radius: panel_radius,
-                    tex_size: [pw, ph],
-                    _pad: [0.0, 0.0],
+                    offset: [0.0, 6.0 * scale_factor],
+                    sigma: 16.0 * scale_factor,
+                    corner_radius: panel_radius * scale_factor,
                 };
                 renderer
-                    .set_group_effect(panel, BOX_SHADOW_EFFECT, bytemuck::bytes_of(&shadow_params))
+                    .set_group_effect(
+                        panel,
+                        BOX_SHADOW_EFFECT,
+                        bytemuck::bytes_of(&shadow_params),
+                        GroupEffectConfig::new().outset(shadow_padding),
+                    )
                     .expect("Failed to set box shadow effect");
 
                 // This child matches the parent's size. Its translucent fill reveals

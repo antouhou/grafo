@@ -2,8 +2,8 @@ use crate::commands::{
     DrawClip, EffectApplication, MaskTarget, RenderOperation, RenderPlan, ShapeDrawId,
     ShapeMaskDraw, Target, TextureComposite, TexturePlacement,
 };
-use crate::core::geometry;
 use crate::core::vertex::TextureUvTransform;
+use crate::core::{effect, geometry};
 use crate::core::{Size, UnsignedPhysicalRect, Viewport};
 use crate::planner::TextureIdAllocator;
 use crate::scene::effects::ShapeEffectInstance;
@@ -23,8 +23,6 @@ pub(super) fn append_shape_effects(
     maximum_texture_dimension: u32,
 ) {
     composites.clear();
-    let (width, height) = viewport.physical_size;
-    let maximum_texel_count = (u64::from(width) * u64::from(height)).saturating_mul(4);
     for (&node_id, effect) in effects {
         let Some(DrawTreeNode::CachedShape(shape)) = tree.get(node_id) else {
             continue;
@@ -34,10 +32,11 @@ pub(super) fn append_shape_effects(
         }
         let bounds = effect.bounds;
         let [width, height] = bounds.texture_size;
-        if width > maximum_texture_dimension
-            || height > maximum_texture_dimension
-            || u64::from(width) * u64::from(height) > maximum_texel_count
-        {
+        if !effect::can_allocate_texture(
+            Size::new(width, height),
+            viewport.physical_size.into(),
+            maximum_texture_dimension,
+        ) {
             tracing::warn!(node_id, "skipping oversized shape effect texture");
             continue;
         }

@@ -2,8 +2,8 @@ use super::types::DrawCommandError;
 use super::{RenderBackend, Renderer};
 use crate::commands::{RenderCommand, RenderOperation, RenderPlan, ShapeDrawId, Target};
 use crate::core::{
-    CachedShapeHandle, Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeInstance,
-    UnsignedPhysicalRect, Viewport,
+    CachedShapeHandle, Color, GroupEffectConfig, Shape, ShapeDrawCommandOptions, ShapeEffectConfig,
+    ShapeInstance, UnsignedPhysicalRect, Viewport,
 };
 use crate::render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError, Surface,
@@ -269,7 +269,9 @@ fn queue_shape(renderer: &mut Renderer<TestBackend>, with_effects: bool) -> usiz
     if with_effects {
         renderer.load_effect(7, &["shape effect"]).unwrap();
         renderer.load_effect(8, &["group effect"]).unwrap();
-        renderer.set_group_effect(id, 8, &[1, 2, 3, 4]).unwrap();
+        renderer
+            .set_group_effect(id, 8, &[1, 2, 3, 4], GroupEffectConfig::default())
+            .unwrap();
         renderer
             .set_shape_effect(id, 7, &[1, 2, 3, 4], ShapeEffectConfig::default())
             .unwrap();
