@@ -351,10 +351,25 @@ impl Scene {
             if instance.effect_id != effect_id {
                 return true;
             }
+            if let (Some(group), Some(node)) = (
+                self.group_effects.get_mut(node_id),
+                self.draw_tree.get(*node_id),
+            ) {
+                *group = GroupEffectInstance::new(
+                    EffectInstance {
+                        effect_id: group.effect_id,
+                        parameters: group.parameters,
+                    },
+                    group.config,
+                    node,
+                    None,
+                    self.viewport,
+                    maximum_texture_dimension,
+                );
+            }
             removed(*node_id, EffectAttachment::Shape(instance.bounds));
             false
         });
-        self.refresh_all_group_effect_bounds(maximum_texture_dimension);
     }
 
     pub(super) fn refresh_group_effect_bounds(
