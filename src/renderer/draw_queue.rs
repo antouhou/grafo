@@ -299,7 +299,7 @@ impl<B: RenderBackend> Renderer<B> {
         if has_child_clip(&previous) != clips_children
             && !self.scene.draw_tree.children(node_id).is_empty()
         {
-            self.pending_clip_damage.insert(node_id);
+            self.pending_damage.insert(node_id);
         }
     }
 

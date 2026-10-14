@@ -14,13 +14,9 @@ use ahash::HashSet;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
-mod backdrop_damage;
-mod dirty_bounds;
-mod group_effect_damage;
+mod damage;
 mod removal;
 mod replacement;
-mod shape_effect_damage;
-mod texture_damage;
 
 #[derive(Default)]
 struct TestSurface {

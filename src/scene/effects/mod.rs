@@ -1,4 +1,4 @@
-use super::backdrop_damage::{EffectDamageEntry, EffectDamageKind};
+use super::effect_damage::{EffectDamageEntry, EffectDamageKind};
 use super::types::DrawTreeNode;
 use super::{Scene, SceneError};
 use crate::commands::EffectParameters;

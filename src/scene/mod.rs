@@ -6,8 +6,8 @@ use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
 use crate::render_backend::texture_manager::{TextureUpdatePublisher, TextureUpdateSubscription};
 use ahash::{HashMap, HashMapExt, HashSet};
-use backdrop_damage::{EffectDamage, EffectDamageKind};
 use easy_tree::Tree;
+use effect_damage::{EffectDamage, EffectDamageKind};
 use effects::{
     resolve_backdrop_effect, BackdropEffectInstance, GroupEffectInstance, ShapeEffectInstance,
 };
@@ -17,7 +17,7 @@ use std::sync::{Arc, RwLock};
 use texture_index::TextureIndex;
 use types::{CachedShapeDrawData, ClipRectDrawData, DrawTreeNode};
 
-mod backdrop_damage;
+mod effect_damage;
 pub(crate) mod effects;
 mod errors;
 mod texture_index;

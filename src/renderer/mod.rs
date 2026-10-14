@@ -5,7 +5,7 @@ use crate::planner::Planner;
 use crate::render_backend::render_target::RenderTarget;
 use crate::render_backend::RenderBackend;
 use crate::scene::{Scene, SceneContext};
-use damage::{mark_dirty, PendingClipDamage};
+use damage::{mark_dirty, PendingDamage};
 #[cfg(feature = "render_metrics")]
 use metrics::RenderLoopMetricsTracker;
 #[cfg(feature = "render_metrics")]
@@ -34,7 +34,7 @@ pub struct Renderer<B: RenderBackend> {
     removed_shape_ids: Vec<ShapeDrawId>,
     should_compact_effect_parameters: bool,
     dirty_bounds: Option<UnsignedPhysicalRect>,
-    pending_clip_damage: PendingClipDamage,
+    pending_damage: PendingDamage,
     #[cfg(feature = "render_metrics")]
     render_loop_metrics_tracker: RenderLoopMetricsTracker,
 }
@@ -49,7 +49,7 @@ impl<B: RenderBackend> Renderer<B> {
             planner: Planner::default(),
             removed_shape_ids: Vec::new(),
             should_compact_effect_parameters: false,
-            pending_clip_damage: PendingClipDamage::default(),
+            pending_damage: PendingDamage::default(),
             dirty_bounds: Some(UnsignedPhysicalRect::from_size(
                 viewport.physical_size.into(),
             )),
@@ -102,7 +102,7 @@ impl<B: RenderBackend> Renderer<B> {
             self.planner.compact_effect_parameters(&mut self.scene);
             self.should_compact_effect_parameters = false;
         }
-        self.pending_clip_damage
+        self.pending_damage
             .apply(&self.scene, &mut self.dirty_bounds);
         let viewport = self.scene.viewport();
         let fringe_width = self.scene.fringe_width();
