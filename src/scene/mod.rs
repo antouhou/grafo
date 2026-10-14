@@ -8,7 +8,9 @@ use crate::render_backend::texture_manager::{TextureUpdatePublisher, TextureUpda
 use ahash::{HashMap, HashMapExt, HashSet};
 use backdrop_damage::BackdropDamage;
 use easy_tree::Tree;
-use effects::{resolve_backdrop_effect, BackdropEffectInstance, GroupEffectInstance, ShapeEffectInstance};
+use effects::{
+    resolve_backdrop_effect, BackdropEffectInstance, GroupEffectInstance, ShapeEffectInstance,
+};
 pub use errors::SceneError;
 use lyon::tessellation::FillTessellator;
 use std::sync::{Arc, RwLock};
