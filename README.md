@@ -183,26 +183,6 @@ renderer
 // can also be used as non-clipping containers.
 ```
 
-### Shader effects
-
-Load WGSL passes with `Renderer::load_effect`, then attach the effect to a shape node:
-
-| Attachment | Shader input | Output |
-| --- | --- | --- |
-| `set_shape_mask_effect` with `ShapeMaskEffectConfig` | The shape's white geometric coverage mask, without its fill, textures, or children | Drawn behind the original shape and follows its transform |
-| `set_content_effect` with `ContentEffectConfig` | The node and its descendants rendered together within the capture bounds | Replaces the captured content |
-| `set_backdrop_effect` with `BackdropEffectConfig` | Previously rendered scene pixels behind the node | Drawn through the shape beneath its fill |
-
-Content capture uses the attached shape's screen bounds, expanded to include its
-own shape mask effect output. Overflowing descendants do not expand the capture.
-Content effect outsets reserve transparent output space without capturing additional
-content. Shape mask effect outsets use shape-local logical pixels; content effect
-outsets and backdrop padding use logical screen pixels.
-
-Remove attachments with `remove_shape_mask_effect`, `remove_content_effect`, or
-`remove_backdrop_effect`. Effect IDs, WGSL passes, and parameter bytes can be reused
-across attachment types.
-
 ## Examples
 
 - `basic.rs` draws shapes using winit 0.30's `ApplicationHandler`.

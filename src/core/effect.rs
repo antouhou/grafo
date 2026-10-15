@@ -4,11 +4,9 @@
 //!
 //! - Shape mask effects process one shape's padded white geometric coverage mask,
 //!   without its fill, textures, or children. The result is drawn behind the shape.
-//! - Content effects process the node and its descendants as one rendered image.
-//!   Capture bounds include the attached shape's screen bounds and its own shape
-//!   mask effect output. Overflowing descendants do not expand the capture.
-//!   Output outsets reserve transparent space around it. The result replaces the
-//!   captured content.
+//! - Content effects process the node and its descendants. Input includes shape's own bound,
+//!   mask effect if any, and all content withing the shape's bounds. Output outsets reserve
+//!   transparent space around the input. The result replaces the captured content.
 //! - Backdrop effects process previously rendered scene pixels behind the node.
 //!   The result is drawn through the shape beneath its fill.
 //!
@@ -98,10 +96,8 @@ impl BackdropEffectConfig {
     }
 }
 
-/// Padding and rasterization scale for an effect on a shape's coverage mask.
-///
-/// Outsets expand the mask and effect output in shape-local logical pixels.
-/// The result follows the shape's transform and is drawn behind its fill and children.
+/// Padding around a shape's local bounds and a scale for a mask effect.
+/// Outsets are measured in logical pixels.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct ShapeMaskEffectConfig {
     pub left_outset: f32,

@@ -24,12 +24,12 @@ impl<B: RenderBackend> Renderer<B> {
         Ok(())
     }
 
-    /// Applies an effect to the node and its descendants as one rendered image.
+    /// Sets an effect applied to the node and its descendants.
     ///
-    /// Captures within the attached shape's screen bounds, expanded to include
-    /// its own shape mask effect output. Overflowing descendants do not expand
-    /// the capture. The effect result replaces the captured content.
-    /// Outsets reserve transparent output space without capturing additional content.
+    /// Captures all descendants rendered within the shape's bounds and uses that as an input for
+    /// the effect. Overflowing children are not included into the capture. The output is drawn in
+    /// a place of the shape. You can reserve additional space around the shape for the output via
+    /// the effect config, if the output needs to expand original shape.
     pub fn set_content_effect(
         &mut self,
         node_id: usize,
@@ -68,11 +68,11 @@ impl<B: RenderBackend> Renderer<B> {
         }
     }
 
-    /// Filters previously rendered scene pixels behind the node.
+    /// A backdrop filter: Filters previously rendered scene pixels behind the node. Perfect fit
+    /// for frosted glass background and similar effects.
     ///
-    /// The result is drawn through the shape beneath its fill and children.
-    /// Capture area and padding control the input region, independently of the
-    /// shape that clips the output.
+    /// Effect config can be used to control capture area and padding around the input, independently
+    /// of the node's own config
     pub fn set_backdrop_effect(
         &mut self,
         node_id: usize,
@@ -107,11 +107,11 @@ impl<B: RenderBackend> Renderer<B> {
         self.backend.remove_backdrop_effect(ShapeDrawId(node_id));
     }
 
-    /// Applies an effect to the shape's white geometric coverage mask.
+    /// Applies an effect to the shape's white geometric coverage alpha mask. Perfect for things
+    /// like box shadows.
     ///
-    /// The input excludes the shape's fill, textures, and children. The colored
-    /// result follows the shape's transform and is drawn behind it, subject to
-    /// ancestor clipping. The shape and its children are drawn normally above it.
+    /// The input is an alpha mask of the shape it is attached to. It excludes the shape's fill,
+    /// textures, and children. The result is drawn behind the shape.
     pub fn set_shape_mask_effect(
         &mut self,
         node_id: usize,

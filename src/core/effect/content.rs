@@ -4,10 +4,8 @@ use tracing::warn;
 
 /// Output padding around a content effect's input, in logical screen pixels.
 ///
-/// The input contains the node and its descendants within the attached shape's
-/// screen bounds, expanded to include its own shape mask effect output.
-/// Overflowing descendants do not expand these bounds. Outsets add transparent
-/// output space; they do not capture additional content beyond the input bounds.
+/// The input contains the node and its descendants within the node's bounds. Overflowing
+/// content does not expand the bounds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ContentEffectConfig {
     pub left_outset: f32,
