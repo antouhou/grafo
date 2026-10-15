@@ -1,5 +1,6 @@
 use super::*;
 use crate::commands::{EffectParameterRange, EffectParameters};
+use crate::core::effect::GroupEffectConfig;
 
 #[test]
 fn nested_targets_reset_clips_and_restore_each_parent_before_compositing() {
@@ -14,13 +15,23 @@ fn nested_targets_reset_clips_and_restore_each_parent_before_compositing() {
     for node in [outer, inner] {
         scene.groups.insert(
             node,
-            EffectInstance {
-                effect_id: 1,
-                parameters: EffectParameters {
-                    range: EffectParameterRange { start: 0, end: 0 },
-                    hash: 0,
+            GroupEffectInstance::new(
+                EffectInstance {
+                    effect_id: 1,
+                    parameters: EffectParameters {
+                        range: EffectParameterRange { start: 0, end: 0 },
+                        hash: 0,
+                    },
                 },
-            },
+                GroupEffectConfig::default(),
+                scene.tree.get(node).unwrap(),
+                None,
+                Viewport {
+                    physical_size: (100, 100),
+                    scale_factor: 1.0,
+                },
+                4096,
+            ),
         );
     }
     let viewport = rect((0, 0), (100, 100));
@@ -35,14 +46,14 @@ fn nested_targets_reset_clips_and_restore_each_parent_before_compositing() {
             (Operation::DrawAndIncrement(ShapeDrawId(outer)), 0, viewport),
             (Operation::Draw(ShapeDrawId(inner)), 0, viewport),
             (
-                Operation::Composite(IntermediateTextureId::Planned(2)),
+                Operation::Composite(IntermediateTextureId::Planned(3)),
                 1,
                 viewport
             ),
             (Operation::Draw(ShapeDrawId(inner_sibling)), 1, viewport),
             (Operation::Decrement(ShapeDrawId(outer)), 1, viewport),
             (
-                Operation::Composite(IntermediateTextureId::Planned(3)),
+                Operation::Composite(IntermediateTextureId::Planned(5)),
                 1,
                 parent_scissor
             ),

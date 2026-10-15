@@ -1,6 +1,6 @@
-use super::{renderer, surface, TestBackend};
+use super::super::{renderer, surface, TestBackend};
 use crate::commands::RenderOperation;
-use crate::core::effect::ShapeEffectBounds;
+use crate::core::effect::{GroupEffectConfig, ShapeEffectBounds};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
     BackdropEffectConfig, Color, MathRect, Shape, ShapeDrawCommandOptions, ShapeEffectConfig,
@@ -356,7 +356,9 @@ fn shape_effect_damage_uses_configured_bounds_with_other_effects() {
                 .set_shape_backdrop_effect(node, 7, &[1, 2, 3, 4], BackdropEffectConfig::default())
                 .unwrap();
         } else {
-            renderer.set_group_effect(node, 7, &[1, 2, 3, 4]).unwrap();
+            renderer
+                .set_group_effect(node, 7, &[1, 2, 3, 4], GroupEffectConfig::default())
+                .unwrap();
         }
         renderer.render(&mut surface).unwrap();
         let bounds = UnsignedPhysicalRect::new((6, 6).into(), (18, 18).into());
@@ -379,7 +381,9 @@ fn shape_effect_damage_uses_configured_bounds_with_other_effects() {
         renderer.load_effect(7, &["replacement shader"]).unwrap();
         renderer.render(&mut surface).unwrap();
         assert_eq!(renderer.backend.root_scissor, Some(smaller_bounds));
-        renderer.set_group_effect(node, 8, &[1, 2, 3, 4]).unwrap();
+        renderer
+            .set_group_effect(node, 8, &[1, 2, 3, 4], GroupEffectConfig::default())
+            .unwrap();
         renderer
             .set_shape_effect(node, 7, &[1, 2, 3, 4], ShapeEffectConfig::new().outset(3.0))
             .unwrap();

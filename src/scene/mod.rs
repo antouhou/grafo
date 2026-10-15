@@ -6,17 +6,18 @@ use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
 use crate::render_backend::texture_manager::{TextureUpdatePublisher, TextureUpdateSubscription};
 use ahash::{HashMap, HashMapExt, HashSet};
-use backdrop_damage::BackdropDamage;
 use easy_tree::Tree;
+use effect_damage::{EffectDamage, EffectDamageKind};
 use effects::{
-    resolve_backdrop_effect, BackdropEffectInstance, EffectInstance, ShapeEffectInstance,
+    resolve_backdrop_effect, BackdropEffectInstance, GroupEffectInstance, ShapeEffectInstance,
 };
 pub use errors::SceneError;
 use lyon::tessellation::FillTessellator;
 use std::sync::{Arc, RwLock};
 use texture_index::TextureIndex;
 use types::{CachedShapeDrawData, ClipRectDrawData, DrawTreeNode};
-mod backdrop_damage;
+
+mod effect_damage;
 pub(crate) mod effects;
 mod errors;
 mod texture_index;
@@ -50,9 +51,9 @@ pub(crate) struct Scene {
     fringe_width: f32,
     tessellator: FillTessellator,
     shape_resources: ShapeResources,
-    pub(crate) group_effects: HashMap<usize, EffectInstance>,
+    pub(crate) group_effects: HashMap<usize, GroupEffectInstance>,
     pub(crate) backdrop_effects: HashMap<usize, BackdropEffectInstance>,
-    backdrop_damage: BackdropDamage,
+    effect_damage: EffectDamage,
     pub(crate) shape_effects: HashMap<usize, ShapeEffectInstance>,
 }
 
@@ -72,7 +73,7 @@ impl Scene {
             shape_resources: ShapeResources::new(),
             group_effects: HashMap::new(),
             backdrop_effects: HashMap::new(),
-            backdrop_damage: BackdropDamage::default(),
+            effect_damage: EffectDamage::default(),
             shape_effects: HashMap::new(),
         }
     }
@@ -105,6 +106,7 @@ impl Scene {
         self.viewport.scale_factor = scale_factor;
         self.fringe_width = fringe_width;
         self.refresh_backdrop_capture_regions(maximum_texture_dimension);
+        self.refresh_all_group_effect_bounds(maximum_texture_dimension);
         Ok(())
     }
 
@@ -112,6 +114,7 @@ impl Scene {
     pub(crate) fn resize(&mut self, physical_size: (u32, u32), maximum_texture_dimension: u32) {
         self.viewport.physical_size = physical_size;
         self.refresh_backdrop_capture_regions(maximum_texture_dimension);
+        self.refresh_all_group_effect_bounds(maximum_texture_dimension);
     }
 
     pub(crate) fn load_shape(
@@ -215,7 +218,7 @@ impl Scene {
                     .bounds = bounds;
             }
         } else {
-            self.group_effects.remove(&node_id);
+            self.remove_group_effect(node_id);
             self.shape_effects.remove(&node_id);
             self.remove_backdrop_effect(node_id);
         }
@@ -237,6 +240,7 @@ impl Scene {
         if let Some((instance, entry)) = refreshed_backdrop {
             self.replace_backdrop_effect(node_id, instance, entry);
         }
+        self.refresh_group_effect_bounds(node_id, maximum_texture_dimension);
         previous
     }
 
@@ -268,15 +272,24 @@ impl Scene {
     pub(crate) fn remove_subtrees_with(
         &mut self,
         node_ids: impl IntoIterator<Item = usize>,
-        mut removed: impl FnMut(usize, DrawTreeNode, Option<ShapeEffectInstance>),
+        mut removed: impl FnMut(
+            usize,
+            DrawTreeNode,
+            Option<ShapeEffectInstance>,
+            Option<UnsignedPhysicalRect>,
+        ),
     ) {
         self.draw_tree.remove_subtrees_with(node_ids, |id, node| {
             self.texture_index.remove(id);
+            let group_output = self
+                .effect_damage
+                .output_region(EffectDamageKind::Group, id);
             self.group_effects.remove(&id);
+            self.effect_damage.remove(EffectDamageKind::Group, id);
             self.backdrop_effects.remove(&id);
-            self.backdrop_damage.remove(id);
+            self.effect_damage.remove(EffectDamageKind::Backdrop, id);
             let shape_effect = self.shape_effects.remove(&id);
-            removed(id, node, shape_effect);
+            removed(id, node, shape_effect, group_output);
         });
     }
 
@@ -302,11 +315,11 @@ impl Scene {
             })
     }
 
-    pub(crate) fn expand_backdrop_damage(
+    pub(crate) fn expand_effect_damage(
         &mut self,
         dirty_bounds: Option<UnsignedPhysicalRect>,
     ) -> Option<UnsignedPhysicalRect> {
-        self.backdrop_damage
+        self.effect_damage
             .expand(self.viewport.physical_size.into(), dirty_bounds)
     }
 

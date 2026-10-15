@@ -4,13 +4,11 @@
 use futures::executor::block_on;
 use grafo::{
     BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color, ColorInterpolation,
-    DrawCommandError, EffectError, Fill, Gradient, GradientStop, GradientStopOffset,
-    LinearGradientDesc, LinearGradientLine, Renderer, RendererCreationError, Shape,
+    DrawCommandError, EffectError, EffectResourceError, Fill, Gradient, GradientStop,
+    GradientStopOffset, GroupEffectConfig, LinearGradientDesc, LinearGradientLine, PixelFormat,
+    PixelLayout, Pixmap, PixmapMut, Renderer, RendererCreationError, SceneError, Shape,
     ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
-    TextureManager, TransformInstance,
-};
-use grafo::{
-    EffectResourceError, PixelFormat, PixelLayout, Pixmap, PixmapMut, SceneError, WgpuBackendError,
+    TextureManager, TransformInstance, WgpuBackendError,
 };
 use grafo_test_scenes::shaders::{PASSTHROUGH_WGSL, SHAPE_DROP_WGSL};
 use grafo_test_scenes::{
@@ -321,7 +319,9 @@ fn invalid_effect_can_be_replaced_with_a_valid_shader() {
             ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
         )
         .unwrap();
-    renderer.set_group_effect(shape_id, 9_201, &[]).unwrap();
+    renderer
+        .set_group_effect(shape_id, 9_201, &[], GroupEffectConfig::default())
+        .unwrap();
 
     let mut pixel_buffer = Vec::new();
     render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
@@ -1872,7 +1872,9 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
             ShapeDrawCommandOptions::new(),
         )
         .unwrap();
-    renderer.set_group_effect(group, effect_id, &[]).unwrap();
+    renderer
+        .set_group_effect(group, effect_id, &[], GroupEffectConfig::default())
+        .unwrap();
     renderer
         .add_shape(
             Shape::rect([(32.0, 4.0), (60.0, 60.0)]),

@@ -1,11 +1,16 @@
 use super::{queue_shape, renderer, surface, TestBackend};
 use crate::core::vertex::InstanceTransform;
-use crate::core::{BackdropEffectConfig, Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig};
+use crate::core::{
+    BackdropEffectConfig, Color, GroupEffectConfig, Shape, ShapeDrawCommandOptions,
+    ShapeEffectConfig,
+};
 use crate::renderer::{DrawCommandError, Renderer};
 use crate::scene::SceneError;
 
 fn attach_effects(renderer: &mut Renderer<TestBackend>, node: usize) {
-    renderer.set_group_effect(node, 8, &[1, 2, 3, 4]).unwrap();
+    renderer
+        .set_group_effect(node, 8, &[1, 2, 3, 4], GroupEffectConfig::default())
+        .unwrap();
     renderer
         .set_shape_effect(node, 7, &[1, 2, 3, 4], ShapeEffectConfig::default())
         .unwrap();
@@ -251,7 +256,9 @@ fn replacements_and_subtree_removals_defer_compaction_and_preserve_surviving_par
     for _ in 0..20 {
         let converted = queue_shape(&mut renderer, false);
         attach_effects(&mut renderer, converted);
-        renderer.set_group_effect(survivor, 8, &[5; 4]).unwrap();
+        renderer
+            .set_group_effect(survivor, 8, &[5; 4], GroupEffectConfig::default())
+            .unwrap();
         renderer
             .set_shape_backdrop_effect(survivor, 9, &[6; 4], BackdropEffectConfig::default())
             .unwrap();
@@ -277,7 +284,7 @@ fn replacements_and_subtree_removals_defer_compaction_and_preserve_surviving_par
         assert_eq!(plan.parameters(backdrop_parameters), &[6; 4]);
         assert_eq!(plan.parameters(shape_parameters), &[7; 4]);
         renderer
-            .set_group_effect(survivor, 8, &[1, 2, 3, 4])
+            .set_group_effect(survivor, 8, &[1, 2, 3, 4], GroupEffectConfig::default())
             .unwrap();
         renderer
             .set_shape_backdrop_effect(survivor, 9, &[1, 2, 3, 4], BackdropEffectConfig::default())

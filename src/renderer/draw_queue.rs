@@ -1,4 +1,4 @@
-use super::damage::{mark_dirty, mark_shape_effect_dirty};
+use super::damage::{mark_dirty, mark_physical_dirty, mark_shape_effect_dirty};
 use super::types::DrawCommandError;
 use super::{RenderBackend, Renderer};
 use crate::commands::ShapeDrawId;
@@ -260,6 +260,7 @@ impl<B: RenderBackend> Renderer<B> {
         node: DrawTreeNode,
         shape_effect_bounds: Option<ShapeEffectBounds>,
     ) {
+        let previous_group_output = self.scene.group_effect_output(node_id);
         let old_effect_bounds = self
             .scene
             .shape_effects
@@ -290,10 +291,15 @@ impl<B: RenderBackend> Renderer<B> {
         for bounds in old_effect_bounds.into_iter().chain(shape_effect_bounds) {
             mark_shape_effect_dirty(&mut self.dirty_bounds, bounds, self.scene.viewport());
         }
+        mark_physical_dirty(&mut self.dirty_bounds, previous_group_output);
+        mark_physical_dirty(
+            &mut self.dirty_bounds,
+            self.scene.group_effect_output(node_id),
+        );
         if has_child_clip(&previous) != clips_children
             && !self.scene.draw_tree.children(node_id).is_empty()
         {
-            self.pending_clip_damage.insert(node_id);
+            self.pending_damage.insert(node_id);
         }
     }
 
@@ -316,7 +322,7 @@ impl<B: RenderBackend> Renderer<B> {
         let viewport = self.scene.viewport();
         let fringe_width = self.scene.fringe_width();
         self.scene
-            .remove_subtrees_with(node_ids, |id, node, effect| {
+            .remove_subtrees_with(node_ids, |id, node, effect, group_output| {
                 if matches!(node, DrawTreeNode::CachedShape(_)) {
                     mark_dirty(
                         &mut self.dirty_bounds,
@@ -328,6 +334,7 @@ impl<B: RenderBackend> Renderer<B> {
                 if let Some(effect) = effect {
                     mark_shape_effect_dirty(&mut self.dirty_bounds, effect.bounds, viewport);
                 }
+                mark_physical_dirty(&mut self.dirty_bounds, group_output);
                 has_removed_nodes = true;
                 if matches!(node, DrawTreeNode::CachedShape(_)) {
                     self.removed_shape_ids.push(ShapeDrawId(id));

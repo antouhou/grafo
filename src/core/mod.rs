@@ -1,18 +1,11 @@
 //! CPU geometry, colors, fills, effects, and transforms.
 
-pub(crate) mod cache;
-mod color;
-pub(crate) mod effect;
-pub(crate) mod geometry;
-pub mod gradient;
-pub(crate) mod shape;
-pub(crate) mod util;
-pub(crate) mod vertex;
-
 pub use cache::CachedTessellation;
 pub(crate) use color::linear_to_srgb_u8;
 pub use color::{premultiply_rgba8_srgb_inplace, Color};
-pub use effect::{BackdropCaptureArea, BackdropEffectConfig, CaptureRegion, ShapeEffectConfig};
+pub use effect::{
+    BackdropCaptureArea, BackdropEffectConfig, CaptureRegion, GroupEffectConfig, ShapeEffectConfig,
+};
 pub use geometry::{
     MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect, Viewport,
 };
@@ -26,3 +19,12 @@ pub use gradient::types::{
 pub use shape::*;
 pub use vertex::InstanceTransform as TransformInstance;
 pub use vertex::{CustomVertex, TextureUvTransform};
+
+pub(crate) mod cache;
+mod color;
+pub(crate) mod effect;
+pub(crate) mod geometry;
+pub mod gradient;
+pub(crate) mod shape;
+pub(crate) mod util;
+pub(crate) mod vertex;

@@ -3,16 +3,19 @@ use crate::commands::{
     EffectParameterRange, EffectParameters, IntermediateTextureId, ShapeTextureBinding,
     ShapeTextureLayer, TextureSampling,
 };
+use crate::core::effect::GroupEffectConfig;
 use crate::core::gradient::types::{
     ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset, LinearGradientDesc,
     LinearGradientLine,
 };
 use crate::core::util::ShapeResources;
 use crate::planner::draws::shape_material;
-use crate::scene::effects::EffectInstance;
+use crate::scene::effects::{EffectInstance, GroupEffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::DrawTreeNode;
-use crate::{CachedShapeHandle, Color, Shape, ShapeDrawCommandOptions, Size, TransformInstance};
+use crate::{
+    CachedShapeHandle, Color, Shape, ShapeDrawCommandOptions, Size, TransformInstance, Viewport,
+};
 use ahash::{HashMap, HashMapExt};
 use lyon::tessellation::FillTessellator;
 
@@ -58,7 +61,7 @@ fn rect_draw_tree_node() -> DrawTreeNode {
 fn should_skip(
     node_id: usize,
     node: &DrawTreeNode,
-    groups: &HashMap<usize, EffectInstance>,
+    groups: &HashMap<usize, GroupEffectInstance>,
 ) -> bool {
     let material = match node {
         DrawTreeNode::CachedShape(description) => Some(shape_material(&description.instance)),
@@ -85,13 +88,23 @@ fn skip_visible_rect_draw_rejects_group_effect_nodes() {
     let mut group_effects = HashMap::new();
     group_effects.insert(
         node_id,
-        EffectInstance {
-            effect_id: 1,
-            parameters: EffectParameters {
-                range: EffectParameterRange { start: 0, end: 0 },
-                hash: 0,
+        GroupEffectInstance::new(
+            EffectInstance {
+                effect_id: 1,
+                parameters: EffectParameters {
+                    range: EffectParameterRange { start: 0, end: 0 },
+                    hash: 0,
+                },
             },
-        },
+            GroupEffectConfig::default(),
+            &draw_tree_node,
+            None,
+            Viewport {
+                physical_size: (100, 100),
+                scale_factor: 1.0,
+            },
+            4096,
+        ),
     );
 
     assert!(!should_skip(node_id, &draw_tree_node, &group_effects,));

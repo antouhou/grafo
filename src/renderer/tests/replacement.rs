@@ -3,7 +3,8 @@ use super::{
 };
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
-    BackdropCaptureArea, BackdropEffectConfig, Shape, ShapeDrawCommandOptions, UnsignedPhysicalRect,
+    BackdropCaptureArea, BackdropEffectConfig, GroupEffectConfig, Shape, ShapeDrawCommandOptions,
+    UnsignedPhysicalRect,
 };
 use crate::scene::SceneError;
 
@@ -41,7 +42,9 @@ fn replacements_preserve_topology_and_refresh_or_remove_only_the_nodes_effects()
     let first = shape(&mut renderer, [(0.0, 0.0), (4.0, 4.0)], parent);
     let second = shape(&mut renderer, [(4.0, 4.0), (8.0, 8.0)], parent);
     let sibling = queue_shape(&mut renderer, false);
-    renderer.set_group_effect(first, 8, &[1, 2, 3, 4]).unwrap();
+    renderer
+        .set_group_effect(first, 8, &[1, 2, 3, 4], GroupEffectConfig::default())
+        .unwrap();
     renderer
         .set_shape_backdrop_effect(parent, 7, &[1, 2, 3, 4], BackdropEffectConfig::default())
         .unwrap();

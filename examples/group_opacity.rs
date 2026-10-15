@@ -2,9 +2,7 @@
 //! Each group composites its parent and children into one translucent layer.
 
 use futures::executor::block_on;
-use grafo::Shape;
-use grafo::{Color, ShapeDrawCommandOptions};
-use grafo::{RendererContext, Surface};
+use grafo::{Color, GroupEffectConfig, RendererContext, Shape, ShapeDrawCommandOptions, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -133,7 +131,12 @@ impl ApplicationHandler for App {
 
                 let opacity: f32 = 0.5;
                 renderer
-                    .set_group_effect(group1, OPACITY_EFFECT, bytemuck::bytes_of(&opacity))
+                    .set_group_effect(
+                        group1,
+                        OPACITY_EFFECT,
+                        bytemuck::bytes_of(&opacity),
+                        GroupEffectConfig::default(),
+                    )
                     .expect("Failed to set effect");
 
                 let group2_bg = Shape::rect([(350.0, 100.0), (700.0, 350.0)]);
@@ -158,7 +161,12 @@ impl ApplicationHandler for App {
 
                 let opacity2: f32 = 0.8;
                 renderer
-                    .set_group_effect(group2, OPACITY_EFFECT, bytemuck::bytes_of(&opacity2))
+                    .set_group_effect(
+                        group2,
+                        OPACITY_EFFECT,
+                        bytemuck::bytes_of(&opacity2),
+                        GroupEffectConfig::default(),
+                    )
                     .expect("Failed to set effect");
 
                 window_rendering::render(renderer, surface, event_loop);

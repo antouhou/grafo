@@ -1,5 +1,6 @@
 use super::types::DrawTreeNode;
-use crate::core::effect::CaptureRegion;
+use super::Scene;
+use crate::core::effect::{CaptureRegion, GroupEffectBounds};
 use crate::core::geometry;
 use crate::core::{Size, UnsignedPhysicalRect, Viewport};
 use ahash::{HashMap, HashSet};
@@ -13,15 +14,22 @@ fn envelope(bounds: UnsignedPhysicalRect) -> AABB<[f64; 2]> {
     )
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum EffectDamageKind {
+    Backdrop,
+    Group,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct BackdropDamageEntry {
+pub(super) struct EffectDamageEntry {
     pub node_id: usize,
+    pub kind: EffectDamageKind,
     pub capture_region: Option<UnsignedPhysicalRect>,
     pub target_region: Option<UnsignedPhysicalRect>,
 }
 
-impl BackdropDamageEntry {
-    pub(super) fn new(
+impl EffectDamageEntry {
+    pub(super) fn backdrop(
         node_id: usize,
         node: &DrawTreeNode,
         capture_region: Option<CaptureRegion>,
@@ -45,13 +53,38 @@ impl BackdropDamageEntry {
         }
         Some(Self {
             node_id,
+            kind: EffectDamageKind::Backdrop,
+            capture_region,
+            target_region,
+        })
+    }
+
+    pub(super) fn group(
+        node_id: usize,
+        bounds: Option<GroupEffectBounds>,
+        physical_size: Size,
+    ) -> Option<Self> {
+        let bounds = bounds?;
+        let capture_region = bounds.capture_region.source_rect;
+        let target_region = bounds
+            .capture_region
+            .bounds
+            .to_i64()
+            .intersection(&UnsignedPhysicalRect::from_size(physical_size).to_i64())
+            .map(|bounds| bounds.to_u32());
+        if capture_region.is_none() && target_region.is_none() {
+            return None;
+        }
+        Some(Self {
+            node_id,
+            kind: EffectDamageKind::Group,
             capture_region,
             target_region,
         })
     }
 }
 
-impl RTreeObject for BackdropDamageEntry {
+impl RTreeObject for EffectDamageEntry {
     type Envelope = AABB<[f64; 2]>;
 
     fn envelope(&self) -> Self::Envelope {
@@ -64,37 +97,56 @@ impl RTreeObject for BackdropDamageEntry {
     }
 }
 
-/// Tracks backdrop dependencies and expands damage through their capture and target regions.
+/// Includes effect output when damage overlaps its input, and backdrop capture when needed.
 #[derive(Default)]
-pub(super) struct BackdropDamage {
-    entries: HashMap<usize, BackdropDamageEntry>,
-    tree: RTree<BackdropDamageEntry>,
+pub(super) struct EffectDamage {
+    entries: HashMap<(EffectDamageKind, usize), EffectDamageEntry>,
+    tree: RTree<EffectDamageEntry>,
     query_regions: Vec<UnsignedPhysicalRect>,
-    processed_backdrops: HashSet<usize>,
+    processed_effects: HashSet<(EffectDamageKind, usize)>,
 }
 
-impl BackdropDamage {
-    pub(super) fn replace(&mut self, node_id: usize, entry: Option<BackdropDamageEntry>) {
-        if self.entries.get(&node_id).copied() == entry {
+impl EffectDamage {
+    pub(super) fn output_region(
+        &self,
+        kind: EffectDamageKind,
+        node_id: usize,
+    ) -> Option<UnsignedPhysicalRect> {
+        self.entries
+            .get(&(kind, node_id))
+            .and_then(|entry| entry.target_region)
+    }
+
+    pub(super) fn replace(
+        &mut self,
+        kind: EffectDamageKind,
+        node_id: usize,
+        entry: Option<EffectDamageEntry>,
+    ) {
+        let key = (kind, node_id);
+        if self.entries.get(&key).copied() == entry {
             return;
         }
-        self.remove(node_id);
+        self.remove(kind, node_id);
         if let Some(entry) = entry {
             self.tree.insert(entry);
-            self.entries.insert(node_id, entry);
+            self.entries.insert(key, entry);
         }
     }
 
-    pub(super) fn remove(&mut self, node_id: usize) {
-        if let Some(entry) = self.entries.remove(&node_id) {
+    pub(super) fn remove(&mut self, kind: EffectDamageKind, node_id: usize) {
+        if let Some(entry) = self.entries.remove(&(kind, node_id)) {
             self.tree.remove(&entry);
         }
     }
 
-    pub(super) fn rebuild(&mut self, entries: impl IntoIterator<Item = BackdropDamageEntry>) {
+    pub(super) fn rebuild(&mut self, entries: impl IntoIterator<Item = EffectDamageEntry>) {
         self.clear();
-        self.entries
-            .extend(entries.into_iter().map(|entry| (entry.node_id, entry)));
+        self.entries.extend(
+            entries
+                .into_iter()
+                .map(|entry| ((entry.kind, entry.node_id), entry)),
+        );
         for entry in self.entries.values() {
             self.tree.insert(*entry);
         }
@@ -102,7 +154,7 @@ impl BackdropDamage {
 
     pub(super) fn clear(&mut self) {
         self.query_regions.clear();
-        self.processed_backdrops.clear();
+        self.processed_effects.clear();
         if self.entries.is_empty() {
             return;
         }
@@ -114,14 +166,14 @@ impl BackdropDamage {
         self.entries.is_empty()
     }
 
-    /// Includes capture and target regions of affected backdrop effects.
+    /// Unions affected group outputs and backdrop capture/target rectangles with damage.
     pub(super) fn expand(
         &mut self,
         physical_size: Size,
         dirty_bounds: Option<UnsignedPhysicalRect>,
     ) -> Option<UnsignedPhysicalRect> {
         self.query_regions.clear();
-        self.processed_backdrops.clear();
+        self.processed_effects.clear();
         let viewport = UnsignedPhysicalRect::from_size(physical_size);
         let mut bounds = dirty_bounds?.intersection(&viewport)?;
         if self.is_empty() || bounds == viewport {
@@ -135,15 +187,18 @@ impl BackdropDamage {
             let _ = self
                 .tree
                 .locate_in_envelope_intersecting_int(envelope(query), |entry| {
-                    let is_affected = [entry.capture_region, entry.target_region]
+                    let target_trigger = (entry.kind == EffectDamageKind::Backdrop)
+                        .then_some(entry.target_region)
+                        .flatten();
+                    let is_affected = [entry.capture_region, target_trigger]
                         .into_iter()
                         .flatten()
                         .any(|region| region.intersects(&bounds));
-                    if is_affected && self.processed_backdrops.insert(entry.node_id) {
-                        for region in [entry.capture_region, entry.target_region]
-                            .into_iter()
-                            .flatten()
-                        {
+                    if is_affected && self.processed_effects.insert((entry.kind, entry.node_id)) {
+                        let capture = (entry.kind == EffectDamageKind::Backdrop)
+                            .then_some(entry.capture_region)
+                            .flatten();
+                        for region in [capture, entry.target_region].into_iter().flatten() {
                             bounds = bounds.union(&region);
                         }
                     }
@@ -181,6 +236,13 @@ impl BackdropDamage {
                 self.query_regions.push(strip);
             }
         }
+    }
+}
+
+impl Scene {
+    pub(crate) fn group_effect_output(&self, node_id: usize) -> Option<UnsignedPhysicalRect> {
+        self.effect_damage
+            .output_region(EffectDamageKind::Group, node_id)
     }
 }
 

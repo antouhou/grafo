@@ -9,7 +9,7 @@ use crate::core::util::ShapeResources;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
 use crate::core::Viewport;
 use crate::planner::TextureIdAllocator;
-use crate::scene::effects::{BackdropEffectInstance, EffectInstance};
+use crate::scene::effects::{BackdropEffectInstance, EffectInstance, GroupEffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::{ClipRectDrawData, DrawTreeNode};
 use crate::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, Size, UnsignedPhysicalRect};
@@ -83,9 +83,9 @@ fn clip(min: (f32, f32), max: (f32, f32)) -> DrawTreeNode {
 
 struct Scene {
     tree: Tree<DrawTreeNode>,
-    results: HashMap<usize, IntermediateTextureId>,
+    results: HashMap<usize, TextureComposite>,
     shape_effects: HashMap<usize, TextureComposite>,
-    groups: HashMap<usize, EffectInstance>,
+    groups: HashMap<usize, GroupEffectInstance>,
     backdrops: HashMap<usize, BackdropEffectInstance>,
     backdrop_source: Option<CaptureSource>,
 }
@@ -249,7 +249,13 @@ fn effect_composites_carry_only_ids_placements_and_resolved_clips() {
     let child = scene.add(Some(source), shape(true));
     let group_texture = IntermediateTextureId::Registered(5);
     let leaf_texture = IntermediateTextureId::Registered(6);
-    scene.results.insert(group, group_texture);
+    scene.results.insert(
+        group,
+        TextureComposite {
+            texture: group_texture,
+            placement: TexturePlacement::Target,
+        },
+    );
     scene.shape_effects.insert(
         source,
         TextureComposite {
