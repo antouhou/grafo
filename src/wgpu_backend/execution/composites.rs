@@ -1,60 +1,46 @@
 use super::draws::{self, DrawPass};
-use crate::commands::{
-    RenderCommand, RenderOperation, RenderPlan, ShapeTextureBinding, TextureComposite,
-    TexturePlacement,
-};
+use crate::commands::{DrawClip, ShapeTextureBinding, TextureComposite, TexturePlacement};
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
 use crate::wgpu_backend::types::Pipeline;
 use crate::wgpu_backend::vertex::{InstanceColor, InstanceMetadata};
-use std::num::NonZeroU64;
-use std::ops::Range;
+use bytemuck::{Pod, Zeroable};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
-use wgpu::{Buffer, BufferDescriptor, BufferUsages, Device, IndexFormat, Queue};
+use wgpu::{Buffer, BufferUsages, Device, IndexFormat, Queue};
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct CompositeInstance {
+    transform: InstanceTransform,
+    color: InstanceColor,
+    metadata: InstanceMetadata,
+}
 
 struct QuadBuffers {
     vertices: Buffer,
     indices: Buffer,
 }
 
-#[derive(Clone, Copy)]
-pub(super) struct CompositeInstanceBuffer {
-    count: usize,
-}
-
-/// Shared GPU quad geometry and one reusable instance buffer, independent of queue nodes.
+/// Shared quad geometry and reusable instance slots, independent of queue nodes.
 #[derive(Default)]
 pub(in crate::wgpu_backend) struct CompositeExecutionResources {
     quad: Option<QuadBuffers>,
-    instances: Option<Buffer>,
+    instances: Vec<Buffer>,
+    used: usize,
 }
 
 impl CompositeExecutionResources {
-    pub(super) fn prepare(
+    pub(super) fn begin_render(&mut self) {
+        self.used = 0;
+    }
+
+    fn prepare(
         &mut self,
         device: &Device,
         queue: &Queue,
-        commands: &RenderPlan,
-    ) -> Option<CompositeInstanceBuffer> {
-        let composites =
-            commands
-                .instructions
-                .iter()
-                .filter_map(|command| match command.operation {
-                    RenderOperation::CompositeTexture(TextureComposite {
-                        placement:
-                            TexturePlacement::Local {
-                                transform,
-                                sampling,
-                            },
-                        ..
-                    }) => Some((transform, sampling)),
-                    _ => None,
-                });
-        let count = composites.clone().count();
-        if count == 0 {
-            return None;
-        }
-        self.quad.get_or_insert_with(|| QuadBuffers {
+        transform: InstanceTransform,
+        sampling: TextureUvTransform,
+    ) -> (&QuadBuffers, &Buffer) {
+        let quad = self.quad.get_or_insert_with(|| QuadBuffers {
             vertices: device.create_buffer_init(&BufferInitDescriptor {
                 label: Some("composite_quad_vertices"),
                 contents: bytemuck::cast_slice(&CustomVertex::unit_quad()),
@@ -66,99 +52,51 @@ impl CompositeExecutionResources {
                 usage: BufferUsages::INDEX,
             }),
         });
-        let color_offset = count * InstanceTransform::STRIDE as usize;
-        let metadata_offset = color_offset + count * InstanceColor::STRIDE as usize;
-        let size = metadata_offset + count * InstanceMetadata::STRIDE as usize;
-        let descriptor = BufferDescriptor {
-            label: Some("composite_instances"),
-            size: size as u64,
-            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        };
-        if self
-            .instances
-            .as_ref()
-            .is_none_or(|buffer| buffer.size() < size as u64)
-        {
-            self.instances = Some(device.create_buffer(&descriptor));
-        }
-        let mut upload = queue
-            .write_buffer_with(
-                self.instances
-                    .as_ref()
-                    .expect("composite buffer was allocated"),
-                0,
-                NonZeroU64::new(size as u64).expect("composite instances are nonempty"),
-            )
-            .expect("composite upload fits its buffer");
-        upload[color_offset..metadata_offset].fill(0);
-        for (instance, (transform, sampling)) in composites.enumerate() {
-            let metadata = InstanceMetadata {
+        let instance = CompositeInstance {
+            transform,
+            color: InstanceColor::zeroed(),
+            metadata: InstanceMetadata {
                 texture_flags: 1.0,
                 texture_uv_transform_layer0: sampling,
                 texture_uv_transform_layer1: TextureUvTransform::IDENTITY,
-            };
-            let transform_start = instance * InstanceTransform::STRIDE as usize;
-            upload[transform_start..transform_start + InstanceTransform::STRIDE as usize]
-                .copy_from_slice(bytemuck::bytes_of(&transform));
-            let metadata_start = metadata_offset + instance * InstanceMetadata::STRIDE as usize;
-            upload[metadata_start..metadata_start + InstanceMetadata::STRIDE as usize]
-                .copy_from_slice(bytemuck::bytes_of(&metadata));
+            },
+        };
+        let contents = bytemuck::bytes_of(&instance);
+        // Draws encoded before submission must not overwrite each other's instance data.
+        if self.used == self.instances.len() {
+            self.instances
+                .push(device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("composite_instance"),
+                    contents,
+                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                }));
+        } else {
+            queue.write_buffer(&self.instances[self.used], 0, contents);
         }
-        Some(CompositeInstanceBuffer { count })
+        let buffer = &self.instances[self.used];
+        self.used += 1;
+        (quad, buffer)
     }
 }
 
 impl DrawPass<'_, '_> {
-    /// Consecutive local composites can share one instanced quad draw.
-    pub(super) fn execute_texture_composites(
+    pub(super) fn composite_local_texture(
         &mut self,
-        instructions: &[RenderCommand],
-        resources: &CompositeExecutionResources,
-        instances: CompositeInstanceBuffer,
-        first_instance: u32,
-    ) -> usize {
-        let first = &instructions[0];
-        let RenderOperation::CompositeTexture(command) = &first.operation else {
-            unreachable!("composite batch starts with a texture");
-        };
-        let command = *command;
-        let texture = self.textures.resolve_id(command.texture);
-        let mut count = 1;
-        for next in &instructions[1..] {
-            let RenderOperation::CompositeTexture(next_composite) = &next.operation else {
-                break;
-            };
-
-            if !matches!(next_composite.placement, TexturePlacement::Local { .. }) {
-                break;
-            }
-            if next.clip != first.clip
-                || self.textures.resolve_id(next_composite.texture) != texture
-            {
-                break;
-            }
-            count += 1;
-        }
-        self.set_scissor(first.clip.scissor);
-        self.composite_local_texture(
-            first.clip.stencil_reference,
-            command,
-            resources,
-            instances,
-            first_instance..first_instance + count as u32,
-        );
-        count
-    }
-
-    fn composite_local_texture(
-        &mut self,
-        stencil_reference: u32,
         command: TextureComposite,
-        resources: &CompositeExecutionResources,
-        instances: CompositeInstanceBuffer,
-        range: Range<u32>,
+        clip: DrawClip,
+        resources: &mut CompositeExecutionResources,
+        device: &Device,
+        queue: &Queue,
     ) {
+        let TexturePlacement::Local {
+            transform,
+            sampling,
+        } = command.placement
+        else {
+            unreachable!("local composites have a transform and sampling");
+        };
+        let (quad, buffer) = resources.prepare(device, queue, transform, sampling);
+        self.set_scissor(clip.scissor);
         let pipelines = &self.pipelines.shapes;
         if self.pipeline_tracker.current != Pipeline::LeafDraw {
             self.render_pass.set_pipeline(&pipelines.leaf_draw_pipeline);
@@ -176,28 +114,21 @@ impl DrawPass<'_, '_> {
             .set_bind_group(1, self.textures.bind_group(command.texture), &[]);
         self.bound_textures
             .mark_bound(0, ShapeTextureBinding::Intermediate(command.texture));
-        let quad = resources
-            .quad
-            .as_ref()
-            .expect("composite geometry was prepared");
         self.render_pass
             .set_vertex_buffer(0, quad.vertices.slice(..));
         self.render_pass
             .set_index_buffer(quad.indices.slice(..), IndexFormat::Uint16);
-        let buffer = resources
-            .instances
-            .as_ref()
-            .expect("composite instances were uploaded");
-        let color_offset = instances.count as u64 * InstanceTransform::STRIDE;
-        let metadata_offset = color_offset + instances.count as u64 * InstanceColor::STRIDE;
+        let color_offset = InstanceTransform::STRIDE;
+        let metadata_offset = color_offset + InstanceColor::STRIDE;
         self.render_pass
             .set_vertex_buffer(1, buffer.slice(..color_offset));
         self.render_pass
             .set_vertex_buffer(2, buffer.slice(color_offset..metadata_offset));
         self.render_pass
             .set_vertex_buffer(3, buffer.slice(metadata_offset..));
-        self.render_pass.set_stencil_reference(stencil_reference);
-        self.render_pass.draw_indexed(0..6, 0, range);
+        self.render_pass
+            .set_stencil_reference(clip.stencil_reference);
+        self.render_pass.draw_indexed(0..6, 0, 0..1);
         draws::bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
     }
 }

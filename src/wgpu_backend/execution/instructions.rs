@@ -1,5 +1,4 @@
 use super::backdrops;
-use super::composites::CompositeInstanceBuffer;
 use super::draws::DrawPass;
 use super::effects::instructions::{execute_effect, EffectContext};
 use super::effects::EffectExecutionResources;
@@ -123,7 +122,6 @@ impl ExecutionResources<'_> {
 }
 
 /// Consumes draw commands directly until the next operation needs the command encoder.
-#[allow(clippy::too_many_arguments)]
 fn execute_draws(
     encoder: &mut CommandEncoder,
     commands: &RenderPlan,
@@ -131,8 +129,6 @@ fn execute_draws(
     surface: &SurfaceTarget<'_>,
     resources: &mut ExecutionResources<'_>,
     pipeline_tracker: &mut PipelineTracker,
-    composite_instances: Option<CompositeInstanceBuffer>,
-    composite_instance: &mut u32,
 ) {
     let first_command_index = *cursor;
     if let RenderOperation::DrawShape(draw) | RenderOperation::DrawShapeAndIncrementStencil(draw) =
@@ -202,15 +198,13 @@ fn execute_draws(
                     pass.composite_texture(command.clip.stencil_reference, composite.texture);
                 }
                 TexturePlacement::Local { .. } => {
-                    let count = pass.execute_texture_composites(
-                        &commands.instructions[*cursor..],
-                        &resources.shapes.composites,
-                        composite_instances.expect("local composite instances were uploaded"),
-                        *composite_instance,
+                    pass.composite_local_texture(
+                        *composite,
+                        command.clip,
+                        &mut resources.shapes.composites,
+                        resources.context.device,
+                        resources.context.queue,
                     );
-                    *composite_instance += count as u32;
-                    *cursor += count;
-                    continue;
                 }
             },
             _ => break,
@@ -226,12 +220,7 @@ pub(in crate::wgpu_backend) fn execute_commands(
     mut resources: ExecutionResources<'_>,
 ) -> ExecutionMetrics {
     let mut pipeline_tracker = PipelineTracker::new();
-    let composite_instances = resources.shapes.composites.prepare(
-        resources.context.device,
-        resources.context.queue,
-        commands,
-    );
-    let mut composite_instance = 0;
+    resources.shapes.composites.begin_render();
     let mut cursor = 0;
     while let Some(command) = commands.instructions.get(cursor) {
         match &command.operation {
@@ -328,8 +317,6 @@ pub(in crate::wgpu_backend) fn execute_commands(
                     &surface,
                     &mut resources,
                     &mut pipeline_tracker,
-                    composite_instances,
-                    &mut composite_instance,
                 );
                 continue;
             }
