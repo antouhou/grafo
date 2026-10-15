@@ -49,7 +49,7 @@ fn backdrop(
 ) -> usize {
     let node = shape(renderer, output);
     renderer
-        .set_shape_backdrop_effect(node, 7, &[1, 2, 3, 4], capture(input))
+        .set_backdrop_effect(node, 7, &[1, 2, 3, 4], capture(input))
         .unwrap();
     node
 }
@@ -106,27 +106,27 @@ fn backdrop_mutations_damage_shape_and_reconstruct_current_capture() {
     renderer.render(&mut surface).unwrap();
     let config = capture([(512.0, 128.0), (544.0, 160.0)]);
     renderer
-        .set_shape_backdrop_effect(node, 7, &[1, 2, 3, 4], config)
+        .set_backdrop_effect(node, 7, &[1, 2, 3, 4], config)
         .unwrap();
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, rect((15, 127), (544, 161)));
 
     renderer
-        .set_shape_backdrop_effect(node, 7, &[1, 2, 3, 4], config)
+        .set_backdrop_effect(node, 7, &[1, 2, 3, 4], config)
         .unwrap();
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, rect((15, 127), (544, 161)));
 
     let moved = capture([(768.0, 128.0), (800.0, 160.0)]);
     renderer
-        .set_shape_backdrop_effect(node, 7, &[1, 2, 3, 4], moved)
+        .set_backdrop_effect(node, 7, &[1, 2, 3, 4], moved)
         .unwrap();
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, rect((15, 127), (800, 161)));
 
     let previous_capture = renderer.scene.backdrop_effects[&node].capture_region;
     assert!(renderer
-        .set_shape_backdrop_effect(node, 7, &[1, 2, 3, 4], config.padding(-1.0))
+        .set_backdrop_effect(node, 7, &[1, 2, 3, 4], config.padding(-1.0))
         .is_err());
     let attachment = renderer.scene.backdrop_effects[&node];
     assert_eq!(attachment.config, moved);
@@ -145,19 +145,19 @@ fn backdrop_mutations_damage_shape_and_reconstruct_current_capture() {
 
     let oversized = capture([(0.0, 0.0), (1_000_000.0, 512.0)]);
     renderer
-        .set_shape_backdrop_effect(node, 7, &[1, 2, 3, 4], oversized)
+        .set_backdrop_effect(node, 7, &[1, 2, 3, 4], oversized)
         .unwrap();
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, rect((15, 127), (49, 161)));
 
     renderer
-        .set_shape_backdrop_effect(node, 7, &[4, 3, 2, 1], oversized)
+        .set_backdrop_effect(node, 7, &[4, 3, 2, 1], oversized)
         .unwrap();
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, rect((15, 127), (49, 161)));
 
     renderer
-        .set_shape_backdrop_effect(node, 7, &[1, 2, 3, 4], oversized)
+        .set_backdrop_effect(node, 7, &[1, 2, 3, 4], oversized)
         .unwrap();
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, rect((15, 127), (49, 161)));
@@ -180,7 +180,7 @@ fn removed_backdrops_do_not_leave_dependencies_when_node_ids_are_reused() {
     renderer.render(&mut surface).unwrap();
     let oversized = capture([(0.0, 0.0), (1_000_000.0, 512.0)]);
     renderer
-        .set_shape_backdrop_effect(node, 7, &[1, 2, 3, 4], oversized)
+        .set_backdrop_effect(node, 7, &[1, 2, 3, 4], oversized)
         .unwrap();
     renderer.render(&mut surface).unwrap();
     renderer.unload_effect(7);
@@ -188,7 +188,7 @@ fn removed_backdrops_do_not_leave_dependencies_when_node_ids_are_reused() {
     assert_eq!(renderer.backend.root_scissor, rect((511, 7), (537, 33)));
 
     renderer
-        .set_shape_backdrop_effect(node, 7, &[1, 2, 3, 4], oversized)
+        .set_backdrop_effect(node, 7, &[1, 2, 3, 4], oversized)
         .unwrap();
     renderer.render(&mut surface).unwrap();
     renderer.load_effect(7, &["changed shader"]).unwrap();
@@ -196,7 +196,7 @@ fn removed_backdrops_do_not_leave_dependencies_when_node_ids_are_reused() {
     assert_eq!(renderer.backend.root_scissor, rect((511, 7), (537, 33)));
 
     renderer
-        .set_shape_backdrop_effect(node, 7, &[1, 2, 3, 4], capture(input))
+        .set_backdrop_effect(node, 7, &[1, 2, 3, 4], capture(input))
         .unwrap();
     renderer.render(&mut surface).unwrap();
     renderer.remove_subtrees([node], |_| {});

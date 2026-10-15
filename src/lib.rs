@@ -12,7 +12,7 @@
 //! * Hierarchical path clipping
 //! * Per-instance 3D and perspective transforms
 //! * Solid fills and linear, radial, and conic gradients
-//! * Custom WGSL shader effects on shape masks, groups, and backdrops
+//! * Custom WGSL shader effects on shape masks, rendered content, and backdrops
 //! * Geometry-based antialiasing and MSAA
 //!
 //! [Install Grafo from crates.io](https://crates.io/crates/grafo) or read the
@@ -54,7 +54,7 @@ pub use scene::SceneError;
 use std::sync::Arc;
 pub use wgpu;
 #[cfg(feature = "render_metrics")]
-pub use wgpu_backend::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeEffectCacheMetrics};
+pub use wgpu_backend::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeMaskEffectCacheMetrics};
 pub use wgpu_backend::texture_manager::WgpuTextureManager;
 pub use wgpu_backend::{
     BackendCreationError as RendererCreationError, EffectResourceError, EffectShaderError,

@@ -3,7 +3,7 @@
 
 use futures::executor::block_on;
 use grafo::{
-    BackdropEffectConfig, BorderRadii, Color, GroupEffectConfig, RendererContext, Shape,
+    BackdropEffectConfig, BorderRadii, Color, ContentEffectConfig, RendererContext, Shape,
     ShapeDrawCommandOptions, Surface,
 };
 use grafo_test_scenes::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
@@ -205,7 +205,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                // Parent panel with a box shadow group effect
+                // Parent panel with a box shadow content effect
                 let panel_x = 150.0;
                 let panel_y = 120.0;
                 let panel_w = 500.0;
@@ -243,11 +243,11 @@ impl ApplicationHandler for App {
                     corner_radius: panel_radius * scale_factor,
                 };
                 renderer
-                    .set_group_effect(
+                    .set_content_effect(
                         panel,
                         BOX_SHADOW_EFFECT,
                         bytemuck::bytes_of(&shadow_params),
-                        GroupEffectConfig::new().outset(shadow_padding),
+                        ContentEffectConfig::new().outset(shadow_padding),
                     )
                     .expect("Failed to set box shadow effect");
 
@@ -268,7 +268,7 @@ impl ApplicationHandler for App {
 
                 let blur_params = BlurParams::new(14.0);
                 renderer
-                    .set_shape_backdrop_effect(
+                    .set_backdrop_effect(
                         glass,
                         BLUR_EFFECT,
                         bytemuck::bytes_of(&blur_params),

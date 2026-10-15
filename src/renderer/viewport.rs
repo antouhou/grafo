@@ -15,12 +15,12 @@ impl<B: RenderBackend> Renderer<B> {
         self.scene.fringe_width()
     }
 
-    /// Returns an error and preserves settings if attached shape effects cannot use the new scale.
+    /// Returns an error and preserves settings if attached shape mask effects cannot use the new scale.
     pub fn change_scale_factor(&mut self, new_scale_factor: f64) -> Result<(), SceneError> {
         self.update_raster_settings(new_scale_factor, self.scene.fringe_width())
     }
 
-    /// Returns an error and preserves settings if attached shape effects cannot use the new fringe.
+    /// Returns an error and preserves settings if attached shape mask effects cannot use the new fringe.
     pub fn set_fringe_width(&mut self, fringe_width: f32) -> Result<(), SceneError> {
         self.update_raster_settings(self.scene.viewport().scale_factor, fringe_width)
     }

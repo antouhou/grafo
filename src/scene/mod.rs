@@ -1,5 +1,5 @@
 //! CPU scene descriptions, tessellation caches and effect attachments.
-use crate::core::effect::ShapeEffectBounds;
+use crate::core::effect::ShapeMaskEffectBounds;
 use crate::core::shape::{CachedShapeHandle, Shape, ShapeInstance};
 use crate::core::util::ShapeResources;
 use crate::core::vertex::InstanceTransform;
@@ -9,7 +9,7 @@ use ahash::{HashMap, HashMapExt, HashSet};
 use easy_tree::Tree;
 use effect_damage::{EffectDamage, EffectDamageKind};
 use effects::{
-    resolve_backdrop_effect, BackdropEffectInstance, GroupEffectInstance, ShapeEffectInstance,
+    resolve_backdrop_effect, BackdropEffectInstance, ContentEffectInstance, ShapeMaskEffectInstance,
 };
 pub use errors::SceneError;
 use lyon::tessellation::FillTessellator;
@@ -51,10 +51,10 @@ pub(crate) struct Scene {
     fringe_width: f32,
     tessellator: FillTessellator,
     shape_resources: ShapeResources,
-    pub(crate) group_effects: HashMap<usize, GroupEffectInstance>,
+    pub(crate) content_effects: HashMap<usize, ContentEffectInstance>,
     pub(crate) backdrop_effects: HashMap<usize, BackdropEffectInstance>,
     effect_damage: EffectDamage,
-    pub(crate) shape_effects: HashMap<usize, ShapeEffectInstance>,
+    pub(crate) shape_mask_effects: HashMap<usize, ShapeMaskEffectInstance>,
 }
 
 impl Scene {
@@ -71,10 +71,10 @@ impl Scene {
             texture_index: TextureIndex::default(),
             tessellator: FillTessellator::new(),
             shape_resources: ShapeResources::new(),
-            group_effects: HashMap::new(),
+            content_effects: HashMap::new(),
             backdrop_effects: HashMap::new(),
             effect_damage: EffectDamage::default(),
-            shape_effects: HashMap::new(),
+            shape_mask_effects: HashMap::new(),
         }
     }
 
@@ -89,24 +89,24 @@ impl Scene {
     }
 
     /// Updates effect bounds and backdrop captures for the new scale and fringe width.
-    /// Preserves settings and attachments if any shape effect cannot use the new values.
+    /// Preserves settings and attachments if any shape mask effect cannot use the new values.
     pub(crate) fn update_raster_settings(
         &mut self,
         scale_factor: f64,
         fringe_width: f32,
         maximum_texture_dimension: u32,
     ) -> Result<(), SceneError> {
-        if let Err(error) = self.refresh_shape_effect_bounds(scale_factor, fringe_width) {
-            self.refresh_shape_effect_bounds(self.viewport.scale_factor, self.fringe_width)
+        if let Err(error) = self.refresh_shape_mask_effect_bounds(scale_factor, fringe_width) {
+            self.refresh_shape_mask_effect_bounds(self.viewport.scale_factor, self.fringe_width)
                 .expect(
-                    "failed to restore shape effect bounds with previous rasterization settings",
+                    "failed to restore shape mask effect bounds with previous rasterization settings",
                 );
             return Err(error);
         }
         self.viewport.scale_factor = scale_factor;
         self.fringe_width = fringe_width;
         self.refresh_backdrop_capture_regions(maximum_texture_dimension);
-        self.refresh_all_group_effect_bounds(maximum_texture_dimension);
+        self.refresh_all_content_effect_bounds(maximum_texture_dimension);
         Ok(())
     }
 
@@ -114,7 +114,7 @@ impl Scene {
     pub(crate) fn resize(&mut self, physical_size: (u32, u32), maximum_texture_dimension: u32) {
         self.viewport.physical_size = physical_size;
         self.refresh_backdrop_capture_regions(maximum_texture_dimension);
-        self.refresh_all_group_effect_bounds(maximum_texture_dimension);
+        self.refresh_all_content_effect_bounds(maximum_texture_dimension);
     }
 
     pub(crate) fn load_shape(
@@ -205,21 +205,21 @@ impl Scene {
         &mut self,
         node_id: usize,
         node: DrawTreeNode,
-        shape_effect_bounds: Option<ShapeEffectBounds>,
+        shape_mask_effect_bounds: Option<ShapeMaskEffectBounds>,
         maximum_texture_dimension: u32,
     ) -> DrawTreeNode {
         self.refresh_tessellation_cache(&node);
         self.texture_index.replace(node_id, &node);
         if matches!(node, DrawTreeNode::CachedShape(_)) {
-            if let Some(bounds) = shape_effect_bounds {
-                self.shape_effects
+            if let Some(bounds) = shape_mask_effect_bounds {
+                self.shape_mask_effects
                     .get_mut(&node_id)
                     .expect("replacement retains the validated attachment")
                     .bounds = bounds;
             }
         } else {
-            self.remove_group_effect(node_id);
-            self.shape_effects.remove(&node_id);
+            self.remove_content_effect(node_id);
+            self.shape_mask_effects.remove(&node_id);
             self.remove_backdrop_effect(node_id);
         }
         let refreshed_backdrop = self.backdrop_effects.get(&node_id).map(|instance| {
@@ -240,7 +240,7 @@ impl Scene {
         if let Some((instance, entry)) = refreshed_backdrop {
             self.replace_backdrop_effect(node_id, instance, entry);
         }
-        self.refresh_group_effect_bounds(node_id, maximum_texture_dimension);
+        self.refresh_content_effect_bounds(node_id, maximum_texture_dimension);
         previous
     }
 
@@ -275,7 +275,7 @@ impl Scene {
         mut removed: impl FnMut(
             usize,
             DrawTreeNode,
-            Option<ShapeEffectInstance>,
+            Option<ShapeMaskEffectInstance>,
             Option<UnsignedPhysicalRect>,
         ),
     ) {
@@ -283,13 +283,13 @@ impl Scene {
             self.texture_index.remove(id);
             let group_output = self
                 .effect_damage
-                .output_region(EffectDamageKind::Group, id);
-            self.group_effects.remove(&id);
-            self.effect_damage.remove(EffectDamageKind::Group, id);
+                .output_region(EffectDamageKind::Content, id);
+            self.content_effects.remove(&id);
+            self.effect_damage.remove(EffectDamageKind::Content, id);
             self.backdrop_effects.remove(&id);
             self.effect_damage.remove(EffectDamageKind::Backdrop, id);
-            let shape_effect = self.shape_effects.remove(&id);
-            removed(id, node, shape_effect, group_output);
+            let shape_mask_effect = self.shape_mask_effects.remove(&id);
+            removed(id, node, shape_mask_effect, group_output);
         });
     }
 

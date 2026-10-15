@@ -1,8 +1,8 @@
 use super::{envelope, EffectDamage, EffectDamageEntry, EffectDamageKind};
 use crate::core::effect::backdrops;
-use crate::core::effect::GroupEffectBounds;
+use crate::core::effect::ContentEffectBounds;
 use crate::core::{
-    BackdropCaptureArea, BackdropEffectConfig, CaptureRegion, GroupEffectConfig, MathRect, Shape,
+    BackdropCaptureArea, BackdropEffectConfig, CaptureRegion, ContentEffectConfig, MathRect, Shape,
     ShapeDrawCommandOptions, Size, UnsignedPhysicalRect, Viewport,
 };
 use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
@@ -342,10 +342,10 @@ fn dependency_changes_update_expansion_and_preserve_reusable_storage() {
 #[test]
 fn group_and_backdrop_entries_on_the_same_node_expand_in_both_insertion_orders() {
     let mut first = entry(1, rect((20, 20), (40, 40)), rect((10, 10), (50, 50)));
-    first.kind = EffectDamageKind::Group;
+    first.kind = EffectDamageKind::Content;
     let backdrop = entry(2, rect((45, 20), (50, 30)), rect((89, 19), (101, 31)));
     let mut second = entry(2, rect((90, 20), (100, 30)), rect((85, 15), (105, 35)));
-    second.kind = EffectDamageKind::Group;
+    second.kind = EffectDamageKind::Content;
     for entries in [[first, backdrop, second], [second, backdrop, first]] {
         let mut damage = EffectDamage::default();
         damage.rebuild(entries);
@@ -358,7 +358,7 @@ fn group_and_backdrop_entries_on_the_same_node_expand_in_both_insertion_orders()
         let capacities = storage_capacities(&damage);
         damage.expand(Size::new(128, 128), Some(rect((26, 26), (28, 28))));
         assert_eq!(storage_capacities(&damage), capacities);
-        damage.remove(EffectDamageKind::Group, 2);
+        damage.remove(EffectDamageKind::Content, 2);
         assert_eq!(
             damage.expand(Size::new(128, 128), Some(rect((26, 26), (28, 28)))),
             Some(rect((10, 10), (101, 50)))
@@ -374,37 +374,39 @@ fn group_rectangles_clip_full_resolution_input_and_output_independently() {
     };
     let mut damage = EffectDamage::default();
     for downsample in [1.0, 0.25] {
-        let bounds = GroupEffectBounds::new(
+        let bounds = ContentEffectBounds::new(
             MathRect::new((-2.0, 4.0).into(), (10.0, 14.0).into()),
             None,
-            GroupEffectConfig::new().outset(3.0).downsample(downsample),
+            ContentEffectConfig::new()
+                .outset(3.0)
+                .downsample(downsample),
             viewport,
             4096,
         );
-        let group = EffectDamageEntry::group(1, bounds, viewport.physical_size.into()).unwrap();
+        let group = EffectDamageEntry::content(1, bounds, viewport.physical_size.into()).unwrap();
         assert_eq!(group.capture_region, Some(rect((0, 8), (20, 28))));
         assert_eq!(group.target_region, Some(rect((0, 2), (26, 32))));
-        damage.replace(EffectDamageKind::Group, 1, Some(group));
+        damage.replace(EffectDamageKind::Content, 1, Some(group));
         assert_eq!(
             damage.expand(viewport.physical_size.into(), Some(rect((1, 10), (2, 11)))),
             group.target_region
         );
     }
-    let bounds = GroupEffectBounds::new(
+    let bounds = ContentEffectBounds::new(
         MathRect::new((-12.0, 4.0).into(), (-8.0, 14.0).into()),
         None,
-        GroupEffectConfig::new().outset(10.0),
+        ContentEffectConfig::new().outset(10.0),
         viewport,
         4096,
     );
-    let group = EffectDamageEntry::group(1, bounds, viewport.physical_size.into()).unwrap();
+    let group = EffectDamageEntry::content(1, bounds, viewport.physical_size.into()).unwrap();
     assert_eq!(group.capture_region, None);
     assert_eq!(group.target_region, Some(rect((0, 0), (4, 32))));
-    damage.replace(EffectDamageKind::Group, 1, Some(group));
+    damage.replace(EffectDamageKind::Content, 1, Some(group));
     let initial = Some(rect((1, 10), (2, 11)));
     assert_eq!(
         damage.expand(viewport.physical_size.into(), initial),
         initial
     );
-    assert!(EffectDamageEntry::group(1, None, viewport.physical_size.into()).is_none());
+    assert!(EffectDamageEntry::content(1, None, viewport.physical_size.into()).is_none());
 }

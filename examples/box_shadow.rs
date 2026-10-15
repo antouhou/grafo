@@ -3,7 +3,7 @@
 //! rendered shadow while the geometry and effect parameters stay unchanged.
 
 use futures::executor::block_on;
-use grafo::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, ShapeEffectConfig};
+use grafo::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig};
 use grafo::{RendererContext, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -76,11 +76,11 @@ fn draw_card(renderer: &mut grafo::Renderer, card_spec: CardSpec) -> usize {
     let blur_outset = card_spec.shadow_sigma * 3.0;
 
     renderer
-        .set_shape_effect(
+        .set_shape_mask_effect(
             card,
             BOX_SHADOW_EFFECT,
             bytemuck::bytes_of(&params),
-            ShapeEffectConfig::new().outsets(
+            ShapeMaskEffectConfig::new().outsets(
                 blur_outset + (-card_spec.shadow_offset[0]).max(0.0),
                 blur_outset + (-card_spec.shadow_offset[1]).max(0.0),
                 blur_outset + card_spec.shadow_offset[0].max(0.0),

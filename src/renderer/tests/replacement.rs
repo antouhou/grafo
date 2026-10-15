@@ -3,7 +3,7 @@ use super::{
 };
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
-    BackdropCaptureArea, BackdropEffectConfig, GroupEffectConfig, Shape, ShapeDrawCommandOptions,
+    BackdropCaptureArea, BackdropEffectConfig, ContentEffectConfig, Shape, ShapeDrawCommandOptions,
     UnsignedPhysicalRect,
 };
 use crate::scene::SceneError;
@@ -43,12 +43,12 @@ fn replacements_preserve_topology_and_refresh_or_remove_only_the_nodes_effects()
     let second = shape(&mut renderer, [(4.0, 4.0), (8.0, 8.0)], parent);
     let sibling = queue_shape(&mut renderer, false);
     renderer
-        .set_group_effect(first, 8, &[1, 2, 3, 4], GroupEffectConfig::default())
+        .set_content_effect(first, 8, &[1, 2, 3, 4], ContentEffectConfig::default())
         .unwrap();
     renderer
-        .set_shape_backdrop_effect(parent, 7, &[1, 2, 3, 4], BackdropEffectConfig::default())
+        .set_backdrop_effect(parent, 7, &[1, 2, 3, 4], BackdropEffectConfig::default())
         .unwrap();
-    let old_effect = *renderer.scene.shape_effect(parent).unwrap();
+    let old_effect = *renderer.scene.shape_mask_effect(parent).unwrap();
     let old_capture = renderer.scene.backdrop_effects[&parent].capture_region;
     let replacement = Shape::rect([(4.0, 5.0), (12.0, 13.0)]);
     renderer
@@ -66,7 +66,7 @@ fn replacements_preserve_topology_and_refresh_or_remove_only_the_nodes_effects()
         renderer.scene.draw_tree.parent_index_unchecked(first),
         Some(parent)
     );
-    let effect = renderer.scene.shape_effect(parent).unwrap();
+    let effect = renderer.scene.shape_mask_effect(parent).unwrap();
     assert_ne!(effect.bounds, old_effect.bounds);
     assert_eq!(effect.parameters.hash, old_effect.parameters.hash);
     assert_ne!(
@@ -80,10 +80,10 @@ fn replacements_preserve_topology_and_refresh_or_remove_only_the_nodes_effects()
 
     clip(&mut renderer, parent, true);
     assert!(!renderer.backend.registered_shapes.contains(&parent));
-    assert!(!renderer.scene.shape_effects.contains_key(&parent));
+    assert!(!renderer.scene.shape_mask_effects.contains_key(&parent));
     assert!(!renderer.scene.backdrop_effects.contains_key(&parent));
-    assert!(!renderer.scene.group_effects.contains_key(&parent));
-    assert!(renderer.scene.group_effects.contains_key(&first));
+    assert!(!renderer.scene.content_effects.contains_key(&parent));
+    assert!(renderer.scene.content_effects.contains_key(&first));
     let plan = renderer.planner.plan(&renderer.scene, 4096);
     assert_eq!(plan.effect_parameters.len(), 16);
     renderer
@@ -111,7 +111,7 @@ fn replacement_errors_preserve_the_failing_node_and_prior_replacements() {
     let second = queue_shape(&mut renderer, true);
     let last = queue_shape(&mut renderer, false);
     renderer.load_shape(Shape::rect([(2.0, 3.0), (6.0, 7.0)]), 2, Some(2));
-    let old_effect = *renderer.scene.shape_effect(second).unwrap();
+    let old_effect = *renderer.scene.shape_mask_effect(second).unwrap();
     renderer.backend.registration_failure = Some(second);
     renderer
         .replace_with_cached_shape(first, 2, ShapeDrawCommandOptions::new())
@@ -140,10 +140,10 @@ fn replacement_errors_preserve_the_failing_node_and_prior_replacements() {
     }
     assert!(matches!(
         renderer.replace_with_shape(second, Shape::rect([(0.0, 0.0), (f32::MAX, f32::MAX)]), None, ShapeDrawCommandOptions::new()),
-        Err(DrawCommandError::Scene(SceneError::InvalidShapeEffectBounds(id))) if id == second
+        Err(DrawCommandError::Scene(SceneError::InvalidShapeMaskEffectBounds(id))) if id == second
     ));
     assert_eq!(
-        renderer.scene.shape_effect(second).unwrap().bounds,
+        renderer.scene.shape_mask_effect(second).unwrap().bounds,
         old_effect.bounds
     );
     assert_eq!(renderer.dirty_bounds, dirty);
@@ -184,7 +184,7 @@ fn clip_damage_is_bounded_and_deferred_before_backdrop_expansion_and_planning() 
     renderer.load_effect(7, &["backdrop"]).unwrap();
     let backdrop = shape(&mut renderer, [(2.0, 20.0), (4.0, 24.0)], 0);
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             backdrop,
             7,
             &[1, 2, 3, 4],

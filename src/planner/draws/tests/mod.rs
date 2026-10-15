@@ -9,7 +9,7 @@ use crate::core::util::ShapeResources;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
 use crate::core::Viewport;
 use crate::planner::TextureIdAllocator;
-use crate::scene::effects::{BackdropEffectInstance, EffectInstance, GroupEffectInstance};
+use crate::scene::effects::{BackdropEffectInstance, ContentEffectInstance, EffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::{ClipRectDrawData, DrawTreeNode};
 use crate::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, Size, UnsignedPhysicalRect};
@@ -84,8 +84,8 @@ fn clip(min: (f32, f32), max: (f32, f32)) -> DrawTreeNode {
 struct Scene {
     tree: Tree<DrawTreeNode>,
     results: HashMap<usize, TextureComposite>,
-    shape_effects: HashMap<usize, TextureComposite>,
-    groups: HashMap<usize, GroupEffectInstance>,
+    shape_mask_effects: HashMap<usize, TextureComposite>,
+    groups: HashMap<usize, ContentEffectInstance>,
     backdrops: HashMap<usize, BackdropEffectInstance>,
     backdrop_source: Option<CaptureSource>,
 }
@@ -95,7 +95,7 @@ impl Scene {
         Self {
             tree: Tree::new(),
             results: HashMap::new(),
-            shape_effects: HashMap::new(),
+            shape_mask_effects: HashMap::new(),
             groups: HashMap::new(),
             backdrops: HashMap::new(),
             backdrop_source: Some(CaptureSource::Target),
@@ -128,8 +128,8 @@ impl Scene {
                 tree: &self.tree,
                 selection,
                 effect_results: &self.results,
-                shape_effects: &self.shape_effects,
-                group_effects: &self.groups,
+                shape_mask_effects: &self.shape_mask_effects,
+                content_effects: &self.groups,
                 backdrop_effects: &self.backdrops,
                 scale_factor: 1.0,
                 physical_size: Size::new(100, 100),
@@ -256,7 +256,7 @@ fn effect_composites_carry_only_ids_placements_and_resolved_clips() {
             placement: TexturePlacement::Target,
         },
     );
-    scene.shape_effects.insert(
+    scene.shape_mask_effects.insert(
         source,
         TextureComposite {
             texture: leaf_texture,

@@ -3,18 +3,18 @@ use super::effects::{
 };
 use super::shapes::ShapeExecutionResources;
 use super::textures::{
-    CachedShapeEffectMask, IntermediateTexture, IntermediateTextureResources, ShapeEffectCacheKey,
-    ShapeEffectMaskCacheKey,
+    CachedShapeMask, IntermediateTexture, IntermediateTextureResources, ShapeMaskCacheKey,
+    ShapeMaskEffectCacheKey,
 };
 use super::{draws, targets};
 use crate::commands::{
     EffectApplication, IntermediateTextureId, MaskTarget, RenderPlan, ShapeMaskDraw,
 };
 #[cfg(feature = "render_metrics")]
-use crate::wgpu_backend::metrics::ShapeEffectCacheMetrics;
+use crate::wgpu_backend::metrics::ShapeMaskEffectCacheMetrics;
 use crate::wgpu_backend::resources::Buffers;
 use bytemuck::{Pod, Zeroable};
-pub(in crate::wgpu_backend) use pipelines::ShapeEffectRendererResources;
+pub(in crate::wgpu_backend) use pipelines::ShapeMaskEffectRendererResources;
 use std::sync::Arc;
 use wgpu::{
     BindGroupLayout, Color, CommandEncoder, Device, LoadOp, Operations, Queue,
@@ -36,28 +36,28 @@ struct MaskUniform {
 #[derive(Clone)]
 pub(super) struct CompletedMask {
     pub(super) texture: IntermediateTextureId,
-    key: ShapeEffectMaskCacheKey,
+    key: ShapeMaskCacheKey,
     #[cfg(feature = "render_metrics")]
     was_cached: bool,
 }
 
-pub(in crate::wgpu_backend) struct ShapeEffectExecutionResources<'a> {
+pub(in crate::wgpu_backend) struct ShapeMaskEffectExecutionResources<'a> {
     pub device: &'a Device,
     pub queue: &'a Queue,
     pub registry: &'a EffectRegistry,
     pub sampler: &'a Sampler,
     pub composite_layout: &'a BindGroupLayout,
     pub format: TextureFormat,
-    pub pipelines: &'a ShapeEffectRendererResources,
+    pub pipelines: &'a ShapeMaskEffectRendererResources,
     pub buffers: &'a Buffers,
     pub shapes: &'a ShapeExecutionResources,
     pub effects: &'a mut EffectExecutionResources,
     pub textures: &'a mut IntermediateTextureResources,
     #[cfg(feature = "render_metrics")]
-    pub metrics: &'a mut ShapeEffectCacheMetrics,
+    pub metrics: &'a mut ShapeMaskEffectCacheMetrics,
 }
 
-impl ShapeEffectExecutionResources<'_> {
+impl ShapeMaskEffectExecutionResources<'_> {
     pub(super) fn draw_mask(
         &mut self,
         encoder: &mut CommandEncoder,
@@ -65,12 +65,12 @@ impl ShapeEffectExecutionResources<'_> {
         command: ShapeMaskDraw,
     ) -> CompletedMask {
         let shape = self.shapes.draw_resources(command.shape);
-        let key = ShapeEffectMaskCacheKey {
+        let key = ShapeMaskCacheKey {
             tessellation: Arc::clone(
                 shape
                     .mask_tessellation
                     .as_ref()
-                    .expect("shape effect geometry was prepared when attached"),
+                    .expect("shape mask effect geometry was prepared when attached"),
             ),
             local_raster_origin: command.local_physical_origin,
             raster_size: target.size,
@@ -79,63 +79,63 @@ impl ShapeEffectExecutionResources<'_> {
             downsample_bits: command.downsample.to_bits(),
             texture_format: self.format,
         };
-        let (_, _was_cached) =
-            self.textures
-                .shape_effect_masks
-                .get_or_insert_with(key.clone(), || {
-                    let [width, height] = target.size;
-                    let texture = self.textures.pool.acquire_color_only(
-                        self.device,
-                        width,
-                        height,
-                        self.format,
-                        1,
-                    );
-                    let uniform = MaskUniform {
-                        local_origin: [command.local_bounds[0].0, command.local_bounds[0].1],
-                        logical_size: [
-                            command.local_bounds[1].0 - command.local_bounds[0].0,
-                            command.local_bounds[1].1 - command.local_bounds[0].1,
-                        ],
-                        scale_factor: command.scale_factor as f32,
-                        fringe_width: command.fringe_width,
-                        padding: [0.0; 2],
-                    };
-                    let binding = self.effects.parameters.prepare(
-                        self.device,
-                        self.queue,
-                        &self.pipelines.mask_bind_group_layout,
-                        bytemuck::bytes_of(&uniform),
-                    );
-                    let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                        label: Some("shape_effect_mask"),
-                        color_attachments: &[Some(RenderPassColorAttachment {
-                            view: &texture.color_view,
-                            resolve_target: None,
-                            ops: Operations {
-                                load: LoadOp::Clear(Color::TRANSPARENT),
-                                store: StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
-                    targets::set_scissor(&mut pass, command.clip.scissor);
-                    pass.set_stencil_reference(command.clip.stencil_reference);
-                    draws::draw_shape_mask(
-                        &mut pass,
-                        shape
-                            .geometry_buffer_location
-                            .expect("planned mask has uploaded geometry")
-                            .geometry_range,
-                        &self.pipelines.mask_pipeline,
-                        binding,
-                        self.buffers,
-                    );
-                    drop(pass);
-                    CachedShapeEffectMask { texture }
+        let (_, _was_cached) = self
+            .textures
+            .shape_masks
+            .get_or_insert_with(key.clone(), || {
+                let [width, height] = target.size;
+                let texture = self.textures.pool.acquire_color_only(
+                    self.device,
+                    width,
+                    height,
+                    self.format,
+                    1,
+                );
+                let uniform = MaskUniform {
+                    local_origin: [command.local_bounds[0].0, command.local_bounds[0].1],
+                    logical_size: [
+                        command.local_bounds[1].0 - command.local_bounds[0].0,
+                        command.local_bounds[1].1 - command.local_bounds[0].1,
+                    ],
+                    scale_factor: command.scale_factor as f32,
+                    fringe_width: command.fringe_width,
+                    padding: [0.0; 2],
+                };
+                let binding = self.effects.parameters.prepare(
+                    self.device,
+                    self.queue,
+                    &self.pipelines.mask_bind_group_layout,
+                    bytemuck::bytes_of(&uniform),
+                );
+                let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                    label: Some("shape_mask"),
+                    color_attachments: &[Some(RenderPassColorAttachment {
+                        view: &texture.color_view,
+                        resolve_target: None,
+                        ops: Operations {
+                            load: LoadOp::Clear(Color::TRANSPARENT),
+                            store: StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
                 });
+                targets::set_scissor(&mut pass, command.clip.scissor);
+                pass.set_stencil_reference(command.clip.stencil_reference);
+                draws::draw_shape_mask(
+                    &mut pass,
+                    shape
+                        .geometry_buffer_location
+                        .expect("planned mask has uploaded geometry")
+                        .geometry_range,
+                    &self.pipelines.mask_pipeline,
+                    binding,
+                    self.buffers,
+                );
+                drop(pass);
+                CachedShapeMask { texture }
+            });
         CompletedMask {
             texture: target.texture,
             key,
@@ -152,12 +152,12 @@ impl ShapeEffectExecutionResources<'_> {
         mask: CompletedMask,
     ) {
         assert_eq!(mask.texture, command.input);
-        let key = ShapeEffectCacheKey {
+        let key = ShapeMaskEffectCacheKey {
             mask_key: mask.key,
             effect_id: command.effect_id,
             parameters_hash: command.parameters.hash,
         };
-        let texture = if let Some(texture) = self.textures.shape_effect_results.get(&key) {
+        let texture = if let Some(texture) = self.textures.shape_mask_effect_results.get(&key) {
             #[cfg(feature = "render_metrics")]
             {
                 self.metrics.hits += 1;
@@ -176,7 +176,7 @@ impl ShapeEffectExecutionResources<'_> {
             }
             let mask_texture = &mut self
                 .textures
-                .shape_effect_masks
+                .shape_masks
                 .get_mut(&key.mask_key)
                 .expect("mask was completed before its effect")
                 .texture;
@@ -202,7 +202,7 @@ impl ShapeEffectExecutionResources<'_> {
                     width: key.mask_key.raster_size[0],
                     height: key.mask_key.raster_size[1],
                     texture_format: self.format,
-                    label: "shape_effect",
+                    label: "shape_mask_effect",
                 },
             );
             let (texture, bind_group) = output.into_final_output(&mut self.textures.work_textures);

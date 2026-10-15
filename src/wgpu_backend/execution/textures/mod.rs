@@ -1,16 +1,16 @@
 use super::effects::{OffscreenTexturePool, PooledTexture};
-use super::shape_effects::CompletedMask;
+use super::shape_mask_effects::CompletedMask;
 use super::targets::ActiveTarget;
 use crate::commands::IntermediateTextureId;
 use crate::core::cache::FrameCache;
 use ahash::{HashMap, HashMapExt};
-pub(crate) use shape_effects::{
-    CachedShapeEffectMask, ShapeEffectCacheKey, ShapeEffectMaskCache, ShapeEffectMaskCacheKey,
+pub(crate) use shape_mask_effects::{
+    CachedShapeMask, ShapeMaskCache, ShapeMaskCacheKey, ShapeMaskEffectCacheKey,
 };
 use wgpu::{BindGroup, Texture};
 
 mod bindings;
-mod shape_effects;
+mod shape_mask_effects;
 
 /// The texture and its sampling binding have one owner in execution storage.
 pub(crate) struct IntermediateTexture {
@@ -35,8 +35,9 @@ pub(crate) struct IntermediateTextureResources {
     pub(super) planned: Vec<PlannedTexture>,
     pub(crate) pool: OffscreenTexturePool,
     pub(crate) work_textures: Vec<PooledTexture>,
-    pub(crate) shape_effect_results: FrameCache<ShapeEffectCacheKey, IntermediateTextureId>,
-    pub(crate) shape_effect_masks: ShapeEffectMaskCache,
+    pub(crate) shape_mask_effect_results:
+        FrameCache<ShapeMaskEffectCacheKey, IntermediateTextureId>,
+    pub(crate) shape_masks: ShapeMaskCache,
 }
 
 impl IntermediateTextureResources {
@@ -48,20 +49,20 @@ impl IntermediateTextureResources {
             planned: Vec::new(),
             pool: OffscreenTexturePool::new(),
             work_textures: Vec::new(),
-            shape_effect_results: FrameCache::new(),
-            shape_effect_masks: FrameCache::new(),
+            shape_mask_effect_results: FrameCache::new(),
+            shape_masks: FrameCache::new(),
         }
     }
 
     /// Called only on a cache miss. Cache hits keep the same texture ID and binding.
     pub(crate) fn insert_cached(
         &mut self,
-        cache_key: ShapeEffectCacheKey,
+        cache_key: ShapeMaskEffectCacheKey,
         sampled_texture: IntermediateTexture,
     ) -> IntermediateTextureId {
         let texture_id = IntermediateTextureId::Registered(sampled_texture.texture.texture_id);
         self.sampled_textures.insert(texture_id, sampled_texture);
-        self.shape_effect_results.insert(cache_key, texture_id);
+        self.shape_mask_effect_results.insert(cache_key, texture_id);
         texture_id
     }
 
@@ -172,40 +173,41 @@ impl IntermediateTextureResources {
         self.pool.recycle(&mut self.work_textures);
     }
 
-    pub(crate) fn collect_unused_shape_effects(&mut self) -> (usize, usize) {
+    pub(crate) fn collect_unused_shape_mask_effects(&mut self) -> (usize, usize) {
         let mut collected_results = 0;
-        for (_, texture_id) in self.shape_effect_results.end_frame() {
+        for (_, texture_id) in self.shape_mask_effect_results.end_frame() {
             if let Some(texture) = self.sampled_textures.remove(&texture_id) {
                 self.work_textures.push(texture.texture);
             }
             collected_results += 1;
         }
         let mut collected_masks = 0;
-        for (_, mask) in self.shape_effect_masks.end_frame() {
+        for (_, mask) in self.shape_masks.end_frame() {
             self.work_textures.push(mask.texture);
             collected_masks += 1;
         }
         (collected_results, collected_masks)
     }
 
-    pub(crate) fn invalidate_shape_effect(&mut self, effect_id: u64) {
-        self.shape_effect_results.retain(|cache_key, texture_id| {
-            if cache_key.effect_id == effect_id {
-                if let Some(texture) = self.sampled_textures.remove(texture_id) {
-                    self.work_textures.push(texture.texture);
+    pub(crate) fn invalidate_shape_mask_effect(&mut self, effect_id: u64) {
+        self.shape_mask_effect_results
+            .retain(|cache_key, texture_id| {
+                if cache_key.effect_id == effect_id {
+                    if let Some(texture) = self.sampled_textures.remove(texture_id) {
+                        self.work_textures.push(texture.texture);
+                    }
+                    return false;
                 }
-                return false;
-            }
-            true
-        });
+                true
+            });
     }
 
-    pub(crate) fn clear_shape_effects(&mut self) {
-        self.shape_effect_results.retain(|_, texture_id| {
+    pub(crate) fn clear_shape_mask_effects(&mut self) {
+        self.shape_mask_effect_results.retain(|_, texture_id| {
             self.sampled_textures.remove(texture_id);
             false
         });
-        self.shape_effect_masks.clear();
+        self.shape_masks.clear();
     }
 }
 

@@ -1,21 +1,21 @@
 use super::{queue_shape, renderer, surface, TestBackend};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
-    BackdropEffectConfig, Color, GroupEffectConfig, Shape, ShapeDrawCommandOptions,
-    ShapeEffectConfig,
+    BackdropEffectConfig, Color, ContentEffectConfig, Shape, ShapeDrawCommandOptions,
+    ShapeMaskEffectConfig,
 };
 use crate::renderer::{DrawCommandError, Renderer};
 use crate::scene::SceneError;
 
 fn attach_effects(renderer: &mut Renderer<TestBackend>, node: usize) {
     renderer
-        .set_group_effect(node, 8, &[1, 2, 3, 4], GroupEffectConfig::default())
+        .set_content_effect(node, 8, &[1, 2, 3, 4], ContentEffectConfig::default())
         .unwrap();
     renderer
-        .set_shape_effect(node, 7, &[1, 2, 3, 4], ShapeEffectConfig::default())
+        .set_shape_mask_effect(node, 7, &[1, 2, 3, 4], ShapeMaskEffectConfig::default())
         .unwrap();
     renderer
-        .set_shape_backdrop_effect(node, 9, &[1, 2, 3, 4], BackdropEffectConfig::default())
+        .set_backdrop_effect(node, 9, &[1, 2, 3, 4], BackdropEffectConfig::default())
         .unwrap();
 }
 
@@ -84,9 +84,9 @@ fn overlapping_subtree_removals_keep_sibling_effects() {
     assert_eq!(renderer.backend.registered_shapes, [root, survivor]);
     for node in expected_removed_ids {
         assert!(renderer.scene.draw_tree.get(node).is_none());
-        assert!(!renderer.scene.group_effects.contains_key(&node));
+        assert!(!renderer.scene.content_effects.contains_key(&node));
         assert!(!renderer.scene.backdrop_effects.contains_key(&node));
-        assert!(!renderer.scene.shape_effects.contains_key(&node));
+        assert!(!renderer.scene.shape_mask_effects.contains_key(&node));
     }
     assert_eq!(renderer.scene.draw_tree.children(root), [survivor]);
     assert!(matches!(
@@ -108,9 +108,9 @@ fn overlapping_subtree_removals_keep_sibling_effects() {
     renderer.backend.should_fail = false;
     let replacement = queue_shape(&mut renderer, false);
     assert!(expected_removed_ids.contains(&replacement));
-    assert!(!renderer.scene.group_effects.contains_key(&replacement));
+    assert!(!renderer.scene.content_effects.contains_key(&replacement));
     assert!(!renderer.scene.backdrop_effects.contains_key(&replacement));
-    assert!(!renderer.scene.shape_effects.contains_key(&replacement));
+    assert!(!renderer.scene.shape_mask_effects.contains_key(&replacement));
     renderer.render(&mut surface).unwrap();
     assert!(surface.resource().draws.contains(&replacement));
     assert_eq!(surface.resource().shape_masks, 1);
@@ -257,17 +257,21 @@ fn replacements_and_subtree_removals_defer_compaction_and_preserve_surviving_par
         let converted = queue_shape(&mut renderer, false);
         attach_effects(&mut renderer, converted);
         renderer
-            .set_group_effect(survivor, 8, &[5; 4], GroupEffectConfig::default())
+            .set_content_effect(survivor, 8, &[5; 4], ContentEffectConfig::default())
             .unwrap();
         renderer
-            .set_shape_backdrop_effect(survivor, 9, &[6; 4], BackdropEffectConfig::default())
+            .set_backdrop_effect(survivor, 9, &[6; 4], BackdropEffectConfig::default())
             .unwrap();
         renderer
-            .set_shape_effect(survivor, 7, &[7; 4], ShapeEffectConfig::default())
+            .set_shape_mask_effect(survivor, 7, &[7; 4], ShapeMaskEffectConfig::default())
             .unwrap();
-        let group_parameters = renderer.scene.group_effects[&survivor].parameters;
+        let group_parameters = renderer.scene.content_effects[&survivor].parameters;
         let backdrop_parameters = renderer.scene.backdrop_effects[&survivor].effect.parameters;
-        let shape_parameters = renderer.scene.shape_effect(survivor).unwrap().parameters;
+        let shape_parameters = renderer
+            .scene
+            .shape_mask_effect(survivor)
+            .unwrap()
+            .parameters;
         renderer.remove_subtrees([branch], |_| {});
         renderer
             .replace_with_clipping_rect(
@@ -284,13 +288,13 @@ fn replacements_and_subtree_removals_defer_compaction_and_preserve_surviving_par
         assert_eq!(plan.parameters(backdrop_parameters), &[6; 4]);
         assert_eq!(plan.parameters(shape_parameters), &[7; 4]);
         renderer
-            .set_group_effect(survivor, 8, &[1, 2, 3, 4], GroupEffectConfig::default())
+            .set_content_effect(survivor, 8, &[1, 2, 3, 4], ContentEffectConfig::default())
             .unwrap();
         renderer
-            .set_shape_backdrop_effect(survivor, 9, &[1, 2, 3, 4], BackdropEffectConfig::default())
+            .set_backdrop_effect(survivor, 9, &[1, 2, 3, 4], BackdropEffectConfig::default())
             .unwrap();
         renderer
-            .set_shape_effect(survivor, 7, &[1, 2, 3, 4], ShapeEffectConfig::default())
+            .set_shape_mask_effect(survivor, 7, &[1, 2, 3, 4], ShapeMaskEffectConfig::default())
             .unwrap();
         renderer.render(&mut surface).unwrap();
         assert_eq!(

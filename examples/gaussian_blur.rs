@@ -2,7 +2,7 @@
 //! Both passes use the same radius and sample in input texture pixels.
 
 use futures::executor::block_on;
-use grafo::{Color, GroupEffectConfig, RendererContext, Shape, ShapeDrawCommandOptions, Surface};
+use grafo::{Color, ContentEffectConfig, RendererContext, Shape, ShapeDrawCommandOptions, Surface};
 use grafo_test_scenes::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -128,11 +128,11 @@ impl ApplicationHandler for App {
 
                 let blur_params = BlurParams::new(8.0);
                 renderer
-                    .set_group_effect(
+                    .set_content_effect(
                         group,
                         BLUR_EFFECT,
                         bytemuck::bytes_of(&blur_params),
-                        GroupEffectConfig::new().outset(blur_params.radius),
+                        ContentEffectConfig::new().outset(blur_params.radius),
                     )
                     .expect("Failed to set blur effect");
 

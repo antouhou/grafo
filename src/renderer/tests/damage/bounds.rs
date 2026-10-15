@@ -229,7 +229,7 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
         .unwrap();
     renderer.load_effect(7, &["backdrop effect"]).unwrap();
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             path,
             7,
             &[1, 2, 3, 4],

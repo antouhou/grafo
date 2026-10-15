@@ -73,7 +73,7 @@ fn exclusion_precedes_effect_substitution_and_restores_clips_for_siblings() {
             placement: TexturePlacement::Target,
         },
     );
-    scene.shape_effects.insert(
+    scene.shape_mask_effects.insert(
         excluded,
         TextureComposite {
             texture: IntermediateTextureId::Registered(100),
@@ -155,7 +155,7 @@ fn substituted_group_omits_its_clips_effects_and_deep_descendants() {
             placement: TexturePlacement::Target,
         },
     );
-    scene.shape_effects.insert(
+    scene.shape_mask_effects.insert(
         group,
         TextureComposite {
             texture: IntermediateTextureId::Registered(100),

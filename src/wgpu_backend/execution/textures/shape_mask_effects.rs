@@ -7,7 +7,7 @@ use wgpu::TextureFormat;
 /// Identifies a mask by geometry and rasterization settings, allowing reuse across
 /// effects and parameter changes.
 #[derive(Clone)]
-pub(crate) struct ShapeEffectMaskCacheKey {
+pub(crate) struct ShapeMaskCacheKey {
     pub tessellation: Arc<CachedTessellation>,
     /// Shape-local raster origin in physical pixels.
     /// Node transforms do not invalidate this entry.
@@ -19,7 +19,7 @@ pub(crate) struct ShapeEffectMaskCacheKey {
     pub texture_format: TextureFormat,
 }
 
-impl PartialEq for ShapeEffectMaskCacheKey {
+impl PartialEq for ShapeMaskCacheKey {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.tessellation, &other.tessellation)
             && self.local_raster_origin == other.local_raster_origin
@@ -31,9 +31,9 @@ impl PartialEq for ShapeEffectMaskCacheKey {
     }
 }
 
-impl Eq for ShapeEffectMaskCacheKey {}
+impl Eq for ShapeMaskCacheKey {}
 
-impl Hash for ShapeEffectMaskCacheKey {
+impl Hash for ShapeMaskCacheKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         (Arc::as_ptr(&self.tessellation) as usize).hash(state);
         self.local_raster_origin.hash(state);
@@ -46,15 +46,15 @@ impl Hash for ShapeEffectMaskCacheKey {
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub(crate) struct ShapeEffectCacheKey {
-    pub mask_key: ShapeEffectMaskCacheKey,
+pub(crate) struct ShapeMaskEffectCacheKey {
+    pub mask_key: ShapeMaskCacheKey,
     pub effect_id: u64,
     /// Content hash computed when parameter bytes are stored in the render plan.
     pub parameters_hash: u64,
 }
 
-pub(crate) struct CachedShapeEffectMask {
+pub(crate) struct CachedShapeMask {
     pub texture: PooledTexture,
 }
 
-pub(crate) type ShapeEffectMaskCache = FrameCache<ShapeEffectMaskCacheKey, CachedShapeEffectMask>;
+pub(crate) type ShapeMaskCache = FrameCache<ShapeMaskCacheKey, CachedShapeMask>;

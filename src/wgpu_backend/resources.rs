@@ -1,9 +1,9 @@
 use super::execution::effects::{CompositePipelineResources, EffectExecutionResources};
-use super::execution::shape_effects::ShapeEffectRendererResources;
+use super::execution::shape_mask_effects::ShapeMaskEffectRendererResources;
 use super::execution::shapes::{ShapeExecutionResources, TextureMaterialPipelines};
 use super::execution::textures::IntermediateTextureResources;
 #[cfg(feature = "render_metrics")]
-use crate::wgpu_backend::metrics::{PipelineSwitchCounts, ShapeEffectCacheMetrics};
+use crate::wgpu_backend::metrics::{PipelineSwitchCounts, ShapeMaskEffectCacheMetrics};
 use crate::wgpu_backend::pipeline::{self, Uniforms};
 use crate::wgpu_backend::texture_manager::WgpuTextureManager;
 use crate::wgpu_backend::vertex::GeometryBufferRange;
@@ -101,7 +101,7 @@ pub(in crate::wgpu_backend) struct BackdropPipelineResources {
 /// Built-in shape and effect resources, borrowed separately from mutable draw state.
 pub(in crate::wgpu_backend) struct RendererPipelineResources {
     pub(in crate::wgpu_backend) shapes: ShapePipelines,
-    pub(in crate::wgpu_backend) shape_effects: ShapeEffectRendererResources,
+    pub(in crate::wgpu_backend) shape_mask_effects: ShapeMaskEffectRendererResources,
     pub(in crate::wgpu_backend) effect_sampler: Sampler,
     pub(in crate::wgpu_backend) composite_resources: CompositePipelineResources,
     pub(in crate::wgpu_backend) backdrops: BackdropPipelineResources,
@@ -118,5 +118,5 @@ pub(in crate::wgpu_backend) struct BackendResources {
     pub(in crate::wgpu_backend) pipeline_switch_counts: PipelineSwitchCounts,
     #[cfg(feature = "render_metrics")]
     /// Cache activity from the most recent render.
-    pub(in crate::wgpu_backend) shape_effect_cache_metrics: ShapeEffectCacheMetrics,
+    pub(in crate::wgpu_backend) shape_mask_effect_cache_metrics: ShapeMaskEffectCacheMetrics,
 }

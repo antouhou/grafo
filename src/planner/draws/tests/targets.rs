@@ -1,6 +1,6 @@
 use super::*;
 use crate::commands::{EffectParameterRange, EffectParameters};
-use crate::core::effect::GroupEffectConfig;
+use crate::core::effect::ContentEffectConfig;
 
 #[test]
 fn nested_targets_reset_clips_and_restore_each_parent_before_compositing() {
@@ -15,7 +15,7 @@ fn nested_targets_reset_clips_and_restore_each_parent_before_compositing() {
     for node in [outer, inner] {
         scene.groups.insert(
             node,
-            GroupEffectInstance::new(
+            ContentEffectInstance::new(
                 EffectInstance {
                     effect_id: 1,
                     parameters: EffectParameters {
@@ -23,7 +23,7 @@ fn nested_targets_reset_clips_and_restore_each_parent_before_compositing() {
                         hash: 0,
                     },
                 },
-                GroupEffectConfig::default(),
+                ContentEffectConfig::default(),
                 scene.tree.get(node).unwrap(),
                 None,
                 Viewport {

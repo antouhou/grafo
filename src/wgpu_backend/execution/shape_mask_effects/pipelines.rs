@@ -5,11 +5,11 @@ use wgpu::{
     PipelineLayoutDescriptor, PrimitiveState, RenderPipeline, RenderPipelineDescriptor,
     ShaderModuleDescriptor, ShaderSource, ShaderStages, TextureFormat, VertexState,
 };
-const SHAPE_EFFECT_MASK_SHADER: &str = include_str!("../../../shaders/shape_effect_mask.wgsl");
+const SHAPE_MASK_SHADER: &str = include_str!("../../../shaders/shape_mask.wgsl");
 
 fn create_mask_bind_group_layout(device: &Device) -> BindGroupLayout {
     device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-        label: Some("shape_effect_mask_bind_group_layout"),
+        label: Some("shape_mask_bind_group_layout"),
         entries: &[BindGroupLayoutEntry {
             binding: 0,
             visibility: ShaderStages::VERTEX,
@@ -29,17 +29,17 @@ fn create_mask_pipeline(
     bind_group_layout: &BindGroupLayout,
 ) -> RenderPipeline {
     let shader = device.create_shader_module(ShaderModuleDescriptor {
-        label: Some("shape_effect_mask_shader"),
-        source: ShaderSource::Wgsl(SHAPE_EFFECT_MASK_SHADER.into()),
+        label: Some("shape_mask_shader"),
+        source: ShaderSource::Wgsl(SHAPE_MASK_SHADER.into()),
     });
     let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-        label: Some("shape_effect_mask_pipeline_layout"),
+        label: Some("shape_mask_pipeline_layout"),
         bind_group_layouts: &[bind_group_layout],
         push_constant_ranges: &[],
     });
 
     device.create_render_pipeline(&RenderPipelineDescriptor {
-        label: Some("shape_effect_mask_pipeline"),
+        label: Some("shape_mask_pipeline"),
         layout: Some(&pipeline_layout),
         vertex: VertexState {
             module: &shader,
@@ -65,12 +65,12 @@ fn create_mask_pipeline(
     })
 }
 
-pub(in crate::wgpu_backend) struct ShapeEffectRendererResources {
+pub(in crate::wgpu_backend) struct ShapeMaskEffectRendererResources {
     pub mask_bind_group_layout: BindGroupLayout,
     pub mask_pipeline: RenderPipeline,
 }
 
-impl ShapeEffectRendererResources {
+impl ShapeMaskEffectRendererResources {
     pub(in crate::wgpu_backend) fn new(device: &Device, format: TextureFormat) -> Self {
         let mask_bind_group_layout = create_mask_bind_group_layout(device);
         let mask_pipeline = create_mask_pipeline(device, format, &mask_bind_group_layout);

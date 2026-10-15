@@ -1,4 +1,4 @@
-use super::{ShapeEffectCacheKey, ShapeEffectMaskCacheKey};
+use super::{ShapeMaskCacheKey, ShapeMaskEffectCacheKey};
 use crate::core::cache::CachedTessellation;
 use crate::core::vertex::CustomVertex;
 use lyon::tessellation::VertexBuffers;
@@ -13,9 +13,12 @@ fn tessellation() -> Arc<CachedTessellation> {
     })
 }
 
-fn cache_key(tessellation: Arc<CachedTessellation>, parameters_hash: u64) -> ShapeEffectCacheKey {
-    ShapeEffectCacheKey {
-        mask_key: ShapeEffectMaskCacheKey {
+fn cache_key(
+    tessellation: Arc<CachedTessellation>,
+    parameters_hash: u64,
+) -> ShapeMaskEffectCacheKey {
+    ShapeMaskEffectCacheKey {
+        mask_key: ShapeMaskCacheKey {
             tessellation,
             local_raster_origin: [-1, -1],
             raster_size: [12, 12],

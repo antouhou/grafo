@@ -1,4 +1,4 @@
-use crate::core::effect::ShapeEffectBounds;
+use crate::core::effect::ShapeMaskEffectBounds;
 use crate::core::geometry;
 use crate::core::{MathRect, UnsignedPhysicalRect, Viewport};
 pub(super) use pending::PendingDamage;
@@ -26,9 +26,9 @@ pub(super) fn mark_dirty(
     );
 }
 
-pub(super) fn mark_shape_effect_dirty(
+pub(super) fn mark_shape_mask_effect_dirty(
     dirty_bounds: &mut Option<UnsignedPhysicalRect>,
-    bounds: ShapeEffectBounds,
+    bounds: ShapeMaskEffectBounds,
     viewport: Viewport,
 ) {
     // The cached raster rectangle already includes the fringe guard.

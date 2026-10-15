@@ -3,14 +3,14 @@ use crate::commands::{
     EffectParameterRange, EffectParameters, IntermediateTextureId, ShapeTextureBinding,
     ShapeTextureLayer, TextureSampling,
 };
-use crate::core::effect::GroupEffectConfig;
+use crate::core::effect::ContentEffectConfig;
 use crate::core::gradient::types::{
     ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset, LinearGradientDesc,
     LinearGradientLine,
 };
 use crate::core::util::ShapeResources;
 use crate::planner::draws::shape_material;
-use crate::scene::effects::{EffectInstance, GroupEffectInstance};
+use crate::scene::effects::{ContentEffectInstance, EffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::DrawTreeNode;
 use crate::{
@@ -61,7 +61,7 @@ fn rect_draw_tree_node() -> DrawTreeNode {
 fn should_skip(
     node_id: usize,
     node: &DrawTreeNode,
-    groups: &HashMap<usize, GroupEffectInstance>,
+    groups: &HashMap<usize, ContentEffectInstance>,
 ) -> bool {
     let material = match node {
         DrawTreeNode::CachedShape(description) => Some(shape_material(&description.instance)),
@@ -81,14 +81,14 @@ fn scissor_rejects_non_axis_aligned_transform() {
 }
 
 #[test]
-fn skip_visible_rect_draw_rejects_group_effect_nodes() {
+fn skip_visible_rect_draw_rejects_content_effect_nodes() {
     let draw_tree_node = rect_draw_tree_node();
     let node_id = 7usize;
 
-    let mut group_effects = HashMap::new();
-    group_effects.insert(
+    let mut content_effects = HashMap::new();
+    content_effects.insert(
         node_id,
-        GroupEffectInstance::new(
+        ContentEffectInstance::new(
             EffectInstance {
                 effect_id: 1,
                 parameters: EffectParameters {
@@ -96,7 +96,7 @@ fn skip_visible_rect_draw_rejects_group_effect_nodes() {
                     hash: 0,
                 },
             },
-            GroupEffectConfig::default(),
+            ContentEffectConfig::default(),
             &draw_tree_node,
             None,
             Viewport {
@@ -107,7 +107,7 @@ fn skip_visible_rect_draw_rejects_group_effect_nodes() {
         ),
     );
 
-    assert!(!should_skip(node_id, &draw_tree_node, &group_effects,));
+    assert!(!should_skip(node_id, &draw_tree_node, &content_effects,));
 }
 
 #[test]

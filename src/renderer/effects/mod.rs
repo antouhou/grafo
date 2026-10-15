@@ -1,8 +1,8 @@
-use super::damage::{mark_dirty, mark_physical_dirty, mark_shape_effect_dirty};
+use super::damage::{mark_dirty, mark_physical_dirty, mark_shape_mask_effect_dirty};
 use super::{EffectError, RenderBackend, Renderer};
 use crate::commands::ShapeDrawId;
 use crate::core::effect::{
-    BackdropEffectConfig, GroupEffectConfig, ShapeEffectBounds, ShapeEffectConfig,
+    BackdropEffectConfig, ContentEffectConfig, ShapeMaskEffectBounds, ShapeMaskEffectConfig,
 };
 use crate::scene::effects::{EffectAttachmentKind, EffectInstance};
 use crate::scene::types::DrawTreeNode;
@@ -24,23 +24,26 @@ impl<B: RenderBackend> Renderer<B> {
         Ok(())
     }
 
-    /// Processes the rendered group within the attached shape's bounds.
-    /// Includes any attached shape-effect output in the input bounds.
-    /// Outsets reserve transparent space for output beyond those bounds.
-    pub fn set_group_effect(
+    /// Applies an effect to the node and its descendants as one rendered image.
+    ///
+    /// Captures within the attached shape's screen bounds, expanded to include
+    /// its own shape mask effect output. Overflowing descendants do not expand
+    /// the capture. The effect result replaces the captured content.
+    /// Outsets reserve transparent output space without capturing additional content.
+    pub fn set_content_effect(
         &mut self,
         node_id: usize,
         effect_id: u64,
         params: &[u8],
-        config: GroupEffectConfig,
+        config: ContentEffectConfig,
     ) -> Result<(), EffectError<B::Error>> {
         self.scene.shape(node_id)?;
         self.backend
             .validate_effect_params(effect_id, params)
             .map_err(EffectError::Backend)?;
         let parameters = self.planner.store_effect_parameters(params);
-        let previous_output = self.scene.group_effect_output(node_id);
-        self.scene.set_group_effect(
+        let previous_output = self.scene.content_effect_output(node_id);
+        self.scene.set_content_effect(
             node_id,
             effect_id,
             parameters,
@@ -50,21 +53,27 @@ impl<B: RenderBackend> Renderer<B> {
         mark_physical_dirty(&mut self.dirty_bounds, previous_output);
         mark_physical_dirty(
             &mut self.dirty_bounds,
-            self.scene.group_effect_output(node_id),
+            self.scene.content_effect_output(node_id),
         );
         self.mark_shape_dirty(node_id);
         Ok(())
     }
 
-    pub fn remove_group_effect(&mut self, node_id: usize) {
-        let previous_output = self.scene.group_effect_output(node_id);
-        if self.scene.remove_group_effect(node_id) {
+    /// Removes the content effect, restoring the node's ordinary rendering.
+    pub fn remove_content_effect(&mut self, node_id: usize) {
+        let previous_output = self.scene.content_effect_output(node_id);
+        if self.scene.remove_content_effect(node_id) {
             mark_physical_dirty(&mut self.dirty_bounds, previous_output);
             self.mark_shape_dirty(node_id);
         }
     }
 
-    pub fn set_shape_backdrop_effect(
+    /// Filters previously rendered scene pixels behind the node.
+    ///
+    /// The result is drawn through the shape beneath its fill and children.
+    /// Capture area and padding control the input region, independently of the
+    /// shape that clips the output.
+    pub fn set_backdrop_effect(
         &mut self,
         node_id: usize,
         effect_id: u64,
@@ -76,7 +85,7 @@ impl<B: RenderBackend> Renderer<B> {
             .validate_effect_params(effect_id, params)
             .map_err(EffectError::Backend)?;
         let parameters = self.planner.store_effect_parameters(params);
-        self.scene.set_shape_backdrop_effect(
+        self.scene.set_backdrop_effect(
             node_id,
             EffectInstance {
                 effect_id,
@@ -90,19 +99,25 @@ impl<B: RenderBackend> Renderer<B> {
         Ok(())
     }
 
+    /// Removes the node's backdrop effect.
     pub fn remove_backdrop_effect(&mut self, node_id: usize) {
         if self.scene.remove_backdrop_effect(node_id) {
             self.mark_shape_dirty(node_id);
         }
         self.backend.remove_backdrop_effect(ShapeDrawId(node_id));
     }
-    /// Uses shared CPU geometry to identify and prepare the node's coverage mask.
-    pub fn set_shape_effect(
+
+    /// Applies an effect to the shape's white geometric coverage mask.
+    ///
+    /// The input excludes the shape's fill, textures, and children. The colored
+    /// result follows the shape's transform and is drawn behind it, subject to
+    /// ancestor clipping. The shape and its children are drawn normally above it.
+    pub fn set_shape_mask_effect(
         &mut self,
         node_id: usize,
         effect_id: u64,
         params: &[u8],
-        config: ShapeEffectConfig,
+        config: ShapeMaskEffectConfig,
     ) -> Result<(), EffectError<B::Error>> {
         self.scene.shape(node_id)?;
         self.backend
@@ -111,51 +126,52 @@ impl<B: RenderBackend> Renderer<B> {
         let parameters = self.planner.store_effect_parameters(params);
         let old_bounds = self
             .scene
-            .shape_effects
+            .shape_mask_effects
             .get(&node_id)
             .map(|effect| effect.bounds);
-        let previous_group_output = self.scene.group_effect_output(node_id);
-        self.scene.set_shape_effect(
+        let previous_content_output = self.scene.content_effect_output(node_id);
+        self.scene.set_shape_mask_effect(
             node_id,
             effect_id,
             parameters,
             config,
             self.backend.maximum_texture_dimension(),
         )?;
-        self.backend.set_shape_effect_geometry(
+        self.backend.set_shape_mask_effect_geometry(
             ShapeDrawId(node_id),
             &self.scene.shape(node_id)?.cached_shape,
         );
         if let Some(bounds) = old_bounds {
-            self.mark_shape_effect_dirty(bounds);
+            self.mark_shape_mask_effect_dirty(bounds);
         }
-        self.mark_shape_effect_dirty(self.scene.shape_effect(node_id)?.bounds);
-        mark_physical_dirty(&mut self.dirty_bounds, previous_group_output);
+        self.mark_shape_mask_effect_dirty(self.scene.shape_mask_effect(node_id)?.bounds);
+        mark_physical_dirty(&mut self.dirty_bounds, previous_content_output);
         mark_physical_dirty(
             &mut self.dirty_bounds,
-            self.scene.group_effect_output(node_id),
+            self.scene.content_effect_output(node_id),
         );
         Ok(())
     }
 
-    pub fn remove_shape_effect(&mut self, node_id: usize) {
-        let previous_group_output = self.scene.group_effect_output(node_id);
+    /// Removes the shape's mask effect while keeping its fill and children.
+    pub fn remove_shape_mask_effect(&mut self, node_id: usize) {
+        let previous_content_output = self.scene.content_effect_output(node_id);
         let bounds = self
             .scene
-            .shape_effects
+            .shape_mask_effects
             .get(&node_id)
             .map(|effect| effect.bounds);
         self.scene
-            .remove_shape_effect(node_id, self.backend.maximum_texture_dimension());
+            .remove_shape_mask_effect(node_id, self.backend.maximum_texture_dimension());
         if let Some(bounds) = bounds {
-            self.mark_shape_effect_dirty(bounds);
+            self.mark_shape_mask_effect_dirty(bounds);
         }
-        self.backend.remove_shape_effect(ShapeDrawId(node_id));
+        self.backend.remove_shape_mask_effect(ShapeDrawId(node_id));
         if bounds.is_some() {
-            mark_physical_dirty(&mut self.dirty_bounds, previous_group_output);
+            mark_physical_dirty(&mut self.dirty_bounds, previous_content_output);
             mark_physical_dirty(
                 &mut self.dirty_bounds,
-                self.scene.group_effect_output(node_id),
+                self.scene.content_effect_output(node_id),
             );
         }
     }
@@ -172,14 +188,14 @@ impl<B: RenderBackend> Renderer<B> {
             |attachment| {
                 mark_physical_dirty(&mut self.dirty_bounds, attachment.damage_bounds);
                 match attachment.kind {
-                    EffectAttachmentKind::Group => {}
+                    EffectAttachmentKind::Content => {}
                     EffectAttachmentKind::Backdrop => {
                         self.backend
                             .remove_backdrop_effect(ShapeDrawId(attachment.node_id));
                     }
-                    EffectAttachmentKind::Shape => {
+                    EffectAttachmentKind::ShapeMask => {
                         self.backend
-                            .remove_shape_effect(ShapeDrawId(attachment.node_id));
+                            .remove_shape_mask_effect(ShapeDrawId(attachment.node_id));
                     }
                 }
             },
@@ -198,7 +214,7 @@ impl<B: RenderBackend> Renderer<B> {
         }
     }
 
-    fn mark_shape_effect_dirty(&mut self, bounds: ShapeEffectBounds) {
-        mark_shape_effect_dirty(&mut self.dirty_bounds, bounds, self.scene.viewport());
+    fn mark_shape_mask_effect_dirty(&mut self, bounds: ShapeMaskEffectBounds) {
+        mark_shape_mask_effect_dirty(&mut self.dirty_bounds, bounds, self.scene.viewport());
     }
 }

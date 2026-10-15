@@ -8,11 +8,11 @@ use crate::shaders::{
 };
 use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
-    ColorInterpolation, ConicGradientDesc, Fill, Gradient, GradientColor, GradientCommonDesc,
-    GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits, GroupEffectConfig,
+    ColorInterpolation, ConicGradientDesc, ContentEffectConfig, Fill, Gradient, GradientColor,
+    GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
     LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientSize, Renderer,
-    Shape, ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
-    SpreadMode, TextureManager, TransformInstance,
+    Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig, ShapeTextureFitMode,
+    ShapeTextureOptions, SpreadMode, TextureManager, TransformInstance,
 };
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
@@ -133,13 +133,17 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_59_backdrop_node_bounds_offscreen_preserves_size(
         renderer,
     ));
-    expectations.extend(tile_60_cached_shape_effect_rect(renderer));
-    expectations.extend(tile_61_cached_shape_effect_path_clipped(renderer));
-    expectations.extend(tile_62_cached_shape_effect_inside_group_effect(renderer));
-    expectations.extend(tile_63_cached_shape_effect_with_backdrop(renderer));
+    expectations.extend(tile_60_cached_shape_mask_effect_rect(renderer));
+    expectations.extend(tile_61_cached_shape_mask_effect_path_clipped(renderer));
+    expectations.extend(tile_62_cached_shape_mask_effect_inside_content_effect(
+        renderer,
+    ));
+    expectations.extend(tile_63_cached_shape_mask_effect_with_backdrop(renderer));
     expectations.extend(tile_64_drop_shadow_with_backdrop_blur(renderer));
-    expectations.extend(tile_65_grouped_shape_effect_in_backdrop(renderer));
-    expectations.extend(tile_66_same_node_shape_backdrop_and_group_effects(renderer));
+    expectations.extend(tile_65_grouped_shape_mask_effect_in_backdrop(renderer));
+    expectations.extend(tile_66_same_node_shape_backdrop_and_content_effects(
+        renderer,
+    ));
     expectations.extend(tile_67_downsampled_drop_shadow_with_backdrop_blur(renderer));
     expectations.extend(tile_68_gradient_transition_hints(renderer));
     expectations.extend(tile_69_gradient_automatic_stop_after_decreasing_stop(
@@ -161,7 +165,7 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     ));
     expectations.extend(tile_79_capture_before_first_group_draw(renderer));
     expectations.extend(tile_80_group_composite_under_mixed_clips(renderer));
-    expectations.extend(tile_81_shared_shape_effect_composites(renderer));
+    expectations.extend(tile_81_shared_shape_mask_effect_composites(renderer));
     expectations.extend(tile_82_group_dependencies_in_layered_backdrops(renderer));
     expectations.extend(tile_83_nested_target_restoration(renderer));
     expectations.extend(tile_84_mixed_command_replacement(renderer));
@@ -272,15 +276,15 @@ fn tile_85_replacement_preserves_effects_and_children(
         )
         .unwrap();
     renderer
-        .set_shape_effect(
+        .set_shape_mask_effect(
             parent,
             SHAPE_DROP_EFFECT_ID,
             &[],
-            ShapeEffectConfig::new().outset(6.0),
+            ShapeMaskEffectConfig::new().outset(6.0),
         )
         .unwrap();
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             parent,
             COLOR_CHANNEL_EFFECT_ID,
             &[],
@@ -288,11 +292,11 @@ fn tile_85_replacement_preserves_effects_and_children(
         )
         .unwrap();
     renderer
-        .set_group_effect(
+        .set_content_effect(
             parent,
             COLOR_CHANNEL_EFFECT_ID,
             &[],
-            GroupEffectConfig::default(),
+            ContentEffectConfig::default(),
         )
         .unwrap();
     renderer
@@ -355,11 +359,11 @@ fn tile_86_negative_w_shapes_and_effects(renderer: &mut Renderer) -> Vec<PixelEx
         )
         .unwrap();
     renderer
-        .set_shape_effect(
+        .set_shape_mask_effect(
             effect_shape,
             SHAPE_DROP_EFFECT_ID,
             &[],
-            ShapeEffectConfig::new().outset(12.0),
+            ShapeMaskEffectConfig::new().outset(12.0),
         )
         .unwrap();
     [
@@ -375,13 +379,13 @@ fn tile_86_negative_w_shapes_and_effects(renderer: &mut Renderer) -> Vec<PixelEx
             62,
             26,
             [0, 0, 255],
-            "t86_negative_w_shape_effect_projects_forward",
+            "t86_negative_w_shape_mask_effect_projects_forward",
         ),
         (
             74,
             26,
             [255, 255, 255],
-            "t86_negative_w_shape_effect_respects_clip",
+            "t86_negative_w_shape_mask_effect_respects_clip",
         ),
     ]
     .into_iter()
@@ -447,7 +451,7 @@ fn tile_74_backdrop_stencil_ordering(renderer: &mut Renderer) -> Vec<PixelExpect
             )
             .unwrap();
         renderer
-            .set_shape_backdrop_effect(
+            .set_backdrop_effect(
                 panel_id,
                 PASSTHROUGH_EFFECT_ID,
                 &[],
@@ -847,7 +851,7 @@ fn load_shared_resources(renderer: &mut Renderer) {
         .expect("Failed to compile passthrough effect");
     renderer
         .load_effect(SHAPE_DROP_EFFECT_ID, &[SHAPE_DROP_WGSL])
-        .expect("Failed to compile cached shape effect");
+        .expect("Failed to compile cached shape mask effect");
     renderer
         .load_effect(
             DROP_SHADOW_EFFECT_ID,
@@ -2280,7 +2284,7 @@ fn tile_26_textured_parent_child(renderer: &mut Renderer) -> Vec<PixelExpectatio
     ]
 }
 
-// Group effects
+// Content effects
 
 fn tile_27_group_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (ox, oy) = tile_origin(27);
@@ -2309,13 +2313,13 @@ fn tile_27_group_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> {
 
     let blur_params = BlurParams::new(8.0);
     renderer
-        .set_group_effect(
+        .set_content_effect(
             id,
             BLUR_EFFECT_ID,
             bytemuck::bytes_of(&blur_params),
-            GroupEffectConfig::new().outset(blur_params.radius),
+            ContentEffectConfig::new().outset(blur_params.radius),
         )
-        .expect("Failed to set group effect");
+        .expect("Failed to set content effect");
 
     vec![
         // The translucent red blur composites over the green stripe.
@@ -2356,7 +2360,7 @@ fn tile_28_group_blur_with_children(renderer: &mut Renderer) -> Vec<PixelExpecta
         )
         .unwrap(); // yellow stripe
 
-    // The group effect blurs the parent and child together.
+    // The content effect blurs the parent and child together.
     let parent = Shape::rect([(ox + 10.0, oy + 5.0), (ox + 70.0, oy + 75.0)]);
     let parent_id = renderer
         .add_shape(
@@ -2379,13 +2383,13 @@ fn tile_28_group_blur_with_children(renderer: &mut Renderer) -> Vec<PixelExpecta
 
     let blur_params = BlurParams::new(6.0);
     renderer
-        .set_group_effect(
+        .set_content_effect(
             parent_id,
             BLUR_EFFECT_ID,
             bytemuck::bytes_of(&blur_params),
-            GroupEffectConfig::new().outset(blur_params.radius),
+            ContentEffectConfig::new().outset(blur_params.radius),
         )
-        .expect("Failed to set group effect");
+        .expect("Failed to set content effect");
 
     vec![
         PixelExpectation::opaque(
@@ -2465,7 +2469,7 @@ fn tile_29_backdrop_blur_leaf(renderer: &mut Renderer) -> Vec<PixelExpectation> 
 
     let blur_params = BlurParams::new(10.0);
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             panel_id,
             BLUR_EFFECT_ID,
             bytemuck::bytes_of(&blur_params),
@@ -2546,7 +2550,7 @@ fn tile_30_backdrop_blur_nonleaf(renderer: &mut Renderer) -> Vec<PixelExpectatio
 
     let blur_params = BlurParams::new(8.0);
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             panel_id,
             BLUR_EFFECT_ID,
             bytemuck::bytes_of(&blur_params),
@@ -2646,7 +2650,7 @@ fn tile_31_backdrop_under_scissor(renderer: &mut Renderer) -> Vec<PixelExpectati
 
     let blur_params = BlurParams::new(6.0);
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             panel_id,
             BLUR_EFFECT_ID,
             bytemuck::bytes_of(&blur_params),
@@ -3491,13 +3495,13 @@ fn tile_45_gradient_group_blur(renderer: &mut Renderer) -> Vec<PixelExpectation>
 
     let blur_params = BlurParams::new(8.0);
     renderer
-        .set_group_effect(
+        .set_content_effect(
             id,
             BLUR_EFFECT_ID,
             bytemuck::bytes_of(&blur_params),
-            GroupEffectConfig::new().outset(blur_params.radius),
+            ContentEffectConfig::new().outset(blur_params.radius),
         )
-        .expect("Failed to set group effect");
+        .expect("Failed to set content effect");
 
     vec![
         // Pixels outside the left and top edges require both blur passes to spread coverage.
@@ -3585,7 +3589,7 @@ fn tile_46_gradient_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelExpectati
 
     let blur_params = BlurParams::new(10.0);
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             panel_id,
             BLUR_EFFECT_ID,
             bytemuck::bytes_of(&blur_params),
@@ -4059,7 +4063,7 @@ fn tile_52_backdrop_overflow_visible_children(renderer: &mut Renderer) -> Vec<Pi
 
     let blur_params = BlurParams::new(5.0);
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             panel_id,
             BLUR_EFFECT_ID,
             bytemuck::bytes_of(&blur_params),
@@ -4242,7 +4246,7 @@ fn tile_55_backdrop_capture_screen_rect(renderer: &mut Renderer) -> Vec<PixelExp
         .unwrap();
 
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             panel_id,
             PASSTHROUGH_EFFECT_ID,
             &[],
@@ -4312,7 +4316,7 @@ fn tile_56_backdrop_capture_downsampled(renderer: &mut Renderer) -> Vec<PixelExp
         .unwrap();
 
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             panel_id,
             PASSTHROUGH_EFFECT_ID,
             &[],
@@ -4378,7 +4382,7 @@ fn tile_57_gradient_backdrop_oversized_capture_falls_back(
         .unwrap();
 
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             panel_id,
             PASSTHROUGH_EFFECT_ID,
             &[],
@@ -4448,7 +4452,7 @@ fn tile_58_backdrop_budgeted_capture_falls_back(renderer: &mut Renderer) -> Vec<
         .unwrap();
 
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             panel_id,
             PASSTHROUGH_EFFECT_ID,
             &[],
@@ -4538,7 +4542,7 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
         .unwrap();
 
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             panel_id,
             PASSTHROUGH_EFFECT_ID,
             &[],
@@ -4583,7 +4587,7 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
 }
 
 /// The cached effect must draw beyond the source bounds and behind its fill.
-fn tile_60_cached_shape_effect_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+fn tile_60_cached_shape_mask_effect_rect(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(60);
     let shape = Shape::rect([
         (origin_x + 20.0, origin_y + 20.0),
@@ -4610,13 +4614,13 @@ fn tile_60_cached_shape_effect_rect(renderer: &mut Renderer) -> Vec<PixelExpecta
         )
         .unwrap();
     renderer
-        .set_shape_effect(
+        .set_shape_mask_effect(
             shape_id,
             SHAPE_DROP_EFFECT_ID,
             &[],
-            ShapeEffectConfig::new().outset(12.0),
+            ShapeMaskEffectConfig::new().outset(12.0),
         )
-        .expect("Failed to attach rectangular cached shape effect");
+        .expect("Failed to attach rectangular cached shape mask effect");
 
     vec![
         PixelExpectation::opaque(
@@ -4646,7 +4650,7 @@ fn tile_60_cached_shape_effect_rect(renderer: &mut Renderer) -> Vec<PixelExpecta
     ]
 }
 
-fn tile_61_cached_shape_effect_path_clipped(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+fn tile_61_cached_shape_mask_effect_path_clipped(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(61);
     let clip_parent = Shape::rounded_rect(
         [
@@ -4674,13 +4678,13 @@ fn tile_61_cached_shape_effect_path_clipped(renderer: &mut Renderer) -> Vec<Pixe
         )
         .unwrap();
     renderer
-        .set_shape_effect(
+        .set_shape_mask_effect(
             path_id,
             SHAPE_DROP_EFFECT_ID,
             &[],
-            ShapeEffectConfig::new().outset(12.0),
+            ShapeMaskEffectConfig::new().outset(12.0),
         )
-        .expect("Failed to attach path cached shape effect");
+        .expect("Failed to attach path cached shape mask effect");
 
     vec![
         PixelExpectation::opaque(
@@ -4710,8 +4714,8 @@ fn tile_61_cached_shape_effect_path_clipped(renderer: &mut Renderer) -> Vec<Pixe
     ]
 }
 
-/// Group preprocessing must include the node's shape effect exactly once.
-fn tile_62_cached_shape_effect_inside_group_effect(
+/// Group preprocessing must include the node's shape mask effect exactly once.
+fn tile_62_cached_shape_mask_effect_inside_content_effect(
     renderer: &mut Renderer,
 ) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(62);
@@ -4728,19 +4732,19 @@ fn tile_62_cached_shape_effect_inside_group_effect(
         )
         .unwrap();
     renderer
-        .set_shape_effect(
+        .set_shape_mask_effect(
             shape_id,
             SHAPE_DROP_EFFECT_ID,
             &[],
-            ShapeEffectConfig::new().outset(12.0),
+            ShapeMaskEffectConfig::new().outset(12.0),
         )
         .unwrap();
     renderer
-        .set_group_effect(
+        .set_content_effect(
             shape_id,
             PASSTHROUGH_EFFECT_ID,
             &[],
-            GroupEffectConfig::default(),
+            ContentEffectConfig::default(),
         )
         .unwrap();
 
@@ -4759,13 +4763,15 @@ fn tile_62_cached_shape_effect_inside_group_effect(
             0,
             0,
             255,
-            "t62_group_contains_shape_effect_once",
+            "t62_group_contains_shape_mask_effect_once",
         ),
     ]
 }
 
-/// Backdrop capture must include the target node's shape effect.
-fn tile_63_cached_shape_effect_with_backdrop(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+/// Backdrop capture must include the target node's shape mask effect.
+fn tile_63_cached_shape_mask_effect_with_backdrop(
+    renderer: &mut Renderer,
+) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(63);
     let backdrop_source = Shape::rect([
         (origin_x + 5.0, origin_y + 5.0),
@@ -4788,15 +4794,15 @@ fn tile_63_cached_shape_effect_with_backdrop(renderer: &mut Renderer) -> Vec<Pix
         .add_shape(panel, None, Some(63_063), ShapeDrawCommandOptions::new())
         .unwrap();
     renderer
-        .set_shape_effect(
+        .set_shape_mask_effect(
             panel_id,
             SHAPE_DROP_EFFECT_ID,
             &[],
-            ShapeEffectConfig::new().outset(12.0),
+            ShapeMaskEffectConfig::new().outset(12.0),
         )
         .unwrap();
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             panel_id,
             PASSTHROUGH_EFFECT_ID,
             &[],
@@ -4811,7 +4817,7 @@ fn tile_63_cached_shape_effect_with_backdrop(renderer: &mut Renderer) -> Vec<Pix
             0,
             0,
             255,
-            "t63_backdrop_includes_shape_effect",
+            "t63_backdrop_includes_shape_mask_effect",
         ),
         PixelExpectation::opaque(
             origin_x as u32 + 55,
@@ -4819,7 +4825,7 @@ fn tile_63_cached_shape_effect_with_backdrop(renderer: &mut Renderer) -> Vec<Pix
             0,
             0,
             255,
-            "t63_shape_effect_draws_behind_backdrop_node",
+            "t63_shape_mask_effect_draws_behind_backdrop_node",
         ),
     ]
 }
@@ -4861,16 +4867,16 @@ fn tile_64_drop_shadow_with_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelE
         color: [0.0, 0.0, 0.0, 0.65],
     };
     renderer
-        .set_shape_effect(
+        .set_shape_mask_effect(
             card_id,
             DROP_SHADOW_EFFECT_ID,
             bytemuck::bytes_of(&shadow_params),
-            ShapeEffectConfig::new().outsets(8.0, 8.0, 20.0, 22.0),
+            ShapeMaskEffectConfig::new().outsets(8.0, 8.0, 20.0, 22.0),
         )
         .expect("Failed to attach visual drop shadow effect");
     let backdrop_blur_params = BlurParams::new(5.0);
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             card_id,
             BLUR_EFFECT_ID,
             bytemuck::bytes_of(&backdrop_blur_params),
@@ -4959,8 +4965,8 @@ fn tile_64_drop_shadow_with_backdrop_blur(renderer: &mut Renderer) -> Vec<PixelE
     ]
 }
 
-/// A grouped backdrop must capture the shape effect already drawn in its subtree.
-fn tile_65_grouped_shape_effect_in_backdrop(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+/// A grouped backdrop must capture the shape mask effect already drawn in its subtree.
+fn tile_65_grouped_shape_mask_effect_in_backdrop(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(65);
     let backing_shape = Shape::rect([
         (origin_x + 5.0, origin_y + 5.0),
@@ -4996,15 +5002,15 @@ fn tile_65_grouped_shape_effect_in_backdrop(renderer: &mut Renderer) -> Vec<Pixe
         )
         .unwrap();
     renderer
-        .set_shape_effect(
+        .set_shape_mask_effect(
             panel_id,
             SHAPE_DROP_EFFECT_ID,
             &[],
-            ShapeEffectConfig::new().outset(12.0),
+            ShapeMaskEffectConfig::new().outset(12.0),
         )
-        .expect("Failed to attach grouped cached shape effect");
+        .expect("Failed to attach grouped cached shape mask effect");
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             panel_id,
             PASSTHROUGH_EFFECT_ID,
             &[],
@@ -5012,13 +5018,13 @@ fn tile_65_grouped_shape_effect_in_backdrop(renderer: &mut Renderer) -> Vec<Pixe
         )
         .expect("Failed to attach grouped backdrop effect");
     renderer
-        .set_group_effect(
+        .set_content_effect(
             group_root_id,
             PASSTHROUGH_EFFECT_ID,
             &[],
-            GroupEffectConfig::default(),
+            ContentEffectConfig::default(),
         )
-        .expect("Failed to attach enclosing group effect");
+        .expect("Failed to attach enclosing content effect");
 
     vec![
         PixelExpectation::opaque(
@@ -5027,7 +5033,7 @@ fn tile_65_grouped_shape_effect_in_backdrop(renderer: &mut Renderer) -> Vec<Pixe
             0,
             0,
             255,
-            "t65_grouped_backdrop_includes_shape_effect",
+            "t65_grouped_backdrop_includes_shape_mask_effect",
         ),
         PixelExpectation::opaque(
             origin_x as u32 + 55,
@@ -5035,7 +5041,7 @@ fn tile_65_grouped_shape_effect_in_backdrop(renderer: &mut Renderer) -> Vec<Pixe
             0,
             0,
             255,
-            "t65_grouped_shape_effect_draws_outside_panel",
+            "t65_grouped_shape_mask_effect_draws_outside_panel",
         ),
         PixelExpectation::opaque(
             origin_x as u32 + 10,
@@ -5048,8 +5054,8 @@ fn tile_65_grouped_shape_effect_in_backdrop(renderer: &mut Renderer) -> Vec<Pixe
     ]
 }
 
-/// Shape, backdrop, and group effects on one node must preserve painter order.
-fn tile_66_same_node_shape_backdrop_and_group_effects(
+/// Shape, backdrop, and content effects on one node must preserve painter order.
+fn tile_66_same_node_shape_backdrop_and_content_effects(
     renderer: &mut Renderer,
 ) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(66);
@@ -5074,15 +5080,15 @@ fn tile_66_same_node_shape_backdrop_and_group_effects(
         .add_shape(panel, None, Some(66_066), ShapeDrawCommandOptions::new())
         .unwrap();
     renderer
-        .set_shape_effect(
+        .set_shape_mask_effect(
             panel_id,
             SHAPE_DROP_EFFECT_ID,
             &[],
-            ShapeEffectConfig::new().outset(12.0),
+            ShapeMaskEffectConfig::new().outset(12.0),
         )
-        .expect("Failed to attach same-node cached shape effect");
+        .expect("Failed to attach same-node cached shape mask effect");
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             panel_id,
             PASSTHROUGH_EFFECT_ID,
             &[],
@@ -5090,13 +5096,13 @@ fn tile_66_same_node_shape_backdrop_and_group_effects(
         )
         .expect("Failed to attach same-node backdrop effect");
     renderer
-        .set_group_effect(
+        .set_content_effect(
             panel_id,
             PASSTHROUGH_EFFECT_ID,
             &[],
-            GroupEffectConfig::default(),
+            ContentEffectConfig::default(),
         )
-        .expect("Failed to attach same-node group effect");
+        .expect("Failed to attach same-node content effect");
 
     vec![
         PixelExpectation::opaque(
@@ -5105,7 +5111,7 @@ fn tile_66_same_node_shape_backdrop_and_group_effects(
             0,
             0,
             255,
-            "t66_grouped_backdrop_includes_same_node_shape_effect",
+            "t66_grouped_backdrop_includes_same_node_shape_mask_effect",
         ),
         PixelExpectation::opaque(
             origin_x as u32 + 55,
@@ -5113,7 +5119,7 @@ fn tile_66_same_node_shape_backdrop_and_group_effects(
             0,
             0,
             255,
-            "t66_group_result_contains_shape_effect_outside_panel",
+            "t66_group_result_contains_shape_mask_effect_outside_panel",
         ),
         PixelExpectation::opaque(
             origin_x as u32 + 10,
@@ -5167,18 +5173,18 @@ fn tile_67_downsampled_drop_shadow_with_backdrop_blur(
         color: [0.0, 0.0, 0.0, 0.65],
     };
     renderer
-        .set_shape_effect(
+        .set_shape_mask_effect(
             card_id,
             DROP_SHADOW_EFFECT_ID,
             bytemuck::bytes_of(&shadow_params),
-            ShapeEffectConfig::new()
+            ShapeMaskEffectConfig::new()
                 .outsets(8.0, 8.0, 20.0, 22.0)
                 .downsample(0.5),
         )
         .expect("Failed to attach downsampled drop shadow effect");
     let backdrop_blur_params = BlurParams::new(5.0);
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             card_id,
             BLUR_EFFECT_ID,
             bytemuck::bytes_of(&backdrop_blur_params),
@@ -5381,15 +5387,15 @@ fn tile_72_nested_group_textures(renderer: &mut Renderer) -> Vec<PixelExpectatio
         )
         .unwrap();
     renderer
-        .set_shape_effect(
+        .set_shape_mask_effect(
             shape,
             SHAPE_DROP_EFFECT_ID,
             &[],
-            ShapeEffectConfig::new().outset(12.0),
+            ShapeMaskEffectConfig::new().outset(12.0),
         )
         .unwrap();
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             shape,
             PASSTHROUGH_EFFECT_ID,
             &[],
@@ -5397,7 +5403,12 @@ fn tile_72_nested_group_textures(renderer: &mut Renderer) -> Vec<PixelExpectatio
         )
         .unwrap();
     renderer
-        .set_group_effect(nested, nested_effect_id, &[], GroupEffectConfig::default())
+        .set_content_effect(
+            nested,
+            nested_effect_id,
+            &[],
+            ContentEffectConfig::default(),
+        )
         .unwrap();
     let tint = DropShadowParams {
         radius: 0.0,
@@ -5406,11 +5417,11 @@ fn tile_72_nested_group_textures(renderer: &mut Renderer) -> Vec<PixelExpectatio
         color: [0.5, 0.0, 0.0, 0.5],
     };
     renderer
-        .set_group_effect(
+        .set_content_effect(
             outer,
             tint_effect_id,
             bytemuck::bytes_of(&tint),
-            GroupEffectConfig::default(),
+            ContentEffectConfig::default(),
         )
         .unwrap();
 
@@ -5473,11 +5484,11 @@ fn tile_73_padded_layered_backdrops(renderer: &mut Renderer) -> Vec<PixelExpecta
         )
         .unwrap();
     renderer
-        .set_group_effect(
+        .set_content_effect(
             group,
             PASSTHROUGH_EFFECT_ID,
             &[],
-            GroupEffectConfig::default(),
+            ContentEffectConfig::default(),
         )
         .unwrap();
     renderer
@@ -5528,7 +5539,7 @@ fn tile_73_padded_layered_backdrops(renderer: &mut Renderer) -> Vec<PixelExpecta
             )
             .unwrap();
         renderer
-            .set_shape_backdrop_effect(
+            .set_backdrop_effect(
                 panel,
                 effect_id,
                 &[],
@@ -5635,7 +5646,7 @@ fn tile_75_under_fill_with_user_textures(renderer: &mut Renderer) -> Vec<PixelEx
                 BackdropEffectConfig::new().padding(4.0).downsample(0.5)
             };
             renderer
-                .set_shape_backdrop_effect(panel, COLOR_CHANNEL_EFFECT_ID, &[], config)
+                .set_backdrop_effect(panel, COLOR_CHANNEL_EFFECT_ID, &[], config)
                 .unwrap();
             let left_color = match (capture_is_rejected, uses_gradient) {
                 (false, false) => [225, 137, 187],
@@ -5696,11 +5707,11 @@ fn tile_76_rotated_under_fill_sampling(renderer: &mut Renderer) -> Vec<PixelExpe
         )
         .unwrap();
     renderer
-        .set_group_effect(
+        .set_content_effect(
             group,
             PASSTHROUGH_EFFECT_ID,
             &[],
-            GroupEffectConfig::default(),
+            ContentEffectConfig::default(),
         )
         .unwrap();
     let rotation = TransformInstance::rotation_z_deg(45.0);
@@ -5714,7 +5725,7 @@ fn tile_76_rotated_under_fill_sampling(renderer: &mut Renderer) -> Vec<PixelExpe
         )
         .unwrap();
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             panel,
             COLOR_CHANNEL_EFFECT_ID,
             &[],
@@ -5771,7 +5782,7 @@ fn add_backdrop_checkerboard(renderer: &mut Renderer, origin: (f32, f32)) {
 fn tile_consecutive_captures_under_inherited_clips(
     renderer: &mut Renderer,
     tile_number: u32,
-    has_group_effect: bool,
+    has_content_effect: bool,
 ) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(tile_number);
     add_backdrop_checkerboard(renderer, (origin_x, origin_y));
@@ -5783,13 +5794,13 @@ fn tile_consecutive_captures_under_inherited_clips(
             ShapeDrawCommandOptions::new(),
         )
         .unwrap();
-    if has_group_effect {
+    if has_content_effect {
         renderer
-            .set_group_effect(
+            .set_content_effect(
                 container,
                 PASSTHROUGH_EFFECT_ID,
                 &[],
-                GroupEffectConfig::default(),
+                ContentEffectConfig::default(),
             )
             .unwrap();
     }
@@ -5883,7 +5894,7 @@ fn tile_consecutive_captures_under_inherited_clips(
             &[]
         };
         renderer
-            .set_shape_backdrop_effect(
+            .set_backdrop_effect(
                 panel,
                 effect_id,
                 parameters,
@@ -6051,15 +6062,15 @@ fn tile_79_capture_before_first_group_draw(renderer: &mut Renderer) -> Vec<Pixel
         )
         .unwrap();
     renderer
-        .set_group_effect(
+        .set_content_effect(
             group,
             PASSTHROUGH_EFFECT_ID,
             &[],
-            GroupEffectConfig::default(),
+            ContentEffectConfig::default(),
         )
         .unwrap();
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             group,
             WAVE_DISTORTION_EFFECT_ID,
             &[],
@@ -6078,7 +6089,7 @@ fn tile_79_capture_before_first_group_draw(renderer: &mut Renderer) -> Vec<Pixel
         )
         .unwrap();
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             child,
             BLUR_EFFECT_ID,
             bytemuck::bytes_of(&BlurParams::new(6.0)),
@@ -6183,11 +6194,11 @@ fn tile_80_group_composite_under_mixed_clips(renderer: &mut Renderer) -> Vec<Pix
         )
         .unwrap();
     renderer
-        .set_shape_effect(
+        .set_shape_mask_effect(
             overflow,
             SHAPE_DROP_EFFECT_ID,
             &[],
-            ShapeEffectConfig::new().outset(12.0),
+            ShapeMaskEffectConfig::new().outset(12.0),
         )
         .unwrap();
     renderer
@@ -6199,11 +6210,11 @@ fn tile_80_group_composite_under_mixed_clips(renderer: &mut Renderer) -> Vec<Pix
         )
         .unwrap();
     renderer
-        .set_group_effect(
+        .set_content_effect(
             group,
             PASSTHROUGH_EFFECT_ID,
             &[],
-            GroupEffectConfig::default(),
+            ContentEffectConfig::default(),
         )
         .unwrap();
     let empty_backdrop = renderer
@@ -6215,7 +6226,7 @@ fn tile_80_group_composite_under_mixed_clips(renderer: &mut Renderer) -> Vec<Pix
         )
         .unwrap();
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             empty_backdrop,
             PASSTHROUGH_EFFECT_ID,
             &[],
@@ -6281,7 +6292,7 @@ fn tile_80_group_composite_under_mixed_clips(renderer: &mut Renderer) -> Vec<Pix
 }
 
 /// Warped and frosted panels capture shared shadows at distinct local placements.
-fn tile_81_shared_shape_effect_composites(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+fn tile_81_shared_shape_mask_effect_composites(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(81);
     add_backdrop_checkerboard(renderer, (origin_x, origin_y));
     renderer.load_shape(
@@ -6353,11 +6364,11 @@ fn tile_81_shared_shape_effect_composites(renderer: &mut Renderer) -> Vec<PixelE
             )
             .unwrap();
         renderer
-            .set_shape_effect(
+            .set_shape_mask_effect(
                 card,
                 DROP_SHADOW_EFFECT_ID,
                 bytemuck::bytes_of(&shadow_parameters),
-                ShapeEffectConfig::new().outset(12.0),
+                ShapeMaskEffectConfig::new().outset(12.0),
             )
             .unwrap();
         let backdrop_parameters = if backdrop_effect_id == BLUR_EFFECT_ID {
@@ -6366,7 +6377,7 @@ fn tile_81_shared_shape_effect_composites(renderer: &mut Renderer) -> Vec<PixelE
             &[]
         };
         renderer
-            .set_shape_backdrop_effect(
+            .set_backdrop_effect(
                 card,
                 backdrop_effect_id,
                 backdrop_parameters,
@@ -6375,11 +6386,11 @@ fn tile_81_shared_shape_effect_composites(renderer: &mut Renderer) -> Vec<PixelE
             .unwrap();
     }
     renderer
-        .set_group_effect(
+        .set_content_effect(
             group,
             PASSTHROUGH_EFFECT_ID,
             &[],
-            GroupEffectConfig::default(),
+            ContentEffectConfig::default(),
         )
         .unwrap();
     renderer
@@ -6491,11 +6502,11 @@ fn tile_82_group_dependencies_in_layered_backdrops(
             .unwrap();
     }
     renderer
-        .set_group_effect(
+        .set_content_effect(
             wavy_card,
             WAVE_DISTORTION_EFFECT_ID,
             &[],
-            GroupEffectConfig::new().outsets(4.0, 2.0, 4.0, 2.0),
+            ContentEffectConfig::new().outsets(4.0, 2.0, 4.0, 2.0),
         )
         .unwrap();
 
@@ -6525,7 +6536,7 @@ fn tile_82_group_dependencies_in_layered_backdrops(
         )
         .unwrap();
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             frosted_panel,
             PASSTHROUGH_EFFECT_ID,
             &[],
@@ -6533,19 +6544,19 @@ fn tile_82_group_dependencies_in_layered_backdrops(
         )
         .unwrap();
     renderer
-        .set_group_effect(
+        .set_content_effect(
             frosted_group,
             BLUR_EFFECT_ID,
             bytemuck::bytes_of(&BlurParams::new(4.0)),
-            GroupEffectConfig::new().outset(4.0),
+            ContentEffectConfig::new().outset(4.0),
         )
         .unwrap();
     renderer
-        .set_group_effect(
+        .set_content_effect(
             outer_group,
             PASSTHROUGH_EFFECT_ID,
             &[],
-            GroupEffectConfig::default(),
+            ContentEffectConfig::default(),
         )
         .unwrap();
 
@@ -6746,28 +6757,28 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
             .unwrap();
     }
     renderer
-        .set_group_effect(
+        .set_content_effect(
             middle,
             WAVE_DISTORTION_EFFECT_ID,
             &[],
-            GroupEffectConfig::new().outsets(4.0, 2.0, 4.0, 2.0),
+            ContentEffectConfig::new().outsets(4.0, 2.0, 4.0, 2.0),
         )
         .unwrap();
     renderer
-        .set_group_effect(
+        .set_content_effect(
             inner,
             BLUR_EFFECT_ID,
             bytemuck::bytes_of(&BlurParams::new(4.0)),
-            GroupEffectConfig::new().outset(4.0),
+            ContentEffectConfig::new().outset(4.0),
         )
         .unwrap();
     for group in [outer, empty] {
         renderer
-            .set_group_effect(
+            .set_content_effect(
                 group,
                 PASSTHROUGH_EFFECT_ID,
                 &[],
-                GroupEffectConfig::default(),
+                ContentEffectConfig::default(),
             )
             .unwrap();
     }

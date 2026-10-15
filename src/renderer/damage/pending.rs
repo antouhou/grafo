@@ -1,4 +1,4 @@
-use super::{mark_dirty, mark_shape_effect_dirty};
+use super::{mark_dirty, mark_shape_mask_effect_dirty};
 use crate::core::UnsignedPhysicalRect;
 use crate::scene::types::DrawTreeNode;
 use crate::scene::Scene;
@@ -42,8 +42,8 @@ impl PendingDamage {
                     scene.fringe_width(),
                 );
             }
-            if let Some(effect) = scene.shape_effects.get(&node_id) {
-                mark_shape_effect_dirty(dirty_bounds, effect.bounds, scene.viewport());
+            if let Some(effect) = scene.shape_mask_effects.get(&node_id) {
+                mark_shape_mask_effect_dirty(dirty_bounds, effect.bounds, scene.viewport());
             }
             self.stack
                 .extend_from_slice(scene.draw_tree.children(node_id));

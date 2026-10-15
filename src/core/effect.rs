@@ -1,29 +1,32 @@
-//! Custom shader effects for groups, backdrops, and cacheable shape-local masks.
+//! Custom shader effects on shape masks, rendered content, and backdrops.
 //!
 //! Each attachment supplies different input pixels:
 //!
-//! - Group effects process a rendered subtree captured within the attached shape's
-//!   bounds, including its shape-effect output. Output outsets reserve transparent
-//!   space around the capture.
+//! - Shape mask effects process one shape's padded white geometric coverage mask,
+//!   without its fill, textures, or children. The result is drawn behind the shape.
+//! - Content effects process the node and its descendants as one rendered image.
+//!   Capture bounds include the attached shape's screen bounds and its own shape
+//!   mask effect output. Overflowing descendants do not expand the capture.
+//!   Output outsets reserve transparent space around it. The result replaces the
+//!   captured content.
 //! - Backdrop effects process previously rendered scene pixels behind the node.
-//! - Shape effects process a padded white coverage mask of one shape. The result
-//!   texture is cached while the shape and effect inputs are unchanged.
+//!   The result is drawn through the shape beneath its fill.
 //!
 //! These descriptions contain effect IDs, configuration, and parameter bytes.
 //! `Renderer::load_effect()` delegates WGSL compilation to execution, which owns
 //! the pipelines and uploaded parameters.
-//! `set_group_effect()`, `set_shape_backdrop_effect()`, and `set_shape_effect()`
+//! `set_content_effect()`, `set_backdrop_effect()`, and `set_shape_mask_effect()`
 //! attach a loaded effect to a draw tree node. Nodes share the compiled pipelines
 //! and can supply different parameters.
 
 use crate::core::geometry;
 use crate::core::vertex::InstanceTransform;
 use crate::core::{MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
-pub(crate) use groups::GroupEffectBounds;
-pub use groups::GroupEffectConfig;
+pub(crate) use content::ContentEffectBounds;
+pub use content::ContentEffectConfig;
 
 pub(crate) mod backdrops;
-mod groups;
+mod content;
 
 pub(crate) fn can_allocate_texture(
     texture_size: Size,
@@ -95,10 +98,12 @@ impl BackdropEffectConfig {
     }
 }
 
-/// Padding around a shape's local bounds for a cached shape effect.
-/// Outsets are measured in logical pixels.
+/// Padding and rasterization scale for an effect on a shape's coverage mask.
+///
+/// Outsets expand the mask and effect output in shape-local logical pixels.
+/// The result follows the shape's transform and is drawn behind its fill and children.
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct ShapeEffectConfig {
+pub struct ShapeMaskEffectConfig {
     pub left_outset: f32,
     pub top_outset: f32,
     pub right_outset: f32,
@@ -111,7 +116,7 @@ pub struct ShapeEffectConfig {
     pub downsample: f32,
 }
 
-impl Default for ShapeEffectConfig {
+impl Default for ShapeMaskEffectConfig {
     fn default() -> Self {
         Self {
             left_outset: 0.0,
@@ -123,7 +128,7 @@ impl Default for ShapeEffectConfig {
     }
 }
 
-impl ShapeEffectConfig {
+impl ShapeMaskEffectConfig {
     pub fn new() -> Self {
         Self::default()
     }
@@ -190,17 +195,17 @@ pub(crate) fn resolve_capture_region_to_viewport(
 
 /// Local raster bounds, texture dimensions, and the unclipped screen footprint.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct ShapeEffectBounds {
+pub(crate) struct ShapeMaskEffectBounds {
     pub local_physical_origin: [i32; 2],
     pub texture_size: [u32; 2],
     pub local_bounds: [(f32, f32); 2],
     pub logical_screen_bounds: MathRect,
 }
 
-impl ShapeEffectBounds {
+impl ShapeMaskEffectBounds {
     pub(crate) fn new(
         local_bounds: [(f32, f32); 2],
-        config: ShapeEffectConfig,
+        config: ShapeMaskEffectConfig,
         transform: Option<InstanceTransform>,
         scale_factor: f64,
         fringe_width: f32,

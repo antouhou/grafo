@@ -90,7 +90,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 "#;
 
-/// Opaque blue eight-pixel drop used by cached shape-effect regression tiles.
+/// Opaque blue eight-pixel drop used by cached shape mask effect regression tiles.
 pub const SHAPE_DROP_WGSL: &str = r#"
 @fragment
 fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {

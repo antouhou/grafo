@@ -3,9 +3,9 @@ use crate::commands::{
     ShapeDrawMaterial, ShapeTextureBinding, Target, TextureComposite,
 };
 use crate::core::shape::ShapeInstance;
-use crate::planner::groups::GroupCapture;
+use crate::planner::content_effects::ContentCapture;
 use crate::planner::TextureIdAllocator;
-use crate::scene::effects::{BackdropEffectInstance, GroupEffectInstance};
+use crate::scene::effects::{BackdropEffectInstance, ContentEffectInstance};
 use crate::scene::types::DrawTreeNode;
 use crate::{Size, UnsignedPhysicalRect};
 use ahash::HashMap;
@@ -48,7 +48,7 @@ struct ParentDrawState {
     node_id: usize,
     next_child: usize,
     clip_state: ClipState,
-    group_capture: Option<GroupCapture>,
+    group_capture: Option<ContentCapture>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -62,8 +62,8 @@ pub(crate) struct DrawPlanningInput<'a> {
     pub(crate) tree: &'a Tree<DrawTreeNode>,
     pub(crate) selection: DrawTreeSelection,
     pub(crate) effect_results: &'a HashMap<usize, TextureComposite>,
-    pub(crate) shape_effects: &'a HashMap<usize, TextureComposite>,
-    pub(crate) group_effects: &'a HashMap<usize, GroupEffectInstance>,
+    pub(crate) shape_mask_effects: &'a HashMap<usize, TextureComposite>,
+    pub(crate) content_effects: &'a HashMap<usize, ContentEffectInstance>,
     pub(crate) backdrop_effects: &'a HashMap<usize, BackdropEffectInstance>,
     pub(crate) scale_factor: f64,
     pub(crate) physical_size: Size,
@@ -72,14 +72,14 @@ pub(crate) struct DrawPlanningInput<'a> {
 }
 
 impl DrawPlanningInput<'_> {
-    fn resolve_group_capture(&self, node_id: usize) -> Option<GroupCapture> {
+    fn resolve_group_capture(&self, node_id: usize) -> Option<ContentCapture> {
         let can_capture_inline =
             self.backdrop_effects.is_empty() && self.selection.subtree_root != Some(node_id);
         if !can_capture_inline {
             return None;
         }
-        let effect = self.group_effects.get(&node_id)?;
-        GroupCapture::new(*effect)
+        let effect = self.content_effects.get(&node_id)?;
+        ContentCapture::new(*effect)
     }
 }
 
@@ -134,7 +134,7 @@ impl DrawPlanner {
             }));
             self.current = ClipState::for_viewport(input.physical_size);
         }
-        if let Some(&composite) = input.shape_effects.get(&node_id) {
+        if let Some(&composite) = input.shape_mask_effects.get(&node_id) {
             output.push_composite(composite, self.current.clip);
         }
         let has_children = !input.tree.children(node_id).is_empty();
@@ -221,7 +221,7 @@ impl DrawPlanner {
             node_id,
             node,
             draw.map(|draw| draw.material),
-            input.group_effects,
+            input.content_effects,
         );
         let visible_draw = draw.filter(|_| should_draw);
         if input.tree.children(node_id).is_empty() {
