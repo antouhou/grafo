@@ -10,8 +10,8 @@ pub enum SceneError {
     UnsupportedClipRectOperation(usize, &'static str),
     #[error("Node {0} was not found")]
     NodeNotFound(usize),
-    #[error("Could not calculate shape effect bounds for node {0}")]
-    InvalidShapeEffectBounds(usize),
+    #[error("Could not calculate shape mask effect bounds for node {0}")]
+    InvalidShapeMaskEffectBounds(usize),
     #[error("Invalid effect parameters: {0}")]
     InvalidParams(String),
 }

@@ -4,10 +4,10 @@
 use futures::executor::block_on;
 use grafo::{
     BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color, ColorInterpolation,
-    DrawCommandError, EffectError, EffectResourceError, Fill, Gradient, GradientStop,
-    GradientStopOffset, GroupEffectConfig, LinearGradientDesc, LinearGradientLine, PixelFormat,
+    ContentEffectConfig, DrawCommandError, EffectError, EffectResourceError, Fill, Gradient,
+    GradientStop, GradientStopOffset, LinearGradientDesc, LinearGradientLine, PixelFormat,
     PixelLayout, Pixmap, PixmapMut, Renderer, RendererCreationError, SceneError, Shape,
-    ShapeDrawCommandOptions, ShapeEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
+    ShapeDrawCommandOptions, ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
     TextureManager, TransformInstance, WgpuBackendError,
 };
 use grafo_test_scenes::shaders::{PASSTHROUGH_WGSL, SHAPE_DROP_WGSL};
@@ -16,7 +16,7 @@ use grafo_test_scenes::{
     CANVAS_WIDTH,
 };
 
-const CONSTANT_BLUE_SHAPE_EFFECT: &str = r#"
+const CONSTANT_BLUE_SHAPE_MASK_EFFECT: &str = r#"
 @fragment
 fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 1.0, 1.0);
@@ -140,7 +140,7 @@ fn negative_w_addition_and_removal_update_retained_pixels() {
         return;
     };
     renderer
-        .load_effect(9_301, &[CACHED_SHAPE_EFFECT_RED_MASK])
+        .load_effect(9_301, &[CACHED_SHAPE_MASK_EFFECT_RED_MASK])
         .unwrap();
     let mut transform = TransformInstance::identity();
     transform.col3[3] = -1.0;
@@ -149,7 +149,7 @@ fn negative_w_addition_and_removal_update_retained_pixels() {
     // A populated first render cannot exercise retained-output damage.
     for samples in [1, 4] {
         renderer.set_msaa_samples(samples);
-        for has_shape_effect in [false, true] {
+        for has_shape_mask_effect in [false, true] {
             render_bgra(&mut renderer, &mut pixels).unwrap();
             assert!(pixels.iter().all(|&byte| byte == 0));
             let node = renderer
@@ -162,9 +162,14 @@ fn negative_w_addition_and_removal_update_retained_pixels() {
                         .transform(transform),
                 )
                 .unwrap();
-            if has_shape_effect {
+            if has_shape_mask_effect {
                 renderer
-                    .set_shape_effect(node, 9_301, &[], ShapeEffectConfig::new().outset(3.0))
+                    .set_shape_mask_effect(
+                        node,
+                        9_301,
+                        &[],
+                        ShapeMaskEffectConfig::new().outset(3.0),
+                    )
                     .unwrap();
             }
             render_bgra(&mut renderer, &mut pixels).unwrap();
@@ -181,12 +186,12 @@ fn negative_w_addition_and_removal_update_retained_pixels() {
 }
 
 #[test]
-fn rejected_rasterization_changes_preserve_shape_effect_pixels() {
+fn rejected_rasterization_changes_preserve_shape_mask_effect_pixels() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((512, 256), 1.0) else {
         return;
     };
     renderer
-        .load_effect(9_302, &[CONSTANT_BLUE_SHAPE_EFFECT])
+        .load_effect(9_302, &[CONSTANT_BLUE_SHAPE_MASK_EFFECT])
         .unwrap();
     let node = renderer
         .add_shape(
@@ -198,7 +203,7 @@ fn rejected_rasterization_changes_preserve_shape_effect_pixels() {
         )
         .unwrap();
     renderer
-        .set_shape_effect(node, 9_302, &[], ShapeEffectConfig::new().outset(128.0))
+        .set_shape_mask_effect(node, 9_302, &[], ShapeMaskEffectConfig::new().outset(128.0))
         .unwrap();
     let mut pixels = Vec::new();
     render_bgra(&mut renderer, &mut pixels).unwrap();
@@ -221,13 +226,13 @@ fn rejected_rasterization_changes_preserve_shape_effect_pixels() {
     renderer.change_scale_factor(1.0).unwrap();
     render_bgra(&mut renderer, &mut pixels).unwrap();
     assert_eq!(pixels, initial);
-    renderer.remove_shape_effect(node);
+    renderer.remove_shape_mask_effect(node);
     render_bgra(&mut renderer, &mut pixels).unwrap();
     assert!(pixels.iter().all(|&byte| byte == 0));
 }
 
 #[test]
-fn shape_effect_is_resolved_before_backdrop_capture_with_msaa() {
+fn shape_mask_effect_is_resolved_before_backdrop_capture_with_msaa() {
     // This test passes when no GPU present on purpose: I don't have a GPU on my CI just yet, so I'm
     //  running this test and the visual regression example manually before commiting changes
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
@@ -236,7 +241,7 @@ fn shape_effect_is_resolved_before_backdrop_capture_with_msaa() {
     renderer.set_msaa_samples(4);
     renderer
         .load_effect(9_101, &[SHAPE_DROP_WGSL])
-        .expect("to load the MSAA shape effect");
+        .expect("to load the MSAA shape mask effect");
     renderer
         .load_effect(9_102, &[PASSTHROUGH_WGSL])
         .expect("to load the MSAA backdrop effect");
@@ -258,10 +263,15 @@ fn shape_effect_is_resolved_before_backdrop_capture_with_msaa() {
         )
         .unwrap();
     renderer
-        .set_shape_effect(panel_id, 9_101, &[], ShapeEffectConfig::new().outset(12.0))
-        .expect("to attach the MSAA shape effect");
+        .set_shape_mask_effect(
+            panel_id,
+            9_101,
+            &[],
+            ShapeMaskEffectConfig::new().outset(12.0),
+        )
+        .expect("to attach the MSAA shape mask effect");
     renderer
-        .set_shape_backdrop_effect(panel_id, 9_102, &[], BackdropEffectConfig::default())
+        .set_backdrop_effect(panel_id, 9_102, &[], BackdropEffectConfig::default())
         .expect("to attach the MSAA backdrop effect");
 
     let mut pixel_buffer = Vec::new();
@@ -283,7 +293,7 @@ fn read_pixel_rgba(pixel_buffer: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
     ]
 }
 
-const CACHED_SHAPE_EFFECT_RED_MASK: &str = r#"
+const CACHED_SHAPE_MASK_EFFECT_RED_MASK: &str = r#"
 @fragment
 fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     let coverage = textureSample(t_input, s_input, uv).a;
@@ -320,7 +330,7 @@ fn invalid_effect_can_be_replaced_with_a_valid_shader() {
         )
         .unwrap();
     renderer
-        .set_group_effect(shape_id, 9_201, &[], GroupEffectConfig::default())
+        .set_content_effect(shape_id, 9_201, &[], ContentEffectConfig::default())
         .unwrap();
 
     let mut pixel_buffer = Vec::new();
@@ -342,12 +352,12 @@ fn invalid_effect_can_be_replaced_with_a_valid_shader() {
 }
 
 #[test]
-fn shape_effects_follow_geometry_and_placement_across_queue_rebuilds() {
+fn shape_mask_effects_follow_geometry_and_placement_across_queue_rebuilds() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 48), 1.0) else {
         return;
     };
     renderer
-        .load_effect(8_101, &[CACHED_SHAPE_EFFECT_RED_MASK])
+        .load_effect(8_101, &[CACHED_SHAPE_MASK_EFFECT_RED_MASK])
         .unwrap();
     renderer.load_shape(Shape::rect([(0.0, 0.0), (24.0, 24.0)]), 8_102, Some(8_103));
     renderer.load_shape(
@@ -387,7 +397,12 @@ fn shape_effects_follow_geometry_and_placement_across_queue_rebuilds() {
                 )
                 .unwrap();
             renderer
-                .set_shape_effect(node_id, 8_101, &[], ShapeEffectConfig::new().outset(3.0))
+                .set_shape_mask_effect(
+                    node_id,
+                    8_101,
+                    &[],
+                    ShapeMaskEffectConfig::new().outset(3.0),
+                )
                 .unwrap();
         }
         render_bgra(&mut renderer, &mut pixels).unwrap();
@@ -406,7 +421,7 @@ fn shape_effects_follow_geometry_and_placement_across_queue_rebuilds() {
 
 #[cfg(feature = "render_metrics")]
 #[test]
-fn cached_shape_effects_share_the_normal_texture_pipeline() {
+fn cached_shape_mask_effects_share_the_normal_texture_pipeline() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 48), 1.0) else {
         return;
     };
@@ -435,7 +450,12 @@ fn cached_shape_effects_share_the_normal_texture_pipeline() {
             )
             .unwrap();
         renderer
-            .set_shape_effect(node_id, 8_151, &[], ShapeEffectConfig::new().outset(3.0))
+            .set_shape_mask_effect(
+                node_id,
+                8_151,
+                &[],
+                ShapeMaskEffectConfig::new().outset(3.0),
+            )
             .unwrap();
     }
 
@@ -454,7 +474,7 @@ fn cached_shape_effects_share_the_normal_texture_pipeline() {
         .unwrap();
     render_bgra(&mut renderer, &mut pixels).unwrap();
 
-    let cache_metrics = renderer.backend().last_shape_effect_cache_metrics();
+    let cache_metrics = renderer.backend().last_shape_mask_effect_cache_metrics();
     assert_eq!(cache_metrics.hits, 2);
     assert_eq!(cache_metrics.misses, 0);
 
@@ -466,7 +486,7 @@ fn cached_shape_effects_share_the_normal_texture_pipeline() {
 
 #[cfg(feature = "render_metrics")]
 #[test]
-fn cached_shape_effect_is_invalidated_by_normal_pipeline_recreation() {
+fn cached_shape_mask_effect_is_invalidated_by_normal_pipeline_recreation() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
         return;
     };
@@ -480,7 +500,12 @@ fn cached_shape_effect_is_invalidated_by_normal_pipeline_recreation() {
         )
         .unwrap();
     renderer
-        .set_shape_effect(shape_id, 8_161, &[], ShapeEffectConfig::new().outset(12.0))
+        .set_shape_mask_effect(
+            shape_id,
+            8_161,
+            &[],
+            ShapeMaskEffectConfig::new().outset(12.0),
+        )
         .unwrap();
 
     let mut pixels = Vec::new();
@@ -488,7 +513,7 @@ fn cached_shape_effect_is_invalidated_by_normal_pipeline_recreation() {
     renderer.set_msaa_samples(4);
     render_bgra(&mut renderer, &mut pixels).unwrap();
 
-    let cache_metrics = renderer.backend().last_shape_effect_cache_metrics();
+    let cache_metrics = renderer.backend().last_shape_mask_effect_cache_metrics();
     assert_eq!(cache_metrics.hits, 0);
     assert_eq!(cache_metrics.misses, 1);
     assert_eq!(read_pixel_rgba(&pixels, 64, 52, 32), [0, 0, 255, 255]);
@@ -621,7 +646,7 @@ fn rebuild_texture_material_scene(
             )
             .unwrap();
         renderer
-            .set_shape_backdrop_effect(panel, 9_301, &[], BackdropEffectConfig::default())
+            .set_backdrop_effect(panel, 9_301, &[], BackdropEffectConfig::default())
             .unwrap();
     }
 }
@@ -877,7 +902,7 @@ fn retained_texture_fits_follow_allocation_dimensions() {
                     )
                     .unwrap();
                 renderer
-                    .set_shape_effect(shape, 9_410, &[], ShapeEffectConfig::new())
+                    .set_shape_mask_effect(shape, 9_410, &[], ShapeMaskEffectConfig::new())
                     .unwrap();
                 render_bgra(&mut renderer, &mut pixels).unwrap();
                 assert_eq!(read_pixel_rgba(&pixels, 96, 10, 10), [255; 4]);
@@ -958,7 +983,7 @@ fn texture_mutations_redraw_retained_layers_and_backdrop_captures() {
             )
             .unwrap();
         renderer
-            .set_shape_backdrop_effect(
+            .set_backdrop_effect(
                 backdrop,
                 9_402,
                 &[],
@@ -1051,7 +1076,12 @@ fn command_replacements_update_retained_geometry_effects_and_child_clips() {
             )
             .unwrap();
         renderer
-            .set_shape_effect(parent, 9_401, &[], ShapeEffectConfig::new().outset(12.0))
+            .set_shape_mask_effect(
+                parent,
+                9_401,
+                &[],
+                ShapeMaskEffectConfig::new().outset(12.0),
+            )
             .unwrap();
         renderer
             .add_shape(
@@ -1437,7 +1467,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
         )
         .unwrap();
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             seeded_blue_panel_id,
             AVERAGE_WITH_RIGHT_NEIGHBOR_EFFECT_ID,
             &[],
@@ -1473,7 +1503,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
         )
         .unwrap();
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             partially_offscreen_panel_id,
             AVERAGE_WITH_RIGHT_NEIGHBOR_EFFECT_ID,
             &[],
@@ -1873,7 +1903,7 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
         )
         .unwrap();
     renderer
-        .set_group_effect(group, effect_id, &[], GroupEffectConfig::default())
+        .set_content_effect(group, effect_id, &[], ContentEffectConfig::default())
         .unwrap();
     renderer
         .add_shape(
@@ -1892,7 +1922,7 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
         )
         .unwrap();
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             panel,
             effect_id,
             &[],
@@ -1913,7 +1943,7 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
         .padding(4.0)
         .downsample(0.5);
     renderer
-        .set_shape_backdrop_effect(panel, effect_id, &[], moved_capture)
+        .set_backdrop_effect(panel, effect_id, &[], moved_capture)
         .unwrap();
     assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
 
@@ -1930,13 +1960,13 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
     }
 
     renderer
-        .set_shape_backdrop_effect(panel, effect_id, &[], moved_capture.downsample(1.0))
+        .set_backdrop_effect(panel, effect_id, &[], moved_capture.downsample(1.0))
         .unwrap();
     assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
 
     renderer.remove_backdrop_effect(panel);
     renderer
-        .set_shape_backdrop_effect(panel, effect_id, &[], moved_capture)
+        .set_backdrop_effect(panel, effect_id, &[], moved_capture)
         .unwrap();
     assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
 }

@@ -1,11 +1,11 @@
 use super::draws::{DrawPlanner, DrawPlanningInput, DrawTreeSelection};
 use crate::commands::{CaptureSource, RenderOperation, RenderPlan, Target, TextureComposite};
 use crate::planner::TextureIdAllocator;
-use crate::scene::effects::{BackdropEffectInstance, GroupEffectInstance};
+use crate::scene::effects::{BackdropEffectInstance, ContentEffectInstance};
 use crate::scene::types::DrawTreeNode;
 use crate::Size;
 use ahash::{HashMap, HashSet};
-pub(crate) use capture::GroupCapture;
+pub(crate) use capture::ContentCapture;
 use easy_tree::Tree;
 use std::cmp::Reverse;
 
@@ -20,11 +20,11 @@ fn node_depth(tree: &Tree<DrawTreeNode>, mut node: usize) -> usize {
     depth
 }
 
-pub(crate) struct GroupPlanningInput<'a> {
+pub(crate) struct ContentPlanningInput<'a> {
     pub tree: &'a Tree<DrawTreeNode>,
-    pub group_effects: &'a HashMap<usize, GroupEffectInstance>,
+    pub content_effects: &'a HashMap<usize, ContentEffectInstance>,
     pub backdrop_effects: &'a HashMap<usize, BackdropEffectInstance>,
-    pub shape_effects: &'a HashMap<usize, TextureComposite>,
+    pub shape_mask_effects: &'a HashMap<usize, TextureComposite>,
     pub scale_factor: f64,
     pub physical_size: Size,
 }
@@ -41,7 +41,7 @@ pub(crate) struct SceneTraversal {
 impl SceneTraversal {
     pub fn plan(
         &mut self,
-        input: GroupPlanningInput<'_>,
+        input: ContentPlanningInput<'_>,
         output: &mut RenderPlan,
         texture_ids: &mut TextureIdAllocator,
     ) {
@@ -49,7 +49,8 @@ impl SceneTraversal {
         self.schedule(&input);
         for index in 0..self.groups.len() {
             let node_id = self.groups[index].0;
-            if let Some(composite) = self.plan_group_effect(node_id, &input, output, texture_ids) {
+            if let Some(composite) = self.plan_content_effect(node_id, &input, output, texture_ids)
+            {
                 self.results.insert(node_id, composite);
             }
         }
@@ -62,15 +63,15 @@ impl SceneTraversal {
         );
     }
 
-    fn schedule(&mut self, input: &GroupPlanningInput<'_>) {
+    fn schedule(&mut self, input: &ContentPlanningInput<'_>) {
         self.groups.clear();
         self.backdrop_ancestors.clear();
         // Layered captures need completed group dependencies outside the captured subtree.
         // Without captures, the tree walk opens group targets directly inside their parents.
-        if input.group_effects.is_empty() || input.backdrop_effects.is_empty() {
+        if input.content_effects.is_empty() || input.backdrop_effects.is_empty() {
             return;
         }
-        for &node in input.group_effects.keys() {
+        for &node in input.content_effects.keys() {
             if input.tree.get(node).is_some() {
                 self.groups.push((node, node_depth(input.tree, node)));
             }
@@ -95,7 +96,7 @@ impl SceneTraversal {
     fn plan_backdrop_source(
         &mut self,
         node: usize,
-        input: &GroupPlanningInput<'_>,
+        input: &ContentPlanningInput<'_>,
         output: &mut RenderPlan,
         texture_ids: &mut TextureIdAllocator,
     ) -> Option<CaptureSource> {
@@ -125,7 +126,7 @@ impl SceneTraversal {
         target: Target,
         selection: DrawTreeSelection,
         backdrop_source: Option<CaptureSource>,
-        input: &GroupPlanningInput<'_>,
+        input: &ContentPlanningInput<'_>,
         output: &mut RenderPlan,
         texture_ids: &mut TextureIdAllocator,
     ) {
@@ -138,7 +139,7 @@ impl SceneTraversal {
         &mut self,
         selection: DrawTreeSelection,
         backdrop_source: Option<CaptureSource>,
-        input: &GroupPlanningInput<'_>,
+        input: &ContentPlanningInput<'_>,
         output: &mut RenderPlan,
         texture_ids: &mut TextureIdAllocator,
     ) {
@@ -147,8 +148,8 @@ impl SceneTraversal {
                 tree: input.tree,
                 selection,
                 effect_results: &self.results,
-                shape_effects: input.shape_effects,
-                group_effects: input.group_effects,
+                shape_mask_effects: input.shape_mask_effects,
+                content_effects: input.content_effects,
                 backdrop_effects: input.backdrop_effects,
                 backdrop_source,
                 scale_factor: input.scale_factor,
@@ -159,14 +160,14 @@ impl SceneTraversal {
         );
     }
 
-    fn plan_group_effect(
+    fn plan_content_effect(
         &mut self,
         node_id: usize,
-        input: &GroupPlanningInput<'_>,
+        input: &ContentPlanningInput<'_>,
         output: &mut RenderPlan,
         texture_ids: &mut TextureIdAllocator,
     ) -> Option<TextureComposite> {
-        let capture = GroupCapture::new(input.group_effects[&node_id])?;
+        let capture = ContentCapture::new(input.content_effects[&node_id])?;
         let backdrop_source = self.plan_backdrop_source(node_id, input, output, texture_ids);
         let group_texture = texture_ids.allocate();
         output.push(RenderOperation::BeginTarget(Target::Texture {

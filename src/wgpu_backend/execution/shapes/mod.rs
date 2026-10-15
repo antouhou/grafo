@@ -29,7 +29,7 @@ pub(crate) struct ShapeBufferLocation {
 /// GPU locations and material bindings for one CPU shape description.
 #[derive(Debug, Default)]
 pub(in crate::wgpu_backend) struct ShapeDrawResources {
-    /// Retained only for draws with a shape effect, to identify cached coverage masks.
+    /// Retained only for draws with a shape mask effect, to identify cached coverage masks.
     pub(crate) mask_tessellation: Option<Arc<CachedTessellation>>,
     pub(crate) geometry_buffer_location: Option<ShapeBufferLocation>,
     gradient_material: Option<Arc<GradientMaterial>>,

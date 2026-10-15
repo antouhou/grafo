@@ -6,18 +6,18 @@ use crate::core::vertex::TextureUvTransform;
 use crate::core::{effect, geometry};
 use crate::core::{Size, UnsignedPhysicalRect, Viewport};
 use crate::planner::TextureIdAllocator;
-use crate::scene::effects::ShapeEffectInstance;
+use crate::scene::effects::ShapeMaskEffectInstance;
 use crate::scene::types::DrawTreeNode;
 use ahash::HashMap;
 use easy_tree::Tree;
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn append_shape_effects(
+pub(super) fn append_shape_mask_effects(
     commands: &mut RenderPlan,
     texture_ids: &mut TextureIdAllocator,
     composites: &mut HashMap<usize, TextureComposite>,
     tree: &Tree<DrawTreeNode>,
-    effects: &HashMap<usize, ShapeEffectInstance>,
+    effects: &HashMap<usize, ShapeMaskEffectInstance>,
     viewport: Viewport,
     fringe_width: f32,
     maximum_texture_dimension: u32,
@@ -37,7 +37,7 @@ pub(super) fn append_shape_effects(
             viewport.physical_size.into(),
             maximum_texture_dimension,
         ) {
-            tracing::warn!(node_id, "skipping oversized shape effect texture");
+            tracing::warn!(node_id, "skipping oversized shape mask effect texture");
             continue;
         }
         let mask = texture_ids.allocate();

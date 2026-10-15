@@ -1,10 +1,13 @@
-use crate::core::effect::{self, CaptureRegion, ShapeEffectBounds};
+use crate::core::effect::{self, CaptureRegion, ShapeMaskEffectBounds};
 use crate::core::{geometry, MathRect, Size, Viewport};
 use tracing::warn;
 
-/// Output padding around a group effect's input, in logical screen pixels.
+/// Output padding around a content effect's input, in logical screen pixels.
+///
+/// The input contains the node and its descendants within the node's bounds. Overflowing
+/// content does not expand the bounds.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct GroupEffectConfig {
+pub struct ContentEffectConfig {
     pub left_outset: f32,
     pub top_outset: f32,
     pub right_outset: f32,
@@ -15,7 +18,7 @@ pub struct GroupEffectConfig {
     pub downsample: f32,
 }
 
-impl Default for GroupEffectConfig {
+impl Default for ContentEffectConfig {
     fn default() -> Self {
         Self {
             left_outset: 0.0,
@@ -27,7 +30,7 @@ impl Default for GroupEffectConfig {
     }
 }
 
-impl GroupEffectConfig {
+impl ContentEffectConfig {
     pub fn new() -> Self {
         Self::default()
     }
@@ -65,7 +68,7 @@ impl GroupEffectConfig {
     }
 }
 
-fn padded_output_bounds(input_bounds: MathRect, config: GroupEffectConfig) -> MathRect {
+fn padded_output_bounds(input_bounds: MathRect, config: ContentEffectConfig) -> MathRect {
     MathRect::new(
         (
             input_bounds.min.x - config.left_outset,
@@ -82,11 +85,11 @@ fn padded_output_bounds(input_bounds: MathRect, config: GroupEffectConfig) -> Ma
 
 fn input_bounds(
     shape_bounds: MathRect,
-    shape_effect_bounds: Option<ShapeEffectBounds>,
+    shape_mask_effect_bounds: Option<ShapeMaskEffectBounds>,
     viewport_size: Size,
     maximum_texture_dimension: u32,
 ) -> MathRect {
-    let Some(bounds) = shape_effect_bounds.filter(|bounds| {
+    let Some(bounds) = shape_mask_effect_bounds.filter(|bounds| {
         effect::can_allocate_texture(
             Size::new(bounds.texture_size[0], bounds.texture_size[1]),
             viewport_size,
@@ -98,19 +101,19 @@ fn input_bounds(
     shape_bounds.union(&bounds.logical_screen_bounds)
 }
 
-/// Input and padded output bounds for a group effect.
+/// Input and padded output bounds for a content effect.
 #[derive(Clone, Copy)]
-pub(crate) struct GroupEffectBounds {
+pub(crate) struct ContentEffectBounds {
     pub capture_region: CaptureRegion,
     pub sampling_size: Size,
     pub logical_output_bounds: [(f32, f32); 2],
 }
 
-impl GroupEffectBounds {
+impl ContentEffectBounds {
     pub(crate) fn new(
         shape_bounds: MathRect,
-        shape_effect_bounds: Option<ShapeEffectBounds>,
-        config: GroupEffectConfig,
+        shape_mask_effect_bounds: Option<ShapeMaskEffectBounds>,
+        config: ContentEffectConfig,
         viewport: Viewport,
         maximum_texture_dimension: u32,
     ) -> Option<Self> {
@@ -120,7 +123,7 @@ impl GroupEffectBounds {
         let viewport_size = viewport.physical_size.into();
         let logical_input_bounds = input_bounds(
             shape_bounds,
-            shape_effect_bounds,
+            shape_mask_effect_bounds,
             viewport_size,
             maximum_texture_dimension,
         );
@@ -131,7 +134,7 @@ impl GroupEffectBounds {
             geometry::logical_rect_to_physical_rect(padded_bounds, viewport.scale_factor)?;
         let capture_size = output_bounds.size().to_u32();
         if !effect::can_allocate_texture(capture_size, viewport_size, maximum_texture_dimension) {
-            warn!("skipping oversized group effect texture");
+            warn!("skipping oversized content effect texture");
             return None;
         }
         let logical_output_bounds = output_bounds.to_f32() / viewport.scale_factor as f32;

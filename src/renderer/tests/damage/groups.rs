@@ -1,8 +1,8 @@
 use super::super::{Renderer, TestBackend, TestSurface};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
-    BackdropCaptureArea, BackdropEffectConfig, GroupEffectConfig, Shape, ShapeDrawCommandOptions,
-    ShapeEffectConfig, UnsignedPhysicalRect,
+    BackdropCaptureArea, BackdropEffectConfig, ContentEffectConfig, Shape, ShapeDrawCommandOptions,
+    ShapeMaskEffectConfig, UnsignedPhysicalRect,
 };
 use crate::render_backend::render_target::Surface;
 use crate::scene::SceneContext;
@@ -41,11 +41,11 @@ fn shape(renderer: &mut Renderer<TestBackend>, parent: usize, bounds: [(f32, f32
 
 fn group(renderer: &mut Renderer<TestBackend>, node: usize, outset: f32) {
     renderer
-        .set_group_effect(
+        .set_content_effect(
             node,
             8,
             &[1, 2, 3, 4],
-            GroupEffectConfig::new().outset(outset),
+            ContentEffectConfig::new().outset(outset),
         )
         .unwrap();
 }
@@ -62,7 +62,7 @@ fn child_damage_reaches_group_output_backdrop_and_another_group_on_the_same_node
     group(&mut renderer, first, 10.0);
     let second = shape(&mut renderer, 0, [(90.0, 20.0), (100.0, 30.0)]);
     renderer
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             second,
             7,
             &[1, 2, 3, 4],
@@ -101,43 +101,58 @@ fn group_updates_clear_old_outputs_and_rejected_updates_preserve_damage() {
     assert_eq!(renderer.backend.root_scissor, rect((18, 18), (42, 42)));
 
     for (params, config) in [
-        (&[1, 2, 3][..], GroupEffectConfig::default()),
-        (&[1, 2, 3, 4][..], GroupEffectConfig::new().outset(-1.0)),
+        (&[1, 2, 3][..], ContentEffectConfig::default()),
+        (&[1, 2, 3, 4][..], ContentEffectConfig::new().outset(-1.0)),
     ] {
-        assert!(renderer.set_group_effect(node, 8, params, config).is_err());
-        assert_eq!(renderer.scene.group_effects[&node].config.left_outset, 2.0);
+        assert!(renderer
+            .set_content_effect(node, 8, params, config)
+            .is_err());
+        assert_eq!(
+            renderer.scene.content_effects[&node].config.left_outset,
+            2.0
+        );
         renderer.render(&mut surface).unwrap();
         assert_eq!(renderer.backend.root_scissor, None);
     }
-    renderer.remove_group_effect(node);
+    renderer.remove_content_effect(node);
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, rect((18, 18), (42, 42)));
-    renderer.remove_group_effect(node);
+    renderer.remove_content_effect(node);
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, None);
 }
 
 #[test]
-fn shape_effect_changes_clear_the_old_padded_group_output() {
+fn shape_mask_effect_changes_clear_the_old_padded_group_output() {
     for unload in [false, true] {
         let (mut renderer, mut surface) = scene();
         let node = shape(&mut renderer, 0, [(20.0, 20.0), (40.0, 40.0)]);
         group(&mut renderer, node, 3.0);
         renderer.render(&mut surface).unwrap();
         renderer
-            .set_shape_effect(node, 7, &[1, 2, 3, 4], ShapeEffectConfig::new().outset(4.0))
+            .set_shape_mask_effect(
+                node,
+                7,
+                &[1, 2, 3, 4],
+                ShapeMaskEffectConfig::new().outset(4.0),
+            )
             .unwrap();
         renderer.render(&mut surface).unwrap();
         assert_eq!(renderer.backend.root_scissor, rect((12, 12), (48, 48)));
         renderer
-            .set_shape_effect(node, 7, &[1, 2, 3, 4], ShapeEffectConfig::new().outset(1.0))
+            .set_shape_mask_effect(
+                node,
+                7,
+                &[1, 2, 3, 4],
+                ShapeMaskEffectConfig::new().outset(1.0),
+            )
             .unwrap();
         renderer.render(&mut surface).unwrap();
         assert_eq!(renderer.backend.root_scissor, rect((12, 12), (48, 48)));
         if unload {
             renderer.unload_effect(7);
         } else {
-            renderer.remove_shape_effect(node);
+            renderer.remove_shape_mask_effect(node);
         }
         renderer.render(&mut surface).unwrap();
         assert_eq!(renderer.backend.root_scissor, rect((15, 15), (45, 45)));
@@ -171,13 +186,13 @@ fn group_attachment_changes_damage_only_the_resolved_output() {
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, rect((10, 10), (50, 50)));
     group(&mut renderer, parent, 5_000.0);
-    assert!(renderer.scene.group_effects[&parent].bounds.is_none());
+    assert!(renderer.scene.content_effects[&parent].bounds.is_none());
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, rect((10, 10), (50, 50)));
     group(&mut renderer, parent, 10.0);
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, rect((10, 10), (50, 50)));
-    renderer.remove_group_effect(parent);
+    renderer.remove_content_effect(parent);
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, rect((10, 10), (50, 50)));
 }
@@ -245,11 +260,11 @@ fn viewport_changes_refresh_group_input_and_full_resolution_output() {
     let (mut renderer, mut surface) = scene();
     let node = shape(&mut renderer, 0, [(20.0, 20.0), (40.0, 40.0)]);
     renderer
-        .set_group_effect(
+        .set_content_effect(
             node,
             8,
             &[1, 2, 3, 4],
-            GroupEffectConfig::new().outset(5.0).downsample(0.25),
+            ContentEffectConfig::new().outset(5.0).downsample(0.25),
         )
         .unwrap();
     renderer.render(&mut surface).unwrap();
@@ -282,31 +297,31 @@ fn offscreen_input_keeps_visible_group_output_without_a_damage_dependency() {
 }
 
 #[test]
-fn shape_effect_changes_refresh_group_damage_when_allocation_is_skipped_or_restored() {
+fn shape_mask_effect_changes_refresh_group_damage_when_allocation_is_skipped_or_restored() {
     let (mut renderer, mut surface) = scene();
     let node = shape(&mut renderer, 0, [(20.0, 20.0), (40.0, 40.0)]);
     renderer
-        .set_group_effect(
+        .set_content_effect(
             node,
             8,
             &[1, 2, 3, 4],
-            GroupEffectConfig::new().outsets(0.0, 0.0, 240.0, 0.0),
+            ContentEffectConfig::new().outsets(0.0, 0.0, 240.0, 0.0),
         )
         .unwrap();
     renderer.render(&mut surface).unwrap();
     renderer
-        .set_shape_effect(
+        .set_shape_mask_effect(
             node,
             7,
             &[1, 2, 3, 4],
-            ShapeEffectConfig::new().outset(71.0),
+            ShapeMaskEffectConfig::new().outset(71.0),
         )
         .unwrap();
-    assert!(renderer.scene.group_effects[&node].bounds.is_none());
+    assert!(renderer.scene.content_effects[&node].bounds.is_none());
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, rect((0, 0), (128, 112)));
     renderer.unload_effect(7);
-    assert!(renderer.scene.group_effects[&node].bounds.is_some());
+    assert!(renderer.scene.content_effects[&node].bounds.is_some());
     renderer.render(&mut surface).unwrap();
     assert_eq!(renderer.backend.root_scissor, rect((0, 0), (128, 112)));
 }

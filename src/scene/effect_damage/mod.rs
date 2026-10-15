@@ -1,6 +1,6 @@
 use super::types::DrawTreeNode;
 use super::Scene;
-use crate::core::effect::{CaptureRegion, GroupEffectBounds};
+use crate::core::effect::{CaptureRegion, ContentEffectBounds};
 use crate::core::geometry;
 use crate::core::{Size, UnsignedPhysicalRect, Viewport};
 use ahash::{HashMap, HashSet};
@@ -17,7 +17,7 @@ fn envelope(bounds: UnsignedPhysicalRect) -> AABB<[f64; 2]> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum EffectDamageKind {
     Backdrop,
-    Group,
+    Content,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,9 +59,9 @@ impl EffectDamageEntry {
         })
     }
 
-    pub(super) fn group(
+    pub(super) fn content(
         node_id: usize,
-        bounds: Option<GroupEffectBounds>,
+        bounds: Option<ContentEffectBounds>,
         physical_size: Size,
     ) -> Option<Self> {
         let bounds = bounds?;
@@ -77,7 +77,7 @@ impl EffectDamageEntry {
         }
         Some(Self {
             node_id,
-            kind: EffectDamageKind::Group,
+            kind: EffectDamageKind::Content,
             capture_region,
             target_region,
         })
@@ -240,9 +240,9 @@ impl EffectDamage {
 }
 
 impl Scene {
-    pub(crate) fn group_effect_output(&self, node_id: usize) -> Option<UnsignedPhysicalRect> {
+    pub(crate) fn content_effect_output(&self, node_id: usize) -> Option<UnsignedPhysicalRect> {
         self.effect_damage
-            .output_region(EffectDamageKind::Group, node_id)
+            .output_region(EffectDamageKind::Content, node_id)
     }
 }
 

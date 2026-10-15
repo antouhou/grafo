@@ -154,7 +154,7 @@ impl ApplicationHandler for App {
 
                 let blur_params = BlurParams::new(12.0);
                 renderer
-                    .set_shape_backdrop_effect(
+                    .set_backdrop_effect(
                         panel_id,
                         BLUR_EFFECT,
                         bytemuck::bytes_of(&blur_params),
@@ -175,7 +175,7 @@ impl ApplicationHandler for App {
 
                 let blur_params2 = BlurParams::new(20.0);
                 renderer
-                    .set_shape_backdrop_effect(
+                    .set_backdrop_effect(
                         panel2_id,
                         BLUR_EFFECT,
                         bytemuck::bytes_of(&blur_params2),

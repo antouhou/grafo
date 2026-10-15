@@ -133,7 +133,7 @@ fn texture_damage_is_expanded_through_chained_backdrop_captures() {
             )
             .unwrap();
         renderer
-            .set_shape_backdrop_effect(
+            .set_backdrop_effect(
                 node,
                 7,
                 &[1, 2, 3, 4],

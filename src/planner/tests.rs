@@ -1,8 +1,8 @@
 use super::Planner;
 use crate::commands::{DrawClip, IntermediateTextureId, RenderOperation, RenderPlan};
 use crate::core::{
-    BackdropEffectConfig, Color, GroupEffectConfig, Shape, ShapeDrawCommandOptions,
-    ShapeEffectConfig, Viewport,
+    BackdropEffectConfig, Color, ContentEffectConfig, Shape, ShapeDrawCommandOptions,
+    ShapeMaskEffectConfig, Viewport,
 };
 use crate::scene::effects::EffectInstance;
 use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
@@ -81,25 +81,25 @@ fn parameter_compaction_preserves_replanned_effects() {
     let backdrop_parameters = planner.store_effect_parameters(&[3; 4]);
     let removed_parameters = planner.store_effect_parameters(&[4; 4]);
     scene
-        .set_shape_effect(
+        .set_shape_mask_effect(
             root,
             17,
             shape_parameters,
-            ShapeEffectConfig::default(),
+            ShapeMaskEffectConfig::default(),
             4096,
         )
         .unwrap();
     scene
-        .set_group_effect(
+        .set_content_effect(
             root,
             17,
             group_parameters,
-            GroupEffectConfig::default(),
+            ContentEffectConfig::default(),
             4096,
         )
         .unwrap();
     scene
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             root,
             EffectInstance {
                 effect_id: 17,
@@ -110,20 +110,20 @@ fn parameter_compaction_preserves_replanned_effects() {
         )
         .unwrap();
     scene
-        .set_group_effect(
+        .set_content_effect(
             removed,
             17,
             removed_parameters,
-            GroupEffectConfig::default(),
+            ContentEffectConfig::default(),
             4096,
         )
         .unwrap();
     scene
-        .set_shape_effect(
+        .set_shape_mask_effect(
             removed,
             17,
             removed_parameters,
-            ShapeEffectConfig::default(),
+            ShapeMaskEffectConfig::default(),
             4096,
         )
         .unwrap();
@@ -175,13 +175,13 @@ fn parameter_compaction_preserves_replanned_effects_with_empty_parameters() {
     planner.store_effect_parameters(&[99; 4]);
     let parameters = planner.store_effect_parameters(&[]);
     scene
-        .set_group_effect(root, 17, parameters, GroupEffectConfig::default(), 4096)
+        .set_content_effect(root, 17, parameters, ContentEffectConfig::default(), 4096)
         .unwrap();
     scene
-        .set_shape_effect(root, 18, parameters, ShapeEffectConfig::default(), 4096)
+        .set_shape_mask_effect(root, 18, parameters, ShapeMaskEffectConfig::default(), 4096)
         .unwrap();
     scene
-        .set_shape_backdrop_effect(
+        .set_backdrop_effect(
             root,
             EffectInstance {
                 effect_id: 19,

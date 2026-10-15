@@ -80,10 +80,12 @@ impl RenderBackend for WgpuBackend {
     }
 
     fn invalidate_effect(&mut self, effect_id: u64) {
-        self.resources.textures.invalidate_shape_effect(effect_id);
+        self.resources
+            .textures
+            .invalidate_shape_mask_effect(effect_id);
     }
 
-    fn set_shape_effect_geometry(&mut self, id: ShapeDrawId, shape: &CachedShapeHandle) {
+    fn set_shape_mask_effect_geometry(&mut self, id: ShapeDrawId, shape: &CachedShapeHandle) {
         self.resources
             .shape_execution
             .draws
@@ -93,7 +95,7 @@ impl RenderBackend for WgpuBackend {
             .get_or_insert_with(|| Arc::clone(&shape.tessellation));
     }
 
-    fn remove_shape_effect(&mut self, id: ShapeDrawId) {
+    fn remove_shape_mask_effect(&mut self, id: ShapeDrawId) {
         if let Some(resources) = self.resources.shape_execution.draws.get_mut(&id.0) {
             resources.mask_tessellation = None;
         }

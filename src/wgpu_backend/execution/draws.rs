@@ -205,7 +205,7 @@ impl DrawPass<'_, '_> {
     }
 }
 
-/// Rasterizes the prepared shape-effect mask into the active target.
+/// Rasterizes the prepared shape mask effect mask into the active target.
 pub(in crate::wgpu_backend) fn draw_shape_mask(
     render_pass: &mut RenderPass<'_>,
     geometry_range: GeometryBufferRange,

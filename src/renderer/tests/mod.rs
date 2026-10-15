@@ -2,8 +2,8 @@ use super::types::DrawCommandError;
 use super::{RenderBackend, Renderer};
 use crate::commands::{RenderCommand, RenderOperation, RenderPlan, ShapeDrawId, Target};
 use crate::core::{
-    CachedShapeHandle, Color, GroupEffectConfig, Shape, ShapeDrawCommandOptions, ShapeEffectConfig,
-    ShapeInstance, UnsignedPhysicalRect, Viewport,
+    CachedShapeHandle, Color, ContentEffectConfig, Shape, ShapeDrawCommandOptions, ShapeInstance,
+    ShapeMaskEffectConfig, UnsignedPhysicalRect, Viewport,
 };
 use crate::render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError, Surface,
@@ -169,11 +169,11 @@ impl RenderBackend for TestBackend {
 
     fn unload_effect(&mut self, _: u64) {}
     fn invalidate_effect(&mut self, _: u64) {}
-    fn set_shape_effect_geometry(&mut self, id: ShapeDrawId, _: &CachedShapeHandle) {
+    fn set_shape_mask_effect_geometry(&mut self, id: ShapeDrawId, _: &CachedShapeHandle) {
         assert!(self.registered_shapes.contains(&id.0));
     }
 
-    fn remove_shape_effect(&mut self, _: ShapeDrawId) {}
+    fn remove_shape_mask_effect(&mut self, _: ShapeDrawId) {}
     fn remove_backdrop_effect(&mut self, _: ShapeDrawId) {}
     fn resize(&mut self, viewport: Viewport, _: f32) {
         self.size = Some(viewport.physical_size);
@@ -264,13 +264,13 @@ fn queue_shape(renderer: &mut Renderer<TestBackend>, with_effects: bool) -> usiz
         )
         .unwrap();
     if with_effects {
-        renderer.load_effect(7, &["shape effect"]).unwrap();
-        renderer.load_effect(8, &["group effect"]).unwrap();
+        renderer.load_effect(7, &["shape mask effect"]).unwrap();
+        renderer.load_effect(8, &["content effect"]).unwrap();
         renderer
-            .set_group_effect(id, 8, &[1, 2, 3, 4], GroupEffectConfig::default())
+            .set_content_effect(id, 8, &[1, 2, 3, 4], ContentEffectConfig::default())
             .unwrap();
         renderer
-            .set_shape_effect(id, 7, &[1, 2, 3, 4], ShapeEffectConfig::default())
+            .set_shape_mask_effect(id, 7, &[1, 2, 3, 4], ShapeMaskEffectConfig::default())
             .unwrap();
     }
     id
@@ -308,7 +308,7 @@ fn queue_rebuilds_reuse_command_storage() {
     renderer.render(&mut surface).unwrap();
     let command_address = renderer.backend.command_address;
     let instruction_address = renderer.backend.instruction_address;
-    let parameters = renderer.scene.shape_effect(shape).unwrap().parameters;
+    let parameters = renderer.scene.shape_mask_effect(shape).unwrap().parameters;
 
     for _ in 0..3 {
         renderer.clear_draw_queue();
@@ -321,7 +321,7 @@ fn queue_rebuilds_reuse_command_storage() {
         assert_eq!(
             renderer
                 .scene
-                .shape_effect(rebuilt)
+                .shape_mask_effect(rebuilt)
                 .unwrap()
                 .parameters
                 .hash,

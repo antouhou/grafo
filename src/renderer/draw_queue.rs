@@ -1,8 +1,8 @@
-use super::damage::{mark_dirty, mark_physical_dirty, mark_shape_effect_dirty};
+use super::damage::{mark_dirty, mark_physical_dirty, mark_shape_mask_effect_dirty};
 use super::types::DrawCommandError;
 use super::{RenderBackend, Renderer};
 use crate::commands::ShapeDrawId;
-use crate::core::effect::ShapeEffectBounds;
+use crate::core::effect::ShapeMaskEffectBounds;
 use crate::core::shape::{Shape, ShapeDrawCommandOptions};
 use crate::core::vertex::InstanceTransform;
 use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
@@ -206,16 +206,16 @@ impl<B: RenderBackend> Renderer<B> {
             }
         };
         let node = self.prepare_draw_command(command)?;
-        let shape_effect_bounds = match (&node, self.scene.shape_effects.get(&node_id)) {
+        let shape_mask_effect_bounds = match (&node, self.scene.shape_mask_effects.get(&node_id)) {
             (DrawTreeNode::CachedShape(shape), Some(effect)) => Some(
-                ShapeEffectBounds::new(
+                ShapeMaskEffectBounds::new(
                     shape.instance.cached_shape.local_bounds(),
                     effect.config,
                     shape.instance.transform,
                     self.scene.viewport().scale_factor,
                     self.scene.fringe_width(),
                 )
-                .ok_or(SceneError::InvalidShapeEffectBounds(node_id))?,
+                .ok_or(SceneError::InvalidShapeMaskEffectBounds(node_id))?,
             ),
             _ => None,
         };
@@ -223,9 +223,11 @@ impl<B: RenderBackend> Renderer<B> {
             self.backend
                 .register_shape(ShapeDrawId(node_id), &shape.instance)
                 .map_err(DrawCommandError::Backend)?;
-            if shape_effect_bounds.is_some() {
-                self.backend
-                    .set_shape_effect_geometry(ShapeDrawId(node_id), &shape.instance.cached_shape);
+            if shape_mask_effect_bounds.is_some() {
+                self.backend.set_shape_mask_effect_geometry(
+                    ShapeDrawId(node_id),
+                    &shape.instance.cached_shape,
+                );
             }
         } else if matches!(target, NodeTarget::Replace { .. }) {
             self.backend.unregister_shapes(&[ShapeDrawId(node_id)]);
@@ -248,7 +250,7 @@ impl<B: RenderBackend> Renderer<B> {
                 }
             }
             NodeTarget::Replace { node_id } => {
-                self.replace_node(node_id, node, shape_effect_bounds);
+                self.replace_node(node_id, node, shape_mask_effect_bounds);
             }
         }
         Ok(node_id)
@@ -258,24 +260,24 @@ impl<B: RenderBackend> Renderer<B> {
         &mut self,
         node_id: usize,
         node: DrawTreeNode,
-        shape_effect_bounds: Option<ShapeEffectBounds>,
+        shape_mask_effect_bounds: Option<ShapeMaskEffectBounds>,
     ) {
-        let previous_group_output = self.scene.group_effect_output(node_id);
+        let previous_group_output = self.scene.content_effect_output(node_id);
         let old_effect_bounds = self
             .scene
-            .shape_effects
+            .shape_mask_effects
             .get(&node_id)
             .map(|effect| effect.bounds);
         let new_bounds = node.logical_screen_bounds();
         let clips_children = has_child_clip(&node);
         let removes_effects = matches!(node, DrawTreeNode::ClipRect(_))
             && (old_effect_bounds.is_some()
-                || self.scene.group_effects.contains_key(&node_id)
+                || self.scene.content_effects.contains_key(&node_id)
                 || self.scene.backdrop_effects.contains_key(&node_id));
         let previous = self.scene.replace_node(
             node_id,
             node,
-            shape_effect_bounds,
+            shape_mask_effect_bounds,
             self.backend.maximum_texture_dimension(),
         );
         self.should_compact_effect_parameters =
@@ -288,13 +290,16 @@ impl<B: RenderBackend> Renderer<B> {
                 self.scene.fringe_width(),
             );
         }
-        for bounds in old_effect_bounds.into_iter().chain(shape_effect_bounds) {
-            mark_shape_effect_dirty(&mut self.dirty_bounds, bounds, self.scene.viewport());
+        for bounds in old_effect_bounds
+            .into_iter()
+            .chain(shape_mask_effect_bounds)
+        {
+            mark_shape_mask_effect_dirty(&mut self.dirty_bounds, bounds, self.scene.viewport());
         }
         mark_physical_dirty(&mut self.dirty_bounds, previous_group_output);
         mark_physical_dirty(
             &mut self.dirty_bounds,
-            self.scene.group_effect_output(node_id),
+            self.scene.content_effect_output(node_id),
         );
         if has_child_clip(&previous) != clips_children
             && !self.scene.draw_tree.children(node_id).is_empty()
@@ -332,7 +337,7 @@ impl<B: RenderBackend> Renderer<B> {
                     );
                 }
                 if let Some(effect) = effect {
-                    mark_shape_effect_dirty(&mut self.dirty_bounds, effect.bounds, viewport);
+                    mark_shape_mask_effect_dirty(&mut self.dirty_bounds, effect.bounds, viewport);
                 }
                 mark_physical_dirty(&mut self.dirty_bounds, group_output);
                 has_removed_nodes = true;

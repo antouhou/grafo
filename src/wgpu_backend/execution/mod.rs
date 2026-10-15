@@ -4,7 +4,7 @@ pub(in crate::wgpu_backend) mod draws;
 pub(in crate::wgpu_backend) mod effects;
 pub(in crate::wgpu_backend) mod instructions;
 pub(in crate::wgpu_backend) mod leaf_batches;
-pub(in crate::wgpu_backend) mod shape_effects;
+pub(in crate::wgpu_backend) mod shape_mask_effects;
 pub(in crate::wgpu_backend) mod shapes;
 pub(in crate::wgpu_backend) mod targets;
 pub(in crate::wgpu_backend) mod textures;

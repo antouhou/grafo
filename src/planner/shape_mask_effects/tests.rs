@@ -1,15 +1,15 @@
-use super::append_shape_effects;
+use super::append_shape_mask_effects;
 use crate::commands::{
     EffectParameterRange, EffectParameters, IntermediateTextureId, RenderOperation, RenderPlan,
     ShapeDrawId, Target, TextureComposite, TexturePlacement,
 };
-use crate::core::effect::{ShapeEffectBounds, ShapeEffectConfig};
+use crate::core::effect::{ShapeMaskEffectBounds, ShapeMaskEffectConfig};
 use crate::core::shape::CachedShapeHandle;
 use crate::core::util::ShapeResources;
 use crate::core::vertex::InstanceTransform;
 use crate::core::Viewport;
 use crate::planner::TextureIdAllocator;
-use crate::scene::effects::ShapeEffectInstance;
+use crate::scene::effects::ShapeMaskEffectInstance;
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::DrawTreeNode;
 use crate::{Shape, ShapeDrawCommandOptions, Size};
@@ -31,14 +31,14 @@ impl MaskCommands {
     fn plan(
         &mut self,
         tree: &Tree<DrawTreeNode>,
-        effects: &HashMap<usize, ShapeEffectInstance>,
+        effects: &HashMap<usize, ShapeMaskEffectInstance>,
         scale: f64,
         fringe: f32,
         size: Size,
         limit: u32,
     ) {
         self.commands.clear_commands();
-        append_shape_effects(
+        append_shape_mask_effects(
             &mut self.commands,
             &mut TextureIdAllocator::default(),
             &mut self.composites,
@@ -58,7 +58,7 @@ fn scene_with_effects(
     commands: &mut RenderPlan,
     scale: f64,
     fringe: f32,
-) -> (Tree<DrawTreeNode>, HashMap<usize, ShapeEffectInstance>) {
+) -> (Tree<DrawTreeNode>, HashMap<usize, ShapeMaskEffectInstance>) {
     let mut tree = Tree::new();
     let mut effects = HashMap::new();
     let mut resources = ShapeResources::new();
@@ -70,18 +70,18 @@ fn scene_with_effects(
     );
     for translation in [5.0, 45.0] {
         let transform = InstanceTransform::translation(translation, 8.0);
-        let config = ShapeEffectConfig::new().outset(3.0).downsample(0.5);
+        let config = ShapeMaskEffectConfig::new().outset(3.0).downsample(0.5);
         let node = tree.add_node(DrawTreeNode::CachedShape(CachedShapeDrawData::new(
             handle.clone(),
             ShapeDrawCommandOptions::new().transform(transform),
         )));
         effects.insert(
             node,
-            ShapeEffectInstance {
+            ShapeMaskEffectInstance {
                 effect_id: 9,
                 parameters: commands.store_parameters(&[node as u8, 2, 3, 4]),
                 config,
-                bounds: ShapeEffectBounds::new(
+                bounds: ShapeMaskEffectBounds::new(
                     handle.tessellation.local_bounds,
                     config,
                     Some(transform),
@@ -148,7 +148,7 @@ fn mask_scopes_and_effect_outputs_are_complete_without_the_scene() {
 }
 
 #[test]
-fn rebuilding_shape_effect_commands_reuses_storage_and_drops_removed_outputs() {
+fn rebuilding_shape_mask_effect_commands_reuses_storage_and_drops_removed_outputs() {
     let mut plan = MaskCommands::new();
     let (mut tree, mut effects) = scene_with_effects(&mut plan.commands, 1.0, 0.75);
     plan.plan(&tree, &effects, 1.0, 0.75, Size::new(100, 100), 1024);
@@ -183,8 +183,8 @@ fn empty_or_oversized_masks_never_produce_texture_references() {
         &mut ShapeResources::new(),
         None,
     );
-    let config = ShapeEffectConfig::default();
-    let bounds = ShapeEffectBounds::new(
+    let config = ShapeMaskEffectConfig::default();
+    let bounds = ShapeMaskEffectBounds::new(
         empty_shape.tessellation.local_bounds,
         config,
         None,
@@ -198,7 +198,7 @@ fn empty_or_oversized_masks_never_produce_texture_references() {
     )));
     effects.insert(
         empty,
-        ShapeEffectInstance {
+        ShapeMaskEffectInstance {
             effect_id: 9,
             parameters: EffectParameters {
                 range: EffectParameterRange { start: 0, end: 0 },

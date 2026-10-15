@@ -1,14 +1,14 @@
-use super::{GroupPlanningInput, SceneTraversal};
+use super::{ContentPlanningInput, SceneTraversal};
 use crate::commands::{
     CaptureSource, IntermediateTextureId, RenderOperation, RenderPlan, ShapeTextureBinding, Target,
     TextureComposite,
 };
-use crate::core::effect::{BackdropEffectConfig, GroupEffectConfig};
+use crate::core::effect::{BackdropEffectConfig, ContentEffectConfig};
 use crate::core::shape::CachedShapeHandle;
 use crate::core::util::ShapeResources;
 use crate::core::Viewport;
 use crate::planner::TextureIdAllocator;
-use crate::scene::effects::{BackdropEffectInstance, EffectInstance, GroupEffectInstance};
+use crate::scene::effects::{BackdropEffectInstance, ContentEffectInstance, EffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::{ClipRectDrawData, DrawTreeNode};
 use crate::{Shape, ShapeDrawCommandOptions, Size};
@@ -117,7 +117,7 @@ fn snapshot(plan: &RenderPlan) -> Vec<Command> {
 
 struct Scene {
     tree: Tree<DrawTreeNode>,
-    groups: HashMap<usize, GroupEffectInstance>,
+    groups: HashMap<usize, ContentEffectInstance>,
     backdrops: HashMap<usize, BackdropEffectInstance>,
     shapes: HashMap<usize, TextureComposite>,
 }
@@ -149,12 +149,12 @@ impl Scene {
         let node = self.add(parent);
         self.groups.insert(
             node,
-            GroupEffectInstance::new(
+            ContentEffectInstance::new(
                 EffectInstance {
                     effect_id,
                     parameters: output.store_parameters(&effect_id.to_le_bytes()),
                 },
-                GroupEffectConfig::default(),
+                ContentEffectConfig::default(),
                 self.tree.get(node).unwrap(),
                 None,
                 Viewport {
@@ -203,11 +203,11 @@ impl Scene {
         output.clear_commands();
         output.push(RenderOperation::BeginTarget(Target::Surface));
         planner.plan(
-            GroupPlanningInput {
+            ContentPlanningInput {
                 tree: &self.tree,
-                group_effects: &self.groups,
+                content_effects: &self.groups,
                 backdrop_effects: &self.backdrops,
-                shape_effects: &self.shapes,
+                shape_mask_effects: &self.shapes,
                 scale_factor: 1.0,
                 physical_size: Size::new(100, 100),
             },

@@ -1,4 +1,4 @@
-use super::{ShapeEffectBounds, ShapeEffectConfig};
+use super::{ShapeMaskEffectBounds, ShapeMaskEffectConfig};
 use crate::core::{effect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
 use lyon::geom::Point;
 
@@ -39,10 +39,10 @@ fn capture_region_skips_copy_when_fully_offscreen() {
 }
 
 #[test]
-fn shape_effect_bounds_round_outward_and_add_fringe_guard() {
-    let bounds = ShapeEffectBounds::new(
+fn shape_mask_effect_bounds_round_outward_and_add_fringe_guard() {
+    let bounds = ShapeMaskEffectBounds::new(
         [(1.25, 2.75), (10.1, 20.2)],
-        ShapeEffectConfig::new().outsets(1.0, 2.0, 3.0, 4.0),
+        ShapeMaskEffectConfig::new().outsets(1.0, 2.0, 3.0, 4.0),
         None,
         2.0,
         0.75,
@@ -55,18 +55,18 @@ fn shape_effect_bounds_round_outward_and_add_fringe_guard() {
 }
 
 #[test]
-fn shape_effect_bounds_downsample_shrinks_texture_but_not_coverage() {
-    let full_resolution = ShapeEffectBounds::new(
+fn shape_mask_effect_bounds_downsample_shrinks_texture_but_not_coverage() {
+    let full_resolution = ShapeMaskEffectBounds::new(
         [(1.25, 2.75), (10.1, 20.2)],
-        ShapeEffectConfig::new().outsets(1.0, 2.0, 3.0, 4.0),
+        ShapeMaskEffectConfig::new().outsets(1.0, 2.0, 3.0, 4.0),
         None,
         2.0,
         0.75,
     )
     .unwrap();
-    let downsampled = ShapeEffectBounds::new(
+    let downsampled = ShapeMaskEffectBounds::new(
         [(1.25, 2.75), (10.1, 20.2)],
-        ShapeEffectConfig::new()
+        ShapeMaskEffectConfig::new()
             .outsets(1.0, 2.0, 3.0, 4.0)
             .downsample(0.5),
         None,
@@ -84,10 +84,10 @@ fn shape_effect_bounds_downsample_shrinks_texture_but_not_coverage() {
 }
 
 #[test]
-fn shape_effect_bounds_downsample_keeps_at_least_one_texel() {
-    let bounds = ShapeEffectBounds::new(
+fn shape_mask_effect_bounds_downsample_keeps_at_least_one_texel() {
+    let bounds = ShapeMaskEffectBounds::new(
         [(0.0, 0.0), (1.0, 1.0)],
-        ShapeEffectConfig::new().downsample(0.1),
+        ShapeMaskEffectConfig::new().downsample(0.1),
         None,
         1.0,
         0.75,
@@ -99,11 +99,11 @@ fn shape_effect_bounds_downsample_keeps_at_least_one_texel() {
 }
 
 #[test]
-fn shape_effect_bounds_reject_out_of_range_downsample() {
+fn shape_mask_effect_bounds_reject_out_of_range_downsample() {
     for downsample in [0.0, -0.5, f32::NAN, 1.5] {
-        assert!(ShapeEffectBounds::new(
+        assert!(ShapeMaskEffectBounds::new(
             [(0.0, 0.0), (10.0, 10.0)],
-            ShapeEffectConfig::new().downsample(downsample),
+            ShapeMaskEffectConfig::new().downsample(downsample),
             None,
             1.0,
             0.75,
@@ -113,10 +113,10 @@ fn shape_effect_bounds_reject_out_of_range_downsample() {
 }
 
 #[test]
-fn shape_effect_bounds_reject_non_finite_inputs() {
-    assert!(ShapeEffectBounds::new(
+fn shape_mask_effect_bounds_reject_non_finite_inputs() {
+    assert!(ShapeMaskEffectBounds::new(
         [(0.0, 0.0), (f32::NAN, 10.0)],
-        ShapeEffectConfig::default(),
+        ShapeMaskEffectConfig::default(),
         None,
         1.0,
         0.75,

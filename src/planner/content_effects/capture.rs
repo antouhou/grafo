@@ -2,20 +2,20 @@ use crate::commands::{
     CaptureConfig, CaptureSource, EffectApplication, IntermediateTextureId, RenderOperation,
     RenderPlan, TextureComposite, TexturePlacement,
 };
-use crate::core::effect::GroupEffectBounds;
+use crate::core::effect::ContentEffectBounds;
 use crate::core::geometry;
 use crate::core::vertex::TextureUvTransform;
 use crate::planner::TextureIdAllocator;
-use crate::scene::effects::{EffectInstance, GroupEffectInstance};
+use crate::scene::effects::{ContentEffectInstance, EffectInstance};
 
 #[derive(Clone, Copy)]
-pub(crate) struct GroupCapture {
+pub(crate) struct ContentCapture {
     effect: EffectInstance,
-    bounds: GroupEffectBounds,
+    bounds: ContentEffectBounds,
 }
 
-impl GroupCapture {
-    pub(crate) fn new(effect: GroupEffectInstance) -> Option<Self> {
+impl ContentCapture {
+    pub(crate) fn new(effect: ContentEffectInstance) -> Option<Self> {
         Some(Self {
             effect: EffectInstance {
                 effect_id: effect.effect_id,

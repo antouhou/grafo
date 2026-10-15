@@ -1,4 +1,4 @@
-// Rasterizes a shape's coverage mask into an offscreen texture for shape effects.
+// Rasterizes a shape's coverage mask into an offscreen texture for shape mask effects.
 // Expands boundary vertices along their normals before interpolation,
 // converting the fringe width from physical pixels to logical units.
 

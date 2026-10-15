@@ -1,9 +1,9 @@
 use super::WgpuBackend;
 use std::time::Duration;
 
-/// Shape-effect cache activity during one frame.
+/// Shape mask effect cache activity during one frame.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ShapeEffectCacheMetrics {
+pub struct ShapeMaskEffectCacheMetrics {
     pub hits: u64,
     pub misses: u64,
     pub generated_masks: u64,
@@ -84,8 +84,8 @@ impl WgpuBackend {
         self.resources.pipeline_switch_counts
     }
 
-    /// Returns cached shape-effect activity for the most recently rendered frame.
-    pub fn last_shape_effect_cache_metrics(&self) -> ShapeEffectCacheMetrics {
-        self.resources.shape_effect_cache_metrics
+    /// Returns cached shape mask effect activity for the most recently rendered frame.
+    pub fn last_shape_mask_effect_cache_metrics(&self) -> ShapeMaskEffectCacheMetrics {
+        self.resources.shape_mask_effect_cache_metrics
     }
 }

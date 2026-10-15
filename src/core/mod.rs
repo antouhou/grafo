@@ -4,7 +4,8 @@ pub use cache::CachedTessellation;
 pub(crate) use color::linear_to_srgb_u8;
 pub use color::{premultiply_rgba8_srgb_inplace, Color};
 pub use effect::{
-    BackdropCaptureArea, BackdropEffectConfig, CaptureRegion, GroupEffectConfig, ShapeEffectConfig,
+    BackdropCaptureArea, BackdropEffectConfig, CaptureRegion, ContentEffectConfig,
+    ShapeMaskEffectConfig,
 };
 pub use geometry::{
     MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect, Viewport,

@@ -1,4 +1,4 @@
-use crate::core::effect::{BackdropCaptureArea, BackdropEffectConfig, ShapeEffectConfig};
+use crate::core::effect::{BackdropCaptureArea, BackdropEffectConfig, ShapeMaskEffectConfig};
 use crate::scene::effects::{self, backdrops};
 
 #[test]
@@ -31,10 +31,13 @@ fn validate_backdrop_config_rejects_non_finite_screen_rect() {
 }
 
 #[test]
-fn validate_shape_effect_config_rejects_negative_or_non_finite_outsets() {
-    assert!(effects::validate_shape_effect_config(&ShapeEffectConfig::new().outset(-1.0)).is_err());
+fn validate_shape_mask_effect_config_rejects_negative_or_non_finite_outsets() {
     assert!(
-        effects::validate_shape_effect_config(&ShapeEffectConfig::new().outsets(
+        effects::validate_shape_mask_effect_config(&ShapeMaskEffectConfig::new().outset(-1.0))
+            .is_err()
+    );
+    assert!(
+        effects::validate_shape_mask_effect_config(&ShapeMaskEffectConfig::new().outsets(
             0.0,
             f32::INFINITY,
             0.0,
@@ -45,16 +48,16 @@ fn validate_shape_effect_config_rejects_negative_or_non_finite_outsets() {
 }
 
 #[test]
-fn validate_shape_effect_config_rejects_out_of_range_downsample() {
+fn validate_shape_mask_effect_config_rejects_out_of_range_downsample() {
     for downsample in [0.0, -0.5, f32::NAN, 1.5] {
-        assert!(effects::validate_shape_effect_config(
-            &ShapeEffectConfig::new().downsample(downsample)
+        assert!(effects::validate_shape_mask_effect_config(
+            &ShapeMaskEffectConfig::new().downsample(downsample)
         )
         .is_err());
     }
     for downsample in [1.0, 0.5, f32::EPSILON] {
-        assert!(effects::validate_shape_effect_config(
-            &ShapeEffectConfig::new().downsample(downsample)
+        assert!(effects::validate_shape_mask_effect_config(
+            &ShapeMaskEffectConfig::new().downsample(downsample)
         )
         .is_ok());
     }

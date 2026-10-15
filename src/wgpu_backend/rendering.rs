@@ -7,7 +7,7 @@ use crate::wgpu_backend::execution::instructions::{
 };
 use crate::wgpu_backend::execution::targets::{RenderTarget, SurfaceTarget};
 #[cfg(feature = "render_metrics")]
-use crate::wgpu_backend::metrics::{PhaseTimings, ShapeEffectCacheMetrics};
+use crate::wgpu_backend::metrics::{PhaseTimings, ShapeMaskEffectCacheMetrics};
 use crate::wgpu_backend::retained_output::RetainedOutput;
 use crate::wgpu_backend::types::BackdropContext;
 use std::iter;
@@ -29,7 +29,7 @@ impl WgpuBackend {
         #[cfg(feature = "render_metrics")]
         {
             self.resources.pipeline_switch_counts = Default::default();
-            self.resources.shape_effect_cache_metrics = ShapeEffectCacheMetrics::default();
+            self.resources.shape_mask_effect_cache_metrics = ShapeMaskEffectCacheMetrics::default();
         }
         let is_new = self.retained_output.is_none();
         let retained = self.retained_output.take().unwrap_or_else(|| {
@@ -143,7 +143,7 @@ impl WgpuBackend {
                 effects: &mut resources.effect_execution,
                 textures: &mut resources.textures,
                 #[cfg(feature = "render_metrics")]
-                shape_effect_metrics: &mut resources.shape_effect_cache_metrics,
+                shape_mask_effect_metrics: &mut resources.shape_mask_effect_cache_metrics,
             },
         );
         #[cfg(feature = "render_metrics")]
@@ -155,16 +155,16 @@ impl WgpuBackend {
         resources.shape_execution.texture_materials.finish_render();
         resources.effect_execution.finish_render();
 
-        let (_collected_shape_effect_results, _collected_shape_effect_masks) =
-            resources.textures.collect_unused_shape_effects();
+        let (_collected_shape_mask_effect_results, _collected_shape_masks) =
+            resources.textures.collect_unused_shape_mask_effects();
         resources.textures.recycle_submitted();
 
         #[cfg(feature = "render_metrics")]
         {
-            resources.shape_effect_cache_metrics.collected_results =
-                _collected_shape_effect_results as u64;
-            resources.shape_effect_cache_metrics.collected_masks =
-                _collected_shape_effect_masks as u64;
+            resources.shape_mask_effect_cache_metrics.collected_results =
+                _collected_shape_mask_effect_results as u64;
+            resources.shape_mask_effect_cache_metrics.collected_masks =
+                _collected_shape_masks as u64;
         }
     }
 

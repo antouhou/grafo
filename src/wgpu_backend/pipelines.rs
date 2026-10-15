@@ -1,5 +1,5 @@
 use super::execution::effects;
-use super::execution::shape_effects::ShapeEffectRendererResources;
+use super::execution::shape_mask_effects::ShapeMaskEffectRendererResources;
 use super::execution::shapes::TextureMaterialPipelines;
 use super::resources::{BackdropPipelineResources, RendererPipelineResources, ShapePipelines};
 use super::{WgpuBackend, WgpuContext};
@@ -246,7 +246,7 @@ impl RendererPipelineResources {
                 msaa_sample_count,
                 None,
             ),
-            shape_effects: ShapeEffectRendererResources::new(device, format),
+            shape_mask_effects: ShapeMaskEffectRendererResources::new(device, format),
             effect_sampler: device.create_sampler(&SamplerDescriptor {
                 address_mode_u: AddressMode::ClampToEdge,
                 address_mode_v: AddressMode::ClampToEdge,

@@ -3,12 +3,12 @@ use crate::commands::{
 };
 use crate::scene::Scene;
 use ahash::HashMap;
-use groups::{GroupPlanningInput, SceneTraversal};
-use shape_effects::append_shape_effects;
+use content_effects::{ContentPlanningInput, SceneTraversal};
+use shape_mask_effects::append_shape_mask_effects;
 
+pub(super) mod content_effects;
 pub(super) mod draws;
-pub(super) mod groups;
-pub(super) mod shape_effects;
+pub(super) mod shape_mask_effects;
 
 #[derive(Default)]
 pub(super) struct TextureIdAllocator {
@@ -51,22 +51,22 @@ impl Planner {
         let mut texture_ids = TextureIdAllocator::default();
         self.commands
             .push(RenderOperation::BeginTarget(Target::Surface));
-        append_shape_effects(
+        append_shape_mask_effects(
             &mut self.commands,
             &mut texture_ids,
             &mut self.shape_composites,
             &scene.draw_tree,
-            &scene.shape_effects,
+            &scene.shape_mask_effects,
             scene.viewport(),
             scene.fringe_width(),
             maximum_texture_dimension,
         );
         self.traversal.plan(
-            GroupPlanningInput {
+            ContentPlanningInput {
                 tree: &scene.draw_tree,
-                group_effects: &scene.group_effects,
+                content_effects: &scene.content_effects,
                 backdrop_effects: &scene.backdrop_effects,
-                shape_effects: &self.shape_composites,
+                shape_mask_effects: &self.shape_composites,
                 scale_factor: scene.viewport().scale_factor,
                 physical_size: scene.viewport().physical_size.into(),
             },

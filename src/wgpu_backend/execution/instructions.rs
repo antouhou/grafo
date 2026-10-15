@@ -3,7 +3,7 @@ use super::composites::CompositeInstanceBuffer;
 use super::draws::DrawPass;
 use super::effects::instructions::{execute_effect, EffectContext};
 use super::effects::EffectExecutionResources;
-use super::shape_effects::ShapeEffectExecutionResources;
+use super::shape_mask_effects::ShapeMaskEffectExecutionResources;
 use super::shapes::ShapeExecutionResources;
 use super::targets::{ActiveTarget, SurfaceTarget};
 use super::textures::{IntermediateTextureResources, PlannedTexture};
@@ -11,7 +11,7 @@ use crate::commands::{
     CaptureSource, IntermediateTextureId, RenderOperation, RenderPlan, Target, TexturePlacement,
 };
 #[cfg(feature = "render_metrics")]
-use crate::wgpu_backend::metrics::{PipelineSwitchCounts, ShapeEffectCacheMetrics};
+use crate::wgpu_backend::metrics::{PipelineSwitchCounts, ShapeMaskEffectCacheMetrics};
 use crate::wgpu_backend::resources::{Buffers, RendererPipelineResources};
 use crate::wgpu_backend::types::{
     BackdropContext, BackdropSource, BoundTextureState, Pipeline, PipelineTracker,
@@ -35,7 +35,7 @@ pub(in crate::wgpu_backend) struct ExecutionResources<'a> {
     pub effects: &'a mut EffectExecutionResources,
     pub textures: &'a mut IntermediateTextureResources,
     #[cfg(feature = "render_metrics")]
-    pub shape_effect_metrics: &'a mut ShapeEffectCacheMetrics,
+    pub shape_mask_effect_metrics: &'a mut ShapeMaskEffectCacheMetrics,
 }
 
 pub(in crate::wgpu_backend) struct ExecutionMetrics {
@@ -44,9 +44,9 @@ pub(in crate::wgpu_backend) struct ExecutionMetrics {
 }
 
 impl ExecutionResources<'_> {
-    fn mask_resources(&mut self) -> ShapeEffectExecutionResources<'_> {
+    fn mask_resources(&mut self) -> ShapeMaskEffectExecutionResources<'_> {
         let effects = &self.context.effects;
-        ShapeEffectExecutionResources {
+        ShapeMaskEffectExecutionResources {
             device: self.context.device,
             queue: self.context.queue,
             registry: effects.registry,
@@ -57,13 +57,13 @@ impl ExecutionResources<'_> {
                 .shapes
                 .shape_texture_bind_group_layout_background,
             format: self.context.format,
-            pipelines: &self.context.pipelines.shape_effects,
+            pipelines: &self.context.pipelines.shape_mask_effects,
             buffers: self.buffers,
             shapes: self.shapes,
             effects: self.effects,
             textures: self.textures,
             #[cfg(feature = "render_metrics")]
-            metrics: self.shape_effect_metrics,
+            metrics: self.shape_mask_effect_metrics,
         }
     }
 

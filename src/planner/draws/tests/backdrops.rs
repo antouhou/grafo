@@ -337,14 +337,14 @@ fn rebuilt_queues_reuse_storage_and_replace_all_commands_and_parameters() {
 }
 
 #[test]
-fn shape_effect_composite_precedes_its_source_backdrop_capture_under_inherited_clips() {
+fn shape_mask_effect_composite_precedes_its_source_backdrop_capture_under_inherited_clips() {
     let mut output = RenderPlan::default();
     let mut scene = Scene::new();
     let parent = scene.add(None, shape(true));
     let scissor = scene.add(Some(parent), clip((10.0, 10.0), (60.0, 60.0)));
     let source = scene.add(Some(scissor), shape(true));
     scene.attach_backdrop(source, &mut output);
-    scene.shape_effects.insert(
+    scene.shape_mask_effects.insert(
         source,
         TextureComposite {
             texture: IntermediateTextureId::Registered(100),

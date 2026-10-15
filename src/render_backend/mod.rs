@@ -48,9 +48,9 @@ pub trait RenderBackend {
 
     fn invalidate_effect(&mut self, effect_id: u64);
 
-    fn set_shape_effect_geometry(&mut self, id: ShapeDrawId, shape: &CachedShapeHandle);
+    fn set_shape_mask_effect_geometry(&mut self, id: ShapeDrawId, shape: &CachedShapeHandle);
 
-    fn remove_shape_effect(&mut self, id: ShapeDrawId);
+    fn remove_shape_mask_effect(&mut self, id: ShapeDrawId);
 
     fn remove_backdrop_effect(&mut self, id: ShapeDrawId);
 
