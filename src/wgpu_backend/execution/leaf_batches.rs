@@ -1,19 +1,47 @@
 use super::draws::{self, DrawPass};
-use super::shapes::ShapeExecutionResources;
-use crate::commands::{DrawClip, RenderCommand, RenderOperation, ShapeTextureBinding};
+use super::shapes::{ShapeBufferLocation, ShapeExecutionResources};
+use crate::commands::{DrawClip, ShapeDraw, ShapeTextureBinding};
 use crate::wgpu_backend::types::Pipeline;
 use crate::wgpu_backend::vertex::GeometryBufferRange;
 
-struct LeafBatch {
+pub(super) struct LeafBatch {
+    clip: DrawClip,
     geometry_range: GeometryBufferRange,
     texture_bindings: [ShapeTextureBinding; 2],
     first_instance_index: u32,
     instance_count: u32,
 }
 
+impl LeafBatch {
+    fn new(draw: ShapeDraw, clip: DrawClip, location: ShapeBufferLocation) -> Option<Self> {
+        if draw.material.has_gradient_fill || draw.material.under_fill_texture.is_some() {
+            return None;
+        }
+        Some(Self {
+            clip,
+            geometry_range: location.geometry_range,
+            texture_bindings: draw.material.texture_bindings,
+            first_instance_index: location.instance_index as u32,
+            instance_count: 1,
+        })
+    }
+
+    fn try_append(&mut self, next: &Self) -> bool {
+        if next.clip != self.clip
+            || next.texture_bindings != self.texture_bindings
+            || next.geometry_range != self.geometry_range
+            || next.first_instance_index != self.first_instance_index + self.instance_count
+        {
+            return false;
+        }
+        self.instance_count += next.instance_count;
+        true
+    }
+}
+
 impl DrawPass<'_, '_> {
-    fn draw_batch(&mut self, batch: &LeafBatch, clip: DrawClip) {
-        self.set_scissor(clip.scissor);
+    fn draw_batch(&mut self, batch: &LeafBatch) {
+        self.set_scissor(batch.clip.scissor);
         let pipelines = &self.pipelines.shapes;
         if self.pipeline_tracker.current != Pipeline::LeafDraw {
             self.render_pass.set_pipeline(&pipelines.leaf_draw_pipeline);
@@ -50,7 +78,7 @@ impl DrawPass<'_, '_> {
         self.render_pass
             .set_vertex_buffer(3, self.buffers.instance_metadata_buffer().slice(..));
         self.render_pass
-            .set_stencil_reference(clip.stencil_reference);
+            .set_stencil_reference(batch.clip.stencil_reference);
         self.buffers.draw_indexed(
             self.render_pass,
             batch.geometry_range,
@@ -58,56 +86,41 @@ impl DrawPass<'_, '_> {
         );
     }
 
-    /// Batches consecutive draws that share geometry, textures, and clipping.
-    /// Returns the number of consumed commands.
-    pub(super) fn execute_leaf_draws(
+    pub(super) fn flush_leaf_batch(&mut self, pending_batch: &mut Option<LeafBatch>) {
+        if let Some(batch) = pending_batch.take() {
+            self.draw_batch(&batch);
+        }
+    }
+
+    /// Defers compatible draws until a different draw or pass boundary flushes the batch.
+    pub(super) fn queue_leaf_draw(
         &mut self,
-        instructions: &[RenderCommand],
+        draw: ShapeDraw,
+        clip: DrawClip,
         shapes: &ShapeExecutionResources,
-    ) -> usize {
-        let first = &instructions[0];
-        let RenderOperation::DrawShape(draw) = &first.operation else {
-            unreachable!("leaf batch starts with a shape draw");
-        };
+        pending_batch: &mut Option<LeafBatch>,
+    ) {
         let resources = shapes.draw_resources(draw.id);
         let Some(location) = resources.geometry_buffer_location else {
-            return 1;
+            self.flush_leaf_batch(pending_batch);
+            return;
         };
-        if draw.material.has_gradient_fill || draw.material.under_fill_texture.is_some() {
-            self.set_scissor(first.clip.scissor);
-            self.draw_shape(first.clip.stencil_reference, draw.material, resources);
-            return 1;
-        }
-        let mut batch = LeafBatch {
-            geometry_range: location.geometry_range,
-            texture_bindings: draw.material.texture_bindings,
-            first_instance_index: location.instance_index as u32,
-            instance_count: 1,
+        let Some(batch) = LeafBatch::new(draw, clip, location) else {
+            self.flush_leaf_batch(pending_batch);
+            self.set_scissor(clip.scissor);
+            self.draw_shape(clip.stencil_reference, draw.material, resources);
+            return;
         };
-        for next in &instructions[1..] {
-            let RenderOperation::DrawShape(next_draw) = &next.operation else {
-                break;
-            };
-            if next.clip != first.clip
-                || next_draw.material.has_gradient_fill
-                || next_draw.material.under_fill_texture.is_some()
-                || next_draw.material.texture_bindings != batch.texture_bindings
-            {
-                break;
-            }
-            let Some(location) = shapes.draw_resources(next_draw.id).geometry_buffer_location
-            else {
-                break;
-            };
-            if location.geometry_range != batch.geometry_range
-                || location.instance_index as u32
-                    != batch.first_instance_index + batch.instance_count
-            {
-                break;
-            }
-            batch.instance_count += 1;
+        if pending_batch
+            .as_mut()
+            .is_some_and(|pending| pending.try_append(&batch))
+        {
+            return;
         }
-        self.draw_batch(&batch, first.clip);
-        batch.instance_count as usize
+        self.flush_leaf_batch(pending_batch);
+        *pending_batch = Some(batch);
     }
 }
+
+#[cfg(test)]
+mod tests;
