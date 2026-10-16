@@ -1,6 +1,7 @@
 use super::*;
 use crate::commands::{ShapeTextureBinding, TextureSampling};
 use crate::core::effect::BackdropCaptureArea;
+use crate::planner::tests::RecordedCommands;
 use crate::{
     Fill, Gradient, GradientCommonDesc, GradientStop, GradientStopOffset, LinearGradientDesc,
     LinearGradientLine,
@@ -27,14 +28,16 @@ fn backdrop_texture_preserves_ordinary_draw_and_clip_commands() {
                 scene.add(Some(panel), shape(true));
             }
             scene.add(Some(root), shape(true));
-            let mut ordinary = RenderPlan::default();
+            let mut ordinary = RecordedCommands::default();
             scene.plan(&mut DrawPlanner::default(), &mut ordinary);
-            let mut backdrop = RenderPlan::default();
-            scene.attach_backdrop(panel, &mut backdrop);
+            let ordinary_snapshot = snapshot(&ordinary);
+            drop(ordinary);
+            let mut backdrop = RecordedCommands::default();
+            scene.attach_backdrop(panel);
             scene.plan(&mut DrawPlanner::default(), &mut backdrop);
             assert_eq!(
                 snapshot(&backdrop),
-                snapshot(&ordinary),
+                ordinary_snapshot,
                 "rectangle={is_rectangle}, has_child={has_child}, clips_children={clips_children}",
             );
             assert!(backdrop.instructions.iter().any(|command| {
@@ -62,8 +65,8 @@ fn texture_only_rectangle_draws_only_when_capture_produces_a_texture() {
     };
     description.instance.fill = None;
     description.instance.color_override = None;
-    let mut output = RenderPlan::default();
-    scene.attach_backdrop(panel, &mut output);
+    let mut output = RecordedCommands::default();
+    scene.attach_backdrop(panel);
     scene.plan(&mut DrawPlanner::default(), &mut output);
     assert_eq!(
         snapshot(&output),
@@ -73,6 +76,8 @@ fn texture_only_rectangle_draws_only_when_capture_produces_a_texture() {
             rect((0, 0), (100, 100))
         )],
     );
+    drop(output);
+    let mut output = RecordedCommands::default();
     scene.update_backdrop_config(
         panel,
         BackdropEffectConfig::new().capture_area(BackdropCaptureArea::ScreenRect([
@@ -87,14 +92,14 @@ fn texture_only_rectangle_draws_only_when_capture_produces_a_texture() {
 #[test]
 fn capture_and_effect_precede_backdrop_draws_and_restore_clips() {
     for (has_child, clips_children) in [(false, true), (true, false), (true, true)] {
-        let mut output = RenderPlan::default();
+        let mut output = RecordedCommands::default();
         let mut scene = Scene::new();
         let root = scene.add(None, shape(true));
         let scissor = scene.add(Some(root), clip((10.0, 10.0), (60.0, 60.0)));
         let backdrop = scene.add(Some(scissor), shape(clips_children));
         let child = has_child.then(|| scene.add(Some(backdrop), shape(true)));
         let sibling = scene.add(Some(root), shape(true));
-        scene.attach_backdrop(backdrop, &mut output);
+        scene.attach_backdrop(backdrop);
         scene.plan(&mut DrawPlanner::default(), &mut output);
         let ops = operations(&output);
         let [RenderOperation::DrawShapeAndIncrementStencil(_), RenderOperation::Capture(capture), RenderOperation::ApplyEffect(effect), draw_command, ..] =
@@ -112,7 +117,7 @@ fn capture_and_effect_precede_backdrop_draws_and_restore_clips() {
         assert_eq!(effect.input, capture.output);
         assert_eq!(effect.output, IntermediateTextureId::Planned(1));
         assert_eq!(effect.effect_id, 42);
-        assert_eq!(output.parameters(effect.parameters), &[1, 2, 3, 4]);
+        assert_eq!(effect.parameters.bytes, &[1, 2, 3, 4]);
         let layer = draw.material.under_fill_texture.unwrap();
         assert_eq!(
             layer.texture,
@@ -156,18 +161,18 @@ fn capture_and_effect_precede_backdrop_draws_and_restore_clips() {
 
 #[test]
 fn consecutive_captures_follow_preceding_draws_and_keep_separate_outputs() {
-    let mut output = RenderPlan::default();
+    let mut output = RecordedCommands::default();
     let mut scene = Scene::new();
     let root = scene.add(None, clip((5.0, 5.0), (90.0, 90.0)));
     let first = scene.add(Some(root), shape(true));
     let second = scene.add(Some(root), shape(true));
-    scene.attach_backdrop(first, &mut output);
-    scene.attach_backdrop(second, &mut output);
+    scene.attach_backdrop(first);
+    scene.attach_backdrop(second);
     scene.update_backdrop_config(
         first,
         BackdropEffectConfig::new().padding(4.0).downsample(0.5),
     );
-    scene.backdrops.get_mut(&second).unwrap().effect.parameters = output.store_parameters(&[9, 8]);
+    scene.backdrops.get_mut(&second).unwrap().effect.parameters = scene.parameters.store(&[9, 8]);
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let ops = operations(&output);
     let [RenderOperation::Capture(first_capture), RenderOperation::ApplyEffect(first_effect), RenderOperation::DrawShape(_), RenderOperation::Capture(second_capture), RenderOperation::ApplyEffect(second_effect), RenderOperation::DrawShape(_)] =
@@ -185,16 +190,16 @@ fn consecutive_captures_follow_preceding_draws_and_keep_separate_outputs() {
     assert_eq!(first_effect.output, IntermediateTextureId::Planned(1));
     assert_eq!(second_effect.output, IntermediateTextureId::Planned(3));
     assert_ne!(first_effect.output, second_effect.output);
-    assert_eq!(output.parameters(first_effect.parameters), &[1, 2, 3, 4]);
-    assert_eq!(output.parameters(second_effect.parameters), &[9, 8]);
+    assert_eq!(first_effect.parameters.bytes, &[1, 2, 3, 4]);
+    assert_eq!(second_effect.parameters.bytes, &[9, 8]);
 }
 
 #[test]
 fn layered_capture_references_registered_resources_and_disabling_capture_removes_all_work() {
-    let mut output = RenderPlan::default();
+    let mut output = RecordedCommands::default();
     let mut scene = Scene::new();
     let panel = scene.add(None, shape(true));
-    scene.attach_backdrop(panel, &mut output);
+    scene.attach_backdrop(panel);
     let base = IntermediateTextureId::Registered(0);
     scene.backdrop_source = Some(CaptureSource::Layered { base });
     scene.plan(&mut DrawPlanner::default(), &mut output);
@@ -204,6 +209,8 @@ fn layered_capture_references_registered_resources_and_disabling_capture_removes
     assert_eq!(capture.source, CaptureSource::Layered { base });
     assert_ne!(capture.output, base);
 
+    drop(output);
+    let mut output = RecordedCommands::default();
     scene.backdrop_source = None;
     scene.plan(&mut DrawPlanner::default(), &mut output);
     assert_eq!(
@@ -218,10 +225,10 @@ fn layered_capture_references_registered_resources_and_disabling_capture_removes
 
 #[test]
 fn rejected_capture_preserves_ordinary_gradient_draw_without_texture_work() {
-    let mut output = RenderPlan::default();
+    let mut output = RecordedCommands::default();
     let mut scene = Scene::new();
     let panel = scene.add(None, shape(true));
-    scene.attach_backdrop(panel, &mut output);
+    scene.attach_backdrop(panel);
     let DrawTreeNode::CachedShape(description) = scene.tree.get_mut(panel).unwrap() else {
         unreachable!()
     };
@@ -265,21 +272,19 @@ fn rejected_capture_preserves_ordinary_gradient_draw_without_texture_work() {
 }
 
 #[test]
-fn commands_remain_complete_after_planner_and_scene_are_dropped() {
-    let mut output = RenderPlan::default();
-    {
-        let mut scene = Scene::new();
-        let root = scene.add(None, shape(true));
-        let panel = scene.add(Some(root), shape(true));
-        scene.attach_backdrop(panel, &mut output);
-        scene.plan(&mut DrawPlanner::default(), &mut output);
-    }
+fn commands_borrow_parameters_after_planner_is_dropped() {
+    let mut output = RecordedCommands::default();
+    let mut scene = Scene::new();
+    let root = scene.add(None, shape(true));
+    let panel = scene.add(Some(root), shape(true));
+    scene.attach_backdrop(panel);
+    scene.plan(&mut DrawPlanner::default(), &mut output);
     assert_eq!(output.instructions.len(), 5);
     let RenderOperation::ApplyEffect(command) = &output.instructions[2].operation else {
         panic!("effect command")
     };
     assert_eq!(command.effect_id, 42);
-    assert_eq!(output.parameters(command.parameters), &[1, 2, 3, 4]);
+    assert_eq!(command.parameters.bytes, &[1, 2, 3, 4]);
     let RenderOperation::DrawShape(draw) = output.instructions[3].operation else {
         panic!("backdrop draw")
     };
@@ -296,54 +301,46 @@ fn commands_remain_complete_after_planner_and_scene_are_dropped() {
 }
 
 #[test]
-fn rebuilt_queues_reuse_storage_and_replace_all_commands_and_parameters() {
+fn rebuilt_queues_reuse_traversal_and_parameter_storage() {
     let mut scene = Scene::new();
     let mut planner = DrawPlanner::default();
-    let mut output = RenderPlan::default();
     planner.parents.reserve(8);
-    output.instructions.reserve(16);
-    output.effect_parameters.reserve(32);
-    let allocations = (
-        planner.parents.as_ptr(),
-        output.instructions.as_ptr(),
-        output.effect_parameters.as_ptr(),
-    );
+    scene.parameters.bytes.reserve(32);
+    let allocations = (planner.parents.as_ptr(), scene.parameters.bytes.as_ptr());
     for has_backdrop in [true, false, true] {
         scene.tree.clear();
         scene.backdrops.clear();
-        output.clear();
+        scene.parameters.clear();
         let root = scene.add(None, shape(true));
         let leaf = scene.add(Some(root), shape(true));
         if has_backdrop {
-            scene.attach_backdrop(leaf, &mut output);
+            scene.attach_backdrop(leaf);
         }
+        let mut output = RecordedCommands::default();
         scene.plan(&mut planner, &mut output);
         assert_eq!(
             allocations,
-            (
-                planner.parents.as_ptr(),
-                output.instructions.as_ptr(),
-                output.effect_parameters.as_ptr(),
-            )
+            (planner.parents.as_ptr(), scene.parameters.bytes.as_ptr())
         );
-        assert_eq!(output.effect_parameters.is_empty(), !has_backdrop);
+        assert_eq!(scene.parameters.bytes.is_empty(), !has_backdrop);
     }
     scene.tree.clear();
     scene.backdrops.clear();
-    output.clear();
+    scene.parameters.clear();
+    let mut output = RecordedCommands::default();
     scene.plan(&mut planner, &mut output);
     assert!(output.instructions.is_empty());
-    assert!(output.effect_parameters.is_empty());
+    assert!(scene.parameters.bytes.is_empty());
 }
 
 #[test]
 fn shape_mask_effect_composite_precedes_its_source_backdrop_capture_under_inherited_clips() {
-    let mut output = RenderPlan::default();
+    let mut output = RecordedCommands::default();
     let mut scene = Scene::new();
     let parent = scene.add(None, shape(true));
     let scissor = scene.add(Some(parent), clip((10.0, 10.0), (60.0, 60.0)));
     let source = scene.add(Some(scissor), shape(true));
-    scene.attach_backdrop(source, &mut output);
+    scene.attach_backdrop(source);
     scene.shape_mask_effects.insert(
         source,
         TextureComposite {

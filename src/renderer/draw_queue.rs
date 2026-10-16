@@ -270,18 +270,12 @@ impl<B: RenderBackend> Renderer<B> {
             .map(|effect| effect.bounds);
         let new_bounds = node.logical_screen_bounds();
         let clips_children = has_child_clip(&node);
-        let removes_effects = matches!(node, DrawTreeNode::ClipRect(_))
-            && (old_effect_bounds.is_some()
-                || self.scene.content_effects.contains_key(&node_id)
-                || self.scene.backdrop_effects.contains_key(&node_id));
         let previous = self.scene.replace_node(
             node_id,
             node,
             shape_mask_effect_bounds,
             self.backend.maximum_texture_dimension(),
         );
-        self.should_compact_effect_parameters =
-            self.should_compact_effect_parameters || removes_effects;
         for bounds in [previous.logical_screen_bounds(), new_bounds] {
             mark_dirty(
                 &mut self.dirty_bounds,
@@ -351,13 +345,9 @@ impl<B: RenderBackend> Renderer<B> {
         }
         if self.scene.draw_tree.is_empty() {
             self.planner.clear();
-            self.should_compact_effect_parameters = false;
             self.backend.clear_draw_queue();
-        } else {
-            if !self.removed_shape_ids.is_empty() {
-                self.backend.unregister_shapes(&self.removed_shape_ids);
-            }
-            self.should_compact_effect_parameters = true;
+        } else if !self.removed_shape_ids.is_empty() {
+            self.backend.unregister_shapes(&self.removed_shape_ids);
         }
         self.removed_shape_ids.clear();
     }

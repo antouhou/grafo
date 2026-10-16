@@ -1,18 +1,19 @@
 use super::{DrawPlanner, DrawPlanningInput};
 use crate::commands::{
-    CaptureConfig, EffectApplication, RenderOperation, RenderPlan, ShapeTextureBinding,
-    ShapeTextureLayer, TextureSampling,
+    CaptureConfig, EffectApplication, RenderOperation, ShapeTextureBinding, ShapeTextureLayer,
+    TextureSampling,
 };
 use crate::core::geometry;
+use crate::planner::commands::TraversalCommands;
 use crate::planner::TextureIdAllocator;
 
 impl DrawPlanner {
     /// Produces a texture containing the filtered preceding color.
-    pub(super) fn plan_backdrop_texture(
+    pub(super) fn plan_backdrop_texture<'scene>(
         &self,
         node_id: usize,
-        input: &DrawPlanningInput<'_>,
-        output: &mut RenderPlan,
+        input: &DrawPlanningInput<'scene, '_>,
+        output: &mut TraversalCommands<'scene>,
         texture_ids: &mut TextureIdAllocator,
     ) -> Option<ShapeTextureLayer> {
         let source = input.backdrop_source?;
@@ -29,7 +30,7 @@ impl DrawPlanner {
                 effect.config.downsample,
             ),
         }));
-        let parameters = effect.effect.parameters;
+        let parameters = input.parameters.get(effect.effect.parameters);
         output.push(RenderOperation::ApplyEffect(EffectApplication {
             effect_id: effect.effect.effect_id,
             parameters,

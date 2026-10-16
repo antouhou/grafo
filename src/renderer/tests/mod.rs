@@ -1,6 +1,6 @@
 use super::types::DrawCommandError;
 use super::{RenderBackend, Renderer};
-use crate::commands::{RenderCommand, RenderOperation, RenderPlan, ShapeDrawId, Target};
+use crate::commands::{RenderCommand, RenderOperation, ShapeDrawId, Target};
 use crate::core::{
     CachedShapeHandle, Color, ContentEffectConfig, Shape, ShapeDrawCommandOptions, ShapeInstance,
     ShapeMaskEffectConfig, UnsignedPhysicalRect, Viewport,
@@ -91,8 +91,6 @@ struct TestBackend {
     is_dirty_region_overlay_enabled: bool,
     registered_shapes: Vec<usize>,
     refreshed_uvs: Vec<usize>,
-    command_address: usize,
-    instruction_address: usize,
     should_fail: bool,
     registration_failure: Option<usize>,
     size: Option<(u32, u32)>,
@@ -187,10 +185,10 @@ impl RenderBackend for TestBackend {
         self.is_dirty_region_overlay_enabled
     }
 
-    fn render(
+    fn render<'scene>(
         &mut self,
         root_scissor: Option<UnsignedPhysicalRect>,
-        commands: &RenderPlan,
+        commands: impl Iterator<Item = RenderCommand<'scene>>,
         surface: RenderTarget<'_, TestSurface>,
     ) -> Result<(), Self::Error> {
         if self.should_fail {
@@ -200,9 +198,7 @@ impl RenderBackend for TestBackend {
             self.texture_manager
                 .load_data_into_texture(texture_id, (1, 1), &[255; 4])?;
         }
-        self.command_address = commands as *const RenderPlan as usize;
         self.root_scissor = root_scissor;
-        self.instruction_address = commands.instructions.as_ptr() as usize;
         let surface = match surface {
             RenderTarget::Surface(surface) => surface.resource_mut(),
             RenderTarget::Pixmap(mut pixels) => {
@@ -218,7 +214,7 @@ impl RenderBackend for TestBackend {
         surface.effects.clear();
         surface.shape_masks = 0;
         let mut targets = Vec::new();
-        for command in &commands.instructions {
+        for command in commands {
             match &command.operation {
                 RenderOperation::BeginTarget(target) => targets.push(*target),
                 RenderOperation::EndTarget => {
@@ -230,7 +226,7 @@ impl RenderBackend for TestBackend {
                     surface.shape_masks += 1;
                 }
                 RenderOperation::ApplyEffect(effect) => {
-                    assert_eq!(commands.parameters(effect.parameters), &[1, 2, 3, 4]);
+                    assert_eq!(effect.parameters.bytes, &[1, 2, 3, 4]);
                     surface.effects.push(effect.effect_id);
                 }
                 operation => {
@@ -291,23 +287,20 @@ fn render_submits_planned_shapes_and_effects() {
     let mut renderer = renderer();
     let mut surface = surface();
     let shape = queue_shape(&mut renderer, true);
-    let planned_address =
-        renderer.planner.plan(&renderer.scene, 4096) as *const RenderPlan as usize;
     renderer.render(&mut surface).unwrap();
-    assert_eq!(renderer.backend.command_address, planned_address);
     assert_eq!(surface.resource().draws, [shape]);
     assert_eq!(surface.resource().shape_masks, 1);
     assert_eq!(surface.resource().effects, [7, 8]);
 }
 
 #[test]
-fn queue_rebuilds_reuse_command_storage() {
+fn queue_rebuilds_reuse_scene_parameter_storage() {
     let mut renderer = renderer();
     let mut surface = surface();
     let shape = queue_shape(&mut renderer, true);
     renderer.render(&mut surface).unwrap();
-    let command_address = renderer.backend.command_address;
-    let instruction_address = renderer.backend.instruction_address;
+    let parameters_address = renderer.scene.effect_parameters.bytes.as_ptr();
+    let parameters_capacity = renderer.scene.effect_parameters.bytes.capacity();
     let parameters = renderer.scene.shape_mask_effect(shape).unwrap().parameters;
 
     for _ in 0..3 {
@@ -315,8 +308,14 @@ fn queue_rebuilds_reuse_command_storage() {
         let rebuilt = queue_shape(&mut renderer, true);
         assert_eq!(rebuilt, shape);
         renderer.render(&mut surface).unwrap();
-        assert_eq!(renderer.backend.command_address, command_address);
-        assert_eq!(renderer.backend.instruction_address, instruction_address);
+        assert_eq!(
+            renderer.scene.effect_parameters.bytes.as_ptr(),
+            parameters_address
+        );
+        assert_eq!(
+            renderer.scene.effect_parameters.bytes.capacity(),
+            parameters_capacity
+        );
         assert_eq!(surface.resource().effects, [7, 8]);
         assert_eq!(
             renderer
@@ -342,9 +341,9 @@ fn clearing_queue_removes_planned_draws_and_effects() {
     assert!(surface.resource().draws.is_empty());
     assert!(surface.resource().effects.is_empty());
     assert_eq!(surface.resource().shape_masks, 0);
-    let plan = renderer.planner.plan(&renderer.scene, 4096);
+    let plan: Vec<_> = renderer.planner.plan(&renderer.scene, 4096).collect();
     assert!(matches!(
-        plan.instructions.as_slice(),
+        plan.as_slice(),
         [
             RenderCommand {
                 operation: RenderOperation::BeginTarget(Target::Surface),
@@ -371,16 +370,13 @@ fn rendering_to_one_surface_does_not_change_another() {
         .backend
         .render(first.dirty_bounds, commands, (&mut first_surface).into())
         .unwrap();
+    let commands = first.planner.plan(&first.scene, 4096);
     second
         .backend
         .render(second.dirty_bounds, commands, (&mut second_surface).into())
         .unwrap();
     assert_eq!(first_surface.resource().draws, [shape]);
     assert_eq!(second_surface.resource().draws, [shape]);
-    assert_eq!(
-        first.backend.command_address,
-        second.backend.command_address
-    );
 
     second.clear_draw_queue();
     second.render(&mut second_surface).unwrap();

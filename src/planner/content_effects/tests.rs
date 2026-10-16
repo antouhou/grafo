@@ -1,13 +1,16 @@
 use super::{ContentPlanningInput, SceneTraversal};
 use crate::commands::{
-    CaptureSource, IntermediateTextureId, RenderOperation, RenderPlan, ShapeTextureBinding, Target,
+    CaptureSource, IntermediateTextureId, RenderOperation, ShapeTextureBinding, Target,
     TextureComposite,
 };
 use crate::core::effect::{BackdropEffectConfig, ContentEffectConfig};
 use crate::core::shape::CachedShapeHandle;
 use crate::core::util::ShapeResources;
 use crate::core::Viewport;
+use crate::planner::commands::TraversalCommands;
+use crate::planner::tests::RecordedCommands;
 use crate::planner::TextureIdAllocator;
+use crate::scene::effects::parameters::EffectParameterStorage;
 use crate::scene::effects::{BackdropEffectInstance, ContentEffectInstance, EffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::{ClipRectDrawData, DrawTreeNode};
@@ -15,6 +18,7 @@ use crate::{Shape, ShapeDrawCommandOptions, Size};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
 use lyon::tessellation::FillTessellator;
+use std::mem;
 
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
@@ -32,8 +36,8 @@ fn planned_index(texture: IntermediateTextureId) -> usize {
     index
 }
 
-/// Consumes only completed commands, including after dropping their scene and planner.
-fn validate_dependencies(plan: &RenderPlan) {
+/// Checks resource dependencies in the yielded command order.
+fn validate_dependencies(plan: &RecordedCommands) {
     let mut produced = Vec::new();
     let mut targets = Vec::new();
     let mut surface_count = 0;
@@ -92,7 +96,7 @@ fn validate_dependencies(plan: &RenderPlan) {
     assert!(produced.into_iter().all(|is_produced| is_produced));
 }
 
-fn snapshot(plan: &RenderPlan) -> Vec<Command> {
+fn snapshot(plan: &RecordedCommands) -> Vec<Command> {
     plan.instructions
         .iter()
         .map(|command| match &command.operation {
@@ -116,6 +120,7 @@ fn snapshot(plan: &RenderPlan) -> Vec<Command> {
 }
 
 struct Scene {
+    parameters: EffectParameterStorage,
     tree: Tree<DrawTreeNode>,
     groups: HashMap<usize, ContentEffectInstance>,
     backdrops: HashMap<usize, BackdropEffectInstance>,
@@ -125,6 +130,7 @@ struct Scene {
 impl Scene {
     fn new() -> Self {
         Self {
+            parameters: EffectParameterStorage::default(),
             tree: Tree::new(),
             groups: HashMap::new(),
             backdrops: HashMap::new(),
@@ -145,14 +151,14 @@ impl Scene {
         }
     }
 
-    fn group(&mut self, parent: Option<usize>, effect_id: u64, output: &mut RenderPlan) -> usize {
+    fn group(&mut self, parent: Option<usize>, effect_id: u64) -> usize {
         let node = self.add(parent);
         self.groups.insert(
             node,
             ContentEffectInstance::new(
                 EffectInstance {
                     effect_id,
-                    parameters: output.store_parameters(&effect_id.to_le_bytes()),
+                    parameters: self.parameters.store(&effect_id.to_le_bytes()),
                 },
                 ContentEffectConfig::default(),
                 self.tree.get(node).unwrap(),
@@ -167,7 +173,7 @@ impl Scene {
         node
     }
 
-    fn backdrop(&mut self, parent: usize, output: &mut RenderPlan) {
+    fn backdrop(&mut self, parent: usize) {
         let shape = CachedShapeHandle::new(
             &Shape::rect([(10.0, 10.0), (40.0, 40.0)]),
             &mut FillTessellator::new(),
@@ -186,7 +192,7 @@ impl Scene {
             BackdropEffectInstance::new(
                 EffectInstance {
                     effect_id: 99,
-                    parameters: output.store_parameters(&[9; 4]),
+                    parameters: self.parameters.store(&[9; 4]),
                 },
                 BackdropEffectConfig::new().padding(4.0).downsample(0.5),
                 self.tree.get(node).unwrap().logical_screen_bounds(),
@@ -199,34 +205,40 @@ impl Scene {
         );
     }
 
-    fn plan(&self, planner: &mut SceneTraversal, output: &mut RenderPlan) {
+    fn plan<'scene>(
+        &'scene self,
+        planner: &mut SceneTraversal,
+        output: &mut RecordedCommands<'scene>,
+    ) {
         output.clear_commands();
         output.push(RenderOperation::BeginTarget(Target::Surface));
-        planner.plan(
-            ContentPlanningInput {
-                tree: &self.tree,
-                content_effects: &self.groups,
-                backdrop_effects: &self.backdrops,
-                shape_mask_effects: &self.shapes,
-                scale_factor: 1.0,
-                physical_size: Size::new(100, 100),
-            },
-            output,
-            &mut TextureIdAllocator::default(),
-        );
+        let input = ContentPlanningInput {
+            tree: &self.tree,
+            parameters: &self.parameters,
+            content_effects: &self.groups,
+            backdrop_effects: &self.backdrops,
+            shape_mask_effects: &self.shapes,
+            scale_factor: 1.0,
+            physical_size: Size::new(100, 100),
+        };
+        planner.start(&input);
+        let mut commands = TraversalCommands::default();
+        let mut texture_ids = TextureIdAllocator::default();
+        while planner.advance(&input, &mut commands, &mut texture_ids) {
+            output.instructions.extend(mem::take(&mut commands));
+        }
         output.push(RenderOperation::EndTarget);
     }
 }
 
 #[test]
 fn nested_groups_close_into_their_parent_targets() {
-    let mut output = RenderPlan::default();
+    let mut output = RecordedCommands::default();
     let mut scene = Scene::new();
-    let outer = scene.group(None, 1, &mut output);
-    let inner = scene.group(Some(outer), 2, &mut output);
-    scene.group(Some(inner), 3, &mut output);
+    let outer = scene.group(None, 1);
+    let inner = scene.group(Some(outer), 2);
+    scene.group(Some(inner), 3);
     scene.plan(&mut SceneTraversal::default(), &mut output);
-    drop(scene);
     validate_dependencies(&output);
     assert_eq!(
         snapshot(&output),
@@ -262,22 +274,19 @@ fn nested_groups_close_into_their_parent_targets() {
             }
         });
     for effect in effects {
-        assert_eq!(
-            output.parameters(effect.parameters),
-            effect.effect_id.to_le_bytes()
-        );
+        assert_eq!(effect.parameters.bytes, effect.effect_id.to_le_bytes());
     }
 }
 
 #[test]
 fn uneven_groups_resume_the_parent_between_siblings() {
-    let mut output = RenderPlan::default();
+    let mut output = RecordedCommands::default();
     let mut scene = Scene::new();
     let root = scene.add(None);
-    let first = scene.group(Some(root), 1, &mut output);
-    let inner = scene.group(Some(first), 2, &mut output);
-    scene.group(Some(inner), 3, &mut output);
-    scene.group(Some(root), 4, &mut output);
+    let first = scene.group(Some(root), 1);
+    let inner = scene.group(Some(first), 2);
+    scene.group(Some(inner), 3);
+    scene.group(Some(root), 4);
     scene.plan(&mut SceneTraversal::default(), &mut output);
     validate_dependencies(&output);
     assert_eq!(
@@ -311,14 +320,14 @@ fn uneven_groups_resume_the_parent_between_siblings() {
 
 #[test]
 fn layered_backdrop_sources_finish_before_captures_and_skip_their_group() {
-    let mut output = RenderPlan::default();
+    let mut output = RecordedCommands::default();
     let mut scene = Scene::new();
     let root = scene.add(None);
-    scene.backdrop(root, &mut output);
-    let outer = scene.group(Some(root), 1, &mut output);
-    scene.backdrop(outer, &mut output);
-    let inner = scene.group(Some(outer), 2, &mut output);
-    scene.backdrop(inner, &mut output);
+    scene.backdrop(root);
+    let outer = scene.group(Some(root), 1);
+    scene.backdrop(outer);
+    let inner = scene.group(Some(outer), 2);
+    scene.backdrop(inner);
     scene.plan(&mut SceneTraversal::default(), &mut output);
     validate_dependencies(&output);
     let captures: Vec<_> = output
@@ -371,48 +380,41 @@ fn layered_backdrop_sources_finish_before_captures_and_skip_their_group() {
 }
 
 #[test]
-fn queue_rebuilds_reuse_storage_and_empty_scenes_clear_the_surface() {
+fn queue_rebuilds_reuse_scheduling_storage_and_empty_scenes_clear_the_surface() {
     let mut planner = SceneTraversal::default();
-    let mut output = RenderPlan::default();
     let mut scene = Scene::new();
-    let group = scene.group(None, 1, &mut output);
-    scene.backdrop(group, &mut output);
+    let group = scene.group(None, 1);
+    scene.backdrop(group);
+    let mut output = RecordedCommands::default();
     scene.plan(&mut planner, &mut output);
     let capacities = (
-        output.instructions.capacity(),
-        output.effect_parameters.capacity(),
         planner.groups.capacity(),
         planner.results.capacity(),
         planner.backdrop_ancestors.capacity(),
+        planner.tasks.capacity(),
     );
     for _ in 0..3 {
-        output.clear();
         let mut rebuilt = Scene::new();
-        let group = rebuilt.group(None, 7, &mut output);
-        rebuilt.backdrop(group, &mut output);
+        let group = rebuilt.group(None, 7);
+        rebuilt.backdrop(group);
+        let mut output = RecordedCommands::default();
         rebuilt.plan(&mut planner, &mut output);
         validate_dependencies(&output);
         assert_eq!(
             capacities,
             (
-                output.instructions.capacity(),
-                output.effect_parameters.capacity(),
                 planner.groups.capacity(),
                 planner.results.capacity(),
-                planner.backdrop_ancestors.capacity()
+                planner.backdrop_ancestors.capacity(),
+                planner.tasks.capacity()
             )
         );
     }
-    output.clear();
-    Scene::new().plan(&mut planner, &mut output);
+    let empty = Scene::new();
+    let mut output = RecordedCommands::default();
+    empty.plan(&mut planner, &mut output);
     validate_dependencies(&output);
     assert_eq!(snapshot(&output), [Command::Begin(None), Command::End]);
-    assert!(output.effect_parameters.is_empty());
     assert!(planner.results.is_empty());
     assert!(planner.backdrop_ancestors.is_empty());
-    let mut scene = Scene::new();
-    let group = scene.group(None, 1, &mut output);
-    scene.backdrop(group, &mut output);
-    scene.plan(&mut planner, &mut output);
-    validate_dependencies(&output);
 }

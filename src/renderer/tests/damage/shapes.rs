@@ -326,10 +326,9 @@ fn cached_effect_bounds_follow_rasterization_and_keep_offscreen_coverage() {
         renderer.backend.root_scissor,
         Some(UnsignedPhysicalRect::new((18, 0).into(), (42, 44).into()))
     );
-    let plan = renderer.planner.plan(&renderer.scene, 4096);
-    let mask = plan
-        .instructions
-        .iter()
+    let mask = renderer
+        .planner
+        .plan(&renderer.scene, 4096)
         .find_map(|command| match command.operation {
             RenderOperation::DrawShapeMask(mask) => Some(mask),
             _ => None,

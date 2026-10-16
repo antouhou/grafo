@@ -8,8 +8,7 @@ use super::shapes::ShapeExecutionResources;
 use super::targets::{ActiveTarget, SurfaceTarget};
 use super::textures::{IntermediateTextureResources, PlannedTexture};
 use crate::commands::{
-    CaptureSource, IntermediateTextureId, RenderCommand, RenderOperation, RenderPlan, Target,
-    TexturePlacement,
+    CaptureSource, IntermediateTextureId, RenderCommand, RenderOperation, Target, TexturePlacement,
 };
 #[cfg(feature = "render_metrics")]
 use crate::wgpu_backend::metrics::{PipelineSwitchCounts, ShapeMaskEffectCacheMetrics};
@@ -181,14 +180,14 @@ fn execute_draw_command(
 }
 
 /// Returns a consumed command that still needs execution after this pass closes.
-fn execute_draw_pass(
+fn execute_draw_pass<'scene>(
     encoder: &mut CommandEncoder,
-    pending_command: RenderCommand,
-    commands: &mut impl Iterator<Item = RenderCommand>,
+    pending_command: RenderCommand<'scene>,
+    commands: &mut impl Iterator<Item = RenderCommand<'scene>>,
     surface: &SurfaceTarget<'_>,
     resources: &mut ExecutionResources<'_>,
     pipeline_tracker: &mut PipelineTracker,
-) -> Option<RenderCommand> {
+) -> Option<RenderCommand<'scene>> {
     if let RenderOperation::DrawShape(draw) | RenderOperation::DrawShapeAndIncrementStencil(draw) =
         &pending_command.operation
     {
@@ -246,16 +245,15 @@ fn execute_draw_pass(
     None
 }
 
-pub(in crate::wgpu_backend) fn execute_commands(
+pub(in crate::wgpu_backend) fn execute_commands<'scene>(
     encoder: &mut CommandEncoder,
-    commands: &RenderPlan,
+    mut commands: impl Iterator<Item = RenderCommand<'scene>>,
     surface: SurfaceTarget<'_>,
     mut resources: ExecutionResources<'_>,
 ) -> ExecutionMetrics {
     let mut pipeline_tracker = PipelineTracker::new();
     resources.shapes.composites.begin_render();
-    let mut command_iterator = commands.instructions.iter().copied();
-    let mut pending_command = command_iterator.next();
+    let mut pending_command = commands.next();
     while let Some(command) = pending_command {
         match &command.operation {
             RenderOperation::BeginTarget(target) => resources.begin_target(*target, &surface),
@@ -291,12 +289,11 @@ pub(in crate::wgpu_backend) fn execute_commands(
                 if let Some(mask) = mask {
                     resources
                         .mask_resources()
-                        .apply_effect(encoder, effect, commands, mask);
+                        .apply_effect(encoder, effect, mask);
                 } else {
                     execute_effect(
                         encoder,
                         effect,
-                        commands,
                         &resources.context.effects,
                         true,
                         resources.effects,
@@ -350,7 +347,7 @@ pub(in crate::wgpu_backend) fn execute_commands(
                 pending_command = execute_draw_pass(
                     encoder,
                     command,
-                    &mut command_iterator,
+                    &mut commands,
                     &surface,
                     &mut resources,
                     &mut pipeline_tracker,
@@ -358,7 +355,7 @@ pub(in crate::wgpu_backend) fn execute_commands(
                 continue;
             }
         }
-        pending_command = command_iterator.next();
+        pending_command = commands.next();
     }
     assert!(
         resources.textures.active_targets.is_empty(),

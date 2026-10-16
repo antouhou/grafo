@@ -8,6 +8,7 @@ use crate::render_backend::texture_manager::{TextureUpdatePublisher, TextureUpda
 use ahash::{HashMap, HashMapExt, HashSet};
 use easy_tree::Tree;
 use effect_damage::{EffectDamage, EffectDamageKind};
+use effects::parameters::EffectParameterStorage;
 use effects::{
     resolve_backdrop_effect, BackdropEffectInstance, ContentEffectInstance, ShapeMaskEffectInstance,
 };
@@ -51,6 +52,7 @@ pub(crate) struct Scene {
     fringe_width: f32,
     tessellator: FillTessellator,
     shape_resources: ShapeResources,
+    pub(crate) effect_parameters: EffectParameterStorage,
     pub(crate) content_effects: HashMap<usize, ContentEffectInstance>,
     pub(crate) backdrop_effects: HashMap<usize, BackdropEffectInstance>,
     effect_damage: EffectDamage,
@@ -71,6 +73,7 @@ impl Scene {
             texture_index: TextureIndex::default(),
             tessellator: FillTessellator::new(),
             shape_resources: ShapeResources::new(),
+            effect_parameters: EffectParameterStorage::default(),
             content_effects: HashMap::new(),
             backdrop_effects: HashMap::new(),
             effect_damage: EffectDamage::default(),
@@ -219,7 +222,9 @@ impl Scene {
             }
         } else {
             self.remove_content_effect(node_id);
-            self.shape_mask_effects.remove(&node_id);
+            if self.shape_mask_effects.remove(&node_id).is_some() {
+                self.effect_parameters.request_compaction();
+            }
             self.remove_backdrop_effect(node_id);
         }
         let refreshed_backdrop = self.backdrop_effects.get(&node_id).map(|instance| {
@@ -284,13 +289,23 @@ impl Scene {
             let group_output = self
                 .effect_damage
                 .output_region(EffectDamageKind::Content, id);
-            self.content_effects.remove(&id);
+            if self.content_effects.remove(&id).is_some() {
+                self.effect_parameters.request_compaction();
+            }
             self.effect_damage.remove(EffectDamageKind::Content, id);
-            self.backdrop_effects.remove(&id);
+            if self.backdrop_effects.remove(&id).is_some() {
+                self.effect_parameters.request_compaction();
+            }
             self.effect_damage.remove(EffectDamageKind::Backdrop, id);
             let shape_mask_effect = self.shape_mask_effects.remove(&id);
+            if shape_mask_effect.is_some() {
+                self.effect_parameters.request_compaction();
+            }
             removed(id, node, shape_mask_effect, group_output);
         });
+        if self.draw_tree.is_empty() {
+            self.effect_parameters.clear();
+        }
     }
 
     /// Consumes pending texture updates and yields each affected shape once.

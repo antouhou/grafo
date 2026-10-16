@@ -1,6 +1,6 @@
 use super::{DrawPlanner, DrawPlanningInput, DrawTreeSelection};
 use crate::commands::{
-    CaptureSource, IntermediateTextureId, RenderCommand, RenderOperation, RenderPlan, ShapeDrawId,
+    CaptureSource, IntermediateTextureId, RenderCommand, RenderOperation, ShapeDrawId,
     TextureComposite, TexturePlacement,
 };
 use crate::core::effect::BackdropEffectConfig;
@@ -8,7 +8,10 @@ use crate::core::shape::CachedShapeHandle;
 use crate::core::util::ShapeResources;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
 use crate::core::Viewport;
+use crate::planner::commands::TraversalCommands;
+use crate::planner::tests::RecordedCommands;
 use crate::planner::TextureIdAllocator;
+use crate::scene::effects::parameters::EffectParameterStorage;
 use crate::scene::effects::{BackdropEffectInstance, ContentEffectInstance, EffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::{ClipRectDrawData, DrawTreeNode};
@@ -16,6 +19,7 @@ use crate::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, Size, UnsignedPh
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
 use lyon::tessellation::FillTessellator;
+use std::mem;
 
 #[derive(Debug, PartialEq)]
 enum Operation {
@@ -25,7 +29,7 @@ enum Operation {
     Composite(IntermediateTextureId),
 }
 
-fn snapshot(plan: &RenderPlan) -> Vec<(Operation, u32, UnsignedPhysicalRect)> {
+fn snapshot(plan: &RecordedCommands) -> Vec<(Operation, u32, UnsignedPhysicalRect)> {
     plan.instructions
         .iter()
         .filter_map(|instruction| {
@@ -88,11 +92,13 @@ struct Scene {
     groups: HashMap<usize, ContentEffectInstance>,
     backdrops: HashMap<usize, BackdropEffectInstance>,
     backdrop_source: Option<CaptureSource>,
+    parameters: EffectParameterStorage,
 }
 
 impl Scene {
     fn new() -> Self {
         Self {
+            parameters: EffectParameterStorage::default(),
             tree: Tree::new(),
             results: HashMap::new(),
             shape_mask_effects: HashMap::new(),
@@ -110,43 +116,48 @@ impl Scene {
         }
     }
 
-    fn plan(&self, planner: &mut DrawPlanner, output: &mut RenderPlan) {
+    fn plan<'scene>(
+        &'scene self,
+        planner: &mut DrawPlanner,
+        output: &mut RecordedCommands<'scene>,
+    ) {
         self.plan_selection(DrawTreeSelection::default(), planner, output);
     }
 
-    fn plan_selection(
-        &self,
+    fn plan_selection<'scene>(
+        &'scene self,
         selection: DrawTreeSelection,
         planner: &mut DrawPlanner,
-        output: &mut RenderPlan,
+        output: &mut RecordedCommands<'scene>,
     ) {
-        // Doesn't clear effect parameters, as they're stored before the planning starts, and are
-        //  necessary for the plan
         output.clear_commands();
-        planner.append(
-            DrawPlanningInput {
-                tree: &self.tree,
-                selection,
-                effect_results: &self.results,
-                shape_mask_effects: &self.shape_mask_effects,
-                content_effects: &self.groups,
-                backdrop_effects: &self.backdrops,
-                scale_factor: 1.0,
-                physical_size: Size::new(100, 100),
-                backdrop_source: self.backdrop_source,
-            },
-            output,
-            &mut TextureIdAllocator::default(),
-        );
+        let input = DrawPlanningInput {
+            tree: &self.tree,
+            parameters: &self.parameters,
+            selection,
+            effect_results: &self.results,
+            shape_mask_effects: &self.shape_mask_effects,
+            content_effects: &self.groups,
+            backdrop_effects: &self.backdrops,
+            scale_factor: 1.0,
+            physical_size: Size::new(100, 100),
+            backdrop_source: self.backdrop_source,
+        };
+        let mut commands = TraversalCommands::default();
+        let mut texture_ids = TextureIdAllocator::default();
+        planner.start(selection, input.physical_size);
+        while planner.advance(&input, &mut commands, &mut texture_ids) {
+            output.instructions.extend(mem::take(&mut commands));
+        }
     }
 
-    fn attach_backdrop(&mut self, node: usize, output: &mut RenderPlan) {
+    fn attach_backdrop(&mut self, node: usize) {
         self.backdrops.insert(
             node,
             BackdropEffectInstance::new(
                 EffectInstance {
                     effect_id: 42,
-                    parameters: output.store_parameters(&[1, 2, 3, 4]),
+                    parameters: self.parameters.store(&[1, 2, 3, 4]),
                 },
                 BackdropEffectConfig::default(),
                 self.tree.get(node).unwrap().logical_screen_bounds(),
@@ -183,7 +194,7 @@ fn mixed_clips_resolve_each_draw_and_restore_before_siblings() {
     let leaf = scene.add(Some(inner), shape(true));
     let sibling = scene.add(Some(root), shape(true));
     let mut planner = DrawPlanner::default();
-    let mut output = RenderPlan::default();
+    let mut output = RecordedCommands::default();
     scene.plan(&mut planner, &mut output);
     let outer_clip = rect((10, 10), (90, 80));
     assert_eq!(
@@ -216,7 +227,7 @@ fn empty_geometry_and_visible_overflow_keep_the_ancestor_stencil() {
     let overflow = scene.add(Some(root), shape(false));
     let overflow_leaf = scene.add(Some(overflow), shape(true));
     let sibling = scene.add(Some(root), shape(true));
-    let mut output = RenderPlan::default();
+    let mut output = RecordedCommands::default();
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let viewport = rect((0, 0), (100, 100));
     assert_eq!(
@@ -266,7 +277,7 @@ fn effect_composites_carry_only_ids_placements_and_resolved_clips() {
             },
         },
     );
-    let mut output = RenderPlan::default();
+    let mut output = RecordedCommands::default();
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let viewport = rect((0, 0), (100, 100));
     let inherited = rect((10, 10), (60, 60));
@@ -308,7 +319,7 @@ fn offscreen_scissor_and_transparent_parent_restore_the_visible_sibling() {
     let offscreen = scene.add(Some(root), clip((150.0, 150.0), (200.0, 200.0)));
     let clipped = scene.add(Some(offscreen), shape(true));
     let sibling = scene.add(Some(root), shape(true));
-    let mut output = RenderPlan::default();
+    let mut output = RecordedCommands::default();
     scene.plan(&mut DrawPlanner::default(), &mut output);
     assert_eq!(
         snapshot(&output),
@@ -329,12 +340,12 @@ fn offscreen_scissor_and_transparent_parent_restore_the_visible_sibling() {
 
 #[test]
 fn empty_backdrop_parent_preserves_ancestor_clips_without_capture() {
-    let mut output = RenderPlan::default();
+    let mut output = RecordedCommands::default();
     let mut scene = Scene::new();
     let root = scene.add(None, shape(true));
     let scissor = scene.add(Some(root), clip((10.0, 10.0), (60.0, 60.0)));
     let empty = scene.add(Some(scissor), empty_shape());
-    scene.attach_backdrop(empty, &mut output);
+    scene.attach_backdrop(empty);
     let child = scene.add(Some(empty), shape(true));
     let sibling = scene.add(Some(root), shape(true));
     scene.plan(&mut DrawPlanner::default(), &mut output);
@@ -358,7 +369,9 @@ mod backdrops;
 mod selection;
 mod targets;
 
-fn operations(plan: &RenderPlan) -> Vec<&RenderOperation> {
+fn operations<'commands, 'scene>(
+    plan: &'commands RecordedCommands<'scene>,
+) -> Vec<&'commands RenderOperation<'scene>> {
     plan.instructions
         .iter()
         .map(|command| &command.operation)

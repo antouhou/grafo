@@ -1,6 +1,8 @@
 use super::draws::{DrawPlanner, DrawPlanningInput, DrawTreeSelection};
-use crate::commands::{CaptureSource, RenderOperation, RenderPlan, Target, TextureComposite};
+use crate::commands::{CaptureSource, RenderOperation, Target, TextureComposite};
+use crate::planner::commands::TraversalCommands;
 use crate::planner::TextureIdAllocator;
+use crate::scene::effects::parameters::EffectParameterStorage;
 use crate::scene::effects::{BackdropEffectInstance, ContentEffectInstance};
 use crate::scene::types::DrawTreeNode;
 use crate::Size;
@@ -20,54 +22,150 @@ fn node_depth(tree: &Tree<DrawTreeNode>, mut node: usize) -> usize {
     depth
 }
 
-pub(crate) struct ContentPlanningInput<'a> {
-    pub tree: &'a Tree<DrawTreeNode>,
-    pub content_effects: &'a HashMap<usize, ContentEffectInstance>,
-    pub backdrop_effects: &'a HashMap<usize, BackdropEffectInstance>,
-    pub shape_mask_effects: &'a HashMap<usize, TextureComposite>,
+pub(crate) struct ContentPlanningInput<'scene, 'planning> {
+    pub tree: &'scene Tree<DrawTreeNode>,
+    pub parameters: &'scene EffectParameterStorage,
+    pub content_effects: &'scene HashMap<usize, ContentEffectInstance>,
+    pub backdrop_effects: &'scene HashMap<usize, BackdropEffectInstance>,
+    pub shape_mask_effects: &'planning HashMap<usize, TextureComposite>,
     pub scale_factor: f64,
     pub physical_size: Size,
 }
 
-/// Appends dependency targets and scene draws to the planner's shared stream.
+enum ContentTask {
+    PlanContent(usize),
+    BeginContent(usize, Option<CaptureSource>),
+    FinishContent(usize, ContentCapture),
+    BeginTarget(Target),
+    EndTarget,
+    DrawTree(DrawTreeSelection, Option<CaptureSource>),
+}
+
+/// Reuses dependency scheduling and traversal storage across command iterators.
 #[derive(Default)]
 pub(crate) struct SceneTraversal {
     groups: Vec<(usize, usize)>,
     results: HashMap<usize, TextureComposite>,
     backdrop_ancestors: HashSet<usize>,
     draws: DrawPlanner,
+    tasks: Vec<ContentTask>,
+    is_drawing: bool,
+    selection: DrawTreeSelection,
+    backdrop_source: Option<CaptureSource>,
 }
 
 impl SceneTraversal {
-    pub fn plan(
-        &mut self,
-        input: ContentPlanningInput<'_>,
-        output: &mut RenderPlan,
-        texture_ids: &mut TextureIdAllocator,
-    ) {
+    pub(crate) fn start(&mut self, input: &ContentPlanningInput<'_, '_>) {
         self.results.clear();
-        self.schedule(&input);
-        for index in 0..self.groups.len() {
-            let node_id = self.groups[index].0;
-            if let Some(composite) = self.plan_content_effect(node_id, &input, output, texture_ids)
-            {
-                self.results.insert(node_id, composite);
-            }
-        }
-        self.append_draws(
+        self.tasks.clear();
+        self.is_drawing = false;
+        self.schedule(input);
+        self.tasks.push(ContentTask::DrawTree(
             DrawTreeSelection::default(),
             Some(CaptureSource::Target),
-            &input,
-            output,
-            texture_ids,
-        );
+        ));
+        for &(node_id, _) in self.groups.iter().rev() {
+            self.tasks.push(ContentTask::PlanContent(node_id));
+        }
     }
 
-    fn schedule(&mut self, input: &ContentPlanningInput<'_>) {
+    pub(crate) fn advance<'scene>(
+        &mut self,
+        input: &ContentPlanningInput<'scene, '_>,
+        output: &mut TraversalCommands<'scene>,
+        texture_ids: &mut TextureIdAllocator,
+    ) -> bool {
+        if self.is_drawing {
+            let progressed = self.draws.advance(
+                &DrawPlanningInput {
+                    tree: input.tree,
+                    parameters: input.parameters,
+                    selection: self.selection,
+                    effect_results: &self.results,
+                    shape_mask_effects: input.shape_mask_effects,
+                    content_effects: input.content_effects,
+                    backdrop_effects: input.backdrop_effects,
+                    backdrop_source: self.backdrop_source,
+                    scale_factor: input.scale_factor,
+                    physical_size: input.physical_size,
+                },
+                output,
+                texture_ids,
+            );
+            self.is_drawing = progressed;
+            return true;
+        }
+        let Some(task) = self.tasks.pop() else {
+            return false;
+        };
+        match task {
+            ContentTask::PlanContent(node_id) => {
+                if input.content_effects[&node_id].bounds.is_none() {
+                    return true;
+                }
+                if self.backdrop_ancestors.contains(&node_id) {
+                    let base = texture_ids.allocate();
+                    self.tasks.push(ContentTask::BeginContent(
+                        node_id,
+                        Some(CaptureSource::Layered { base }),
+                    ));
+                    self.tasks.push(ContentTask::EndTarget);
+                    self.tasks.push(ContentTask::DrawTree(
+                        DrawTreeSelection {
+                            excluded_subtree: Some(node_id),
+                            ..Default::default()
+                        },
+                        None,
+                    ));
+                    self.tasks.push(ContentTask::BeginTarget(Target::Texture {
+                        texture: base,
+                        size: input.physical_size,
+                    }));
+                } else {
+                    self.tasks.push(ContentTask::BeginContent(node_id, None));
+                }
+            }
+            ContentTask::BeginContent(node_id, backdrop_source) => {
+                let capture = ContentCapture::new(input.content_effects[&node_id])
+                    .expect("scheduled content has capture bounds");
+                let texture = texture_ids.allocate();
+                output.push(RenderOperation::BeginTarget(Target::Texture {
+                    texture,
+                    size: input.physical_size,
+                }));
+                self.tasks
+                    .push(ContentTask::FinishContent(node_id, capture));
+                self.tasks.push(ContentTask::DrawTree(
+                    DrawTreeSelection {
+                        subtree_root: Some(node_id),
+                        ..Default::default()
+                    },
+                    backdrop_source,
+                ));
+            }
+            ContentTask::FinishContent(node_id, capture) => {
+                let texture = capture.append_capture(output, texture_ids);
+                output.push(RenderOperation::EndTarget);
+                let composite =
+                    capture.append_effect(texture, input.parameters, output, texture_ids);
+                self.results.insert(node_id, composite);
+            }
+            ContentTask::BeginTarget(target) => output.push(RenderOperation::BeginTarget(target)),
+            ContentTask::EndTarget => output.push(RenderOperation::EndTarget),
+            ContentTask::DrawTree(selection, backdrop_source) => {
+                self.selection = selection;
+                self.backdrop_source = backdrop_source;
+                self.draws.start(selection, input.physical_size);
+                self.is_drawing = true;
+            }
+        }
+        true
+    }
+
+    fn schedule(&mut self, input: &ContentPlanningInput<'_, '_>) {
         self.groups.clear();
         self.backdrop_ancestors.clear();
         // Layered captures need completed group dependencies outside the captured subtree.
-        // Without captures, the tree walk opens group targets directly inside their parents.
         if input.content_effects.is_empty() || input.backdrop_effects.is_empty() {
             return;
         }
@@ -76,7 +174,6 @@ impl SceneTraversal {
                 self.groups.push((node, node_depth(input.tree, node)));
             }
         }
-        // Descendant results must exist before ancestor scopes substitute them.
         self.groups
             .sort_unstable_by_key(|&(node, depth)| (Reverse(depth), node));
         for &node in input.backdrop_effects.keys() {
@@ -91,102 +188,6 @@ impl SceneTraversal {
                 ancestor = input.tree.parent_index_unchecked(node);
             }
         }
-    }
-
-    fn plan_backdrop_source(
-        &mut self,
-        node: usize,
-        input: &ContentPlanningInput<'_>,
-        output: &mut RenderPlan,
-        texture_ids: &mut TextureIdAllocator,
-    ) -> Option<CaptureSource> {
-        if !self.backdrop_ancestors.contains(&node) {
-            return None;
-        }
-        let base = texture_ids.allocate();
-        self.append_target(
-            Target::Texture {
-                texture: base,
-                size: input.physical_size,
-            },
-            DrawTreeSelection {
-                excluded_subtree: Some(node),
-                ..Default::default()
-            },
-            None,
-            input,
-            output,
-            texture_ids,
-        );
-        Some(CaptureSource::Layered { base })
-    }
-
-    fn append_target(
-        &mut self,
-        target: Target,
-        selection: DrawTreeSelection,
-        backdrop_source: Option<CaptureSource>,
-        input: &ContentPlanningInput<'_>,
-        output: &mut RenderPlan,
-        texture_ids: &mut TextureIdAllocator,
-    ) {
-        output.push(RenderOperation::BeginTarget(target));
-        self.append_draws(selection, backdrop_source, input, output, texture_ids);
-        output.push(RenderOperation::EndTarget);
-    }
-
-    fn append_draws(
-        &mut self,
-        selection: DrawTreeSelection,
-        backdrop_source: Option<CaptureSource>,
-        input: &ContentPlanningInput<'_>,
-        output: &mut RenderPlan,
-        texture_ids: &mut TextureIdAllocator,
-    ) {
-        self.draws.append(
-            DrawPlanningInput {
-                tree: input.tree,
-                selection,
-                effect_results: &self.results,
-                shape_mask_effects: input.shape_mask_effects,
-                content_effects: input.content_effects,
-                backdrop_effects: input.backdrop_effects,
-                backdrop_source,
-                scale_factor: input.scale_factor,
-                physical_size: input.physical_size,
-            },
-            output,
-            texture_ids,
-        );
-    }
-
-    fn plan_content_effect(
-        &mut self,
-        node_id: usize,
-        input: &ContentPlanningInput<'_>,
-        output: &mut RenderPlan,
-        texture_ids: &mut TextureIdAllocator,
-    ) -> Option<TextureComposite> {
-        let capture = ContentCapture::new(input.content_effects[&node_id])?;
-        let backdrop_source = self.plan_backdrop_source(node_id, input, output, texture_ids);
-        let group_texture = texture_ids.allocate();
-        output.push(RenderOperation::BeginTarget(Target::Texture {
-            texture: group_texture,
-            size: input.physical_size,
-        }));
-        self.append_draws(
-            DrawTreeSelection {
-                subtree_root: Some(node_id),
-                ..Default::default()
-            },
-            backdrop_source,
-            input,
-            output,
-            texture_ids,
-        );
-        let input_texture = capture.append_capture(output, texture_ids);
-        output.push(RenderOperation::EndTarget);
-        Some(capture.append_effect(input_texture, output, texture_ids))
     }
 }
 

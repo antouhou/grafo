@@ -1,6 +1,6 @@
 use super::texture_manager::WgpuTextureManager;
 use super::{WgpuBackend, WgpuBackendError, WgpuSurface};
-use crate::commands::{RenderPlan, ShapeDrawId};
+use crate::commands::{RenderCommand, ShapeDrawId};
 use crate::core::shape::{CachedShapeHandle, ShapeInstance};
 use crate::core::Viewport;
 use crate::render_backend::render_target::{PixelFormat, RenderTarget};
@@ -123,10 +123,10 @@ impl RenderBackend for WgpuBackend {
         self.is_dirty_region_overlay_enabled
     }
 
-    fn render(
+    fn render<'scene>(
         &mut self,
         root_scissor: Option<UnsignedPhysicalRect>,
-        commands: &RenderPlan,
+        commands: impl Iterator<Item = RenderCommand<'scene>>,
         target: RenderTarget<'_, Self::Surface>,
     ) -> Result<(), Self::Error> {
         let size = target.validate_size(self.maximum_texture_dimension())?;

@@ -1,6 +1,7 @@
 use super::*;
-use crate::commands::{EffectParameterRange, EffectParameters};
 use crate::core::effect::ContentEffectConfig;
+use crate::planner::tests::RecordedCommands;
+use crate::scene::effects::parameters::{EffectParameterRange, StoredEffectParameters};
 
 #[test]
 fn nested_targets_reset_clips_and_restore_each_parent_before_compositing() {
@@ -18,7 +19,7 @@ fn nested_targets_reset_clips_and_restore_each_parent_before_compositing() {
             ContentEffectInstance::new(
                 EffectInstance {
                     effect_id: 1,
-                    parameters: EffectParameters {
+                    parameters: StoredEffectParameters {
                         range: EffectParameterRange { start: 0, end: 0 },
                         hash: 0,
                     },
@@ -36,7 +37,7 @@ fn nested_targets_reset_clips_and_restore_each_parent_before_compositing() {
     }
     let viewport = rect((0, 0), (100, 100));
     let parent_scissor = rect((10, 10), (60, 60));
-    let mut output = RenderPlan::default();
+    let mut output = RecordedCommands::default();
     let mut planner = DrawPlanner::default();
     scene.plan(&mut planner, &mut output);
     assert_eq!(

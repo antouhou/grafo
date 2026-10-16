@@ -1,10 +1,12 @@
 use crate::commands::{
-    CaptureSource, DrawClip, RenderCommand, RenderOperation, RenderPlan, ShapeDraw, ShapeDrawId,
+    CaptureSource, DrawClip, RenderCommand, RenderOperation, ShapeDraw, ShapeDrawId,
     ShapeDrawMaterial, ShapeTextureBinding, Target, TextureComposite,
 };
 use crate::core::shape::ShapeInstance;
+use crate::planner::commands::TraversalCommands;
 use crate::planner::content_effects::ContentCapture;
 use crate::planner::TextureIdAllocator;
+use crate::scene::effects::parameters::EffectParameterStorage;
 use crate::scene::effects::{BackdropEffectInstance, ContentEffectInstance};
 use crate::scene::types::DrawTreeNode;
 use crate::{Size, UnsignedPhysicalRect};
@@ -58,20 +60,21 @@ pub(crate) struct DrawTreeSelection {
     pub(crate) excluded_subtree: Option<usize>,
 }
 
-pub(crate) struct DrawPlanningInput<'a> {
-    pub(crate) tree: &'a Tree<DrawTreeNode>,
+pub(crate) struct DrawPlanningInput<'scene, 'planning> {
+    pub(crate) tree: &'scene Tree<DrawTreeNode>,
+    pub(crate) parameters: &'scene EffectParameterStorage,
     pub(crate) selection: DrawTreeSelection,
-    pub(crate) effect_results: &'a HashMap<usize, TextureComposite>,
-    pub(crate) shape_mask_effects: &'a HashMap<usize, TextureComposite>,
-    pub(crate) content_effects: &'a HashMap<usize, ContentEffectInstance>,
-    pub(crate) backdrop_effects: &'a HashMap<usize, BackdropEffectInstance>,
+    pub(crate) effect_results: &'planning HashMap<usize, TextureComposite>,
+    pub(crate) shape_mask_effects: &'planning HashMap<usize, TextureComposite>,
+    pub(crate) content_effects: &'scene HashMap<usize, ContentEffectInstance>,
+    pub(crate) backdrop_effects: &'scene HashMap<usize, BackdropEffectInstance>,
     pub(crate) scale_factor: f64,
     pub(crate) physical_size: Size,
     /// None disables captures when rendering a group's backdrop source.
     pub(crate) backdrop_source: Option<CaptureSource>,
 }
 
-impl DrawPlanningInput<'_> {
+impl DrawPlanningInput<'_, '_> {
     fn resolve_group_capture(&self, node_id: usize) -> Option<ContentCapture> {
         let can_capture_inline =
             self.backdrop_effects.is_empty() && self.selection.subtree_root != Some(node_id);
@@ -88,30 +91,44 @@ impl DrawPlanningInput<'_> {
 pub(crate) struct DrawPlanner {
     parents: Vec<ParentDrawState>,
     current: ClipState,
+    next_node: Option<usize>,
 }
 
 impl DrawPlanner {
-    /// Appends a selected tree with its own resolved clip state.
-    pub(crate) fn append(
-        &mut self,
-        input: DrawPlanningInput<'_>,
-        output: &mut RenderPlan,
-        texture_ids: &mut TextureIdAllocator,
-    ) {
+    pub(crate) fn start(&mut self, selection: DrawTreeSelection, physical_size: Size) {
         self.parents.clear();
-        self.current = ClipState::for_viewport(input.physical_size);
-        let mut next_node = Some(input.selection.subtree_root.unwrap_or(0));
-        while let Some(node_id) = next_node {
-            self.plan_node(node_id, &input, output, texture_ids);
-            next_node = self.next_node(&input, output, texture_ids);
-        }
+        self.current = ClipState::for_viewport(physical_size);
+        self.next_node = Some(selection.subtree_root.unwrap_or(0));
     }
 
-    fn plan_node(
+    /// Advances one node or closes one parent, keeping each command group bounded.
+    pub(crate) fn advance<'scene>(
+        &mut self,
+        input: &DrawPlanningInput<'scene, '_>,
+        output: &mut TraversalCommands<'scene>,
+        texture_ids: &mut TextureIdAllocator,
+    ) -> bool {
+        if let Some(node_id) = self.next_node.take() {
+            self.plan_node(node_id, input, output, texture_ids);
+            return true;
+        }
+        let Some(parent) = self.parents.last_mut() else {
+            return false;
+        };
+        if let Some(&child) = input.tree.children(parent.node_id).get(parent.next_child) {
+            parent.next_child += 1;
+            self.next_node = Some(child);
+            return true;
+        }
+        self.close_parent(input, output, texture_ids);
+        true
+    }
+
+    fn plan_node<'scene>(
         &mut self,
         node_id: usize,
-        input: &DrawPlanningInput<'_>,
-        output: &mut RenderPlan,
+        input: &DrawPlanningInput<'scene, '_>,
+        output: &mut TraversalCommands<'scene>,
         texture_ids: &mut TextureIdAllocator,
     ) {
         if input.selection.excluded_subtree == Some(node_id) {
@@ -166,18 +183,13 @@ impl DrawPlanner {
         }
     }
 
-    /// Advances through siblings and closes each completed parent's clip.
-    fn next_node(
+    fn close_parent<'scene>(
         &mut self,
-        input: &DrawPlanningInput<'_>,
-        output: &mut RenderPlan,
+        input: &DrawPlanningInput<'scene, '_>,
+        output: &mut TraversalCommands<'scene>,
         texture_ids: &mut TextureIdAllocator,
-    ) -> Option<usize> {
-        while let Some(parent) = self.parents.last_mut() {
-            if let Some(&child) = input.tree.children(parent.node_id).get(parent.next_child) {
-                parent.next_child += 1;
-                return Some(child);
-            }
+    ) {
+        if let Some(parent) = self.parents.last() {
             let node_id = parent.node_id;
             if self.current.decrements_stencil {
                 let Some(DrawTreeNode::CachedShape(description)) = input.tree.get(node_id) else {
@@ -196,27 +208,27 @@ impl DrawPlanner {
             if let Some(capture) = parent.group_capture {
                 let input_texture = capture.append_capture(output, texture_ids);
                 output.push(RenderOperation::EndTarget);
-                let composite = capture.append_effect(input_texture, output, texture_ids);
+                let composite =
+                    capture.append_effect(input_texture, input.parameters, output, texture_ids);
                 output.push_composite(composite, self.current.clip);
             }
         }
-        None
     }
 
-    fn draw_shape(&self, draw: ShapeDraw) -> RenderCommand {
+    fn draw_shape<'scene>(&self, draw: ShapeDraw) -> RenderCommand<'scene> {
         RenderCommand {
             operation: RenderOperation::DrawShape(draw),
             clip: self.current.clip,
         }
     }
 
-    fn enter_node(
+    fn enter_node<'scene>(
         &mut self,
         node_id: usize,
         node: &DrawTreeNode,
         draw: Option<ShapeDraw>,
-        input: &DrawPlanningInput<'_>,
-    ) -> Option<RenderCommand> {
+        input: &DrawPlanningInput<'scene, '_>,
+    ) -> Option<RenderCommand<'scene>> {
         let should_draw = !rectangles::should_skip_visible_rect_draw(
             node_id,
             node,

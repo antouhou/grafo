@@ -7,9 +7,7 @@ use super::textures::{
     ShapeMaskEffectCacheKey,
 };
 use super::{draws, targets};
-use crate::commands::{
-    EffectApplication, IntermediateTextureId, MaskTarget, RenderPlan, ShapeMaskDraw,
-};
+use crate::commands::{EffectApplication, IntermediateTextureId, MaskTarget, ShapeMaskDraw};
 #[cfg(feature = "render_metrics")]
 use crate::wgpu_backend::metrics::ShapeMaskEffectCacheMetrics;
 use crate::wgpu_backend::resources::Buffers;
@@ -148,7 +146,6 @@ impl ShapeMaskEffectExecutionResources<'_> {
         &mut self,
         encoder: &mut CommandEncoder,
         command: &EffectApplication,
-        commands: &RenderPlan,
         mask: CompletedMask,
     ) {
         assert_eq!(mask.texture, command.input);
@@ -194,7 +191,7 @@ impl ShapeMaskEffectExecutionResources<'_> {
                 &mut self.textures.pool,
                 EffectPassRunConfig {
                     effect_id: command.effect_id,
-                    params: commands.parameters(command.parameters),
+                    params: command.parameters.bytes,
                     source_bind_group,
                     effect_sampler: self.sampler,
                     composite_bind_group_layout: self.composite_layout,

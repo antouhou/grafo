@@ -1,4 +1,5 @@
 use super::*;
+use crate::planner::tests::RecordedCommands;
 
 #[test]
 fn selected_subtree_starts_at_the_viewport_and_substitutes_nested_effects() {
@@ -20,7 +21,7 @@ fn selected_subtree_starts_at_the_viewport_and_substitutes_nested_effects() {
         },
     );
     let mut planner = DrawPlanner::default();
-    let mut output = RenderPlan::default();
+    let mut output = RecordedCommands::default();
     scene.plan_selection(
         DrawTreeSelection {
             subtree_root: Some(selected),
@@ -49,7 +50,7 @@ fn selected_subtree_starts_at_the_viewport_and_substitutes_nested_effects() {
 
 #[test]
 fn exclusion_precedes_effect_substitution_and_restores_clips_for_siblings() {
-    let mut output = RenderPlan::default();
+    let mut output = RecordedCommands::default();
     let mut scene = Scene::new();
     let root = scene.add(None, shape(true));
     let scissor = scene.add(Some(root), clip((10.0, 10.0), (80.0, 80.0)));
@@ -57,8 +58,8 @@ fn exclusion_precedes_effect_substitution_and_restores_clips_for_siblings() {
     let descendant = scene.add(Some(excluded), shape(true));
     let sibling = scene.add(Some(scissor), shape(true));
     let outside = scene.add(Some(root), shape(true));
-    scene.attach_backdrop(excluded, &mut output);
-    scene.attach_backdrop(descendant, &mut output);
+    scene.attach_backdrop(excluded);
+    scene.attach_backdrop(descendant);
     scene.results.insert(
         excluded,
         TextureComposite {
@@ -128,7 +129,7 @@ fn exclusion_precedes_effect_substitution_and_restores_clips_for_siblings() {
 
 #[test]
 fn substituted_group_omits_its_clips_effects_and_deep_descendants() {
-    let mut output = RenderPlan::default();
+    let mut output = RecordedCommands::default();
     let mut scene = Scene::new();
     let root = scene.add(None, shape(true));
     let scissor = scene.add(Some(root), clip((10.0, 10.0), (80.0, 80.0)));
@@ -138,8 +139,8 @@ fn substituted_group_omits_its_clips_effects_and_deep_descendants() {
     for _ in 0..4096 {
         descendant = scene.add(Some(descendant), clip((30.0, 30.0), (40.0, 40.0)));
     }
-    scene.attach_backdrop(group, &mut output);
-    scene.attach_backdrop(nested, &mut output);
+    scene.attach_backdrop(group);
+    scene.attach_backdrop(nested);
     let texture = IntermediateTextureId::Registered(1);
     scene.results.insert(
         group,
@@ -234,7 +235,7 @@ fn substituted_group_omits_its_clips_effects_and_deep_descendants() {
 }
 
 #[test]
-fn deep_and_wide_rebuilt_trees_reuse_parent_and_command_storage() {
+fn deep_and_wide_rebuilt_trees_reuse_parent_storage() {
     let mut scene = Scene::new();
     let mut parent = scene.add(None, clip((10.0, 10.0), (80.0, 80.0)));
     for _ in 0..4096 {
@@ -242,7 +243,7 @@ fn deep_and_wide_rebuilt_trees_reuse_parent_and_command_storage() {
     }
     let leaf = scene.add(Some(parent), shape(true));
     let mut planner = DrawPlanner::default();
-    let mut output = RenderPlan::default();
+    let mut output = RecordedCommands::default();
     scene.plan(&mut planner, &mut output);
     assert_eq!(
         snapshot(&output),
@@ -252,13 +253,15 @@ fn deep_and_wide_rebuilt_trees_reuse_parent_and_command_storage() {
             rect((10, 10), (80, 80))
         )]
     );
-    let storage = (planner.parents.as_ptr(), output.instructions.as_ptr());
+    let storage = planner.parents.as_ptr();
+    drop(output);
     scene.tree.clear();
     let root = scene.add(None, clip((20.0, 20.0), (70.0, 70.0)));
     for _ in 0..4096 {
         scene.add(Some(root), clip((30.0, 30.0), (40.0, 40.0)));
     }
     let leaf = scene.add(Some(root), shape(true));
+    let mut output = RecordedCommands::default();
     scene.plan(&mut planner, &mut output);
     assert_eq!(
         snapshot(&output),
@@ -268,9 +271,6 @@ fn deep_and_wide_rebuilt_trees_reuse_parent_and_command_storage() {
             rect((20, 20), (70, 70))
         )]
     );
-    assert_eq!(
-        storage,
-        (planner.parents.as_ptr(), output.instructions.as_ptr(),)
-    );
+    assert_eq!(storage, planner.parents.as_ptr());
     assert!(planner.parents.is_empty());
 }

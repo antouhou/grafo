@@ -1,12 +1,28 @@
 use super::Planner;
-use crate::commands::{DrawClip, IntermediateTextureId, RenderOperation, RenderPlan};
+use crate::commands::{DrawClip, IntermediateTextureId, RenderCommand, RenderOperation};
 use crate::core::{
     BackdropEffectConfig, Color, ContentEffectConfig, Shape, ShapeDrawCommandOptions,
     ShapeMaskEffectConfig, Viewport,
 };
-use crate::scene::effects::EffectInstance;
 use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
 use crate::scene::{Scene, SceneContext};
+
+#[derive(Default)]
+pub(super) struct RecordedCommands<'scene> {
+    pub(super) instructions: Vec<RenderCommand<'scene>>,
+}
+
+impl<'scene> RecordedCommands<'scene> {
+    pub(super) fn clear_commands(&mut self) {
+        self.instructions.clear();
+    }
+    pub(super) fn push(&mut self, operation: RenderOperation<'scene>) {
+        self.instructions.push(RenderCommand {
+            operation,
+            clip: DrawClip::default(),
+        });
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 struct EffectSnapshot {
@@ -18,8 +34,8 @@ struct EffectSnapshot {
     clip: DrawClip,
 }
 
-fn effect_snapshots(plan: &RenderPlan) -> Vec<EffectSnapshot> {
-    plan.instructions
+fn effect_snapshots(commands: &[RenderCommand<'_>]) -> Vec<EffectSnapshot> {
+    commands
         .iter()
         .filter_map(|command| {
             let RenderOperation::ApplyEffect(effect) = command.operation else {
@@ -29,19 +45,11 @@ fn effect_snapshots(plan: &RenderPlan) -> Vec<EffectSnapshot> {
                 effect_id: effect.effect_id,
                 input: effect.input,
                 output: effect.output,
-                parameters: plan.parameters(effect.parameters).to_vec(),
+                parameters: effect.parameters.bytes.to_vec(),
                 parameter_hash: effect.parameters.hash,
                 clip: command.clip,
             })
         })
-        .collect()
-}
-
-fn non_effect_command_snapshots(plan: &RenderPlan) -> Vec<String> {
-    plan.instructions
-        .iter()
-        .filter(|command| !matches!(command.operation, RenderOperation::ApplyEffect(_)))
-        .map(|command| format!("{command:?}"))
         .collect()
 }
 
@@ -57,111 +65,63 @@ fn add_shape(scene: &mut Scene, parent: Option<usize>) -> usize {
     )
 }
 
-fn plan_scene(planner: &mut Planner, scene: &Scene) {
-    planner.plan(scene, 4096);
+fn scene() -> Scene {
+    Scene::new(
+        SceneContext::default(),
+        Viewport {
+            physical_size: (32, 32),
+            scale_factor: 1.0,
+        },
+        0.75,
+    )
 }
 
-fn viewport() -> Viewport {
-    Viewport {
-        physical_size: (32, 32),
-        scale_factor: 1.0,
-    }
+fn attach_effects(scene: &mut Scene, node: usize, parameters: &[u8]) {
+    scene
+        .set_shape_mask_effect(node, 17, parameters, ShapeMaskEffectConfig::default(), 4096)
+        .unwrap();
+    scene
+        .set_content_effect(node, 18, parameters, ContentEffectConfig::default(), 4096)
+        .unwrap();
+    scene
+        .set_backdrop_effect(node, 19, parameters, BackdropEffectConfig::default(), 4096)
+        .unwrap();
 }
 
 #[test]
 fn parameter_compaction_preserves_replanned_effects() {
-    let mut scene = Scene::new(SceneContext::default(), viewport(), 0.75);
+    let mut scene = scene();
     let mut planner = Planner::default();
     let root = add_shape(&mut scene, None);
     let removed = add_shape(&mut scene, Some(root));
-    planner.store_effect_parameters(&[99; 4]);
-    // Compaction visits groups, backdrops, then shapes, so destinations overlap old ranges.
-    let shape_parameters = planner.store_effect_parameters(&[1; 4]);
-    let group_parameters = planner.store_effect_parameters(&[2; 4]);
-    let backdrop_parameters = planner.store_effect_parameters(&[3; 4]);
-    let removed_parameters = planner.store_effect_parameters(&[4; 4]);
-    scene
-        .set_shape_mask_effect(
-            root,
-            17,
-            shape_parameters,
-            ShapeMaskEffectConfig::default(),
-            4096,
-        )
-        .unwrap();
-    scene
-        .set_content_effect(
-            root,
-            17,
-            group_parameters,
-            ContentEffectConfig::default(),
-            4096,
-        )
-        .unwrap();
-    scene
-        .set_backdrop_effect(
-            root,
-            EffectInstance {
-                effect_id: 17,
-                parameters: backdrop_parameters,
-            },
-            BackdropEffectConfig::default(),
-            4096,
-        )
-        .unwrap();
-    scene
-        .set_content_effect(
-            removed,
-            17,
-            removed_parameters,
-            ContentEffectConfig::default(),
-            4096,
-        )
-        .unwrap();
-    scene
-        .set_shape_mask_effect(
-            removed,
-            17,
-            removed_parameters,
-            ShapeMaskEffectConfig::default(),
-            4096,
-        )
-        .unwrap();
-    plan_scene(&mut planner, &scene);
-
+    attach_effects(&mut scene, root, &[1; 4]);
+    attach_effects(&mut scene, removed, &[4; 4]);
+    planner.plan(&scene, 4096).for_each(drop);
     assert!(planner.shape_composites.contains_key(&removed));
     scene.remove_subtrees_with([removed], |_, _, _, _| {});
-    plan_scene(&mut planner, &scene);
-    let expected_effects = effect_snapshots(&planner.commands);
-    for parameters in [[1; 4], [2; 4], [3; 4]] {
-        assert!(expected_effects
-            .iter()
-            .any(|effect| effect.parameters == parameters));
-    }
-    let expected_non_effect_commands = non_effect_command_snapshots(&planner.commands);
-    let instructions_address = planner.commands.instructions.as_ptr();
-    assert!(planner
-        .commands
-        .instructions
-        .iter()
-        .any(|command| { matches!(command.operation, RenderOperation::Capture(_)) }));
-
+    scene
+        .set_content_effect(root, 18, &[2; 4], ContentEffectConfig::default(), 4096)
+        .unwrap();
+    scene
+        .set_backdrop_effect(root, 19, &[3; 4], BackdropEffectConfig::default(), 4096)
+        .unwrap();
+    let expected = effect_snapshots(&planner.plan(&scene, 4096).collect::<Vec<_>>());
+    let expected_commands: Vec<_> = planner
+        .plan(&scene, 4096)
+        .map(|command| format!("{command:?}"))
+        .collect();
     for _ in 0..2 {
-        planner.compact_effect_parameters(&mut scene);
-        assert_eq!(planner.commands.effect_parameters.len(), 12);
-        plan_scene(&mut planner, &scene);
-        assert_eq!(effect_snapshots(&planner.commands), expected_effects);
+        scene.compact_effect_parameters();
+        assert_eq!(scene.effect_parameters.bytes.len(), 12);
+        let commands: Vec<_> = planner.plan(&scene, 4096).collect();
+        assert_eq!(effect_snapshots(&commands), expected);
         assert_eq!(
-            non_effect_command_snapshots(&planner.commands),
-            expected_non_effect_commands
+            commands
+                .iter()
+                .map(|command| format!("{command:?}"))
+                .collect::<Vec<_>>(),
+            expected_commands
         );
-        assert_eq!(planner.commands.instructions.as_ptr(), instructions_address);
-        assert_eq!(planner.commands.effect_parameters.len(), 12);
-        assert!(planner
-            .commands
-            .instructions
-            .iter()
-            .any(|command| { matches!(command.operation, RenderOperation::Capture(_)) }));
         assert!(planner.shape_composites.contains_key(&root));
         assert!(!planner.shape_composites.contains_key(&removed));
     }
@@ -169,33 +129,83 @@ fn parameter_compaction_preserves_replanned_effects() {
 
 #[test]
 fn parameter_compaction_preserves_replanned_effects_with_empty_parameters() {
-    let mut scene = Scene::new(SceneContext::default(), viewport(), 0.75);
+    let mut scene = scene();
     let mut planner = Planner::default();
     let root = add_shape(&mut scene, None);
-    planner.store_effect_parameters(&[99; 4]);
-    let parameters = planner.store_effect_parameters(&[]);
-    scene
-        .set_content_effect(root, 17, parameters, ContentEffectConfig::default(), 4096)
+    attach_effects(&mut scene, root, &[99; 4]);
+    attach_effects(&mut scene, root, &[]);
+    let expected = effect_snapshots(&planner.plan(&scene, 4096).collect::<Vec<_>>());
+    scene.compact_effect_parameters();
+    assert!(scene.effect_parameters.bytes.is_empty());
+    assert_eq!(
+        effect_snapshots(&planner.plan(&scene, 4096).collect::<Vec<_>>()),
+        expected
+    );
+}
+
+#[test]
+fn dropping_each_partial_traversal_preserves_the_next_complete_stream() {
+    let mut scene = scene();
+    let root = add_shape(&mut scene, None);
+    let child = add_shape(&mut scene, Some(root));
+    let descendant = add_shape(&mut scene, Some(child));
+    attach_effects(&mut scene, root, &[1; 4]);
+    attach_effects(&mut scene, child, &[2; 4]);
+    attach_effects(&mut scene, descendant, &[3; 4]);
+    let mut planner = Planner::default();
+    let expected: Vec<_> = planner
+        .plan(&scene, 4096)
+        .map(|command| format!("{command:?}"))
+        .collect();
+    for prefix_length in 0..=expected.len() {
+        planner
+            .plan(&scene, 4096)
+            .take(prefix_length)
+            .for_each(drop);
+        let actual: Vec<_> = planner
+            .plan(&scene, 4096)
+            .map(|command| format!("{command:?}"))
+            .collect();
+        assert_eq!(actual, expected, "prefix length {prefix_length}");
+    }
+}
+
+#[test]
+fn yielded_parameters_borrow_the_scene_independently_of_planner_scratch() {
+    let mut scene = scene();
+    let root = add_shape(&mut scene, None);
+    attach_effects(&mut scene, root, &[1, 2, 3, 4]);
+    let mut planner = Planner::default();
+    let parameters = planner
+        .plan(&scene, 4096)
+        .find_map(|command| match command.operation {
+            RenderOperation::ApplyEffect(effect) => Some(effect.parameters),
+            _ => None,
+        })
         .unwrap();
-    scene
-        .set_shape_mask_effect(root, 18, parameters, ShapeMaskEffectConfig::default(), 4096)
-        .unwrap();
-    scene
-        .set_backdrop_effect(
-            root,
-            EffectInstance {
-                effect_id: 19,
-                parameters,
-            },
-            BackdropEffectConfig::default(),
-            4096,
-        )
-        .unwrap();
-    plan_scene(&mut planner, &scene);
-    let expected_effects = effect_snapshots(&planner.commands);
-    assert!(!expected_effects.is_empty());
-    planner.compact_effect_parameters(&mut scene);
-    assert!(planner.commands.effect_parameters.is_empty());
-    plan_scene(&mut planner, &scene);
-    assert_eq!(effect_snapshots(&planner.commands), expected_effects);
+    planner.plan(&scene, 4096).for_each(drop);
+    let stored = scene.shape_mask_effect(root).unwrap().parameters;
+    assert_eq!(
+        parameters.bytes.as_ptr(),
+        scene.effect_parameters.get(stored).bytes.as_ptr()
+    );
+    assert_eq!(parameters.bytes, &[1, 2, 3, 4]);
+    assert_eq!(parameters.hash, stored.hash);
+}
+
+#[test]
+fn partially_consumed_effects_do_not_survive_planning_another_scene() {
+    let mut previous = scene();
+    let root = add_shape(&mut previous, None);
+    attach_effects(&mut previous, root, &[1; 4]);
+    let mut planner = Planner::default();
+    planner.plan(&previous, 4096).take(3).for_each(drop);
+    let mut current = scene();
+    add_shape(&mut current, None);
+    let commands: Vec<_> = planner.plan(&current, 4096).collect();
+    assert!(commands.iter().all(|command| !matches!(
+        command.operation,
+        RenderOperation::ApplyEffect(_) | RenderOperation::DrawShapeMask(_)
+    )));
+    assert!(planner.shape_composites.is_empty());
 }

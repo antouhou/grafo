@@ -1,7 +1,6 @@
 use super::{should_skip_visible_rect_draw, try_scissor_for_rect};
 use crate::commands::{
-    EffectParameterRange, EffectParameters, IntermediateTextureId, ShapeTextureBinding,
-    ShapeTextureLayer, TextureSampling,
+    IntermediateTextureId, ShapeTextureBinding, ShapeTextureLayer, TextureSampling,
 };
 use crate::core::effect::ContentEffectConfig;
 use crate::core::gradient::types::{
@@ -10,6 +9,7 @@ use crate::core::gradient::types::{
 };
 use crate::core::util::ShapeResources;
 use crate::planner::draws::shape_material;
+use crate::scene::effects::parameters::{EffectParameterRange, StoredEffectParameters};
 use crate::scene::effects::{ContentEffectInstance, EffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::DrawTreeNode;
@@ -91,7 +91,7 @@ fn skip_visible_rect_draw_rejects_content_effect_nodes() {
         ContentEffectInstance::new(
             EffectInstance {
                 effect_id: 1,
-                parameters: EffectParameters {
+                parameters: StoredEffectParameters {
                     range: EffectParameterRange { start: 0, end: 0 },
                     hash: 0,
                 },
