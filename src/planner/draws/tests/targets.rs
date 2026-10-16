@@ -1,7 +1,7 @@
 use super::*;
 use crate::core::effect::ContentEffectConfig;
 use crate::planner::tests::RecordedCommands;
-use crate::scene::effects::parameters::{EffectParameterRange, StoredEffectParameters};
+use crate::scene::effects::parameters::{EffectParameterRange, EffectParametersHandle};
 
 #[test]
 fn nested_targets_reset_clips_and_restore_each_parent_before_compositing() {
@@ -19,7 +19,7 @@ fn nested_targets_reset_clips_and_restore_each_parent_before_compositing() {
             ContentEffectInstance::new(
                 EffectInstance {
                     effect_id: 1,
-                    parameters: StoredEffectParameters {
+                    parameters: EffectParametersHandle {
                         range: EffectParameterRange { start: 0, end: 0 },
                         hash: 0,
                     },

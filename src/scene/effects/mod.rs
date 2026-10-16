@@ -8,7 +8,7 @@ use crate::core::effect::{
 use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
 use backdrops::validate_backdrop_config;
 pub(crate) use backdrops::BackdropEffectInstance;
-use parameters::StoredEffectParameters;
+use parameters::EffectParametersHandle;
 
 mod backdrops;
 pub(crate) mod parameters;
@@ -17,7 +17,7 @@ pub(crate) mod parameters;
 #[derive(Clone, Copy)]
 pub(crate) struct ShapeMaskEffectInstance {
     pub effect_id: u64,
-    pub parameters: StoredEffectParameters,
+    pub parameters: EffectParametersHandle,
     pub config: ShapeMaskEffectConfig,
     pub bounds: ShapeMaskEffectBounds,
 }
@@ -27,14 +27,14 @@ pub(crate) struct ShapeMaskEffectInstance {
 pub(crate) struct EffectInstance {
     /// The loaded effect's ID.
     pub effect_id: u64,
-    pub parameters: StoredEffectParameters,
+    pub parameters: EffectParametersHandle,
 }
 
 /// A content attachment with its resolved input and output bounds.
 #[derive(Clone, Copy)]
 pub(crate) struct ContentEffectInstance {
     pub effect_id: u64,
-    pub parameters: StoredEffectParameters,
+    pub parameters: EffectParametersHandle,
     pub config: ContentEffectConfig,
     pub bounds: Option<ContentEffectBounds>,
 }

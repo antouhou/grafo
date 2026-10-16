@@ -11,7 +11,7 @@ use crate::planner::commands::TraversalCommands;
 use crate::planner::tests::RecordedCommands;
 use crate::planner::TextureIdAllocator;
 use crate::scene::effects::parameters::EffectParameterStorage;
-use crate::scene::effects::parameters::{EffectParameterRange, StoredEffectParameters};
+use crate::scene::effects::parameters::{EffectParameterRange, EffectParametersHandle};
 use crate::scene::effects::ShapeMaskEffectInstance;
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::DrawTreeNode;
@@ -230,7 +230,7 @@ fn empty_or_oversized_masks_never_produce_texture_references() {
         empty,
         ShapeMaskEffectInstance {
             effect_id: 9,
-            parameters: StoredEffectParameters {
+            parameters: EffectParametersHandle {
                 range: EffectParameterRange { start: 0, end: 0 },
                 hash: 0,
             },

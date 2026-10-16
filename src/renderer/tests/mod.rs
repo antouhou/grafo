@@ -361,27 +361,30 @@ fn clearing_queue_removes_planned_draws_and_effects() {
 fn rendering_to_one_surface_does_not_change_another() {
     let mut first = renderer();
     let mut first_surface = surface();
-    let shape = queue_shape(&mut first, false);
+    let first_shape = queue_shape(&mut first, false);
     let mut second = renderer();
     let mut second_surface = surface();
-    queue_shape(&mut second, false);
+    let second_shapes = [
+        queue_shape(&mut second, false),
+        queue_shape(&mut second, false),
+    ];
     let commands = first.planner.plan(&first.scene, 4096);
     first
         .backend
         .render(first.dirty_bounds, commands, (&mut first_surface).into())
         .unwrap();
-    let commands = first.planner.plan(&first.scene, 4096);
+    let commands = second.planner.plan(&second.scene, 4096);
     second
         .backend
         .render(second.dirty_bounds, commands, (&mut second_surface).into())
         .unwrap();
-    assert_eq!(first_surface.resource().draws, [shape]);
-    assert_eq!(second_surface.resource().draws, [shape]);
+    assert_eq!(first_surface.resource().draws, [first_shape]);
+    assert_eq!(second_surface.resource().draws, second_shapes);
 
     second.clear_draw_queue();
     second.render(&mut second_surface).unwrap();
     assert!(second_surface.resource().draws.is_empty());
-    assert_eq!(first_surface.resource().draws, [shape]);
+    assert_eq!(first_surface.resource().draws, [first_shape]);
 }
 
 #[test]

@@ -9,7 +9,7 @@ pub(crate) struct EffectParameterRange {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct StoredEffectParameters {
+pub(crate) struct EffectParametersHandle {
     pub range: EffectParameterRange,
     pub hash: u64,
 }
@@ -23,10 +23,10 @@ pub(crate) struct EffectParameterStorage {
 }
 
 impl EffectParameterStorage {
-    pub(crate) fn store(&mut self, parameters: &[u8]) -> StoredEffectParameters {
+    pub(crate) fn store(&mut self, parameters: &[u8]) -> EffectParametersHandle {
         let start = self.bytes.len();
         self.bytes.extend_from_slice(parameters);
-        StoredEffectParameters {
+        EffectParametersHandle {
             range: EffectParameterRange {
                 start,
                 end: self.bytes.len(),
@@ -35,7 +35,7 @@ impl EffectParameterStorage {
         }
     }
 
-    pub(crate) fn get(&self, parameters: StoredEffectParameters) -> EffectParameters<'_> {
+    pub(crate) fn get(&self, parameters: EffectParametersHandle) -> EffectParameters<'_> {
         EffectParameters {
             bytes: &self.bytes[parameters.range.start..parameters.range.end],
             hash: parameters.hash,
@@ -48,7 +48,7 @@ impl EffectParameterStorage {
 
     pub(crate) fn compact<'attachments>(
         &mut self,
-        parameters: impl Iterator<Item = &'attachments mut StoredEffectParameters>,
+        parameters: impl Iterator<Item = &'attachments mut EffectParametersHandle>,
     ) {
         if !self.needs_compaction {
             return;

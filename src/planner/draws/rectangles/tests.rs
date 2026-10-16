@@ -9,7 +9,7 @@ use crate::core::gradient::types::{
 };
 use crate::core::util::ShapeResources;
 use crate::planner::draws::shape_material;
-use crate::scene::effects::parameters::{EffectParameterRange, StoredEffectParameters};
+use crate::scene::effects::parameters::{EffectParameterRange, EffectParametersHandle};
 use crate::scene::effects::{ContentEffectInstance, EffectInstance};
 use crate::scene::types::CachedShapeDrawData;
 use crate::scene::types::DrawTreeNode;
@@ -91,7 +91,7 @@ fn skip_visible_rect_draw_rejects_content_effect_nodes() {
         ContentEffectInstance::new(
             EffectInstance {
                 effect_id: 1,
-                parameters: StoredEffectParameters {
+                parameters: EffectParametersHandle {
                     range: EffectParameterRange { start: 0, end: 0 },
                     hash: 0,
                 },
