@@ -1,7 +1,9 @@
+use super::coverage::PathCoverage;
 use super::{ShapeBufferLocation, ShapeDrawResources, ShapeExecutionResources};
 use crate::commands::ShapeDrawId;
 use crate::core::shape::ShapeInstance;
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
+use crate::core::Viewport;
 use crate::wgpu_backend::resources::ShapePipelines;
 use crate::wgpu_backend::texture_manager::WgpuTextureManager;
 use crate::wgpu_backend::types::GeometryBufferError;
@@ -175,8 +177,23 @@ impl ShapeExecutionResources {
         queue: &Queue,
         pipelines: &ShapePipelines,
         scale_factor: f64,
+        physical_size: (u32, u32),
     ) -> Result<ShapeDrawResources, GeometryBufferError> {
         let mut resources = ShapeDrawResources::default();
+        if !cached_shape_data.cached_shape.is_rect {
+            resources.path_coverage = Some(PathCoverage::new(
+                cached_shape_data,
+                Viewport {
+                    physical_size,
+                    scale_factor,
+                },
+                &mut self.coverage_builder,
+                device,
+                queue,
+                pipelines,
+                &mut self.coverage_buffers,
+            ));
+        }
         resources.refresh_gradient_material(
             &cached_shape_data.fill,
             &mut self.gradient_cache,
@@ -185,12 +202,21 @@ impl ShapeExecutionResources {
             &pipelines.gradient_bind_group_layout,
             &pipelines.linear_clamp_sampler,
         );
-        let geometry_range = append_aggregated_geometry_for_shape(
-            cached_shape_data,
-            &mut self.vertices,
-            &mut self.indices,
-            &mut self.geometry_ranges,
-        )?;
+        let geometry_range = if resources.path_coverage.is_some() {
+            (!cached_shape_data
+                .cached_shape
+                .vertex_buffers()
+                .indices
+                .is_empty())
+            .then_some(GeometryBufferRange::default())
+        } else {
+            append_aggregated_geometry_for_shape(
+                cached_shape_data,
+                &mut self.vertices,
+                &mut self.indices,
+                &mut self.geometry_ranges,
+            )?
+        };
         if let Some(geometry_range) = geometry_range {
             let texture_uv_transforms = compute_texture_uv_transforms(
                 cached_shape_data.cached_shape.texture_mapping_size(),

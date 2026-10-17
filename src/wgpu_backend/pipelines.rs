@@ -1,5 +1,6 @@
 use super::execution::effects;
 use super::execution::shape_mask_effects::ShapeMaskEffectRendererResources;
+use super::execution::shapes::coverage::pipelines::CoveragePipelines;
 use super::execution::shapes::TextureMaterialPipelines;
 use super::resources::{BackdropPipelineResources, RendererPipelineResources, ShapePipelines};
 use super::{WgpuBackend, WgpuContext};
@@ -177,7 +178,21 @@ impl ShapePipelines {
             ],
         );
 
+        let coverage = CoveragePipelines::new(
+            device,
+            format,
+            msaa_sample_count,
+            [
+                &and_pipeline.get_bind_group_layout(0),
+                &background_texture_layout,
+                &foreground_texture_layout,
+            ],
+            &gradient_bind_group_layout,
+            &under_fill_pipelines.solid_layout,
+            &under_fill_pipelines.gradient_layout,
+        );
         Self {
+            coverage,
             and_pipeline: Arc::new(and_pipeline),
             and_gradient_pipeline: Arc::new(and_gradient_pipeline),
             and_bind_group,

@@ -15,6 +15,8 @@ pub struct WgpuSurface {
 
 impl WgpuBackend {
     pub(in crate::wgpu_backend) fn resize(&mut self, viewport: Viewport, fringe_width: f32) {
+        let needs_coverage = self.viewport.physical_size != viewport.physical_size
+            || self.viewport.scale_factor != viewport.scale_factor;
         self.viewport = viewport;
         self.fringe_width = fringe_width;
         let new_physical_size = viewport.physical_size;
@@ -39,6 +41,20 @@ impl WgpuBackend {
             0,
             bytemuck::cast_slice(&[pipelines.decrementing_uniforms]),
         );
+        if needs_coverage {
+            let shapes = &mut self.resources.shape_execution;
+            for resources in shapes.draws.values_mut() {
+                if let Some(coverage) = &mut resources.path_coverage {
+                    coverage.resize(
+                        viewport,
+                        &mut shapes.coverage_builder,
+                        &self.device,
+                        &self.queue,
+                        pipelines,
+                    );
+                }
+            }
+        }
 
         self.recreate_msaa_texture();
         self.recreate_depth_stencil_texture();

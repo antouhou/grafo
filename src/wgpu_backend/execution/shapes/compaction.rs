@@ -60,6 +60,9 @@ impl ShapeExecutionResources {
             .filter_map(|draw| draw.geometry_buffer_location)
         {
             let range = location.geometry_range;
+            if range.index_count == 0 {
+                continue;
+            }
             self.compaction
                 .geometry_relocations
                 .insert(range.index_start, range);
@@ -113,6 +116,9 @@ impl ShapeExecutionResources {
             .values_mut()
             .filter_map(|draw| draw.geometry_buffer_location.as_mut())
         {
+            if location.geometry_range.index_count == 0 {
+                continue;
+            }
             location.geometry_range =
                 self.compaction.geometry_relocations[&location.geometry_range.index_start];
         }

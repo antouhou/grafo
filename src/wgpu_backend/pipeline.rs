@@ -1,5 +1,6 @@
 //! WGPU pipelines, stencil states, and buffer helpers.
 use crate::core::vertex::{CustomVertex, InstanceTransform};
+use crate::wgpu_backend::execution::shapes::coverage::{self, CoverageVertex};
 use crate::wgpu_backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMetadata};
 use std::ops::Range;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
@@ -8,14 +9,23 @@ use wgpu::{
     RenderPass, RenderPipeline, Texture, TextureFormat,
 };
 
-struct ShapePipelineDescriptor<'a> {
-    label: Option<&'a str>,
-    bind_group_layouts: &'a [&'a BindGroupLayout],
-    vertex_entry_point: &'a str,
-    fragment_entry_point: &'a str,
-    color_target: wgpu::ColorTargetState,
-    depth_stencil: wgpu::DepthStencilState,
-    sample_count: u32,
+pub(crate) const SHAPE_SHADER: &str = concat!(
+    include_str!("../shaders/path_coverage.wgsl"),
+    "\n",
+    include_str!("../shaders/shader.wgsl"),
+    "\n",
+    include_str!("../shaders/path_coverage_vertex.wgsl"),
+);
+
+pub(in crate::wgpu_backend) struct ShapePipelineDescriptor<'a> {
+    pub label: Option<&'a str>,
+    pub bind_group_layouts: &'a [&'a BindGroupLayout],
+    pub vertex_entry_point: &'a str,
+    pub fragment_entry_point: &'a str,
+    pub color_target: wgpu::ColorTargetState,
+    pub depth_stencil: wgpu::DepthStencilState,
+    pub sample_count: u32,
+    pub uses_coverage: bool,
 }
 
 /// Viewport dimensions and antialiasing settings used by the vertex shader.
@@ -77,17 +87,34 @@ fn create_equal_decrement_stencil_state() -> wgpu::StencilState {
 pub fn create_uniform_bind_group_layout(device: &Device) -> BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::VERTEX,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
             },
-            count: None,
-        }],
+            storage_binding(1),
+            storage_binding(2),
+        ],
     })
+}
+
+fn storage_binding(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Storage { read_only: true },
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
 }
 
 pub fn create_equal_increment_depth_state() -> wgpu::DepthStencilState {
@@ -110,7 +137,7 @@ pub fn create_equal_decrement_depth_state() -> wgpu::DepthStencilState {
     }
 }
 
-fn create_equal_keep_depth_state() -> wgpu::DepthStencilState {
+pub(in crate::wgpu_backend) fn create_equal_keep_depth_state() -> wgpu::DepthStencilState {
     let stencil_face = wgpu::StencilFaceState {
         compare: wgpu::CompareFunction::Equal,
         fail_op: wgpu::StencilOperation::Keep,
@@ -162,13 +189,13 @@ fn create_shape_texture_bind_group_layout(device: &Device, label: &str) -> BindG
     })
 }
 
-fn create_shape_pipeline(
+pub(in crate::wgpu_backend) fn create_shape_pipeline(
     device: &Device,
     descriptor: ShapePipelineDescriptor<'_>,
 ) -> RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: descriptor.label,
-        source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/shader.wgsl").into()),
+        source: wgpu::ShaderSource::Wgsl(SHAPE_SHADER.into()),
     });
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: descriptor.label,
@@ -184,7 +211,11 @@ fn create_shape_pipeline(
             entry_point: Some(descriptor.vertex_entry_point),
             compilation_options: Default::default(),
             buffers: &[
-                CustomVertex::desc(),
+                if descriptor.uses_coverage {
+                    CoverageVertex::desc()
+                } else {
+                    CustomVertex::desc()
+                },
                 InstanceTransform::desc(),
                 InstanceColor::desc(),
                 InstanceMetadata::desc(),
@@ -372,18 +403,23 @@ pub fn create_pipeline(
         create_shape_texture_bind_group_layout(device, "shape_texture_bind_group_layout_layer0");
     let texture_bind_group_layout_layer1 =
         create_shape_texture_bind_group_layout(device, "shape_texture_bind_group_layout_layer1");
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        layout: &bind_group_layout,
-        entries: &[wgpu::BindGroupEntry {
-            binding: 0,
-            resource: uniform_buffer.as_entire_binding(),
-        }],
-        label: None,
+    let empty_coverage = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("empty_coverage"),
+        contents: &[0; 16],
+        usage: BufferUsages::STORAGE,
     });
+    let bind_group = coverage::create_bind_group(
+        device,
+        &bind_group_layout,
+        &uniform_buffer,
+        &empty_coverage,
+        &empty_coverage,
+    );
 
     let render_pipeline = create_shape_pipeline(
         device,
         ShapePipelineDescriptor {
+            uses_coverage: false,
             label: None,
             bind_group_layouts: &[
                 &bind_group_layout,
@@ -424,6 +460,7 @@ pub fn create_gradient_increment_pipeline(
     create_shape_pipeline(
         device,
         ShapePipelineDescriptor {
+            uses_coverage: false,
             label: Some("gradient_increment_pipeline"),
             bind_group_layouts: &[
                 uniform_layout,
@@ -681,6 +718,7 @@ fn create_color_pipeline_with_stencil_keep(
     create_shape_pipeline(
         device,
         ShapePipelineDescriptor {
+            uses_coverage: false,
             label: Some(label),
             bind_group_layouts,
             vertex_entry_point,
@@ -758,6 +796,7 @@ pub(crate) fn create_texture_material_pipeline(
     create_shape_pipeline(
         device,
         ShapePipelineDescriptor {
+            uses_coverage: false,
             label: Some("shape_texture_material_pipeline"),
             bind_group_layouts: layouts,
             vertex_entry_point: if uses_gradient {

@@ -101,6 +101,12 @@ impl DrawPass<'_, '_> {
         pending_batch: &mut Option<LeafBatch>,
     ) {
         let resources = shapes.draw_resources(draw.id);
+        if resources.path_coverage.is_some() {
+            self.flush_leaf_batch(pending_batch);
+            self.set_scissor(clip.scissor);
+            self.draw_shape(clip.stencil_reference, draw.material, resources);
+            return;
+        }
         let Some(location) = resources.geometry_buffer_location else {
             self.flush_leaf_batch(pending_batch);
             return;

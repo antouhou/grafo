@@ -1,6 +1,7 @@
 use super::effects::{
     apply_effect_passes, EffectExecutionResources, EffectPassRunConfig, EffectRegistry,
 };
+use super::shapes::coverage::CoverageBuffers;
 use super::shapes::ShapeExecutionResources;
 use super::textures::{
     CachedShapeMask, IntermediateTexture, IntermediateTextureResources, ShapeMaskCacheKey,
@@ -8,15 +9,18 @@ use super::textures::{
 };
 use super::{draws, targets};
 use crate::commands::{EffectApplication, IntermediateTextureId, MaskTarget, ShapeMaskDraw};
+use crate::core::vertex::InstanceTransform;
 #[cfg(feature = "render_metrics")]
 use crate::wgpu_backend::metrics::ShapeMaskEffectCacheMetrics;
 use crate::wgpu_backend::resources::Buffers;
+use crate::wgpu_backend::resources::ShapePipelines;
 use bytemuck::{Pod, Zeroable};
 pub(in crate::wgpu_backend) use pipelines::ShapeMaskEffectRendererResources;
 use std::sync::Arc;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
-    BindGroupLayout, Color, CommandEncoder, Device, LoadOp, Operations, Queue,
-    RenderPassColorAttachment, RenderPassDescriptor, Sampler, StoreOp, TextureFormat,
+    BindGroupLayout, BufferUsages, Color, CommandEncoder, Device, IndexFormat, LoadOp, Operations,
+    Queue, RenderPassColorAttachment, RenderPassDescriptor, Sampler, StoreOp, TextureFormat,
 };
 
 mod pipelines;
@@ -47,6 +51,7 @@ pub(in crate::wgpu_backend) struct ShapeMaskEffectExecutionResources<'a> {
     pub composite_layout: &'a BindGroupLayout,
     pub format: TextureFormat,
     pub pipelines: &'a ShapeMaskEffectRendererResources,
+    pub shape_pipelines: &'a ShapePipelines,
     pub buffers: &'a Buffers,
     pub shapes: &'a ShapeExecutionResources,
     pub effects: &'a mut EffectExecutionResources,
@@ -89,7 +94,7 @@ impl ShapeMaskEffectExecutionResources<'_> {
                     self.format,
                     1,
                 );
-                let uniform = MaskUniform {
+                let mut uniform = MaskUniform {
                     local_origin: [command.local_bounds[0].0, command.local_bounds[0].1],
                     logical_size: [
                         command.local_bounds[1].0 - command.local_bounds[0].0,
@@ -99,12 +104,55 @@ impl ShapeMaskEffectExecutionResources<'_> {
                     fringe_width: command.fringe_width,
                     padding: [0.0; 2],
                 };
-                let binding = self.effects.parameters.prepare(
-                    self.device,
-                    self.queue,
-                    &self.pipelines.mask_bind_group_layout,
-                    bytemuck::bytes_of(&uniform),
-                );
+                let coverage = if let Some(path) = &shape.path_coverage {
+                    let scale_x = width as f32 / uniform.logical_size[0];
+                    let scale_y = height as f32 / uniform.logical_size[1];
+                    let transform = InstanceTransform::affine_2d(
+                        scale_x,
+                        0.0,
+                        0.0,
+                        scale_y,
+                        -uniform.local_origin[0] * scale_x,
+                        -uniform.local_origin[1] * scale_y,
+                    );
+                    let geometry = &path.tessellation.vertex_buffers;
+                    let builder = &mut self.effects.coverage_builder;
+                    builder.build(
+                        &geometry.vertices,
+                        &geometry.indices,
+                        Some(transform),
+                        1.0,
+                        (width, height),
+                        path.tessellation.local_bounds,
+                    );
+                    uniform.logical_size = [width as f32, height as f32];
+                    Some(CoverageBuffers::new(
+                        self.device,
+                        self.queue,
+                        builder,
+                        self.shape_pipelines,
+                    ))
+                } else {
+                    None
+                };
+                let binding = if let Some(coverage) = &coverage {
+                    let buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+                        label: Some("path_mask_uniform"),
+                        contents: bytemuck::bytes_of(&uniform),
+                        usage: BufferUsages::UNIFORM,
+                    });
+                    coverage.mask_binding(self.device, &self.pipelines.coverage_layout, &buffer)
+                } else {
+                    self.effects
+                        .parameters
+                        .prepare(
+                            self.device,
+                            self.queue,
+                            &self.pipelines.mask_bind_group_layout,
+                            bytemuck::bytes_of(&uniform),
+                        )
+                        .clone()
+                };
                 let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
                     label: Some("shape_mask"),
                     color_attachments: &[Some(RenderPassColorAttachment {
@@ -121,16 +169,38 @@ impl ShapeMaskEffectExecutionResources<'_> {
                 });
                 targets::set_scissor(&mut pass, command.clip.scissor);
                 pass.set_stencil_reference(command.clip.stencil_reference);
-                draws::draw_shape_mask(
-                    &mut pass,
-                    shape
-                        .geometry_buffer_location
-                        .expect("planned mask has uploaded geometry")
-                        .geometry_range,
-                    &self.pipelines.mask_pipeline,
-                    binding,
-                    self.buffers,
-                );
+                if let Some(coverage) = &coverage {
+                    pass.set_pipeline(&self.pipelines.coverage_pipeline);
+                    pass.set_bind_group(0, &binding, &[]);
+                    pass.set_vertex_buffer(
+                        0,
+                        coverage
+                            .vertices
+                            .as_ref()
+                            .expect("mask vertices were uploaded")
+                            .slice(..),
+                    );
+                    pass.set_index_buffer(
+                        coverage
+                            .indices
+                            .as_ref()
+                            .expect("mask indices were uploaded")
+                            .slice(..),
+                        IndexFormat::Uint32,
+                    );
+                    pass.draw_indexed(0..coverage.index_count, 0, 0..1);
+                } else {
+                    draws::draw_shape_mask(
+                        &mut pass,
+                        shape
+                            .geometry_buffer_location
+                            .expect("planned mask has uploaded geometry")
+                            .geometry_range,
+                        &self.pipelines.mask_pipeline,
+                        &binding,
+                        self.buffers,
+                    );
+                }
                 drop(pass);
                 CachedShapeMask { texture }
             });

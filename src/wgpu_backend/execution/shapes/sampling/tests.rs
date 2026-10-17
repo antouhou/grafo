@@ -1,5 +1,6 @@
 use super::TextureSamplingUniform;
 use crate::wgpu_backend::gradient::GpuMaterialParams;
+use crate::wgpu_backend::pipeline::SHAPE_SHADER;
 use naga::front::wgsl;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 use naga::{Module, TypeInner};
@@ -26,7 +27,7 @@ fn assert_uniform_layout(module: &Module, name: &str, size: usize, offsets: &[(&
 
 #[test]
 fn shape_material_uniforms_match_shader_layout() {
-    let shader = wgsl::parse_str(include_str!("../../../../shaders/shader.wgsl")).unwrap();
+    let shader = wgsl::parse_str(SHAPE_SHADER).unwrap();
     Validator::new(ValidationFlags::all(), Capabilities::all())
         .validate(&shader)
         .unwrap();

@@ -153,6 +153,7 @@ impl WgpuBackend {
 
         self.queue.submit(iter::once(encoder.finish()));
         resources.shape_execution.texture_materials.finish_render();
+        resources.shape_execution.coverage_buffers.clear();
         resources.effect_execution.finish_render();
 
         let (_collected_shape_mask_effect_results, _collected_shape_masks) =

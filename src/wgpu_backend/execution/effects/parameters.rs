@@ -1,4 +1,5 @@
 use super::bindings::{create_backdrop_layer_composite_bind_group, create_params_bind_group};
+use crate::wgpu_backend::execution::shapes::coverage::CoverageBuilder;
 use crate::wgpu_backend::execution::uniforms;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, Queue, TextureView};
@@ -155,6 +156,7 @@ impl BackdropCompositePool {
 /// Persistent GPU allocations, independent of draw queue attachment lifetimes.
 #[derive(Default)]
 pub(crate) struct EffectExecutionResources {
+    pub(crate) coverage_builder: CoverageBuilder,
     pub(crate) parameters: EffectParameterPool,
     pub(crate) backdrop_composites: BackdropCompositePool,
 }

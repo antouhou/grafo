@@ -25,25 +25,29 @@ struct VertexInput {
 struct VertexOutput {
     @invariant @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
-    @location(1) layer0_tex_coords: vec2<f32>,
-    @location(2) layer1_tex_coords: vec2<f32>,
+    @location(1) layer0_tex_coords: vec3<f32>,
+    @location(2) layer1_tex_coords: vec3<f32>,
     @location(3) coverage: f32,
     @location(4) @interpolate(flat) texture_flags: f32,
-    @location(5) shape_tex_coords: vec2<f32>,
+    @location(5) shape_tex_coords: vec3<f32>,
+    @location(8) @interpolate(flat) coverage_row_start: u32,
+    @location(9) @interpolate(flat) coverage_tile_y: u32,
 };
 
 struct GradientVertexOutput {
     @invariant @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
-    @location(1) layer0_tex_coords: vec2<f32>,
-    @location(2) layer1_tex_coords: vec2<f32>,
+    @location(1) layer0_tex_coords: vec3<f32>,
+    @location(2) layer1_tex_coords: vec3<f32>,
     @location(3) coverage: f32,
     @location(4) @interpolate(flat) texture_flags: f32,
     // Model-space position before the transform, used to evaluate gradients
-    @location(5) model_pos: vec2<f32>,
+    @location(5) model_pos: vec3<f32>,
     // Screen position in pixels after the transform
     @location(6) screen_pos: vec2<f32>,
-    @location(7) shape_tex_coords: vec2<f32>,
+    @location(7) shape_tex_coords: vec3<f32>,
+    @location(8) @interpolate(flat) coverage_row_start: u32,
+    @location(9) @interpolate(flat) coverage_tile_y: u32,
 };
 
 // Viewport dimensions and antialiasing settings from the renderer.
@@ -274,13 +278,15 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
     output.position = compute_vertex_position(input).clip_position;
     output.color = input.color;
-    output.layer0_tex_coords = input.tex_coords * input.texture_uv_transform_layer0.xy
-        + input.texture_uv_transform_layer0.zw;
-    output.layer1_tex_coords = input.tex_coords * input.texture_uv_transform_layer1.xy
-        + input.texture_uv_transform_layer1.zw;
+    output.layer0_tex_coords = vec3<f32>(input.tex_coords * input.texture_uv_transform_layer0.xy
+        + input.texture_uv_transform_layer0.zw, 1.0);
+    output.layer1_tex_coords = vec3<f32>(input.tex_coords * input.texture_uv_transform_layer1.xy
+        + input.texture_uv_transform_layer1.zw, 1.0);
     output.coverage = input.coverage;
     output.texture_flags = input.texture_flags;
-    output.shape_tex_coords = input.tex_coords;
+    output.shape_tex_coords = vec3<f32>(input.tex_coords, 1.0);
+    output.coverage_row_start = 0xffffffffu;
+    output.coverage_tile_y = 0u;
     return output;
 }
 
@@ -290,14 +296,16 @@ fn vs_main_gradient(input: VertexInput) -> GradientVertexOutput {
     var output: GradientVertexOutput;
     output.position = position.clip_position;
     output.color = input.color;
-    output.layer0_tex_coords = input.tex_coords * input.texture_uv_transform_layer0.xy
-        + input.texture_uv_transform_layer0.zw;
-    output.layer1_tex_coords = input.tex_coords * input.texture_uv_transform_layer1.xy
-        + input.texture_uv_transform_layer1.zw;
+    output.layer0_tex_coords = vec3<f32>(input.tex_coords * input.texture_uv_transform_layer0.xy
+        + input.texture_uv_transform_layer0.zw, 1.0);
+    output.layer1_tex_coords = vec3<f32>(input.tex_coords * input.texture_uv_transform_layer1.xy
+        + input.texture_uv_transform_layer1.zw, 1.0);
     output.coverage = input.coverage;
     output.texture_flags = input.texture_flags;
-    output.shape_tex_coords = input.tex_coords;
-    output.model_pos = input.position;
+    output.shape_tex_coords = vec3<f32>(input.tex_coords, 1.0);
+    output.coverage_row_start = 0xffffffffu;
+    output.coverage_tile_y = 0u;
+    output.model_pos = vec3<f32>(input.position, 1.0);
 
     output.screen_pos = position.screen_position;
     return output;
@@ -344,45 +352,45 @@ fn composite_texture_layers(
 
 fn compute_fragment_color(
     color: vec4<f32>,
-    layer0_tex_coords: vec2<f32>,
-    layer1_tex_coords: vec2<f32>,
+    layer0_tex_coords: vec3<f32>,
+    layer1_tex_coords: vec3<f32>,
     coverage: f32,
     texture_flags: f32,
 ) -> vec4<f32> {
     // The CPU converts the fill to linear RGB; premultiply it before compositing.
     let fill_pma = vec4<f32>(color.rgb * color.a, color.a);
     return composite_texture_layers(
-        fill_pma, layer0_tex_coords, layer1_tex_coords, coverage, texture_flags,
+        fill_pma, layer0_tex_coords.xy / layer0_tex_coords.z, layer1_tex_coords.xy / layer1_tex_coords.z, coverage, texture_flags,
     );
 }
 
 fn compute_gradient_fragment_color(
-    layer0_tex_coords: vec2<f32>,
-    layer1_tex_coords: vec2<f32>,
+    layer0_tex_coords: vec3<f32>,
+    layer1_tex_coords: vec3<f32>,
     coverage: f32,
     texture_flags: f32,
-    model_pos: vec2<f32>,
+    model_pos: vec3<f32>,
     screen_pos: vec2<f32>,
     dither_coords: vec2<f32>,
 ) -> vec4<f32> {
     let fill_pma = apply_gradient_bayer_dither(
-        evaluate_gradient(model_pos, screen_pos),
+        evaluate_gradient(model_pos.xy / model_pos.z, screen_pos),
         dither_coords,
     );
 
     return composite_texture_layers(
-        fill_pma, layer0_tex_coords, layer1_tex_coords, coverage, texture_flags,
+        fill_pma, layer0_tex_coords.xy / layer0_tex_coords.z, layer1_tex_coords.xy / layer1_tex_coords.z, coverage, texture_flags,
     );
 }
 
 fn composite_under_fill_texture(
     fill_pma: vec4<f32>,
     fragment_position: vec4<f32>,
-    shape_tex_coords: vec2<f32>,
+    shape_tex_coords: vec3<f32>,
 ) -> vec4<f32> {
     let mapping = material_params.texture_sampling;
     let uses_target_coordinates = mapping.uses_target_coordinates != 0u;
-    let position = select(shape_tex_coords, fragment_position.xy, uses_target_coordinates);
+    let position = select(shape_tex_coords.xy / shape_tex_coords.z, fragment_position.xy, uses_target_coordinates);
     let texture_coordinates = (position - mapping.origin) * mapping.inverse_size;
     let footprint = select(texture_footprint_coverage(texture_coordinates), 1.0, uses_target_coordinates);
     let texture_pma = textureSampleLevel(t_under_fill, s_under_fill, texture_coordinates, 0.0) * footprint;
@@ -391,17 +399,21 @@ fn composite_under_fill_texture(
 
 @fragment
 fn fs_main(
+    @builtin(position) fragment_position: vec4<f32>,
     @location(0) color: vec4<f32>,
-    @location(1) layer0_tex_coords: vec2<f32>,
-    @location(2) layer1_tex_coords: vec2<f32>,
+    @location(1) layer0_tex_coords: vec3<f32>,
+    @location(2) layer1_tex_coords: vec3<f32>,
     @location(3) coverage: f32,
     @location(4) @interpolate(flat) texture_flags: f32,
+    @location(8) @interpolate(flat) coverage_row_start: u32,
+    @location(9) @interpolate(flat) coverage_tile_y: u32,
 ) -> @location(0) vec4<f32> {
+    let pixel_coverage = resolve_path_coverage(coverage, coverage_row_start, coverage_tile_y, fragment_position);
     return compute_fragment_color(
         color,
         layer0_tex_coords,
         layer1_tex_coords,
-        coverage,
+        pixel_coverage,
         texture_flags,
     );
 }
@@ -410,17 +422,20 @@ fn fs_main(
 fn fs_main_gradient(
     @builtin(position) fragment_position: vec4<f32>,
     @location(0) color: vec4<f32>,
-    @location(1) layer0_tex_coords: vec2<f32>,
-    @location(2) layer1_tex_coords: vec2<f32>,
+    @location(1) layer0_tex_coords: vec3<f32>,
+    @location(2) layer1_tex_coords: vec3<f32>,
     @location(3) coverage: f32,
     @location(4) @interpolate(flat) texture_flags: f32,
-    @location(5) model_pos: vec2<f32>,
+    @location(5) model_pos: vec3<f32>,
     @location(6) screen_pos: vec2<f32>,
+    @location(8) @interpolate(flat) coverage_row_start: u32,
+    @location(9) @interpolate(flat) coverage_tile_y: u32,
 ) -> @location(0) vec4<f32> {
+    let pixel_coverage = resolve_path_coverage(coverage, coverage_row_start, coverage_tile_y, fragment_position);
     return compute_gradient_fragment_color(
         layer0_tex_coords,
         layer1_tex_coords,
-        coverage,
+        pixel_coverage,
         texture_flags,
         model_pos,
         screen_pos,
@@ -430,10 +445,16 @@ fn fs_main_gradient(
 
 // Used by stencil-only passes that write no color. Color work is skipped entirely;
 // only the fixed-function stencil operation matters for these draws.
-// NOTE: do not add discard here. That would kill the stencil write.
+// Coverage rejects empty pixels before the stencil operation.
 @fragment
-fn fs_stencil_only() -> @location(0) vec4<f32> {
-    return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+fn fs_stencil_only(
+    @builtin(position) fragment_position: vec4<f32>,
+    @location(3) coverage: f32,
+    @location(8) @interpolate(flat) coverage_row_start: u32,
+    @location(9) @interpolate(flat) coverage_tile_y: u32,
+) -> @location(0) vec4<f32> {
+    let pixel_coverage = resolve_path_coverage(coverage, coverage_row_start, coverage_tile_y, fragment_position);
+    return vec4<f32>(0.0);
 }
 
 // Used by stencil-mutating passes that still produce visible color output.
@@ -441,17 +462,21 @@ fn fs_stencil_only() -> @location(0) vec4<f32> {
 // stencil writes here.
 @fragment
 fn fs_passthrough(
+    @builtin(position) fragment_position: vec4<f32>,
     @location(0) color: vec4<f32>,
-    @location(1) layer0_tex_coords: vec2<f32>,
-    @location(2) layer1_tex_coords: vec2<f32>,
+    @location(1) layer0_tex_coords: vec3<f32>,
+    @location(2) layer1_tex_coords: vec3<f32>,
     @location(3) coverage: f32,
     @location(4) @interpolate(flat) texture_flags: f32,
+    @location(8) @interpolate(flat) coverage_row_start: u32,
+    @location(9) @interpolate(flat) coverage_tile_y: u32,
 ) -> @location(0) vec4<f32> {
+    let pixel_coverage = resolve_path_coverage(coverage, coverage_row_start, coverage_tile_y, fragment_position);
     return compute_fragment_color(
         color,
         layer0_tex_coords,
         layer1_tex_coords,
-        coverage,
+        pixel_coverage,
         texture_flags,
     );
 }
@@ -460,17 +485,20 @@ fn fs_passthrough(
 fn fs_passthrough_gradient(
     @builtin(position) fragment_position: vec4<f32>,
     @location(0) color: vec4<f32>,
-    @location(1) layer0_tex_coords: vec2<f32>,
-    @location(2) layer1_tex_coords: vec2<f32>,
+    @location(1) layer0_tex_coords: vec3<f32>,
+    @location(2) layer1_tex_coords: vec3<f32>,
     @location(3) coverage: f32,
     @location(4) @interpolate(flat) texture_flags: f32,
-    @location(5) model_pos: vec2<f32>,
+    @location(5) model_pos: vec3<f32>,
     @location(6) screen_pos: vec2<f32>,
+    @location(8) @interpolate(flat) coverage_row_start: u32,
+    @location(9) @interpolate(flat) coverage_tile_y: u32,
 ) -> @location(0) vec4<f32> {
+    let pixel_coverage = resolve_path_coverage(coverage, coverage_row_start, coverage_tile_y, fragment_position);
     return compute_gradient_fragment_color(
         layer0_tex_coords,
         layer1_tex_coords,
-        coverage,
+        pixel_coverage,
         texture_flags,
         model_pos,
         screen_pos,
@@ -482,30 +510,36 @@ fn fs_passthrough_gradient(
 fn fs_texture_material(
     @builtin(position) fragment_position: vec4<f32>,
     @location(0) color: vec4<f32>,
-    @location(1) layer0_tex_coords: vec2<f32>,
-    @location(2) layer1_tex_coords: vec2<f32>,
+    @location(1) layer0_tex_coords: vec3<f32>,
+    @location(2) layer1_tex_coords: vec3<f32>,
     @location(3) coverage: f32,
     @location(4) @interpolate(flat) texture_flags: f32,
-    @location(5) shape_tex_coords: vec2<f32>,
+    @location(5) shape_tex_coords: vec3<f32>,
+    @location(8) @interpolate(flat) coverage_row_start: u32,
+    @location(9) @interpolate(flat) coverage_tile_y: u32,
 ) -> @location(0) vec4<f32> {
+    let pixel_coverage = resolve_path_coverage(coverage, coverage_row_start, coverage_tile_y, fragment_position);
     let fill_pma = vec4<f32>(color.rgb * color.a, color.a);
     let base_pma = composite_under_fill_texture(fill_pma, fragment_position, shape_tex_coords);
-    return composite_texture_layers(base_pma, layer0_tex_coords, layer1_tex_coords, coverage, texture_flags);
+    return composite_texture_layers(base_pma, layer0_tex_coords.xy / layer0_tex_coords.z, layer1_tex_coords.xy / layer1_tex_coords.z, pixel_coverage, texture_flags);
 }
 
 @fragment
 fn fs_texture_material_gradient(
     @builtin(position) fragment_position: vec4<f32>,
     @location(0) color: vec4<f32>,
-    @location(1) layer0_tex_coords: vec2<f32>,
-    @location(2) layer1_tex_coords: vec2<f32>,
+    @location(1) layer0_tex_coords: vec3<f32>,
+    @location(2) layer1_tex_coords: vec3<f32>,
     @location(3) coverage: f32,
     @location(4) @interpolate(flat) texture_flags: f32,
-    @location(5) model_pos: vec2<f32>,
+    @location(5) model_pos: vec3<f32>,
     @location(6) screen_pos: vec2<f32>,
-    @location(7) shape_tex_coords: vec2<f32>,
+    @location(7) shape_tex_coords: vec3<f32>,
+    @location(8) @interpolate(flat) coverage_row_start: u32,
+    @location(9) @interpolate(flat) coverage_tile_y: u32,
 ) -> @location(0) vec4<f32> {
-    let fill_pma = apply_gradient_bayer_dither(evaluate_gradient(model_pos, screen_pos), fragment_position.xy);
+    let pixel_coverage = resolve_path_coverage(coverage, coverage_row_start, coverage_tile_y, fragment_position);
+    let fill_pma = apply_gradient_bayer_dither(evaluate_gradient(model_pos.xy / model_pos.z, screen_pos), fragment_position.xy);
     let base_pma = composite_under_fill_texture(fill_pma, fragment_position, shape_tex_coords);
-    return composite_texture_layers(base_pma, layer0_tex_coords, layer1_tex_coords, coverage, texture_flags);
+    return composite_texture_layers(base_pma, layer0_tex_coords.xy / layer0_tex_coords.z, layer1_tex_coords.xy / layer1_tex_coords.z, pixel_coverage, texture_flags);
 }

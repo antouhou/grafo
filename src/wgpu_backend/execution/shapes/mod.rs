@@ -7,6 +7,7 @@ use crate::wgpu_backend::gradient::{GradientCache, GradientMaterial};
 use crate::wgpu_backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMetadata};
 use ahash::{HashMap, HashMapExt};
 use compaction::DrawBufferCompactionStorage;
+use coverage::{CoverageBuffers, CoverageBuilder, PathCoverage};
 use materials::TextureMaterialPool;
 pub(in crate::wgpu_backend) use pipelines::TextureMaterialPipelines;
 pub(crate) use sampling::TextureSamplingUniform;
@@ -15,6 +16,7 @@ use wgpu::{BindGroup, BindGroupLayout, Device, Queue, Sampler};
 
 mod buffers;
 mod compaction;
+pub(in crate::wgpu_backend) mod coverage;
 mod materials;
 mod pipelines;
 pub(in crate::wgpu_backend) mod preparation;
@@ -29,6 +31,7 @@ pub(crate) struct ShapeBufferLocation {
 /// GPU locations and material bindings for one CPU shape description.
 #[derive(Debug, Default)]
 pub(in crate::wgpu_backend) struct ShapeDrawResources {
+    pub(in crate::wgpu_backend) path_coverage: Option<PathCoverage>,
     /// Retained only for draws with a shape mask effect, to identify cached coverage masks.
     pub(crate) mask_tessellation: Option<Arc<CachedTessellation>>,
     pub(crate) geometry_buffer_location: Option<ShapeBufferLocation>,
@@ -65,6 +68,8 @@ impl ShapeDrawResources {
 
 /// Reusable execution storage, separate from draw descriptions and their tree.
 pub(crate) struct ShapeExecutionResources {
+    pub(in crate::wgpu_backend) coverage_builder: CoverageBuilder,
+    pub(in crate::wgpu_backend) coverage_buffers: Vec<CoverageBuffers>,
     pub(in crate::wgpu_backend) composites: CompositeExecutionResources,
     pub(in crate::wgpu_backend) texture_materials: TextureMaterialPool,
     pub(crate) draws: HashMap<usize, ShapeDrawResources>,
@@ -85,26 +90,21 @@ impl ShapeExecutionResources {
         id: ShapeDrawId,
         resources: ShapeDrawResources,
     ) {
-        if self
-            .draws
-            .insert(id.0, resources)
-            // If insertion returns something, it means we've replaced something, and now we might
-            // need to compact buffers
-            .and_then(|previous| previous.geometry_buffer_location)
-            .is_some()
-        {
-            self.has_unused_draw_buffers = true;
+        if let Some(previous) = self.draws.insert(id.0, resources) {
+            if let Some(coverage) = previous.path_coverage {
+                self.coverage_buffers.push(coverage.buffers);
+            }
+            self.has_unused_draw_buffers |= previous.geometry_buffer_location.is_some();
         }
     }
 
     pub(in crate::wgpu_backend) fn remove_draws(&mut self, ids: &[ShapeDrawId]) {
         for id in ids {
-            let removed_draw = self.draws.remove(&id.0);
-            if removed_draw
-                .and_then(|draw| draw.geometry_buffer_location)
-                .is_some()
-            {
-                self.has_unused_draw_buffers = true;
+            if let Some(removed) = self.draws.remove(&id.0) {
+                if let Some(coverage) = removed.path_coverage {
+                    self.coverage_buffers.push(coverage.buffers);
+                }
+                self.has_unused_draw_buffers |= removed.geometry_buffer_location.is_some();
             }
         }
     }
@@ -115,6 +115,8 @@ impl ShapeExecutionResources {
 
     pub(crate) fn new() -> Self {
         Self {
+            coverage_builder: CoverageBuilder::default(),
+            coverage_buffers: Vec::new(),
             texture_materials: TextureMaterialPool::default(),
             composites: CompositeExecutionResources::default(),
             draws: HashMap::new(),
@@ -132,7 +134,11 @@ impl ShapeExecutionResources {
 
     /// Drops draw references while retaining GPU material slots, gradients, and CPU capacity.
     pub(crate) fn clear_draw_queue(&mut self) {
-        self.draws.clear();
+        for (_, draw) in self.draws.drain() {
+            if let Some(coverage) = draw.path_coverage {
+                self.coverage_buffers.push(coverage.buffers);
+            }
+        }
         self.vertices.clear();
         self.indices.clear();
         self.geometry_ranges.clear();

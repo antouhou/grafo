@@ -783,11 +783,7 @@ impl PathShape {
         }
 
         let mut buffers = VertexBuffers::new();
-        let local_bounds = self.tessellate_into_buffers(
-            &mut buffers,
-            tessellator,
-            &mut shape_resources.aa_fringe_scratch,
-        );
+        let local_bounds = self.tessellate_into_buffers(&mut buffers, tessellator);
 
         #[allow(clippy::manual_is_multiple_of)]
         let needs_index_padding = buffers.indices.len() % 2 != 0;
@@ -814,7 +810,6 @@ impl PathShape {
         &self,
         buffers: &mut VertexBuffers<CustomVertex, u16>,
         tessellator: &mut FillTessellator,
-        aa_fringe_scratch: &mut AaFringeScratch,
     ) -> [(f32, f32); 2] {
         let options = FillOptions::default();
 
@@ -838,14 +833,6 @@ impl PathShape {
                 v.tex_coords = [u, vcoord];
             }
         }
-
-        // Generate AA fringe geometry after UVs are computed so fringe vertices
-        // inherit the correct tex_coords from their source boundary vertices.
-        generate_aa_fringe(
-            &mut buffers.vertices,
-            &mut buffers.indices,
-            aa_fringe_scratch,
-        );
 
         local_bounds
     }

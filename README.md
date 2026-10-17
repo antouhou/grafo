@@ -13,7 +13,7 @@ Grafo is a GPU-accelerated vector graphics library for Rust.
 * Per-instance 3D and perspective transforms
 * Solid fills and linear, radial, and conic gradients
 * Custom WGSL shader effects on shape masks, rendered content, and backdrops
-* Geometry-based antialiasing and MSAA
+* Pixel-area antialiasing for paths, with optional MSAA
 
 [Install Grafo from crates.io](https://crates.io/crates/grafo) or read the
 [API documentation](https://docs.rs/grafo/).

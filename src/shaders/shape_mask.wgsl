@@ -46,3 +46,26 @@ fn mask_vertex(input: MaskVertexInput) -> MaskVertexOutput {
 fn mask_fragment(input: MaskVertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(input.coverage);
 }
+
+struct CoverageMaskInput {
+    @location(0) position: vec2<f32>,
+    @location(8) row_start: u32,
+    @location(12) tile_y: u32,
+};
+struct CoverageMaskOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(8) @interpolate(flat) row_start: u32,
+    @location(9) @interpolate(flat) tile_y: u32,
+};
+@vertex
+fn mask_coverage_vertex(input: CoverageMaskInput) -> CoverageMaskOutput {
+    var output: CoverageMaskOutput;
+    output.position = vec4<f32>(2.0 * input.position.x / uniforms.logical_size.x - 1.0, 1.0 - 2.0 * input.position.y / uniforms.logical_size.y, 0.0, 1.0);
+    output.row_start = input.row_start;
+    output.tile_y = input.tile_y;
+    return output;
+}
+@fragment
+fn mask_coverage_fragment(input: CoverageMaskOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(resolve_path_coverage(1.0, input.row_start, input.tile_y, input.position));
+}

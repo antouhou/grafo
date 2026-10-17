@@ -98,6 +98,63 @@ impl DrawPass<'_, '_> {
         let Some(location) = resources.geometry_buffer_location else {
             return;
         };
+        if let Some(coverage) = &resources.path_coverage {
+            let buffers = &coverage.buffers;
+            self.render_pass
+                .set_pipeline(pipelines.coverage.material(material, increments_stencil));
+            self.render_pass.set_bind_group(0, &buffers.bind_group, &[]);
+            for layer in 0..2 {
+                self.render_pass.set_bind_group(
+                    layer as u32 + 1,
+                    &*pipelines.default_shape_texture_bind_groups[layer],
+                    &[],
+                );
+            }
+            self.bound_textures.invalidate();
+            self.textures.bind_shape_texture_layers(
+                self.render_pass,
+                &material.texture_bindings,
+                &pipelines.texture_manager,
+                &pipelines.shape_texture_bind_group_layout_background,
+                &pipelines.shape_texture_bind_group_layout_foreground,
+                &pipelines.default_shape_texture_bind_groups,
+                self.bound_textures,
+            );
+            if let Some(binding) = resources.material_bind_group(material) {
+                self.render_pass.set_bind_group(3, binding, &[]);
+            }
+            bind_instance_buffers(self.render_pass, location.instance_index, self.buffers);
+            self.render_pass.set_vertex_buffer(
+                0,
+                buffers
+                    .vertices
+                    .as_ref()
+                    .expect("coverage vertices were uploaded")
+                    .slice(..),
+            );
+            self.render_pass.set_index_buffer(
+                buffers
+                    .indices
+                    .as_ref()
+                    .expect("coverage indices were uploaded")
+                    .slice(..),
+                IndexFormat::Uint32,
+            );
+            self.render_pass.set_stencil_reference(stencil_reference);
+            self.render_pass
+                .draw_indexed(0..buffers.index_count, 0, 0..1);
+            self.pipeline_tracker.current = Pipeline::None;
+            self.pipeline_tracker
+                .switch_to(pipelines.material_pipeline(material, increments_stencil).0);
+            self.pipeline_tracker.current = Pipeline::None;
+            #[cfg(feature = "render_metrics")]
+            if increments_stencil {
+                self.pipeline_tracker.record_stencil_pass();
+            }
+            self.bound_textures.invalidate();
+            bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
+            return;
+        }
         let (target_pipeline, pipeline) = pipelines.material_pipeline(material, increments_stencil);
         if self.pipeline_tracker.current != target_pipeline {
             self.render_pass.set_pipeline(pipeline);
@@ -161,6 +218,48 @@ impl DrawPass<'_, '_> {
         let Some(location) = resources.geometry_buffer_location else {
             return;
         };
+        if let Some(coverage) = &resources.path_coverage {
+            let buffers = &coverage.buffers;
+            self.render_pass
+                .set_pipeline(&self.pipelines.shapes.coverage.decrement);
+            self.render_pass
+                .set_bind_group(0, &buffers.decrement_bind_group, &[]);
+            for layer in 0..2 {
+                self.render_pass.set_bind_group(
+                    layer as u32 + 1,
+                    &*self.pipelines.shapes.default_shape_texture_bind_groups[layer],
+                    &[],
+                );
+            }
+            bind_instance_buffers(self.render_pass, location.instance_index, self.buffers);
+            self.render_pass.set_vertex_buffer(
+                0,
+                buffers
+                    .vertices
+                    .as_ref()
+                    .expect("coverage vertices were uploaded")
+                    .slice(..),
+            );
+            self.render_pass.set_index_buffer(
+                buffers
+                    .indices
+                    .as_ref()
+                    .expect("coverage indices were uploaded")
+                    .slice(..),
+                IndexFormat::Uint32,
+            );
+            self.render_pass.set_stencil_reference(stencil_reference);
+            self.render_pass
+                .draw_indexed(0..buffers.index_count, 0, 0..1);
+            self.pipeline_tracker.current = Pipeline::None;
+            self.pipeline_tracker.switch_to(Pipeline::StencilDecrement);
+            self.pipeline_tracker.current = Pipeline::None;
+            #[cfg(feature = "render_metrics")]
+            self.pipeline_tracker.record_stencil_pass();
+            self.bound_textures.invalidate();
+            bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
+            return;
+        }
         if !matches!(self.pipeline_tracker.current, Pipeline::StencilDecrement) {
             bind_decrement_pipeline(self.render_pass, &self.pipelines.shapes);
             self.bound_textures.mark_bound(0, ShapeTextureBinding::None);
