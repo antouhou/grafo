@@ -282,11 +282,23 @@ fn replacements_and_subtree_removals_defer_compaction_and_preserve_surviving_par
             )
             .unwrap();
         renderer.remove_subtrees([converted], |_| {});
-        let plan = renderer.planner.plan(&renderer.scene, 4096);
-        assert_eq!(plan.effect_parameters.len(), 48);
-        assert_eq!(plan.parameters(group_parameters), &[5; 4]);
-        assert_eq!(plan.parameters(backdrop_parameters), &[6; 4]);
-        assert_eq!(plan.parameters(shape_parameters), &[7; 4]);
+        assert_eq!(renderer.scene.effect_parameters.bytes.len(), 48);
+        assert_eq!(
+            renderer.scene.effect_parameters.get(group_parameters).bytes,
+            &[5; 4]
+        );
+        assert_eq!(
+            renderer
+                .scene
+                .effect_parameters
+                .get(backdrop_parameters)
+                .bytes,
+            &[6; 4]
+        );
+        assert_eq!(
+            renderer.scene.effect_parameters.get(shape_parameters).bytes,
+            &[7; 4]
+        );
         renderer
             .set_content_effect(survivor, 8, &[1, 2, 3, 4], ContentEffectConfig::default())
             .unwrap();
@@ -297,14 +309,7 @@ fn replacements_and_subtree_removals_defer_compaction_and_preserve_surviving_par
             .set_shape_mask_effect(survivor, 7, &[1, 2, 3, 4], ShapeMaskEffectConfig::default())
             .unwrap();
         renderer.render(&mut surface).unwrap();
-        assert_eq!(
-            renderer
-                .planner
-                .plan(&renderer.scene, 4096)
-                .effect_parameters
-                .len(),
-            12
-        );
+        assert_eq!(renderer.scene.effect_parameters.bytes.len(), 12);
         branch = queue_shape(&mut renderer, false);
         attach_effects(&mut renderer, branch);
         renderer.render(&mut surface).unwrap();

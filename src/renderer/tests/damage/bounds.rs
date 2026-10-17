@@ -276,28 +276,22 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
                 .logical_screen_bounds(),
             MathRect::new((16.25, 11.0).into(), (21.0, 16.0).into())
         );
-        let commands = renderer.planner.plan(&renderer.scene, 4096);
-        let capture = commands
-            .instructions
-            .iter()
-            .find_map(|command| match command.operation {
-                RenderOperation::Capture(capture) => Some(capture.region.bounds),
-                _ => None,
-            });
+        let commands: Vec<_> = renderer.planner.plan(&renderer.scene, 4096).collect();
+        let capture = commands.iter().find_map(|command| match command.operation {
+            RenderOperation::Capture(capture) => Some(capture.region.bounds),
+            _ => None,
+        });
         assert_eq!(capture, Some(expected_capture));
         for (node_id, expected_clip) in [(path, expected_clip), (cached, expected_cached_clip)] {
-            let clip = commands
-                .instructions
-                .iter()
-                .find_map(|command| match command.operation {
-                    RenderOperation::DrawShape(draw)
-                    | RenderOperation::DrawShapeAndIncrementStencil(draw)
-                        if draw.id.0 == node_id =>
-                    {
-                        Some(command.clip.scissor)
-                    }
-                    _ => None,
-                });
+            let clip = commands.iter().find_map(|command| match command.operation {
+                RenderOperation::DrawShape(draw)
+                | RenderOperation::DrawShapeAndIncrementStencil(draw)
+                    if draw.id.0 == node_id =>
+                {
+                    Some(command.clip.scissor)
+                }
+                _ => None,
+            });
             assert_eq!(clip, Some(expected_clip));
         }
     }

@@ -1,6 +1,6 @@
 //! Contracts shared by the renderer coordinator and backend implementations.
 
-use crate::commands::{RenderPlan, ShapeDrawId};
+use crate::commands::{RenderCommand, ShapeDrawId};
 use crate::core::{CachedShapeHandle, ShapeInstance, Viewport};
 use crate::UnsignedPhysicalRect;
 use render_target::{RenderTarget, RenderTargetError};
@@ -9,8 +9,8 @@ use texture_manager::TextureManager;
 pub mod render_target;
 pub mod texture_manager;
 
-/// Owns execution resources and interprets completed commands, without scene access.
-/// Shapes are registered while queuing; rendering consumes the finished plan.
+/// Owns execution resources and interprets incoming commands.
+/// Shapes are registered while queuing; rendering consumes commands in order.
 pub trait RenderBackend {
     /// Backend resources stored in a `Surface`.
     type Surface;
@@ -70,16 +70,16 @@ pub trait RenderBackend {
 
     /// Renders `commands` at the target's dimensions. The commands must have been
     /// planned for those dimensions.
-    /// Preserve the previous image outside `commands.root_scissor`. Clear and redraw
+    /// Preserve the previous image outside `root_scissor`. Clear and redraw
     /// inside it; None leaves the image unchanged. A newly allocated output needs a
-    /// full redraw, for which the plan still contains the entire scene.
+    /// full redraw, for which the iterator still yields the entire scene.
     ///
     /// Pixmap pixels must be ready on success and remain unchanged on error.
     /// Surface rendering must submit and present the frame.
-    fn render(
+    fn render<'scene>(
         &mut self,
         root_scissor: Option<UnsignedPhysicalRect>,
-        commands: &RenderPlan,
+        commands: impl Iterator<Item = RenderCommand<'scene>>,
         target: RenderTarget<'_, Self::Surface>,
     ) -> Result<(), Self::Error>;
 }

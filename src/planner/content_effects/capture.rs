@@ -1,11 +1,13 @@
 use crate::commands::{
     CaptureConfig, CaptureSource, EffectApplication, IntermediateTextureId, RenderOperation,
-    RenderPlan, TextureComposite, TexturePlacement,
+    TextureComposite, TexturePlacement,
 };
 use crate::core::effect::ContentEffectBounds;
 use crate::core::geometry;
 use crate::core::vertex::TextureUvTransform;
+use crate::planner::commands::TraversalCommands;
 use crate::planner::TextureIdAllocator;
+use crate::scene::effects::parameters::EffectParameterStorage;
 use crate::scene::effects::{ContentEffectInstance, EffectInstance};
 
 #[derive(Clone, Copy)]
@@ -27,7 +29,7 @@ impl ContentCapture {
 
     pub(crate) fn append_capture(
         self,
-        output: &mut RenderPlan,
+        output: &mut TraversalCommands<'_>,
         texture_ids: &mut TextureIdAllocator,
     ) -> IntermediateTextureId {
         let capture_texture = texture_ids.allocate();
@@ -40,16 +42,17 @@ impl ContentCapture {
         capture_texture
     }
 
-    pub(crate) fn append_effect(
+    pub(crate) fn append_effect<'scene>(
         self,
         input_texture: IntermediateTextureId,
-        output: &mut RenderPlan,
+        parameters: &'scene EffectParameterStorage,
+        output: &mut TraversalCommands<'scene>,
         texture_ids: &mut TextureIdAllocator,
     ) -> TextureComposite {
         let output_texture = texture_ids.allocate();
         output.push(RenderOperation::ApplyEffect(EffectApplication {
             effect_id: self.effect.effect_id,
-            parameters: self.effect.parameters,
+            parameters: parameters.get(self.effect.parameters),
             input: input_texture,
             output: output_texture,
         }));

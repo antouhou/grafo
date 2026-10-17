@@ -1,12 +1,10 @@
 //! A flat command stream passed from planning to execution.
 //!
-//! Plans store resource IDs, parameters, and resolved clips. Execution looks up
-//! uploaded resources by ID after planning has finished.
+//! Commands carry resource IDs, borrowed parameters, and resolved clips.
 
 use crate::core::effect::CaptureRegion;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
 use crate::core::{Size, UnsignedPhysicalRect};
-use ahash::RandomState;
 pub use material::{ShapeDrawMaterial, ShapeTextureBinding, ShapeTextureLayer, TextureSampling};
 pub use textures::IntermediateTextureId;
 
@@ -31,21 +29,21 @@ pub struct ShapeDraw {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum RenderOperation {
-    DecrementStencil(ShapeDraw),
+pub enum RenderOperation<'scene> {
     DrawShape(ShapeDraw),
     DrawShapeAndIncrementStencil(ShapeDraw),
+    DecrementStencil(ShapeDraw),
     CompositeTexture(TextureComposite),
     BeginTarget(Target),
     EndTarget,
     DrawShapeMask(ShapeMaskDraw),
     Capture(CaptureConfig),
-    ApplyEffect(EffectApplication),
+    ApplyEffect(EffectApplication<'scene>),
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct RenderCommand {
-    pub operation: RenderOperation,
+pub struct RenderCommand<'scene> {
+    pub operation: RenderOperation<'scene>,
     pub clip: DrawClip,
 }
 
@@ -65,24 +63,17 @@ pub struct CaptureConfig {
     pub sampling_size: Size,
 }
 
-/// A byte range in the command stream's effect parameter storage.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct EffectParameterRange {
-    pub start: usize,
-    pub end: usize,
-}
-
-/// Parameters stored in the render plan, with content hashed when written.
+/// Borrowed effect bytes, with their hash computed when attached to the scene.
 #[derive(Clone, Copy, Debug)]
-pub struct EffectParameters {
-    pub range: EffectParameterRange,
+pub struct EffectParameters<'scene> {
+    pub bytes: &'scene [u8],
     pub hash: u64,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct EffectApplication {
+pub struct EffectApplication<'scene> {
     pub effect_id: u64,
-    pub parameters: EffectParameters,
+    pub parameters: EffectParameters<'scene>,
     pub input: IntermediateTextureId,
     pub output: IntermediateTextureId,
 }
@@ -130,57 +121,4 @@ pub struct ShapeMaskDraw {
     pub scale_factor: f64,
     pub fringe_width: f32,
     pub downsample: f32,
-}
-
-/// One ordered command stream, with storage reused when the draw queue is rebuilt.
-#[derive(Default)]
-pub struct RenderPlan {
-    pub instructions: Vec<RenderCommand>,
-    pub effect_parameters: Vec<u8>,
-}
-
-impl RenderPlan {
-    pub fn clear(&mut self) {
-        self.clear_commands();
-        self.effect_parameters.clear();
-    }
-
-    /// Rebuild commands while preserving parameters written during queuing.
-    pub(crate) fn clear_commands(&mut self) {
-        self.instructions.clear();
-    }
-
-    pub fn store_parameters(&mut self, parameters: &[u8]) -> EffectParameters {
-        let start = self.effect_parameters.len();
-        self.effect_parameters.extend_from_slice(parameters);
-        EffectParameters {
-            range: EffectParameterRange {
-                start,
-                end: self.effect_parameters.len(),
-            },
-            hash: RandomState::with_seeds(0, 0, 0, 0).hash_one(parameters),
-        }
-    }
-
-    pub fn parameters(&self, parameters: EffectParameters) -> &[u8] {
-        &self.effect_parameters[parameters.range.start..parameters.range.end]
-    }
-
-    pub fn push(&mut self, operation: RenderOperation) {
-        self.push_command(RenderCommand {
-            operation,
-            clip: DrawClip::default(),
-        });
-    }
-
-    pub fn push_composite(&mut self, composite: TextureComposite, clip: DrawClip) {
-        self.push_command(RenderCommand {
-            operation: RenderOperation::CompositeTexture(composite),
-            clip,
-        });
-    }
-
-    pub fn push_command(&mut self, instruction: RenderCommand) {
-        self.instructions.push(instruction);
-    }
 }

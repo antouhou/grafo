@@ -1,5 +1,5 @@
 use super::WgpuBackend;
-use crate::commands::RenderPlan;
+use crate::commands::RenderCommand;
 use crate::core::UnsignedPhysicalRect;
 use crate::wgpu_backend::execution::effects::EffectContext;
 use crate::wgpu_backend::execution::instructions::{
@@ -19,10 +19,10 @@ use wgpu::{CommandEncoderDescriptor, Surface, SurfaceError, TextureViewDescripto
 
 impl WgpuBackend {
     /// Updates the clean scene and returns the redrawn bounds.
-    pub(in crate::wgpu_backend) fn update_retained_output(
+    pub(in crate::wgpu_backend) fn update_retained_output<'scene>(
         &mut self,
         root_scissor: Option<UnsignedPhysicalRect>,
-        commands: &RenderPlan,
+        commands: impl Iterator<Item = RenderCommand<'scene>>,
     ) -> Option<UnsignedPhysicalRect> {
         #[cfg(feature = "render_metrics")]
         let update_started_at = Instant::now();
@@ -58,9 +58,9 @@ impl WgpuBackend {
         root_scissor
     }
 
-    fn render_dirty_region(
+    fn render_dirty_region<'scene>(
         &mut self,
-        commands: &RenderPlan,
+        commands: impl Iterator<Item = RenderCommand<'scene>>,
         retained: &RetainedOutput,
         root_scissor: UnsignedPhysicalRect,
     ) {
@@ -179,10 +179,10 @@ impl WgpuBackend {
 
 impl WgpuBackend {
     /// Returns an error if surface acquisition fails.
-    pub(super) fn render_surface(
+    pub(super) fn render_surface<'scene>(
         &mut self,
         root_scissor: Option<UnsignedPhysicalRect>,
-        commands: &RenderPlan,
+        commands: impl Iterator<Item = RenderCommand<'scene>>,
         surface: &Surface<'_>,
     ) -> Result<(), SurfaceError> {
         #[cfg(feature = "render_metrics")]

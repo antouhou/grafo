@@ -1,14 +1,14 @@
 use super::backdrops;
-use super::composites::CompositeInstanceBuffer;
 use super::draws::DrawPass;
 use super::effects::instructions::{execute_effect, EffectContext};
 use super::effects::EffectExecutionResources;
+use super::leaf_batches::LeafBatch;
 use super::shape_mask_effects::ShapeMaskEffectExecutionResources;
 use super::shapes::ShapeExecutionResources;
 use super::targets::{ActiveTarget, SurfaceTarget};
 use super::textures::{IntermediateTextureResources, PlannedTexture};
 use crate::commands::{
-    CaptureSource, IntermediateTextureId, RenderOperation, RenderPlan, Target, TexturePlacement,
+    CaptureSource, IntermediateTextureId, RenderCommand, RenderOperation, Target, TexturePlacement,
 };
 #[cfg(feature = "render_metrics")]
 use crate::wgpu_backend::metrics::{PipelineSwitchCounts, ShapeMaskEffectCacheMetrics};
@@ -122,21 +122,74 @@ impl ExecutionResources<'_> {
     }
 }
 
-/// Consumes draw commands directly until the next operation needs the command encoder.
-#[allow(clippy::too_many_arguments)]
-fn execute_draws(
+fn should_end_draw_pass(command: &RenderCommand) -> bool {
+    match command.operation {
+        RenderOperation::DrawShape(draw) | RenderOperation::DrawShapeAndIncrementStencil(draw) => {
+            draw.material.under_fill_texture.is_some()
+        }
+        RenderOperation::DecrementStencil(_) | RenderOperation::CompositeTexture(_) => false,
+        _ => true,
+    }
+}
+
+fn execute_draw_command(
+    pass: &mut DrawPass<'_, '_>,
+    command: RenderCommand,
+    shapes: &mut ShapeExecutionResources,
+    context: &ExecutionContext<'_>,
+    pending_batch: &mut Option<LeafBatch>,
+) {
+    if let RenderOperation::DrawShape(draw) = command.operation {
+        pass.queue_leaf_draw(draw, command.clip, shapes, pending_batch);
+        return;
+    }
+    pass.flush_leaf_batch(pending_batch);
+    match command.operation {
+        RenderOperation::DrawShapeAndIncrementStencil(draw) => {
+            pass.set_scissor(command.clip.scissor);
+            pass.draw_shape_and_increment_stencil(
+                command.clip.stencil_reference,
+                draw.material,
+                shapes.draw_resources(draw.id),
+            );
+        }
+        RenderOperation::DecrementStencil(draw) => {
+            pass.set_scissor(command.clip.scissor);
+            pass.decrement_stencil(
+                command.clip.stencil_reference,
+                shapes.draw_resources(draw.id),
+            );
+        }
+        RenderOperation::CompositeTexture(composite) => match composite.placement {
+            TexturePlacement::Target => {
+                pass.set_scissor(command.clip.scissor);
+                pass.composite_texture(command.clip.stencil_reference, composite.texture);
+            }
+            TexturePlacement::Local { .. } => {
+                pass.composite_local_texture(
+                    composite,
+                    command.clip,
+                    &mut shapes.composites,
+                    context.device,
+                    context.queue,
+                );
+            }
+        },
+        _ => unreachable!("draw passes execute only draw commands"),
+    }
+}
+
+/// Returns a consumed command that still needs execution after this pass closes.
+fn execute_draw_pass<'scene>(
     encoder: &mut CommandEncoder,
-    commands: &RenderPlan,
-    cursor: &mut usize,
+    pending_command: RenderCommand<'scene>,
+    commands: &mut impl Iterator<Item = RenderCommand<'scene>>,
     surface: &SurfaceTarget<'_>,
     resources: &mut ExecutionResources<'_>,
     pipeline_tracker: &mut PipelineTracker,
-    composite_instances: Option<CompositeInstanceBuffer>,
-    composite_instance: &mut u32,
-) {
-    let first_command_index = *cursor;
+) -> Option<RenderCommand<'scene>> {
     if let RenderOperation::DrawShape(draw) | RenderOperation::DrawShapeAndIncrementStencil(draw) =
-        &commands.instructions[first_command_index].operation
+        &pending_command.operation
     {
         resources.shapes.prepare_texture_material(
             encoder,
@@ -167,73 +220,41 @@ fn execute_draws(
         buffers: resources.buffers,
         textures: resources.textures,
     };
-    while let Some(command) = commands.instructions.get(*cursor) {
-        if *cursor != first_command_index
-            && matches!(&command.operation,
-            RenderOperation::DrawShape(draw) | RenderOperation::DrawShapeAndIncrementStencil(draw)
-            if draw.material.under_fill_texture.is_some())
-        {
-            break;
+    let mut pending_batch = None;
+    execute_draw_command(
+        &mut pass,
+        pending_command,
+        resources.shapes,
+        resources.context,
+        &mut pending_batch,
+    );
+    for command in commands {
+        if should_end_draw_pass(&command) {
+            pass.flush_leaf_batch(&mut pending_batch);
+            return Some(command);
         }
-        match &command.operation {
-            RenderOperation::DrawShape(_) => {
-                *cursor +=
-                    pass.execute_leaf_draws(&commands.instructions[*cursor..], resources.shapes);
-                continue;
-            }
-            RenderOperation::DrawShapeAndIncrementStencil(draw) => {
-                pass.set_scissor(command.clip.scissor);
-                pass.draw_shape_and_increment_stencil(
-                    command.clip.stencil_reference,
-                    draw.material,
-                    resources.shapes.draw_resources(draw.id),
-                );
-            }
-            RenderOperation::DecrementStencil(draw) => {
-                pass.set_scissor(command.clip.scissor);
-                pass.decrement_stencil(
-                    command.clip.stencil_reference,
-                    resources.shapes.draw_resources(draw.id),
-                );
-            }
-            RenderOperation::CompositeTexture(composite) => match composite.placement {
-                TexturePlacement::Target => {
-                    pass.set_scissor(command.clip.scissor);
-                    pass.composite_texture(command.clip.stencil_reference, composite.texture);
-                }
-                TexturePlacement::Local { .. } => {
-                    let count = pass.execute_texture_composites(
-                        &commands.instructions[*cursor..],
-                        &resources.shapes.composites,
-                        composite_instances.expect("local composite instances were uploaded"),
-                        *composite_instance,
-                    );
-                    *composite_instance += count as u32;
-                    *cursor += count;
-                    continue;
-                }
-            },
-            _ => break,
-        }
-        *cursor += 1;
+        execute_draw_command(
+            &mut pass,
+            command,
+            resources.shapes,
+            resources.context,
+            &mut pending_batch,
+        );
     }
+    pass.flush_leaf_batch(&mut pending_batch);
+    None
 }
 
-pub(in crate::wgpu_backend) fn execute_commands(
+pub(in crate::wgpu_backend) fn execute_commands<'scene>(
     encoder: &mut CommandEncoder,
-    commands: &RenderPlan,
+    mut commands: impl Iterator<Item = RenderCommand<'scene>>,
     surface: SurfaceTarget<'_>,
     mut resources: ExecutionResources<'_>,
 ) -> ExecutionMetrics {
     let mut pipeline_tracker = PipelineTracker::new();
-    let composite_instances = resources.shapes.composites.prepare(
-        resources.context.device,
-        resources.context.queue,
-        commands,
-    );
-    let mut composite_instance = 0;
-    let mut cursor = 0;
-    while let Some(command) = commands.instructions.get(cursor) {
+    resources.shapes.composites.begin_render();
+    let mut pending_command = commands.next();
+    while let Some(command) = pending_command {
         match &command.operation {
             RenderOperation::BeginTarget(target) => resources.begin_target(*target, &surface),
             RenderOperation::EndTarget => resources.end_target(encoder, &surface),
@@ -268,12 +289,11 @@ pub(in crate::wgpu_backend) fn execute_commands(
                 if let Some(mask) = mask {
                     resources
                         .mask_resources()
-                        .apply_effect(encoder, effect, commands, mask);
+                        .apply_effect(encoder, effect, mask);
                 } else {
                     execute_effect(
                         encoder,
                         effect,
-                        commands,
                         &resources.context.effects,
                         true,
                         resources.effects,
@@ -320,21 +340,22 @@ pub(in crate::wgpu_backend) fn execute_commands(
                     resources.textures,
                 );
             }
-            _ => {
-                execute_draws(
+            RenderOperation::DrawShape(_)
+            | RenderOperation::DrawShapeAndIncrementStencil(_)
+            | RenderOperation::DecrementStencil(_)
+            | RenderOperation::CompositeTexture(_) => {
+                pending_command = execute_draw_pass(
                     encoder,
-                    commands,
-                    &mut cursor,
+                    command,
+                    &mut commands,
                     &surface,
                     &mut resources,
                     &mut pipeline_tracker,
-                    composite_instances,
-                    &mut composite_instance,
                 );
                 continue;
             }
         }
-        cursor += 1;
+        pending_command = commands.next();
     }
     assert!(
         resources.textures.active_targets.is_empty(),

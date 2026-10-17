@@ -1,7 +1,6 @@
 use super::effect_damage::{EffectDamageEntry, EffectDamageKind};
 use super::types::DrawTreeNode;
 use super::{Scene, SceneError};
-use crate::commands::EffectParameters;
 use crate::core::effect::{
     BackdropEffectConfig, ContentEffectBounds, ContentEffectConfig, ShapeMaskEffectBounds,
     ShapeMaskEffectConfig,
@@ -9,15 +8,16 @@ use crate::core::effect::{
 use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
 use backdrops::validate_backdrop_config;
 pub(crate) use backdrops::BackdropEffectInstance;
-use std::mem;
+use parameters::EffectParametersHandle;
 
 mod backdrops;
+pub(crate) mod parameters;
 
 /// A cached shape mask effect attachment. GPU parameter resources are created only on cache misses.
 #[derive(Clone, Copy)]
 pub(crate) struct ShapeMaskEffectInstance {
     pub effect_id: u64,
-    pub parameters: EffectParameters,
+    pub parameters: EffectParametersHandle,
     pub config: ShapeMaskEffectConfig,
     pub bounds: ShapeMaskEffectBounds,
 }
@@ -27,14 +27,14 @@ pub(crate) struct ShapeMaskEffectInstance {
 pub(crate) struct EffectInstance {
     /// The loaded effect's ID.
     pub effect_id: u64,
-    pub parameters: EffectParameters,
+    pub parameters: EffectParametersHandle,
 }
 
 /// A content attachment with its resolved input and output bounds.
 #[derive(Clone, Copy)]
 pub(crate) struct ContentEffectInstance {
     pub effect_id: u64,
-    pub parameters: EffectParameters,
+    pub parameters: EffectParametersHandle,
     pub config: ContentEffectConfig,
     pub bounds: Option<ContentEffectBounds>,
 }
@@ -154,12 +154,7 @@ pub(crate) struct RemovedEffectAttachment {
 }
 
 impl Scene {
-    pub(crate) fn compact_effect_parameters(
-        &mut self,
-        current: &mut Vec<u8>,
-        compacted: &mut Vec<u8>,
-    ) {
-        compacted.clear();
+    pub(crate) fn compact_effect_parameters(&mut self) {
         let parameters = self
             .content_effects
             .values_mut()
@@ -174,14 +169,7 @@ impl Scene {
                     .values_mut()
                     .map(|effect| &mut effect.parameters),
             );
-        for parameters in parameters {
-            let start = compacted.len();
-            compacted.extend_from_slice(&current[parameters.range.start..parameters.range.end]);
-            parameters.range.start = start;
-            parameters.range.end = compacted.len();
-        }
-        mem::swap(current, compacted);
-        compacted.clear();
+        self.effect_parameters.compact(parameters);
     }
 
     pub(crate) fn shape_mask_effect(
@@ -197,7 +185,7 @@ impl Scene {
         &mut self,
         node_id: usize,
         effect_id: u64,
-        parameters: EffectParameters,
+        parameters: &[u8],
         config: ContentEffectConfig,
         maximum_texture_dimension: u32,
     ) -> Result<(), SceneError> {
@@ -206,6 +194,10 @@ impl Scene {
             return Err(SceneError::InvalidParams(
                 "content effect outsets must be finite and non-negative, and downsample must be in the range (0.0, 1.0]".to_string(),
             ));
+        }
+        let parameters = self.effect_parameters.store(parameters);
+        if self.content_effects.contains_key(&node_id) {
+            self.effect_parameters.request_compaction();
         }
         let (instance, entry) = resolve_content_effect(
             node_id,
@@ -238,6 +230,7 @@ impl Scene {
         if self.content_effects.remove(&node_id).is_none() {
             return false;
         }
+        self.effect_parameters.request_compaction();
         self.effect_damage
             .remove(EffectDamageKind::Content, node_id);
         true
@@ -257,7 +250,8 @@ impl Scene {
     pub(crate) fn set_backdrop_effect(
         &mut self,
         node_id: usize,
-        effect: EffectInstance,
+        effect_id: u64,
+        parameters: &[u8],
         config: BackdropEffectConfig,
         maximum_texture_dimension: u32,
     ) -> Result<(), SceneError> {
@@ -269,6 +263,14 @@ impl Scene {
             return Err(SceneError::UnsupportedClipRectOperation(node_id, "effects"));
         };
         validate_backdrop_config(&config)?;
+        let parameters = self.effect_parameters.store(parameters);
+        if self.backdrop_effects.contains_key(&node_id) {
+            self.effect_parameters.request_compaction();
+        }
+        let effect = EffectInstance {
+            effect_id,
+            parameters,
+        };
         let (instance, entry) = resolve_backdrop_effect(
             node_id,
             node,
@@ -308,6 +310,7 @@ impl Scene {
         if self.backdrop_effects.remove(&node_id).is_none() {
             return false;
         }
+        self.effect_parameters.request_compaction();
         self.effect_damage
             .remove(EffectDamageKind::Backdrop, node_id);
         true
@@ -319,7 +322,7 @@ impl Scene {
         &mut self,
         node_id: usize,
         effect_id: u64,
-        parameters: EffectParameters,
+        parameters: &[u8],
         config: ShapeMaskEffectConfig,
         maximum_texture_dimension: u32,
     ) -> Result<(), SceneError> {
@@ -333,6 +336,10 @@ impl Scene {
             self.fringe_width,
         )
         .ok_or(SceneError::InvalidShapeMaskEffectBounds(node_id))?;
+        let parameters = self.effect_parameters.store(parameters);
+        if self.shape_mask_effects.contains_key(&node_id) {
+            self.effect_parameters.request_compaction();
+        }
         self.shape_mask_effects.insert(
             node_id,
             ShapeMaskEffectInstance {
@@ -378,6 +385,7 @@ impl Scene {
         maximum_texture_dimension: u32,
     ) {
         if self.shape_mask_effects.remove(&node_id).is_some() {
+            self.effect_parameters.request_compaction();
             self.refresh_content_effect_bounds(node_id, maximum_texture_dimension);
         }
     }
@@ -397,6 +405,7 @@ impl Scene {
                 .output_region(EffectDamageKind::Content, *node_id);
             self.effect_damage
                 .remove(EffectDamageKind::Content, *node_id);
+            self.effect_parameters.request_compaction();
             removed(RemovedEffectAttachment {
                 node_id: *node_id,
                 kind: EffectAttachmentKind::Content,
@@ -417,6 +426,7 @@ impl Scene {
                     self.fringe_width,
                 )
             });
+            self.effect_parameters.request_compaction();
             removed(RemovedEffectAttachment {
                 node_id: *node_id,
                 kind: EffectAttachmentKind::Backdrop,
@@ -464,6 +474,7 @@ impl Scene {
                 self.effect_damage
                     .replace(EffectDamageKind::Content, *node_id, entry);
             }
+            self.effect_parameters.request_compaction();
             removed(RemovedEffectAttachment {
                 node_id: *node_id,
                 kind: EffectAttachmentKind::ShapeMask,

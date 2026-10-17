@@ -1,5 +1,5 @@
 use super::WgpuBackend;
-use crate::commands::RenderPlan;
+use crate::commands::RenderCommand;
 use crate::core::linear_to_srgb_u8;
 use crate::render_backend::render_target::{PixelFormat, PixmapMut};
 #[cfg(feature = "render_metrics")]
@@ -266,10 +266,10 @@ impl WgpuBackend {
         Ok(())
     }
 
-    pub(in crate::wgpu_backend) fn render_byte_pixels(
+    pub(in crate::wgpu_backend) fn render_byte_pixels<'scene>(
         &mut self,
         root_scissor: Option<UnsignedPhysicalRect>,
-        commands: &RenderPlan,
+        commands: impl Iterator<Item = RenderCommand<'scene>>,
         output: &mut PixmapMut<'_>,
     ) -> Result<(), ReadbackError> {
         validate_readback_format(self.format)?;
@@ -340,10 +340,10 @@ impl WgpuBackend {
         Ok(())
     }
 
-    pub(in crate::wgpu_backend) fn render_argb_pixels(
+    pub(in crate::wgpu_backend) fn render_argb_pixels<'scene>(
         &mut self,
         root_scissor: Option<UnsignedPhysicalRect>,
-        commands: &RenderPlan,
+        commands: impl Iterator<Item = RenderCommand<'scene>>,
         output: &mut PixmapMut<'_>,
     ) -> Result<(), ReadbackError> {
         validate_readback_format(self.format)?;

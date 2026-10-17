@@ -1,5 +1,5 @@
 use super::{apply_effect_passes, EffectExecutionResources, EffectPassRunConfig, EffectRegistry};
-use crate::commands::{EffectApplication, IntermediateTextureId, RenderPlan};
+use crate::commands::{EffectApplication, IntermediateTextureId};
 use crate::wgpu_backend::execution::textures::{IntermediateTextureResources, PlannedTexture};
 use wgpu::{BindGroupLayout, CommandEncoder, Device, Queue, Sampler, TextureFormat};
 
@@ -16,7 +16,6 @@ pub(in crate::wgpu_backend) struct EffectContext<'a> {
 pub(in crate::wgpu_backend::execution) fn execute_effect(
     encoder: &mut CommandEncoder,
     command: &EffectApplication,
-    commands: &RenderPlan,
     context: &EffectContext<'_>,
     create_composite_bind_group: bool,
     resources: &mut EffectExecutionResources,
@@ -45,7 +44,7 @@ pub(in crate::wgpu_backend::execution) fn execute_effect(
         &mut textures.pool,
         EffectPassRunConfig {
             effect_id: command.effect_id,
-            params: commands.parameters(command.parameters),
+            params: command.parameters.bytes,
             source_bind_group,
             effect_sampler: context.sampler,
             composite_bind_group_layout: context.composite_layout,

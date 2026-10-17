@@ -84,8 +84,7 @@ fn replacements_preserve_topology_and_refresh_or_remove_only_the_nodes_effects()
     assert!(!renderer.scene.backdrop_effects.contains_key(&parent));
     assert!(!renderer.scene.content_effects.contains_key(&parent));
     assert!(renderer.scene.content_effects.contains_key(&first));
-    let plan = renderer.planner.plan(&renderer.scene, 4096);
-    assert_eq!(plan.effect_parameters.len(), 16);
+    assert_eq!(renderer.scene.effect_parameters.bytes.len(), 16);
     renderer
         .replace_with_cached_shape(parent, 1, ShapeDrawCommandOptions::new())
         .unwrap();
@@ -93,14 +92,7 @@ fn replacements_preserve_topology_and_refresh_or_remove_only_the_nodes_effects()
     renderer.render(&mut surface).unwrap();
     assert_eq!(surface.resource().shape_masks, 0);
     assert!(surface.resource().effects.contains(&8));
-    assert_eq!(
-        renderer
-            .planner
-            .plan(&renderer.scene, 4096)
-            .effect_parameters
-            .len(),
-        4
-    );
+    assert_eq!(renderer.scene.effect_parameters.bytes.len(), 4);
 }
 
 #[test]

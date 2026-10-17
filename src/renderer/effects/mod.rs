@@ -4,7 +4,7 @@ use crate::commands::ShapeDrawId;
 use crate::core::effect::{
     BackdropEffectConfig, ContentEffectConfig, ShapeMaskEffectBounds, ShapeMaskEffectConfig,
 };
-use crate::scene::effects::{EffectAttachmentKind, EffectInstance};
+use crate::scene::effects::EffectAttachmentKind;
 use crate::scene::types::DrawTreeNode;
 
 impl<B: RenderBackend> Renderer<B> {
@@ -41,12 +41,11 @@ impl<B: RenderBackend> Renderer<B> {
         self.backend
             .validate_effect_params(effect_id, params)
             .map_err(EffectError::Backend)?;
-        let parameters = self.planner.store_effect_parameters(params);
         let previous_output = self.scene.content_effect_output(node_id);
         self.scene.set_content_effect(
             node_id,
             effect_id,
-            parameters,
+            params,
             config,
             self.backend.maximum_texture_dimension(),
         )?;
@@ -84,13 +83,10 @@ impl<B: RenderBackend> Renderer<B> {
         self.backend
             .validate_effect_params(effect_id, params)
             .map_err(EffectError::Backend)?;
-        let parameters = self.planner.store_effect_parameters(params);
         self.scene.set_backdrop_effect(
             node_id,
-            EffectInstance {
-                effect_id,
-                parameters,
-            },
+            effect_id,
+            params,
             config,
             self.backend.maximum_texture_dimension(),
         )?;
@@ -123,7 +119,6 @@ impl<B: RenderBackend> Renderer<B> {
         self.backend
             .validate_effect_params(effect_id, params)
             .map_err(EffectError::Backend)?;
-        let parameters = self.planner.store_effect_parameters(params);
         let old_bounds = self
             .scene
             .shape_mask_effects
@@ -133,7 +128,7 @@ impl<B: RenderBackend> Renderer<B> {
         self.scene.set_shape_mask_effect(
             node_id,
             effect_id,
-            parameters,
+            params,
             config,
             self.backend.maximum_texture_dimension(),
         )?;

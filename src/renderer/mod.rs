@@ -32,7 +32,6 @@ pub struct Renderer<B: RenderBackend> {
     planner: Planner,
     backend: B,
     removed_shape_ids: Vec<ShapeDrawId>,
-    should_compact_effect_parameters: bool,
     dirty_bounds: Option<UnsignedPhysicalRect>,
     pending_damage: PendingDamage,
     #[cfg(feature = "render_metrics")]
@@ -48,7 +47,6 @@ impl<B: RenderBackend> Renderer<B> {
             scene: Scene::new(context, viewport, backend.fringe_width()),
             planner: Planner::default(),
             removed_shape_ids: Vec::new(),
-            should_compact_effect_parameters: false,
             pending_damage: PendingDamage::default(),
             dirty_bounds: Some(UnsignedPhysicalRect::from_size(
                 viewport.physical_size.into(),
@@ -98,10 +96,7 @@ impl<B: RenderBackend> Renderer<B> {
         }
         #[cfg(feature = "render_metrics")]
         let started_at = Instant::now();
-        if self.should_compact_effect_parameters {
-            self.planner.compact_effect_parameters(&mut self.scene);
-            self.should_compact_effect_parameters = false;
-        }
+        self.scene.compact_effect_parameters();
         self.pending_damage
             .apply(&self.scene, &mut self.dirty_bounds);
         let viewport = self.scene.viewport();
@@ -116,10 +111,10 @@ impl<B: RenderBackend> Renderer<B> {
             );
         }
         self.dirty_bounds = self.scene.expand_effect_damage(self.dirty_bounds);
+        self.scene.finish_preparation();
         let commands = self
             .planner
             .plan(&self.scene, self.backend.maximum_texture_dimension());
-        self.scene.finish_preparation();
         self.backend.render(self.dirty_bounds, commands, target)?;
         self.dirty_bounds = None;
         #[cfg(feature = "render_metrics")]
