@@ -120,6 +120,7 @@ impl InstanceTransform {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct InstanceMetadata {
+    pub coverage_translation: [f32; 2],
     pub texture_flags: f32,
     pub texture_uv_transform_layer0: TextureUvTransform,
     pub texture_uv_transform_layer1: TextureUvTransform,
@@ -128,6 +129,7 @@ pub struct InstanceMetadata {
 impl Default for InstanceMetadata {
     fn default() -> Self {
         Self {
+            coverage_translation: [0.0; 2],
             texture_flags: 0.0,
             texture_uv_transform_layer0: TextureUvTransform::IDENTITY,
             texture_uv_transform_layer1: TextureUvTransform::IDENTITY,
@@ -138,20 +140,25 @@ impl Default for InstanceMetadata {
 impl InstanceMetadata {
     pub(crate) const STRIDE: BufferAddress = mem::size_of::<Self>() as BufferAddress;
 
-    const ATTRIBUTES: [VertexAttribute; 3] = [
+    const ATTRIBUTES: [VertexAttribute; 4] = [
+        VertexAttribute {
+            format: VertexFormat::Float32x2,
+            offset: mem::offset_of!(Self, coverage_translation) as BufferAddress,
+            shader_location: 13,
+        },
         VertexAttribute {
             format: VertexFormat::Float32,
-            offset: 0,
+            offset: mem::offset_of!(Self, texture_flags) as BufferAddress,
             shader_location: 9,
         },
         VertexAttribute {
             format: VertexFormat::Float32x4,
-            offset: mem::size_of::<f32>() as BufferAddress,
+            offset: mem::offset_of!(Self, texture_uv_transform_layer0) as BufferAddress,
             shader_location: 10,
         },
         VertexAttribute {
             format: VertexFormat::Float32x4,
-            offset: (mem::size_of::<f32>() + mem::size_of::<TextureUvTransform>()) as BufferAddress,
+            offset: mem::offset_of!(Self, texture_uv_transform_layer1) as BufferAddress,
             shader_location: 11,
         },
     ];

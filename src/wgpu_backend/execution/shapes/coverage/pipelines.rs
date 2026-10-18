@@ -27,12 +27,12 @@ impl CoverageVertex {
             },
             VertexAttribute {
                 format: VertexFormat::Uint32,
-                offset: 32,
+                offset: mem::offset_of!(CoverageVertex, coverage_start) as u64,
                 shader_location: 8,
             },
             VertexAttribute {
-                format: VertexFormat::Uint32,
-                offset: 36,
+                format: VertexFormat::Uint32x2,
+                offset: mem::offset_of!(CoverageVertex, tile_origin) as u64,
                 shader_location: 12,
             },
         ];
@@ -51,7 +51,7 @@ enum StencilAction {
     Decrement,
 }
 
-pub(in crate::wgpu_backend) struct CoveragePipelines {
+pub(in crate::wgpu_backend) struct CoverageMaterialPipelines {
     solid: [RenderPipeline; 2],
     gradient: [RenderPipeline; 2],
     texture: [RenderPipeline; 2],
@@ -59,16 +59,16 @@ pub(in crate::wgpu_backend) struct CoveragePipelines {
     pub decrement: RenderPipeline,
 }
 
-impl CoveragePipelines {
+impl CoverageMaterialPipelines {
     pub(in crate::wgpu_backend) fn new(
         device: &Device,
         format: TextureFormat,
         sample_count: u32,
+        evaluates_path_coverage: bool,
         shared: [&BindGroupLayout; 3],
-        gradient: &BindGroupLayout,
-        texture: &BindGroupLayout,
-        gradient_texture: &BindGroupLayout,
+        materials: [&BindGroupLayout; 3],
     ) -> Self {
+        let [gradient, texture, gradient_texture] = materials;
         let create = |material_layout: Option<&BindGroupLayout>,
                       uses_gradient: bool,
                       has_under_fill_texture: bool,
@@ -119,6 +119,7 @@ impl CoveragePipelines {
                     },
                     sample_count,
                     uses_coverage: true,
+                    evaluates_path_coverage,
                 },
             )
         };
@@ -150,5 +151,37 @@ impl CoveragePipelines {
             (true, true) => &self.gradient_texture,
         };
         &pipelines[increments_stencil as usize]
+    }
+}
+
+pub(in crate::wgpu_backend) struct CoveragePipelines {
+    pub solid: CoverageMaterialPipelines,
+    pub boundary: CoverageMaterialPipelines,
+}
+
+impl CoveragePipelines {
+    pub(in crate::wgpu_backend) fn new(
+        device: &Device,
+        format: TextureFormat,
+        sample_count: u32,
+        shared: [&BindGroupLayout; 3],
+        gradient: &BindGroupLayout,
+        texture: &BindGroupLayout,
+        gradient_texture: &BindGroupLayout,
+    ) -> Self {
+        let create = |evaluates_path_coverage| {
+            CoverageMaterialPipelines::new(
+                device,
+                format,
+                sample_count,
+                evaluates_path_coverage,
+                shared,
+                [gradient, texture, gradient_texture],
+            )
+        };
+        Self {
+            solid: create(false),
+            boundary: create(true),
+        }
     }
 }

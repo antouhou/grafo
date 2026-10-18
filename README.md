@@ -195,6 +195,9 @@ Run the visual-regression benchmark in release mode:
 cargo bench --bench visual_regression
 ```
 
+Run `cargo bench --bench path_coverage` to compare retained redraws, queue rebuilds,
+and moving paths. Each sample redraws the scene and includes GPU readback.
+
 The [examples](https://github.com/antouhou/grafo/tree/main/examples) directory includes
 hierarchical clipping, texture layers, transforms, and shader effects.
 

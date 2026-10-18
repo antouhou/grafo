@@ -19,8 +19,8 @@ pub(in crate::wgpu_backend) use pipelines::ShapeMaskEffectRendererResources;
 use std::sync::Arc;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
-    BindGroupLayout, BufferUsages, Color, CommandEncoder, Device, IndexFormat, LoadOp, Operations,
-    Queue, RenderPassColorAttachment, RenderPassDescriptor, Sampler, StoreOp, TextureFormat,
+    BindGroupLayout, BufferUsages, Color, CommandEncoder, Device, LoadOp, Operations, Queue,
+    RenderPassColorAttachment, RenderPassDescriptor, Sampler, StoreOp, TextureFormat,
 };
 
 mod pipelines;
@@ -115,16 +115,8 @@ impl ShapeMaskEffectExecutionResources<'_> {
                         -uniform.local_origin[0] * scale_x,
                         -uniform.local_origin[1] * scale_y,
                     );
-                    let geometry = &path.tessellation.vertex_buffers;
                     let builder = &mut self.effects.coverage_builder;
-                    builder.build(
-                        &geometry.vertices,
-                        &geometry.indices,
-                        Some(transform),
-                        1.0,
-                        (width, height),
-                        path.tessellation.local_bounds,
-                    );
+                    builder.build(&path.tessellation, Some(transform), 1.0, (width, height));
                     uniform.logical_size = [width as f32, height as f32];
                     Some(CoverageBuffers::new(
                         self.device,
@@ -170,25 +162,13 @@ impl ShapeMaskEffectExecutionResources<'_> {
                 targets::set_scissor(&mut pass, command.clip.scissor);
                 pass.set_stencil_reference(command.clip.stencil_reference);
                 if let Some(coverage) = &coverage {
-                    pass.set_pipeline(&self.pipelines.coverage_pipeline);
                     pass.set_bind_group(0, &binding, &[]);
-                    pass.set_vertex_buffer(
-                        0,
-                        coverage
-                            .vertices
-                            .as_ref()
-                            .expect("mask vertices were uploaded")
-                            .slice(..),
+                    coverage.bind(&mut pass);
+                    coverage.draw(
+                        &mut pass,
+                        self.pipelines.coverage_pipelines.each_ref(),
+                        0..1,
                     );
-                    pass.set_index_buffer(
-                        coverage
-                            .indices
-                            .as_ref()
-                            .expect("mask indices were uploaded")
-                            .slice(..),
-                        IndexFormat::Uint32,
-                    );
-                    pass.draw_indexed(0..coverage.index_count, 0, 0..1);
                 } else {
                     draws::draw_shape_mask(
                         &mut pass,

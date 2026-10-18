@@ -1,10 +1,28 @@
 use super::draws::{self, DrawPass};
+use super::shapes::coverage::CoverageBuffers;
 use super::shapes::{ShapeBufferLocation, ShapeExecutionResources};
-use crate::commands::{DrawClip, ShapeDraw, ShapeTextureBinding};
+use crate::commands::{DrawClip, ShapeDraw, ShapeDrawMaterial, ShapeTextureBinding};
+use crate::core::UnsignedPhysicalRect;
 use crate::wgpu_backend::types::Pipeline;
 use crate::wgpu_backend::vertex::GeometryBufferRange;
+use std::sync::Arc;
+
+struct CoverageBatch {
+    buffers: Arc<CoverageBuffers>,
+    bounds: UnsignedPhysicalRect,
+}
+
+fn extend_disjoint_bounds(bounds: &mut UnsignedPhysicalRect, next: UnsignedPhysicalRect) -> bool {
+    // Interior and boundary draws may only be regrouped when their pixels do not overlap.
+    if bounds.intersects(&next) {
+        return false;
+    }
+    *bounds = bounds.union(&next);
+    true
+}
 
 pub(super) struct LeafBatch {
+    coverage: Option<CoverageBatch>,
     clip: DrawClip,
     geometry_range: GeometryBufferRange,
     texture_bindings: [ShapeTextureBinding; 2],
@@ -18,6 +36,7 @@ impl LeafBatch {
             return None;
         }
         Some(Self {
+            coverage: None,
             clip,
             geometry_range: location.geometry_range,
             texture_bindings: draw.material.texture_bindings,
@@ -34,6 +53,17 @@ impl LeafBatch {
         {
             return false;
         }
+        match (&mut self.coverage, &next.coverage) {
+            (Some(current), Some(next)) => {
+                if !Arc::ptr_eq(&current.buffers, &next.buffers)
+                    || !extend_disjoint_bounds(&mut current.bounds, next.bounds)
+                {
+                    return false;
+                }
+            }
+            (None, None) => {}
+            _ => return false,
+        }
         self.instance_count += next.instance_count;
         true
     }
@@ -43,10 +73,13 @@ impl DrawPass<'_, '_> {
     fn draw_batch(&mut self, batch: &LeafBatch) {
         self.set_scissor(batch.clip.scissor);
         let pipelines = &self.pipelines.shapes;
-        if self.pipeline_tracker.current != Pipeline::LeafDraw {
-            self.render_pass.set_pipeline(&pipelines.leaf_draw_pipeline);
-            self.render_pass
-                .set_bind_group(0, &pipelines.and_bind_group, &[]);
+        if batch.coverage.is_some() || self.pipeline_tracker.current != Pipeline::LeafDraw {
+            if batch.coverage.is_none() {
+                self.render_pass.set_pipeline(&pipelines.leaf_draw_pipeline);
+                self.render_pass
+                    .set_bind_group(0, &pipelines.and_bind_group, &[]);
+                self.pipeline_tracker.switch_to(Pipeline::LeafDraw);
+            }
             self.render_pass.set_bind_group(
                 1,
                 &*pipelines.default_shape_texture_bind_groups[0],
@@ -59,9 +92,14 @@ impl DrawPass<'_, '_> {
             );
             self.bound_textures.mark_bound(0, ShapeTextureBinding::None);
             self.bound_textures.mark_bound(1, ShapeTextureBinding::None);
-            self.pipeline_tracker.switch_to(Pipeline::LeafDraw);
         }
-        draws::bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
+        if let Some(coverage) = &batch.coverage {
+            coverage.buffers.bind(self.render_pass);
+            self.render_pass
+                .set_bind_group(0, &coverage.buffers.bind_group, &[]);
+        } else {
+            draws::bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
+        }
         self.textures.bind_shape_texture_layers(
             self.render_pass,
             &batch.texture_bindings,
@@ -79,11 +117,31 @@ impl DrawPass<'_, '_> {
             .set_vertex_buffer(3, self.buffers.instance_metadata_buffer().slice(..));
         self.render_pass
             .set_stencil_reference(batch.clip.stencil_reference);
-        self.buffers.draw_indexed(
-            self.render_pass,
-            batch.geometry_range,
-            batch.first_instance_index..batch.first_instance_index + batch.instance_count,
-        );
+        let instances =
+            batch.first_instance_index..batch.first_instance_index + batch.instance_count;
+        if let Some(coverage) = &batch.coverage {
+            let material = ShapeDrawMaterial {
+                has_gradient_fill: false,
+                under_fill_texture: None,
+                texture_bindings: batch.texture_bindings,
+            };
+            let _draw_count = coverage.buffers.draw(
+                self.render_pass,
+                [
+                    pipelines.coverage.solid.material(material, false),
+                    pipelines.coverage.boundary.material(material, false),
+                ],
+                instances,
+            );
+            self.pipeline_tracker.current = Pipeline::None;
+            #[cfg(feature = "render_metrics")]
+            self.pipeline_tracker
+                .record_coverage_draws(Pipeline::LeafDraw, _draw_count, false);
+            self.bound_textures.invalidate();
+        } else {
+            self.buffers
+                .draw_indexed(self.render_pass, batch.geometry_range, instances);
+        }
     }
 
     pub(super) fn flush_leaf_batch(&mut self, pending_batch: &mut Option<LeafBatch>) {
@@ -101,22 +159,27 @@ impl DrawPass<'_, '_> {
         pending_batch: &mut Option<LeafBatch>,
     ) {
         let resources = shapes.draw_resources(draw.id);
-        if resources.path_coverage.is_some() {
-            self.flush_leaf_batch(pending_batch);
-            self.set_scissor(clip.scissor);
-            self.draw_shape(clip.stencil_reference, draw.material, resources);
-            return;
-        }
         let Some(location) = resources.geometry_buffer_location else {
             self.flush_leaf_batch(pending_batch);
             return;
         };
-        let Some(batch) = LeafBatch::new(draw, clip, location) else {
+        let Some(mut batch) = LeafBatch::new(draw, clip, location) else {
             self.flush_leaf_batch(pending_batch);
             self.set_scissor(clip.scissor);
             self.draw_shape(clip.stencil_reference, draw.material, resources);
             return;
         };
+        if let Some(coverage) = &resources.path_coverage {
+            let bounds = coverage.buffers.bounds;
+            let [x, y] = coverage.translation.map(|value| value as u32);
+            batch.coverage = Some(CoverageBatch {
+                buffers: Arc::clone(&coverage.buffers),
+                bounds: UnsignedPhysicalRect::new(
+                    (bounds.min.x + x, bounds.min.y + y).into(),
+                    (bounds.max.x + x, bounds.max.y + y).into(),
+                ),
+            });
+        }
         if pending_batch
             .as_mut()
             .is_some_and(|pending| pending.try_append(&batch))

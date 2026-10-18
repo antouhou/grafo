@@ -1,18 +1,14 @@
-use super::geometry::{CoverageBuilder, SOLID_COVERAGE};
-use crate::core::{Shape, TransformInstance, Viewport};
+use super::cache::CoverageKey;
+use super::geometry::{CoverageBuilder, SOLID_COVERAGE, TILE_SIZE};
+use super::placement::CoveragePlacement;
+use crate::core::cache::FrameCache;
+use crate::core::{BorderRadii, Shape, TransformInstance, Viewport};
 use crate::scene::{Scene, SceneContext};
 use crate::wgpu_backend::pipeline::SHAPE_SHADER;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
+use std::sync::Arc;
 
-fn integral(value: f32) -> f32 {
-    if value <= 0.0 {
-        0.0
-    } else if value >= 1.0 {
-        value - 0.5
-    } else {
-        value * value * 0.5
-    }
-}
+mod sparse;
 
 fn coverage_at(mesh: &CoverageBuilder, x: u32, y: u32) -> f32 {
     for vertices in mesh.vertices.as_chunks::<4>().0 {
@@ -23,27 +19,13 @@ fn coverage_at(mesh: &CoverageBuilder, x: u32, y: u32) -> f32 {
         {
             continue;
         }
-        if vertices[0].row_start == SOLID_COVERAGE {
+        if vertices[0].coverage_start == SOLID_COVERAGE {
             return 1.0;
         }
-        let row = mesh.rows[(vertices[0].row_start + y - vertices[0].tile_y) as usize];
-        let mut area = row.baseline;
-        for edge in &mesh.edges[row.edge_start as usize..(row.edge_start + row.edge_count) as usize]
-        {
-            let a = edge.x0 - (x - row.tile_x) as f32;
-            let b = edge.x1 - (x - row.tile_x) as f32;
-            area += edge.height
-                * if a.min(b) >= 1.0 {
-                    1.0
-                } else if a.min(b) >= 0.0 && a.max(b) <= 1.0 {
-                    (a + b) * 0.5
-                } else if a.max(b) > 0.0 {
-                    (integral(b) - integral(a)) * edge.inverse_width
-                } else {
-                    0.0
-                };
-        }
-        return area.clamp(0.0, 1.0);
+        let vertex = vertices[0];
+        let offset = vertex.coverage_start + (y - vertex.tile_origin[1]) * TILE_SIZE + x
+            - vertex.tile_origin[0];
+        return mesh.coverage[offset as usize];
     }
     0.0
 }
@@ -124,10 +106,7 @@ fn path_tiles_match_independently_clipped_triangles() {
             .line_to((8.375, 44.75))
             .close()
             .build(),
-        Shape::rounded_rect(
-            [(3.125, 5.625), (50.25, 47.875)],
-            crate::BorderRadii::new(13.0),
-        ),
+        Shape::rounded_rect([(3.125, 5.625), (50.25, 47.875)], BorderRadii::new(13.0)),
     ];
     let mut scene = Scene::new(
         SceneContext::default(),
@@ -145,14 +124,7 @@ fn path_tiles_match_independently_clipped_triangles() {
             .vertices
             .iter()
             .all(|vertex| vertex.coverage == 1.0));
-        mesh.build(
-            &geometry.vertices,
-            &geometry.indices,
-            None,
-            1.0,
-            (64, 64),
-            cached.local_bounds(),
-        );
+        mesh.build(&cached.tessellation, None, 1.0, (64, 64));
         for y in 0..64 {
             for x in 0..64 {
                 let expected: f32 = geometry
@@ -196,34 +168,27 @@ fn transformed_tiles_preserve_thin_features_and_rebuild_for_viewport_changes() {
             .build(),
         None,
     );
-    let geometry = cached.vertex_buffers();
     let mut mesh = CoverageBuilder::default();
     mesh.build(
-        &geometry.vertices,
-        &geometry.indices,
+        &cached.tessellation,
         Some(TransformInstance::translation(8.375, 4.0)),
         1.0,
         (32, 32),
-        cached.local_bounds(),
     );
     assert!((coverage_at(&mesh, 8, 16) - 0.25).abs() < 1e-6);
     mesh.build(
-        &geometry.vertices,
-        &geometry.indices,
+        &cached.tessellation,
         Some(TransformInstance::translation(8.375, 4.0)),
         2.0,
         (64, 64),
-        cached.local_bounds(),
     );
     assert!((coverage_at(&mesh, 16, 32) - 0.25).abs() < 1e-6);
     assert!((coverage_at(&mesh, 17, 32) - 0.25).abs() < 1e-6);
     mesh.build(
-        &geometry.vertices,
-        &geometry.indices,
+        &cached.tessellation,
         Some(TransformInstance::translation(-100.0, 4.0)),
         1.0,
         (32, 32),
-        cached.local_bounds(),
     );
     assert!(mesh.vertices.is_empty());
 }
@@ -263,14 +228,7 @@ fn projected_path_tiles_match_the_projected_triangle_areas() {
     ];
     let mut mesh = CoverageBuilder::default();
     for transform in transforms {
-        mesh.build(
-            &geometry.vertices,
-            &geometry.indices,
-            Some(transform),
-            1.5,
-            (64, 64),
-            cached.local_bounds(),
-        );
+        mesh.build(&cached.tessellation, Some(transform), 1.5, (64, 64));
         let project = |position: [f32; 2]| {
             let [x, y] = position;
             let inverse_w = 1.5
@@ -309,4 +267,202 @@ fn coverage_shader_entry_points_validate_without_a_gpu() {
     Validator::new(ValidationFlags::all(), Capabilities::all())
         .validate(&module)
         .unwrap();
+}
+
+#[test]
+fn coverage_reuse_distinguishes_placement_and_replaced_geometry() {
+    let mut scene = Scene::new(
+        SceneContext::default(),
+        Viewport {
+            physical_size: (128, 128),
+            scale_factor: 1.0,
+        },
+        0.75,
+    );
+    let first = scene.tessellate(
+        &Shape::rounded_rect([(0.0, 0.0), (32.0, 32.0)], BorderRadii::new(8.0)),
+        None,
+    );
+    let replacement = scene.tessellate(
+        &Shape::rounded_rect([(0.0, 0.0), (48.0, 48.0)], BorderRadii::new(8.0)),
+        None,
+    );
+    let shared = Arc::clone(&first.tessellation);
+    let mut cache = FrameCache::new();
+    cache.insert(CoverageKey::new(&first.tessellation, None), "prepared");
+    drop(cache.end_frame());
+    assert_eq!(
+        cache.get(&CoverageKey::new(
+            &shared,
+            Some(TransformInstance::translation(-0.0, 0.0))
+        )),
+        Some("prepared")
+    );
+    assert!(cache
+        .get(&CoverageKey::new(
+            &shared,
+            Some(TransformInstance::translation(0.125, 0.0))
+        ))
+        .is_none());
+    assert!(cache
+        .get(&CoverageKey::new(&replacement.tessellation, None))
+        .is_none());
+    cache.clear();
+    assert!(cache.get(&CoverageKey::new(&shared, None)).is_none());
+}
+
+#[test]
+fn sparse_spans_preserve_holes_partial_rows_and_separate_draw_ranges() {
+    let shape = Shape::builder()
+        .begin((-16.0, 2.25))
+        .line_to((128.0, 2.25))
+        .line_to((128.0, 62.75))
+        .line_to((-16.0, 62.75))
+        .close()
+        .begin((24.0, 10.125))
+        .line_to((104.0, 10.125))
+        .line_to((104.0, 49.375))
+        .line_to((24.0, 49.375))
+        .close()
+        .build();
+    let mut scene = Scene::new(
+        SceneContext::default(),
+        Viewport {
+            physical_size: (128, 64),
+            scale_factor: 1.0,
+        },
+        0.75,
+    );
+    let cached = scene.tessellate(&shape, None);
+    let geometry = cached.vertex_buffers();
+    let mut mesh = CoverageBuilder::default();
+    mesh.build(&cached.tessellation, None, 1.0, (128, 64));
+    for y in 0..64 {
+        for x in 0..128 {
+            let expected: f32 = geometry
+                .indices
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .map(|triangle| {
+                    triangle_pixel_area(
+                        &triangle.map(|index| geometry.vertices[index as usize].position),
+                        x,
+                        y,
+                    )
+                })
+                .sum();
+            assert!(
+                (coverage_at(&mesh, x, y) - expected).abs() < 0.0003,
+                "pixel {x},{y}"
+            );
+        }
+    }
+    let split = mesh.solid_index_count as usize;
+    assert!(split > 0 && split < mesh.indices.len());
+    assert!(mesh.indices[..split]
+        .iter()
+        .all(|&index| mesh.vertices[index as usize].coverage_start == SOLID_COVERAGE));
+    assert!(mesh.indices[split..]
+        .iter()
+        .all(|&index| mesh.vertices[index as usize].coverage_start != SOLID_COVERAGE));
+}
+
+#[test]
+fn translated_coverage_preserves_pixel_phase_and_viewport_clipping() {
+    let viewport = Viewport {
+        physical_size: (192, 128),
+        scale_factor: 1.0,
+    };
+    let mut scene = Scene::new(SceneContext::default(), viewport, 0.75);
+    let cached = scene.tessellate(
+        &Shape::rounded_rect([(0.375, 0.625), (60.875, 40.75)], BorderRadii::new(12.0)),
+        None,
+    );
+    let mut original = CoverageBuilder::default();
+    let mut translated = CoverageBuilder::default();
+    for scale_factor in [1.0, 1.5, 2.0] {
+        let viewport = Viewport {
+            scale_factor,
+            ..viewport
+        };
+        for transform in [
+            TransformInstance::translation(8.25, 6.5),
+            TransformInstance::translation(-4.25, 6.5),
+            TransformInstance::translation(170.25, 6.5),
+            TransformInstance::affine_2d(-1.0, 0.125, 0.25, 1.0, 70.125, 8.25),
+        ] {
+            let placement =
+                CoveragePlacement::new(Some(transform), cached.local_bounds(), viewport);
+            original.build(
+                &cached.tessellation,
+                Some(transform),
+                scale_factor,
+                viewport.physical_size,
+            );
+            translated.build(
+                &cached.tessellation,
+                placement.transform,
+                scale_factor,
+                viewport.physical_size,
+            );
+            let [dx, dy] = placement.translation.map(|value| value as u32);
+            for y in 0..viewport.physical_size.1 {
+                for x in 0..viewport.physical_size.0 {
+                    let actual = if x < dx || y < dy {
+                        0.0
+                    } else {
+                        coverage_at(&translated, x - dx, y - dy)
+                    };
+                    assert!(
+                        (coverage_at(&original, x, y) - actual).abs() < 0.0003,
+                        "pixel {x},{y}, scale {scale_factor}"
+                    );
+                }
+            }
+        }
+    }
+    let first = CoveragePlacement::new(
+        Some(TransformInstance::translation(8.25, 6.5)),
+        cached.local_bounds(),
+        viewport,
+    );
+    let second = CoveragePlacement::new(
+        Some(TransformInstance::translation(80.25, 60.5)),
+        cached.local_bounds(),
+        viewport,
+    );
+    assert_eq!(
+        CoverageKey::new(&cached.tessellation, first.transform),
+        CoverageKey::new(&cached.tessellation, second.transform)
+    );
+}
+
+#[test]
+fn non_finite_projected_triangles_do_not_produce_coverage() {
+    let mut scene = Scene::new(
+        SceneContext::default(),
+        Viewport {
+            physical_size: (64, 64),
+            scale_factor: 1.0,
+        },
+        0.75,
+    );
+    let cached = scene.tessellate(
+        &Shape::builder()
+            .begin((0.0, 0.0))
+            .line_to((2.0, 0.0))
+            .line_to((0.0, 16.0))
+            .close()
+            .build(),
+        None,
+    );
+    let mut mesh = CoverageBuilder::default();
+    mesh.build(
+        &cached.tessellation,
+        Some(TransformInstance::affine_2d(3e38, 0.0, 0.0, 1.0, 8.0, 8.0)),
+        1.0,
+        (64, 64),
+    );
+    assert!(mesh.indices.is_empty());
 }

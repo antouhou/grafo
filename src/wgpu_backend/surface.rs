@@ -43,15 +43,21 @@ impl WgpuBackend {
         );
         if needs_coverage {
             let shapes = &mut self.resources.shape_execution;
+            shapes.coverage_cache.clear();
             for resources in shapes.draws.values_mut() {
                 if let Some(coverage) = &mut resources.path_coverage {
-                    coverage.resize(
+                    *coverage = shapes.coverage_cache.prepare(
+                        &coverage.tessellation,
+                        coverage.transform,
                         viewport,
-                        &mut shapes.coverage_builder,
                         &self.device,
                         &self.queue,
                         pipelines,
                     );
+                    if let Some(location) = resources.geometry_buffer_location {
+                        shapes.instance_metadata[location.instance_index].coverage_translation =
+                            coverage.translation;
+                    }
                 }
             }
         }

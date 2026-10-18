@@ -100,8 +100,6 @@ impl DrawPass<'_, '_> {
         };
         if let Some(coverage) = &resources.path_coverage {
             let buffers = &coverage.buffers;
-            self.render_pass
-                .set_pipeline(pipelines.coverage.material(material, increments_stencil));
             self.render_pass.set_bind_group(0, &buffers.bind_group, &[]);
             for layer in 0..2 {
                 self.render_pass.set_bind_group(
@@ -124,33 +122,29 @@ impl DrawPass<'_, '_> {
                 self.render_pass.set_bind_group(3, binding, &[]);
             }
             bind_instance_buffers(self.render_pass, location.instance_index, self.buffers);
-            self.render_pass.set_vertex_buffer(
-                0,
-                buffers
-                    .vertices
-                    .as_ref()
-                    .expect("coverage vertices were uploaded")
-                    .slice(..),
-            );
-            self.render_pass.set_index_buffer(
-                buffers
-                    .indices
-                    .as_ref()
-                    .expect("coverage indices were uploaded")
-                    .slice(..),
-                IndexFormat::Uint32,
-            );
+            buffers.bind(self.render_pass);
             self.render_pass.set_stencil_reference(stencil_reference);
-            self.render_pass
-                .draw_indexed(0..buffers.index_count, 0, 0..1);
-            self.pipeline_tracker.current = Pipeline::None;
-            self.pipeline_tracker
-                .switch_to(pipelines.material_pipeline(material, increments_stencil).0);
+            let _draw_count = buffers.draw(
+                self.render_pass,
+                [
+                    pipelines
+                        .coverage
+                        .solid
+                        .material(material, increments_stencil),
+                    pipelines
+                        .coverage
+                        .boundary
+                        .material(material, increments_stencil),
+                ],
+                0..1,
+            );
             self.pipeline_tracker.current = Pipeline::None;
             #[cfg(feature = "render_metrics")]
-            if increments_stencil {
-                self.pipeline_tracker.record_stencil_pass();
-            }
+            self.pipeline_tracker.record_coverage_draws(
+                pipelines.material_pipeline(material, increments_stencil).0,
+                _draw_count,
+                increments_stencil,
+            );
             self.bound_textures.invalidate();
             bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
             return;
@@ -221,8 +215,6 @@ impl DrawPass<'_, '_> {
         if let Some(coverage) = &resources.path_coverage {
             let buffers = &coverage.buffers;
             self.render_pass
-                .set_pipeline(&self.pipelines.shapes.coverage.decrement);
-            self.render_pass
                 .set_bind_group(0, &buffers.decrement_bind_group, &[]);
             for layer in 0..2 {
                 self.render_pass.set_bind_group(
@@ -232,30 +224,23 @@ impl DrawPass<'_, '_> {
                 );
             }
             bind_instance_buffers(self.render_pass, location.instance_index, self.buffers);
-            self.render_pass.set_vertex_buffer(
-                0,
-                buffers
-                    .vertices
-                    .as_ref()
-                    .expect("coverage vertices were uploaded")
-                    .slice(..),
-            );
-            self.render_pass.set_index_buffer(
-                buffers
-                    .indices
-                    .as_ref()
-                    .expect("coverage indices were uploaded")
-                    .slice(..),
-                IndexFormat::Uint32,
-            );
+            buffers.bind(self.render_pass);
             self.render_pass.set_stencil_reference(stencil_reference);
-            self.render_pass
-                .draw_indexed(0..buffers.index_count, 0, 0..1);
-            self.pipeline_tracker.current = Pipeline::None;
-            self.pipeline_tracker.switch_to(Pipeline::StencilDecrement);
+            let _draw_count = buffers.draw(
+                self.render_pass,
+                [
+                    &self.pipelines.shapes.coverage.solid.decrement,
+                    &self.pipelines.shapes.coverage.boundary.decrement,
+                ],
+                0..1,
+            );
             self.pipeline_tracker.current = Pipeline::None;
             #[cfg(feature = "render_metrics")]
-            self.pipeline_tracker.record_stencil_pass();
+            self.pipeline_tracker.record_coverage_draws(
+                Pipeline::StencilDecrement,
+                _draw_count,
+                true,
+            );
             self.bound_textures.invalidate();
             bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
             return;

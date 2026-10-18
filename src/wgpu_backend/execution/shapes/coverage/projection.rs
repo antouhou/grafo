@@ -5,6 +5,7 @@ pub(super) struct Projection {
     inverse: [[f64; 3]; 3],
     scale: f64,
     sign: f64,
+    pub(super) boundary_orientation: Option<i32>,
 }
 
 impl Projection {
@@ -69,11 +70,16 @@ impl Projection {
             (bounds[0].1 as f64 + bounds[1].1 as f64) * 0.5,
         ];
         let sign = (c[0] * center[0] + c[1] * center[1] + c[2]).signum();
+        let boundary_orientation = corners
+            .iter()
+            .all(|&(x, y)| (c[0] * x as f64 + c[1] * y as f64 + c[2]) * sign >= 1e-6)
+            .then_some((determinant * sign).signum() as i32);
         Some(Self {
             matrix,
             inverse: cofactors.map(|row| row.map(|value| value / determinant)),
             scale,
             sign,
+            boundary_orientation,
         })
     }
 

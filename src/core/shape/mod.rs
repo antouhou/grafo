@@ -16,6 +16,8 @@ use lyon::tessellation::FillVertexConstructor;
 use smallvec::SmallVec;
 use std::sync::Arc;
 
+pub(crate) mod boundary;
+
 #[derive(Debug, Clone)]
 pub struct CachedShapeHandle {
     pub tessellation: Arc<CachedTessellation>,
@@ -255,6 +257,7 @@ impl Shape {
                 );
 
                 let tessellation = Arc::new(CachedTessellation {
+                    boundary_edges: Vec::new(),
                     vertex_buffers: Arc::new(vertex_buffers),
                     local_bounds,
                     texture_mapping_size: rect_size(local_bounds),
@@ -792,6 +795,10 @@ impl PathShape {
         }
 
         let tessellation = Arc::new(CachedTessellation {
+            boundary_edges: shape_resources
+                .path_boundary_builder
+                .build(&buffers.vertices, &buffers.indices, |position| position)
+                .collect(),
             vertex_buffers: Arc::new(buffers),
             local_bounds,
             texture_mapping_size: rect_size(local_bounds),

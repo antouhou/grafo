@@ -7,7 +7,7 @@ use crate::wgpu_backend::gradient::{GradientCache, GradientMaterial};
 use crate::wgpu_backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMetadata};
 use ahash::{HashMap, HashMapExt};
 use compaction::DrawBufferCompactionStorage;
-use coverage::{CoverageBuffers, CoverageBuilder, PathCoverage};
+use coverage::{CoverageCache, PathCoverage};
 use materials::TextureMaterialPool;
 pub(in crate::wgpu_backend) use pipelines::TextureMaterialPipelines;
 pub(crate) use sampling::TextureSamplingUniform;
@@ -68,8 +68,7 @@ impl ShapeDrawResources {
 
 /// Reusable execution storage, separate from draw descriptions and their tree.
 pub(crate) struct ShapeExecutionResources {
-    pub(in crate::wgpu_backend) coverage_builder: CoverageBuilder,
-    pub(in crate::wgpu_backend) coverage_buffers: Vec<CoverageBuffers>,
+    pub(in crate::wgpu_backend) coverage_cache: CoverageCache,
     pub(in crate::wgpu_backend) composites: CompositeExecutionResources,
     pub(in crate::wgpu_backend) texture_materials: TextureMaterialPool,
     pub(crate) draws: HashMap<usize, ShapeDrawResources>,
@@ -92,7 +91,7 @@ impl ShapeExecutionResources {
     ) {
         if let Some(previous) = self.draws.insert(id.0, resources) {
             if let Some(coverage) = previous.path_coverage {
-                self.coverage_buffers.push(coverage.buffers);
+                self.coverage_cache.retain(coverage);
             }
             self.has_unused_draw_buffers |= previous.geometry_buffer_location.is_some();
         }
@@ -102,7 +101,7 @@ impl ShapeExecutionResources {
         for id in ids {
             if let Some(removed) = self.draws.remove(&id.0) {
                 if let Some(coverage) = removed.path_coverage {
-                    self.coverage_buffers.push(coverage.buffers);
+                    self.coverage_cache.retain(coverage);
                 }
                 self.has_unused_draw_buffers |= removed.geometry_buffer_location.is_some();
             }
@@ -115,8 +114,7 @@ impl ShapeExecutionResources {
 
     pub(crate) fn new() -> Self {
         Self {
-            coverage_builder: CoverageBuilder::default(),
-            coverage_buffers: Vec::new(),
+            coverage_cache: CoverageCache::new(),
             texture_materials: TextureMaterialPool::default(),
             composites: CompositeExecutionResources::default(),
             draws: HashMap::new(),
@@ -136,7 +134,7 @@ impl ShapeExecutionResources {
     pub(crate) fn clear_draw_queue(&mut self) {
         for (_, draw) in self.draws.drain() {
             if let Some(coverage) = draw.path_coverage {
-                self.coverage_buffers.push(coverage.buffers);
+                self.coverage_cache.retain(coverage);
             }
         }
         self.vertices.clear();

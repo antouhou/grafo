@@ -6,7 +6,7 @@ use std::ops::Range;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, ComputePipeline, Device,
-    RenderPass, RenderPipeline, Texture, TextureFormat,
+    PipelineCompilationOptions, RenderPass, RenderPipeline, Texture, TextureFormat,
 };
 
 pub(crate) const SHAPE_SHADER: &str = concat!(
@@ -26,6 +26,7 @@ pub(in crate::wgpu_backend) struct ShapePipelineDescriptor<'a> {
     pub depth_stencil: wgpu::DepthStencilState,
     pub sample_count: u32,
     pub uses_coverage: bool,
+    pub evaluates_path_coverage: bool,
 }
 
 /// Viewport dimensions and antialiasing settings used by the vertex shader.
@@ -99,7 +100,6 @@ pub fn create_uniform_bind_group_layout(device: &Device) -> BindGroupLayout {
                 count: None,
             },
             storage_binding(1),
-            storage_binding(2),
         ],
     })
 }
@@ -224,7 +224,13 @@ pub(in crate::wgpu_backend) fn create_shape_pipeline(
         fragment: Some(wgpu::FragmentState {
             module: &shader,
             entry_point: Some(descriptor.fragment_entry_point),
-            compilation_options: Default::default(),
+            compilation_options: PipelineCompilationOptions {
+                constants: &[(
+                    "evaluates_path_coverage",
+                    f64::from(descriptor.evaluates_path_coverage),
+                )],
+                ..Default::default()
+            },
             targets: &[Some(descriptor.color_target)],
         }),
         primitive: wgpu::PrimitiveState::default(),
@@ -408,18 +414,14 @@ pub fn create_pipeline(
         contents: &[0; 16],
         usage: BufferUsages::STORAGE,
     });
-    let bind_group = coverage::create_bind_group(
-        device,
-        &bind_group_layout,
-        &uniform_buffer,
-        &empty_coverage,
-        &empty_coverage,
-    );
+    let bind_group =
+        coverage::create_bind_group(device, &bind_group_layout, &uniform_buffer, &empty_coverage);
 
     let render_pipeline = create_shape_pipeline(
         device,
         ShapePipelineDescriptor {
             uses_coverage: false,
+            evaluates_path_coverage: false,
             label: None,
             bind_group_layouts: &[
                 &bind_group_layout,
@@ -461,6 +463,7 @@ pub fn create_gradient_increment_pipeline(
         device,
         ShapePipelineDescriptor {
             uses_coverage: false,
+            evaluates_path_coverage: false,
             label: Some("gradient_increment_pipeline"),
             bind_group_layouts: &[
                 uniform_layout,
@@ -719,6 +722,7 @@ fn create_color_pipeline_with_stencil_keep(
         device,
         ShapePipelineDescriptor {
             uses_coverage: false,
+            evaluates_path_coverage: false,
             label: Some(label),
             bind_group_layouts,
             vertex_entry_point,
@@ -797,6 +801,7 @@ pub(crate) fn create_texture_material_pipeline(
         device,
         ShapePipelineDescriptor {
             uses_coverage: false,
+            evaluates_path_coverage: false,
             label: Some("shape_texture_material_pipeline"),
             bind_group_layouts: layouts,
             vertex_entry_point: if uses_gradient {

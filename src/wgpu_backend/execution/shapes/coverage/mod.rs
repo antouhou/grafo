@@ -1,36 +1,41 @@
 use super::buffers::upsert_gpu_buffer;
 use crate::core::cache::CachedTessellation;
 use crate::core::vertex::InstanceTransform;
-use crate::core::{ShapeInstance, Viewport};
+use crate::core::UnsignedPhysicalRect;
 use crate::wgpu_backend::resources::ShapePipelines;
-use std::{mem, sync::Arc};
+use std::{mem, ops::Range, sync::Arc};
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, Buffer, BufferUsages, Device,
-    Queue,
+    IndexFormat, Queue, RenderPass, RenderPipeline,
 };
 
+mod cache;
+pub(in crate::wgpu_backend) use cache::CoverageCache;
 mod geometry;
 pub(in crate::wgpu_backend) mod pipelines;
+mod placement;
 mod projection;
+mod scanline;
+use cache::CoverageKey;
 pub(crate) use geometry::{CoverageBuilder, CoverageVertex};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(in crate::wgpu_backend) struct CoverageBuffers {
     pub vertices: Option<Buffer>,
     pub indices: Option<Buffer>,
-    rows: Option<Buffer>,
-    edges: Option<Buffer>,
+    coverage: Option<Buffer>,
     pub bind_group: BindGroup,
     pub decrement_bind_group: BindGroup,
     pub index_count: u32,
+    pub bounds: UnsignedPhysicalRect,
+    solid_index_count: u32,
 }
 
 pub(in crate::wgpu_backend) fn create_bind_group(
     device: &Device,
     layout: &BindGroupLayout,
     uniform: &Buffer,
-    rows: &Buffer,
-    edges: &Buffer,
+    coverage: &Buffer,
 ) -> BindGroup {
     device.create_bind_group(&BindGroupDescriptor {
         label: Some("path_coverage"),
@@ -42,11 +47,7 @@ pub(in crate::wgpu_backend) fn create_bind_group(
             },
             BindGroupEntry {
                 binding: 1,
-                resource: rows.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: edges.as_entire_binding(),
+                resource: coverage.as_entire_binding(),
             },
         ],
     })
@@ -56,9 +57,9 @@ fn upload_buffers(
     device: &Device,
     queue: &Queue,
     mesh: &CoverageBuilder,
-    slots: [&mut Option<Buffer>; 4],
+    slots: [&mut Option<Buffer>; 3],
 ) -> bool {
-    let [vertices, indices, rows, edges] = slots;
+    let [vertices, indices, coverage] = slots;
     let mut needs_rebind = false;
     for (buffer, label, bytes, usage) in [
         (
@@ -74,15 +75,9 @@ fn upload_buffers(
             BufferUsages::INDEX,
         ),
         (
-            rows,
-            "path_coverage_rows",
-            bytemuck::cast_slice(&mesh.rows),
-            BufferUsages::STORAGE,
-        ),
-        (
-            edges,
-            "path_coverage_edges",
-            bytemuck::cast_slice(&mesh.edges),
+            coverage,
+            "path_coverage_values",
+            bytemuck::cast_slice(&mesh.coverage),
             BufferUsages::STORAGE,
         ),
     ] {
@@ -110,26 +105,20 @@ fn take_reusable_buffers(
     let required = [
         mem::size_of_val(mesh.vertices.as_slice()),
         mem::size_of_val(mesh.indices.as_slice()),
-        mem::size_of_val(mesh.rows.as_slice()),
-        mem::size_of_val(mesh.edges.as_slice()),
+        mem::size_of_val(mesh.coverage.as_slice()),
     ]
     .map(|size| size.max(16) as u64);
     let index = pool
         .iter()
         .enumerate()
         .min_by_key(|(_, buffers)| {
-            let capacities = [
-                &buffers.vertices,
-                &buffers.indices,
-                &buffers.rows,
-                &buffers.edges,
-            ]
-            .map(|buffer| {
-                buffer
-                    .as_ref()
-                    .expect("coverage buffers were uploaded")
-                    .size()
-            });
+            let capacities =
+                [&buffers.vertices, &buffers.indices, &buffers.coverage].map(|buffer| {
+                    buffer
+                        .as_ref()
+                        .expect("coverage buffers were uploaded")
+                        .size()
+                });
             let fits = capacities
                 .into_iter()
                 .zip(required)
@@ -142,6 +131,46 @@ fn take_reusable_buffers(
 }
 
 impl CoverageBuffers {
+    pub(in crate::wgpu_backend) fn bind(&self, pass: &mut RenderPass<'_>) {
+        pass.set_vertex_buffer(
+            0,
+            self.vertices
+                .as_ref()
+                .expect("coverage vertices were uploaded")
+                .slice(..),
+        );
+        pass.set_index_buffer(
+            self.indices
+                .as_ref()
+                .expect("coverage indices were uploaded")
+                .slice(..),
+            IndexFormat::Uint32,
+        );
+    }
+
+    pub(in crate::wgpu_backend) fn draw(
+        &self,
+        pass: &mut RenderPass<'_>,
+        pipelines: [&RenderPipeline; 2],
+        instances: Range<u32>,
+    ) -> u32 {
+        let mut draw_count = 0;
+        for (indices, pipeline) in [
+            0..self.solid_index_count,
+            self.solid_index_count..self.index_count,
+        ]
+        .into_iter()
+        .zip(pipelines)
+        {
+            if !indices.is_empty() {
+                pass.set_pipeline(pipeline);
+                pass.draw_indexed(indices, 0, instances.clone());
+                draw_count += 1;
+            }
+        }
+        draw_count
+    }
+
     pub(in crate::wgpu_backend) fn mask_binding(
         &self,
         device: &Device,
@@ -152,8 +181,9 @@ impl CoverageBuffers {
             device,
             layout,
             uniform,
-            self.rows.as_ref().expect("coverage rows were uploaded"),
-            self.edges.as_ref().expect("coverage edges were uploaded"),
+            self.coverage
+                .as_ref()
+                .expect("coverage values were uploaded"),
         )
     }
     pub(in crate::wgpu_backend) fn new(
@@ -164,38 +194,35 @@ impl CoverageBuffers {
     ) -> Self {
         let mut vertices = None;
         let mut indices = None;
-        let mut rows = None;
-        let mut edges = None;
+        let mut coverage = None;
         upload_buffers(
             device,
             queue,
             mesh,
-            [&mut vertices, &mut indices, &mut rows, &mut edges],
+            [&mut vertices, &mut indices, &mut coverage],
         );
-        let rows_buffer = rows.as_ref().expect("coverage rows were uploaded");
-        let edges_buffer = edges.as_ref().expect("coverage edges were uploaded");
+        let coverage_buffer = coverage.as_ref().expect("coverage values were uploaded");
         let bind_group = create_bind_group(
             device,
             &pipelines.and_pipeline.get_bind_group_layout(0),
             &pipelines.and_uniform_buffer,
-            rows_buffer,
-            edges_buffer,
+            coverage_buffer,
         );
         let decrement_bind_group = create_bind_group(
             device,
             &pipelines.decrementing_pipeline.get_bind_group_layout(0),
             &pipelines.decrementing_uniform_buffer,
-            rows_buffer,
-            edges_buffer,
+            coverage_buffer,
         );
         Self {
             vertices,
             indices,
-            rows,
-            edges,
+            coverage,
             bind_group,
             decrement_bind_group,
             index_count: mesh.indices.len() as u32,
+            bounds: mesh.bounds,
+            solid_index_count: mesh.solid_index_count,
         }
     }
 
@@ -210,98 +237,42 @@ impl CoverageBuffers {
             device,
             queue,
             mesh,
-            [
-                &mut self.vertices,
-                &mut self.indices,
-                &mut self.rows,
-                &mut self.edges,
-            ],
+            [&mut self.vertices, &mut self.indices, &mut self.coverage],
         ) {
             self.rebind(device, pipelines);
         }
         self.index_count = mesh.indices.len() as u32;
+        self.bounds = mesh.bounds;
+        self.solid_index_count = mesh.solid_index_count;
     }
 
     pub(in crate::wgpu_backend) fn rebind(&mut self, device: &Device, pipelines: &ShapePipelines) {
-        let rows = self.rows.as_ref().expect("coverage rows were uploaded");
-        let edges = self.edges.as_ref().expect("coverage edges were uploaded");
+        let coverage = self
+            .coverage
+            .as_ref()
+            .expect("coverage values were uploaded");
         self.bind_group = create_bind_group(
             device,
             &pipelines.and_pipeline.get_bind_group_layout(0),
             &pipelines.and_uniform_buffer,
-            rows,
-            edges,
+            coverage,
         );
         self.decrement_bind_group = create_bind_group(
             device,
             &pipelines.decrementing_pipeline.get_bind_group_layout(0),
             &pipelines.decrementing_uniform_buffer,
-            rows,
-            edges,
+            coverage,
         );
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(in crate::wgpu_backend) struct PathCoverage {
-    pub buffers: CoverageBuffers,
+    pub buffers: Arc<CoverageBuffers>,
+    pub translation: [f32; 2],
+    key: CoverageKey,
     pub tessellation: Arc<CachedTessellation>,
     pub transform: Option<InstanceTransform>,
-}
-
-impl PathCoverage {
-    pub(in crate::wgpu_backend) fn new(
-        shape: &ShapeInstance,
-        viewport: Viewport,
-        builder: &mut CoverageBuilder,
-        device: &Device,
-        queue: &Queue,
-        pipelines: &ShapePipelines,
-        buffer_pool: &mut Vec<CoverageBuffers>,
-    ) -> Self {
-        let tessellation = Arc::clone(&shape.cached_shape.tessellation);
-        let geometry = &tessellation.vertex_buffers;
-        builder.build(
-            &geometry.vertices,
-            &geometry.indices,
-            shape.transform,
-            viewport.scale_factor,
-            viewport.physical_size,
-            tessellation.local_bounds,
-        );
-        let buffers = match take_reusable_buffers(buffer_pool, builder) {
-            Some(mut buffers) => {
-                buffers.update(device, queue, builder, pipelines);
-                buffers
-            }
-            None => CoverageBuffers::new(device, queue, builder, pipelines),
-        };
-        Self {
-            buffers,
-            tessellation,
-            transform: shape.transform,
-        }
-    }
-
-    pub(in crate::wgpu_backend) fn resize(
-        &mut self,
-        viewport: Viewport,
-        builder: &mut CoverageBuilder,
-        device: &Device,
-        queue: &Queue,
-        pipelines: &ShapePipelines,
-    ) {
-        let geometry = &self.tessellation.vertex_buffers;
-        builder.build(
-            &geometry.vertices,
-            &geometry.indices,
-            self.transform,
-            viewport.scale_factor,
-            viewport.physical_size,
-            self.tessellation.local_bounds,
-        );
-        self.buffers.update(device, queue, builder, pipelines);
-    }
 }
 
 #[cfg(test)]

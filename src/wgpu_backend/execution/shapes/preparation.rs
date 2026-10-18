@@ -1,4 +1,3 @@
-use super::coverage::PathCoverage;
 use super::{ShapeBufferLocation, ShapeDrawResources, ShapeExecutionResources};
 use crate::commands::ShapeDrawId;
 use crate::core::shape::ShapeInstance;
@@ -89,6 +88,7 @@ pub(crate) fn append_instance_data(
     let texture_flags = (texture_data.texture_presence[0] as u32)
         | ((texture_data.texture_presence[1] as u32) << 1);
     temp_instance_metadata.push(InstanceMetadata {
+        coverage_translation: [0.0; 2],
         texture_flags: texture_flags as f32,
         texture_uv_transform_layer0: texture_data.texture_uv_transforms[0],
         texture_uv_transform_layer1: texture_data.texture_uv_transforms[1],
@@ -181,17 +181,16 @@ impl ShapeExecutionResources {
     ) -> Result<ShapeDrawResources, GeometryBufferError> {
         let mut resources = ShapeDrawResources::default();
         if !cached_shape_data.cached_shape.is_rect {
-            resources.path_coverage = Some(PathCoverage::new(
-                cached_shape_data,
+            resources.path_coverage = Some(self.coverage_cache.prepare(
+                &cached_shape_data.cached_shape.tessellation,
+                cached_shape_data.transform,
                 Viewport {
                     physical_size,
                     scale_factor,
                 },
-                &mut self.coverage_builder,
                 device,
                 queue,
                 pipelines,
-                &mut self.coverage_buffers,
             ));
         }
         resources.refresh_gradient_material(
@@ -238,6 +237,9 @@ impl ShapeExecutionResources {
                     texture_uv_transforms,
                 },
             );
+            if let Some(coverage) = &resources.path_coverage {
+                self.instance_metadata[instance_index].coverage_translation = coverage.translation;
+            }
             resources.geometry_buffer_location = Some(ShapeBufferLocation {
                 geometry_range,
                 instance_index,

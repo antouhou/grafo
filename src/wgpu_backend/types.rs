@@ -78,6 +78,23 @@ impl PipelineTracker {
     pub(crate) fn record_stencil_pass(&mut self) {
         self.counts.stencil_passes += 1;
     }
+
+    #[cfg(feature = "render_metrics")]
+    pub(crate) fn record_coverage_draws(
+        &mut self,
+        pipeline: Pipeline,
+        count: u32,
+        changes_stencil: bool,
+    ) {
+        for _ in 0..count {
+            self.current = Pipeline::None;
+            self.switch_to(pipeline);
+            if changes_stencil {
+                self.record_stencil_pass();
+            }
+        }
+        self.current = Pipeline::None;
+    }
 }
 
 /// Tracks the currently-bound texture sources to skip redundant `set_bind_group` calls.
