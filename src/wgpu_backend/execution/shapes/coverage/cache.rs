@@ -1,11 +1,13 @@
 use super::placement::CoveragePlacement;
-use super::{take_reusable_buffers, CoverageBuffers, CoverageBuilder, PathCoverage};
+use super::uploads::CoverageUploads;
+use super::{CoverageAllocation, CoverageBuffers, CoverageBuilder, PathCoverage};
 use crate::core::cache::{CachedTessellation, FrameCache};
 use crate::core::vertex::InstanceTransform;
 use crate::core::Viewport;
 use crate::wgpu_backend::resources::ShapePipelines;
+use ahash::{HashMap, HashMapExt};
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use wgpu::{Device, Queue};
 
 #[derive(Clone, Debug)]
@@ -49,10 +51,11 @@ impl Hash for CoverageKey {
 }
 
 pub(in crate::wgpu_backend) struct CoverageCache {
-    entries: FrameCache<CoverageKey, Arc<CoverageBuffers>>,
+    entries: FrameCache<CoverageKey, Arc<CoverageAllocation>>,
     builder: CoverageBuilder,
+    uploads: CoverageUploads,
     buffers: Vec<CoverageBuffers>,
-    retained: Vec<(CoverageKey, Arc<CoverageBuffers>)>,
+    retained: Vec<(CoverageKey, Arc<CoverageAllocation>)>,
 }
 
 impl CoverageCache {
@@ -60,6 +63,7 @@ impl CoverageCache {
         Self {
             entries: FrameCache::new(),
             builder: CoverageBuilder::default(),
+            uploads: CoverageUploads::default(),
             buffers: Vec::new(),
             retained: Vec::new(),
         }
@@ -70,31 +74,21 @@ impl CoverageCache {
         tessellation: &Arc<CachedTessellation>,
         transform: Option<InstanceTransform>,
         viewport: Viewport,
-        device: &Device,
-        queue: &Queue,
-        pipelines: &ShapePipelines,
     ) -> PathCoverage {
         let placement = CoveragePlacement::new(transform, tessellation.local_bounds, viewport);
         let key = CoverageKey::new(tessellation, placement.transform);
-        let (buffers, _) = self.entries.get_or_insert_with(key.clone(), || {
+        let (allocation, _) = self.entries.get_or_insert_with(key.clone(), || {
             self.builder.build(
                 tessellation,
                 placement.transform,
                 viewport.scale_factor,
                 viewport.physical_size,
             );
-            let buffers = match take_reusable_buffers(&mut self.buffers, &self.builder) {
-                Some(mut buffers) => {
-                    buffers.update(device, queue, &self.builder, pipelines);
-                    buffers
-                }
-                None => CoverageBuffers::new(device, queue, &self.builder, pipelines),
-            };
-            Arc::new(buffers)
+            self.uploads.append(&self.builder)
         });
         PathCoverage {
             key,
-            buffers: Arc::clone(buffers),
+            allocation: Arc::clone(allocation),
             tessellation: Arc::clone(tessellation),
             transform,
             translation: placement.translation,
@@ -102,34 +96,69 @@ impl CoverageCache {
     }
 
     pub(in crate::wgpu_backend) fn retain(&mut self, coverage: PathCoverage) {
-        self.entries.insert(coverage.key, coverage.buffers);
+        self.entries.insert(coverage.key, coverage.allocation);
     }
 
     pub(in crate::wgpu_backend) fn clear(&mut self) {
         self.entries.clear();
+        self.uploads.clear();
         self.buffers.clear();
     }
 
-    pub(in crate::wgpu_backend) fn rebind(
+    pub(in crate::wgpu_backend) fn upload(
         &mut self,
-        coverage: &PathCoverage,
+        device: &Device,
+        queue: &Queue,
+        pipelines: &ShapePipelines,
+    ) {
+        self.uploads
+            .upload(device, queue, pipelines, &mut self.buffers);
+    }
+
+    pub(in crate::wgpu_backend) fn rebind<'a>(
+        &mut self,
+        coverage: impl Iterator<Item = &'a mut PathCoverage>,
         device: &Device,
         pipelines: &ShapePipelines,
-    ) -> Arc<CoverageBuffers> {
-        let key = coverage.key.clone();
-        let (coverage, _) = self.entries.get_or_insert_with(key, || {
-            let mut rebound = coverage.buffers.as_ref().clone();
-            rebound.rebind(device, pipelines);
-            Arc::new(rebound)
-        });
-        Arc::clone(coverage)
+    ) {
+        self.entries.clear();
+        self.buffers.clear();
+        let mut rebound = HashMap::new();
+        for coverage in coverage {
+            let previous = &coverage.allocation;
+            let buffers = rebound
+                .entry(Arc::as_ptr(&previous.buffers) as usize)
+                .or_insert_with(|| {
+                    if let Some(buffers) = previous.buffers.get() {
+                        let mut buffers = buffers.clone();
+                        buffers.rebind(device, pipelines);
+                        Arc::new(OnceLock::from(buffers))
+                    } else {
+                        Arc::clone(&previous.buffers)
+                    }
+                });
+            let (allocation, _) = self.entries.get_or_insert_with(coverage.key.clone(), || {
+                Arc::new(CoverageAllocation {
+                    buffers: Arc::clone(buffers),
+                    range: previous.range,
+                    bounds: previous.bounds,
+                })
+            });
+            coverage.allocation = Arc::clone(allocation);
+        }
     }
 
     pub(in crate::wgpu_backend) fn finish_render(&mut self) {
         self.buffers.clear();
         for (key, coverage) in self.entries.end_frame() {
             match Arc::try_unwrap(coverage) {
-                Ok(buffers) => self.buffers.push(buffers),
+                Ok(allocation) => {
+                    if let Ok(shared) = Arc::try_unwrap(allocation.buffers) {
+                        if let Some(buffers) = shared.into_inner() {
+                            self.buffers.push(buffers);
+                        }
+                    }
+                }
                 Err(coverage) => self.retained.push((key, coverage)),
             }
         }

@@ -121,7 +121,7 @@ impl ShapeMaskEffectExecutionResources<'_> {
                     Some(CoverageBuffers::new(
                         self.device,
                         self.queue,
-                        builder,
+                        (&*builder).into(),
                         self.shape_pipelines,
                     ))
                 } else {

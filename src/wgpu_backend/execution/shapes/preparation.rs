@@ -188,9 +188,6 @@ impl ShapeExecutionResources {
                     physical_size,
                     scale_factor,
                 },
-                device,
-                queue,
-                pipelines,
             ));
         }
         resources.refresh_gradient_material(

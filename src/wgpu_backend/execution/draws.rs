@@ -99,7 +99,8 @@ impl DrawPass<'_, '_> {
             return;
         };
         if let Some(coverage) = &resources.path_coverage {
-            let buffers = &coverage.buffers;
+            let allocation = &coverage.allocation;
+            let buffers = allocation.buffers();
             self.render_pass.set_bind_group(0, &buffers.bind_group, &[]);
             for layer in 0..2 {
                 self.render_pass.set_bind_group(
@@ -124,7 +125,7 @@ impl DrawPass<'_, '_> {
             bind_instance_buffers(self.render_pass, location.instance_index, self.buffers);
             buffers.bind(self.render_pass);
             self.render_pass.set_stencil_reference(stencil_reference);
-            let _draw_count = buffers.draw(
+            let _draw_count = allocation.draw(
                 self.render_pass,
                 [
                     pipelines
@@ -213,7 +214,8 @@ impl DrawPass<'_, '_> {
             return;
         };
         if let Some(coverage) = &resources.path_coverage {
-            let buffers = &coverage.buffers;
+            let allocation = &coverage.allocation;
+            let buffers = allocation.buffers();
             self.render_pass
                 .set_bind_group(0, &buffers.decrement_bind_group, &[]);
             for layer in 0..2 {
@@ -226,7 +228,7 @@ impl DrawPass<'_, '_> {
             bind_instance_buffers(self.render_pass, location.instance_index, self.buffers);
             buffers.bind(self.render_pass);
             self.render_pass.set_stencil_reference(stencil_reference);
-            let _draw_count = buffers.draw(
+            let _draw_count = allocation.draw(
                 self.render_pass,
                 [
                     &self.pipelines.shapes.coverage.solid.decrement,

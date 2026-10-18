@@ -50,9 +50,6 @@ impl WgpuBackend {
                         &coverage.tessellation,
                         coverage.transform,
                         viewport,
-                        &self.device,
-                        &self.queue,
-                        pipelines,
                     );
                     if let Some(location) = resources.geometry_buffer_location {
                         shapes.instance_metadata[location.instance_index].coverage_translation =

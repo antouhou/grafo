@@ -1,5 +1,5 @@
 use super::draws::{self, DrawPass};
-use super::shapes::coverage::CoverageBuffers;
+use super::shapes::coverage::CoverageAllocation;
 use super::shapes::{ShapeBufferLocation, ShapeExecutionResources};
 use crate::commands::{DrawClip, ShapeDraw, ShapeDrawMaterial, ShapeTextureBinding};
 use crate::core::UnsignedPhysicalRect;
@@ -8,7 +8,7 @@ use crate::wgpu_backend::vertex::GeometryBufferRange;
 use std::sync::Arc;
 
 struct CoverageBatch {
-    buffers: Arc<CoverageBuffers>,
+    allocation: Arc<CoverageAllocation>,
     bounds: UnsignedPhysicalRect,
 }
 
@@ -55,7 +55,7 @@ impl LeafBatch {
         }
         match (&mut self.coverage, &next.coverage) {
             (Some(current), Some(next)) => {
-                if !Arc::ptr_eq(&current.buffers, &next.buffers)
+                if !Arc::ptr_eq(&current.allocation, &next.allocation)
                     || !extend_disjoint_bounds(&mut current.bounds, next.bounds)
                 {
                     return false;
@@ -94,9 +94,9 @@ impl DrawPass<'_, '_> {
             self.bound_textures.mark_bound(1, ShapeTextureBinding::None);
         }
         if let Some(coverage) = &batch.coverage {
-            coverage.buffers.bind(self.render_pass);
-            self.render_pass
-                .set_bind_group(0, &coverage.buffers.bind_group, &[]);
+            let buffers = coverage.allocation.buffers();
+            buffers.bind(self.render_pass);
+            self.render_pass.set_bind_group(0, &buffers.bind_group, &[]);
         } else {
             draws::bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
         }
@@ -125,7 +125,7 @@ impl DrawPass<'_, '_> {
                 under_fill_texture: None,
                 texture_bindings: batch.texture_bindings,
             };
-            let _draw_count = coverage.buffers.draw(
+            let _draw_count = coverage.allocation.draw(
                 self.render_pass,
                 [
                     pipelines.coverage.solid.material(material, false),
@@ -170,10 +170,10 @@ impl DrawPass<'_, '_> {
             return;
         };
         if let Some(coverage) = &resources.path_coverage {
-            let bounds = coverage.buffers.bounds;
+            let bounds = coverage.allocation.bounds;
             let [x, y] = coverage.translation.map(|value| value as u32);
             batch.coverage = Some(CoverageBatch {
-                buffers: Arc::clone(&coverage.buffers),
+                allocation: Arc::clone(&coverage.allocation),
                 bounds: UnsignedPhysicalRect::new(
                     (bounds.min.x + x, bounds.min.y + y).into(),
                     (bounds.max.x + x, bounds.max.y + y).into(),

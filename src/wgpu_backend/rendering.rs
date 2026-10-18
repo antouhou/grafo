@@ -170,6 +170,11 @@ impl WgpuBackend {
     }
 
     pub(in crate::wgpu_backend) fn prepare_resources(&mut self) {
+        self.resources.shape_execution.coverage_cache.upload(
+            &self.device,
+            &self.queue,
+            &self.pipeline_resources.shapes,
+        );
         self.resources.shape_execution.upload(
             &self.device,
             &self.queue,

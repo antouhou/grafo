@@ -1,7 +1,6 @@
 use super::buffers::upsert_gpu_buffer;
 use crate::core::cache::CachedTessellation;
 use crate::core::vertex::InstanceTransform;
-use crate::core::UnsignedPhysicalRect;
 use crate::wgpu_backend::resources::ShapePipelines;
 use std::{mem, ops::Range, sync::Arc};
 use wgpu::{
@@ -16,8 +15,11 @@ pub(in crate::wgpu_backend) mod pipelines;
 mod placement;
 mod projection;
 mod scanline;
+mod uploads;
 use cache::CoverageKey;
 pub(crate) use geometry::{CoverageBuilder, CoverageVertex};
+pub(in crate::wgpu_backend) use uploads::CoverageAllocation;
+use uploads::{CoverageDrawRange, CoverageUpload};
 
 #[derive(Clone, Debug)]
 pub(in crate::wgpu_backend) struct CoverageBuffers {
@@ -26,9 +28,7 @@ pub(in crate::wgpu_backend) struct CoverageBuffers {
     coverage: Option<Buffer>,
     pub bind_group: BindGroup,
     pub decrement_bind_group: BindGroup,
-    pub index_count: u32,
-    pub bounds: UnsignedPhysicalRect,
-    solid_index_count: u32,
+    range: CoverageDrawRange,
 }
 
 pub(in crate::wgpu_backend) fn create_bind_group(
@@ -56,7 +56,7 @@ pub(in crate::wgpu_backend) fn create_bind_group(
 fn upload_buffers(
     device: &Device,
     queue: &Queue,
-    mesh: &CoverageBuilder,
+    mesh: CoverageUpload<'_>,
     slots: [&mut Option<Buffer>; 3],
 ) -> bool {
     let [vertices, indices, coverage] = slots;
@@ -65,19 +65,19 @@ fn upload_buffers(
         (
             vertices,
             "path_coverage_vertices",
-            bytemuck::cast_slice(&mesh.vertices),
+            bytemuck::cast_slice(mesh.vertices),
             BufferUsages::VERTEX,
         ),
         (
             indices,
             "path_coverage_indices",
-            bytemuck::cast_slice(&mesh.indices),
+            bytemuck::cast_slice(mesh.indices),
             BufferUsages::INDEX,
         ),
         (
             coverage,
             "path_coverage_values",
-            bytemuck::cast_slice(&mesh.coverage),
+            bytemuck::cast_slice(mesh.coverage),
             BufferUsages::STORAGE,
         ),
     ] {
@@ -100,12 +100,12 @@ fn upload_buffers(
 
 fn take_reusable_buffers(
     pool: &mut Vec<CoverageBuffers>,
-    mesh: &CoverageBuilder,
+    mesh: CoverageUpload<'_>,
 ) -> Option<CoverageBuffers> {
     let required = [
-        mem::size_of_val(mesh.vertices.as_slice()),
-        mem::size_of_val(mesh.indices.as_slice()),
-        mem::size_of_val(mesh.coverage.as_slice()),
+        mem::size_of_val(mesh.vertices),
+        mem::size_of_val(mesh.indices),
+        mem::size_of_val(mesh.coverage),
     ]
     .map(|size| size.max(16) as u64);
     let index = pool
@@ -154,21 +154,7 @@ impl CoverageBuffers {
         pipelines: [&RenderPipeline; 2],
         instances: Range<u32>,
     ) -> u32 {
-        let mut draw_count = 0;
-        for (indices, pipeline) in [
-            0..self.solid_index_count,
-            self.solid_index_count..self.index_count,
-        ]
-        .into_iter()
-        .zip(pipelines)
-        {
-            if !indices.is_empty() {
-                pass.set_pipeline(pipeline);
-                pass.draw_indexed(indices, 0, instances.clone());
-                draw_count += 1;
-            }
-        }
-        draw_count
+        self.range.draw(pass, pipelines, instances)
     }
 
     pub(in crate::wgpu_backend) fn mask_binding(
@@ -189,7 +175,7 @@ impl CoverageBuffers {
     pub(in crate::wgpu_backend) fn new(
         device: &Device,
         queue: &Queue,
-        mesh: &CoverageBuilder,
+        mesh: CoverageUpload<'_>,
         pipelines: &ShapePipelines,
     ) -> Self {
         let mut vertices = None;
@@ -220,9 +206,12 @@ impl CoverageBuffers {
             coverage,
             bind_group,
             decrement_bind_group,
-            index_count: mesh.indices.len() as u32,
-            bounds: mesh.bounds,
-            solid_index_count: mesh.solid_index_count,
+            range: CoverageDrawRange {
+                index_start: 0,
+                index_count: mesh.indices.len() as u32,
+                solid_index_count: mesh.solid_index_count,
+                vertex_start: 0,
+            },
         }
     }
 
@@ -230,7 +219,7 @@ impl CoverageBuffers {
         &mut self,
         device: &Device,
         queue: &Queue,
-        mesh: &CoverageBuilder,
+        mesh: CoverageUpload<'_>,
         pipelines: &ShapePipelines,
     ) {
         if upload_buffers(
@@ -241,9 +230,8 @@ impl CoverageBuffers {
         ) {
             self.rebind(device, pipelines);
         }
-        self.index_count = mesh.indices.len() as u32;
-        self.bounds = mesh.bounds;
-        self.solid_index_count = mesh.solid_index_count;
+        self.range.index_count = mesh.indices.len() as u32;
+        self.range.solid_index_count = mesh.solid_index_count;
     }
 
     pub(in crate::wgpu_backend) fn rebind(&mut self, device: &Device, pipelines: &ShapePipelines) {
@@ -268,7 +256,7 @@ impl CoverageBuffers {
 
 #[derive(Clone, Debug)]
 pub(in crate::wgpu_backend) struct PathCoverage {
-    pub buffers: Arc<CoverageBuffers>,
+    pub allocation: Arc<CoverageAllocation>,
     pub translation: [f32; 2],
     key: CoverageKey,
     pub tessellation: Arc<CachedTessellation>,
