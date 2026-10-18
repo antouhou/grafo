@@ -31,6 +31,8 @@ rstar = "0.13.0"
 
 [dev-dependencies]
 criterion = "0.8"
+cosmic-text = "0.19"
+tracing = { version = "0.1.44", features = ["log"] }
 winit = "0.30"
 env_logger = "0.11"
 futures = "0.3"
