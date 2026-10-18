@@ -42,7 +42,6 @@ pub(super) struct CoverageDrawRange {
     pub index_start: u32,
     pub index_count: u32,
     pub solid_index_count: u32,
-    pub vertex_start: i32,
 }
 
 impl CoverageDrawRange {
@@ -63,7 +62,7 @@ impl CoverageDrawRange {
         {
             if !indices.is_empty() {
                 pass.set_pipeline(pipeline);
-                pass.draw_indexed(indices, self.vertex_start, instances.clone());
+                pass.draw_indexed(indices, 0, instances.clone());
                 draw_count += 1;
             }
         }
@@ -117,8 +116,8 @@ impl CoverageUploadStorage {
             index_start: self.indices.len() as u32,
             index_count: mesh.indices.len() as u32,
             solid_index_count: mesh.solid_index_count,
-            vertex_start: self.vertices.len() as i32,
         };
+        let vertex_start = self.vertices.len() as u32;
         let coverage_start = self.coverage.len() as u32;
         self.vertices.extend(mesh.vertices.iter().map(|vertex| {
             let mut vertex = *vertex;
@@ -127,7 +126,9 @@ impl CoverageUploadStorage {
             }
             vertex
         }));
-        self.indices.extend_from_slice(mesh.indices);
+        // Rebase indices so shared meshes do not require base-vertex support.
+        self.indices
+            .extend(mesh.indices.iter().map(|index| index + vertex_start));
         self.coverage.extend_from_slice(mesh.coverage);
         range
     }

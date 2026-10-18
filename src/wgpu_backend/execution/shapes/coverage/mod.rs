@@ -210,7 +210,6 @@ impl CoverageBuffers {
                 index_start: 0,
                 index_count: mesh.indices.len() as u32,
                 solid_index_count: mesh.solid_index_count,
-                vertex_start: 0,
             },
         }
     }
