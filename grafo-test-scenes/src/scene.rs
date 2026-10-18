@@ -8,10 +8,10 @@ use crate::shaders::{
 };
 use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
-    ColorInterpolation, ConicGradientDesc, ContentEffectConfig, Fill, Gradient, GradientColor,
-    GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
-    LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientSize, Renderer,
-    Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig, ShapeTextureFitMode,
+    ColorInterpolation, ConicGradientDesc, ContentEffectConfig, Fill, FillRule, Gradient,
+    GradientColor, GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions,
+    GradientUnits, LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientSize,
+    Renderer, Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig, ShapeTextureFitMode,
     ShapeTextureOptions, SpreadMode, TextureManager, TransformInstance,
 };
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
@@ -317,6 +317,7 @@ fn tile_87_path_pixel_coverage(renderer: &mut Renderer) -> Vec<PixelExpectation>
 fn tile_88_path_hole_coverage(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (x, y) = tile_origin(88);
     let path = Shape::builder()
+        .fill_rule(FillRule::EvenOdd)
         .begin((8.25, 8.25))
         .line_to((71.75, 8.25))
         .line_to((71.75, 71.75))

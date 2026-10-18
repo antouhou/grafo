@@ -2,7 +2,7 @@ use super::cache::CoverageKey;
 use super::geometry::{CoverageBuilder, SOLID_COVERAGE, TILE_SIZE};
 use super::placement::CoveragePlacement;
 use crate::core::cache::FrameCache;
-use crate::core::{BorderRadii, Shape, TransformInstance, Viewport};
+use crate::core::{BorderRadii, FillRule, Shape, TransformInstance, Viewport};
 use crate::scene::{Scene, SceneContext};
 use crate::wgpu_backend::pipeline::SHAPE_SHADER;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
@@ -95,6 +95,7 @@ fn path_tiles_match_independently_clipped_triangles() {
             .close()
             .build(),
         Shape::builder()
+            .fill_rule(FillRule::EvenOdd)
             .begin((2.25, 2.25))
             .line_to((51.75, 2.25))
             .line_to((51.75, 51.75))
@@ -314,6 +315,7 @@ fn coverage_reuse_distinguishes_placement_and_replaced_geometry() {
 #[test]
 fn sparse_spans_preserve_holes_partial_rows_and_separate_draw_ranges() {
     let shape = Shape::builder()
+        .fill_rule(FillRule::EvenOdd)
         .begin((-16.0, 2.25))
         .line_to((128.0, 2.25))
         .line_to((128.0, 62.75))
