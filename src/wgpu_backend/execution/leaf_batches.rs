@@ -1,7 +1,7 @@
 use super::draws::{self, DrawPass};
 use super::shapes::coverage::CoverageAllocation;
 use super::shapes::{
-    ShapeBufferLocation, ShapeExecutionResources, ShapeGeometry, ShapeShader, StencilAction,
+    ShapeBufferLocation, ShapeExecutionResources, ShapeGeometryType, ShapeShader, StencilAction,
 };
 use crate::commands::{DrawClip, ShapeDraw, ShapeDrawMaterial, ShapeTextureBinding};
 use crate::core::UnsignedPhysicalRect;
@@ -85,7 +85,7 @@ impl DrawPass<'_, '_> {
         if batch.coverage.is_some() || self.pipeline_tracker.current != target_pipeline {
             if batch.coverage.is_none() {
                 self.render_pass.set_pipeline(pipelines.get(
-                    ShapeGeometry::Tessellated,
+                    ShapeGeometryType::Tessellated,
                     shader,
                     StencilAction::Keep,
                 ));
@@ -127,7 +127,7 @@ impl DrawPass<'_, '_> {
                 self.render_pass,
                 |boundary| {
                     pipelines.get(
-                        ShapeGeometry::coverage(boundary),
+                        ShapeGeometryType::coverage(boundary),
                         shader,
                         StencilAction::Keep,
                     )

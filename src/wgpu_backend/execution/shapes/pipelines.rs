@@ -13,13 +13,13 @@ use wgpu::{
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(in crate::wgpu_backend) enum ShapeGeometry {
+pub(in crate::wgpu_backend) enum ShapeGeometryType {
     Tessellated,
     CoverageInterior,
     CoverageBoundary,
 }
 
-impl ShapeGeometry {
+impl ShapeGeometryType {
     pub fn coverage(is_boundary: bool) -> Self {
         if is_boundary {
             Self::CoverageBoundary
@@ -54,8 +54,8 @@ impl ShapeShader {
         matches!(self, Self::Gradient | Self::GradientUnderFillTexture)
     }
 
-    fn vertex_entry_point(self, geometry: ShapeGeometry, is_solid: bool) -> &'static str {
-        let uses_coverage = geometry != ShapeGeometry::Tessellated;
+    fn vertex_entry_point(self, geometry: ShapeGeometryType, is_solid: bool) -> &'static str {
+        let uses_coverage = geometry != ShapeGeometryType::Tessellated;
         match (uses_coverage, is_solid, self.uses_gradient()) {
             (false, true, _) => "vs_solid",
             (true, true, _) => "vs_coverage_solid",
@@ -165,10 +165,10 @@ impl ShapePipelineLayouts {
 }
 
 fn vertex_buffer_layouts(
-    geometry: ShapeGeometry,
+    geometry: ShapeGeometryType,
     is_solid: bool,
 ) -> [VertexBufferLayout<'static>; 4] {
-    let uses_coverage = geometry != ShapeGeometry::Tessellated;
+    let uses_coverage = geometry != ShapeGeometryType::Tessellated;
     if uses_coverage && is_solid {
         return [
             CoverageVertex::solid_desc(),
@@ -205,15 +205,15 @@ impl ShapePipelineCompiler {
     fn create(
         &self,
         layouts: &ShapePipelineLayouts,
-        geometry: ShapeGeometry,
+        geometry_type: ShapeGeometryType,
         shader: ShapeShader,
         stencil: StencilAction,
     ) -> RenderPipeline {
         let is_solid = shader == ShapeShader::Solid && stencil != StencilAction::Decrement;
         let layout = layouts.create_pipeline_layout(&self.device, shader, is_solid);
-        let vertex_entry_point = shader.vertex_entry_point(geometry, is_solid);
+        let vertex_entry_point = shader.vertex_entry_point(geometry_type, is_solid);
         let fragment_entry_point = shader.fragment_entry_point(stencil);
-        let vertex_buffer_layouts = vertex_buffer_layouts(geometry, is_solid);
+        let vertex_buffer_layouts = vertex_buffer_layouts(geometry_type, is_solid);
         self.device
             .create_render_pipeline(&RenderPipelineDescriptor {
                 label: Some(fragment_entry_point),
@@ -230,7 +230,7 @@ impl ShapePipelineCompiler {
                     compilation_options: PipelineCompilationOptions {
                         constants: &[(
                             "evaluates_path_coverage",
-                            f64::from(geometry == ShapeGeometry::CoverageBoundary),
+                            f64::from(geometry_type == ShapeGeometryType::CoverageBoundary),
                         )],
                         ..Default::default()
                     },
@@ -293,11 +293,11 @@ impl ShapePipelines {
     /// Creates a variant on first use and reuses it until format or MSAA changes.
     pub(in crate::wgpu_backend) fn get(
         &self,
-        geometry: ShapeGeometry,
+        geometry_type: ShapeGeometryType,
         shader: ShapeShader,
         stencil: StencilAction,
     ) -> &RenderPipeline {
-        let pipelines = &self.variants.geometry[geometry as usize];
+        let pipelines = &self.variants.geometry[geometry_type as usize];
         let (slot, shader) = match stencil {
             StencilAction::Decrement => (&pipelines.decrement, ShapeShader::Solid),
             _ => (
@@ -308,7 +308,7 @@ impl ShapePipelines {
         slot.get_or_init(|| {
             self.variants
                 .compiler
-                .create(&self.layouts, geometry, shader, stencil)
+                .create(&self.layouts, geometry_type, shader, stencil)
         })
     }
 }

@@ -1,5 +1,5 @@
 use super::draws::{self, DrawPass};
-use super::shapes::{ShapeGeometry, ShapeShader, StencilAction};
+use super::shapes::{ShapeGeometryType, ShapeShader, StencilAction};
 use crate::commands::{DrawClip, ShapeTextureBinding, TextureComposite, TexturePlacement};
 use crate::core::slot_pool::SlotPool;
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
@@ -101,7 +101,7 @@ impl DrawPass<'_, '_> {
         let pipelines = &self.pipelines.shapes;
         if self.pipeline_tracker.current != Pipeline::LeafDraw {
             self.render_pass.set_pipeline(pipelines.get(
-                ShapeGeometry::Tessellated,
+                ShapeGeometryType::Tessellated,
                 ShapeShader::Textured,
                 StencilAction::Keep,
             ));

@@ -1,4 +1,4 @@
-use super::shapes::{ShapeDrawResources, ShapeGeometry, ShapeShader, StencilAction};
+use super::shapes::{ShapeDrawResources, ShapeGeometryType, ShapeShader, StencilAction};
 use super::targets;
 use super::textures::IntermediateTextureResources;
 use crate::commands::{IntermediateTextureId, ShapeDrawMaterial, ShapeTextureBinding};
@@ -58,7 +58,7 @@ pub(super) fn bind_aggregated_geometry_buffers(
 
 fn bind_decrement_pipeline(render_pass: &mut RenderPass<'_>, pipelines: &ShapePipelines) {
     render_pass.set_pipeline(pipelines.get(
-        ShapeGeometry::Tessellated,
+        ShapeGeometryType::Tessellated,
         ShapeShader::Solid,
         StencilAction::Decrement,
     ));
@@ -146,7 +146,7 @@ impl DrawPass<'_, '_> {
             self.render_pass.set_stencil_reference(stencil_reference);
             let _draw_count = allocation.draw(
                 self.render_pass,
-                |boundary| pipelines.get(ShapeGeometry::coverage(boundary), shader, stencil),
+                |boundary| pipelines.get(ShapeGeometryType::coverage(boundary), shader, stencil),
                 0..1,
             );
             self.pipeline_tracker.current = Pipeline::None;
@@ -163,7 +163,7 @@ impl DrawPass<'_, '_> {
         let target_pipeline = shader.tracked_pipeline(stencil);
         if self.pipeline_tracker.current != target_pipeline {
             self.render_pass.set_pipeline(pipelines.get(
-                ShapeGeometry::Tessellated,
+                ShapeGeometryType::Tessellated,
                 shader,
                 stencil,
             ));
@@ -244,7 +244,7 @@ impl DrawPass<'_, '_> {
                 self.render_pass,
                 |boundary| {
                     self.pipelines.shapes.get(
-                        ShapeGeometry::coverage(boundary),
+                        ShapeGeometryType::coverage(boundary),
                         ShapeShader::Solid,
                         StencilAction::Decrement,
                     )
