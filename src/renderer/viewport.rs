@@ -21,6 +21,7 @@ impl<B: RenderBackend> Renderer<B> {
     }
 
     /// Returns an error and preserves settings if attached shape mask effects cannot use the new fringe.
+    /// Path edges use pixel-area coverage independently of this setting.
     pub fn set_fringe_width(&mut self, fringe_width: f32) -> Result<(), SceneError> {
         self.update_raster_settings(self.scene.viewport().scale_factor, fringe_width)
     }

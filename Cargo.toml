@@ -46,3 +46,7 @@ render_metrics = []
 [[bench]]
 name = "visual_regression"
 harness = false
+
+[[bench]]
+name = "path_coverage"
+harness = false

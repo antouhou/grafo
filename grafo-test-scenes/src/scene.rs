@@ -47,134 +47,6 @@ fn tile_origin(tile_number: u32) -> (f32, f32) {
     ((column * TILE_SIZE) as f32, (row * TILE_SIZE) as f32)
 }
 
-/// Queues the tile grid and returns its expected pixel colors.
-/// The headless regression test and visual_test_grid example share this scene.
-pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
-    let mut expectations: Vec<PixelExpectation> = Vec::new();
-
-    // The draw tree requires a single root node. All tile shapes are added as
-    // children of this full-canvas root so they are not clipped to each other.
-    let canvas_root = Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]);
-    renderer
-        .add_shape(
-            canvas_root,
-            None,
-            None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
-        )
-        .unwrap();
-
-    load_shared_resources(renderer);
-
-    expectations.extend(tile_01_rect_solid(renderer));
-    expectations.extend(tile_02_rounded_rect_solid(renderer));
-    expectations.extend(tile_03_path_triangle(renderer));
-    expectations.extend(tile_04_path_bezier(renderer));
-    expectations.extend(tile_05_rect_parent_child_inside(renderer));
-    expectations.extend(tile_06_rect_parent_child_overflow(renderer));
-    expectations.extend(tile_07_rect_parent_multi_children(renderer));
-    expectations.extend(tile_08_rect_nested_3_levels(renderer));
-    expectations.extend(tile_09_rect_siblings_overlap(renderer));
-    expectations.extend(tile_10_rounded_rect_clip(renderer));
-    expectations.extend(tile_11_path_parent_clip(renderer));
-    expectations.extend(tile_12_stencil_nested_3_levels(renderer));
-    expectations.extend(tile_13_rotated_rect_clip(renderer));
-    expectations.extend(tile_14_scissor_then_stencil(renderer));
-    expectations.extend(tile_15_stencil_then_scissor(renderer));
-    expectations.extend(tile_16_deep_mixed_5_levels(renderer));
-    expectations.extend(tile_17_translated_rect(renderer));
-    expectations.extend(tile_18_scaled_rect(renderer));
-    expectations.extend(tile_19_rotated_rect_leaf(renderer));
-    expectations.extend(tile_20_transform_parent_child(renderer));
-    expectations.extend(tile_21_alpha_overlap(renderer));
-    expectations.extend(tile_22_no_color_default(renderer));
-    expectations.extend(tile_23_fully_transparent(renderer));
-    expectations.extend(tile_24_textured_rect(renderer));
-    expectations.extend(tile_25_textured_with_color(renderer));
-    expectations.extend(tile_26_textured_parent_child(renderer));
-    expectations.extend(tile_27_group_blur_leaf(renderer));
-    expectations.extend(tile_28_group_blur_with_children(renderer));
-    expectations.extend(tile_29_backdrop_blur_leaf(renderer));
-    expectations.extend(tile_30_backdrop_blur_nonleaf(renderer));
-    expectations.extend(tile_31_backdrop_under_scissor(renderer));
-    expectations.extend(tile_32_tiny_1px_shape(renderer));
-    expectations.extend(tile_33_shape_at_canvas_edge(renderer));
-    expectations.extend(tile_34_cached_shape(renderer));
-    expectations.extend(tile_35_trivial_transform_transparent_leaf(renderer));
-    expectations.extend(tile_36_trivial_transform_transparent_parent(renderer));
-    expectations.extend(tile_37_textured_transparent_rects(renderer));
-    expectations.extend(tile_38_sheared_transparent_parent(renderer));
-
-    // Gradient tiles
-    expectations.extend(tile_39_linear_gradient(renderer));
-    expectations.extend(tile_40_radial_gradient(renderer));
-    expectations.extend(tile_41_conic_gradient(renderer));
-    expectations.extend(tile_42_repeating_linear_gradient(renderer));
-    expectations.extend(tile_43_gradient_hard_stops(renderer));
-    expectations.extend(tile_44_gradient_clipped(renderer));
-    expectations.extend(tile_45_gradient_group_blur(renderer));
-    expectations.extend(tile_46_gradient_backdrop_blur(renderer));
-
-    // Gradient regression tiles
-    expectations.extend(tile_47_gradient_nonleaf_stencil(renderer));
-    expectations.extend(tile_48_gradient_state_leak(renderer));
-    expectations.extend(tile_49_conic_quadrant_colors(renderer));
-    expectations.extend(tile_50_overflow_visible_delegates_to_ancestor(renderer));
-    expectations.extend(tile_51_clip_rect_overflow_visible_container(renderer));
-    expectations.extend(tile_52_backdrop_overflow_visible_children(renderer));
-    expectations.extend(tile_53_texture_original_size(renderer));
-    expectations.extend(tile_54_texture_original_size_scaled(renderer));
-    expectations.extend(tile_55_backdrop_capture_screen_rect(renderer));
-    expectations.extend(tile_56_backdrop_capture_downsampled(renderer));
-    expectations.extend(tile_57_gradient_backdrop_oversized_capture_falls_back(
-        renderer,
-    ));
-    expectations.extend(tile_58_backdrop_budgeted_capture_falls_back(renderer));
-    expectations.extend(tile_59_backdrop_node_bounds_offscreen_preserves_size(
-        renderer,
-    ));
-    expectations.extend(tile_60_cached_shape_mask_effect_rect(renderer));
-    expectations.extend(tile_61_cached_shape_mask_effect_path_clipped(renderer));
-    expectations.extend(tile_62_cached_shape_mask_effect_inside_content_effect(
-        renderer,
-    ));
-    expectations.extend(tile_63_cached_shape_mask_effect_with_backdrop(renderer));
-    expectations.extend(tile_64_drop_shadow_with_backdrop_blur(renderer));
-    expectations.extend(tile_65_grouped_shape_mask_effect_in_backdrop(renderer));
-    expectations.extend(tile_66_same_node_shape_backdrop_and_content_effects(
-        renderer,
-    ));
-    expectations.extend(tile_67_downsampled_drop_shadow_with_backdrop_blur(renderer));
-    expectations.extend(tile_68_gradient_transition_hints(renderer));
-    expectations.extend(tile_69_gradient_automatic_stop_after_decreasing_stop(
-        renderer,
-    ));
-    expectations.extend(tile_70_stencil_restoration_across_empty_and_overflow_parents(renderer));
-
-    expectations.extend(tile_71_shared_geometry_material_batches(renderer));
-    expectations.extend(tile_72_nested_group_textures(renderer));
-    expectations.extend(tile_73_padded_layered_backdrops(renderer));
-    expectations.extend(tile_74_backdrop_stencil_ordering(renderer));
-    expectations.extend(tile_75_under_fill_with_user_textures(renderer));
-    expectations.extend(tile_76_rotated_under_fill_sampling(renderer));
-    expectations.extend(tile_consecutive_captures_under_inherited_clips(
-        renderer, 77, false,
-    ));
-    expectations.extend(tile_consecutive_captures_under_inherited_clips(
-        renderer, 78, true,
-    ));
-    expectations.extend(tile_79_capture_before_first_group_draw(renderer));
-    expectations.extend(tile_80_group_composite_under_mixed_clips(renderer));
-    expectations.extend(tile_81_shared_shape_mask_effect_composites(renderer));
-    expectations.extend(tile_82_group_dependencies_in_layered_backdrops(renderer));
-    expectations.extend(tile_83_nested_target_restoration(renderer));
-    expectations.extend(tile_84_mixed_command_replacement(renderer));
-    expectations.extend(tile_85_replacement_preserves_effects_and_children(renderer));
-    expectations.extend(tile_86_negative_w_shapes_and_effects(renderer));
-
-    expectations
-}
-
 fn tile_84_mixed_command_replacement(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(84);
     let options = ShapeDrawCommandOptions::new()
@@ -6894,4 +6766,132 @@ fn tile_83_nested_target_restoration(renderer: &mut Renderer) -> Vec<PixelExpect
         )
     })
     .collect()
+}
+
+/// Queues the tile grid and returns its expected pixel colors.
+/// The headless regression test and visual_test_grid example share this scene.
+pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
+    let mut expectations: Vec<PixelExpectation> = Vec::new();
+
+    // The draw tree requires a single root node. All tile shapes are added as
+    // children of this full-canvas root so they are not clipped to each other.
+    let canvas_root = Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]);
+    renderer
+        .add_shape(
+            canvas_root,
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::WHITE),
+        )
+        .unwrap();
+
+    load_shared_resources(renderer);
+
+    expectations.extend(tile_01_rect_solid(renderer));
+    expectations.extend(tile_02_rounded_rect_solid(renderer));
+    expectations.extend(tile_03_path_triangle(renderer));
+    expectations.extend(tile_04_path_bezier(renderer));
+    expectations.extend(tile_05_rect_parent_child_inside(renderer));
+    expectations.extend(tile_06_rect_parent_child_overflow(renderer));
+    expectations.extend(tile_07_rect_parent_multi_children(renderer));
+    expectations.extend(tile_08_rect_nested_3_levels(renderer));
+    expectations.extend(tile_09_rect_siblings_overlap(renderer));
+    expectations.extend(tile_10_rounded_rect_clip(renderer));
+    expectations.extend(tile_11_path_parent_clip(renderer));
+    expectations.extend(tile_12_stencil_nested_3_levels(renderer));
+    expectations.extend(tile_13_rotated_rect_clip(renderer));
+    expectations.extend(tile_14_scissor_then_stencil(renderer));
+    expectations.extend(tile_15_stencil_then_scissor(renderer));
+    expectations.extend(tile_16_deep_mixed_5_levels(renderer));
+    expectations.extend(tile_17_translated_rect(renderer));
+    expectations.extend(tile_18_scaled_rect(renderer));
+    expectations.extend(tile_19_rotated_rect_leaf(renderer));
+    expectations.extend(tile_20_transform_parent_child(renderer));
+    expectations.extend(tile_21_alpha_overlap(renderer));
+    expectations.extend(tile_22_no_color_default(renderer));
+    expectations.extend(tile_23_fully_transparent(renderer));
+    expectations.extend(tile_24_textured_rect(renderer));
+    expectations.extend(tile_25_textured_with_color(renderer));
+    expectations.extend(tile_26_textured_parent_child(renderer));
+    expectations.extend(tile_27_group_blur_leaf(renderer));
+    expectations.extend(tile_28_group_blur_with_children(renderer));
+    expectations.extend(tile_29_backdrop_blur_leaf(renderer));
+    expectations.extend(tile_30_backdrop_blur_nonleaf(renderer));
+    expectations.extend(tile_31_backdrop_under_scissor(renderer));
+    expectations.extend(tile_32_tiny_1px_shape(renderer));
+    expectations.extend(tile_33_shape_at_canvas_edge(renderer));
+    expectations.extend(tile_34_cached_shape(renderer));
+    expectations.extend(tile_35_trivial_transform_transparent_leaf(renderer));
+    expectations.extend(tile_36_trivial_transform_transparent_parent(renderer));
+    expectations.extend(tile_37_textured_transparent_rects(renderer));
+    expectations.extend(tile_38_sheared_transparent_parent(renderer));
+
+    // Gradient tiles
+    expectations.extend(tile_39_linear_gradient(renderer));
+    expectations.extend(tile_40_radial_gradient(renderer));
+    expectations.extend(tile_41_conic_gradient(renderer));
+    expectations.extend(tile_42_repeating_linear_gradient(renderer));
+    expectations.extend(tile_43_gradient_hard_stops(renderer));
+    expectations.extend(tile_44_gradient_clipped(renderer));
+    expectations.extend(tile_45_gradient_group_blur(renderer));
+    expectations.extend(tile_46_gradient_backdrop_blur(renderer));
+
+    // Gradient regression tiles
+    expectations.extend(tile_47_gradient_nonleaf_stencil(renderer));
+    expectations.extend(tile_48_gradient_state_leak(renderer));
+    expectations.extend(tile_49_conic_quadrant_colors(renderer));
+    expectations.extend(tile_50_overflow_visible_delegates_to_ancestor(renderer));
+    expectations.extend(tile_51_clip_rect_overflow_visible_container(renderer));
+    expectations.extend(tile_52_backdrop_overflow_visible_children(renderer));
+    expectations.extend(tile_53_texture_original_size(renderer));
+    expectations.extend(tile_54_texture_original_size_scaled(renderer));
+    expectations.extend(tile_55_backdrop_capture_screen_rect(renderer));
+    expectations.extend(tile_56_backdrop_capture_downsampled(renderer));
+    expectations.extend(tile_57_gradient_backdrop_oversized_capture_falls_back(
+        renderer,
+    ));
+    expectations.extend(tile_58_backdrop_budgeted_capture_falls_back(renderer));
+    expectations.extend(tile_59_backdrop_node_bounds_offscreen_preserves_size(
+        renderer,
+    ));
+    expectations.extend(tile_60_cached_shape_mask_effect_rect(renderer));
+    expectations.extend(tile_61_cached_shape_mask_effect_path_clipped(renderer));
+    expectations.extend(tile_62_cached_shape_mask_effect_inside_content_effect(
+        renderer,
+    ));
+    expectations.extend(tile_63_cached_shape_mask_effect_with_backdrop(renderer));
+    expectations.extend(tile_64_drop_shadow_with_backdrop_blur(renderer));
+    expectations.extend(tile_65_grouped_shape_mask_effect_in_backdrop(renderer));
+    expectations.extend(tile_66_same_node_shape_backdrop_and_content_effects(
+        renderer,
+    ));
+    expectations.extend(tile_67_downsampled_drop_shadow_with_backdrop_blur(renderer));
+    expectations.extend(tile_68_gradient_transition_hints(renderer));
+    expectations.extend(tile_69_gradient_automatic_stop_after_decreasing_stop(
+        renderer,
+    ));
+    expectations.extend(tile_70_stencil_restoration_across_empty_and_overflow_parents(renderer));
+
+    expectations.extend(tile_71_shared_geometry_material_batches(renderer));
+    expectations.extend(tile_72_nested_group_textures(renderer));
+    expectations.extend(tile_73_padded_layered_backdrops(renderer));
+    expectations.extend(tile_74_backdrop_stencil_ordering(renderer));
+    expectations.extend(tile_75_under_fill_with_user_textures(renderer));
+    expectations.extend(tile_76_rotated_under_fill_sampling(renderer));
+    expectations.extend(tile_consecutive_captures_under_inherited_clips(
+        renderer, 77, false,
+    ));
+    expectations.extend(tile_consecutive_captures_under_inherited_clips(
+        renderer, 78, true,
+    ));
+    expectations.extend(tile_79_capture_before_first_group_draw(renderer));
+    expectations.extend(tile_80_group_composite_under_mixed_clips(renderer));
+    expectations.extend(tile_81_shared_shape_mask_effect_composites(renderer));
+    expectations.extend(tile_82_group_dependencies_in_layered_backdrops(renderer));
+    expectations.extend(tile_83_nested_target_restoration(renderer));
+    expectations.extend(tile_84_mixed_command_replacement(renderer));
+    expectations.extend(tile_85_replacement_preserves_effects_and_children(renderer));
+    expectations.extend(tile_86_negative_w_shapes_and_effects(renderer));
+
+    expectations
 }

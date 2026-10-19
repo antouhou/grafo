@@ -153,6 +153,7 @@ impl WgpuBackend {
 
         self.queue.submit(iter::once(encoder.finish()));
         resources.shape_execution.texture_materials.finish_render();
+        resources.shape_execution.coverage_cache.finish_render();
         resources.effect_execution.finish_render();
 
         let (_collected_shape_mask_effect_results, _collected_shape_masks) =
@@ -169,6 +170,11 @@ impl WgpuBackend {
     }
 
     pub(in crate::wgpu_backend) fn prepare_resources(&mut self) {
+        self.resources.shape_execution.coverage_cache.upload(
+            &self.device,
+            &self.queue,
+            &self.pipeline_resources.shapes,
+        );
         self.resources.shape_execution.upload(
             &self.device,
             &self.queue,

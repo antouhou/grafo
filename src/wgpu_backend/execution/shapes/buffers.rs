@@ -3,7 +3,7 @@ use crate::wgpu_backend::resources::Buffers;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{Buffer, BufferDescriptor, BufferUsages, Device, Queue, COPY_BUFFER_ALIGNMENT};
 
-fn upsert_gpu_buffer(
+pub(in crate::wgpu_backend) fn upsert_gpu_buffer(
     device: &Device,
     queue: &Queue,
     buffer: &mut Option<Buffer>,

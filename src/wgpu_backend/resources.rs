@@ -1,5 +1,6 @@
 use super::execution::effects::{CompositePipelineResources, EffectExecutionResources};
 use super::execution::shape_mask_effects::ShapeMaskEffectRendererResources;
+use super::execution::shapes::coverage::pipelines::CoveragePipelines;
 use super::execution::shapes::{ShapeExecutionResources, TextureMaterialPipelines};
 use super::execution::textures::IntermediateTextureResources;
 #[cfg(feature = "render_metrics")]
@@ -70,6 +71,7 @@ impl Buffers {
 
 /// Shape pipelines and the resources used to bind their materials.
 pub(in crate::wgpu_backend) struct ShapePipelines {
+    pub(in crate::wgpu_backend) coverage: CoveragePipelines,
     pub(in crate::wgpu_backend) and_pipeline: Arc<RenderPipeline>,
     pub(in crate::wgpu_backend) and_gradient_pipeline: Arc<RenderPipeline>,
     pub(in crate::wgpu_backend) and_bind_group: BindGroup,
