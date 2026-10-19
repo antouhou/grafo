@@ -54,8 +54,8 @@ impl ShapeShaderType {
         matches!(self, Self::Gradient | Self::GradientUnderFillTexture)
     }
 
-    fn vertex_entry_point(self, geometry: ShapeGeometryType, is_solid: bool) -> &'static str {
-        let uses_coverage = geometry != ShapeGeometryType::Tessellated;
+    fn vertex_entry_point(self, geometry_type: ShapeGeometryType, is_solid: bool) -> &'static str {
+        let uses_coverage = geometry_type != ShapeGeometryType::Tessellated;
         match (uses_coverage, is_solid, self.uses_gradient()) {
             (false, true, _) => "vs_solid",
             (true, true, _) => "vs_coverage_solid",
@@ -165,10 +165,10 @@ impl ShapePipelineLayouts {
 }
 
 fn vertex_buffer_layouts(
-    geometry: ShapeGeometryType,
+    geometry_type: ShapeGeometryType,
     is_solid: bool,
 ) -> [VertexBufferLayout<'static>; 4] {
-    let uses_coverage = geometry != ShapeGeometryType::Tessellated;
+    let uses_coverage = geometry_type != ShapeGeometryType::Tessellated;
     if uses_coverage && is_solid {
         return [
             CoverageVertex::solid_desc(),
