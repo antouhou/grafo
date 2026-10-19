@@ -108,13 +108,15 @@ impl DrawPass<'_, '_> {
                 .set_vertex_buffer(1, self.buffers.instance_transform_buffer().slice(..));
         }
         let uses_solid_coverage = batch.coverage.is_some() && !shader.uses_texture_bindings();
+        let color_buffer_slot = if uses_solid_coverage { 1 } else { 2 };
         self.render_pass.set_vertex_buffer(
-            if uses_solid_coverage { 1 } else { 2 },
+            color_buffer_slot,
             self.buffers.instance_color_buffer().slice(..),
         );
         if batch.coverage.is_some() || shader.uses_texture_bindings() {
+            let metadata_buffer_slot = if uses_solid_coverage { 2 } else { 3 };
             self.render_pass.set_vertex_buffer(
-                if uses_solid_coverage { 2 } else { 3 },
+                metadata_buffer_slot,
                 self.buffers.instance_metadata_buffer().slice(..),
             );
         }

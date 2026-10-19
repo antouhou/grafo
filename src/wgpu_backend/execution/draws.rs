@@ -26,17 +26,19 @@ fn bind_instance_buffers(
         );
     }
     let uses_solid_coverage = uses_coverage && !uses_texture_bindings;
+    let color_buffer_slot = if uses_solid_coverage { 1 } else { 2 };
     let color_offset = instance_index as u64 * InstanceColor::STRIDE;
     render_pass.set_vertex_buffer(
-        if uses_solid_coverage { 1 } else { 2 },
+        color_buffer_slot,
         buffers
             .instance_color_buffer()
             .slice(color_offset..color_offset + InstanceColor::STRIDE),
     );
     if uses_coverage || uses_texture_bindings {
+        let metadata_buffer_slot = if uses_solid_coverage { 2 } else { 3 };
         let metadata_offset = instance_index as u64 * InstanceMetadata::STRIDE;
         render_pass.set_vertex_buffer(
-            if uses_solid_coverage { 2 } else { 3 },
+            metadata_buffer_slot,
             buffers
                 .instance_metadata_buffer()
                 .slice(metadata_offset..metadata_offset + InstanceMetadata::STRIDE),
