@@ -1,11 +1,11 @@
 use super::buffers::upsert_gpu_buffer;
 use crate::core::cache::CachedTessellation;
 use crate::core::vertex::InstanceTransform;
+use crate::core::{geometry as core_geometry, MathRect};
 use crate::wgpu_backend::resources::ShapePipelines;
 pub(in crate::wgpu_backend) use cache::CoverageCache;
 use cache::CoverageKey;
 pub(crate) use geometry::{CoverageBuilder, CoverageVertex};
-use projection::Projection;
 use std::{mem, ops::Range, sync::Arc};
 pub(in crate::wgpu_backend) use uploads::CoverageAllocation;
 use uploads::{CoverageDrawRange, CoverageUpload};
@@ -26,7 +26,11 @@ pub(in crate::wgpu_backend) fn supports_projection(
     transform: Option<InstanceTransform>,
     bounds: [(f32, f32); 2],
 ) -> bool {
-    Projection::new(transform, 1.0, bounds).is_some()
+    core_geometry::transformed_bounds_to_logical_screen_rect(
+        MathRect::new(bounds[0].into(), bounds[1].into()),
+        transform,
+    )
+    .is_finite()
 }
 
 #[derive(Clone, Debug)]
