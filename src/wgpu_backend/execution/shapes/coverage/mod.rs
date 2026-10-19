@@ -5,6 +5,7 @@ use crate::wgpu_backend::resources::ShapePipelines;
 pub(in crate::wgpu_backend) use cache::CoverageCache;
 use cache::CoverageKey;
 pub(crate) use geometry::{CoverageBuilder, CoverageVertex};
+use projection::Projection;
 use std::{mem, ops::Range, sync::Arc};
 pub(in crate::wgpu_backend) use uploads::CoverageAllocation;
 use uploads::{CoverageDrawRange, CoverageUpload};
@@ -20,6 +21,13 @@ mod placement;
 mod projection;
 mod scanline;
 mod uploads;
+
+pub(in crate::wgpu_backend) fn supports_projection(
+    transform: Option<InstanceTransform>,
+    bounds: [(f32, f32); 2],
+) -> bool {
+    Projection::new(transform, 1.0, bounds).is_some()
+}
 
 #[derive(Clone, Debug)]
 pub(in crate::wgpu_backend) struct CoverageBuffers {
