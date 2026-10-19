@@ -120,7 +120,7 @@ impl CoverageBuilder {
                 self.row_edges[row as usize].push(RowEdge {
                     x0,
                     x1,
-                    height: (high as f64 - low as f64).copysign(height as f64)
+                    signed_winding_height: (high as f64 - low as f64).copysign(height as f64)
                         * edge.winding as f64,
                 });
             }

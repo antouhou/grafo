@@ -4,7 +4,7 @@ pub(super) struct Projection {
     matrix: [[f64; 3]; 3],
     inverse: [[f64; 3]; 3],
     scale: f64,
-    sign: f64,
+    homogeneous_w_sign: f64,
     pub(super) boundary_orientation: Option<i32>,
 }
 
@@ -69,16 +69,16 @@ impl Projection {
             (bounds[0].0 as f64 + bounds[1].0 as f64) * 0.5,
             (bounds[0].1 as f64 + bounds[1].1 as f64) * 0.5,
         ];
-        let sign = (c[0] * center[0] + c[1] * center[1] + c[2]).signum();
+        let homogeneous_w_sign = (c[0] * center[0] + c[1] * center[1] + c[2]).signum();
         let boundary_orientation = corners
             .iter()
-            .all(|&(x, y)| (c[0] * x as f64 + c[1] * y as f64 + c[2]) * sign >= 1e-6)
-            .then_some((determinant * sign).signum() as i32);
+            .all(|&(x, y)| (c[0] * x as f64 + c[1] * y as f64 + c[2]) * homogeneous_w_sign >= 1e-6)
+            .then_some((determinant * homogeneous_w_sign).signum() as i32);
         Some(Self {
             matrix,
             inverse: cofactors.map(|row| row.map(|value| value / determinant)),
             scale,
-            sign,
+            homogeneous_w_sign,
             boundary_orientation,
         })
     }
@@ -97,8 +97,8 @@ impl Projection {
 
     pub(super) fn unproject(&self, position: [f32; 2]) -> [f32; 3] {
         let point = [
-            position[0] as f64 / self.scale * self.sign,
-            position[1] as f64 / self.scale * self.sign,
+            position[0] as f64 / self.scale * self.homogeneous_w_sign,
+            position[1] as f64 / self.scale * self.homogeneous_w_sign,
             1.0,
         ];
         self.inverse

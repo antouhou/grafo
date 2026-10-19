@@ -4,7 +4,7 @@ use std::ops::Range;
 pub(super) struct RowEdge {
     pub x0: f32,
     pub x1: f32,
-    pub height: f64,
+    pub signed_winding_height: f64,
 }
 
 impl RowEdge {
@@ -26,7 +26,7 @@ impl RowEdge {
         } else {
             1.0 - (1.0 - a) * (1.0 - a) * 0.5 * inverse_width
         };
-        area * self.height
+        area * self.signed_winding_height
     }
 }
 
@@ -56,7 +56,7 @@ impl Scanline {
                 continue;
             }
             if minimum >= right as f32 {
-                self.area += edge.height;
+                self.area += edge.signed_winding_height;
                 continue;
             }
             let inverse_width = if edge.x0 == edge.x1 {
