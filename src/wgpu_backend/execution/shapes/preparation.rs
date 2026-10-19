@@ -1,7 +1,9 @@
+use super::coverage::supports_projection;
 use super::{ShapeBufferLocation, ShapeDrawResources, ShapeExecutionResources};
 use crate::commands::ShapeDrawId;
 use crate::core::shape::ShapeInstance;
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
+use crate::core::Viewport;
 use crate::wgpu_backend::resources::ShapePipelines;
 use crate::wgpu_backend::texture_manager::WgpuTextureManager;
 use crate::wgpu_backend::types::GeometryBufferError;
@@ -87,6 +89,7 @@ pub(crate) fn append_instance_data(
     let texture_flags = (texture_data.texture_presence[0] as u32)
         | ((texture_data.texture_presence[1] as u32) << 1);
     temp_instance_metadata.push(InstanceMetadata {
+        coverage_translation: [0.0; 2],
         texture_flags: texture_flags as f32,
         texture_uv_transform_layer0: texture_data.texture_uv_transforms[0],
         texture_uv_transform_layer1: texture_data.texture_uv_transforms[1],
@@ -175,8 +178,24 @@ impl ShapeExecutionResources {
         queue: &Queue,
         pipelines: &ShapePipelines,
         scale_factor: f64,
+        physical_size: (u32, u32),
     ) -> Result<ShapeDrawResources, GeometryBufferError> {
         let mut resources = ShapeDrawResources::default();
+        if !cached_shape_data.cached_shape.is_rect
+            && supports_projection(
+                cached_shape_data.transform,
+                cached_shape_data.cached_shape.tessellation.local_bounds,
+            )
+        {
+            resources.path_coverage = Some(self.coverage_cache.prepare(
+                &cached_shape_data.cached_shape.tessellation,
+                cached_shape_data.transform,
+                Viewport {
+                    physical_size,
+                    scale_factor,
+                },
+            ));
+        }
         resources.refresh_gradient_material(
             &cached_shape_data.fill,
             &mut self.gradient_cache,
@@ -185,12 +204,21 @@ impl ShapeExecutionResources {
             &pipelines.gradient_bind_group_layout,
             &pipelines.linear_clamp_sampler,
         );
-        let geometry_range = append_aggregated_geometry_for_shape(
-            cached_shape_data,
-            &mut self.vertices,
-            &mut self.indices,
-            &mut self.geometry_ranges,
-        )?;
+        let geometry_range = if resources.path_coverage.is_some() {
+            (!cached_shape_data
+                .cached_shape
+                .vertex_buffers()
+                .indices
+                .is_empty())
+            .then_some(GeometryBufferRange::default())
+        } else {
+            append_aggregated_geometry_for_shape(
+                cached_shape_data,
+                &mut self.vertices,
+                &mut self.indices,
+                &mut self.geometry_ranges,
+            )?
+        };
         if let Some(geometry_range) = geometry_range {
             let texture_uv_transforms = compute_texture_uv_transforms(
                 cached_shape_data.cached_shape.texture_mapping_size(),
@@ -212,6 +240,9 @@ impl ShapeExecutionResources {
                     texture_uv_transforms,
                 },
             );
+            if let Some(coverage) = &resources.path_coverage {
+                self.instance_metadata[instance_index].coverage_translation = coverage.translation;
+            }
             resources.geometry_buffer_location = Some(ShapeBufferLocation {
                 geometry_range,
                 instance_index,

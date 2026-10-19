@@ -58,6 +58,7 @@ impl ExecutionResources<'_> {
                 .shape_texture_bind_group_layout_background,
             format: self.context.format,
             pipelines: &self.context.pipelines.shape_mask_effects,
+            shape_pipelines: &self.context.pipelines.shapes,
             buffers: self.buffers,
             shapes: self.shapes,
             effects: self.effects,

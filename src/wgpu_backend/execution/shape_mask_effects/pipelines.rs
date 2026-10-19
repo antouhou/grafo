@@ -1,9 +1,12 @@
 use crate::core::vertex::CustomVertex;
+use crate::wgpu_backend::execution::shapes::coverage::CoverageVertex;
+use crate::wgpu_backend::pipeline;
 use wgpu::{
     BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType,
     BufferBindingType, ColorTargetState, ColorWrites, Device, FragmentState, MultisampleState,
-    PipelineLayoutDescriptor, PrimitiveState, RenderPipeline, RenderPipelineDescriptor,
-    ShaderModuleDescriptor, ShaderSource, ShaderStages, TextureFormat, VertexState,
+    PipelineCompilationOptions, PipelineLayoutDescriptor, PrimitiveState, RenderPipeline,
+    RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages, TextureFormat,
+    VertexState,
 };
 const SHAPE_MASK_SHADER: &str = include_str!("../../../shaders/shape_mask.wgsl");
 
@@ -27,10 +30,19 @@ fn create_mask_pipeline(
     device: &Device,
     format: TextureFormat,
     bind_group_layout: &BindGroupLayout,
+    uses_coverage: bool,
+    evaluates_path_coverage: bool,
 ) -> RenderPipeline {
     let shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("shape_mask_shader"),
-        source: ShaderSource::Wgsl(SHAPE_MASK_SHADER.into()),
+        source: ShaderSource::Wgsl(
+            format!(
+                "{}\n{}",
+                include_str!("../../../shaders/path_coverage.wgsl"),
+                SHAPE_MASK_SHADER
+            )
+            .into(),
+        ),
     });
     let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
         label: Some("shape_mask_pipeline_layout"),
@@ -43,14 +55,32 @@ fn create_mask_pipeline(
         layout: Some(&pipeline_layout),
         vertex: VertexState {
             module: &shader,
-            entry_point: Some("mask_vertex"),
+            entry_point: Some(if uses_coverage {
+                "mask_coverage_vertex"
+            } else {
+                "mask_vertex"
+            }),
             compilation_options: Default::default(),
-            buffers: &[CustomVertex::desc()],
+            buffers: &[if uses_coverage {
+                CoverageVertex::desc()
+            } else {
+                CustomVertex::desc()
+            }],
         },
         fragment: Some(FragmentState {
             module: &shader,
-            entry_point: Some("mask_fragment"),
-            compilation_options: Default::default(),
+            entry_point: Some(if uses_coverage {
+                "mask_coverage_fragment"
+            } else {
+                "mask_fragment"
+            }),
+            compilation_options: PipelineCompilationOptions {
+                constants: &[(
+                    "evaluates_path_coverage",
+                    f64::from(evaluates_path_coverage),
+                )],
+                ..Default::default()
+            },
             targets: &[Some(ColorTargetState {
                 format,
                 blend: None,
@@ -66,6 +96,8 @@ fn create_mask_pipeline(
 }
 
 pub(in crate::wgpu_backend) struct ShapeMaskEffectRendererResources {
+    pub coverage_layout: BindGroupLayout,
+    pub coverage_pipelines: [RenderPipeline; 2],
     pub mask_bind_group_layout: BindGroupLayout,
     pub mask_pipeline: RenderPipeline,
 }
@@ -73,8 +105,15 @@ pub(in crate::wgpu_backend) struct ShapeMaskEffectRendererResources {
 impl ShapeMaskEffectRendererResources {
     pub(in crate::wgpu_backend) fn new(device: &Device, format: TextureFormat) -> Self {
         let mask_bind_group_layout = create_mask_bind_group_layout(device);
-        let mask_pipeline = create_mask_pipeline(device, format, &mask_bind_group_layout);
+        let mask_pipeline =
+            create_mask_pipeline(device, format, &mask_bind_group_layout, false, false);
+        let coverage_layout = pipeline::create_uniform_bind_group_layout(device);
+        let coverage_pipelines = [false, true].map(|evaluates| {
+            create_mask_pipeline(device, format, &coverage_layout, true, evaluates)
+        });
         Self {
+            coverage_layout,
+            coverage_pipelines,
             mask_bind_group_layout,
             mask_pipeline,
         }
@@ -85,6 +124,10 @@ impl ShapeMaskEffectRendererResources {
         device: &Device,
         format: TextureFormat,
     ) {
-        self.mask_pipeline = create_mask_pipeline(device, format, &self.mask_bind_group_layout);
+        self.mask_pipeline =
+            create_mask_pipeline(device, format, &self.mask_bind_group_layout, false, false);
+        self.coverage_pipelines = [false, true].map(|evaluates| {
+            create_mask_pipeline(device, format, &self.coverage_layout, true, evaluates)
+        });
     }
 }

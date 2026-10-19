@@ -11,10 +11,13 @@ use ahash::AHashMap;
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, VertexBuffers,
 };
+pub use lyon::path::FillRule;
 use lyon::path::{Builder, Path, Winding};
 use lyon::tessellation::FillVertexConstructor;
 use smallvec::SmallVec;
 use std::sync::Arc;
+
+pub(crate) mod boundary;
 
 #[derive(Debug, Clone)]
 pub struct CachedShapeHandle {
@@ -180,7 +183,7 @@ impl Shape {
         path_builder.add_rounded_rectangle(&box2d, &border_radii.into(), Winding::Positive);
         let path = path_builder.build();
 
-        let path_shape = PathShape { path };
+        let path_shape = PathShape::new(path);
         Shape::Path(path_shape)
     }
 
@@ -255,6 +258,7 @@ impl Shape {
                 );
 
                 let tessellation = Arc::new(CachedTessellation {
+                    boundary_edges: Vec::new(),
                     vertex_buffers: Arc::new(vertex_buffers),
                     local_bounds,
                     texture_mapping_size: rect_size(local_bounds),
@@ -312,6 +316,7 @@ impl RectShape {
 #[derive(Clone, Debug)]
 pub struct PathShape {
     pub(crate) path: Path,
+    fill_rule: FillRule,
 }
 
 struct VertexConverter;
@@ -761,9 +766,19 @@ fn generate_aa_fringe(
 }
 
 impl PathShape {
-    /// Uses an existing Lyon path as the shape's geometry.
+    /// Uses an existing Lyon path as the shape's geometry, filled with [`FillRule::NonZero`].
     pub fn new(path: Path) -> Self {
-        Self { path }
+        Self {
+            path,
+            fill_rule: FillRule::NonZero,
+        }
+    }
+
+    /// Selects which regions inside the path are filled. Defaults to [`FillRule::NonZero`].
+    /// Use [`FillRule::EvenOdd`] for holes that do not depend on contour direction.
+    pub fn fill_rule(mut self, fill_rule: FillRule) -> Self {
+        self.fill_rule = fill_rule;
+        self
     }
 
     /// Returns shared geometry and bounds, reusing the tessellation cache when a key is given.
@@ -783,11 +798,7 @@ impl PathShape {
         }
 
         let mut buffers = VertexBuffers::new();
-        let local_bounds = self.tessellate_into_buffers(
-            &mut buffers,
-            tessellator,
-            &mut shape_resources.aa_fringe_scratch,
-        );
+        let local_bounds = self.tessellate_into_buffers(&mut buffers, tessellator);
 
         #[allow(clippy::manual_is_multiple_of)]
         let needs_index_padding = buffers.indices.len() % 2 != 0;
@@ -796,6 +807,10 @@ impl PathShape {
         }
 
         let tessellation = Arc::new(CachedTessellation {
+            boundary_edges: shape_resources
+                .path_boundary_builder
+                .build(&buffers.vertices, &buffers.indices, |position| position)
+                .collect(),
             vertex_buffers: Arc::new(buffers),
             local_bounds,
             texture_mapping_size: rect_size(local_bounds),
@@ -814,9 +829,8 @@ impl PathShape {
         &self,
         buffers: &mut VertexBuffers<CustomVertex, u16>,
         tessellator: &mut FillTessellator,
-        aa_fringe_scratch: &mut AaFringeScratch,
     ) -> [(f32, f32); 2] {
-        let options = FillOptions::default();
+        let options = FillOptions::default().with_fill_rule(self.fill_rule);
 
         tessellator
             .tessellate_path(
@@ -838,14 +852,6 @@ impl PathShape {
                 v.tex_coords = [u, vcoord];
             }
         }
-
-        // Generate AA fringe geometry after UVs are computed so fringe vertices
-        // inherit the correct tex_coords from their source boundary vertices.
-        generate_aa_fringe(
-            &mut buffers.vertices,
-            &mut buffers.indices,
-            aa_fringe_scratch,
-        );
 
         local_bounds
     }
@@ -1061,6 +1067,7 @@ impl ShapeDrawCommandOptions {
 #[derive(Clone)]
 pub struct ShapeBuilder {
     path_builder: Builder,
+    fill_rule: FillRule,
 }
 
 impl Default for ShapeBuilder {
@@ -1070,11 +1077,19 @@ impl Default for ShapeBuilder {
 }
 
 impl ShapeBuilder {
-    /// Starts an empty path.
+    /// Starts an empty path using [`FillRule::NonZero`].
     pub fn new() -> Self {
         Self {
             path_builder: Path::builder(),
+            fill_rule: FillRule::NonZero,
         }
+    }
+
+    /// Selects which regions inside the path are filled. Defaults to [`FillRule::NonZero`].
+    /// Use [`FillRule::EvenOdd`] for holes that do not depend on contour direction.
+    pub fn fill_rule(mut self, fill_rule: FillRule) -> Self {
+        self.fill_rule = fill_rule;
+        self
     }
 
     /// Starts a new subpath at `point`.
@@ -1113,7 +1128,10 @@ impl ShapeBuilder {
     /// Builds the [`Shape`] from the accumulated path.
     pub fn build(self) -> Shape {
         let path = self.path_builder.build();
-        Shape::Path(PathShape { path })
+        Shape::Path(PathShape {
+            path,
+            fill_rule: self.fill_rule,
+        })
     }
 }
 

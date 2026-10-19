@@ -25,6 +25,7 @@ impl RenderBackend for WgpuBackend {
             &self.queue,
             &self.pipeline_resources.shapes,
             self.viewport.scale_factor,
+            self.viewport.physical_size,
         )?;
         self.resources.shape_execution.register_draw(id, resources);
         Ok(())
