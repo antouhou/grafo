@@ -48,6 +48,14 @@ impl CustomVertex {
         },
     ];
 
+    pub fn desc<'a>() -> VertexBufferLayout<'a> {
+        VertexBufferLayout {
+            array_stride: Self::STRIDE,
+            step_mode: VertexStepMode::Vertex,
+            attributes: &Self::ATTRIBUTES,
+        }
+    }
+
     pub(crate) fn solid_desc<'a>() -> VertexBufferLayout<'a> {
         const ATTRIBUTES: [VertexAttribute; 3] = [
             CustomVertex::ATTRIBUTES[0],
@@ -57,14 +65,6 @@ impl CustomVertex {
         VertexBufferLayout {
             attributes: &ATTRIBUTES,
             ..Self::desc()
-        }
-    }
-
-    pub fn desc<'a>() -> VertexBufferLayout<'a> {
-        VertexBufferLayout {
-            array_stride: Self::STRIDE,
-            step_mode: VertexStepMode::Vertex,
-            attributes: &Self::ATTRIBUTES,
         }
     }
 }
@@ -175,18 +175,18 @@ impl InstanceMetadata {
         },
     ];
 
-    pub(crate) fn coverage_desc<'a>() -> VertexBufferLayout<'a> {
-        VertexBufferLayout {
-            attributes: &Self::ATTRIBUTES[..1],
-            ..Self::desc()
-        }
-    }
-
     pub fn desc<'a>() -> VertexBufferLayout<'a> {
         VertexBufferLayout {
             array_stride: Self::STRIDE,
             step_mode: VertexStepMode::Instance,
             attributes: &Self::ATTRIBUTES,
+        }
+    }
+
+    pub(crate) fn coverage_desc<'a>() -> VertexBufferLayout<'a> {
+        VertexBufferLayout {
+            attributes: &Self::ATTRIBUTES[..1],
+            ..Self::desc()
         }
     }
 }

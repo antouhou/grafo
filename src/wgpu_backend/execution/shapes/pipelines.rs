@@ -164,7 +164,10 @@ impl ShapePipelineLayouts {
     }
 }
 
-fn vertex_buffers(geometry: ShapeGeometry, is_solid: bool) -> [VertexBufferLayout<'static>; 4] {
+fn vertex_buffer_layouts(
+    geometry: ShapeGeometry,
+    is_solid: bool,
+) -> [VertexBufferLayout<'static>; 4] {
     let uses_coverage = geometry != ShapeGeometry::Tessellated;
     if uses_coverage && is_solid {
         return [
@@ -210,7 +213,7 @@ impl ShapePipelineCompiler {
         let layout = layouts.create_pipeline_layout(&self.device, shader, is_solid);
         let vertex_entry_point = shader.vertex_entry_point(geometry, is_solid);
         let fragment_entry_point = shader.fragment_entry_point(stencil);
-        let buffers = vertex_buffers(geometry, is_solid);
+        let vertex_buffer_layouts = vertex_buffer_layouts(geometry, is_solid);
         self.device
             .create_render_pipeline(&RenderPipelineDescriptor {
                 label: Some(fragment_entry_point),
@@ -219,7 +222,7 @@ impl ShapePipelineCompiler {
                     module: &self.shader,
                     entry_point: Some(vertex_entry_point),
                     compilation_options: Default::default(),
-                    buffers: &buffers[..if is_solid { 3 } else { 4 }],
+                    buffers: &vertex_buffer_layouts[..if is_solid { 3 } else { 4 }],
                 },
                 fragment: Some(FragmentState {
                     module: &self.shader,
@@ -259,7 +262,7 @@ impl ShapePipelineCompiler {
 
 #[derive(Default)]
 struct GeometryPipelines {
-    shaders: [[OnceLock<RenderPipeline>; 2]; 5],
+    material_pipelines: [[OnceLock<RenderPipeline>; 2]; 5],
     decrement: OnceLock<RenderPipeline>,
 }
 
@@ -298,7 +301,7 @@ impl ShapePipelines {
         let (slot, shader) = match stencil {
             StencilAction::Decrement => (&pipelines.decrement, ShapeShader::Solid),
             _ => (
-                &pipelines.shaders[shader as usize][stencil as usize],
+                &pipelines.material_pipelines[shader as usize][stencil as usize],
                 shader,
             ),
         };

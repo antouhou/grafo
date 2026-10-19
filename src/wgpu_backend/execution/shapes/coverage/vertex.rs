@@ -30,6 +30,15 @@ impl CoverageVertex {
             shader_location: 12,
         },
     ];
+
+    pub(in crate::wgpu_backend) fn desc<'a>() -> VertexBufferLayout<'a> {
+        VertexBufferLayout {
+            array_stride: mem::size_of::<Self>() as u64,
+            step_mode: VertexStepMode::Vertex,
+            attributes: &Self::ATTRIBUTES,
+        }
+    }
+
     pub(in crate::wgpu_backend) fn solid_desc<'a>() -> VertexBufferLayout<'a> {
         const ATTRIBUTES: [VertexAttribute; 3] = [
             CoverageVertex::ATTRIBUTES[0],
@@ -39,14 +48,6 @@ impl CoverageVertex {
         VertexBufferLayout {
             attributes: &ATTRIBUTES,
             ..Self::desc()
-        }
-    }
-
-    pub(in crate::wgpu_backend) fn desc<'a>() -> VertexBufferLayout<'a> {
-        VertexBufferLayout {
-            array_stride: mem::size_of::<Self>() as u64,
-            step_mode: VertexStepMode::Vertex,
-            attributes: &Self::ATTRIBUTES,
         }
     }
 }
