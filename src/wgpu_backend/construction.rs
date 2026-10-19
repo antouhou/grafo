@@ -103,12 +103,7 @@ impl WgpuBackend {
             self.viewport.scale_factor,
             self.fringe_width,
             self.msaa_sample_count,
-            Some(
-                self.pipeline_resources
-                    .shapes
-                    .gradient_bind_group_layout
-                    .clone(),
-            ),
+            Some(self.pipeline_resources.shapes.layouts.gradient.clone()),
         );
         self.pipeline_resources.shapes = resources;
         self.resources

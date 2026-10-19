@@ -16,11 +16,11 @@ use wgpu::{
 
 mod cache;
 mod geometry;
-pub(in crate::wgpu_backend) mod pipelines;
 mod placement;
 mod projection;
 mod scanline;
 mod uploads;
+mod vertex;
 
 pub(in crate::wgpu_backend) fn supports_projection(
     transform: Option<InstanceTransform>,
@@ -166,7 +166,8 @@ impl CoverageBuffers {
         pipelines: [&RenderPipeline; 2],
         instances: Range<u32>,
     ) -> u32 {
-        self.range.draw(pass, pipelines, instances)
+        self.range
+            .draw(pass, |boundary| pipelines[boundary as usize], instances)
     }
 
     pub(in crate::wgpu_backend) fn create_mask_bind_group(
@@ -202,13 +203,13 @@ impl CoverageBuffers {
         let coverage_buffer = coverage.as_ref().expect("coverage values were uploaded");
         let bind_group = create_bind_group(
             device,
-            &pipelines.and_pipeline.get_bind_group_layout(0),
+            &pipelines.layouts.uniform,
             &pipelines.and_uniform_buffer,
             coverage_buffer,
         );
         let decrement_bind_group = create_bind_group(
             device,
-            &pipelines.decrementing_pipeline.get_bind_group_layout(0),
+            &pipelines.layouts.uniform,
             &pipelines.decrementing_uniform_buffer,
             coverage_buffer,
         );
@@ -252,13 +253,13 @@ impl CoverageBuffers {
             .expect("coverage values were uploaded");
         self.bind_group = create_bind_group(
             device,
-            &pipelines.and_pipeline.get_bind_group_layout(0),
+            &pipelines.layouts.uniform,
             &pipelines.and_uniform_buffer,
             coverage,
         );
         self.decrement_bind_group = create_bind_group(
             device,
-            &pipelines.decrementing_pipeline.get_bind_group_layout(0),
+            &pipelines.layouts.uniform,
             &pipelines.decrementing_uniform_buffer,
             coverage,
         );

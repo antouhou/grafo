@@ -1,4 +1,5 @@
 use super::draws::{self, DrawPass};
+use super::shapes::{ShapeGeometryType, ShapeShaderType, StencilAction};
 use crate::commands::{DrawClip, ShapeTextureBinding, TextureComposite, TexturePlacement};
 use crate::core::slot_pool::SlotPool;
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
@@ -99,7 +100,11 @@ impl DrawPass<'_, '_> {
         self.set_scissor(clip.scissor);
         let pipelines = &self.pipelines.shapes;
         if self.pipeline_tracker.current != Pipeline::LeafDraw {
-            self.render_pass.set_pipeline(&pipelines.leaf_draw_pipeline);
+            self.render_pass.set_pipeline(pipelines.get(
+                ShapeGeometryType::Tessellated,
+                ShapeShaderType::Textured,
+                StencilAction::Keep,
+            ));
             self.render_pass
                 .set_bind_group(0, &pipelines.and_bind_group, &[]);
             self.render_pass.set_bind_group(

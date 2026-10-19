@@ -1,4 +1,4 @@
-use super::{ShapeDrawResources, ShapeExecutionResources, TextureSamplingUniform};
+use super::{ShapeDrawResources, ShapeExecutionResources, ShapeShaderType, TextureSamplingUniform};
 use crate::commands::{ShapeDraw, ShapeDrawMaterial, ShapeTextureBinding, ShapeTextureLayer};
 use crate::core::slot_pool::SlotPool;
 use crate::wgpu_backend::execution::textures::IntermediateTextureResources;
@@ -10,6 +10,23 @@ use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer,
     CommandEncoder, Device, Queue, Sampler, Texture, TextureView,
 };
+
+impl From<ShapeDrawMaterial> for ShapeShaderType {
+    fn from(material: ShapeDrawMaterial) -> Self {
+        match (
+            material.has_gradient_fill,
+            material.under_fill_texture.is_some(),
+        ) {
+            (true, true) => Self::GradientUnderFillTexture,
+            (false, true) => Self::UnderFillTexture,
+            (true, false) => Self::Gradient,
+            (false, false) if material.texture_bindings == [ShapeTextureBinding::None; 2] => {
+                Self::Solid
+            }
+            (false, false) => Self::Textured,
+        }
+    }
+}
 
 struct TextureMaterialBinding {
     texture: Texture,
@@ -154,11 +171,11 @@ impl ShapeDrawResources {
             return;
         }
 
-        let layouts = &pipelines.under_fill_pipelines;
+        let layouts = &pipelines.layouts;
         let layout = if gradient_view.is_some() {
-            &layouts.gradient_layout
+            &layouts.gradient_under_fill
         } else {
-            &layouts.solid_layout
+            &layouts.under_fill
         };
         let view = texture.create_view(&Default::default());
         let binding = create_material_binding(
