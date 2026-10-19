@@ -1,11 +1,12 @@
 use super::geometry::SOLID_COVERAGE;
 use super::{take_reusable_buffers, CoverageBuffers, CoverageBuilder, CoverageVertex};
 use crate::core::UnsignedPhysicalRect;
+use crate::wgpu_backend::execution::render_pass::RenderPass;
 use crate::wgpu_backend::resources::ShapePipelines;
 use std::mem;
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
-use wgpu::{Device, Queue, RenderPass, RenderPipeline};
+use wgpu::{Device, Queue, RenderPipeline};
 
 // Limit how much unused geometry one retained allocation can keep alive.
 const SHARED_BUFFER_BYTES: usize = 256 * 1024;
@@ -50,9 +51,8 @@ impl CoverageDrawRange {
         pass: &mut RenderPass<'_>,
         mut pipeline: impl FnMut(bool) -> &'a RenderPipeline,
         instances: Range<u32>,
-    ) -> u32 {
+    ) {
         let boundary_start = self.index_start + self.solid_index_count;
-        let mut draw_count = 0;
         for (index, indices) in [
             self.index_start..boundary_start,
             boundary_start..self.index_start + self.index_count,
@@ -63,10 +63,8 @@ impl CoverageDrawRange {
             if !indices.is_empty() {
                 pass.set_pipeline(pipeline(index == 1));
                 pass.draw_indexed(indices, 0, instances.clone());
-                draw_count += 1;
             }
         }
-        draw_count
     }
 }
 
@@ -89,8 +87,8 @@ impl CoverageAllocation {
         pass: &mut RenderPass<'_>,
         pipeline: impl FnMut(bool) -> &'a RenderPipeline,
         instances: Range<u32>,
-    ) -> u32 {
-        self.range.draw(pass, pipeline, instances)
+    ) {
+        self.range.draw(pass, pipeline, instances);
     }
 }
 

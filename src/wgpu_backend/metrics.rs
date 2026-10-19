@@ -14,34 +14,16 @@ pub struct ShapeMaskEffectCacheMetrics {
 }
 
 /// Per-frame pipeline switch counts for diagnosing GPU state-change overhead.
-///
-/// Each field counts how many times the corresponding `set_pipeline` call was issued
-/// during a single frame. `stencil_passes` counts actual indexed draws that modify the stencil buffer.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PipelineSwitchCounts {
-    /// Number of switches to the stencil-increment pipeline.
-    pub to_stencil_increment: u32,
-    /// Number of switches to the stencil-decrement pipeline.
-    pub to_stencil_decrement: u32,
-    /// Number of switches to the leaf-draw pipeline.
-    pub to_leaf_draw: u32,
-    /// Number of switches to the effect composite pipeline, which resets tracking.
-    pub to_composite: u32,
     /// Total `set_pipeline` calls.
     pub total_switches: u32,
-    /// Number of stencil-modifying draw passes.
-    pub stencil_passes: u32,
 }
 
 impl PipelineSwitchCounts {
     /// Merge another frame's counts into this accumulator.
     pub fn accumulate(&mut self, other: &Self) {
-        self.to_stencil_increment += other.to_stencil_increment;
-        self.to_stencil_decrement += other.to_stencil_decrement;
-        self.to_leaf_draw += other.to_leaf_draw;
-        self.to_composite += other.to_composite;
         self.total_switches += other.total_switches;
-        self.stencil_passes += other.stencil_passes;
     }
 }
 
@@ -79,7 +61,7 @@ impl WgpuBackend {
         self.last_phase_timings
     }
 
-    /// Returns pipeline bindings and stencil draws from the last render.
+    /// Returns pipeline bindings from the last render.
     pub fn last_pipeline_switch_counts(&self) -> PipelineSwitchCounts {
         self.resources.pipeline_switch_counts
     }

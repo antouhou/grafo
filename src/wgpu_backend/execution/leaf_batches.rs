@@ -5,7 +5,6 @@ use super::shapes::{
 };
 use crate::commands::{DrawClip, ShapeDraw, ShapeDrawMaterial, ShapeTextureBinding};
 use crate::core::UnsignedPhysicalRect;
-use crate::wgpu_backend::types::Pipeline;
 use crate::wgpu_backend::vertex::GeometryBufferRange;
 use std::sync::Arc;
 
@@ -81,25 +80,18 @@ impl DrawPass<'_, '_> {
             texture_bindings: batch.texture_bindings,
         };
         let shader = ShapeShaderType::from(material);
-        let target_pipeline = shader.tracked_pipeline(StencilAction::Keep);
-        if batch.coverage.is_some() || self.pipeline_tracker.current != target_pipeline {
-            if batch.coverage.is_none() {
-                self.render_pass.set_pipeline(pipelines.get(
-                    ShapeGeometryType::Tessellated,
-                    shader,
-                    StencilAction::Keep,
-                ));
-                self.render_pass
-                    .set_bind_group(0, &pipelines.and_bind_group, &[]);
-                self.pipeline_tracker.switch_to(target_pipeline);
-            }
-            self.bound_textures.invalidate();
-        }
         if let Some(coverage) = &batch.coverage {
             let buffers = coverage.allocation.buffers();
             buffers.bind(self.render_pass);
             self.render_pass.set_bind_group(0, &buffers.bind_group, &[]);
         } else {
+            self.render_pass.set_pipeline(pipelines.get(
+                ShapeGeometryType::Tessellated,
+                shader,
+                StencilAction::Keep,
+            ));
+            self.render_pass
+                .set_bind_group(0, &pipelines.and_bind_group, &[]);
             draws::bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
         }
         self.bind_material_textures(material);
@@ -125,7 +117,7 @@ impl DrawPass<'_, '_> {
         let instances =
             batch.first_instance_index..batch.first_instance_index + batch.instance_count;
         if let Some(coverage) = &batch.coverage {
-            let _draw_count = coverage.allocation.draw(
+            coverage.allocation.draw(
                 self.render_pass,
                 |boundary| {
                     pipelines.get(
@@ -136,11 +128,6 @@ impl DrawPass<'_, '_> {
                 },
                 instances,
             );
-            self.pipeline_tracker.current = Pipeline::None;
-            #[cfg(feature = "render_metrics")]
-            self.pipeline_tracker
-                .record_coverage_draws(target_pipeline, _draw_count, false);
-            self.bound_textures.invalidate();
         } else {
             self.buffers
                 .draw_indexed(self.render_pass, batch.geometry_range, instances);

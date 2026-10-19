@@ -1,9 +1,8 @@
-use super::draws::{self, DrawPass};
+use super::draws::DrawPass;
 use super::shapes::{ShapeGeometryType, ShapeShaderType, StencilAction};
 use crate::commands::{DrawClip, ShapeTextureBinding, TextureComposite, TexturePlacement};
 use crate::core::slot_pool::SlotPool;
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
-use crate::wgpu_backend::types::Pipeline;
 use crate::wgpu_backend::vertex::{InstanceColor, InstanceMetadata};
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
@@ -99,26 +98,23 @@ impl DrawPass<'_, '_> {
         let (quad, buffer) = resources.prepare(device, queue, transform, sampling);
         self.set_scissor(clip.scissor);
         let pipelines = &self.pipelines.shapes;
-        if self.pipeline_tracker.current != Pipeline::LeafDraw {
-            self.render_pass.set_pipeline(pipelines.get(
-                ShapeGeometryType::Tessellated,
-                ShapeShaderType::Textured,
-                StencilAction::Keep,
-            ));
-            self.render_pass
-                .set_bind_group(0, &pipelines.and_bind_group, &[]);
-            self.render_pass.set_bind_group(
-                2,
-                &*pipelines.default_shape_texture_bind_groups[1],
-                &[],
-            );
-            self.bound_textures.mark_bound(1, ShapeTextureBinding::None);
-            self.pipeline_tracker.switch_to(Pipeline::LeafDraw);
-        }
+        self.render_pass.set_pipeline(pipelines.get(
+            ShapeGeometryType::Tessellated,
+            ShapeShaderType::Textured,
+            StencilAction::Keep,
+        ));
         self.render_pass
-            .set_bind_group(1, self.textures.bind_group(command.texture), &[]);
-        self.bound_textures
-            .mark_bound(0, ShapeTextureBinding::Intermediate(command.texture));
+            .set_bind_group(0, &pipelines.and_bind_group, &[]);
+        self.render_pass.set_texture_bind_group(
+            1,
+            ShapeTextureBinding::None,
+            &pipelines.default_shape_texture_bind_groups[1],
+        );
+        self.render_pass.set_texture_bind_group(
+            0,
+            ShapeTextureBinding::Intermediate(command.texture),
+            self.textures.bind_group(command.texture),
+        );
         self.render_pass
             .set_vertex_buffer(0, quad.vertices.slice(..));
         self.render_pass
@@ -134,6 +130,5 @@ impl DrawPass<'_, '_> {
         self.render_pass
             .set_stencil_reference(clip.stencil_reference);
         self.render_pass.draw_indexed(0..6, 0, 0..1);
-        draws::bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
     }
 }

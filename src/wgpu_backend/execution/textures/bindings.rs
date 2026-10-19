@@ -1,13 +1,12 @@
 use super::IntermediateTextureResources;
 use crate::commands::ShapeTextureBinding;
 use crate::render_backend::texture_manager::TextureManager;
+use crate::wgpu_backend::execution::render_pass::RenderPass;
 use crate::wgpu_backend::texture_manager::WgpuTextureManager;
-use crate::wgpu_backend::types::BoundTextureState;
 use std::sync::Arc;
-use wgpu::{BindGroup, BindGroupLayout, RenderPass};
+use wgpu::{BindGroup, BindGroupLayout};
 
 impl IntermediateTextureResources {
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn bind_shape_texture_layers(
         &self,
         render_pass: &mut RenderPass<'_>,
@@ -16,7 +15,6 @@ impl IntermediateTextureResources {
         shape_texture_bind_group_layout_background: &BindGroupLayout,
         shape_texture_bind_group_layout_foreground: &BindGroupLayout,
         default_shape_texture_bind_groups: &[Arc<BindGroup>; 2],
-        bound_texture_state: &mut BoundTextureState,
     ) {
         for (layer, texture_binding) in texture_bindings.iter().enumerate() {
             let effective_binding = match texture_binding {
@@ -27,7 +25,7 @@ impl IntermediateTextureResources {
                 }
                 texture_binding => *texture_binding,
             };
-            if !bound_texture_state.needs_rebind(layer, &effective_binding) {
+            if render_pass.texture_is_bound(layer, effective_binding) {
                 continue;
             }
             match &effective_binding {
@@ -41,31 +39,37 @@ impl IntermediateTextureResources {
                         *texture_id,
                     ) {
                         Ok(bind_group) => {
-                            render_pass.set_bind_group(1 + layer as u32, &*bind_group, &[]);
+                            render_pass.set_texture_bind_group(
+                                layer,
+                                effective_binding,
+                                &bind_group,
+                            );
                         }
                         Err(_) => {
-                            render_pass.set_bind_group(
-                                1 + layer as u32,
-                                &*default_shape_texture_bind_groups[layer],
-                                &[],
+                            render_pass.set_texture_bind_group(
+                                layer,
+                                ShapeTextureBinding::None,
+                                &default_shape_texture_bind_groups[layer],
                             );
-                            bound_texture_state.mark_bound(layer, ShapeTextureBinding::None);
                             continue;
                         }
                     }
                 }
                 ShapeTextureBinding::Intermediate(texture_id) => {
-                    render_pass.set_bind_group(1 + layer as u32, self.bind_group(*texture_id), &[]);
+                    render_pass.set_texture_bind_group(
+                        layer,
+                        effective_binding,
+                        self.bind_group(*texture_id),
+                    );
                 }
                 ShapeTextureBinding::None => {
-                    render_pass.set_bind_group(
-                        1 + layer as u32,
-                        &*default_shape_texture_bind_groups[layer],
-                        &[],
+                    render_pass.set_texture_bind_group(
+                        layer,
+                        effective_binding,
+                        &default_shape_texture_bind_groups[layer],
                     );
                 }
             }
-            bound_texture_state.mark_bound(layer, effective_binding);
         }
     }
 }

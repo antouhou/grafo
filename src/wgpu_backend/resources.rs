@@ -1,4 +1,5 @@
 use super::execution::effects::{CompositePipelineResources, EffectExecutionResources};
+use super::execution::render_pass::RenderPass;
 use super::execution::shape_mask_effects::ShapeMaskEffectRendererResources;
 use super::execution::shapes::{
     ShapeExecutionResources, ShapePipelineLayouts, ShapePipelineVariants,
@@ -11,7 +12,7 @@ use crate::wgpu_backend::texture_manager::WgpuTextureManager;
 use crate::wgpu_backend::vertex::GeometryBufferRange;
 use std::ops::Range;
 use std::sync::Arc;
-use wgpu::{BindGroup, Buffer, RenderPass, RenderPipeline, Sampler};
+use wgpu::{BindGroup, Buffer, RenderPipeline, Sampler};
 
 /// Geometry and instance buffers, initialized and reused by render preparation.
 pub(in crate::wgpu_backend) struct Buffers {

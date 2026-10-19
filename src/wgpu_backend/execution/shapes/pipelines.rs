@@ -2,7 +2,6 @@ use super::coverage::CoverageVertex;
 use crate::core::vertex::{CustomVertex, InstanceTransform};
 use crate::wgpu_backend::pipeline;
 use crate::wgpu_backend::resources::ShapePipelines;
-use crate::wgpu_backend::types::Pipeline;
 use crate::wgpu_backend::vertex::{InstanceColor, InstanceMetadata};
 use std::sync::{Arc, OnceLock};
 use wgpu::{
@@ -76,26 +75,6 @@ impl ShapeShaderType {
                 Self::Gradient => "fs_main_gradient",
                 Self::UnderFillTexture => "fs_texture_material",
                 Self::GradientUnderFillTexture => "fs_texture_material_gradient",
-            }
-        }
-    }
-
-    pub fn tracked_pipeline(self, stencil: StencilAction) -> Pipeline {
-        match (self, stencil) {
-            (_, StencilAction::Decrement) => Pipeline::StencilDecrement,
-            (Self::Solid, StencilAction::Keep) => Pipeline::LeafDrawSolid,
-            (Self::Solid, StencilAction::Increment) => Pipeline::StencilIncrementSolid,
-            (Self::Textured, StencilAction::Keep) => Pipeline::LeafDraw,
-            (Self::Textured, StencilAction::Increment) => Pipeline::StencilIncrement,
-            (Self::Gradient, StencilAction::Keep) => Pipeline::LeafDrawGradient,
-            (Self::Gradient, StencilAction::Increment) => Pipeline::StencilIncrementGradient,
-            (Self::UnderFillTexture, StencilAction::Keep) => Pipeline::LeafDrawTexture,
-            (Self::UnderFillTexture, StencilAction::Increment) => Pipeline::StencilIncrementTexture,
-            (Self::GradientUnderFillTexture, StencilAction::Keep) => {
-                Pipeline::LeafDrawGradientTexture
-            }
-            (Self::GradientUnderFillTexture, StencilAction::Increment) => {
-                Pipeline::StencilIncrementGradientTexture
             }
         }
     }
