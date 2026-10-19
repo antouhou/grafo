@@ -98,9 +98,11 @@ impl WgpuBackend {
     pub(in crate::wgpu_backend) fn recreate_pipelines(&mut self) {
         let resources = ShapePipelines::new(
             &self.context,
+            self.format,
             self.viewport.physical_size,
             self.viewport.scale_factor,
             self.fringe_width,
+            self.msaa_sample_count,
             Some(self.pipeline_resources.shapes.layouts.gradient.clone()),
         );
         self.pipeline_resources.shapes = resources;

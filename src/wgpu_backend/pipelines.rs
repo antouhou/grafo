@@ -1,7 +1,7 @@
 use super::execution::effects;
 use super::execution::shape_mask_effects::ShapeMaskEffectRendererResources;
 use super::execution::shapes::coverage;
-use super::execution::shapes::ShapePipelineLayouts;
+use super::execution::shapes::{ShapePipelineLayouts, ShapePipelineVariants};
 use super::resources::{BackdropPipelineResources, RendererPipelineResources, ShapePipelines};
 use super::{WgpuBackend, WgpuContext};
 use crate::core::util::to_logical;
@@ -69,9 +69,11 @@ fn create_transparent_texture_view_and_sampler(
 impl ShapePipelines {
     pub(in crate::wgpu_backend) fn new(
         context: &WgpuContext,
+        format: TextureFormat,
         physical_size: (u32, u32),
         scale_factor: f64,
         fringe_width: f32,
+        msaa_sample_count: u32,
         gradient_layout: Option<BindGroupLayout>,
     ) -> Self {
         let device = &context.device;
@@ -136,7 +138,7 @@ impl ShapePipelines {
                 &layouts.foreground_texture,
             );
         Self {
-            variants: None,
+            variants: ShapePipelineVariants::new(device, format, msaa_sample_count),
             layouts,
             and_bind_group,
             decrementing_bind_group,
@@ -188,7 +190,15 @@ impl RendererPipelineResources {
         let backdrops =
             BackdropPipelineResources::new(device, format, &composite_resources.bind_group_layout);
         Self {
-            shapes: ShapePipelines::new(context, physical_size, scale_factor, fringe_width, None),
+            shapes: ShapePipelines::new(
+                context,
+                format,
+                physical_size,
+                scale_factor,
+                fringe_width,
+                msaa_sample_count,
+                None,
+            ),
             shape_mask_effects: ShapeMaskEffectRendererResources::new(device, format),
             effect_sampler: device.create_sampler(&SamplerDescriptor {
                 address_mode_u: AddressMode::ClampToEdge,

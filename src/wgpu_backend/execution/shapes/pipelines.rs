@@ -4,7 +4,7 @@ use crate::wgpu_backend::pipeline;
 use crate::wgpu_backend::resources::ShapePipelines;
 use crate::wgpu_backend::types::Pipeline;
 use crate::wgpu_backend::vertex::{InstanceColor, InstanceMetadata};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use wgpu::{
     BindGroupLayout, BlendState, ColorTargetState, ColorWrites, Device, FragmentState,
     MultisampleState, PipelineCompilationOptions, PipelineLayout, PipelineLayoutDescriptor,
@@ -191,25 +191,23 @@ fn vertex_buffers(geometry: ShapeGeometry, is_solid: bool) -> [VertexBufferLayou
     ]
 }
 
-struct ShapePipelineCompiler<'a> {
-    device: &'a Device,
-    layouts: &'a ShapePipelineLayouts,
+struct ShapePipelineCompiler {
+    device: Device,
     shader: ShaderModule,
     format: TextureFormat,
     sample_count: u32,
 }
 
-impl ShapePipelineCompiler<'_> {
+impl ShapePipelineCompiler {
     fn create(
         &self,
+        layouts: &ShapePipelineLayouts,
         geometry: ShapeGeometry,
         shader: ShapeShader,
         stencil: StencilAction,
     ) -> RenderPipeline {
         let is_solid = shader == ShapeShader::Solid && stencil != StencilAction::Decrement;
-        let layout = self
-            .layouts
-            .create_pipeline_layout(self.device, shader, is_solid);
+        let layout = layouts.create_pipeline_layout(&self.device, shader, is_solid);
         let vertex_entry_point = shader.vertex_entry_point(geometry, is_solid);
         let fragment_entry_point = shader.fragment_entry_point(stencil);
         let buffers = vertex_buffers(geometry, is_solid);
@@ -259,25 +257,21 @@ impl ShapePipelineCompiler<'_> {
     }
 }
 
+#[derive(Default)]
 struct GeometryPipelines {
-    shaders: [[RenderPipeline; 2]; 5],
-    decrement: RenderPipeline,
+    shaders: [[OnceLock<RenderPipeline>; 2]; 5],
+    decrement: OnceLock<RenderPipeline>,
 }
 
 pub(in crate::wgpu_backend) struct ShapePipelineVariants {
+    compiler: ShapePipelineCompiler,
     geometry: [GeometryPipelines; 3],
 }
 
 impl ShapePipelineVariants {
-    fn new(
-        device: &Device,
-        layouts: &ShapePipelineLayouts,
-        format: TextureFormat,
-        sample_count: u32,
-    ) -> Self {
+    pub fn new(device: &Device, format: TextureFormat, sample_count: u32) -> Self {
         let compiler = ShapePipelineCompiler {
-            device,
-            layouts,
+            device: device.clone(),
             shader: device.create_shader_module(ShaderModuleDescriptor {
                 label: Some("shape_shader"),
                 source: ShaderSource::Wgsl(pipeline::SHAPE_SHADER.into()),
@@ -285,61 +279,33 @@ impl ShapePipelineVariants {
             format,
             sample_count,
         };
-        let geometry = [
-            ShapeGeometry::Tessellated,
-            ShapeGeometry::CoverageInterior,
-            ShapeGeometry::CoverageBoundary,
-        ]
-        .map(|geometry| GeometryPipelines {
-            shaders: [
-                ShapeShader::Solid,
-                ShapeShader::Textured,
-                ShapeShader::Gradient,
-                ShapeShader::UnderFillTexture,
-                ShapeShader::GradientUnderFillTexture,
-            ]
-            .map(|shader| {
-                [StencilAction::Keep, StencilAction::Increment]
-                    .map(|stencil| compiler.create(geometry, shader, stencil))
-            }),
-            decrement: compiler.create(geometry, ShapeShader::Solid, StencilAction::Decrement),
-        });
-        Self { geometry }
+        Self {
+            compiler,
+            geometry: Default::default(),
+        }
     }
 }
 
 impl ShapePipelines {
-    /// Creates the shape variants before any draw commands are encoded.
-    pub(in crate::wgpu_backend) fn prepare(
-        &mut self,
-        device: &Device,
-        format: TextureFormat,
-        sample_count: u32,
-    ) {
-        if self.variants.is_none() {
-            self.variants = Some(ShapePipelineVariants::new(
-                device,
-                &self.layouts,
-                format,
-                sample_count,
-            ));
-        }
-    }
-
+    /// Creates a variant on first use and reuses it until format or MSAA changes.
     pub(in crate::wgpu_backend) fn get(
         &self,
         geometry: ShapeGeometry,
         shader: ShapeShader,
         stencil: StencilAction,
     ) -> &RenderPipeline {
-        let variants = self
-            .variants
-            .as_ref()
-            .expect("shape pipelines are prepared before drawing");
-        let pipelines = &variants.geometry[geometry as usize];
-        match stencil {
-            StencilAction::Decrement => &pipelines.decrement,
-            _ => &pipelines.shaders[shader as usize][stencil as usize],
-        }
+        let pipelines = &self.variants.geometry[geometry as usize];
+        let (slot, shader) = match stencil {
+            StencilAction::Decrement => (&pipelines.decrement, ShapeShader::Solid),
+            _ => (
+                &pipelines.shaders[shader as usize][stencil as usize],
+                shader,
+            ),
+        };
+        slot.get_or_init(|| {
+            self.variants
+                .compiler
+                .create(&self.layouts, geometry, shader, stencil)
+        })
     }
 }

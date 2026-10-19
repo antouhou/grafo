@@ -72,7 +72,7 @@ impl Buffers {
 
 /// Shape pipelines and the resources used to bind their materials.
 pub(in crate::wgpu_backend) struct ShapePipelines {
-    pub(in crate::wgpu_backend) variants: Option<ShapePipelineVariants>,
+    pub(in crate::wgpu_backend) variants: ShapePipelineVariants,
     pub(in crate::wgpu_backend) layouts: ShapePipelineLayouts,
     pub(in crate::wgpu_backend) and_bind_group: BindGroup,
     pub(in crate::wgpu_backend) decrementing_bind_group: BindGroup,
