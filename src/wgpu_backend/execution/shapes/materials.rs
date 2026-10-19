@@ -1,5 +1,6 @@
 use super::{ShapeDrawResources, ShapeExecutionResources, TextureSamplingUniform};
 use crate::commands::{ShapeDraw, ShapeDrawMaterial, ShapeTextureBinding, ShapeTextureLayer};
+use crate::core::slot_pool::SlotPool;
 use crate::wgpu_backend::execution::textures::IntermediateTextureResources;
 use crate::wgpu_backend::execution::uniforms;
 use crate::wgpu_backend::gradient::{GpuGradientColorParams, GpuMaterialParams};
@@ -25,31 +26,21 @@ struct TextureMaterialSlot {
 /// GPU material slots survive queue clearing. Each use before submission gets its own buffer.
 #[derive(Default)]
 pub(in crate::wgpu_backend) struct TextureMaterialPool {
-    slots: Vec<TextureMaterialSlot>,
-    used: usize,
+    slots: SlotPool<TextureMaterialSlot>,
 }
 
 impl TextureMaterialPool {
     pub(in crate::wgpu_backend) fn begin_render(&mut self) {
-        self.used = 0;
-    }
-
-    fn next_slot(&mut self) -> &mut TextureMaterialSlot {
-        if self.used == self.slots.len() {
-            self.slots.push(TextureMaterialSlot::default());
-        }
-        let slot = &mut self.slots[self.used];
-        self.used += 1;
-        slot
+        self.slots.reset();
     }
 
     /// Release surplus resources after submission while retaining the current working set.
     pub(in crate::wgpu_backend) fn finish_render(&mut self) {
-        self.slots.truncate(self.used);
+        self.slots.truncate_unused();
     }
 
     pub(in crate::wgpu_backend) fn invalidate_bindings(&mut self) {
-        for slot in &mut self.slots {
+        for slot in self.slots.iter_mut() {
             slot.binding = None;
         }
     }
@@ -137,7 +128,7 @@ impl ShapeDrawResources {
         });
         let params = GpuMaterialParams::for_texture_sampling(sampling);
         let gradient_view = gradient.map(|material| material.ramp_view.as_ref().clone());
-        let slot = materials.next_slot();
+        let slot = materials.slots.acquire(TextureMaterialSlot::default);
         let buffer = uniforms::prepare_buffer(
             &mut slot.params_buffer,
             device,

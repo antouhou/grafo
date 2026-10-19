@@ -17,9 +17,8 @@ use crate::wgpu_backend::resources::ShapePipelines;
 use bytemuck::{Pod, Zeroable};
 pub(in crate::wgpu_backend) use pipelines::ShapeMaskEffectRendererResources;
 use std::sync::Arc;
-use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
-    BindGroupLayout, BufferUsages, Color, CommandEncoder, Device, LoadOp, Operations, Queue,
+    BindGroupLayout, Color, CommandEncoder, Device, LoadOp, Operations, Queue,
     RenderPassColorAttachment, RenderPassDescriptor, Sampler, StoreOp, TextureFormat,
 };
 
@@ -118,25 +117,34 @@ impl ShapeMaskEffectExecutionResources<'_> {
                     let builder = &mut self.effects.coverage_builder;
                     builder.build(&path.tessellation, Some(transform), 1.0, (width, height));
                     uniform.logical_size = [width as f32, height as f32];
-                    Some(CoverageBuffers::new(
-                        self.device,
-                        self.queue,
-                        (&*builder).into(),
-                        self.shape_pipelines,
-                    ))
+                    let buffers = self.effects.mask_coverage_buffers.acquire(|| None);
+                    let mesh = (&*builder).into();
+                    let buffers = match buffers {
+                        Some(buffers) => {
+                            buffers.update(self.device, self.queue, mesh, self.shape_pipelines);
+                            buffers
+                        }
+                        None => buffers.insert(CoverageBuffers::new(
+                            self.device,
+                            self.queue,
+                            mesh,
+                            self.shape_pipelines,
+                        )),
+                    };
+                    Some(&*buffers)
                 } else {
                     None
                 };
                 let binding = if let Some(coverage) = &coverage {
-                    let buffer = self.device.create_buffer_init(&BufferInitDescriptor {
-                        label: Some("path_mask_uniform"),
-                        contents: bytemuck::bytes_of(&uniform),
-                        usage: BufferUsages::UNIFORM,
-                    });
+                    let buffer = self.effects.parameters.prepare_buffer(
+                        self.device,
+                        self.queue,
+                        bytemuck::bytes_of(&uniform),
+                    );
                     coverage.create_mask_bind_group(
                         self.device,
                         &self.pipelines.coverage_layout,
-                        &buffer,
+                        buffer,
                     )
                 } else {
                     self.effects

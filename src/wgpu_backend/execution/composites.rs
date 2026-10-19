@@ -1,5 +1,6 @@
 use super::draws::{self, DrawPass};
 use crate::commands::{DrawClip, ShapeTextureBinding, TextureComposite, TexturePlacement};
+use crate::core::slot_pool::SlotPool;
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
 use crate::wgpu_backend::types::Pipeline;
 use crate::wgpu_backend::vertex::{InstanceColor, InstanceMetadata};
@@ -24,13 +25,12 @@ struct QuadBuffers {
 #[derive(Default)]
 pub(in crate::wgpu_backend) struct CompositeExecutionResources {
     quad: Option<QuadBuffers>,
-    instances: Vec<Buffer>,
-    used: usize,
+    instances: SlotPool<Option<Buffer>>,
 }
 
 impl CompositeExecutionResources {
     pub(super) fn begin_render(&mut self) {
-        self.used = 0;
+        self.instances.reset();
     }
 
     fn prepare(
@@ -63,19 +63,18 @@ impl CompositeExecutionResources {
             },
         };
         let contents = bytemuck::bytes_of(&instance);
-        // Draws encoded before submission must not overwrite each other's instance data.
-        if self.used == self.instances.len() {
-            self.instances
-                .push(device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("composite_instance"),
-                    contents,
-                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-                }));
-        } else {
-            queue.write_buffer(&self.instances[self.used], 0, contents);
-        }
-        let buffer = &self.instances[self.used];
-        self.used += 1;
+        let slot = self.instances.acquire(|| None);
+        let buffer = match slot {
+            Some(buffer) => {
+                queue.write_buffer(buffer, 0, contents);
+                buffer
+            }
+            None => slot.insert(device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("composite_instance"),
+                contents,
+                usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            })),
+        };
         (quad, buffer)
     }
 }

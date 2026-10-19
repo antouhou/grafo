@@ -1,5 +1,6 @@
 use super::bindings::{create_backdrop_layer_composite_bind_group, create_params_bind_group};
-use crate::wgpu_backend::execution::shapes::coverage::CoverageBuilder;
+use crate::core::slot_pool::SlotPool;
+use crate::wgpu_backend::execution::shapes::coverage::{CoverageBuffers, CoverageBuilder};
 use crate::wgpu_backend::execution::uniforms;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, Queue, TextureView};
@@ -18,31 +19,25 @@ struct ParameterSlot {
 /// Each execution before submission gets a distinct writable uniform buffer.
 #[derive(Default)]
 pub(crate) struct EffectParameterPool {
-    slots: Vec<ParameterSlot>,
-    used: usize,
+    slots: SlotPool<ParameterSlot>,
 }
 
 impl EffectParameterPool {
     fn begin_render(&mut self) {
-        self.used = 0;
+        self.slots.reset();
     }
 
     fn finish_render(&mut self) {
-        self.slots.truncate(self.used);
+        self.slots.truncate_unused();
     }
 
-    pub(in crate::wgpu_backend::execution) fn prepare(
+    fn prepare_slot(
         &mut self,
         device: &Device,
         queue: &Queue,
-        layout: &BindGroupLayout,
         params: &[u8],
-    ) -> &BindGroup {
-        if self.used == self.slots.len() {
-            self.slots.push(ParameterSlot::default());
-        }
-        let slot = &mut self.slots[self.used];
-        self.used += 1;
+    ) -> &mut ParameterSlot {
+        let slot = self.slots.acquire(ParameterSlot::default);
         if slot
             .buffer
             .as_ref()
@@ -63,6 +58,29 @@ impl EffectParameterPool {
                 params,
             );
         }
+        slot
+    }
+
+    pub(in crate::wgpu_backend::execution) fn prepare_buffer(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        params: &[u8],
+    ) -> &Buffer {
+        self.prepare_slot(device, queue, params)
+            .buffer
+            .as_ref()
+            .expect("parameter buffer was prepared")
+    }
+
+    pub(in crate::wgpu_backend::execution) fn prepare(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        layout: &BindGroupLayout,
+        params: &[u8],
+    ) -> &BindGroup {
+        let slot = self.prepare_slot(device, queue, params);
         if slot
             .binding
             .as_ref()
@@ -100,13 +118,12 @@ struct BackdropCompositeSlot {
 /// Capture transforms cannot share writable storage until their commands are submitted.
 #[derive(Default)]
 pub(crate) struct BackdropCompositePool {
-    slots: Vec<BackdropCompositeSlot>,
-    used: usize,
+    slots: SlotPool<BackdropCompositeSlot>,
 }
 
 impl BackdropCompositePool {
     pub(crate) fn invalidate_bindings(&mut self) {
-        for slot in &mut self.slots {
+        for slot in self.slots.iter_mut() {
             slot.binding = None;
         }
     }
@@ -119,11 +136,7 @@ impl BackdropCompositePool {
         foreground_view: &TextureView,
         params: [i32; 4],
     ) -> &BindGroup {
-        if self.used == self.slots.len() {
-            self.slots.push(BackdropCompositeSlot::default());
-        }
-        let slot = &mut self.slots[self.used];
-        self.used += 1;
+        let slot = self.slots.acquire(BackdropCompositeSlot::default);
         let buffer = uniforms::prepare_buffer(
             &mut slot.buffer,
             device,
@@ -157,6 +170,7 @@ impl BackdropCompositePool {
 #[derive(Default)]
 pub(crate) struct EffectExecutionResources {
     pub(crate) coverage_builder: CoverageBuilder,
+    pub(in crate::wgpu_backend::execution) mask_coverage_buffers: SlotPool<Option<CoverageBuffers>>,
     pub(crate) parameters: EffectParameterPool,
     pub(crate) backdrop_composites: BackdropCompositePool,
 }
@@ -164,13 +178,13 @@ pub(crate) struct EffectExecutionResources {
 impl EffectExecutionResources {
     pub(crate) fn begin_render(&mut self) {
         self.parameters.begin_render();
-        self.backdrop_composites.used = 0;
+        self.backdrop_composites.slots.reset();
+        self.mask_coverage_buffers.reset();
     }
 
     pub(crate) fn finish_render(&mut self) {
         self.parameters.finish_render();
-        self.backdrop_composites
-            .slots
-            .truncate(self.backdrop_composites.used);
+        self.backdrop_composites.slots.truncate_unused();
+        self.mask_coverage_buffers.truncate_unused();
     }
 }
