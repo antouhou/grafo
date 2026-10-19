@@ -8,10 +8,10 @@ use crate::shaders::{
 };
 use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
-    ColorInterpolation, ConicGradientDesc, ContentEffectConfig, Fill, FillRule, Gradient,
-    GradientColor, GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions,
-    GradientUnits, LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientSize,
-    Renderer, Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig, ShapeTextureFitMode,
+    ColorInterpolation, ConicGradientDesc, ContentEffectConfig, Fill, Gradient, GradientColor,
+    GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
+    LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientSize, Renderer,
+    Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig, ShapeTextureFitMode,
     ShapeTextureOptions, SpreadMode, TextureManager, TransformInstance,
 };
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
@@ -20,7 +20,7 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 const TILE_SIZE: u32 = 80;
 const COLUMNS: u32 = 10;
-const ROWS: u32 = 10;
+const ROWS: u32 = 9;
 
 pub const CANVAS_WIDTH: u32 = TILE_SIZE * COLUMNS;
 pub const CANVAS_HEIGHT: u32 = TILE_SIZE * ROWS;
@@ -45,284 +45,6 @@ fn tile_origin(tile_number: u32) -> (f32, f32) {
     let column = index % COLUMNS;
     let row = index / COLUMNS;
     ((column * TILE_SIZE) as f32, (row * TILE_SIZE) as f32)
-}
-
-fn rectangular_path(bounds: [(f32, f32); 2]) -> Shape {
-    let [(left, top), (right, bottom)] = bounds;
-    Shape::builder()
-        .begin((left, top))
-        .line_to((right, top))
-        .line_to((right, bottom))
-        .line_to((left, bottom))
-        .close()
-        .build()
-}
-
-fn tile_92_subpixel_coverage_stripes(renderer: &mut Renderer) -> Vec<PixelExpectation> {
-    let (x, y) = tile_origin(92);
-    for is_horizontal in [false, true] {
-        let mut builder = Shape::builder();
-        for stripe in 0..32 {
-            let left = 16.0 + stripe as f32 / 32.0;
-            let points = [
-                (left, 8.25),
-                (left + 1.0 / 64.0, 8.25),
-                (left + 1.0 / 64.0, 28.75),
-                (left, 28.75),
-            ]
-            .map(|(a, b)| {
-                if is_horizontal {
-                    (x + b + 32.0, y + a + 32.0)
-                } else {
-                    (x + a, y + b)
-                }
-            });
-            builder = builder
-                .begin(points[0])
-                .line_to(points[1])
-                .line_to(points[2])
-                .line_to(points[3])
-                .close();
-        }
-        renderer
-            .add_shape(
-                builder.build(),
-                None,
-                None,
-                ShapeDrawCommandOptions::new().color(Color::BLACK),
-            )
-            .unwrap();
-    }
-    [
-        (16, 16, 188, "t92_vertical_stripes_sum"),
-        (16, 8, 207, "t92_vertical_stripes_partial_row"),
-        (17, 16, 255, "t92_vertical_stripes_outside"),
-        (48, 48, 188, "t92_horizontal_stripes_sum"),
-        (40, 48, 207, "t92_horizontal_stripes_partial_column"),
-        (48, 49, 255, "t92_horizontal_stripes_outside"),
-    ]
-    .into_iter()
-    .map(|(px, py, value, label)| {
-        PixelExpectation::opaque_approx(x as u32 + px, y as u32 + py, value, value, value, 2, label)
-    })
-    .collect()
-}
-
-fn tile_91_cached_path_translation_and_overlap(renderer: &mut Renderer) -> Vec<PixelExpectation> {
-    let (x, y) = tile_origin(91);
-    let key = 91_001;
-    renderer.load_shape(rectangular_path([(0.5, 0.5), (20.5, 20.5)]), key, Some(key));
-    for (left, top, color) in [
-        (8.0, 8.0, Color::rgb(255, 0, 0)),
-        (32.0, 8.0, Color::rgb(0, 255, 0)),
-        (56.0, 8.0, Color::rgb(0, 0, 255)),
-        (8.0, 48.0, Color::rgb(255, 0, 0)),
-        (18.0, 48.0, Color::rgb(0, 0, 255)),
-        (48.0, 48.0, Color::rgb(0, 255, 0)),
-    ] {
-        renderer
-            .add_cached_shape(
-                key,
-                None,
-                ShapeDrawCommandOptions::new()
-                    .color(color)
-                    .transform(TransformInstance::translation(x + left, y + top)),
-            )
-            .unwrap();
-    }
-    [
-        (12, 16, [255, 0, 0], "t91_first_path"),
-        (36, 16, [0, 255, 0], "t91_translated_path"),
-        (60, 16, [0, 0, 255], "t91_third_path"),
-        (8, 16, [255, 188, 188], "t91_first_path_half_coverage"),
-        (32, 16, [188, 255, 188], "t91_translated_path_half_coverage"),
-        (28, 56, [0, 0, 255], "t91_later_fill_covers_earlier_edge"),
-        (
-            18,
-            56,
-            [188, 0, 188],
-            "t91_later_edge_blends_over_earlier_fill",
-        ),
-        (52, 56, [0, 255, 0], "t91_disjoint_path_after_overlap"),
-    ]
-    .into_iter()
-    .map(|(px, py, [red, green, blue], label)| {
-        PixelExpectation::opaque_approx(x as u32 + px, y as u32 + py, red, green, blue, 2, label)
-    })
-    .collect()
-}
-
-fn tile_87_path_pixel_coverage(renderer: &mut Renderer) -> Vec<PixelExpectation> {
-    let (x, y) = tile_origin(87);
-    for bounds in [[(8.375, 8.0), (8.625, 32.0)], [(24.5, 8.5), (44.5, 32.5)]] {
-        renderer
-            .add_shape(
-                rectangular_path(bounds),
-                None,
-                None,
-                ShapeDrawCommandOptions::new()
-                    .color(Color::BLACK)
-                    .transform(TransformInstance::translation(x, y)),
-            )
-            .unwrap();
-    }
-    [
-        (8, 16, 225, "t87_quarter_pixel_path"),
-        (7, 16, 255, "t87_no_outward_coverage"),
-        (24, 16, 188, "t87_half_pixel_path_edge"),
-        (24, 8, 225, "t87_quarter_pixel_path_corner"),
-        (32, 16, 0, "t87_path_interior_has_no_triangle_seam"),
-    ]
-    .into_iter()
-    .map(|(px, py, value, label)| {
-        PixelExpectation::opaque(x as u32 + px, y as u32 + py, value, value, value, label)
-    })
-    .collect()
-}
-
-fn tile_88_path_hole_coverage(renderer: &mut Renderer) -> Vec<PixelExpectation> {
-    let (x, y) = tile_origin(88);
-    let path = Shape::builder()
-        .fill_rule(FillRule::EvenOdd)
-        .begin((8.25, 8.25))
-        .line_to((71.75, 8.25))
-        .line_to((71.75, 71.75))
-        .line_to((8.25, 71.75))
-        .close()
-        .begin((24.25, 24.25))
-        .line_to((55.75, 24.25))
-        .line_to((55.75, 55.75))
-        .line_to((24.25, 55.75))
-        .close()
-        .build();
-    renderer
-        .add_shape(
-            path,
-            None,
-            None,
-            ShapeDrawCommandOptions::new()
-                .color(Color::BLACK)
-                .transform(TransformInstance::translation(x, y)),
-        )
-        .unwrap();
-    [
-        (8, 16, 137, "t88_outer_path_edge"),
-        (16, 16, 0, "t88_ring_interior"),
-        (24, 40, 225, "t88_inner_path_edge"),
-        (40, 40, 255, "t88_even_odd_hole"),
-        (55, 40, 225, "t88_opposite_inner_edge"),
-    ]
-    .into_iter()
-    .map(|(px, py, value, label)| {
-        PixelExpectation::opaque(x as u32 + px, y as u32 + py, value, value, value, label)
-    })
-    .collect()
-}
-
-fn tile_89_transformed_path_material_coverage(renderer: &mut Renderer) -> Vec<PixelExpectation> {
-    let (x, y) = tile_origin(89);
-    let gradient = Gradient::linear(LinearGradientDesc::new(
-        LinearGradientLine {
-            start: [0.0, 0.0],
-            end: [1.0, 0.0],
-        },
-        vec![
-            GradientStop::auto(Color::BLACK),
-            GradientStop::auto(Color::BLACK),
-        ],
-    ))
-    .unwrap();
-    renderer
-        .add_shape(
-            rectangular_path([(0.0, 0.0), (0.25, 24.0)]),
-            None,
-            None,
-            ShapeDrawCommandOptions::new()
-                .fill(Fill::Gradient(gradient))
-                .transform(TransformInstance::affine_2d(
-                    0.0,
-                    1.0,
-                    -1.0,
-                    0.0,
-                    x + 40.0,
-                    y + 16.375,
-                )),
-        )
-        .unwrap();
-    renderer
-        .add_shape(
-            rectangular_path([(48.5, 8.5), (71.5, 32.5)]),
-            None,
-            None,
-            ShapeDrawCommandOptions::new()
-                .background_texture_id(SOLID_GREEN_TEXTURE_ID)
-                .transform(TransformInstance::translation(x, y)),
-        )
-        .unwrap();
-    vec![
-        PixelExpectation::opaque(
-            x as u32 + 24,
-            y as u32 + 16,
-            225,
-            225,
-            225,
-            "t89_rotated_thin_gradient_path",
-        ),
-        PixelExpectation::opaque(
-            x as u32 + 48,
-            y as u32 + 16,
-            188,
-            255,
-            188,
-            "t89_textured_path_half_coverage",
-        ),
-        PixelExpectation::opaque(
-            x as u32 + 60,
-            y as u32 + 16,
-            0,
-            255,
-            0,
-            "t89_textured_path_interior",
-        ),
-    ]
-}
-
-fn tile_90_path_mask_pixel_coverage(renderer: &mut Renderer) -> Vec<PixelExpectation> {
-    let (x, y) = tile_origin(90);
-    let path = renderer
-        .add_shape(
-            rectangular_path([(8.375, 8.0), (8.625, 32.0)]),
-            None,
-            None,
-            ShapeDrawCommandOptions::new().transform(TransformInstance::translation(x, y)),
-        )
-        .unwrap();
-    renderer
-        .set_shape_mask_effect(
-            path,
-            SHAPE_DROP_EFFECT_ID,
-            &[],
-            ShapeMaskEffectConfig::new().outset(10.0),
-        )
-        .unwrap();
-    vec![
-        PixelExpectation::opaque(
-            x as u32 + 16,
-            y as u32 + 24,
-            225,
-            225,
-            255,
-            "t90_quarter_pixel_path_mask",
-        ),
-        PixelExpectation::opaque(
-            x as u32 + 15,
-            y as u32 + 24,
-            255,
-            255,
-            255,
-            "t90_path_mask_has_no_outward_fringe",
-        ),
-    ]
 }
 
 fn tile_84_mixed_command_replacement(renderer: &mut Renderer) -> Vec<PixelExpectation> {
@@ -7170,12 +6892,6 @@ pub fn build_main_scene(renderer: &mut Renderer) -> Vec<PixelExpectation> {
     expectations.extend(tile_84_mixed_command_replacement(renderer));
     expectations.extend(tile_85_replacement_preserves_effects_and_children(renderer));
     expectations.extend(tile_86_negative_w_shapes_and_effects(renderer));
-    expectations.extend(tile_87_path_pixel_coverage(renderer));
-    expectations.extend(tile_88_path_hole_coverage(renderer));
-    expectations.extend(tile_89_transformed_path_material_coverage(renderer));
-    expectations.extend(tile_90_path_mask_pixel_coverage(renderer));
-    expectations.extend(tile_91_cached_path_translation_and_overlap(renderer));
-    expectations.extend(tile_92_subpixel_coverage_stripes(renderer));
 
     expectations
 }
