@@ -229,10 +229,8 @@ struct VertexPosition {
     screen_position: vec2<f32>,
 };
 
-fn compute_vertex_position(input: VertexInput) -> VertexPosition {
-    // CPU transform columns map directly to WGSL matrix columns.
-    let model: mat4x4<f32> = mat4x4<f32>(input.t_col0, input.t_col1, input.t_col2, input.t_col3);
-    let p = model * vec4<f32>(input.position, 0.0, 1.0);
+fn compute_vertex_position(position: vec2<f32>, normal: vec2<f32>, coverage: f32, model: mat4x4<f32>) -> VertexPosition {
+    let p = model * vec4<f32>(position, 0.0, 1.0);
 
     let w = p.w;
     let invw = 1.0 / max(abs(w), 1e-6);
@@ -243,9 +241,9 @@ fn compute_vertex_position(input: VertexInput) -> VertexPosition {
     var final_px = px;
     var final_py = py;
 
-    if (input.coverage < 1.0) {
+    if (coverage < 1.0) {
         let epsilon = 0.01;
-        let p2 = model * vec4<f32>(input.position + input.normal * epsilon, 0.0, 1.0);
+        let p2 = model * vec4<f32>(position + normal * epsilon, 0.0, 1.0);
         let invw2 = 1.0 / max(abs(p2.w), 1e-6);
         let px2 = p2.x * invw2;
         let py2 = p2.y * invw2;
@@ -276,7 +274,7 @@ fn compute_vertex_position(input: VertexInput) -> VertexPosition {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.position = compute_vertex_position(input).clip_position;
+    output.position = compute_vertex_position(input.position, input.normal, input.coverage, mat4x4<f32>(input.t_col0, input.t_col1, input.t_col2, input.t_col3)).clip_position;
     output.color = input.color;
     output.layer0_tex_coords = vec3<f32>(input.tex_coords * input.texture_uv_transform_layer0.xy
         + input.texture_uv_transform_layer0.zw, 1.0);
@@ -292,7 +290,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
 @vertex
 fn vs_main_gradient(input: VertexInput) -> GradientVertexOutput {
-    let position = compute_vertex_position(input);
+    let position = compute_vertex_position(input.position, input.normal, input.coverage, mat4x4<f32>(input.t_col0, input.t_col1, input.t_col2, input.t_col3));
     var output: GradientVertexOutput;
     output.position = position.clip_position;
     output.color = input.color;
@@ -455,55 +453,6 @@ fn fs_stencil_only(
 ) -> @location(0) vec4<f32> {
     let pixel_coverage = resolve_path_coverage(coverage, coverage_start, coverage_origin, fragment_position);
     return vec4<f32>(0.0);
-}
-
-// Used by stencil-mutating passes that still produce visible color output.
-// Keep this separate from fs_main so adding discard there cannot suppress
-// stencil writes here.
-@fragment
-fn fs_passthrough(
-    @builtin(position) fragment_position: vec4<f32>,
-    @location(0) color: vec4<f32>,
-    @location(1) layer0_tex_coords: vec3<f32>,
-    @location(2) layer1_tex_coords: vec3<f32>,
-    @location(3) coverage: f32,
-    @location(4) @interpolate(flat) texture_flags: f32,
-    @location(8) @interpolate(flat) coverage_start: u32,
-    @location(9) @interpolate(flat) coverage_origin: vec2<f32>,
-) -> @location(0) vec4<f32> {
-    let pixel_coverage = resolve_path_coverage(coverage, coverage_start, coverage_origin, fragment_position);
-    return compute_fragment_color(
-        color,
-        layer0_tex_coords,
-        layer1_tex_coords,
-        pixel_coverage,
-        texture_flags,
-    );
-}
-
-@fragment
-fn fs_passthrough_gradient(
-    @builtin(position) fragment_position: vec4<f32>,
-    @location(0) color: vec4<f32>,
-    @location(1) layer0_tex_coords: vec3<f32>,
-    @location(2) layer1_tex_coords: vec3<f32>,
-    @location(3) coverage: f32,
-    @location(4) @interpolate(flat) texture_flags: f32,
-    @location(5) model_pos: vec3<f32>,
-    @location(6) screen_pos: vec2<f32>,
-    @location(8) @interpolate(flat) coverage_start: u32,
-    @location(9) @interpolate(flat) coverage_origin: vec2<f32>,
-) -> @location(0) vec4<f32> {
-    let pixel_coverage = resolve_path_coverage(coverage, coverage_start, coverage_origin, fragment_position);
-    return compute_gradient_fragment_color(
-        layer0_tex_coords,
-        layer1_tex_coords,
-        pixel_coverage,
-        texture_flags,
-        model_pos,
-        screen_pos,
-        fragment_position.xy,
-    );
 }
 
 @fragment

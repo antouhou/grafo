@@ -48,6 +48,18 @@ impl CustomVertex {
         },
     ];
 
+    pub(crate) fn solid_desc<'a>() -> VertexBufferLayout<'a> {
+        const ATTRIBUTES: [VertexAttribute; 3] = [
+            CustomVertex::ATTRIBUTES[0],
+            CustomVertex::ATTRIBUTES[2],
+            CustomVertex::ATTRIBUTES[3],
+        ];
+        VertexBufferLayout {
+            attributes: &ATTRIBUTES,
+            ..Self::desc()
+        }
+    }
+
     pub fn desc<'a>() -> VertexBufferLayout<'a> {
         VertexBufferLayout {
             array_stride: Self::STRIDE,
@@ -162,6 +174,13 @@ impl InstanceMetadata {
             shader_location: 11,
         },
     ];
+
+    pub(crate) fn coverage_desc<'a>() -> VertexBufferLayout<'a> {
+        VertexBufferLayout {
+            attributes: &Self::ATTRIBUTES[..1],
+            ..Self::desc()
+        }
+    }
 
     pub fn desc<'a>() -> VertexBufferLayout<'a> {
         VertexBufferLayout {

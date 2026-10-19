@@ -51,11 +51,7 @@ impl ExecutionResources<'_> {
             queue: self.context.queue,
             registry: effects.registry,
             sampler: effects.sampler,
-            composite_layout: &self
-                .context
-                .pipelines
-                .shapes
-                .shape_texture_bind_group_layout_background,
+            composite_layout: &self.context.pipelines.shapes.layouts.background_texture,
             format: self.context.format,
             pipelines: &self.context.pipelines.shape_mask_effects,
             shape_pipelines: &self.context.pipelines.shapes,

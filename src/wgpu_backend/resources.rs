@@ -1,7 +1,8 @@
 use super::execution::effects::{CompositePipelineResources, EffectExecutionResources};
 use super::execution::shape_mask_effects::ShapeMaskEffectRendererResources;
-use super::execution::shapes::coverage::pipelines::CoveragePipelines;
-use super::execution::shapes::{ShapeExecutionResources, TextureMaterialPipelines};
+use super::execution::shapes::{
+    ShapeExecutionResources, ShapePipelineLayouts, ShapePipelineVariants,
+};
 use super::execution::textures::IntermediateTextureResources;
 #[cfg(feature = "render_metrics")]
 use crate::wgpu_backend::metrics::{PipelineSwitchCounts, ShapeMaskEffectCacheMetrics};
@@ -10,7 +11,7 @@ use crate::wgpu_backend::texture_manager::WgpuTextureManager;
 use crate::wgpu_backend::vertex::GeometryBufferRange;
 use std::ops::Range;
 use std::sync::Arc;
-use wgpu::{BindGroup, BindGroupLayout, Buffer, RenderPass, RenderPipeline, Sampler};
+use wgpu::{BindGroup, Buffer, RenderPass, RenderPipeline, Sampler};
 
 /// Geometry and instance buffers, initialized and reused by render preparation.
 pub(in crate::wgpu_backend) struct Buffers {
@@ -71,24 +72,16 @@ impl Buffers {
 
 /// Shape pipelines and the resources used to bind their materials.
 pub(in crate::wgpu_backend) struct ShapePipelines {
-    pub(in crate::wgpu_backend) coverage: CoveragePipelines,
-    pub(in crate::wgpu_backend) and_pipeline: Arc<RenderPipeline>,
-    pub(in crate::wgpu_backend) and_gradient_pipeline: Arc<RenderPipeline>,
+    pub(in crate::wgpu_backend) variants: Option<ShapePipelineVariants>,
+    pub(in crate::wgpu_backend) layouts: ShapePipelineLayouts,
     pub(in crate::wgpu_backend) and_bind_group: BindGroup,
-    pub(in crate::wgpu_backend) decrementing_pipeline: Arc<RenderPipeline>,
     pub(in crate::wgpu_backend) decrementing_bind_group: BindGroup,
-    pub(in crate::wgpu_backend) leaf_draw_pipeline: Arc<RenderPipeline>,
-    pub(in crate::wgpu_backend) leaf_draw_gradient_pipeline: Arc<RenderPipeline>,
-    pub(in crate::wgpu_backend) shape_texture_bind_group_layout_background: Arc<BindGroupLayout>,
-    pub(in crate::wgpu_backend) shape_texture_bind_group_layout_foreground: Arc<BindGroupLayout>,
     pub(in crate::wgpu_backend) default_shape_texture_bind_groups: [Arc<BindGroup>; 2],
     pub(in crate::wgpu_backend) texture_manager: WgpuTextureManager,
     pub(in crate::wgpu_backend) and_uniforms: Uniforms,
     pub(in crate::wgpu_backend) and_uniform_buffer: Buffer,
     pub(in crate::wgpu_backend) decrementing_uniforms: Uniforms,
     pub(in crate::wgpu_backend) decrementing_uniform_buffer: Buffer,
-    pub(in crate::wgpu_backend) under_fill_pipelines: TextureMaterialPipelines,
-    pub(in crate::wgpu_backend) gradient_bind_group_layout: BindGroupLayout,
     pub(in crate::wgpu_backend) linear_clamp_sampler: Sampler,
 }
 

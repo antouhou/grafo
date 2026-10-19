@@ -9,7 +9,9 @@ use ahash::{HashMap, HashMapExt};
 use compaction::DrawBufferCompactionStorage;
 use coverage::{CoverageCache, PathCoverage};
 use materials::TextureMaterialPool;
-pub(in crate::wgpu_backend) use pipelines::TextureMaterialPipelines;
+pub(in crate::wgpu_backend) use pipelines::{
+    ShapeGeometry, ShapePipelineLayouts, ShapePipelineVariants, ShapeShader, StencilAction,
+};
 pub(crate) use sampling::TextureSamplingUniform;
 use std::sync::Arc;
 use wgpu::{BindGroup, BindGroupLayout, Device, Queue, Sampler};

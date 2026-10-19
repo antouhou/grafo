@@ -1,6 +1,8 @@
 use super::draws::{self, DrawPass};
 use super::shapes::coverage::CoverageAllocation;
-use super::shapes::{ShapeBufferLocation, ShapeExecutionResources};
+use super::shapes::{
+    ShapeBufferLocation, ShapeExecutionResources, ShapeGeometry, ShapeShader, StencilAction,
+};
 use crate::commands::{DrawClip, ShapeDraw, ShapeDrawMaterial, ShapeTextureBinding};
 use crate::core::UnsignedPhysicalRect;
 use crate::wgpu_backend::types::Pipeline;
@@ -73,25 +75,25 @@ impl DrawPass<'_, '_> {
     fn draw_batch(&mut self, batch: &LeafBatch) {
         self.set_scissor(batch.clip.scissor);
         let pipelines = &self.pipelines.shapes;
-        if batch.coverage.is_some() || self.pipeline_tracker.current != Pipeline::LeafDraw {
+        let material = ShapeDrawMaterial {
+            has_gradient_fill: false,
+            under_fill_texture: None,
+            texture_bindings: batch.texture_bindings,
+        };
+        let shader = ShapeShader::from(material);
+        let target_pipeline = shader.tracked_pipeline(StencilAction::Keep);
+        if batch.coverage.is_some() || self.pipeline_tracker.current != target_pipeline {
             if batch.coverage.is_none() {
-                self.render_pass.set_pipeline(&pipelines.leaf_draw_pipeline);
+                self.render_pass.set_pipeline(pipelines.get(
+                    ShapeGeometry::Tessellated,
+                    shader,
+                    StencilAction::Keep,
+                ));
                 self.render_pass
                     .set_bind_group(0, &pipelines.and_bind_group, &[]);
-                self.pipeline_tracker.switch_to(Pipeline::LeafDraw);
+                self.pipeline_tracker.switch_to(target_pipeline);
             }
-            self.render_pass.set_bind_group(
-                1,
-                &*pipelines.default_shape_texture_bind_groups[0],
-                &[],
-            );
-            self.render_pass.set_bind_group(
-                2,
-                &*pipelines.default_shape_texture_bind_groups[1],
-                &[],
-            );
-            self.bound_textures.mark_bound(0, ShapeTextureBinding::None);
-            self.bound_textures.mark_bound(1, ShapeTextureBinding::None);
+            self.bound_textures.invalidate();
         }
         if let Some(coverage) = &batch.coverage {
             let buffers = coverage.allocation.buffers();
@@ -100,43 +102,42 @@ impl DrawPass<'_, '_> {
         } else {
             draws::bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
         }
-        self.textures.bind_shape_texture_layers(
-            self.render_pass,
-            &batch.texture_bindings,
-            &pipelines.texture_manager,
-            &pipelines.shape_texture_bind_group_layout_background,
-            &pipelines.shape_texture_bind_group_layout_foreground,
-            &pipelines.default_shape_texture_bind_groups,
-            self.bound_textures,
+        self.bind_material_textures(material);
+        if batch.coverage.is_none() || shader.uses_texture_bindings() {
+            self.render_pass
+                .set_vertex_buffer(1, self.buffers.instance_transform_buffer().slice(..));
+        }
+        let uses_solid_coverage = batch.coverage.is_some() && !shader.uses_texture_bindings();
+        self.render_pass.set_vertex_buffer(
+            if uses_solid_coverage { 1 } else { 2 },
+            self.buffers.instance_color_buffer().slice(..),
         );
-        self.render_pass
-            .set_vertex_buffer(1, self.buffers.instance_transform_buffer().slice(..));
-        self.render_pass
-            .set_vertex_buffer(2, self.buffers.instance_color_buffer().slice(..));
-        self.render_pass
-            .set_vertex_buffer(3, self.buffers.instance_metadata_buffer().slice(..));
+        if batch.coverage.is_some() || shader.uses_texture_bindings() {
+            self.render_pass.set_vertex_buffer(
+                if uses_solid_coverage { 2 } else { 3 },
+                self.buffers.instance_metadata_buffer().slice(..),
+            );
+        }
         self.render_pass
             .set_stencil_reference(batch.clip.stencil_reference);
         let instances =
             batch.first_instance_index..batch.first_instance_index + batch.instance_count;
         if let Some(coverage) = &batch.coverage {
-            let material = ShapeDrawMaterial {
-                has_gradient_fill: false,
-                under_fill_texture: None,
-                texture_bindings: batch.texture_bindings,
-            };
             let _draw_count = coverage.allocation.draw(
                 self.render_pass,
-                [
-                    pipelines.coverage.solid.material(material, false),
-                    pipelines.coverage.boundary.material(material, false),
-                ],
+                |boundary| {
+                    pipelines.get(
+                        ShapeGeometry::coverage(boundary),
+                        shader,
+                        StencilAction::Keep,
+                    )
+                },
                 instances,
             );
             self.pipeline_tracker.current = Pipeline::None;
             #[cfg(feature = "render_metrics")]
             self.pipeline_tracker
-                .record_coverage_draws(Pipeline::LeafDraw, _draw_count, false);
+                .record_coverage_draws(target_pipeline, _draw_count, false);
             self.bound_textures.invalidate();
         } else {
             self.buffers

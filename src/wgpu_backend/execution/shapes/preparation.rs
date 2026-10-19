@@ -201,7 +201,7 @@ impl ShapeExecutionResources {
             &mut self.gradient_cache,
             device,
             queue,
-            &pipelines.gradient_bind_group_layout,
+            &pipelines.layouts.gradient,
             &pipelines.linear_clamp_sampler,
         );
         let geometry_range = if resources.path_coverage.is_some() {
