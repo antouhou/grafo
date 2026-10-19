@@ -296,12 +296,7 @@ fn print_metrics(renderer: &mut grafo::Renderer) {
     );
     let pc = renderer.backend().last_pipeline_switch_counts();
     println!("--- pipeline switches (last frame) ---");
-    println!("  StencilIncrement: {}", pc.to_stencil_increment);
-    println!("  StencilDecrement: {}", pc.to_stencil_decrement);
-    println!("  LeafDraw:         {}", pc.to_leaf_draw);
-    println!("  Composite:        {}", pc.to_composite);
     println!("  Total switches:   {}", pc.total_switches);
-    println!("  Stencil passes:   {}", pc.stencil_passes);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

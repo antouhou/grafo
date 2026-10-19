@@ -1,11 +1,12 @@
 //! WGPU pipelines, stencil states, and buffer helpers.
 use crate::core::vertex::CustomVertex;
+use crate::wgpu_backend::execution::render_pass::RenderPass;
 use crate::wgpu_backend::vertex::GeometryBufferRange;
 use std::ops::Range;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
     BindGroup, BindGroupLayout, BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType,
-    BufferDescriptor, BufferUsages, ComputePipeline, Device, RenderPass, ShaderStages, Texture,
+    BufferDescriptor, BufferUsages, ComputePipeline, Device, ShaderStages, Texture,
 };
 
 pub(crate) const SHAPE_SHADER: &str = concat!(

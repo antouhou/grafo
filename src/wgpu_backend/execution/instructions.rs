@@ -3,6 +3,7 @@ use super::draws::DrawPass;
 use super::effects::instructions::{execute_effect, EffectContext};
 use super::effects::EffectExecutionResources;
 use super::leaf_batches::LeafBatch;
+use super::render_pass::RenderPass;
 use super::shape_mask_effects::ShapeMaskEffectExecutionResources;
 use super::shapes::ShapeExecutionResources;
 use super::targets::{ActiveTarget, SurfaceTarget};
@@ -13,9 +14,7 @@ use crate::commands::{
 #[cfg(feature = "render_metrics")]
 use crate::wgpu_backend::metrics::{PipelineSwitchCounts, ShapeMaskEffectCacheMetrics};
 use crate::wgpu_backend::resources::{Buffers, RendererPipelineResources};
-use crate::wgpu_backend::types::{
-    BackdropContext, BackdropSource, BoundTextureState, Pipeline, PipelineTracker,
-};
+use crate::wgpu_backend::types::{BackdropContext, BackdropSource};
 use wgpu::{CommandEncoder, Device, Queue, TextureFormat};
 
 pub(in crate::wgpu_backend) struct ExecutionContext<'a> {
@@ -38,9 +37,18 @@ pub(in crate::wgpu_backend) struct ExecutionResources<'a> {
     pub shape_mask_effect_metrics: &'a mut ShapeMaskEffectCacheMetrics,
 }
 
+#[derive(Default)]
 pub(in crate::wgpu_backend) struct ExecutionMetrics {
     #[cfg(feature = "render_metrics")]
     pub pipeline_switches: PipelineSwitchCounts,
+}
+
+impl ExecutionMetrics {
+    fn accumulate(&mut self, _pass: &RenderPass<'_>) {
+        #[cfg(feature = "render_metrics")]
+        self.pipeline_switches
+            .accumulate(&_pass.pipeline_switch_counts());
+    }
 }
 
 impl ExecutionResources<'_> {
@@ -183,7 +191,7 @@ fn execute_draw_pass<'scene>(
     commands: &mut impl Iterator<Item = RenderCommand<'scene>>,
     surface: &SurfaceTarget<'_>,
     resources: &mut ExecutionResources<'_>,
-    pipeline_tracker: &mut PipelineTracker,
+    metrics: &mut ExecutionMetrics,
 ) -> Option<RenderCommand<'scene>> {
     if let RenderOperation::DrawShape(draw) | RenderOperation::DrawShapeAndIncrementStencil(draw) =
         &pending_command.operation
@@ -204,15 +212,11 @@ fn execute_draw_pass<'scene>(
         .expect("draw requires an open target");
     let mut attachments = target.attachments(surface);
     let root_scissor = matches!(target.target, Target::Surface).then_some(surface.root_scissor);
-    let mut render_pass = attachments.begin_pass(encoder, "command_draws");
+    let mut render_pass = RenderPass::new(attachments.begin_pass(encoder, "command_draws"));
     target.needs_clear = false;
-    let mut bound_textures = BoundTextureState::default();
-    pipeline_tracker.current = Pipeline::None;
     let mut pass = DrawPass {
         root_scissor,
         render_pass: &mut render_pass,
-        pipeline_tracker,
-        bound_textures: &mut bound_textures,
         pipelines: resources.context.pipelines,
         buffers: resources.buffers,
         textures: resources.textures,
@@ -225,10 +229,11 @@ fn execute_draw_pass<'scene>(
         resources.context,
         &mut pending_batch,
     );
+    let mut next_command = None;
     for command in commands {
         if should_end_draw_pass(&command) {
-            pass.flush_leaf_batch(&mut pending_batch);
-            return Some(command);
+            next_command = Some(command);
+            break;
         }
         execute_draw_command(
             &mut pass,
@@ -239,7 +244,8 @@ fn execute_draw_pass<'scene>(
         );
     }
     pass.flush_leaf_batch(&mut pending_batch);
-    None
+    metrics.accumulate(pass.render_pass);
+    next_command
 }
 
 pub(in crate::wgpu_backend) fn execute_commands<'scene>(
@@ -248,7 +254,7 @@ pub(in crate::wgpu_backend) fn execute_commands<'scene>(
     surface: SurfaceTarget<'_>,
     mut resources: ExecutionResources<'_>,
 ) -> ExecutionMetrics {
-    let mut pipeline_tracker = PipelineTracker::new();
+    let mut metrics = ExecutionMetrics::default();
     resources.shapes.composites.begin_render();
     let mut pending_command = commands.next();
     while let Some(command) = pending_command {
@@ -347,7 +353,7 @@ pub(in crate::wgpu_backend) fn execute_commands<'scene>(
                     &mut commands,
                     &surface,
                     &mut resources,
-                    &mut pipeline_tracker,
+                    &mut metrics,
                 );
                 continue;
             }
@@ -359,8 +365,5 @@ pub(in crate::wgpu_backend) fn execute_commands<'scene>(
         "command stream must close every target"
     );
     resources.textures.finish_plan();
-    ExecutionMetrics {
-        #[cfg(feature = "render_metrics")]
-        pipeline_switches: pipeline_tracker.counts,
-    }
+    metrics
 }

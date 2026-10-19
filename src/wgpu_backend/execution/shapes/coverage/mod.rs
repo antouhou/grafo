@@ -2,6 +2,7 @@ use super::buffers::upsert_gpu_buffer;
 use crate::core::cache::CachedTessellation;
 use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry as core_geometry, MathRect};
+use crate::wgpu_backend::execution::render_pass::RenderPass;
 use crate::wgpu_backend::resources::ShapePipelines;
 pub(in crate::wgpu_backend) use cache::CoverageCache;
 use cache::CoverageKey;
@@ -11,7 +12,7 @@ pub(in crate::wgpu_backend) use uploads::CoverageAllocation;
 use uploads::{CoverageDrawRange, CoverageUpload};
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, Buffer, BufferUsages, Device,
-    IndexFormat, Queue, RenderPass, RenderPipeline,
+    IndexFormat, Queue, RenderPipeline,
 };
 
 mod cache;
@@ -165,9 +166,9 @@ impl CoverageBuffers {
         pass: &mut RenderPass<'_>,
         pipelines: [&RenderPipeline; 2],
         instances: Range<u32>,
-    ) -> u32 {
+    ) {
         self.range
-            .draw(pass, |boundary| pipelines[boundary as usize], instances)
+            .draw(pass, |boundary| pipelines[boundary as usize], instances);
     }
 
     pub(in crate::wgpu_backend) fn create_mask_bind_group(

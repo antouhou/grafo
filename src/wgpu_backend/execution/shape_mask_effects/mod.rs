@@ -1,13 +1,14 @@
+use super::draws;
 use super::effects::{
     apply_effect_passes, EffectExecutionResources, EffectPassRunConfig, EffectRegistry,
 };
+use super::render_pass::RenderPass;
 use super::shapes::coverage::CoverageBuffers;
 use super::shapes::ShapeExecutionResources;
 use super::textures::{
     CachedShapeMask, IntermediateTexture, IntermediateTextureResources, ShapeMaskCacheKey,
     ShapeMaskEffectCacheKey,
 };
-use super::{draws, targets};
 use crate::commands::{EffectApplication, IntermediateTextureId, MaskTarget, ShapeMaskDraw};
 use crate::core::vertex::InstanceTransform;
 #[cfg(feature = "render_metrics")]
@@ -157,7 +158,7 @@ impl ShapeMaskEffectExecutionResources<'_> {
                         )
                         .clone()
                 };
-                let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                let mut pass = RenderPass::new(encoder.begin_render_pass(&RenderPassDescriptor {
                     label: Some("shape_mask"),
                     color_attachments: &[Some(RenderPassColorAttachment {
                         view: &texture.color_view,
@@ -170,8 +171,8 @@ impl ShapeMaskEffectExecutionResources<'_> {
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
                     occlusion_query_set: None,
-                });
-                targets::set_scissor(&mut pass, command.clip.scissor);
+                }));
+                pass.set_scissor(command.clip.scissor);
                 pass.set_stencil_reference(command.clip.stencil_reference);
                 if let Some(coverage) = &coverage {
                     pass.set_bind_group(0, &binding, &[]);
