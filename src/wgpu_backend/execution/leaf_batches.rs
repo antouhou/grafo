@@ -1,7 +1,7 @@
 use super::draws::{self, DrawPass};
 use super::shapes::coverage::CoverageAllocation;
 use super::shapes::{
-    ShapeBufferLocation, ShapeExecutionResources, ShapeGeometryType, ShapeShader, StencilAction,
+    ShapeBufferLocation, ShapeExecutionResources, ShapeGeometryType, ShapeShaderType, StencilAction,
 };
 use crate::commands::{DrawClip, ShapeDraw, ShapeDrawMaterial, ShapeTextureBinding};
 use crate::core::UnsignedPhysicalRect;
@@ -80,7 +80,7 @@ impl DrawPass<'_, '_> {
             under_fill_texture: None,
             texture_bindings: batch.texture_bindings,
         };
-        let shader = ShapeShader::from(material);
+        let shader = ShapeShaderType::from(material);
         let target_pipeline = shader.tracked_pipeline(StencilAction::Keep);
         if batch.coverage.is_some() || self.pipeline_tracker.current != target_pipeline {
             if batch.coverage.is_none() {

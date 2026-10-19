@@ -37,7 +37,7 @@ pub(in crate::wgpu_backend) enum StencilAction {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(in crate::wgpu_backend) enum ShapeShader {
+pub(in crate::wgpu_backend) enum ShapeShaderType {
     Solid,
     Textured,
     Gradient,
@@ -45,7 +45,7 @@ pub(in crate::wgpu_backend) enum ShapeShader {
     GradientUnderFillTexture,
 }
 
-impl ShapeShader {
+impl ShapeShaderType {
     pub fn uses_texture_bindings(self) -> bool {
         self != Self::Solid
     }
@@ -134,13 +134,13 @@ impl ShapePipelineLayouts {
     fn create_pipeline_layout(
         &self,
         device: &Device,
-        shader: ShapeShader,
+        shader: ShapeShaderType,
         is_solid: bool,
     ) -> PipelineLayout {
         let material_layout = match shader {
-            ShapeShader::Gradient => Some(&self.gradient),
-            ShapeShader::UnderFillTexture => Some(&self.under_fill),
-            ShapeShader::GradientUnderFillTexture => Some(&self.gradient_under_fill),
+            ShapeShaderType::Gradient => Some(&self.gradient),
+            ShapeShaderType::UnderFillTexture => Some(&self.under_fill),
+            ShapeShaderType::GradientUnderFillTexture => Some(&self.gradient_under_fill),
             _ => None,
         };
         let bind_group_layouts = [
@@ -206,10 +206,10 @@ impl ShapePipelineCompiler {
         &self,
         layouts: &ShapePipelineLayouts,
         geometry_type: ShapeGeometryType,
-        shader: ShapeShader,
+        shader: ShapeShaderType,
         stencil: StencilAction,
     ) -> RenderPipeline {
-        let is_solid = shader == ShapeShader::Solid && stencil != StencilAction::Decrement;
+        let is_solid = shader == ShapeShaderType::Solid && stencil != StencilAction::Decrement;
         let layout = layouts.create_pipeline_layout(&self.device, shader, is_solid);
         let vertex_entry_point = shader.vertex_entry_point(geometry_type, is_solid);
         let fragment_entry_point = shader.fragment_entry_point(stencil);
@@ -294,12 +294,12 @@ impl ShapePipelines {
     pub(in crate::wgpu_backend) fn get(
         &self,
         geometry_type: ShapeGeometryType,
-        shader: ShapeShader,
+        shader: ShapeShaderType,
         stencil: StencilAction,
     ) -> &RenderPipeline {
         let pipelines = &self.variants.geometry[geometry_type as usize];
         let (slot, shader) = match stencil {
-            StencilAction::Decrement => (&pipelines.decrement, ShapeShader::Solid),
+            StencilAction::Decrement => (&pipelines.decrement, ShapeShaderType::Solid),
             _ => (
                 &pipelines.material_pipelines[shader as usize][stencil as usize],
                 shader,

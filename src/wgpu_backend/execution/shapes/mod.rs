@@ -10,7 +10,7 @@ use compaction::DrawBufferCompactionStorage;
 use coverage::{CoverageCache, PathCoverage};
 use materials::TextureMaterialPool;
 pub(in crate::wgpu_backend) use pipelines::{
-    ShapeGeometryType, ShapePipelineLayouts, ShapePipelineVariants, ShapeShader, StencilAction,
+    ShapeGeometryType, ShapePipelineLayouts, ShapePipelineVariants, ShapeShaderType, StencilAction,
 };
 pub(crate) use sampling::TextureSamplingUniform;
 use std::sync::Arc;

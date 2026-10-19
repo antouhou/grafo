@@ -1,4 +1,4 @@
-use super::{ShapeDrawResources, ShapeExecutionResources, ShapeShader, TextureSamplingUniform};
+use super::{ShapeDrawResources, ShapeExecutionResources, ShapeShaderType, TextureSamplingUniform};
 use crate::commands::{ShapeDraw, ShapeDrawMaterial, ShapeTextureBinding, ShapeTextureLayer};
 use crate::core::slot_pool::SlotPool;
 use crate::wgpu_backend::execution::textures::IntermediateTextureResources;
@@ -11,7 +11,7 @@ use wgpu::{
     CommandEncoder, Device, Queue, Sampler, Texture, TextureView,
 };
 
-impl From<ShapeDrawMaterial> for ShapeShader {
+impl From<ShapeDrawMaterial> for ShapeShaderType {
     fn from(material: ShapeDrawMaterial) -> Self {
         match (
             material.has_gradient_fill,
