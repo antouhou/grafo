@@ -5,8 +5,9 @@ use crate::wgpu_backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMe
 use std::ops::Range;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
-    BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, ComputePipeline, Device,
-    PipelineCompilationOptions, RenderPass, RenderPipeline, Texture, TextureFormat,
+    BindGroup, BindGroupLayout, BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType,
+    BufferDescriptor, BufferUsages, ComputePipeline, Device, PipelineCompilationOptions,
+    RenderPass, RenderPipeline, ShaderStages, Texture, TextureFormat,
 };
 
 pub(crate) const SHAPE_SHADER: &str = concat!(
@@ -84,16 +85,29 @@ fn create_equal_decrement_stencil_state() -> wgpu::StencilState {
     }
 }
 
+fn storage_binding(binding: u32) -> BindGroupLayoutEntry {
+    BindGroupLayoutEntry {
+        binding,
+        visibility: ShaderStages::FRAGMENT,
+        ty: BindingType::Buffer {
+            ty: BufferBindingType::Storage { read_only: true },
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
+
 /// Binds viewport uniforms at vertex shader group 0, binding 0.
 pub fn create_uniform_bind_group_layout(device: &Device) -> BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
         entries: &[
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
                     min_binding_size: None,
                 },
@@ -102,19 +116,6 @@ pub fn create_uniform_bind_group_layout(device: &Device) -> BindGroupLayout {
             storage_binding(1),
         ],
     })
-}
-
-fn storage_binding(binding: u32) -> wgpu::BindGroupLayoutEntry {
-    wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::FRAGMENT,
-        ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Storage { read_only: true },
-            has_dynamic_offset: false,
-            min_binding_size: None,
-        },
-        count: None,
-    }
 }
 
 pub fn create_equal_increment_depth_state() -> wgpu::DepthStencilState {
@@ -168,20 +169,20 @@ pub enum PipelineType {
 fn create_shape_texture_bind_group_layout(device: &Device, label: &str) -> BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
                     multisampled: false,
                     view_dimension: wgpu::TextureViewDimension::D2,
                     sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 },
                 count: None,
             },
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
             },
         ],
@@ -248,30 +249,30 @@ pub(in crate::wgpu_backend) fn create_shape_pipeline(
 pub fn create_gradient_bind_group_layout(device: &Device) -> BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
                     min_binding_size: None,
                 },
                 count: None,
             },
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
                     multisampled: false,
                     view_dimension: wgpu::TextureViewDimension::D1,
                     sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 },
                 count: None,
             },
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 2,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
             },
         ],
@@ -282,30 +283,30 @@ pub fn create_gradient_bind_group_layout(device: &Device) -> BindGroupLayout {
 pub fn create_texture_material_bind_group_layout(device: &Device) -> BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
                     min_binding_size: None,
                 },
                 count: None,
             },
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 3,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
                     multisampled: false,
                     view_dimension: wgpu::TextureViewDimension::D2,
                     sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 },
                 count: None,
             },
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 4,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
             },
         ],
@@ -316,46 +317,46 @@ pub fn create_texture_material_bind_group_layout(device: &Device) -> BindGroupLa
 pub fn create_gradient_texture_material_bind_group_layout(device: &Device) -> BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
                     min_binding_size: None,
                 },
                 count: None,
             },
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
                     multisampled: false,
                     view_dimension: wgpu::TextureViewDimension::D1,
                     sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 },
                 count: None,
             },
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 2,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
             },
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 3,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
                     multisampled: false,
                     view_dimension: wgpu::TextureViewDimension::D2,
                     sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 },
                 count: None,
             },
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 4,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
             },
         ],
@@ -533,31 +534,31 @@ pub fn create_argb_row_packing_pipeline(device: &Device) -> (BindGroupLayout, Co
     let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("argb_row_packing_bgl"),
         entries: &[
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
                     min_binding_size: None,
                 },
                 count: None,
             },
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 1,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
                     has_dynamic_offset: false,
                     min_binding_size: None,
                 },
                 count: None,
             },
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 2,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
                     min_binding_size: None,
                 },

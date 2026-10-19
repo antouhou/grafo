@@ -5,6 +5,7 @@ use crate::core::cache::FrameCache;
 use crate::core::{BorderRadii, FillRule, Shape, TransformInstance, Viewport};
 use crate::scene::{Scene, SceneContext};
 use crate::wgpu_backend::pipeline::SHAPE_SHADER;
+use naga::front::wgsl;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 use std::sync::Arc;
 
@@ -263,8 +264,8 @@ fn projected_path_tiles_match_the_projected_triangle_areas() {
 #[test]
 fn coverage_shader_entry_points_validate_without_a_gpu() {
     let source = SHAPE_SHADER;
-    let module = naga::front::wgsl::parse_str(source)
-        .unwrap_or_else(|error| panic!("{}", error.emit_to_string(source)));
+    let module =
+        wgsl::parse_str(source).unwrap_or_else(|error| panic!("{}", error.emit_to_string(source)));
     Validator::new(ValidationFlags::all(), Capabilities::all())
         .validate(&module)
         .unwrap();

@@ -133,7 +133,11 @@ impl ShapeMaskEffectExecutionResources<'_> {
                         contents: bytemuck::bytes_of(&uniform),
                         usage: BufferUsages::UNIFORM,
                     });
-                    coverage.mask_binding(self.device, &self.pipelines.coverage_layout, &buffer)
+                    coverage.create_mask_bind_group(
+                        self.device,
+                        &self.pipelines.coverage_layout,
+                        &buffer,
+                    )
                 } else {
                     self.effects
                         .parameters

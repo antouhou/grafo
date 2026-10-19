@@ -102,7 +102,7 @@ struct CoverageUploadStorage {
 }
 
 impl CoverageUploadStorage {
-    fn upload(&self) -> CoverageUpload<'_> {
+    fn as_upload(&self) -> CoverageUpload<'_> {
         CoverageUpload {
             vertices: &self.vertices,
             indices: &self.indices,
@@ -155,7 +155,7 @@ impl CoverageUploads {
     pub(super) fn append(&mut self, builder: &CoverageBuilder) -> Arc<CoverageAllocation> {
         let mesh = CoverageUpload::from(builder);
         if self.pending.last().is_none_or(|pending| {
-            pending.storage.upload().byte_len() + mesh.byte_len() > SHARED_BUFFER_BYTES
+            pending.storage.as_upload().byte_len() + mesh.byte_len() > SHARED_BUFFER_BYTES
         }) {
             self.pending.push(PendingCoverageUpload {
                 storage: self.storage.pop().unwrap_or_default(),
@@ -178,7 +178,7 @@ impl CoverageUploads {
         reusable: &mut Vec<CoverageBuffers>,
     ) {
         for mut pending in self.pending.drain(..) {
-            let mesh = pending.storage.upload();
+            let mesh = pending.storage.as_upload();
             let buffers = match take_reusable_buffers(reusable, mesh) {
                 Some(mut buffers) => {
                     buffers.update(device, queue, mesh, pipelines);
