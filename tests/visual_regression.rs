@@ -421,7 +421,7 @@ fn shape_mask_effects_follow_geometry_and_placement_across_queue_rebuilds() {
 
 #[cfg(feature = "render_metrics")]
 #[test]
-fn cached_shape_mask_effects_share_the_normal_texture_pipeline() {
+fn cached_shape_mask_effects_composite_with_solid_shapes() {
     let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 48), 1.0) else {
         return;
     };
@@ -478,10 +478,8 @@ fn cached_shape_mask_effects_share_the_normal_texture_pipeline() {
     assert_eq!(cache_metrics.hits, 2);
     assert_eq!(cache_metrics.misses, 0);
 
-    let pipeline_switches = renderer.backend().last_pipeline_switch_counts();
-    assert_eq!(pipeline_switches.to_leaf_draw, 1);
-    assert_eq!(pipeline_switches.to_composite, 0);
-    assert_eq!(pipeline_switches.total_switches, 1);
+    assert_eq!(read_pixel_rgba(&pixels, 96, 20, 24), [220, 50, 50, 255]);
+    assert_eq!(read_pixel_rgba(&pixels, 96, 60, 24), [50, 90, 220, 255]);
 }
 
 #[cfg(feature = "render_metrics")]

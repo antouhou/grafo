@@ -17,11 +17,13 @@ pub enum GeometryBufferError {
 pub(crate) enum Pipeline {
     None,
     StencilIncrement,
+    StencilIncrementSolid,
     StencilIncrementGradient,
     StencilIncrementTexture,
     StencilIncrementGradientTexture,
     StencilDecrement,
     LeafDraw,
+    LeafDrawSolid,
     LeafDrawGradient,
     LeafDrawTexture,
     LeafDrawGradientTexture,
@@ -58,6 +60,7 @@ impl PipelineTracker {
             self.counts.total_switches += 1;
             match pipeline {
                 Pipeline::StencilIncrement
+                | Pipeline::StencilIncrementSolid
                 | Pipeline::StencilIncrementGradient
                 | Pipeline::StencilIncrementTexture
                 | Pipeline::StencilIncrementGradientTexture => {
@@ -65,6 +68,7 @@ impl PipelineTracker {
                 }
                 Pipeline::StencilDecrement => self.counts.to_stencil_decrement += 1,
                 Pipeline::LeafDraw
+                | Pipeline::LeafDrawSolid
                 | Pipeline::LeafDrawGradient
                 | Pipeline::LeafDrawTexture
                 | Pipeline::LeafDrawGradientTexture => self.counts.to_leaf_draw += 1,

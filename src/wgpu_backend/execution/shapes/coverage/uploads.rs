@@ -45,23 +45,23 @@ pub(super) struct CoverageDrawRange {
 }
 
 impl CoverageDrawRange {
-    pub(super) fn draw(
+    pub(super) fn draw<'a>(
         self,
         pass: &mut RenderPass<'_>,
-        pipelines: [&RenderPipeline; 2],
+        mut pipeline: impl FnMut(bool) -> &'a RenderPipeline,
         instances: Range<u32>,
     ) -> u32 {
         let boundary_start = self.index_start + self.solid_index_count;
         let mut draw_count = 0;
-        for (indices, pipeline) in [
+        for (index, indices) in [
             self.index_start..boundary_start,
             boundary_start..self.index_start + self.index_count,
         ]
         .into_iter()
-        .zip(pipelines)
+        .enumerate()
         {
             if !indices.is_empty() {
-                pass.set_pipeline(pipeline);
+                pass.set_pipeline(pipeline(index == 1));
                 pass.draw_indexed(indices, 0, instances.clone());
                 draw_count += 1;
             }
@@ -84,13 +84,13 @@ impl CoverageAllocation {
             .expect("coverage uploads finish before drawing")
     }
 
-    pub(in crate::wgpu_backend) fn draw(
+    pub(in crate::wgpu_backend) fn draw<'a>(
         &self,
         pass: &mut RenderPass<'_>,
-        pipelines: [&RenderPipeline; 2],
+        pipeline: impl FnMut(bool) -> &'a RenderPipeline,
         instances: Range<u32>,
     ) -> u32 {
-        self.range.draw(pass, pipelines, instances)
+        self.range.draw(pass, pipeline, instances)
     }
 }
 

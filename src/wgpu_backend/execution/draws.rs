@@ -1,4 +1,4 @@
-use super::shapes::ShapeDrawResources;
+use super::shapes::{ShapeDrawResources, ShapeGeometryType, ShapeShaderType, StencilAction};
 use super::targets;
 use super::textures::IntermediateTextureResources;
 use crate::commands::{IntermediateTextureId, ShapeDrawMaterial, ShapeTextureBinding};
@@ -13,28 +13,37 @@ fn bind_instance_buffers(
     render_pass: &mut RenderPass<'_>,
     instance_index: usize,
     buffers: &Buffers,
+    uses_coverage: bool,
+    uses_texture_bindings: bool,
 ) {
-    let transform_offset = instance_index as u64 * InstanceTransform::STRIDE;
-    render_pass.set_vertex_buffer(
-        1,
-        buffers
-            .instance_transform_buffer()
-            .slice(transform_offset..transform_offset + InstanceTransform::STRIDE),
-    );
+    if !uses_coverage || uses_texture_bindings {
+        let transform_offset = instance_index as u64 * InstanceTransform::STRIDE;
+        render_pass.set_vertex_buffer(
+            1,
+            buffers
+                .instance_transform_buffer()
+                .slice(transform_offset..transform_offset + InstanceTransform::STRIDE),
+        );
+    }
+    let uses_solid_coverage = uses_coverage && !uses_texture_bindings;
+    let color_buffer_slot = if uses_solid_coverage { 1 } else { 2 };
     let color_offset = instance_index as u64 * InstanceColor::STRIDE;
     render_pass.set_vertex_buffer(
-        2,
+        color_buffer_slot,
         buffers
             .instance_color_buffer()
             .slice(color_offset..color_offset + InstanceColor::STRIDE),
     );
-    let metadata_offset = instance_index as u64 * InstanceMetadata::STRIDE;
-    render_pass.set_vertex_buffer(
-        3,
-        buffers
-            .instance_metadata_buffer()
-            .slice(metadata_offset..metadata_offset + InstanceMetadata::STRIDE),
-    );
+    if uses_coverage || uses_texture_bindings {
+        let metadata_buffer_slot = if uses_solid_coverage { 2 } else { 3 };
+        let metadata_offset = instance_index as u64 * InstanceMetadata::STRIDE;
+        render_pass.set_vertex_buffer(
+            metadata_buffer_slot,
+            buffers
+                .instance_metadata_buffer()
+                .slice(metadata_offset..metadata_offset + InstanceMetadata::STRIDE),
+        );
+    }
 }
 
 fn pipeline_has_shared_geometry_bindings(pipeline: Pipeline) -> bool {
@@ -50,7 +59,11 @@ pub(super) fn bind_aggregated_geometry_buffers(
 }
 
 fn bind_decrement_pipeline(render_pass: &mut RenderPass<'_>, pipelines: &ShapePipelines) {
-    render_pass.set_pipeline(&pipelines.decrementing_pipeline);
+    render_pass.set_pipeline(pipelines.get(
+        ShapeGeometryType::Tessellated,
+        ShapeShaderType::Solid,
+        StencilAction::Decrement,
+    ));
     render_pass.set_bind_group(0, &pipelines.decrementing_bind_group, &[]);
     render_pass.set_bind_group(1, &*pipelines.default_shape_texture_bind_groups[0], &[]);
     render_pass.set_bind_group(2, &*pipelines.default_shape_texture_bind_groups[1], &[]);
@@ -87,14 +100,31 @@ impl DrawPass<'_, '_> {
         self.pipeline_tracker.record_stencil_pass();
     }
 
+    pub(super) fn bind_material_textures(&mut self, material: ShapeDrawMaterial) {
+        if !ShapeShaderType::from(material).uses_texture_bindings() {
+            return;
+        }
+        let pipelines = &self.pipelines.shapes;
+        self.textures.bind_shape_texture_layers(
+            self.render_pass,
+            &material.texture_bindings,
+            &pipelines.texture_manager,
+            &pipelines.layouts.background_texture,
+            &pipelines.layouts.foreground_texture,
+            &pipelines.default_shape_texture_bind_groups,
+            self.bound_textures,
+        );
+    }
+
     fn draw_material(
         &mut self,
         stencil_reference: u32,
         material: ShapeDrawMaterial,
         resources: &ShapeDrawResources,
-        increments_stencil: bool,
+        stencil: StencilAction,
     ) {
         let pipelines = &self.pipelines.shapes;
+        let shader = ShapeShaderType::from(material);
         let Some(location) = resources.geometry_buffer_location else {
             return;
         };
@@ -102,94 +132,67 @@ impl DrawPass<'_, '_> {
             let allocation = &coverage.allocation;
             let buffers = allocation.buffers();
             self.render_pass.set_bind_group(0, &buffers.bind_group, &[]);
-            for layer in 0..2 {
-                self.render_pass.set_bind_group(
-                    layer as u32 + 1,
-                    &*pipelines.default_shape_texture_bind_groups[layer],
-                    &[],
-                );
-            }
             self.bound_textures.invalidate();
-            self.textures.bind_shape_texture_layers(
-                self.render_pass,
-                &material.texture_bindings,
-                &pipelines.texture_manager,
-                &pipelines.shape_texture_bind_group_layout_background,
-                &pipelines.shape_texture_bind_group_layout_foreground,
-                &pipelines.default_shape_texture_bind_groups,
-                self.bound_textures,
-            );
+            self.bind_material_textures(material);
             if let Some(binding) = resources.material_bind_group(material) {
                 self.render_pass.set_bind_group(3, binding, &[]);
             }
-            bind_instance_buffers(self.render_pass, location.instance_index, self.buffers);
+            bind_instance_buffers(
+                self.render_pass,
+                location.instance_index,
+                self.buffers,
+                true,
+                shader.uses_texture_bindings(),
+            );
             buffers.bind(self.render_pass);
             self.render_pass.set_stencil_reference(stencil_reference);
             let _draw_count = allocation.draw(
                 self.render_pass,
-                [
-                    pipelines
-                        .coverage
-                        .solid
-                        .material(material, increments_stencil),
-                    pipelines
-                        .coverage
-                        .boundary
-                        .material(material, increments_stencil),
-                ],
+                |boundary| pipelines.get(ShapeGeometryType::coverage(boundary), shader, stencil),
                 0..1,
             );
             self.pipeline_tracker.current = Pipeline::None;
             #[cfg(feature = "render_metrics")]
             self.pipeline_tracker.record_coverage_draws(
-                pipelines.material_pipeline(material, increments_stencil).0,
+                shader.tracked_pipeline(stencil),
                 _draw_count,
-                increments_stencil,
+                stencil == StencilAction::Increment,
             );
             self.bound_textures.invalidate();
             bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
             return;
         }
-        let (target_pipeline, pipeline) = pipelines.material_pipeline(material, increments_stencil);
+        let target_pipeline = shader.tracked_pipeline(stencil);
         if self.pipeline_tracker.current != target_pipeline {
-            self.render_pass.set_pipeline(pipeline);
+            self.render_pass.set_pipeline(pipelines.get(
+                ShapeGeometryType::Tessellated,
+                shader,
+                stencil,
+            ));
             self.render_pass
                 .set_bind_group(0, &pipelines.and_bind_group, &[]);
-            self.render_pass.set_bind_group(
-                1,
-                &*pipelines.default_shape_texture_bind_groups[0],
-                &[],
-            );
-            self.render_pass.set_bind_group(
-                2,
-                &*pipelines.default_shape_texture_bind_groups[1],
-                &[],
-            );
-            self.bound_textures.mark_bound(0, ShapeTextureBinding::None);
-            self.bound_textures.mark_bound(1, ShapeTextureBinding::None);
+            self.bound_textures.invalidate();
             if !pipeline_has_shared_geometry_bindings(self.pipeline_tracker.current) {
                 bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
             }
             self.pipeline_tracker.switch_to(target_pipeline);
         }
-        self.textures.bind_shape_texture_layers(
-            self.render_pass,
-            &material.texture_bindings,
-            &pipelines.texture_manager,
-            &pipelines.shape_texture_bind_group_layout_background,
-            &pipelines.shape_texture_bind_group_layout_foreground,
-            &pipelines.default_shape_texture_bind_groups,
-            self.bound_textures,
-        );
+        self.bind_material_textures(material);
         if let Some(binding) = resources.material_bind_group(material) {
             self.render_pass.set_bind_group(3, binding, &[]);
         }
-        bind_instance_buffers(self.render_pass, location.instance_index, self.buffers);
+        bind_instance_buffers(
+            self.render_pass,
+            location.instance_index,
+            self.buffers,
+            false,
+            shader.uses_texture_bindings(),
+        );
         self.render_pass.set_stencil_reference(stencil_reference);
         self.buffers
             .draw_indexed(self.render_pass, location.geometry_range, 0..1);
         #[cfg(feature = "render_metrics")]
-        if increments_stencil {
+        if stencil == StencilAction::Increment {
             self.pipeline_tracker.record_stencil_pass();
         }
     }
@@ -201,7 +204,12 @@ impl DrawPass<'_, '_> {
         material: ShapeDrawMaterial,
         resources: &ShapeDrawResources,
     ) {
-        self.draw_material(stencil_reference, material, resources, true);
+        self.draw_material(
+            stencil_reference,
+            material,
+            resources,
+            StencilAction::Increment,
+        );
     }
 
     /// Decrements stencil samples matching the supplied reference without drawing color.
@@ -225,15 +233,24 @@ impl DrawPass<'_, '_> {
                     &[],
                 );
             }
-            bind_instance_buffers(self.render_pass, location.instance_index, self.buffers);
+            bind_instance_buffers(
+                self.render_pass,
+                location.instance_index,
+                self.buffers,
+                true,
+                true,
+            );
             buffers.bind(self.render_pass);
             self.render_pass.set_stencil_reference(stencil_reference);
             let _draw_count = allocation.draw(
                 self.render_pass,
-                [
-                    &self.pipelines.shapes.coverage.solid.decrement,
-                    &self.pipelines.shapes.coverage.boundary.decrement,
-                ],
+                |boundary| {
+                    self.pipelines.shapes.get(
+                        ShapeGeometryType::coverage(boundary),
+                        ShapeShaderType::Solid,
+                        StencilAction::Decrement,
+                    )
+                },
                 0..1,
             );
             self.pipeline_tracker.current = Pipeline::None;
@@ -259,7 +276,13 @@ impl DrawPass<'_, '_> {
             self.pipeline_tracker.switch_to(Pipeline::StencilDecrement);
         }
 
-        bind_instance_buffers(self.render_pass, location.instance_index, self.buffers);
+        bind_instance_buffers(
+            self.render_pass,
+            location.instance_index,
+            self.buffers,
+            false,
+            true,
+        );
 
         self.draw_stencil_geometry(stencil_reference, location.geometry_range);
     }
@@ -271,7 +294,7 @@ impl DrawPass<'_, '_> {
         material: ShapeDrawMaterial,
         resources: &ShapeDrawResources,
     ) {
-        self.draw_material(stencil_reference, material, resources, false);
+        self.draw_material(stencil_reference, material, resources, StencilAction::Keep);
     }
 
     /// Composites an intermediate texture under the active scissor and stencil reference.

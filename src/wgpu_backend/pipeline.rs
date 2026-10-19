@@ -1,13 +1,11 @@
 //! WGPU pipelines, stencil states, and buffer helpers.
-use crate::core::vertex::{CustomVertex, InstanceTransform};
-use crate::wgpu_backend::execution::shapes::coverage::{self, CoverageVertex};
-use crate::wgpu_backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMetadata};
+use crate::core::vertex::CustomVertex;
+use crate::wgpu_backend::vertex::GeometryBufferRange;
 use std::ops::Range;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
     BindGroup, BindGroupLayout, BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType,
-    BufferDescriptor, BufferUsages, ComputePipeline, Device, PipelineCompilationOptions,
-    RenderPass, RenderPipeline, ShaderStages, Texture, TextureFormat,
+    BufferDescriptor, BufferUsages, ComputePipeline, Device, RenderPass, ShaderStages, Texture,
 };
 
 pub(crate) const SHAPE_SHADER: &str = concat!(
@@ -16,19 +14,9 @@ pub(crate) const SHAPE_SHADER: &str = concat!(
     include_str!("../shaders/shader.wgsl"),
     "\n",
     include_str!("../shaders/path_coverage_vertex.wgsl"),
+    "\n",
+    include_str!("../shaders/solid.wgsl"),
 );
-
-pub(in crate::wgpu_backend) struct ShapePipelineDescriptor<'a> {
-    pub label: Option<&'a str>,
-    pub bind_group_layouts: &'a [&'a BindGroupLayout],
-    pub vertex_entry_point: &'a str,
-    pub fragment_entry_point: &'a str,
-    pub color_target: wgpu::ColorTargetState,
-    pub depth_stencil: wgpu::DepthStencilState,
-    pub sample_count: u32,
-    pub uses_coverage: bool,
-    pub evaluates_path_coverage: bool,
-}
 
 /// Viewport dimensions and antialiasing settings used by the vertex shader.
 #[repr(C)]
@@ -159,14 +147,10 @@ pub(in crate::wgpu_backend) fn create_equal_keep_depth_state() -> wgpu::DepthSte
     }
 }
 
-pub enum PipelineType {
-    /// Increments stencil values equal to the reference, leaving other values unchanged.
-    EqualIncrementStencil,
-    /// Decrements the stencil value where the stencil is equal to the reference value.
-    EqualDecrementStencil,
-}
-
-fn create_shape_texture_bind_group_layout(device: &Device, label: &str) -> BindGroupLayout {
+pub(in crate::wgpu_backend) fn create_shape_texture_bind_group_layout(
+    device: &Device,
+    label: &str,
+) -> BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[
             BindGroupLayoutEntry {
@@ -187,62 +171,6 @@ fn create_shape_texture_bind_group_layout(device: &Device, label: &str) -> BindG
             },
         ],
         label: Some(label),
-    })
-}
-
-pub(in crate::wgpu_backend) fn create_shape_pipeline(
-    device: &Device,
-    descriptor: ShapePipelineDescriptor<'_>,
-) -> RenderPipeline {
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: descriptor.label,
-        source: wgpu::ShaderSource::Wgsl(SHAPE_SHADER.into()),
-    });
-    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: descriptor.label,
-        bind_group_layouts: descriptor.bind_group_layouts,
-        push_constant_ranges: &[],
-    });
-
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: descriptor.label,
-        layout: Some(&layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: Some(descriptor.vertex_entry_point),
-            compilation_options: Default::default(),
-            buffers: &[
-                if descriptor.uses_coverage {
-                    CoverageVertex::desc()
-                } else {
-                    CustomVertex::desc()
-                },
-                InstanceTransform::desc(),
-                InstanceColor::desc(),
-                InstanceMetadata::desc(),
-            ],
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some(descriptor.fragment_entry_point),
-            compilation_options: PipelineCompilationOptions {
-                constants: &[(
-                    "evaluates_path_coverage",
-                    f64::from(descriptor.evaluates_path_coverage),
-                )],
-                ..Default::default()
-            },
-            targets: &[Some(descriptor.color_target)],
-        }),
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: Some(descriptor.depth_stencil),
-        multisample: wgpu::MultisampleState {
-            count: descriptor.sample_count,
-            mask: !0,
-            alpha_to_coverage_enabled: false,
-        },
-        multiview: None,
-        cache: None,
     })
 }
 
@@ -362,127 +290,6 @@ pub fn create_gradient_texture_material_bind_group_layout(device: &Device) -> Bi
         ],
         label: Some("gradient_texture_material_bind_group_layout"),
     })
-}
-
-pub fn create_pipeline(
-    canvas_logical_size: (f32, f32),
-    scale_factor: f64,
-    fringe_width: f32,
-    device: &Device,
-    format: TextureFormat,
-    pipeline_type: PipelineType,
-    sample_count: u32,
-) -> (
-    Uniforms,
-    wgpu::Buffer,
-    BindGroup,
-    BindGroupLayout,
-    BindGroupLayout,
-    RenderPipeline,
-) {
-    let (depth_stencil, color_writes, fragment_entry_point) = match pipeline_type {
-        PipelineType::EqualIncrementStencil => (
-            create_equal_increment_depth_state(),
-            wgpu::ColorWrites::ALL,
-            "fs_passthrough",
-        ),
-        PipelineType::EqualDecrementStencil => (
-            create_equal_decrement_depth_state(),
-            wgpu::ColorWrites::empty(),
-            "fs_stencil_only",
-        ),
-    };
-    let uniforms = Uniforms::new(
-        canvas_logical_size.0,
-        canvas_logical_size.1,
-        scale_factor as f32,
-        fringe_width,
-    );
-
-    let uniform_buffer = device.create_buffer_init(&BufferInitDescriptor {
-        label: None,
-        contents: bytemuck::cast_slice(&[uniforms]),
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-    });
-
-    let bind_group_layout = create_uniform_bind_group_layout(device);
-    let texture_bind_group_layout_layer0 =
-        create_shape_texture_bind_group_layout(device, "shape_texture_bind_group_layout_layer0");
-    let texture_bind_group_layout_layer1 =
-        create_shape_texture_bind_group_layout(device, "shape_texture_bind_group_layout_layer1");
-    let empty_coverage = device.create_buffer_init(&BufferInitDescriptor {
-        label: Some("empty_coverage"),
-        contents: &[0; 16],
-        usage: BufferUsages::STORAGE,
-    });
-    let bind_group =
-        coverage::create_bind_group(device, &bind_group_layout, &uniform_buffer, &empty_coverage);
-
-    let render_pipeline = create_shape_pipeline(
-        device,
-        ShapePipelineDescriptor {
-            uses_coverage: false,
-            evaluates_path_coverage: false,
-            label: None,
-            bind_group_layouts: &[
-                &bind_group_layout,
-                &texture_bind_group_layout_layer0,
-                &texture_bind_group_layout_layer1,
-            ],
-            vertex_entry_point: "vs_main",
-            fragment_entry_point,
-            color_target: wgpu::ColorTargetState {
-                format,
-                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                write_mask: color_writes,
-            },
-            depth_stencil,
-            sample_count,
-        },
-    );
-
-    (
-        uniforms,
-        uniform_buffer,
-        bind_group,
-        texture_bind_group_layout_layer0,
-        texture_bind_group_layout_layer1,
-        render_pipeline,
-    )
-}
-
-pub fn create_gradient_increment_pipeline(
-    device: &Device,
-    format: wgpu::TextureFormat,
-    sample_count: u32,
-    uniform_layout: &BindGroupLayout,
-    background_texture_layout: &BindGroupLayout,
-    foreground_texture_layout: &BindGroupLayout,
-    gradient_layout: &BindGroupLayout,
-) -> RenderPipeline {
-    create_shape_pipeline(
-        device,
-        ShapePipelineDescriptor {
-            uses_coverage: false,
-            evaluates_path_coverage: false,
-            label: Some("gradient_increment_pipeline"),
-            bind_group_layouts: &[
-                uniform_layout,
-                background_texture_layout,
-                foreground_texture_layout,
-                gradient_layout,
-            ],
-            vertex_entry_point: "vs_main_gradient",
-            fragment_entry_point: "fs_passthrough_gradient",
-            color_target: wgpu::ColorTargetState {
-                format,
-                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                write_mask: wgpu::ColorWrites::ALL,
-            },
-            depth_stencil: create_equal_increment_depth_state(),
-            sample_count,
-        },
-    )
 }
 
 pub fn create_and_depth_texture(device: &Device, size: (u32, u32), sample_count: u32) -> Texture {
@@ -708,120 +515,4 @@ pub fn create_msaa_color_texture(
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         view_formats: &[],
     })
-}
-
-fn create_color_pipeline_with_stencil_keep(
-    device: &Device,
-    format: wgpu::TextureFormat,
-    sample_count: u32,
-    bind_group_layouts: &[&wgpu::BindGroupLayout],
-    vertex_entry_point: &str,
-    fragment_entry_point: &str,
-    label: &str,
-) -> RenderPipeline {
-    create_shape_pipeline(
-        device,
-        ShapePipelineDescriptor {
-            uses_coverage: false,
-            evaluates_path_coverage: false,
-            label: Some(label),
-            bind_group_layouts,
-            vertex_entry_point,
-            fragment_entry_point,
-            color_target: wgpu::ColorTargetState {
-                format,
-                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                write_mask: wgpu::ColorWrites::ALL,
-            },
-            depth_stencil: create_equal_keep_depth_state(),
-            sample_count,
-        },
-    )
-}
-
-/// Creates a pipeline that draws shape color without changing the stencil value.
-pub fn create_stencil_keep_color_pipeline(
-    device: &Device,
-    format: wgpu::TextureFormat,
-    sample_count: u32,
-    uniform_bgl: &wgpu::BindGroupLayout,
-    texture_bgl_layer0: &wgpu::BindGroupLayout,
-    texture_bgl_layer1: &wgpu::BindGroupLayout,
-) -> RenderPipeline {
-    create_color_pipeline_with_stencil_keep(
-        device,
-        format,
-        sample_count,
-        &[uniform_bgl, texture_bgl_layer0, texture_bgl_layer1],
-        "vs_main",
-        "fs_main",
-        "stencil_keep_color_pipeline",
-    )
-}
-
-pub fn create_gradient_stencil_keep_color_pipeline(
-    device: &Device,
-    format: wgpu::TextureFormat,
-    sample_count: u32,
-    uniform_bgl: &wgpu::BindGroupLayout,
-    texture_bgl_layer0: &wgpu::BindGroupLayout,
-    texture_bgl_layer1: &wgpu::BindGroupLayout,
-    gradient_bgl: &wgpu::BindGroupLayout,
-) -> RenderPipeline {
-    create_color_pipeline_with_stencil_keep(
-        device,
-        format,
-        sample_count,
-        &[
-            uniform_bgl,
-            texture_bgl_layer0,
-            texture_bgl_layer1,
-            gradient_bgl,
-        ],
-        "vs_main_gradient",
-        "fs_main_gradient",
-        "gradient_stencil_keep_color_pipeline",
-    )
-}
-
-/// Compiles a shape material with a texture below its fill.
-pub(crate) fn create_texture_material_pipeline(
-    device: &Device,
-    format: wgpu::TextureFormat,
-    sample_count: u32,
-    layouts: &[&BindGroupLayout],
-    uses_gradient: bool,
-    increments_stencil: bool,
-) -> RenderPipeline {
-    let depth_stencil = if increments_stencil {
-        create_equal_increment_depth_state()
-    } else {
-        create_equal_keep_depth_state()
-    };
-    create_shape_pipeline(
-        device,
-        ShapePipelineDescriptor {
-            uses_coverage: false,
-            evaluates_path_coverage: false,
-            label: Some("shape_texture_material_pipeline"),
-            bind_group_layouts: layouts,
-            vertex_entry_point: if uses_gradient {
-                "vs_main_gradient"
-            } else {
-                "vs_main"
-            },
-            fragment_entry_point: if uses_gradient {
-                "fs_texture_material_gradient"
-            } else {
-                "fs_texture_material"
-            },
-            color_target: wgpu::ColorTargetState {
-                format,
-                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                write_mask: wgpu::ColorWrites::ALL,
-            },
-            depth_stencil,
-            sample_count,
-        },
-    )
 }

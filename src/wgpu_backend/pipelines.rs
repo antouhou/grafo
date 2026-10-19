@@ -1,17 +1,17 @@
 use super::execution::effects;
 use super::execution::shape_mask_effects::ShapeMaskEffectRendererResources;
-use super::execution::shapes::coverage::pipelines::CoveragePipelines;
-use super::execution::shapes::TextureMaterialPipelines;
+use super::execution::shapes::coverage;
+use super::execution::shapes::{ShapePipelineLayouts, ShapePipelineVariants};
 use super::resources::{BackdropPipelineResources, RendererPipelineResources, ShapePipelines};
 use super::{WgpuBackend, WgpuContext};
 use crate::core::util::to_logical;
-use crate::wgpu_backend::pipeline::{
-    create_gradient_bind_group_layout, create_gradient_increment_pipeline,
-    create_gradient_stencil_keep_color_pipeline, create_pipeline,
-    create_stencil_keep_color_pipeline, PipelineType,
-};
+use crate::wgpu_backend::pipeline::Uniforms;
 use std::sync::Arc;
-use wgpu::{AddressMode, BindGroupLayout, Device, FilterMode, SamplerDescriptor, TextureFormat};
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
+use wgpu::{
+    AddressMode, BindGroupLayout, BufferUsages, Device, FilterMode, SamplerDescriptor,
+    TextureFormat,
+};
 
 fn create_transparent_texture_view_and_sampler(
     device: &wgpu::Device,
@@ -80,70 +80,40 @@ impl ShapePipelines {
         let queue = &context.queue;
         let canvas_logical_size = to_logical(physical_size, scale_factor);
 
-        let (
-            and_uniforms,
-            and_uniform_buffer,
-            and_bind_group,
-            background_texture_layout,
-            foreground_texture_layout,
-            and_pipeline,
-        ) = create_pipeline(
-            canvas_logical_size,
-            scale_factor,
+        let layouts = ShapePipelineLayouts::new(device, gradient_layout);
+        let and_uniforms = Uniforms::new(
+            canvas_logical_size.0,
+            canvas_logical_size.1,
+            scale_factor as f32,
             fringe_width,
-            device,
-            format,
-            PipelineType::EqualIncrementStencil,
-            msaa_sample_count,
         );
-
-        let (
-            decrementing_uniforms,
-            decrementing_uniform_buffer,
-            decrementing_bind_group,
-            _,
-            _,
-            decrementing_pipeline,
-        ) = create_pipeline(
-            canvas_logical_size,
-            scale_factor,
-            fringe_width,
+        let decrementing_uniforms = and_uniforms;
+        let create_uniform_buffer = |uniforms: &Uniforms| {
+            device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("shape_uniforms"),
+                contents: bytemuck::bytes_of(uniforms),
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            })
+        };
+        let and_uniform_buffer = create_uniform_buffer(&and_uniforms);
+        let decrementing_uniform_buffer = create_uniform_buffer(&decrementing_uniforms);
+        let empty_coverage = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("empty_coverage"),
+            contents: &[0; 16],
+            usage: BufferUsages::STORAGE,
+        });
+        let and_bind_group = coverage::create_bind_group(
             device,
-            format,
-            PipelineType::EqualDecrementStencil,
-            msaa_sample_count,
+            &layouts.uniform,
+            &and_uniform_buffer,
+            &empty_coverage,
         );
-
-        let gradient_bind_group_layout =
-            gradient_layout.unwrap_or_else(|| create_gradient_bind_group_layout(device));
-        let and_gradient_pipeline = create_gradient_increment_pipeline(
+        let decrementing_bind_group = coverage::create_bind_group(
             device,
-            format,
-            msaa_sample_count,
-            &and_pipeline.get_bind_group_layout(0),
-            &background_texture_layout,
-            &foreground_texture_layout,
-            &gradient_bind_group_layout,
+            &layouts.uniform,
+            &decrementing_uniform_buffer,
+            &empty_coverage,
         );
-
-        let leaf_draw_pipeline = create_stencil_keep_color_pipeline(
-            device,
-            format,
-            msaa_sample_count,
-            &and_pipeline.get_bind_group_layout(0),
-            &background_texture_layout,
-            &foreground_texture_layout,
-        );
-        let leaf_draw_gradient_pipeline = create_gradient_stencil_keep_color_pipeline(
-            device,
-            format,
-            msaa_sample_count,
-            &and_pipeline.get_bind_group_layout(0),
-            &background_texture_layout,
-            &foreground_texture_layout,
-            &gradient_bind_group_layout,
-        );
-
         let linear_clamp_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("linear_clamp_sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -159,49 +129,19 @@ impl ShapePipelines {
             WgpuBackend::create_default_shape_texture_bind_group(
                 device,
                 queue,
-                &background_texture_layout,
+                &layouts.background_texture,
             );
         let default_foreground_texture_bind_group =
             WgpuBackend::create_default_shape_texture_bind_group(
                 device,
                 queue,
-                &foreground_texture_layout,
+                &layouts.foreground_texture,
             );
-        let under_fill_pipelines = TextureMaterialPipelines::new(
-            device,
-            format,
-            msaa_sample_count,
-            [
-                &and_pipeline.get_bind_group_layout(0),
-                &background_texture_layout,
-                &foreground_texture_layout,
-            ],
-        );
-
-        let coverage = CoveragePipelines::new(
-            device,
-            format,
-            msaa_sample_count,
-            [
-                &and_pipeline.get_bind_group_layout(0),
-                &background_texture_layout,
-                &foreground_texture_layout,
-            ],
-            &gradient_bind_group_layout,
-            &under_fill_pipelines.solid_layout,
-            &under_fill_pipelines.gradient_layout,
-        );
         Self {
-            coverage,
-            and_pipeline: Arc::new(and_pipeline),
-            and_gradient_pipeline: Arc::new(and_gradient_pipeline),
+            variants: ShapePipelineVariants::new(device, format, msaa_sample_count),
+            layouts,
             and_bind_group,
-            decrementing_pipeline: Arc::new(decrementing_pipeline),
             decrementing_bind_group,
-            leaf_draw_pipeline: Arc::new(leaf_draw_pipeline),
-            leaf_draw_gradient_pipeline: Arc::new(leaf_draw_gradient_pipeline),
-            shape_texture_bind_group_layout_background: Arc::new(background_texture_layout),
-            shape_texture_bind_group_layout_foreground: Arc::new(foreground_texture_layout),
             default_shape_texture_bind_groups: [
                 Arc::new(default_background_texture_bind_group),
                 Arc::new(default_foreground_texture_bind_group),
@@ -211,8 +151,6 @@ impl ShapePipelines {
             and_uniform_buffer,
             decrementing_uniforms,
             decrementing_uniform_buffer,
-            under_fill_pipelines,
-            gradient_bind_group_layout,
             linear_clamp_sampler,
         }
     }

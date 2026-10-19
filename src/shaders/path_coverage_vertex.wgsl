@@ -11,11 +11,14 @@ struct CoverageVertexInput {
     @location(13) coverage_translation: vec2<f32>,
 };
 
+fn coverage_clip_position(position: vec2<f32>) -> vec4<f32> {
+    let size = uniforms.canvas_size * uniforms.scale_factor;
+    return vec4<f32>(2.0 * position.x / size.x - 1.0, 1.0 - 2.0 * position.y / size.y, 0.0, 1.0);
+}
+
 fn coverage_vertex(input: CoverageVertexInput) -> VertexOutput {
     var output: VertexOutput;
-    let size = uniforms.canvas_size * uniforms.scale_factor;
-    let position = input.position + input.coverage_translation;
-    output.position = vec4<f32>(2.0 * position.x / size.x - 1.0, 1.0 - 2.0 * position.y / size.y, 0.0, 1.0);
+    output.position = coverage_clip_position(input.position + input.coverage_translation);
     output.color = input.color;
     let weight = input.texture_position.z;
     output.layer0_tex_coords = vec3<f32>(input.texture_position.xy * input.texture_uv_transform_layer0.xy + input.texture_uv_transform_layer0.zw * weight, weight);
