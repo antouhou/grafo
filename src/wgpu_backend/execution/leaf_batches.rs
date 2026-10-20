@@ -95,18 +95,17 @@ impl DrawPass<'_, '_> {
             draws::bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
         }
         self.bind_material_textures(material);
-        if batch.coverage.is_none() || shader.uses_texture_bindings() {
+        if batch.coverage.is_none() {
             self.render_pass
                 .set_vertex_buffer(1, self.buffers.instance_transform_buffer().slice(..));
         }
-        let uses_solid_coverage = batch.coverage.is_some() && !shader.uses_texture_bindings();
-        let color_buffer_slot = if uses_solid_coverage { 1 } else { 2 };
+        let color_buffer_slot = if batch.coverage.is_some() { 0 } else { 2 };
         self.render_pass.set_vertex_buffer(
             color_buffer_slot,
             self.buffers.instance_color_buffer().slice(..),
         );
         if batch.coverage.is_some() || shader.uses_texture_bindings() {
-            let metadata_buffer_slot = if uses_solid_coverage { 2 } else { 3 };
+            let metadata_buffer_slot = if batch.coverage.is_some() { 1 } else { 3 };
             self.render_pass.set_vertex_buffer(
                 metadata_buffer_slot,
                 self.buffers.instance_metadata_buffer().slice(..),

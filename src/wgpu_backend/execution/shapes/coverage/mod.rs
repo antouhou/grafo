@@ -6,10 +6,11 @@ use crate::wgpu_backend::execution::render_pass::RenderPass;
 use crate::wgpu_backend::resources::ShapePipelines;
 pub(in crate::wgpu_backend) use cache::CoverageCache;
 use cache::CoverageKey;
-pub(crate) use geometry::{CoverageBuilder, CoverageVertex};
+pub(crate) use geometry::CoverageBuilder;
 use std::{mem, ops::Range, sync::Arc};
-pub(in crate::wgpu_backend) use uploads::CoverageAllocation;
-use uploads::{CoverageDrawRange, CoverageUpload};
+use tiles::CoverageDrawRange;
+pub(crate) use tiles::CoverageGeometry;
+pub(in crate::wgpu_backend) use uploads::{CoverageAllocation, CoverageUpload};
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, Buffer, BufferUsages, Device,
     IndexFormat, Queue, RenderPipeline,
@@ -20,8 +21,8 @@ mod geometry;
 mod placement;
 mod projection;
 mod scanline;
+mod tiles;
 mod uploads;
-mod vertex;
 
 pub(in crate::wgpu_backend) fn supports_projection(
     transform: Option<InstanceTransform>,
@@ -36,8 +37,9 @@ pub(in crate::wgpu_backend) fn supports_projection(
 
 #[derive(Clone, Debug)]
 pub(in crate::wgpu_backend) struct CoverageBuffers {
-    pub vertices: Option<Buffer>,
-    pub indices: Option<Buffer>,
+    tiles: Option<Buffer>,
+    projections: Option<Buffer>,
+    indices: Option<Buffer>,
     coverage: Option<Buffer>,
     pub bind_group: BindGroup,
     pub decrement_bind_group: BindGroup,
@@ -48,8 +50,9 @@ pub(in crate::wgpu_backend) fn create_bind_group(
     device: &Device,
     layout: &BindGroupLayout,
     uniform: &Buffer,
-    coverage: &Buffer,
+    storage: [&Buffer; 3],
 ) -> BindGroup {
+    let [coverage, tiles, projections] = storage;
     device.create_bind_group(&BindGroupDescriptor {
         label: Some("path_coverage"),
         layout,
@@ -62,6 +65,14 @@ pub(in crate::wgpu_backend) fn create_bind_group(
                 binding: 1,
                 resource: coverage.as_entire_binding(),
             },
+            BindGroupEntry {
+                binding: 2,
+                resource: tiles.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 3,
+                resource: projections.as_entire_binding(),
+            },
         ],
     })
 }
@@ -72,43 +83,68 @@ fn upload_buffers(
     mesh: CoverageUpload<'_>,
     slots: [&mut Option<Buffer>; 3],
 ) -> bool {
-    let [vertices, indices, coverage] = slots;
+    let [tiles, projections, coverage] = slots;
     let mut needs_rebind = false;
-    for (buffer, label, bytes, usage) in [
+    for (buffer, label, bytes) in [
         (
-            vertices,
-            "path_coverage_vertices",
-            bytemuck::cast_slice(mesh.vertices),
-            BufferUsages::VERTEX,
+            tiles,
+            "path_coverage_tiles",
+            bytemuck::cast_slice(mesh.geometry.tiles.as_slice()),
         ),
         (
-            indices,
-            "path_coverage_indices",
-            bytemuck::cast_slice(mesh.indices),
-            BufferUsages::INDEX,
+            projections,
+            "path_coverage_projections",
+            bytemuck::cast_slice(mesh.geometry.projections.as_slice()),
         ),
         (
             coverage,
             "path_coverage_values",
-            bytemuck::cast_slice(mesh.coverage),
-            BufferUsages::STORAGE,
+            bytemuck::cast_slice(mesh.geometry.coverage.as_slice()),
         ),
     ] {
-        let empty = [0_u8; 16];
-        needs_rebind |= usage == BufferUsages::STORAGE
-            && buffer
-                .as_ref()
-                .is_none_or(|buffer| buffer.size() < bytes.len().max(16) as u64);
+        let empty = [0_u8; 64];
+        let bytes = if bytes.is_empty() { &empty } else { bytes };
+        needs_rebind |= buffer
+            .as_ref()
+            .is_none_or(|buffer| buffer.size() < bytes.len() as u64);
         upsert_gpu_buffer(
             device,
             queue,
             buffer,
             label,
-            if bytes.is_empty() { &empty } else { bytes },
-            usage | BufferUsages::COPY_DST,
+            bytes,
+            BufferUsages::STORAGE | BufferUsages::COPY_DST,
         );
     }
     needs_rebind
+}
+
+fn prepare_indices(
+    device: &Device,
+    queue: &Queue,
+    buffer: &mut Option<Buffer>,
+    index_storage: &mut Vec<u32>,
+    tile_count: usize,
+) {
+    let count = tile_count.max(1) as u32;
+    if buffer
+        .as_ref()
+        .is_some_and(|buffer| buffer.size() >= u64::from(count) * 24)
+    {
+        return;
+    }
+    let first_tile = index_storage.len() as u32 / 6;
+    index_storage.extend(
+        (first_tile..count).flat_map(|tile| [0, 1, 2, 0, 2, 3].map(|index| tile * 4 + index)),
+    );
+    upsert_gpu_buffer(
+        device,
+        queue,
+        buffer,
+        "path_coverage_quad_indices",
+        bytemuck::cast_slice(&index_storage[..count as usize * 6]),
+        BufferUsages::INDEX | BufferUsages::COPY_DST,
+    );
 }
 
 fn take_reusable_buffers(
@@ -116,17 +152,17 @@ fn take_reusable_buffers(
     mesh: CoverageUpload<'_>,
 ) -> Option<CoverageBuffers> {
     let required = [
-        mem::size_of_val(mesh.vertices),
-        mem::size_of_val(mesh.indices),
-        mem::size_of_val(mesh.coverage),
+        mem::size_of_val(mesh.geometry.tiles.as_slice()),
+        mem::size_of_val(mesh.geometry.projections.as_slice()),
+        mem::size_of_val(mesh.geometry.coverage.as_slice()),
     ]
-    .map(|size| size.max(16) as u64);
+    .map(|size| if size == 0 { 64 } else { size as u64 });
     let index = pool
         .iter()
         .enumerate()
         .min_by_key(|(_, buffers)| {
             let capacities =
-                [&buffers.vertices, &buffers.indices, &buffers.coverage].map(|buffer| {
+                [&buffers.tiles, &buffers.projections, &buffers.coverage].map(|buffer| {
                     buffer
                         .as_ref()
                         .expect("coverage buffers were uploaded")
@@ -144,14 +180,12 @@ fn take_reusable_buffers(
 }
 
 impl CoverageBuffers {
+    fn storage(&self) -> [&Buffer; 3] {
+        [&self.coverage, &self.tiles, &self.projections]
+            .map(|buffer| buffer.as_ref().expect("coverage buffers were uploaded"))
+    }
+
     pub(in crate::wgpu_backend) fn bind(&self, pass: &mut RenderPass<'_>) {
-        pass.set_vertex_buffer(
-            0,
-            self.vertices
-                .as_ref()
-                .expect("coverage vertices were uploaded")
-                .slice(..),
-        );
         pass.set_index_buffer(
             self.indices
                 .as_ref()
@@ -177,53 +211,58 @@ impl CoverageBuffers {
         layout: &BindGroupLayout,
         uniform: &Buffer,
     ) -> BindGroup {
-        create_bind_group(
-            device,
-            layout,
-            uniform,
-            self.coverage
-                .as_ref()
-                .expect("coverage values were uploaded"),
-        )
+        create_bind_group(device, layout, uniform, self.storage())
     }
+
     pub(in crate::wgpu_backend) fn new(
         device: &Device,
         queue: &Queue,
         mesh: CoverageUpload<'_>,
         pipelines: &ShapePipelines,
+        index_storage: &mut Vec<u32>,
     ) -> Self {
-        let mut vertices = None;
+        let mut tiles = None;
+        let mut projections = None;
         let mut indices = None;
         let mut coverage = None;
         upload_buffers(
             device,
             queue,
             mesh,
-            [&mut vertices, &mut indices, &mut coverage],
+            [&mut tiles, &mut projections, &mut coverage],
         );
-        let coverage_buffer = coverage.as_ref().expect("coverage values were uploaded");
+        prepare_indices(
+            device,
+            queue,
+            &mut indices,
+            index_storage,
+            mesh.geometry.tiles.len(),
+        );
+        let storage = [&coverage, &tiles, &projections]
+            .map(|buffer| buffer.as_ref().expect("coverage buffers were uploaded"));
         let bind_group = create_bind_group(
             device,
             &pipelines.layouts.uniform,
             &pipelines.and_uniform_buffer,
-            coverage_buffer,
+            storage,
         );
         let decrement_bind_group = create_bind_group(
             device,
             &pipelines.layouts.uniform,
             &pipelines.decrementing_uniform_buffer,
-            coverage_buffer,
+            storage,
         );
         Self {
-            vertices,
+            tiles,
+            projections,
             indices,
             coverage,
             bind_group,
             decrement_bind_group,
             range: CoverageDrawRange {
-                index_start: 0,
-                index_count: mesh.indices.len() as u32,
-                solid_index_count: mesh.solid_index_count,
+                tile_start: 0,
+                tile_count: mesh.geometry.tiles.len() as u32,
+                solid_tile_count: mesh.solid_tile_count,
             },
         }
     }
@@ -234,35 +273,39 @@ impl CoverageBuffers {
         queue: &Queue,
         mesh: CoverageUpload<'_>,
         pipelines: &ShapePipelines,
+        index_storage: &mut Vec<u32>,
     ) {
         if upload_buffers(
             device,
             queue,
             mesh,
-            [&mut self.vertices, &mut self.indices, &mut self.coverage],
+            [&mut self.tiles, &mut self.projections, &mut self.coverage],
         ) {
             self.rebind(device, pipelines);
         }
-        self.range.index_count = mesh.indices.len() as u32;
-        self.range.solid_index_count = mesh.solid_index_count;
+        prepare_indices(
+            device,
+            queue,
+            &mut self.indices,
+            index_storage,
+            mesh.geometry.tiles.len(),
+        );
+        self.range.tile_count = mesh.geometry.tiles.len() as u32;
+        self.range.solid_tile_count = mesh.solid_tile_count;
     }
 
     pub(in crate::wgpu_backend) fn rebind(&mut self, device: &Device, pipelines: &ShapePipelines) {
-        let coverage = self
-            .coverage
-            .as_ref()
-            .expect("coverage values were uploaded");
         self.bind_group = create_bind_group(
             device,
             &pipelines.layouts.uniform,
             &pipelines.and_uniform_buffer,
-            coverage,
+            self.storage(),
         );
         self.decrement_bind_group = create_bind_group(
             device,
             &pipelines.layouts.uniform,
             &pipelines.decrementing_uniform_buffer,
-            coverage,
+            self.storage(),
         );
     }
 }

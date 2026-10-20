@@ -3,7 +3,7 @@ use super::effects::{
     apply_effect_passes, EffectExecutionResources, EffectPassRunConfig, EffectRegistry,
 };
 use super::render_pass::RenderPass;
-use super::shapes::coverage::CoverageBuffers;
+use super::shapes::coverage::{CoverageBuffers, CoverageUpload};
 use super::shapes::ShapeExecutionResources;
 use super::textures::{
     CachedShapeMask, IntermediateTexture, IntermediateTextureResources, ShapeMaskCacheKey,
@@ -116,13 +116,31 @@ impl ShapeMaskEffectExecutionResources<'_> {
                         -uniform.local_origin[1] * scale_y,
                     );
                     let builder = &mut self.effects.coverage_builder;
-                    builder.build(&path.tessellation, Some(transform), 1.0, (width, height));
+                    let geometry = &mut self.effects.coverage_geometry;
+                    geometry.clear();
+                    let coverage_draw = builder.build(
+                        &path.tessellation,
+                        Some(transform),
+                        1.0,
+                        (width, height),
+                        geometry,
+                    );
                     uniform.logical_size = [width as f32, height as f32];
                     let buffers = self.effects.mask_coverage_buffers.acquire(|| None);
-                    let mesh = (&*builder).into();
+                    let mesh = CoverageUpload {
+                        geometry,
+                        solid_tile_count: coverage_draw.range.solid_tile_count,
+                    };
+                    let index_storage = &mut self.effects.coverage_indices;
                     let buffers = match buffers {
                         Some(buffers) => {
-                            buffers.update(self.device, self.queue, mesh, self.shape_pipelines);
+                            buffers.update(
+                                self.device,
+                                self.queue,
+                                mesh,
+                                self.shape_pipelines,
+                                index_storage,
+                            );
                             buffers
                         }
                         None => buffers.insert(CoverageBuffers::new(
@@ -130,6 +148,7 @@ impl ShapeMaskEffectExecutionResources<'_> {
                             self.queue,
                             mesh,
                             self.shape_pipelines,
+                            index_storage,
                         )),
                     };
                     Some(&*buffers)

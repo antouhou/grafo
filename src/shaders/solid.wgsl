@@ -10,10 +10,7 @@ struct SolidVertexInput {
 };
 
 struct SolidCoverageVertexInput {
-    @location(0) position: vec2<f32>,
     @location(1) color: vec4<f32>,
-    @location(8) coverage_start: u32,
-    @location(12) tile_origin: vec2<u32>,
     @location(13) coverage_translation: vec2<f32>,
 };
 
@@ -38,13 +35,14 @@ fn vs_solid(input: SolidVertexInput) -> SolidVertexOutput {
 }
 
 @vertex
-fn vs_coverage_solid(input: SolidCoverageVertexInput) -> SolidVertexOutput {
+fn vs_coverage_solid(input: SolidCoverageVertexInput, @builtin(vertex_index) vertex_index: u32) -> SolidVertexOutput {
     var output: SolidVertexOutput;
-    output.position = coverage_clip_position(input.position + input.coverage_translation);
+    let vertex = coverage_geometry_vertex(vertex_index);
+    output.position = coverage_clip_position(vertex.position + input.coverage_translation);
     output.color = input.color;
     output.coverage = 1.0;
-    output.coverage_start = input.coverage_start;
-    output.coverage_origin = input.coverage_translation + vec2<f32>(input.tile_origin);
+    output.coverage_start = vertex.coverage_start;
+    output.coverage_origin = input.coverage_translation + vec2<f32>(vertex.tile_origin);
     return output;
 }
 

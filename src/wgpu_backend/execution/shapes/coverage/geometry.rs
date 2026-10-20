@@ -1,24 +1,14 @@
 use super::projection::Projection;
 use super::scanline::{RowEdge, Scanline};
+use super::tiles::{CoverageDrawMetadata, CoverageDrawRange, CoverageGeometry, CoverageTile};
 use crate::core::cache::CachedTessellation;
 use crate::core::shape::boundary::{PathBoundaryBuilder, PathBoundaryEdge};
 use crate::core::vertex::InstanceTransform;
 use crate::core::UnsignedPhysicalRect;
-use bytemuck::{Pod, Zeroable};
 use std::ops::Range;
 
 pub(super) const TILE_SIZE: u32 = 8;
 pub(super) const SOLID_COVERAGE: u32 = u32::MAX;
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-pub(crate) struct CoverageVertex {
-    pub position: [f32; 2],
-    pub texture_position: [f32; 3],
-    pub model_position: [f32; 3],
-    pub coverage_start: u32,
-    pub tile_origin: [u32; 2],
-}
 
 enum TileCoverage {
     Empty,
@@ -28,12 +18,7 @@ enum TileCoverage {
 
 #[derive(Default)]
 pub(crate) struct CoverageBuilder {
-    pub vertices: Vec<CoverageVertex>,
-    pub bounds: UnsignedPhysicalRect,
-    pub indices: Vec<u32>,
-    pub solid_index_count: u32,
-    boundary_indices: Vec<u32>,
-    pub(super) coverage: Vec<f32>,
+    boundary_tiles: Vec<CoverageTile>,
     boundary_edges: Vec<PathBoundaryEdge>,
     boundary_builder: PathBoundaryBuilder,
     tile_intervals: Vec<Range<u32>>,
@@ -134,38 +119,24 @@ impl CoverageBuilder {
         (bounds[0] < bounds[2] && bounds[1] < bounds[3]).then_some(bounds)
     }
 
-    fn append_quad(
+    fn append_tile(
         &mut self,
+        geometry: &mut CoverageGeometry,
         bounds: [u32; 4],
         coverage_start: u32,
-        projection: &Projection,
-        local_bounds: [(f32, f32); 2],
     ) {
         let [left, top, right, bottom] = bounds;
-        let vertex_start = self.vertices.len() as u32;
-        let width = (local_bounds[1].0 - local_bounds[0].0).max(1e-6);
-        let height = (local_bounds[1].1 - local_bounds[0].1).max(1e-6);
-        for position in [[left, top], [right, top], [right, bottom], [left, bottom]] {
-            let position = position.map(|value| value as f32);
-            let model_position = projection.unproject(position);
-            self.vertices.push(CoverageVertex {
-                position,
-                model_position,
-                texture_position: [
-                    (model_position[0] - local_bounds[0].0 * model_position[2]) / width,
-                    (model_position[1] - local_bounds[0].1 * model_position[2]) / height,
-                    model_position[2],
-                ],
-                coverage_start,
-                tile_origin: [left, top],
-            });
-        }
-        let indices = if coverage_start == SOLID_COVERAGE {
-            &mut self.indices
-        } else {
-            &mut self.boundary_indices
+        let tile = CoverageTile {
+            min: [left, top],
+            max: [right, bottom],
+            coverage_start,
+            projection_index: geometry.projections.len() as u32 - 1,
         };
-        indices.extend([0, 1, 2, 0, 2, 3].map(|index| index + vertex_start));
+        if coverage_start == SOLID_COVERAGE {
+            geometry.tiles.push(tile);
+        } else {
+            self.boundary_tiles.push(tile);
+        }
     }
 
     fn collect_tile_intervals(&mut self, bounds: [u32; 4]) {
@@ -249,19 +220,13 @@ impl CoverageBuilder {
         &mut self,
         bounds: [u32; 4],
         coverage: TileCoverage,
-        projection: &Projection,
-        local_bounds: [(f32, f32); 2],
+        geometry: &mut CoverageGeometry,
         solid_start: &mut Option<u32>,
     ) {
         let [left, top, _, bottom] = bounds;
         if !matches!(coverage, TileCoverage::Solid) {
             if let Some(start) = solid_start.take() {
-                self.append_quad(
-                    [start, top, left, bottom],
-                    SOLID_COVERAGE,
-                    projection,
-                    local_bounds,
-                );
+                self.append_tile(geometry, [start, top, left, bottom], SOLID_COVERAGE);
             }
         }
         match coverage {
@@ -270,11 +235,11 @@ impl CoverageBuilder {
             }
             TileCoverage::Empty => {}
             TileCoverage::Partial => {
-                let coverage_start = self.coverage.len() as u32;
+                let coverage_start = geometry.coverage.len() as u32;
                 for values in &self.tile_values[..(bottom - top) as usize] {
-                    self.coverage.extend_from_slice(values);
+                    geometry.coverage.extend_from_slice(values);
                 }
-                self.append_quad(bounds, coverage_start, projection, local_bounds);
+                self.append_tile(geometry, bounds, coverage_start);
             }
         }
     }
@@ -283,21 +248,20 @@ impl CoverageBuilder {
         &mut self,
         bounds: [u32; 4],
         has_edges: bool,
-        projection: &Projection,
-        local_bounds: [(f32, f32); 2],
+        geometry: &mut CoverageGeometry,
         solid_start: &mut Option<u32>,
     ) {
         let [left, top, right, bottom] = bounds;
         if !has_edges {
             if let Some(coverage) = self.classify_constant_rows((bottom - top) as usize) {
-                self.append_span(bounds, coverage, projection, local_bounds, solid_start);
+                self.append_span(bounds, coverage, geometry, solid_start);
                 return;
             }
         }
         for left in (left..right).step_by(TILE_SIZE as usize) {
             let bounds = [left, top, (left + TILE_SIZE).min(right), bottom];
             let coverage = self.tile_coverage(bounds, has_edges);
-            self.append_span(bounds, coverage, projection, local_bounds, solid_start);
+            self.append_span(bounds, coverage, geometry, solid_start);
         }
     }
 
@@ -307,22 +271,29 @@ impl CoverageBuilder {
         transform: Option<InstanceTransform>,
         scale: f64,
         size: (u32, u32),
-    ) {
+        geometry: &mut CoverageGeometry,
+    ) -> CoverageDrawMetadata {
+        let mut coverage_draw = CoverageDrawMetadata {
+            range: CoverageDrawRange {
+                tile_start: geometry.tiles.len() as u32,
+                ..Default::default()
+            },
+            bounds: UnsignedPhysicalRect::zero(),
+        };
         let local_bounds = tessellation.local_bounds;
-        self.vertices.clear();
-        self.indices.clear();
-        self.boundary_indices.clear();
-        self.solid_index_count = 0;
-        self.bounds = UnsignedPhysicalRect::zero();
-        self.coverage.clear();
+        self.boundary_tiles.clear();
         let Some(projection) = Projection::new(transform, scale, local_bounds) else {
-            return;
+            return coverage_draw;
         };
         self.collect_boundary(tessellation, &projection);
         let Some([left, top, right, bottom]) = self.collect_rows(size) else {
-            return;
+            return coverage_draw;
         };
-        self.bounds = UnsignedPhysicalRect::new((left, top).into(), (right, bottom).into());
+        coverage_draw.bounds =
+            UnsignedPhysicalRect::new((left, top).into(), (right, bottom).into());
+        geometry
+            .projections
+            .push(projection.mapping([left, top], local_bounds));
         for top in (top..bottom).step_by(TILE_SIZE as usize) {
             let bottom = (top + TILE_SIZE).min(bottom);
             self.collect_tile_intervals([left, top, right, bottom]);
@@ -346,16 +317,14 @@ impl CoverageBuilder {
                     self.append_strip(
                         [cursor, top, interval.start, bottom],
                         false,
-                        &projection,
-                        local_bounds,
+                        geometry,
                         &mut solid_start,
                     );
                 }
                 self.append_strip(
                     [interval.start, top, interval.end, bottom],
                     true,
-                    &projection,
-                    local_bounds,
+                    geometry,
                     &mut solid_start,
                 );
                 cursor = interval.end;
@@ -364,21 +333,19 @@ impl CoverageBuilder {
                 self.append_strip(
                     [cursor, top, right, bottom],
                     false,
-                    &projection,
-                    local_bounds,
+                    geometry,
                     &mut solid_start,
                 );
             }
             if let Some(start) = solid_start {
-                self.append_quad(
-                    [start, top, right, bottom],
-                    SOLID_COVERAGE,
-                    &projection,
-                    local_bounds,
-                );
+                self.append_tile(geometry, [start, top, right, bottom], SOLID_COVERAGE);
             }
         }
-        self.solid_index_count = self.indices.len() as u32;
-        self.indices.extend_from_slice(&self.boundary_indices);
+        coverage_draw.range.solid_tile_count =
+            geometry.tiles.len() as u32 - coverage_draw.range.tile_start;
+        geometry.tiles.extend_from_slice(&self.boundary_tiles);
+        coverage_draw.range.tile_count =
+            geometry.tiles.len() as u32 - coverage_draw.range.tile_start;
+        coverage_draw
     }
 }

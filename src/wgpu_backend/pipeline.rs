@@ -12,6 +12,8 @@ use wgpu::{
 pub(crate) const SHAPE_SHADER: &str = concat!(
     include_str!("../shaders/path_coverage.wgsl"),
     "\n",
+    include_str!("../shaders/path_coverage_tiles.wgsl"),
+    "\n",
     include_str!("../shaders/shader.wgsl"),
     "\n",
     include_str!("../shaders/path_coverage_vertex.wgsl"),
@@ -74,10 +76,10 @@ fn create_equal_decrement_stencil_state() -> wgpu::StencilState {
     }
 }
 
-fn storage_binding(binding: u32) -> BindGroupLayoutEntry {
+fn storage_binding(binding: u32, visibility: ShaderStages) -> BindGroupLayoutEntry {
     BindGroupLayoutEntry {
         binding,
-        visibility: ShaderStages::FRAGMENT,
+        visibility,
         ty: BindingType::Buffer {
             ty: BufferBindingType::Storage { read_only: true },
             has_dynamic_offset: false,
@@ -102,7 +104,9 @@ pub fn create_uniform_bind_group_layout(device: &Device) -> BindGroupLayout {
                 },
                 count: None,
             },
-            storage_binding(1),
+            storage_binding(1, ShaderStages::FRAGMENT),
+            storage_binding(2, ShaderStages::VERTEX),
+            storage_binding(3, ShaderStages::VERTEX),
         ],
     })
 }

@@ -1,5 +1,4 @@
 use crate::core::vertex::CustomVertex;
-use crate::wgpu_backend::execution::shapes::coverage::CoverageVertex;
 use crate::wgpu_backend::pipeline;
 use wgpu::{
     BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType,
@@ -37,8 +36,9 @@ fn create_mask_pipeline(
         label: Some("shape_mask_shader"),
         source: ShaderSource::Wgsl(
             format!(
-                "{}\n{}",
+                "{}\n{}\n{}",
                 include_str!("../../../shaders/path_coverage.wgsl"),
+                include_str!("../../../shaders/path_coverage_tiles.wgsl"),
                 SHAPE_MASK_SHADER
             )
             .into(),
@@ -50,6 +50,7 @@ fn create_mask_pipeline(
         push_constant_ranges: &[],
     });
 
+    let vertex_buffers = [CustomVertex::desc()];
     device.create_render_pipeline(&RenderPipelineDescriptor {
         label: Some("shape_mask_pipeline"),
         layout: Some(&pipeline_layout),
@@ -61,11 +62,7 @@ fn create_mask_pipeline(
                 "mask_vertex"
             }),
             compilation_options: Default::default(),
-            buffers: &[if uses_coverage {
-                CoverageVertex::desc()
-            } else {
-                CustomVertex::desc()
-            }],
+            buffers: if uses_coverage { &[] } else { &vertex_buffers },
         },
         fragment: Some(FragmentState {
             module: &shader,

@@ -99,20 +99,20 @@ impl ShapePipelines {
         let decrementing_uniform_buffer = create_uniform_buffer(&decrementing_uniforms);
         let empty_coverage = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("empty_coverage"),
-            contents: &[0; 16],
+            contents: &[0; 64],
             usage: BufferUsages::STORAGE,
         });
         let and_bind_group = coverage::create_bind_group(
             device,
             &layouts.uniform,
             &and_uniform_buffer,
-            &empty_coverage,
+            [&empty_coverage; 3],
         );
         let decrementing_bind_group = coverage::create_bind_group(
             device,
             &layouts.uniform,
             &decrementing_uniform_buffer,
-            &empty_coverage,
+            [&empty_coverage; 3],
         );
         let linear_clamp_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("linear_clamp_sampler"),
