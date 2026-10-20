@@ -114,6 +114,7 @@ fn cache_returns_shared_arc_without_cloning_vertex_buffers() {
         7,
         Arc::new(CachedTessellation {
             boundary_edges: Vec::new(),
+            rounded_rect_boundary: None,
             vertex_buffers: shared_vertex_buffers.clone(),
             local_bounds: [(0.0, 0.0), (1.0, 1.0)],
             texture_mapping_size: [1.0, 1.0],
@@ -135,6 +136,7 @@ fn cache_promotes_previous_frame_hits_into_current_frame() {
         7,
         Arc::new(CachedTessellation {
             boundary_edges: Vec::new(),
+            rounded_rect_boundary: None,
             vertex_buffers: Arc::clone(&shared_vertex_buffers),
             local_bounds: [(0.0, 0.0), (1.0, 1.0)],
             texture_mapping_size: [1.0, 1.0],
@@ -166,6 +168,7 @@ fn cache_drops_entries_not_used_for_a_frame() {
         7,
         Arc::new(CachedTessellation {
             boundary_edges: Vec::new(),
+            rounded_rect_boundary: None,
             vertex_buffers: shared_vertex_buffers,
             local_bounds: [(0.0, 0.0), (1.0, 1.0)],
             texture_mapping_size: [1.0, 1.0],
@@ -187,6 +190,7 @@ fn cache_refresh_keeps_rendered_geometry_available_next_frame() {
         7,
         &Arc::new(CachedTessellation {
             boundary_edges: Vec::new(),
+            rounded_rect_boundary: None,
             vertex_buffers: shared_vertex_buffers.clone(),
             local_bounds: [(0.0, 0.0), (1.0, 1.0)],
             texture_mapping_size: [1.0, 1.0],

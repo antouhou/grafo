@@ -1,4 +1,5 @@
 use super::projection::Projection;
+use super::rounded_rect::RoundedRectSweep;
 use super::scanline::{RowEdge, Scanline};
 use super::tiles::{CoverageDrawMetadata, CoverageDrawRange, CoverageGeometry, CoverageTile};
 use crate::core::cache::CachedTessellation;
@@ -26,6 +27,8 @@ pub(crate) struct CoverageBuilder {
     scanlines: [Scanline; TILE_SIZE as usize],
     tile_values: [[f32; TILE_SIZE as usize]; TILE_SIZE as usize],
     populated_rows: Range<usize>,
+    rounded_rect: RoundedRectSweep,
+    has_identical_rows: bool,
 }
 
 impl CoverageBuilder {
@@ -173,6 +176,7 @@ impl CoverageBuilder {
     }
 
     fn classify_constant_rows(&self, height: usize) -> Option<TileCoverage> {
+        let height = if self.has_identical_rows { 1 } else { height };
         if self.scanlines[..height]
             .iter()
             .all(|row| row.coverage() == 1.0)
@@ -193,16 +197,18 @@ impl CoverageBuilder {
         self.tile_values.fill([0.0; TILE_SIZE as usize]);
         let width = (right - left) as usize;
         let height = (bottom - top) as usize;
-        for (row_index, row) in self.scanlines[..(bottom - top) as usize]
-            .iter_mut()
-            .enumerate()
-        {
+        let row_count = if self.has_identical_rows { 1 } else { height };
+        for (row_index, row) in self.scanlines[..row_count].iter_mut().enumerate() {
             let values = &mut self.tile_values[row_index][..width];
             if has_edges {
                 row.fill_coverage(left, values);
             } else {
                 values.fill(row.coverage());
             }
+        }
+        if self.has_identical_rows {
+            let row = self.tile_values[0];
+            self.tile_values[1..height].fill(row);
         }
         let values = self.tile_values[..height]
             .iter()
@@ -285,10 +291,17 @@ impl CoverageBuilder {
         let Some(projection) = Projection::new(transform, scale, local_bounds) else {
             return coverage_draw;
         };
-        self.collect_boundary(tessellation, &projection);
-        let Some([left, top, right, bottom]) = self.collect_rows(size) else {
+        let rounded_bounds = self.rounded_rect.prepare(tessellation, &projection, size);
+        let bounds = rounded_bounds.or_else(|| {
+            self.collect_boundary(tessellation, &projection);
+            self.collect_rows(size)
+        });
+        let Some([left, top, right, bottom]) = bounds else {
             return coverage_draw;
         };
+        if left >= right || top >= bottom {
+            return coverage_draw;
+        }
         coverage_draw.bounds =
             UnsignedPhysicalRect::new((left, top).into(), (right, bottom).into());
         geometry
@@ -296,17 +309,26 @@ impl CoverageBuilder {
             .push(projection.mapping([left, top], local_bounds));
         for top in (top..bottom).step_by(TILE_SIZE as usize) {
             let bottom = (top + TILE_SIZE).min(bottom);
-            self.collect_tile_intervals([left, top, right, bottom]);
-            for (index, row) in self.scanlines[..(bottom - top) as usize]
-                .iter_mut()
-                .enumerate()
-            {
-                row.prepare(
-                    &self.row_edges[top as usize + index],
-                    left,
-                    right,
-                    &self.tile_intervals,
+            self.has_identical_rows = false;
+            if rounded_bounds.is_some() {
+                self.has_identical_rows = self.rounded_rect.prepare_band(
+                    [left, top, right, bottom],
+                    &mut self.tile_intervals,
+                    &mut self.scanlines[..(bottom - top) as usize],
                 );
+            } else {
+                self.collect_tile_intervals([left, top, right, bottom]);
+                for (index, row) in self.scanlines[..(bottom - top) as usize]
+                    .iter_mut()
+                    .enumerate()
+                {
+                    row.prepare(
+                        self.row_edges[top as usize + index].iter().copied(),
+                        left,
+                        right,
+                        &self.tile_intervals,
+                    );
+                }
             }
             let mut solid_start = None;
             let mut cursor = left;

@@ -10,6 +10,15 @@ pub(super) struct Projection {
 }
 
 impl Projection {
+    pub(super) fn preserves_axis_alignment(&self) -> bool {
+        self.boundary_orientation.is_some()
+            && self.matrix[0][1] == 0.0
+            && self.matrix[1][0] == 0.0
+            && self.matrix[2][0] == 0.0
+            && self.matrix[2][1] == 0.0
+            && self.scale > 0.0
+    }
+
     pub(super) fn new(
         transform: Option<InstanceTransform>,
         scale: f64,

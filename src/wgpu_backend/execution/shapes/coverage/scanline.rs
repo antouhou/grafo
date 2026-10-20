@@ -39,7 +39,7 @@ pub(super) struct Scanline {
 impl Scanline {
     pub(super) fn prepare(
         &mut self,
-        edges: &[RowEdge],
+        edges: impl IntoIterator<Item = RowEdge>,
         left: u32,
         right: u32,
         intervals: &[Range<u32>],

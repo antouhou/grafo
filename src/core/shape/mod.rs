@@ -4,6 +4,7 @@
 
 use crate::core::cache::CachedTessellation;
 use crate::core::gradient::types::Fill;
+use crate::core::shape::boundary::RoundedRectBoundary;
 use crate::core::util::ShapeResources;
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
 use crate::core::Color;
@@ -183,7 +184,8 @@ impl Shape {
         path_builder.add_rounded_rectangle(&box2d, &border_radii.into(), Winding::Positive);
         let path = path_builder.build();
 
-        let path_shape = PathShape::new(path);
+        let mut path_shape = PathShape::new(path);
+        path_shape.is_rounded_rect = true;
         Shape::Path(path_shape)
     }
 
@@ -259,6 +261,7 @@ impl Shape {
 
                 let tessellation = Arc::new(CachedTessellation {
                     boundary_edges: Vec::new(),
+                    rounded_rect_boundary: None,
                     vertex_buffers: Arc::new(vertex_buffers),
                     local_bounds,
                     texture_mapping_size: rect_size(local_bounds),
@@ -317,6 +320,7 @@ impl RectShape {
 pub struct PathShape {
     pub(crate) path: Path,
     fill_rule: FillRule,
+    is_rounded_rect: bool,
 }
 
 struct VertexConverter;
@@ -771,6 +775,7 @@ impl PathShape {
         Self {
             path,
             fill_rule: FillRule::NonZero,
+            is_rounded_rect: false,
         }
     }
 
@@ -806,11 +811,17 @@ impl PathShape {
             buffers.indices.push(0);
         }
 
+        let mut boundary_edges: Vec<_> = shape_resources
+            .path_boundary_builder
+            .build(&buffers.vertices, &buffers.indices, |position| position)
+            .collect();
+        let rounded_rect_boundary = self
+            .is_rounded_rect
+            .then(|| RoundedRectBoundary::new(&mut boundary_edges))
+            .flatten();
         let tessellation = Arc::new(CachedTessellation {
-            boundary_edges: shape_resources
-                .path_boundary_builder
-                .build(&buffers.vertices, &buffers.indices, |position| position)
-                .collect(),
+            boundary_edges,
+            rounded_rect_boundary,
             vertex_buffers: Arc::new(buffers),
             local_bounds,
             texture_mapping_size: rect_size(local_bounds),
@@ -1131,6 +1142,7 @@ impl ShapeBuilder {
         Shape::Path(PathShape {
             path,
             fill_rule: self.fill_rule,
+            is_rounded_rect: false,
         })
     }
 }
