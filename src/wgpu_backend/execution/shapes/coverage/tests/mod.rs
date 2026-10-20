@@ -10,6 +10,7 @@ use crate::scene::{Scene, SceneContext};
 use std::ops::Deref;
 use std::sync::Arc;
 
+mod rounded_rect;
 mod sparse;
 
 #[derive(Default)]

@@ -142,15 +142,33 @@ fn benchmark_paths(criterion: &mut Criterion) {
                 });
             },
         );
-        for should_move in [false, true] {
+        for mode in ["rebuilt", "moving", "resizing"] {
             let mut translation_x = 0.0;
-            let mode = if should_move { "moving" } else { "rebuilt" };
             group.bench_function(BenchmarkId::new(workload.name, mode), |bencher| {
                 bencher.iter(|| {
-                    if should_move {
+                    if mode != "rebuilt" {
                         translation_x = (translation_x + 0.03125) % 1.0;
                     }
                     renderer.clear_draw_queue();
+                    if mode == "resizing" {
+                        for index in 0..geometry_count {
+                            renderer.load_shape(
+                                Shape::rounded_rect(
+                                    [
+                                        (0.375, 0.625),
+                                        (workload.side + translation_x, workload.side),
+                                    ],
+                                    BorderRadii::new(
+                                        workload.radius
+                                            + index as f32 * 0.05
+                                            + translation_x * 0.25,
+                                    ),
+                                ),
+                                index as u64 + 1,
+                                None,
+                            );
+                        }
+                    }
                     populate(
                         &mut renderer,
                         workload.count,
