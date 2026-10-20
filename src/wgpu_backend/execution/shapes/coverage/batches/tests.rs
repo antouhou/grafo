@@ -34,7 +34,7 @@ fn distinct_paths_use_conservative_bounds_and_preserve_instance_locations() {
     let second = allocation(&buffers, 7);
     let mut pending = batch(&first, 4, 4, 2);
     assert!(pending.try_append(&batch(&second, 24, 4, 8)));
-    assert!(!pending.can_draw_instanced());
+    assert!(!pending.uses_contiguous_shape_instances());
     assert!(pending.try_append(&batch(&first, 4, 24, 3)));
 
     // This shape misses all three shapes, but intersects their accumulated rectangle.
@@ -62,7 +62,7 @@ fn repeated_outline_keeps_instancing_without_building_a_draw_list() {
     let mut pending = batch(&first, 4, 4, 2);
     assert!(pending.try_append(&batch(&first, 24, 4, 3)));
     assert!(pending.try_append(&batch(&first, 44, 4, 4)));
-    assert!(pending.can_draw_instanced());
+    assert!(pending.uses_contiguous_shape_instances());
     assert_eq!(pending.instance_count, 3);
     assert!(pending.draws.is_empty());
 

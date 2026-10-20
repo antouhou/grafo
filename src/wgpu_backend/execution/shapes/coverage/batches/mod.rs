@@ -36,7 +36,7 @@ impl CoverageBatch {
         }
     }
 
-    pub(in crate::wgpu_backend) fn can_draw_instanced(&self) -> bool {
+    pub(in crate::wgpu_backend) fn uses_contiguous_shape_instances(&self) -> bool {
         self.draws.is_empty()
     }
 
@@ -48,11 +48,11 @@ impl CoverageBatch {
         {
             return false;
         }
-        let can_draw_instanced = self.can_draw_instanced()
+        let can_append_contiguous_instance = self.uses_contiguous_shape_instances()
             && Arc::ptr_eq(&self.first_allocation, &next.first_allocation)
             && next.first_instance_index == self.first_instance_index + self.instance_count;
-        if !can_draw_instanced {
-            if self.can_draw_instanced() && self.instance_count > 1 {
+        if !can_append_contiguous_instance {
+            if self.uses_contiguous_shape_instances() && self.instance_count > 1 {
                 return false;
             }
             if self.draws.is_empty() {

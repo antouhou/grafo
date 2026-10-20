@@ -77,7 +77,7 @@ impl DrawPass<'_, '_> {
         if let Some(coverage) = batch
             .coverage
             .as_ref()
-            .filter(|coverage| !coverage.can_draw_instanced())
+            .filter(|coverage| !coverage.uses_contiguous_shape_instances())
         {
             shapes.coverage_batches.draw(
                 self.render_pass,
