@@ -1,6 +1,8 @@
 use super::bindings::{create_backdrop_layer_composite_bind_group, create_params_bind_group};
 use crate::core::slot_pool::SlotPool;
-use crate::wgpu_backend::execution::shapes::coverage::{CoverageBuffers, CoverageBuilder};
+use crate::wgpu_backend::execution::shapes::coverage::{
+    CoverageBuffers, CoverageBuilder, CoverageGeometry,
+};
 use crate::wgpu_backend::execution::uniforms;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, Queue, TextureView};
@@ -170,6 +172,8 @@ impl BackdropCompositePool {
 #[derive(Default)]
 pub(crate) struct EffectExecutionResources {
     pub(crate) coverage_builder: CoverageBuilder,
+    pub(crate) coverage_geometry: CoverageGeometry,
+    pub(crate) coverage_indices: Vec<u32>,
     pub(in crate::wgpu_backend::execution) mask_coverage_buffers: SlotPool<Option<CoverageBuffers>>,
     pub(crate) parameters: EffectParameterPool,
     pub(crate) backdrop_composites: BackdropCompositePool,

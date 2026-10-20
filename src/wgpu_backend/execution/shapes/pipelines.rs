@@ -1,8 +1,8 @@
-use super::coverage::CoverageVertex;
 use crate::core::vertex::{CustomVertex, InstanceTransform};
 use crate::wgpu_backend::pipeline;
 use crate::wgpu_backend::resources::ShapePipelines;
 use crate::wgpu_backend::vertex::{InstanceColor, InstanceMetadata};
+use smallvec::{smallvec, SmallVec};
 use std::sync::{Arc, OnceLock};
 use wgpu::{
     BindGroupLayout, BlendState, ColorTargetState, ColorWrites, Device, FragmentState,
@@ -146,31 +146,30 @@ impl ShapePipelineLayouts {
 fn vertex_buffer_layouts(
     geometry_type: ShapeGeometryType,
     is_solid: bool,
-) -> [VertexBufferLayout<'static>; 4] {
-    let uses_coverage = geometry_type != ShapeGeometryType::Tessellated;
-    if uses_coverage && is_solid {
-        return [
-            CoverageVertex::solid_desc(),
+) -> SmallVec<[VertexBufferLayout<'static>; 4]> {
+    if geometry_type != ShapeGeometryType::Tessellated {
+        return smallvec![
             InstanceColor::desc(),
-            InstanceMetadata::coverage_desc(),
-            InstanceMetadata::desc(),
+            if is_solid {
+                InstanceMetadata::coverage_desc()
+            } else {
+                InstanceMetadata::desc()
+            },
         ];
     }
-    [
-        match (uses_coverage, is_solid) {
-            (false, false) => CustomVertex::desc(),
-            (false, true) => CustomVertex::solid_desc(),
-            (true, false) => CoverageVertex::desc(),
-            (true, true) => CoverageVertex::solid_desc(),
+    let mut layouts = smallvec![
+        if is_solid {
+            CustomVertex::solid_desc()
+        } else {
+            CustomVertex::desc()
         },
         InstanceTransform::desc(),
         InstanceColor::desc(),
-        if is_solid {
-            InstanceMetadata::coverage_desc()
-        } else {
-            InstanceMetadata::desc()
-        },
-    ]
+    ];
+    if !is_solid {
+        layouts.push(InstanceMetadata::desc());
+    }
+    layouts
 }
 
 struct ShapePipelineCompiler {
@@ -201,7 +200,7 @@ impl ShapePipelineCompiler {
                     module: &self.shader,
                     entry_point: Some(vertex_entry_point),
                     compilation_options: Default::default(),
-                    buffers: &vertex_buffer_layouts[..if is_solid { 3 } else { 4 }],
+                    buffers: &vertex_buffer_layouts,
                 },
                 fragment: Some(FragmentState {
                     module: &self.shader,

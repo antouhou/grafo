@@ -1,3 +1,4 @@
+use super::tiles::CoverageProjection;
 use crate::core::vertex::InstanceTransform;
 
 pub(super) struct Projection {
@@ -95,13 +96,34 @@ impl Projection {
         ]
     }
 
-    pub(super) fn unproject(&self, position: [f32; 2]) -> [f32; 3] {
+    pub(super) fn mapping(
+        &self,
+        origin: [u32; 2],
+        local_bounds: [(f32, f32); 2],
+    ) -> CoverageProjection {
         let point = [
-            position[0] as f64 / self.scale * self.homogeneous_w_sign,
-            position[1] as f64 / self.scale * self.homogeneous_w_sign,
+            origin[0] as f64 / self.scale * self.homogeneous_w_sign,
+            origin[1] as f64 / self.scale * self.homogeneous_w_sign,
             1.0,
         ];
-        self.inverse
-            .map(|row| row.into_iter().zip(point).map(|(a, b)| a * b).sum::<f64>() as f32)
+        let model_origin = self
+            .inverse
+            .map(|row| row.into_iter().zip(point).map(|(a, b)| a * b).sum::<f64>() as f32);
+        let factor = self.homogeneous_w_sign / self.scale;
+        let dx = self.inverse.map(|row| (row[0] * factor) as f32);
+        let dy = self.inverse.map(|row| (row[1] * factor) as f32);
+        CoverageProjection {
+            model_origin,
+            screen_origin_x: origin[0] as f32,
+            model_dx: dx,
+            screen_origin_y: origin[1] as f32,
+            model_dy: dy,
+            padding: 0.0,
+            local_origin: [local_bounds[0].0, local_bounds[0].1],
+            local_size: [
+                (local_bounds[1].0 - local_bounds[0].0).max(1e-6),
+                (local_bounds[1].1 - local_bounds[0].1).max(1e-6),
+            ],
+        }
     }
 }

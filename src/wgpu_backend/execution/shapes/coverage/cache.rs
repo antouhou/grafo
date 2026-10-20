@@ -78,13 +78,12 @@ impl CoverageCache {
         let placement = CoveragePlacement::new(transform, tessellation.local_bounds, viewport);
         let key = CoverageKey::new(tessellation, placement.transform);
         let (allocation, _) = self.entries.get_or_insert_with(key.clone(), || {
-            self.builder.build(
+            self.uploads.prepare(
+                &mut self.builder,
                 tessellation,
                 placement.transform,
-                viewport.scale_factor,
-                viewport.physical_size,
-            );
-            self.uploads.append(&self.builder)
+                viewport,
+            )
         });
         PathCoverage {
             key,

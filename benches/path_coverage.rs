@@ -11,13 +11,19 @@ struct Workload {
     count: usize,
     side: f32,
     radius: f32,
+    should_use_distinct_geometry: bool,
 }
 
 fn background(size: (u32, u32)) -> Shape {
     Shape::rect([(0.0, 0.0), (size.0 as f32, size.1 as f32)])
 }
 
-fn populate(renderer: &mut Renderer, count: usize, translation_x: f32) -> usize {
+fn populate(
+    renderer: &mut Renderer,
+    count: usize,
+    translation_x: f32,
+    should_use_distinct_geometry: bool,
+) -> usize {
     let root = renderer
         .add_shape(
             background(renderer.size()),
@@ -39,7 +45,11 @@ fn populate(renderer: &mut Renderer, count: usize, translation_x: f32) -> usize 
         };
         renderer
             .add_cached_shape(
-                1,
+                if should_use_distinct_geometry {
+                    index as u64 + 1
+                } else {
+                    1
+                },
                 None,
                 ShapeDrawCommandOptions::new()
                     .color(Color::rgb(210, 160, 80))
@@ -58,6 +68,7 @@ fn benchmark_paths(criterion: &mut Criterion) {
             count: 1,
             side: 510.0,
             radius: 255.0,
+            should_use_distinct_geometry: false,
         },
         Workload {
             name: "circle1080",
@@ -65,6 +76,7 @@ fn benchmark_paths(criterion: &mut Criterion) {
             count: 1,
             side: 1078.0,
             radius: 539.0,
+            should_use_distinct_geometry: false,
         },
         Workload {
             name: "rounded240",
@@ -72,6 +84,15 @@ fn benchmark_paths(criterion: &mut Criterion) {
             count: 240,
             side: 80.0,
             radius: 12.0,
+            should_use_distinct_geometry: false,
+        },
+        Workload {
+            name: "rounded240_distinct",
+            size: (1920, 1080),
+            count: 240,
+            side: 80.0,
+            radius: 5.0,
+            should_use_distinct_geometry: true,
         },
     ];
     let mut group = criterion.benchmark_group("path_coverage_with_readback");
@@ -79,16 +100,29 @@ fn benchmark_paths(criterion: &mut Criterion) {
     for workload in workloads {
         let mut renderer = block_on(Renderer::try_new(workload.size, 1.0, 1))
             .expect("path benchmark requires a GPU adapter");
-        renderer.load_shape(
-            Shape::rounded_rect(
-                [(0.375, 0.625), (workload.side, workload.side)],
-                BorderRadii::new(workload.radius),
-            ),
-            1,
-            Some(1),
-        );
+        let geometry_count = if workload.should_use_distinct_geometry {
+            workload.count
+        } else {
+            1
+        };
+        for index in 0..geometry_count {
+            let key = index as u64 + 1;
+            renderer.load_shape(
+                Shape::rounded_rect(
+                    [(0.375, 0.625), (workload.side, workload.side)],
+                    BorderRadii::new(workload.radius + index as f32 * 0.05),
+                ),
+                key,
+                Some(key),
+            );
+        }
         let mut pixels = Pixmap::new(workload.size, PixelFormat::Bgra8).expect("valid size");
-        let root = populate(&mut renderer, workload.count, 0.0);
+        let root = populate(
+            &mut renderer,
+            workload.count,
+            0.0,
+            workload.should_use_distinct_geometry,
+        );
         renderer.render(&mut pixels).expect("initial render");
         group.bench_function(
             BenchmarkId::new(workload.name, "retained_redraw"),
@@ -117,7 +151,12 @@ fn benchmark_paths(criterion: &mut Criterion) {
                         translation_x = (translation_x + 0.03125) % 1.0;
                     }
                     renderer.clear_draw_queue();
-                    populate(&mut renderer, workload.count, translation_x);
+                    populate(
+                        &mut renderer,
+                        workload.count,
+                        translation_x,
+                        workload.should_use_distinct_geometry,
+                    );
                     renderer.render(&mut pixels).expect("rebuilt scene");
                 });
             });

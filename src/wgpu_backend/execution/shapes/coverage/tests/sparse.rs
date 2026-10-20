@@ -1,7 +1,6 @@
-use super::{coverage_at, triangle_pixel_area};
+use super::{coverage_at, triangle_pixel_area, CoverageTestMesh};
 use crate::core::{BorderRadii, Shape, Viewport};
 use crate::scene::{Scene, SceneContext};
-use crate::wgpu_backend::execution::shapes::coverage::CoverageBuilder;
 
 #[test]
 fn finished_coverage_combines_many_edges_inside_a_single_pixel() {
@@ -13,7 +12,7 @@ fn finished_coverage_combines_many_edges_inside_a_single_pixel() {
         },
         0.75,
     );
-    let mut mesh = CoverageBuilder::default();
+    let mut mesh = CoverageTestMesh::default();
     for is_horizontal in [false, true] {
         let mut builder = Shape::builder();
         for stripe in 0..32 {
@@ -66,7 +65,7 @@ fn sparse_sweeps_preserve_empty_regions_and_reused_storage() {
         },
         0.75,
     );
-    let mut mesh = CoverageBuilder::default();
+    let mut mesh = CoverageTestMesh::default();
     for size in [(128, 128), (19, 35), (96, 81), (128, 128)] {
         for shape in [
             Shape::rounded_rect([(3.1, 5.7), (120.8, 115.3)], BorderRadii::new(46.25)),

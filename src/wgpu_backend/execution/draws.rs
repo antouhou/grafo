@@ -15,7 +15,7 @@ fn bind_instance_buffers(
     uses_coverage: bool,
     uses_texture_bindings: bool,
 ) {
-    if !uses_coverage || uses_texture_bindings {
+    if !uses_coverage {
         let transform_offset = instance_index as u64 * InstanceTransform::STRIDE;
         render_pass.set_vertex_buffer(
             1,
@@ -24,8 +24,7 @@ fn bind_instance_buffers(
                 .slice(transform_offset..transform_offset + InstanceTransform::STRIDE),
         );
     }
-    let uses_solid_coverage = uses_coverage && !uses_texture_bindings;
-    let color_buffer_slot = if uses_solid_coverage { 1 } else { 2 };
+    let color_buffer_slot = if uses_coverage { 0 } else { 2 };
     let color_offset = instance_index as u64 * InstanceColor::STRIDE;
     render_pass.set_vertex_buffer(
         color_buffer_slot,
@@ -34,7 +33,7 @@ fn bind_instance_buffers(
             .slice(color_offset..color_offset + InstanceColor::STRIDE),
     );
     if uses_coverage || uses_texture_bindings {
-        let metadata_buffer_slot = if uses_solid_coverage { 2 } else { 3 };
+        let metadata_buffer_slot = if uses_coverage { 1 } else { 3 };
         let metadata_offset = instance_index as u64 * InstanceMetadata::STRIDE;
         render_pass.set_vertex_buffer(
             metadata_buffer_slot,
