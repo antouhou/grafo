@@ -9,20 +9,21 @@ pub(crate) struct PathBoundaryEdge {
     pub winding: i32,
 }
 
-#[derive(Debug)]
-pub(crate) struct RoundedRectBoundary {
-    pub left: Range<usize>,
-    pub right: Range<usize>,
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum BoundaryEdgeKind {
+    LeftChain,
+    RightChain,
+    Horizontal,
 }
 
-fn boundary_side(edge: &PathBoundaryEdge) -> u8 {
+fn classify_boundary_edge(edge: &PathBoundaryEdge) -> BoundaryEdgeKind {
     let direction = (edge.end[1] - edge.start[1]) * edge.winding as f32;
     if direction < 0.0 {
-        0
+        BoundaryEdgeKind::LeftChain
     } else if direction > 0.0 {
-        1
+        BoundaryEdgeKind::RightChain
     } else {
-        2
+        BoundaryEdgeKind::Horizontal
     }
 }
 
@@ -39,6 +40,12 @@ fn chain_limits(edges: &[PathBoundaryEdge]) -> Option<[f32; 2]> {
     Some([top, bottom])
 }
 
+#[derive(Debug)]
+pub(crate) struct RoundedRectBoundary {
+    pub left: Range<usize>,
+    pub right: Range<usize>,
+}
+
 impl RoundedRectBoundary {
     pub(crate) fn new(edges: &mut [PathBoundaryEdge]) -> Option<Self> {
         if !edges
@@ -48,14 +55,18 @@ impl RoundedRectBoundary {
             return None;
         }
         edges.sort_unstable_by(|a, b| {
-            boundary_side(a).cmp(&boundary_side(b)).then_with(|| {
-                a.start[1]
-                    .min(a.end[1])
-                    .total_cmp(&b.start[1].min(b.end[1]))
-            })
+            classify_boundary_edge(a)
+                .cmp(&classify_boundary_edge(b))
+                .then_with(|| {
+                    a.start[1]
+                        .min(a.end[1])
+                        .total_cmp(&b.start[1].min(b.end[1]))
+                })
         });
-        let left_end = edges.partition_point(|edge| boundary_side(edge) == 0);
-        let right_end = edges.partition_point(|edge| boundary_side(edge) < 2);
+        let left_end = edges
+            .partition_point(|edge| classify_boundary_edge(edge) == BoundaryEdgeKind::LeftChain);
+        let right_end = edges
+            .partition_point(|edge| classify_boundary_edge(edge) != BoundaryEdgeKind::Horizontal);
         let left = 0..left_end;
         let right = left_end..right_end;
         if chain_limits(&edges[left.clone()])? != chain_limits(&edges[right.clone()])? {

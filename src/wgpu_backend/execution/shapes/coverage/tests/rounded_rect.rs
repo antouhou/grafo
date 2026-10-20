@@ -2,7 +2,28 @@ use super::{coverage_at, CoverageTestMesh};
 use crate::core::cache::CachedTessellation;
 use crate::core::{BorderRadii, Shape, TransformInstance, Viewport};
 use crate::scene::{Scene, SceneContext};
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
+
+fn assert_matching_coverage(
+    specialized: &CoverageTestMesh,
+    general: &CoverageTestMesh,
+    size: (u32, u32),
+    context: fmt::Arguments<'_>,
+) {
+    for y in 0..size.1 {
+        for x in 0..size.0 {
+            let actual = coverage_at(specialized, x, y);
+            let expected = coverage_at(general, x, y);
+            assert!(
+                (actual - expected).abs() < 0.000001,
+                "pixel {x},{y}: {actual} != {expected}, {context}"
+            );
+            if expected == 0.0 || expected == 1.0 {
+                assert_eq!(actual, expected, "solid or empty pixel {x},{y}, {context}");
+            }
+        }
+    }
+}
 
 #[test]
 fn rounded_rect_sweep_matches_general_coverage() {
@@ -72,20 +93,15 @@ fn rounded_rect_sweep_matches_general_coverage() {
                 for transform in transforms {
                     specialized.build(tessellation, Some(transform), scale, size);
                     general.build(&generic, Some(transform), scale, size);
-                    for y in 0..size.1 {
-                        for x in 0..size.0 {
-                            let actual = coverage_at(&specialized, x, y);
-                            let expected = coverage_at(&general, x, y);
-                            assert!(
-                                (actual - expected).abs() < 0.000001,
-                                "pixel {x},{y}: {actual} != {expected}, bounds {bounds:?}, \
-                                 radii {radii:?}, scale {scale}, transform {transform:?}"
-                            );
-                            if expected == 0.0 || expected == 1.0 {
-                                assert_eq!(actual, expected, "solid or empty pixel {x},{y}");
-                            }
-                        }
-                    }
+                    assert_matching_coverage(
+                        &specialized,
+                        &general,
+                        size,
+                        format_args!(
+                            "bounds {bounds:?}, radii {radii:?}, scale {scale}, \
+                             transform {transform:?}"
+                        ),
+                    );
                     specialized.build(&generic, Some(transform), scale, size);
                 }
             }

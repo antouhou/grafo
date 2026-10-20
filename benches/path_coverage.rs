@@ -5,6 +5,23 @@ use grafo::{
     TransformInstance,
 };
 
+#[derive(Clone, Copy)]
+enum BenchmarkMode {
+    Rebuilt,
+    Moving,
+    Resizing,
+}
+
+impl BenchmarkMode {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Rebuilt => "rebuilt",
+            Self::Moving => "moving",
+            Self::Resizing => "resizing",
+        }
+    }
+}
+
 struct Workload {
     name: &'static str,
     size: (u32, u32),
@@ -142,15 +159,19 @@ fn benchmark_paths(criterion: &mut Criterion) {
                 });
             },
         );
-        for mode in ["rebuilt", "moving", "resizing"] {
+        for mode in [
+            BenchmarkMode::Rebuilt,
+            BenchmarkMode::Moving,
+            BenchmarkMode::Resizing,
+        ] {
             let mut translation_x = 0.0;
-            group.bench_function(BenchmarkId::new(workload.name, mode), |bencher| {
+            group.bench_function(BenchmarkId::new(workload.name, mode.name()), |bencher| {
                 bencher.iter(|| {
-                    if mode != "rebuilt" {
+                    if matches!(mode, BenchmarkMode::Moving | BenchmarkMode::Resizing) {
                         translation_x = (translation_x + 0.03125) % 1.0;
                     }
                     renderer.clear_draw_queue();
-                    if mode == "resizing" {
+                    if matches!(mode, BenchmarkMode::Resizing) {
                         for index in 0..geometry_count {
                             renderer.load_shape(
                                 Shape::rounded_rect(
