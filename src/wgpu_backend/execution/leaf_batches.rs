@@ -90,7 +90,7 @@ impl DrawPass<'_, '_> {
             return;
         }
         if let Some(coverage) = &batch.coverage {
-            let buffers = coverage.allocation.buffers();
+            let buffers = coverage.first_allocation.buffers();
             buffers.bind(self.render_pass);
             self.render_pass.set_bind_group(0, &buffers.bind_group, &[]);
         } else {
@@ -122,7 +122,7 @@ impl DrawPass<'_, '_> {
         let instances =
             batch.first_instance_index..batch.first_instance_index + batch.instance_count;
         if let Some(coverage) = &batch.coverage {
-            coverage.allocation.draw(
+            coverage.first_allocation.draw(
                 self.render_pass,
                 |boundary| {
                     pipelines.get(

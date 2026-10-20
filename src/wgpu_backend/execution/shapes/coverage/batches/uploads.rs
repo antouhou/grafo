@@ -59,9 +59,9 @@ struct BatchChunk {
 }
 
 impl BatchChunk {
-    fn new(device: &Device, tiles: usize, shapes: usize) -> Self {
-        let tile_capacity = tiles.max(4096).next_power_of_two();
-        let shape_capacity = shapes.max(256).next_power_of_two();
+    fn new(device: &Device, tile_count: usize, shape_count: usize) -> Self {
+        let tile_capacity = tile_count.max(4096).next_power_of_two();
+        let shape_capacity = shape_count.max(256).next_power_of_two();
         Self {
             tiles: Vec::with_capacity(tile_capacity),
             shapes: Vec::with_capacity(shape_capacity),
@@ -81,10 +81,10 @@ impl BatchChunk {
         }
     }
 
-    fn fits(&self, tiles: usize, shapes: usize) -> bool {
-        (self.tiles.len() + tiles) * mem::size_of::<CoverageTileInstance>()
+    fn fits(&self, tile_count: usize, shape_count: usize) -> bool {
+        (self.tiles.len() + tile_count) * mem::size_of::<CoverageTileInstance>()
             <= self.tile_buffer.size() as usize
-            && (self.shapes.len() + shapes) * mem::size_of::<CoverageBatchShape>()
+            && (self.shapes.len() + shape_count) * mem::size_of::<CoverageBatchShape>()
                 <= self.shape_buffer.size() as usize
     }
 

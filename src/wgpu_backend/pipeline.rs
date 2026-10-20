@@ -91,17 +91,6 @@ fn storage_binding(binding: u32, visibility: ShaderStages) -> BindGroupLayoutEnt
     }
 }
 
-/// Binds viewport uniforms at vertex shader group 0, binding 0.
-pub fn create_uniform_bind_group_layout(device: &Device) -> BindGroupLayout {
-    create_coverage_layout(device, false)
-}
-
-pub(in crate::wgpu_backend) fn create_coverage_batch_bind_group_layout(
-    device: &Device,
-) -> BindGroupLayout {
-    create_coverage_layout(device, true)
-}
-
 fn create_coverage_layout(device: &Device, is_batch: bool) -> BindGroupLayout {
     let entries = [
         BindGroupLayoutEntry {
@@ -123,6 +112,17 @@ fn create_coverage_layout(device: &Device, is_batch: bool) -> BindGroupLayout {
         label: None,
         entries: &entries[..if is_batch { 5 } else { 4 }],
     })
+}
+
+/// Binds viewport uniforms at vertex shader group 0, binding 0.
+pub fn create_uniform_bind_group_layout(device: &Device) -> BindGroupLayout {
+    create_coverage_layout(device, false)
+}
+
+pub(in crate::wgpu_backend) fn create_coverage_batch_bind_group_layout(
+    device: &Device,
+) -> BindGroupLayout {
+    create_coverage_layout(device, true)
 }
 
 pub fn create_equal_increment_depth_state() -> wgpu::DepthStencilState {

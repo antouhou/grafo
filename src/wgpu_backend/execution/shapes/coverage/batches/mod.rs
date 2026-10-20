@@ -12,7 +12,7 @@ pub(super) struct CoverageBatchDraw {
 }
 
 pub(in crate::wgpu_backend) struct CoverageBatch {
-    pub allocation: Arc<CoverageAllocation>,
+    pub first_allocation: Arc<CoverageAllocation>,
     draws: SmallVec<[CoverageBatchDraw; 4]>,
     bounds: UnsignedPhysicalRect,
     first_instance_index: u32,
@@ -27,7 +27,7 @@ impl CoverageBatch {
         instance_index: u32,
     ) -> Self {
         Self {
-            allocation: Arc::clone(allocation),
+            first_allocation: Arc::clone(allocation),
             draws: SmallVec::new(),
             bounds,
             first_instance_index: instance_index,
@@ -43,13 +43,13 @@ impl CoverageBatch {
     pub(in crate::wgpu_backend) fn try_append(&mut self, next: &Self) -> bool {
         // Compare only the accumulated bounds. Holes in that rectangle end the batch too.
         if next.instance_count != 1
-            || !self.allocation.shares_buffers(&next.allocation)
+            || !self.first_allocation.shares_buffers(&next.first_allocation)
             || self.bounds.intersects(&next.bounds)
         {
             return false;
         }
         let can_draw_instanced = self.can_draw_instanced()
-            && Arc::ptr_eq(&self.allocation, &next.allocation)
+            && Arc::ptr_eq(&self.first_allocation, &next.first_allocation)
             && next.first_instance_index == self.first_instance_index + self.instance_count;
         if !can_draw_instanced {
             if self.can_draw_instanced() && self.instance_count > 1 {
@@ -57,12 +57,12 @@ impl CoverageBatch {
             }
             if self.draws.is_empty() {
                 self.draws.push(CoverageBatchDraw {
-                    allocation: Arc::clone(&self.allocation),
+                    allocation: Arc::clone(&self.first_allocation),
                     instance_index: self.first_instance_index,
                 });
             }
             self.draws.push(CoverageBatchDraw {
-                allocation: Arc::clone(&next.allocation),
+                allocation: Arc::clone(&next.first_allocation),
                 instance_index: next.first_instance_index,
             });
             self.tile_count += next.tile_count;
