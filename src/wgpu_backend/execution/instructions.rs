@@ -145,10 +145,10 @@ fn execute_draw_command(
     pending_batch: &mut Option<LeafBatch>,
 ) {
     if let RenderOperation::DrawShape(draw) = command.operation {
-        pass.queue_leaf_draw(draw, command.clip, shapes, pending_batch);
+        pass.queue_leaf_draw(draw, command.clip, shapes, context.device, pending_batch);
         return;
     }
-    pass.flush_leaf_batch(pending_batch);
+    pass.flush_leaf_batch(pending_batch, shapes, context.device);
     match command.operation {
         RenderOperation::DrawShapeAndIncrementStencil(draw) => {
             pass.set_scissor(command.clip.scissor);
@@ -243,7 +243,11 @@ fn execute_draw_pass<'scene>(
             &mut pending_batch,
         );
     }
-    pass.flush_leaf_batch(&mut pending_batch);
+    pass.flush_leaf_batch(
+        &mut pending_batch,
+        resources.shapes,
+        resources.context.device,
+    );
     metrics.accumulate(pass.render_pass);
     next_command
 }
@@ -256,6 +260,7 @@ pub(in crate::wgpu_backend) fn execute_commands<'scene>(
 ) -> ExecutionMetrics {
     let mut metrics = ExecutionMetrics::default();
     resources.shapes.composites.begin_render();
+    resources.shapes.coverage_batches.begin_render();
     let mut pending_command = commands.next();
     while let Some(command) = pending_command {
         match &command.operation {
@@ -364,6 +369,10 @@ pub(in crate::wgpu_backend) fn execute_commands<'scene>(
         resources.textures.active_targets.is_empty(),
         "command stream must close every target"
     );
+    resources
+        .shapes
+        .coverage_batches
+        .upload(resources.context.queue);
     resources.textures.finish_plan();
     metrics
 }

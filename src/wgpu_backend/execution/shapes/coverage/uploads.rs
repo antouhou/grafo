@@ -53,6 +53,10 @@ pub(in crate::wgpu_backend) struct CoverageAllocation {
 }
 
 impl CoverageAllocation {
+    pub(in crate::wgpu_backend) fn shares_buffers(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.buffers, &other.buffers)
+    }
+
     pub(in crate::wgpu_backend) fn buffers(&self) -> &CoverageBuffers {
         self.buffers
             .get()

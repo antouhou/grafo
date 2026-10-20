@@ -34,16 +34,19 @@ fn vs_solid(input: SolidVertexInput) -> SolidVertexOutput {
     return output;
 }
 
-@vertex
-fn vs_coverage_solid(input: SolidCoverageVertexInput, @builtin(vertex_index) vertex_index: u32) -> SolidVertexOutput {
+fn coverage_solid_vertex(input: SolidCoverageVertexInput, vertex: CoverageGeometryVertex) -> SolidVertexOutput {
     var output: SolidVertexOutput;
-    let vertex = coverage_geometry_vertex(vertex_index);
     output.position = coverage_clip_position(vertex.position + input.coverage_translation);
     output.color = input.color;
     output.coverage = 1.0;
     output.coverage_start = vertex.coverage_start;
     output.coverage_origin = input.coverage_translation + vec2<f32>(vertex.tile_origin);
     return output;
+}
+
+@vertex
+fn vs_coverage_solid(input: SolidCoverageVertexInput, @builtin(vertex_index) vertex_index: u32) -> SolidVertexOutput {
+    return coverage_solid_vertex(input, coverage_geometry_vertex(vertex_index));
 }
 
 @fragment

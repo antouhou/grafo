@@ -4,6 +4,9 @@ use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry as core_geometry, MathRect};
 use crate::wgpu_backend::execution::render_pass::RenderPass;
 use crate::wgpu_backend::resources::ShapePipelines;
+pub(in crate::wgpu_backend) use batches::{
+    CoverageBatch, CoverageBatchUploads, CoverageTileInstance,
+};
 pub(in crate::wgpu_backend) use cache::CoverageCache;
 use cache::CoverageKey;
 pub(crate) use geometry::CoverageBuilder;
@@ -16,6 +19,7 @@ use wgpu::{
     IndexFormat, Queue, RenderPipeline,
 };
 
+mod batches;
 mod cache;
 mod geometry;
 mod placement;

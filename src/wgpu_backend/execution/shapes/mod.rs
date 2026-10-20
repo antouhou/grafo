@@ -7,7 +7,7 @@ use crate::wgpu_backend::gradient::{GradientCache, GradientMaterial};
 use crate::wgpu_backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMetadata};
 use ahash::{HashMap, HashMapExt};
 use compaction::DrawBufferCompactionStorage;
-use coverage::{CoverageCache, PathCoverage};
+use coverage::{CoverageBatchUploads, CoverageCache, PathCoverage};
 use materials::TextureMaterialPool;
 pub(in crate::wgpu_backend) use pipelines::{
     ShapeGeometryType, ShapePipelineLayouts, ShapePipelineVariants, ShapeShaderType, StencilAction,
@@ -71,6 +71,7 @@ impl ShapeDrawResources {
 /// Reusable execution storage, separate from draw descriptions and their tree.
 pub(crate) struct ShapeExecutionResources {
     pub(in crate::wgpu_backend) coverage_cache: CoverageCache,
+    pub(in crate::wgpu_backend) coverage_batches: CoverageBatchUploads,
     pub(in crate::wgpu_backend) composites: CompositeExecutionResources,
     pub(in crate::wgpu_backend) texture_materials: TextureMaterialPool,
     pub(crate) draws: HashMap<usize, ShapeDrawResources>,
@@ -117,6 +118,7 @@ impl ShapeExecutionResources {
     pub(crate) fn new() -> Self {
         Self {
             coverage_cache: CoverageCache::new(),
+            coverage_batches: CoverageBatchUploads::default(),
             texture_materials: TextureMaterialPool::default(),
             composites: CompositeExecutionResources::default(),
             draws: HashMap::new(),

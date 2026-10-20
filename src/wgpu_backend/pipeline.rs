@@ -19,6 +19,8 @@ pub(crate) const SHAPE_SHADER: &str = concat!(
     include_str!("../shaders/path_coverage_vertex.wgsl"),
     "\n",
     include_str!("../shaders/solid.wgsl"),
+    "\n",
+    include_str!("../shaders/path_coverage_batch.wgsl"),
 );
 
 /// Viewport dimensions and antialiasing settings used by the vertex shader.
@@ -91,23 +93,35 @@ fn storage_binding(binding: u32, visibility: ShaderStages) -> BindGroupLayoutEnt
 
 /// Binds viewport uniforms at vertex shader group 0, binding 0.
 pub fn create_uniform_bind_group_layout(device: &Device) -> BindGroupLayout {
+    create_coverage_layout(device, false)
+}
+
+pub(in crate::wgpu_backend) fn create_coverage_batch_bind_group_layout(
+    device: &Device,
+) -> BindGroupLayout {
+    create_coverage_layout(device, true)
+}
+
+fn create_coverage_layout(device: &Device, is_batch: bool) -> BindGroupLayout {
+    let entries = [
+        BindGroupLayoutEntry {
+            binding: 0,
+            visibility: ShaderStages::VERTEX,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        },
+        storage_binding(1, ShaderStages::FRAGMENT),
+        storage_binding(2, ShaderStages::VERTEX),
+        storage_binding(3, ShaderStages::VERTEX),
+        storage_binding(4, ShaderStages::VERTEX),
+    ];
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
-        entries: &[
-            BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::VERTEX,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            storage_binding(1, ShaderStages::FRAGMENT),
-            storage_binding(2, ShaderStages::VERTEX),
-            storage_binding(3, ShaderStages::VERTEX),
-        ],
+        entries: &entries[..if is_batch { 5 } else { 4 }],
     })
 }
 

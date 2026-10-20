@@ -29,6 +29,28 @@ struct Workload {
     side: f32,
     radius: f32,
     should_use_distinct_geometry: bool,
+    is_general_path: bool,
+}
+
+impl Workload {
+    fn shape(&self, index: usize, offset: f32) -> Shape {
+        let side = self.side + offset;
+        if self.is_general_path {
+            return Shape::builder()
+                .begin((3.375 + index as f32 * 0.05, 0.625))
+                .quadratic_bezier_to((side * 0.4, side * 0.55), (side - 0.125, 2.375))
+                .line_to((side * 0.65, side * 0.6))
+                .line_to((side - 0.375, self.side - 0.625))
+                .quadratic_bezier_to((side * 0.45, self.side * 0.75), (2.625, self.side - 0.125))
+                .line_to((side * 0.2, self.side * 0.4))
+                .close()
+                .build();
+        }
+        Shape::rounded_rect(
+            [(0.375, 0.625), (side, self.side)],
+            BorderRadii::new(self.radius + index as f32 * 0.05 + offset * 0.25),
+        )
+    }
 }
 
 fn background(size: (u32, u32)) -> Shape {
@@ -86,6 +108,7 @@ fn benchmark_paths(criterion: &mut Criterion) {
             side: 510.0,
             radius: 255.0,
             should_use_distinct_geometry: false,
+            is_general_path: false,
         },
         Workload {
             name: "circle1080",
@@ -94,6 +117,7 @@ fn benchmark_paths(criterion: &mut Criterion) {
             side: 1078.0,
             radius: 539.0,
             should_use_distinct_geometry: false,
+            is_general_path: false,
         },
         Workload {
             name: "rounded240",
@@ -102,6 +126,7 @@ fn benchmark_paths(criterion: &mut Criterion) {
             side: 80.0,
             radius: 12.0,
             should_use_distinct_geometry: false,
+            is_general_path: false,
         },
         Workload {
             name: "rounded240_distinct",
@@ -110,6 +135,16 @@ fn benchmark_paths(criterion: &mut Criterion) {
             side: 80.0,
             radius: 5.0,
             should_use_distinct_geometry: true,
+            is_general_path: false,
+        },
+        Workload {
+            name: "general240_distinct",
+            size: (1920, 1080),
+            count: 240,
+            side: 80.0,
+            radius: 0.0,
+            should_use_distinct_geometry: true,
+            is_general_path: true,
         },
     ];
     let mut group = criterion.benchmark_group("path_coverage_with_readback");
@@ -124,14 +159,7 @@ fn benchmark_paths(criterion: &mut Criterion) {
         };
         for index in 0..geometry_count {
             let key = index as u64 + 1;
-            renderer.load_shape(
-                Shape::rounded_rect(
-                    [(0.375, 0.625), (workload.side, workload.side)],
-                    BorderRadii::new(workload.radius + index as f32 * 0.05),
-                ),
-                key,
-                Some(key),
-            );
+            renderer.load_shape(workload.shape(index, 0.0), key, Some(key));
         }
         let mut pixels = Pixmap::new(workload.size, PixelFormat::Bgra8).expect("valid size");
         let root = populate(
@@ -174,17 +202,7 @@ fn benchmark_paths(criterion: &mut Criterion) {
                     if matches!(mode, BenchmarkMode::Resizing) {
                         for index in 0..geometry_count {
                             renderer.load_shape(
-                                Shape::rounded_rect(
-                                    [
-                                        (0.375, 0.625),
-                                        (workload.side + translation_x, workload.side),
-                                    ],
-                                    BorderRadii::new(
-                                        workload.radius
-                                            + index as f32 * 0.05
-                                            + translation_x * 0.25,
-                                    ),
-                                ),
+                                workload.shape(index, translation_x),
                                 index as u64 + 1,
                                 None,
                             );

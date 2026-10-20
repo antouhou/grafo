@@ -1,3 +1,4 @@
+use super::coverage::CoverageTileInstance;
 use crate::core::vertex::{CustomVertex, InstanceTransform};
 use crate::wgpu_backend::pipeline;
 use crate::wgpu_backend::resources::ShapePipelines;
@@ -16,9 +17,26 @@ pub(in crate::wgpu_backend) enum ShapeGeometryType {
     Tessellated,
     CoverageInterior,
     CoverageBoundary,
+    CoverageBatchInterior,
+    CoverageBatchBoundary,
 }
 
 impl ShapeGeometryType {
+    pub fn coverage_batch(is_boundary: bool) -> Self {
+        if is_boundary {
+            Self::CoverageBatchBoundary
+        } else {
+            Self::CoverageBatchInterior
+        }
+    }
+
+    fn is_batch(self) -> bool {
+        matches!(
+            self,
+            Self::CoverageBatchInterior | Self::CoverageBatchBoundary
+        )
+    }
+
     pub fn coverage(is_boundary: bool) -> Self {
         if is_boundary {
             Self::CoverageBoundary
@@ -54,6 +72,13 @@ impl ShapeShaderType {
     }
 
     fn vertex_entry_point(self, geometry_type: ShapeGeometryType, is_solid: bool) -> &'static str {
+        if geometry_type.is_batch() {
+            return if is_solid {
+                "vs_coverage_batch_solid"
+            } else {
+                "vs_coverage_batch"
+            };
+        }
         let uses_coverage = geometry_type != ShapeGeometryType::Tessellated;
         match (uses_coverage, is_solid, self.uses_gradient()) {
             (false, true, _) => "vs_solid",
@@ -82,6 +107,7 @@ impl ShapeShaderType {
 
 pub(in crate::wgpu_backend) struct ShapePipelineLayouts {
     pub uniform: BindGroupLayout,
+    pub coverage_batch: BindGroupLayout,
     pub background_texture: Arc<BindGroupLayout>,
     pub foreground_texture: Arc<BindGroupLayout>,
     pub gradient: BindGroupLayout,
@@ -93,6 +119,7 @@ impl ShapePipelineLayouts {
     pub fn new(device: &Device, gradient: Option<BindGroupLayout>) -> Self {
         Self {
             uniform: pipeline::create_uniform_bind_group_layout(device),
+            coverage_batch: pipeline::create_coverage_batch_bind_group_layout(device),
             background_texture: Arc::new(pipeline::create_shape_texture_bind_group_layout(
                 device,
                 "shape_background_texture",
@@ -115,6 +142,7 @@ impl ShapePipelineLayouts {
         device: &Device,
         shader: ShapeShaderType,
         is_solid: bool,
+        geometry_type: ShapeGeometryType,
     ) -> PipelineLayout {
         let material_layout = match shader {
             ShapeShaderType::Gradient => Some(&self.gradient),
@@ -123,7 +151,11 @@ impl ShapePipelineLayouts {
             _ => None,
         };
         let bind_group_layouts = [
-            &self.uniform,
+            if geometry_type.is_batch() {
+                &self.coverage_batch
+            } else {
+                &self.uniform
+            },
             &self.background_texture,
             &self.foreground_texture,
             material_layout.unwrap_or(&self.uniform),
@@ -147,6 +179,9 @@ fn vertex_buffer_layouts(
     geometry_type: ShapeGeometryType,
     is_solid: bool,
 ) -> SmallVec<[VertexBufferLayout<'static>; 4]> {
+    if geometry_type.is_batch() {
+        return smallvec![CoverageTileInstance::desc()];
+    }
     if geometry_type != ShapeGeometryType::Tessellated {
         return smallvec![
             InstanceColor::desc(),
@@ -188,7 +223,7 @@ impl ShapePipelineCompiler {
         stencil: StencilAction,
     ) -> RenderPipeline {
         let is_solid = shader == ShapeShaderType::Solid && stencil != StencilAction::Decrement;
-        let layout = layouts.create_pipeline_layout(&self.device, shader, is_solid);
+        let layout = layouts.create_pipeline_layout(&self.device, shader, is_solid, geometry_type);
         let vertex_entry_point = shader.vertex_entry_point(geometry_type, is_solid);
         let fragment_entry_point = shader.fragment_entry_point(stencil);
         let vertex_buffer_layouts = vertex_buffer_layouts(geometry_type, is_solid);
@@ -208,7 +243,11 @@ impl ShapePipelineCompiler {
                     compilation_options: PipelineCompilationOptions {
                         constants: &[(
                             "evaluates_path_coverage",
-                            f64::from(geometry_type == ShapeGeometryType::CoverageBoundary),
+                            f64::from(matches!(
+                                geometry_type,
+                                ShapeGeometryType::CoverageBoundary
+                                    | ShapeGeometryType::CoverageBatchBoundary
+                            )),
                         )],
                         ..Default::default()
                     },
@@ -246,7 +285,7 @@ struct GeometryPipelines {
 
 pub(in crate::wgpu_backend) struct ShapePipelineVariants {
     compiler: ShapePipelineCompiler,
-    geometry: [GeometryPipelines; 3],
+    geometry: [GeometryPipelines; 5],
 }
 
 impl ShapePipelineVariants {

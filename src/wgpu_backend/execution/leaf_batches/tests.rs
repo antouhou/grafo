@@ -1,4 +1,4 @@
-use super::{extend_disjoint_bounds, LeafBatch};
+use super::LeafBatch;
 use crate::commands::{
     DrawClip, ShapeDraw, ShapeDrawId, ShapeDrawMaterial, ShapeTextureBinding, ShapeTextureLayer,
     TextureSampling,
@@ -96,23 +96,4 @@ fn gradient_and_under_fill_materials_require_individual_draws() {
     for draw in [gradient, under_fill] {
         assert!(LeafBatch::new(draw, clip(), location(7)).is_none());
     }
-}
-
-#[test]
-fn coverage_batches_reject_overlap_with_any_prior_instance() {
-    let mut bounds = UnsignedPhysicalRect::new((4, 4).into(), (20, 20).into());
-    assert!(extend_disjoint_bounds(
-        &mut bounds,
-        UnsignedPhysicalRect::new((24, 4).into(), (40, 20).into())
-    ));
-    let previous = bounds;
-    assert!(!extend_disjoint_bounds(
-        &mut bounds,
-        UnsignedPhysicalRect::new((12, 4).into(), (28, 20).into())
-    ));
-    assert_eq!(bounds, previous);
-    assert!(extend_disjoint_bounds(
-        &mut bounds,
-        UnsignedPhysicalRect::new((4, 24).into(), (20, 40).into())
-    ));
 }

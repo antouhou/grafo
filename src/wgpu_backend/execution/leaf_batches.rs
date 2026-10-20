@@ -1,26 +1,12 @@
 use super::draws::{self, DrawPass};
-use super::shapes::coverage::CoverageAllocation;
+use super::shapes::coverage::CoverageBatch;
 use super::shapes::{
     ShapeBufferLocation, ShapeExecutionResources, ShapeGeometryType, ShapeShaderType, StencilAction,
 };
 use crate::commands::{DrawClip, ShapeDraw, ShapeDrawMaterial, ShapeTextureBinding};
 use crate::core::UnsignedPhysicalRect;
 use crate::wgpu_backend::vertex::GeometryBufferRange;
-use std::sync::Arc;
-
-struct CoverageBatch {
-    allocation: Arc<CoverageAllocation>,
-    bounds: UnsignedPhysicalRect,
-}
-
-fn extend_disjoint_bounds(bounds: &mut UnsignedPhysicalRect, next: UnsignedPhysicalRect) -> bool {
-    // Interior and boundary draws may only be regrouped when their pixels do not overlap.
-    if bounds.intersects(&next) {
-        return false;
-    }
-    *bounds = bounds.union(&next);
-    true
-}
+use wgpu::Device;
 
 pub(super) struct LeafBatch {
     coverage: Option<CoverageBatch>,
@@ -47,22 +33,22 @@ impl LeafBatch {
     }
 
     fn try_append(&mut self, next: &Self) -> bool {
-        if next.clip != self.clip
-            || next.texture_bindings != self.texture_bindings
-            || next.geometry_range != self.geometry_range
-            || next.first_instance_index != self.first_instance_index + self.instance_count
-        {
+        if next.clip != self.clip || next.texture_bindings != self.texture_bindings {
             return false;
         }
         match (&mut self.coverage, &next.coverage) {
             (Some(current), Some(next)) => {
-                if !Arc::ptr_eq(&current.allocation, &next.allocation)
-                    || !extend_disjoint_bounds(&mut current.bounds, next.bounds)
+                if !current.try_append(next) {
+                    return false;
+                }
+            }
+            (None, None) => {
+                if next.geometry_range != self.geometry_range
+                    || next.first_instance_index != self.first_instance_index + self.instance_count
                 {
                     return false;
                 }
             }
-            (None, None) => {}
             _ => return false,
         }
         self.instance_count += next.instance_count;
@@ -71,7 +57,12 @@ impl LeafBatch {
 }
 
 impl DrawPass<'_, '_> {
-    fn draw_batch(&mut self, batch: &LeafBatch) {
+    fn draw_batch(
+        &mut self,
+        batch: &LeafBatch,
+        shapes: &mut ShapeExecutionResources,
+        device: &Device,
+    ) {
         self.set_scissor(batch.clip.scissor);
         let pipelines = &self.pipelines.shapes;
         let material = ShapeDrawMaterial {
@@ -80,6 +71,24 @@ impl DrawPass<'_, '_> {
             texture_bindings: batch.texture_bindings,
         };
         let shader = ShapeShaderType::from(material);
+        self.bind_material_textures(material);
+        self.render_pass
+            .set_stencil_reference(batch.clip.stencil_reference);
+        if let Some(coverage) = batch
+            .coverage
+            .as_ref()
+            .filter(|coverage| !coverage.can_draw_instanced())
+        {
+            shapes.coverage_batches.draw(
+                self.render_pass,
+                coverage,
+                (&shapes.instance_colors, &shapes.instance_metadata),
+                device,
+                pipelines,
+                shader,
+            );
+            return;
+        }
         if let Some(coverage) = &batch.coverage {
             let buffers = coverage.allocation.buffers();
             buffers.bind(self.render_pass);
@@ -94,7 +103,6 @@ impl DrawPass<'_, '_> {
                 .set_bind_group(0, &pipelines.and_bind_group, &[]);
             draws::bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
         }
-        self.bind_material_textures(material);
         if batch.coverage.is_none() {
             self.render_pass
                 .set_vertex_buffer(1, self.buffers.instance_transform_buffer().slice(..));
@@ -111,8 +119,6 @@ impl DrawPass<'_, '_> {
                 self.buffers.instance_metadata_buffer().slice(..),
             );
         }
-        self.render_pass
-            .set_stencil_reference(batch.clip.stencil_reference);
         let instances =
             batch.first_instance_index..batch.first_instance_index + batch.instance_count;
         if let Some(coverage) = &batch.coverage {
@@ -133,9 +139,17 @@ impl DrawPass<'_, '_> {
         }
     }
 
-    pub(super) fn flush_leaf_batch(&mut self, pending_batch: &mut Option<LeafBatch>) {
+    pub(super) fn flush_leaf_batch(
+        &mut self,
+        pending_batch: &mut Option<LeafBatch>,
+        shapes: &mut ShapeExecutionResources,
+        device: &Device,
+    ) {
         if let Some(batch) = pending_batch.take() {
-            self.draw_batch(&batch);
+            self.draw_batch(&batch, shapes, device);
+            if let Some(coverage) = batch.coverage {
+                shapes.coverage_batches.recycle_draw_storage(coverage);
+            }
         }
     }
 
@@ -144,30 +158,36 @@ impl DrawPass<'_, '_> {
         &mut self,
         draw: ShapeDraw,
         clip: DrawClip,
-        shapes: &ShapeExecutionResources,
+        shapes: &mut ShapeExecutionResources,
+        device: &Device,
         pending_batch: &mut Option<LeafBatch>,
     ) {
         let resources = shapes.draw_resources(draw.id);
         let Some(location) = resources.geometry_buffer_location else {
-            self.flush_leaf_batch(pending_batch);
+            self.flush_leaf_batch(pending_batch, shapes, device);
             return;
         };
         let Some(mut batch) = LeafBatch::new(draw, clip, location) else {
-            self.flush_leaf_batch(pending_batch);
+            self.flush_leaf_batch(pending_batch, shapes, device);
             self.set_scissor(clip.scissor);
-            self.draw_shape(clip.stencil_reference, draw.material, resources);
+            self.draw_shape(
+                clip.stencil_reference,
+                draw.material,
+                shapes.draw_resources(draw.id),
+            );
             return;
         };
         if let Some(coverage) = &resources.path_coverage {
             let bounds = coverage.allocation.bounds;
             let [x, y] = coverage.translation.map(|value| value as u32);
-            batch.coverage = Some(CoverageBatch {
-                allocation: Arc::clone(&coverage.allocation),
-                bounds: UnsignedPhysicalRect::new(
+            batch.coverage = Some(CoverageBatch::new(
+                &coverage.allocation,
+                UnsignedPhysicalRect::new(
                     (bounds.min.x + x, bounds.min.y + y).into(),
                     (bounds.max.x + x, bounds.max.y + y).into(),
                 ),
-            });
+                location.instance_index as u32,
+            ));
         }
         if pending_batch
             .as_mut()
@@ -175,7 +195,10 @@ impl DrawPass<'_, '_> {
         {
             return;
         }
-        self.flush_leaf_batch(pending_batch);
+        self.flush_leaf_batch(pending_batch, shapes, device);
+        if let Some(coverage) = &mut batch.coverage {
+            shapes.coverage_batches.reuse_draw_storage(coverage);
+        }
         *pending_batch = Some(batch);
     }
 }
