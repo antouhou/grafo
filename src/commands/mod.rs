@@ -119,6 +119,5 @@ pub struct ShapeMaskDraw {
     pub local_physical_origin: [i32; 2],
     pub local_bounds: [(f32, f32); 2],
     pub scale_factor: f64,
-    pub fringe_width: f32,
     pub downsample: f32,
 }

@@ -47,6 +47,318 @@ fn tile_origin(tile_number: u32) -> (f32, f32) {
     ((column * TILE_SIZE) as f32, (row * TILE_SIZE) as f32)
 }
 
+fn tile_87_rectangle_pixel_coverage(scene: &mut Scene) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(87);
+    for (bounds, color) in [
+        ([(6.0, 8.0), (7.0, 9.0)], Color::rgb(255, 0, 0)),
+        ([(15.25, 8.0), (15.75, 34.0)], Color::rgb(0, 255, 0)),
+        ([(5.0, 40.125), (34.0, 40.375)], Color::rgb(255, 0, 0)),
+        ([(45.25, 12.25), (45.75, 12.75)], Color::rgb(0, 0, 255)),
+        ([(45.25, 30.75), (70.75, 60.25)], Color::BLACK),
+    ] {
+        scene
+            .add_shape(
+                Shape::rect(bounds),
+                None,
+                None,
+                ShapeDrawCommandOptions::new()
+                    .color(color)
+                    .transform(TransformInstance::translation(origin_x, origin_y)),
+            )
+            .unwrap();
+    }
+    scene
+        .add_shape(
+            Shape::rect([(0.0, 0.0), (0.5, 20.0)]),
+            None,
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::BLACK)
+                .transform(TransformInstance::affine_2d(
+                    -1.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    origin_x + 25.75,
+                    origin_y + 8.0,
+                )),
+        )
+        .unwrap();
+    scene
+        .add_shape(
+            Shape::rect([(999_980.0, 60.0), (1_000_000.0, 68.0)]),
+            None,
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::BLACK)
+                .transform(TransformInstance::affine_2d(
+                    1.1,
+                    0.0,
+                    0.0,
+                    1.0,
+                    origin_x - 1_099_970.0,
+                    origin_y,
+                )),
+        )
+        .unwrap();
+    [
+        (6, 8, [255, 0, 0], "t87_aligned_pixel"),
+        (5, 8, [255; 3], "t87_no_outer_coverage"),
+        (15, 16, [188, 255, 188], "t87_half_pixel_strip"),
+        (16, 16, [255; 3], "t87_strip_neighbor"),
+        (25, 16, [188; 3], "t87_reflected_strip"),
+        (15, 40, [255, 225, 225], "t87_quarter_pixel_row"),
+        (45, 12, [225, 225, 255], "t87_subpixel_corner"),
+        (45, 40, [137; 3], "t87_fractional_side"),
+        (55, 60, [225; 3], "t87_fractional_bottom"),
+        (45, 30, [233; 3], "t87_fractional_corner"),
+        (55, 40, [0; 3], "t87_solid_interior"),
+        (30, 64, [252; 3], "t87_large_translation_edge"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+        .with_tolerance(2)
+    })
+    .collect()
+}
+
+fn tile_88_rectangle_coverage_materials(scene: &mut Scene) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(88);
+    let options = ShapeDrawCommandOptions::new()
+        .transform(TransformInstance::translation(origin_x, origin_y));
+    for (bounds, material) in [
+        (
+            [(5.75, 5.0), (6.0, 30.0)],
+            options
+                .clone()
+                .background_texture_id(SOLID_GREEN_TEXTURE_ID),
+        ),
+        (
+            [(15.75, 5.0), (16.0, 30.0)],
+            options.clone().foreground_texture_id(SOLID_RED_TEXTURE_ID),
+        ),
+        (
+            [(25.75, 5.0), (44.0, 30.0)],
+            options.clone().background_texture(
+                ShapeTextureOptions::new(SOLID_GREEN_TEXTURE_ID)
+                    .fit_mode(ShapeTextureFitMode::Contain),
+            ),
+        ),
+        (
+            [(60.75, 5.0), (61.0, 30.0)],
+            options.clone().background_texture(
+                ShapeTextureOptions::new(SOLID_GREEN_TEXTURE_ID)
+                    .fit_mode(ShapeTextureFitMode::Cover),
+            ),
+        ),
+        (
+            [(70.75, 16.0), (71.0, 17.0)],
+            options.clone().background_texture(
+                ShapeTextureOptions::new(SOLID_GREEN_TEXTURE_ID)
+                    .fit_mode(ShapeTextureFitMode::OriginalSize),
+            ),
+        ),
+        (
+            [(50.75, 5.0), (51.0, 30.0)],
+            options
+                .clone()
+                .background_texture_id(SOLID_GREEN_TEXTURE_ID)
+                .foreground_texture_id(TRANSLUCENT_RED_TEXTURE_ID),
+        ),
+    ] {
+        scene
+            .add_shape(Shape::rect(bounds), None, None, material)
+            .unwrap();
+    }
+    let gradient = Gradient::linear(LinearGradientDesc {
+        common: two_stop_common_canvas((255, 0, 0), (0, 0, 255), SpreadMode::Pad),
+        line: LinearGradientLine {
+            start: [origin_x + 5.75, origin_y],
+            end: [origin_x + 35.75, origin_y],
+        },
+    })
+    .unwrap();
+    scene
+        .add_shape(
+            Shape::rect([(5.75, 40.0), (35.75, 60.0)]),
+            None,
+            None,
+            options.fill(Fill::Gradient(gradient)),
+        )
+        .unwrap();
+    let mut perspective = TransformInstance::identity();
+    perspective.col0[3] = 0.015;
+    let transform = perspective
+        .then(&TransformInstance::rotation_z_deg(20.0))
+        .then(&TransformInstance::translation(
+            origin_x + 48.0,
+            origin_y + 47.0,
+        ));
+    scene
+        .add_shape(
+            Shape::rect([(0.0, 0.0), (22.0, 14.0)]),
+            None,
+            None,
+            ShapeDrawCommandOptions::new()
+                .background_texture_id(CHECKERBOARD_TEXTURE_ID)
+                .transform(transform),
+        )
+        .unwrap();
+    [
+        (5, 16, [225, 255, 225], "t88_background_edge"),
+        (15, 16, [255, 225, 225], "t88_foreground_edge"),
+        (25, 16, [225, 255, 225], "t88_contain_edge"),
+        (30, 6, [255; 3], "t88_contain_letterbox"),
+        (50, 16, [240, 240, 225], "t88_layered_edge"),
+        (60, 16, [225, 255, 225], "t88_cover_edge"),
+        (70, 16, [225, 255, 225], "t88_original_size_edge"),
+        (5, 48, [255, 225, 225], "t88_gradient_edge"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+        .with_tolerance(2)
+    })
+    .collect()
+}
+
+fn tile_89_rectangle_coverage_effects(scene: &mut Scene) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(89);
+    let options = ShapeDrawCommandOptions::new()
+        .transform(TransformInstance::translation(origin_x, origin_y));
+    let background = scene
+        .add_shape(
+            Shape::rect([(0.0, 0.0), (80.0, 80.0)]),
+            None,
+            None,
+            options.clone().color(Color::BLACK),
+        )
+        .unwrap();
+    for (left, has_content_effect) in [(5.75, false), (15.75, true)] {
+        let node = scene
+            .add_shape(
+                Shape::rect([(left, 5.0), (left + 0.25, 30.0)]),
+                Some(background),
+                None,
+                options.clone(),
+            )
+            .unwrap();
+        scene
+            .set_shape_mask_effect(
+                node,
+                PASSTHROUGH_EFFECT_ID,
+                &[],
+                ShapeMaskEffectConfig::default(),
+            )
+            .unwrap();
+        if has_content_effect {
+            scene
+                .set_content_effect(
+                    node,
+                    PASSTHROUGH_EFFECT_ID,
+                    &[],
+                    ContentEffectConfig::default(),
+                )
+                .unwrap();
+        }
+    }
+    scene
+        .add_shape(
+            Shape::rect([(40.0, 5.0), (75.0, 30.0)]),
+            Some(background),
+            None,
+            options.clone().color(Color::rgb(255, 0, 0)),
+        )
+        .unwrap();
+    let panel = scene
+        .add_shape(
+            Shape::rect([(45.75, 5.0), (60.25, 30.0)]),
+            Some(background),
+            None,
+            options.clone(),
+        )
+        .unwrap();
+    scene
+        .set_backdrop_effect(
+            panel,
+            COLOR_CHANNEL_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::default(),
+        )
+        .unwrap();
+    let clip = scene
+        .add_shape(
+            Shape::rounded_rect([(5.0, 40.0), (70.0, 72.0)], BorderRadii::new(8.0)),
+            Some(background),
+            None,
+            options.clone(),
+        )
+        .unwrap();
+    scene
+        .add_shape(
+            Shape::rect([(15.75, 30.0), (16.0, 78.0)]),
+            Some(clip),
+            None,
+            options
+                .clone()
+                .background_texture_id(SOLID_GREEN_TEXTURE_ID),
+        )
+        .unwrap();
+    let mask = scene
+        .add_shape(
+            Shape::rect([(35.75, 45.25), (60.25, 65.75)]),
+            Some(clip),
+            None,
+            options,
+        )
+        .unwrap();
+    scene
+        .set_shape_mask_effect(
+            mask,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            ShapeMaskEffectConfig::new().downsample(0.5),
+        )
+        .unwrap();
+    [
+        (5, 16, [137; 3], "t89_rectangle_mask_edge"),
+        (15, 16, [137; 3], "t89_mask_in_content_effect"),
+        (45, 16, [225, 137, 0], "t89_backdrop_edge"),
+        (50, 16, [0, 255, 0], "t89_backdrop_interior"),
+        (15, 50, [0, 137, 0], "t89_texture_in_stencil"),
+        (15, 38, [0; 3], "t89_stencil_clips_strip"),
+        (45, 55, [255; 3], "t89_downsampled_rectangle_mask"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+        .with_tolerance(2)
+    })
+    .collect()
+}
+
 fn tile_84_mixed_command_replacement(scene: &mut Scene) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(84);
     let options = ShapeDrawCommandOptions::new()
@@ -2575,17 +2887,32 @@ fn tile_32_tiny_1px_shape(scene: &mut Scene) -> Vec<PixelExpectation> {
         )
         .unwrap();
 
-    // The antialiasing fringe can spread coverage beyond the one-pixel shape.
-    vec![PixelExpectation::new(
-        ox as u32 + 40,
-        oy as u32 + 40,
-        200,
-        0,
-        200,
-        200,
-        "t32_tiny_pixel",
-    )
-    .with_tolerance(80)]
+    vec![
+        PixelExpectation::opaque(
+            ox as u32 + 40,
+            oy as u32 + 40,
+            255,
+            0,
+            255,
+            "t32_tiny_pixel",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 39,
+            oy as u32 + 40,
+            255,
+            255,
+            255,
+            "t32_left_neighbor",
+        ),
+        PixelExpectation::opaque(
+            ox as u32 + 41,
+            oy as u32 + 40,
+            255,
+            255,
+            255,
+            "t32_right_neighbor",
+        ),
+    ]
 }
 
 fn tile_33_shape_at_canvas_edge(scene: &mut Scene) -> Vec<PixelExpectation> {
@@ -6876,6 +7203,9 @@ pub fn build_main_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
     expectations.extend(tile_84_mixed_command_replacement(scene));
     expectations.extend(tile_85_replacement_preserves_effects_and_children(scene));
     expectations.extend(tile_86_negative_w_shapes_and_effects(scene));
+    expectations.extend(tile_87_rectangle_pixel_coverage(scene));
+    expectations.extend(tile_88_rectangle_coverage_materials(scene));
+    expectations.extend(tile_89_rectangle_coverage_effects(scene));
 
     expectations
 }

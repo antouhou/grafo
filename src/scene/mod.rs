@@ -68,7 +68,7 @@ impl<B: RenderBackend> Scene<B> {
     pub(crate) fn from_parts(backend: B, context: SceneStateContext) -> Self {
         let viewport = backend.viewport();
         Self {
-            state: SceneState::new(context, viewport, backend.fringe_width()),
+            state: SceneState::new(context, viewport),
             planner: Planner::default(),
             removed_shape_ids: Vec::new(),
             pending_damage: PendingDamage::default(),
@@ -98,19 +98,12 @@ impl<B: RenderBackend> Scene<B> {
         self.state.viewport().scale_factor
     }
 
-    pub fn fringe_width(&self) -> f32 {
-        self.state.fringe_width()
-    }
-
     /// Returns an error and preserves settings if attached shape mask effects cannot use the new scale.
-    pub fn change_scale_factor(&mut self, new_scale_factor: f64) -> Result<(), SceneError> {
-        self.update_raster_settings(new_scale_factor, self.state.fringe_width())
-    }
-
-    /// Returns an error and preserves settings if attached shape mask effects cannot use the new fringe.
-    /// Path edges use pixel-area coverage independently of this setting.
-    pub fn set_fringe_width(&mut self, fringe_width: f32) -> Result<(), SceneError> {
-        self.update_raster_settings(self.state.viewport().scale_factor, fringe_width)
+    pub fn change_scale_factor(&mut self, scale_factor: f64) -> Result<(), SceneError> {
+        self.state
+            .change_scale_factor(scale_factor, self.backend.maximum_texture_dimension())?;
+        self.update_backend_viewport();
+        Ok(())
     }
 
     pub fn resize(&mut self, new_physical_size: (u32, u32)) {
@@ -262,7 +255,6 @@ impl<B: RenderBackend> Scene<B> {
         self.removed_shape_ids.clear();
         let mut has_removed_nodes = false;
         let viewport = self.state.viewport();
-        let fringe_width = self.state.fringe_width();
         self.state
             .remove_subtrees_with(node_ids, |id, node, effect, group_output| {
                 if matches!(node, DrawTreeNode::CachedShape(_)) {
@@ -270,7 +262,6 @@ impl<B: RenderBackend> Scene<B> {
                         &mut self.dirty_bounds,
                         node.logical_screen_bounds(),
                         viewport,
-                        fringe_width,
                     );
                 }
                 if let Some(effect) = effect {
@@ -506,14 +497,12 @@ impl<B: RenderBackend> Scene<B> {
         self.pending_damage
             .apply(&self.state, &mut self.dirty_bounds);
         let viewport = self.state.viewport();
-        let fringe_width = self.state.fringe_width();
         for (id, shape) in self.state.shapes_with_updated_textures() {
             self.backend.refresh_uv(ShapeDrawId(id), &shape.instance);
             mark_dirty(
                 &mut self.dirty_bounds,
                 shape.logical_screen_bounds,
                 viewport,
-                fringe_width,
             );
         }
         self.dirty_bounds = self.state.expand_effect_damage(self.dirty_bounds);
@@ -531,26 +520,12 @@ impl<B: RenderBackend> Scene<B> {
 }
 
 impl<B: RenderBackend> Scene<B> {
-    fn update_raster_settings(
-        &mut self,
-        scale_factor: f64,
-        fringe_width: f32,
-    ) -> Result<(), SceneError> {
-        self.state.update_raster_settings(
-            scale_factor,
-            fringe_width,
-            self.backend.maximum_texture_dimension(),
-        )?;
-        self.update_backend_viewport();
-        Ok(())
-    }
-
     fn update_backend_viewport(&mut self) {
         let viewport = self.state.viewport();
         self.dirty_bounds = Some(UnsignedPhysicalRect::from_size(
             viewport.physical_size.into(),
         ));
-        self.backend.resize(viewport, self.state.fringe_width());
+        self.backend.resize(viewport);
     }
 
     fn remove_effect_attachments(&mut self, effect_id: u64) {
@@ -581,7 +556,6 @@ impl<B: RenderBackend> Scene<B> {
                 &mut self.dirty_bounds,
                 shape.logical_screen_bounds,
                 self.state.viewport(),
-                self.state.fringe_width(),
             );
         }
     }

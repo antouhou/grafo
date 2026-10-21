@@ -85,12 +85,7 @@ impl<B: RenderBackend> Scene<B> {
             self.backend.maximum_texture_dimension(),
         );
         for bounds in [previous.logical_screen_bounds(), new_bounds] {
-            mark_dirty(
-                &mut self.dirty_bounds,
-                bounds,
-                self.state.viewport(),
-                self.state.fringe_width(),
-            );
+            mark_dirty(&mut self.dirty_bounds, bounds, self.state.viewport());
         }
         for bounds in old_effect_bounds
             .into_iter()
@@ -136,7 +131,6 @@ impl<B: RenderBackend> Scene<B> {
                     effect.config,
                     shape.instance.transform,
                     self.state.viewport().scale_factor,
-                    self.state.fringe_width(),
                 )
                 .ok_or(SceneError::InvalidShapeMaskEffectBounds(node_id))?,
             ),
@@ -164,12 +158,7 @@ impl<B: RenderBackend> Scene<B> {
                 let inserted_id = self.state.insert_node(node, parent);
                 debug_assert_eq!(inserted_id, node_id);
                 if let Some(bounds) = shape_bounds {
-                    mark_dirty(
-                        &mut self.dirty_bounds,
-                        bounds,
-                        self.state.viewport(),
-                        self.state.fringe_width(),
-                    );
+                    mark_dirty(&mut self.dirty_bounds, bounds, self.state.viewport());
                 }
             }
             NodeTarget::Replace { node_id } => {

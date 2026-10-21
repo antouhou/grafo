@@ -34,7 +34,6 @@ fn rounded_rect_sweep_matches_general_coverage() {
             physical_size: size,
             scale_factor: 1.0,
         },
-        0.75,
     );
     let mut specialized = CoverageTestMesh::default();
     let mut general = CoverageTestMesh::default();
@@ -83,6 +82,7 @@ fn rounded_rect_sweep_matches_general_coverage() {
                 "{bounds:?}, {radii:?}"
             );
             let generic = CachedTessellation {
+                is_rect: false,
                 boundary_edges: tessellation.boundary_edges.clone(),
                 rounded_rect_boundary: None,
                 vertex_buffers: Arc::clone(&tessellation.vertex_buffers),

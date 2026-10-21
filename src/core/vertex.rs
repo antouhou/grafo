@@ -5,10 +5,6 @@ use bytemuck::{Pod, Zeroable};
 pub struct CustomVertex {
     pub position: [f32; 2],
     pub tex_coords: [f32; 2],
-    /// Outward model-space normal used by the shader to offset the AA fringe.
-    pub normal: [f32; 2],
-    /// Coverage is 1.0 at interior and boundary vertices, and 0.0 at the outer fringe.
-    pub coverage: f32,
 }
 
 impl CustomVertex {
@@ -18,26 +14,18 @@ impl CustomVertex {
             Self {
                 position: [minimum_x, minimum_y],
                 tex_coords: [0.0, 0.0],
-                normal: [0.0; 2],
-                coverage: 1.0,
             },
             Self {
                 position: [maximum_x, minimum_y],
                 tex_coords: [1.0, 0.0],
-                normal: [0.0; 2],
-                coverage: 1.0,
             },
             Self {
                 position: [maximum_x, maximum_y],
                 tex_coords: [1.0, 1.0],
-                normal: [0.0; 2],
-                coverage: 1.0,
             },
             Self {
                 position: [minimum_x, maximum_y],
                 tex_coords: [0.0, 1.0],
-                normal: [0.0; 2],
-                coverage: 1.0,
             },
         ]
     }

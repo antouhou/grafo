@@ -93,7 +93,6 @@ pub(super) fn resolve_backdrop_effect(
     effect: EffectInstance,
     config: BackdropEffectConfig,
     viewport: Viewport,
-    fringe_width: f32,
     maximum_texture_dimension: u32,
 ) -> (BackdropEffectInstance, Option<EffectDamageEntry>) {
     let instance = BackdropEffectInstance::new(
@@ -103,13 +102,7 @@ pub(super) fn resolve_backdrop_effect(
         viewport,
         maximum_texture_dimension,
     );
-    let entry = EffectDamageEntry::backdrop(
-        node_id,
-        node,
-        instance.capture_region,
-        viewport,
-        fringe_width,
-    );
+    let entry = EffectDamageEntry::backdrop(node_id, node, instance.capture_region, viewport);
     (instance, entry)
 }
 
@@ -277,7 +270,6 @@ impl SceneState {
             effect,
             config,
             self.viewport,
-            self.fringe_width,
             maximum_texture_dimension,
         );
         self.replace_backdrop_effect(node_id, instance, entry);
@@ -297,7 +289,6 @@ impl SceneState {
                     instance.effect,
                     instance.config,
                     self.viewport,
-                    self.fringe_width,
                     maximum_texture_dimension,
                 );
                 *instance = updated;
@@ -333,7 +324,6 @@ impl SceneState {
             config,
             shape.transform,
             self.viewport.scale_factor,
-            self.fringe_width,
         )
         .ok_or(SceneError::InvalidShapeMaskEffectBounds(node_id))?;
         let parameters = self.effect_parameters.store(parameters);
@@ -357,7 +347,6 @@ impl SceneState {
     pub(super) fn refresh_shape_mask_effect_bounds(
         &mut self,
         scale_factor: f64,
-        fringe_width: f32,
     ) -> Result<(), SceneError> {
         for (&node_id, effect) in &mut self.shape_mask_effects {
             let node = self
@@ -372,7 +361,6 @@ impl SceneState {
                 effect.config,
                 shape.instance.transform,
                 scale_factor,
-                fringe_width,
             )
             .ok_or(SceneError::InvalidShapeMaskEffectBounds(node_id))?;
         }
@@ -423,7 +411,6 @@ impl SceneState {
                 geometry::logical_bounds_to_viewport_rect(
                     node.logical_screen_bounds(),
                     self.viewport,
-                    self.fringe_width,
                 )
             });
             self.effect_parameters.request_compaction();
@@ -441,7 +428,6 @@ impl SceneState {
             let mut damage_bounds = geometry::logical_bounds_to_viewport_rect(
                 instance.bounds.logical_screen_bounds,
                 self.viewport,
-                0.0,
             );
             if let (Some(group), Some(node)) = (
                 self.content_effects.get_mut(node_id),

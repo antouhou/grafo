@@ -21,7 +21,7 @@ impl GeometryBufferRange {
 impl CustomVertex {
     pub(crate) const STRIDE: BufferAddress = mem::size_of::<Self>() as BufferAddress;
 
-    const ATTRIBUTES: [VertexAttribute; 4] = [
+    const ATTRIBUTES: [VertexAttribute; 2] = [
         // Position
         VertexAttribute {
             format: VertexFormat::Float32x2,
@@ -34,18 +34,6 @@ impl CustomVertex {
             offset: mem::size_of::<[f32; 2]>() as BufferAddress,
             shader_location: 2,
         },
-        // Outward model-space normal for the AA fringe.
-        VertexAttribute {
-            format: VertexFormat::Float32x2,
-            offset: (mem::size_of::<[f32; 2]>() * 2) as BufferAddress,
-            shader_location: 7,
-        },
-        // AA coverage, from 1.0 at the interior to 0.0 at the outer fringe.
-        VertexAttribute {
-            format: VertexFormat::Float32,
-            offset: (mem::size_of::<[f32; 2]>() * 3) as BufferAddress,
-            shader_location: 8,
-        },
     ];
 
     pub fn desc<'a>() -> VertexBufferLayout<'a> {
@@ -57,13 +45,8 @@ impl CustomVertex {
     }
 
     pub(crate) fn solid_desc<'a>() -> VertexBufferLayout<'a> {
-        const ATTRIBUTES: [VertexAttribute; 3] = [
-            CustomVertex::ATTRIBUTES[0],
-            CustomVertex::ATTRIBUTES[2],
-            CustomVertex::ATTRIBUTES[3],
-        ];
         VertexBufferLayout {
-            attributes: &ATTRIBUTES,
+            attributes: &Self::ATTRIBUTES[..1],
             ..Self::desc()
         }
     }

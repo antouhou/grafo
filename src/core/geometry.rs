@@ -5,7 +5,7 @@ use lyon::geom::euclid::default::Transform3D;
 use lyon::geom::{self, Box2D, Point};
 use lyon::math;
 
-const HOMOGENEOUS_W_CLAMP: f32 = 1e-6;
+const HOMOGENEOUS_W_CLAMP: f64 = 1e-6;
 
 /// Rectangle with floating-point coordinates.
 pub type MathRect = math::Box2D;
@@ -34,21 +34,43 @@ pub struct Viewport {
     pub scale_factor: f64,
 }
 
+fn physical_pixel_bounds(bounds: MathRect, scale: f64) -> Box2D<f64> {
+    bounds.to_f64().scale(scale, scale).round_out()
+}
+
+fn outward_logical_bounds(bounds: Box2D<f64>) -> MathRect {
+    if bounds.is_empty() {
+        return bounds.to_f32();
+    }
+    let minimum = bounds.min.to_array().map(|value| {
+        let rounded = value as f32;
+        if f64::from(rounded) > value {
+            rounded.next_down()
+        } else {
+            rounded
+        }
+    });
+    let maximum = bounds.max.to_array().map(|value| {
+        let rounded = value as f32;
+        if f64::from(rounded) < value {
+            rounded.next_up()
+        } else {
+            rounded
+        }
+    });
+    MathRect::new(minimum.into(), maximum.into())
+}
+
 /// Includes antialiasing coverage and clips logical bounds to the viewport.
 pub(crate) fn logical_bounds_to_viewport_rect(
     logical_screen_bounds: MathRect,
     viewport: Viewport,
-    fringe_width: f32,
 ) -> Option<UnsignedPhysicalRect> {
-    let scale = viewport.scale_factor as f32;
-    let bounds = logical_screen_bounds
-        .scale(scale, scale)
-        .inflate(fringe_width, fringe_width)
-        .round_out();
+    let bounds = physical_pixel_bounds(logical_screen_bounds, viewport.scale_factor);
     let viewport_bounds = UnsignedPhysicalRect::from_size(viewport.physical_size.into());
     if bounds.is_finite() {
         bounds
-            .intersection(&viewport_bounds.to_f32())
+            .intersection(&viewport_bounds.to_f64())
             .map(|bounds| bounds.cast())
     } else {
         Some(viewport_bounds)
@@ -75,15 +97,12 @@ pub(crate) fn logical_rect_to_scissor_rect(
     scale_factor: f64,
     physical_size: Size,
 ) -> Option<UnsignedPhysicalRect> {
-    let scale_factor = scale_factor as f32;
-    let physical_rect = logical_screen_bounds
-        .scale(scale_factor, scale_factor)
-        .round_out();
-    let viewport = MathRect::from_size(physical_size.to_f32());
+    let physical_rect = physical_pixel_bounds(logical_screen_bounds, scale_factor);
+    let viewport = Box2D::from_size(physical_size.to_f64());
 
     physical_rect
         .intersection(&viewport)
-        .unwrap_or_else(MathRect::zero)
+        .unwrap_or_else(Box2D::zero)
         .try_cast()
 }
 
@@ -94,8 +113,10 @@ pub(crate) fn transformed_bounds_to_logical_screen_rect(
     let transform = Transform3D::from_arrays(
         transform
             .unwrap_or_else(InstanceTransform::identity)
-            .as_cols(),
+            .as_cols()
+            .map(|column| column.map(f64::from)),
     );
+    let local_bounds = local_bounds.to_f64();
     let corners = [
         local_bounds.min,
         Point::new(local_bounds.max.x, local_bounds.min.y),
@@ -103,14 +124,15 @@ pub(crate) fn transformed_bounds_to_logical_screen_rect(
         Point::new(local_bounds.min.x, local_bounds.max.y),
     ];
     let homogeneous_corners = corners.map(|corner| transform.transform_point2d_homogeneous(corner));
-    if homogeneous_corners
-        .iter()
-        .any(|point| !(point.x.is_finite() && point.y.is_finite() && point.w.is_finite()))
-    {
+    if homogeneous_corners.iter().any(|point| {
+        [point.x, point.y, point.w]
+            .into_iter()
+            .any(|value| !(value as f32).is_finite())
+    }) {
         return UNBOUNDED_LOGICAL_SCREEN_RECT;
     }
     let (minimum_w, maximum_w) = homogeneous_corners.iter().fold(
-        (f32::INFINITY, f32::NEG_INFINITY),
+        (f64::INFINITY, f64::NEG_INFINITY),
         |(minimum, maximum), point| (minimum.min(point.w), maximum.max(point.w)),
     );
     let is_unclamped = minimum_w >= HOMOGENEOUS_W_CLAMP || maximum_w <= -HOMOGENEOUS_W_CLAMP;
@@ -126,7 +148,7 @@ pub(crate) fn transformed_bounds_to_logical_screen_rect(
     if projected_corners.iter().any(|point| !point.is_finite()) {
         return UNBOUNDED_LOGICAL_SCREEN_RECT;
     }
-    MathRect::from_points(projected_corners)
+    outward_logical_bounds(Box2D::from_points(projected_corners))
 }
 
 /// Keeps signed offscreen coordinates and rejects bounds or extents that exceed i32.
@@ -134,15 +156,11 @@ pub(crate) fn logical_rect_to_physical_rect(
     logical_rect: MathRect,
     scale_factor: f64,
 ) -> Option<PhysicalRect> {
-    let scale_factor = scale_factor as f32;
     if !scale_factor.is_finite() || scale_factor <= 0.0 || !logical_rect.is_finite() {
         return None;
     }
 
-    let physical_rect = logical_rect
-        .scale(scale_factor, scale_factor)
-        .round_out()
-        .try_cast::<i32>()?;
+    let physical_rect = physical_pixel_bounds(logical_rect, scale_factor).try_cast::<i32>()?;
     if physical_rect.is_empty() {
         return None;
     }

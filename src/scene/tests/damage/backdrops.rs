@@ -79,24 +79,23 @@ fn removing_input_propagates_through_separate_capture_and_output_regions() {
     assert!(scene.render(&mut surface).is_err());
     scene.backend.should_fail = false;
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((0, 0), (537, 64)));
+    assert_eq!(scene.backend.root_scissor, rect((0, 0), (536, 64)));
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, None);
 
     let unrelated = shape(&mut scene, [(900.0, 400.0), (916.0, 416.0)]);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((899, 399), (917, 417)));
+    assert_eq!(scene.backend.root_scissor, rect((900, 400), (916, 416)));
     scene.remove_subtrees([unrelated], |_| {});
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((899, 399), (917, 417)));
+    assert_eq!(scene.backend.root_scissor, rect((900, 400), (916, 416)));
 
     scene.change_scale_factor(2.0).unwrap();
-    scene.set_fringe_width(2.0).unwrap();
     surface.resize((2048, 1024));
     scene.render(&mut surface).unwrap();
     shape(&mut scene, [(8.0, 8.0), (16.0, 16.0)]);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((0, 0), (1074, 128)));
+    assert_eq!(scene.backend.root_scissor, rect((0, 0), (1072, 128)));
 }
 
 #[test]
@@ -109,20 +108,20 @@ fn backdrop_mutations_damage_shape_and_reconstruct_current_capture() {
         .set_backdrop_effect(node, 7, &[1, 2, 3, 4], config)
         .unwrap();
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((15, 127), (544, 161)));
+    assert_eq!(scene.backend.root_scissor, rect((16, 128), (544, 160)));
 
     scene
         .set_backdrop_effect(node, 7, &[1, 2, 3, 4], config)
         .unwrap();
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((15, 127), (544, 161)));
+    assert_eq!(scene.backend.root_scissor, rect((16, 128), (544, 160)));
 
     let moved = capture([(768.0, 128.0), (800.0, 160.0)]);
     scene
         .set_backdrop_effect(node, 7, &[1, 2, 3, 4], moved)
         .unwrap();
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((15, 127), (800, 161)));
+    assert_eq!(scene.backend.root_scissor, rect((16, 128), (800, 160)));
 
     let previous_capture = scene.state.backdrop_effects[&node].capture_region;
     assert!(scene
@@ -136,10 +135,10 @@ fn backdrop_mutations_damage_shape_and_reconstruct_current_capture() {
 
     let rejected_input = shape(&mut scene, [(524.0, 140.0), (528.0, 144.0)]);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((523, 139), (529, 145)));
+    assert_eq!(scene.backend.root_scissor, rect((524, 140), (528, 144)));
     let retained_input = shape(&mut scene, [(780.0, 140.0), (784.0, 144.0)]);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((15, 127), (800, 161)));
+    assert_eq!(scene.backend.root_scissor, rect((16, 128), (800, 160)));
     scene.remove_subtrees([rejected_input, retained_input], |_| {});
     scene.render(&mut surface).unwrap();
 
@@ -148,26 +147,26 @@ fn backdrop_mutations_damage_shape_and_reconstruct_current_capture() {
         .set_backdrop_effect(node, 7, &[1, 2, 3, 4], oversized)
         .unwrap();
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((15, 127), (49, 161)));
+    assert_eq!(scene.backend.root_scissor, rect((16, 128), (48, 160)));
 
     scene
         .set_backdrop_effect(node, 7, &[4, 3, 2, 1], oversized)
         .unwrap();
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((15, 127), (49, 161)));
+    assert_eq!(scene.backend.root_scissor, rect((16, 128), (48, 160)));
 
     scene
         .set_backdrop_effect(node, 7, &[1, 2, 3, 4], oversized)
         .unwrap();
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((15, 127), (49, 161)));
+    assert_eq!(scene.backend.root_scissor, rect((16, 128), (48, 160)));
 
     scene.remove_backdrop_effect(node);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((15, 127), (49, 161)));
+    assert_eq!(scene.backend.root_scissor, rect((16, 128), (48, 160)));
     let input = shape(&mut scene, [(780.0, 140.0), (784.0, 144.0)]);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((779, 139), (785, 145)));
+    assert_eq!(scene.backend.root_scissor, rect((780, 140), (784, 144)));
     scene.remove_subtrees([input], |_| {});
 }
 
@@ -185,7 +184,7 @@ fn removed_backdrops_do_not_leave_dependencies_when_node_ids_are_reused() {
     scene.render(&mut surface).unwrap();
     scene.unload_effect(7);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((511, 7), (537, 33)));
+    assert_eq!(scene.backend.root_scissor, rect((512, 8), (536, 32)));
 
     scene
         .set_backdrop_effect(node, 7, &[1, 2, 3, 4], oversized)
@@ -193,7 +192,7 @@ fn removed_backdrops_do_not_leave_dependencies_when_node_ids_are_reused() {
     scene.render(&mut surface).unwrap();
     scene.load_effect(7, &["changed shader"]).unwrap();
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((511, 7), (537, 33)));
+    assert_eq!(scene.backend.root_scissor, rect((512, 8), (536, 32)));
 
     scene
         .set_backdrop_effect(node, 7, &[1, 2, 3, 4], capture(input))
@@ -204,5 +203,5 @@ fn removed_backdrops_do_not_leave_dependencies_when_node_ids_are_reused() {
     scene.render(&mut surface).unwrap();
     shape(&mut scene, [(8.0, 8.0), (16.0, 16.0)]);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((7, 7), (17, 17)));
+    assert_eq!(scene.backend.root_scissor, rect((8, 8), (16, 16)));
 }

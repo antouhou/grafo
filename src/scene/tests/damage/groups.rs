@@ -167,7 +167,7 @@ fn removing_group_nodes_clears_outputs_and_removes_dependencies_before_id_reuse(
     scene.render(&mut surface).unwrap();
     shape(&mut scene, 0, [(26.0, 26.0), (28.0, 28.0)]);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((25, 25), (29, 29)));
+    assert_eq!(scene.backend.root_scissor, rect((26, 26), (28, 28)));
 }
 
 #[test]
@@ -247,7 +247,7 @@ fn damage_in_group_padding_does_not_damage_the_whole_group() {
     scene.render(&mut surface).unwrap();
     shape(&mut scene, 0, [(12.0, 25.0), (13.0, 26.0)]);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((11, 24), (14, 27)));
+    assert_eq!(scene.backend.root_scissor, rect((12, 25), (13, 26)));
 }
 
 #[test]
@@ -264,7 +264,6 @@ fn viewport_changes_refresh_group_input_and_full_resolution_output() {
         .unwrap();
     scene.render(&mut surface).unwrap();
     scene.change_scale_factor(1.5).unwrap();
-    scene.set_fringe_width(1.0).unwrap();
     surface.resize((192, 192));
     scene.render(&mut surface).unwrap();
     let child = shape(&mut scene, node, [(30.0, 30.0), (32.0, 32.0)]);
@@ -285,7 +284,7 @@ fn offscreen_input_keeps_visible_group_output_without_a_damage_dependency() {
     assert_eq!(scene.backend.root_scissor, rect((0, 14), (4, 36)));
     shape(&mut scene, 0, [(1.0, 24.0), (2.0, 25.0)]);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((0, 23), (3, 26)));
+    assert_eq!(scene.backend.root_scissor, rect((1, 24), (2, 25)));
     scene.remove_subtrees([node], |_| {});
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, rect((0, 14), (4, 36)));
@@ -337,5 +336,5 @@ fn changing_ancestor_clipping_damages_descendant_group_outputs() {
         )
         .unwrap();
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((19, 19), (110, 110)));
+    assert_eq!(scene.backend.root_scissor, rect((20, 20), (110, 110)));
 }

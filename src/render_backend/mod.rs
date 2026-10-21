@@ -37,8 +37,6 @@ pub trait RenderBackend {
 
     fn viewport(&self) -> Viewport;
 
-    fn fringe_width(&self) -> f32;
-
     /// Returns true when sources changed and existing attachments must be removed.
     fn load_effect(&mut self, effect_id: u64, pass_sources: &[&str]) -> Result<bool, Self::Error>;
 
@@ -54,7 +52,7 @@ pub trait RenderBackend {
 
     fn remove_backdrop_effect(&mut self, id: ShapeDrawId);
 
-    fn resize(&mut self, viewport: Viewport, fringe_width: f32);
+    fn resize(&mut self, viewport: Viewport);
 
     fn set_msaa_samples(&mut self, samples: u32);
 

@@ -60,10 +60,6 @@ impl RenderBackend for WgpuBackend {
         self.viewport
     }
 
-    fn fringe_width(&self) -> f32 {
-        self.fringe_width
-    }
-
     fn load_effect(&mut self, effect_id: u64, pass_sources: &[&str]) -> Result<bool, Self::Error> {
         self.effect_registry
             .load(&self.device, self.format, effect_id, pass_sources)
@@ -108,8 +104,8 @@ impl RenderBackend for WgpuBackend {
         }
     }
 
-    fn resize(&mut self, viewport: Viewport, fringe_width: f32) {
-        self.resize(viewport, fringe_width);
+    fn resize(&mut self, viewport: Viewport) {
+        self.resize(viewport);
     }
 
     fn set_msaa_samples(&mut self, samples: u32) {
@@ -133,13 +129,10 @@ impl RenderBackend for WgpuBackend {
         let size = target.validate_size(self.maximum_texture_dimension())?;
         self.resources.shape_execution.compact_draw_buffers();
         if self.viewport.physical_size != size {
-            self.resize(
-                Viewport {
-                    physical_size: size,
-                    ..self.viewport
-                },
-                self.fringe_width,
-            );
+            self.resize(Viewport {
+                physical_size: size,
+                ..self.viewport
+            });
         }
         match target {
             RenderTarget::Surface(surface) => {

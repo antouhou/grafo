@@ -1,6 +1,5 @@
 use crate::core::cache::Cache;
 use crate::core::shape::boundary::PathBoundaryBuilder;
-use crate::core::shape::AaFringeScratch;
 
 /// Converts an sRGB byte to a linear channel value between 0.0 and 1.0.
 pub(crate) fn srgb_u8_to_linear(value: u8) -> f32 {
@@ -24,7 +23,6 @@ pub fn normalize_rgba_color(color: &[u8; 4]) -> [f32; 4] {
 pub(crate) struct ShapeResources {
     pub path_boundary_builder: PathBoundaryBuilder,
     pub tessellation_cache: Cache,
-    pub aa_fringe_scratch: AaFringeScratch,
 }
 
 impl ShapeResources {
@@ -32,7 +30,6 @@ impl ShapeResources {
         Self {
             path_boundary_builder: PathBoundaryBuilder::default(),
             tessellation_cache: Cache::new(),
-            aa_fringe_scratch: AaFringeScratch::new(),
         }
     }
 }

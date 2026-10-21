@@ -135,7 +135,7 @@ fn root_replacement_and_partial_updates_preserve_retained_pixels() {
 }
 
 #[test]
-fn negative_w_addition_and_removal_update_retained_pixels() {
+fn projected_rect_addition_and_removal_update_retained_pixels() {
     let Some(mut scene) = create_headless_scene_with_size_and_scale((32, 32), 1.0) else {
         return;
     };
@@ -144,17 +144,28 @@ fn negative_w_addition_and_removal_update_retained_pixels() {
         .unwrap();
     let mut transform = TransformInstance::identity();
     transform.col3[3] = -1.0;
+    let cases = [
+        ([(8.0, 8.0), (16.0, 16.0)], transform),
+        (
+            [(999_980.0, 8.0), (1_000_000.0, 16.0)],
+            TransformInstance::affine_2d(1.1, 0.0, 0.0, 1.0, -1_099_984.0, 0.0),
+        ),
+    ];
     let mut pixels = Vec::new();
 
     // A populated first render cannot exercise retained-output damage.
     for samples in [1, 4] {
         scene.set_msaa_samples(samples);
-        for has_shape_mask_effect in [false, true] {
+        for (bounds, transform, has_shape_mask_effect) in
+            cases.into_iter().flat_map(|(bounds, transform)| {
+                [false, true].map(|has_effect| (bounds, transform, has_effect))
+            })
+        {
             render_bgra(&mut scene, &mut pixels).unwrap();
             assert!(pixels.iter().all(|&byte| byte == 0));
             let node = scene
                 .add_shape(
-                    Shape::rect([(8.0, 8.0), (16.0, 16.0)]),
+                    Shape::rect(bounds),
                     None,
                     None,
                     ShapeDrawCommandOptions::new()
@@ -220,7 +231,6 @@ fn rejected_rasterization_changes_preserve_shape_mask_effect_pixels() {
     assert_eq!(read_pixel_rgba(&pixels, 512, 192, 32), [0, 0, 0, 0]);
     let recovered = pixels.clone();
 
-    let _ = scene.set_fringe_width(f32::MAX);
     render_bgra(&mut scene, &mut pixels).unwrap();
     assert_eq!(pixels, recovered);
     scene.change_scale_factor(1.0).unwrap();

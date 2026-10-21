@@ -111,7 +111,6 @@ impl<'state> Iterator for CommandIterator<'state, '_> {
                             effect,
                             &self.state.effect_parameters,
                             self.state.viewport(),
-                            self.state.fringe_width(),
                             self.maximum_texture_dimension,
                         );
                     } else {

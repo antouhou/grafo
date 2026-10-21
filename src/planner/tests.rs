@@ -72,7 +72,6 @@ fn scene() -> SceneState {
             physical_size: (32, 32),
             scale_factor: 1.0,
         },
-        0.75,
     )
 }
 

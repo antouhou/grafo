@@ -86,7 +86,7 @@ impl DrawTreeNode {
     pub(crate) fn is_axis_aligned_rect(&self) -> bool {
         match self {
             DrawTreeNode::CachedShape(cached_shape) => {
-                cached_shape.instance.cached_shape.is_rect
+                cached_shape.instance.cached_shape.tessellation.is_rect
                     && geometry::is_axis_aligned_rect_transform(cached_shape.instance.transform)
             }
             DrawTreeNode::ClipRect(_) => true,

@@ -32,14 +32,12 @@ impl<'scene> MaskCommands<'scene> {
         Self::default()
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn plan(
         &mut self,
         tree: &Tree<DrawTreeNode>,
         effects: &HashMap<usize, ShapeMaskEffectInstance>,
         parameters: &'scene EffectParameterStorage,
         scale: f64,
-        fringe: f32,
         size: Size,
         limit: u32,
     ) {
@@ -60,7 +58,6 @@ impl<'scene> MaskCommands<'scene> {
                     physical_size: (size.width, size.height),
                     scale_factor: scale,
                 },
-                fringe,
                 limit,
             );
             self.commands.instructions.extend(mem::take(&mut commands));
@@ -71,7 +68,6 @@ impl<'scene> MaskCommands<'scene> {
 fn scene_with_effects(
     parameters: &mut EffectParameterStorage,
     scale: f64,
-    fringe: f32,
 ) -> (Tree<DrawTreeNode>, HashMap<usize, ShapeMaskEffectInstance>) {
     let mut tree = Tree::new();
     let mut effects = HashMap::new();
@@ -100,7 +96,6 @@ fn scene_with_effects(
                     config,
                     Some(transform),
                     scale,
-                    fringe,
                 )
                 .unwrap(),
             },
@@ -114,16 +109,8 @@ fn mask_scopes_resolve_geometry_and_borrow_the_parameter_storage() {
     let mut parameters = EffectParameterStorage::default();
     let mut plan = MaskCommands::new();
     {
-        let (tree, effects) = scene_with_effects(&mut parameters, 2.0, 0.75);
-        plan.plan(
-            &tree,
-            &effects,
-            &parameters,
-            2.0,
-            0.75,
-            Size::new(200, 100),
-            1024,
-        );
+        let (tree, effects) = scene_with_effects(&mut parameters, 2.0);
+        plan.plan(&tree, &effects, &parameters, 2.0, Size::new(200, 100), 1024);
     }
     assert_eq!(plan.commands.instructions.len(), 8);
     for (index, commands) in plan
@@ -170,34 +157,18 @@ fn mask_scopes_resolve_geometry_and_borrow_the_parameter_storage() {
 #[test]
 fn replanning_masks_reuses_composite_storage_and_drops_removed_outputs() {
     let mut parameters = EffectParameterStorage::default();
-    let (mut tree, mut effects) = scene_with_effects(&mut parameters, 1.0, 0.75);
+    let (mut tree, mut effects) = scene_with_effects(&mut parameters, 1.0);
     let mut plan = MaskCommands::new();
-    plan.plan(
-        &tree,
-        &effects,
-        &parameters,
-        1.0,
-        0.75,
-        Size::new(100, 100),
-        1024,
-    );
+    plan.plan(&tree, &effects, &parameters, 1.0, Size::new(100, 100), 1024);
     let composite_capacity = plan.composites.capacity();
     for viewport in [Size::new(100, 100), Size::new(1, 1), Size::new(100, 100)] {
-        plan.plan(&tree, &effects, &parameters, 1.0, 0.75, viewport, 1024);
+        plan.plan(&tree, &effects, &parameters, 1.0, viewport, 1024);
         assert_eq!(plan.composites.capacity(), composite_capacity);
         assert_eq!(plan.composites.is_empty(), viewport.width == 1);
     }
     tree.clear();
     effects.clear();
-    plan.plan(
-        &tree,
-        &effects,
-        &parameters,
-        1.0,
-        0.75,
-        Size::new(100, 100),
-        1024,
-    );
+    plan.plan(&tree, &effects, &parameters, 1.0, Size::new(100, 100), 1024);
     assert!(plan.commands.instructions.is_empty());
     assert!(plan.composites.is_empty());
 }
@@ -206,7 +177,7 @@ fn replanning_masks_reuses_composite_storage_and_drops_removed_outputs() {
 fn empty_or_oversized_masks_never_produce_texture_references() {
     let mut parameters = EffectParameterStorage::default();
     let mut plan = MaskCommands::new();
-    let (mut tree, mut effects) = scene_with_effects(&mut parameters, 1.0, 0.75);
+    let (mut tree, mut effects) = scene_with_effects(&mut parameters, 1.0);
     let empty_shape = CachedShapeHandle::new(
         &Shape::builder().build(),
         &mut FillTessellator::new(),
@@ -214,14 +185,9 @@ fn empty_or_oversized_masks_never_produce_texture_references() {
         None,
     );
     let config = ShapeMaskEffectConfig::default();
-    let bounds = ShapeMaskEffectBounds::new(
-        empty_shape.tessellation.local_bounds,
-        config,
-        None,
-        1.0,
-        0.75,
-    )
-    .unwrap();
+    let bounds =
+        ShapeMaskEffectBounds::new(empty_shape.tessellation.local_bounds, config, None, 1.0)
+            .unwrap();
     let empty = tree.add_node(DrawTreeNode::CachedShape(CachedShapeDrawData::new(
         empty_shape,
         ShapeDrawCommandOptions::new(),
@@ -238,26 +204,10 @@ fn empty_or_oversized_masks_never_produce_texture_references() {
             bounds,
         },
     );
-    plan.plan(
-        &tree,
-        &effects,
-        &parameters,
-        1.0,
-        0.75,
-        Size::new(100, 100),
-        1,
-    );
+    plan.plan(&tree, &effects, &parameters, 1.0, Size::new(100, 100), 1);
     assert!(plan.commands.instructions.is_empty());
     assert!(plan.composites.is_empty());
-    plan.plan(
-        &tree,
-        &effects,
-        &parameters,
-        1.0,
-        0.75,
-        Size::new(100, 100),
-        1024,
-    );
+    plan.plan(&tree, &effects, &parameters, 1.0, Size::new(100, 100), 1024);
     assert_eq!(plan.composites.len(), 2);
     assert!(!plan.composites.contains_key(&empty));
 }

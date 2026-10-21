@@ -49,7 +49,6 @@ pub(crate) struct SceneState {
     updated_shape_ids: HashSet<usize>,
     context: SceneStateContext,
     viewport: Viewport,
-    fringe_width: f32,
     tessellator: FillTessellator,
     shape_resources: ShapeResources,
     pub(crate) effect_parameters: EffectParameterStorage,
@@ -61,14 +60,13 @@ pub(crate) struct SceneState {
 
 impl SceneState {
     /// Creates an empty scene for the supplied output dimensions and rasterization settings.
-    pub(crate) fn new(context: SceneStateContext, viewport: Viewport, fringe_width: f32) -> Self {
+    pub(crate) fn new(context: SceneStateContext, viewport: Viewport) -> Self {
         Self {
             texture_updates: context.texture_updates.subscribe(),
             updated_texture_ids: Vec::new(),
             updated_shape_ids: HashSet::default(),
             context,
             viewport,
-            fringe_width,
             draw_tree: Tree::new(),
             texture_index: TextureIndex::default(),
             tessellator: FillTessellator::new(),
@@ -86,28 +84,21 @@ impl SceneState {
         self.viewport
     }
 
-    /// Returns the antialiasing fringe width in physical pixels.
-    pub(crate) fn fringe_width(&self) -> f32 {
-        self.fringe_width
-    }
-
-    /// Updates effect bounds and backdrop captures for the new scale and fringe width.
+    /// Updates effect bounds and backdrop captures for the new scale.
     /// Preserves settings and attachments if any shape mask effect cannot use the new values.
-    pub(crate) fn update_raster_settings(
+    pub(crate) fn change_scale_factor(
         &mut self,
         scale_factor: f64,
-        fringe_width: f32,
         maximum_texture_dimension: u32,
     ) -> Result<(), SceneError> {
-        if let Err(error) = self.refresh_shape_mask_effect_bounds(scale_factor, fringe_width) {
-            self.refresh_shape_mask_effect_bounds(self.viewport.scale_factor, self.fringe_width)
+        if let Err(error) = self.refresh_shape_mask_effect_bounds(scale_factor) {
+            self.refresh_shape_mask_effect_bounds(self.viewport.scale_factor)
                 .expect(
                     "failed to restore shape mask effect bounds with previous rasterization settings",
                 );
             return Err(error);
         }
         self.viewport.scale_factor = scale_factor;
-        self.fringe_width = fringe_width;
         self.refresh_backdrop_capture_regions(maximum_texture_dimension);
         self.refresh_all_content_effect_bounds(maximum_texture_dimension);
         Ok(())
@@ -234,7 +225,6 @@ impl SceneState {
                 instance.effect,
                 instance.config,
                 self.viewport,
-                self.fringe_width,
                 maximum_texture_dimension,
             )
         });

@@ -31,10 +31,8 @@ fn coverage_vertex(input: CoverageInstanceInput, vertex: CoverageGeometryVertex,
     output.position = coverage_clip_position(vertex.position + input.coverage_translation);
     output.color = input.color;
     let texture_position = coordinates.texture_position;
-    let weight = texture_position.z;
-    output.layer0_tex_coords = vec3<f32>(texture_position.xy * input.texture_uv_transform_layer0.xy + input.texture_uv_transform_layer0.zw * weight, weight);
-    output.layer1_tex_coords = vec3<f32>(texture_position.xy * input.texture_uv_transform_layer1.xy + input.texture_uv_transform_layer1.zw * weight, weight);
-    output.coverage = 1.0;
+    output.layer0_uv_transform = input.texture_uv_transform_layer0;
+    output.layer1_uv_transform = input.texture_uv_transform_layer1;
     output.texture_flags = input.texture_flags;
     output.shape_tex_coords = texture_position;
     output.coverage_start = vertex.coverage_start;
@@ -50,9 +48,8 @@ fn vs_coverage_gradient(input: CoverageInstanceInput, @builtin(vertex_index) ver
     var output: GradientVertexOutput;
     output.position = base.position;
     output.color = base.color;
-    output.layer0_tex_coords = base.layer0_tex_coords;
-    output.layer1_tex_coords = base.layer1_tex_coords;
-    output.coverage = base.coverage;
+    output.layer0_uv_transform = base.layer0_uv_transform;
+    output.layer1_uv_transform = base.layer1_uv_transform;
     output.texture_flags = base.texture_flags;
     output.model_pos = coordinates.model_position;
     output.screen_pos = (vertex.position + input.coverage_translation) / uniforms.scale_factor;

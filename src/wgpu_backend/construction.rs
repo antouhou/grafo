@@ -11,8 +11,6 @@ use crate::core::Viewport;
 use std::sync::Arc;
 use wgpu::TextureFormat;
 
-const DEFAULT_FRINGE_WIDTH: f32 = 0.75;
-
 impl WgpuBackend {
     pub(in crate::wgpu_backend) fn initialize(
         context: Arc<WgpuContext>,
@@ -27,7 +25,6 @@ impl WgpuBackend {
             format,
             physical_size,
             scale_factor,
-            DEFAULT_FRINGE_WIDTH,
             msaa_sample_count,
         );
         let queue = context.queue.clone();
@@ -39,7 +36,6 @@ impl WgpuBackend {
             device,
             queue,
             format,
-            fringe_width: DEFAULT_FRINGE_WIDTH,
             readback_bytes: Vec::new(),
             viewport: Viewport {
                 physical_size,
@@ -101,7 +97,6 @@ impl WgpuBackend {
             self.format,
             self.viewport.physical_size,
             self.viewport.scale_factor,
-            self.fringe_width,
             self.msaa_sample_count,
             Some(self.pipeline_resources.shapes.layouts.gradient.clone()),
         );

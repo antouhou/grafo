@@ -1,4 +1,5 @@
 use super::projection::Projection;
+use super::rectangles;
 use super::rounded_rect::RoundedRectSweep;
 use super::scanline::{RowEdge, Scanline};
 use super::tiles::{CoverageDrawMetadata, CoverageDrawRange, CoverageGeometry, CoverageTile};
@@ -291,6 +292,11 @@ impl CoverageBuilder {
         let Some(projection) = Projection::new(transform, scale, local_bounds) else {
             return coverage_draw;
         };
+        if tessellation.is_rect {
+            if let Some(rectangle) = rectangles::build(local_bounds, &projection, size, geometry) {
+                return rectangle;
+            }
+        }
         let rounded_bounds = self.rounded_rect.prepare(tessellation, &projection, size);
         let bounds = rounded_bounds.or_else(|| {
             self.collect_boundary(tessellation, &projection);

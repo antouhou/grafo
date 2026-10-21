@@ -39,13 +39,12 @@ fn capture_region_skips_copy_when_fully_offscreen() {
 }
 
 #[test]
-fn shape_mask_effect_bounds_round_outward_and_add_fringe_guard() {
+fn shape_mask_effect_bounds_round_outward_and_add_filtering_border() {
     let bounds = ShapeMaskEffectBounds::new(
         [(1.25, 2.75), (10.1, 20.2)],
         ShapeMaskEffectConfig::new().outsets(1.0, 2.0, 3.0, 4.0),
         None,
         2.0,
-        0.75,
     )
     .unwrap();
 
@@ -61,7 +60,6 @@ fn shape_mask_effect_bounds_downsample_shrinks_texture_but_not_coverage() {
         ShapeMaskEffectConfig::new().outsets(1.0, 2.0, 3.0, 4.0),
         None,
         2.0,
-        0.75,
     )
     .unwrap();
     let downsampled = ShapeMaskEffectBounds::new(
@@ -71,7 +69,6 @@ fn shape_mask_effect_bounds_downsample_shrinks_texture_but_not_coverage() {
             .downsample(0.5),
         None,
         2.0,
-        0.75,
     )
     .unwrap();
 
@@ -90,7 +87,6 @@ fn shape_mask_effect_bounds_downsample_keeps_at_least_one_texel() {
         ShapeMaskEffectConfig::new().downsample(0.1),
         None,
         1.0,
-        0.75,
     )
     .unwrap();
 
@@ -106,7 +102,6 @@ fn shape_mask_effect_bounds_reject_out_of_range_downsample() {
             ShapeMaskEffectConfig::new().downsample(downsample),
             None,
             1.0,
-            0.75,
         )
         .is_none());
     }
@@ -119,7 +114,6 @@ fn shape_mask_effect_bounds_reject_non_finite_inputs() {
         ShapeMaskEffectConfig::default(),
         None,
         1.0,
-        0.75,
     )
     .is_none());
 }

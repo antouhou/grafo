@@ -63,7 +63,7 @@ fn texture_mutations_damage_current_users_and_survive_failed_rendering() {
     manager.allocate_texture_with_data(11, (1, 1), &[0; 4]);
     manager.allocate_texture_with_data(11, (1, 1), &[255; 4]);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((7, 7), (49, 25)));
+    assert_eq!(scene.backend.root_scissor, rect((8, 8), (48, 24)));
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, None);
 
@@ -71,14 +71,14 @@ fn texture_mutations_damage_current_users_and_survive_failed_rendering() {
     manager.load_data_into_texture(12, (1, 1), &[0; 4]).unwrap();
     scene.backend.should_fail = true;
     assert!(scene.render(&mut surface).is_err());
-    assert_eq!(scene.dirty_bounds, rect((7, 7), (109, 73)));
+    assert_eq!(scene.dirty_bounds, rect((8, 8), (108, 72)));
     scene.backend.should_fail = false;
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((7, 7), (109, 73)));
+    assert_eq!(scene.backend.root_scissor, rect((8, 8), (108, 72)));
 
     manager.remove_texture(11);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((7, 7), (49, 25)));
+    assert_eq!(scene.backend.root_scissor, rect((8, 8), (48, 24)));
     assert!(manager.load_data_into_texture(11, (1, 1), &[0; 4]).is_err());
     manager.remove_texture(11);
     manager.allocate_texture(99, (1, 1));
@@ -87,10 +87,10 @@ fn texture_mutations_damage_current_users_and_survive_failed_rendering() {
 
     manager.allocate_texture(11, (1, 1));
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((7, 7), (49, 25)));
+    assert_eq!(scene.backend.root_scissor, rect((8, 8), (48, 24)));
     manager.clear();
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((7, 7), (109, 73)));
+    assert_eq!(scene.backend.root_scissor, rect((8, 8), (108, 72)));
     manager.clear();
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, None);
@@ -109,11 +109,11 @@ fn shared_texture_updates_are_consumed_independently_by_scenes() {
         .load_data_into_texture(11, (1, 1), &[255; 4])
         .unwrap();
     first.render(&mut first_surface).unwrap();
-    assert_eq!(first.backend.root_scissor, rect((7, 7), (49, 25)));
+    assert_eq!(first.backend.root_scissor, rect((8, 8), (48, 24)));
     first.render(&mut first_surface).unwrap();
     assert_eq!(first.backend.root_scissor, None);
     second.render(&mut second_surface).unwrap();
-    assert_eq!(second.backend.root_scissor, rect((7, 7), (49, 25)));
+    assert_eq!(second.backend.root_scissor, rect((8, 8), (48, 24)));
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn texture_damage_is_expanded_through_chained_backdrop_captures() {
     scene.render(&mut surface).unwrap();
     manager.allocate_texture_with_data(11, (1, 1), &[255; 4]);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((0, 0), (89, 32)));
+    assert_eq!(scene.backend.root_scissor, rect((0, 0), (88, 32)));
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, None);
 }
@@ -171,7 +171,7 @@ fn texture_damage_uses_current_associations_after_node_slot_reuse() {
     assert_eq!(scene.backend.root_scissor, None);
     manager.allocate_texture(12, (1, 1));
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((79, 63), (109, 89)));
+    assert_eq!(scene.backend.root_scissor, rect((80, 64), (108, 88)));
 }
 
 #[test]
@@ -184,13 +184,13 @@ fn updates_during_rendering_remain_pending_for_the_next_render() {
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, None);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((7, 7), (49, 25)));
+    assert_eq!(scene.backend.root_scissor, rect((8, 8), (48, 24)));
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, None);
 }
 
 #[test]
-fn texture_damage_respects_transforms_scale_fringe_and_viewport_clipping() {
+fn texture_damage_respects_transforms_scale_and_viewport_clipping() {
     let manager = TestTextureManager::default();
     let size = (64, 48);
     let mut scene = Scene::from_parts(
@@ -202,7 +202,6 @@ fn texture_damage_respects_transforms_scale_fringe_and_viewport_clipping() {
         SceneStateContext::new(manager.updates.clone()),
     );
     scene.change_scale_factor(2.0).unwrap();
-    scene.set_fringe_width(2.0).unwrap();
     scene
         .add_shape(
             Shape::rect([(0.0, 0.0), (16.0, 8.0)]),
@@ -217,5 +216,5 @@ fn texture_damage_respects_transforms_scale_fringe_and_viewport_clipping() {
     scene.render(&mut surface).unwrap();
     manager.allocate_texture(11, (1, 1));
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((46, 14), (64, 34)));
+    assert_eq!(scene.backend.root_scissor, rect((48, 16), (64, 32)));
 }

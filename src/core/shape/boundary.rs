@@ -100,12 +100,6 @@ impl PathBoundaryBuilder {
         self.positions
             .extend(vertices.iter().map(|vertex| project(vertex.position)));
         for triangle in indices.as_chunks::<3>().0 {
-            if triangle
-                .iter()
-                .any(|&index| vertices[index as usize].coverage != 1.0)
-            {
-                continue;
-            }
             let [a, mut b, mut c] = triangle.map(|index| self.positions[index as usize]);
             let area = (b[0] as f64 - a[0] as f64) * (c[1] as f64 - a[1] as f64)
                 - (b[1] as f64 - a[1] as f64) * (c[0] as f64 - a[0] as f64);

@@ -19,7 +19,6 @@ fn scene() -> SceneState {
             physical_size: (32, 32),
             scale_factor: 1.0,
         },
-        0.75,
     )
 }
 
@@ -35,7 +34,6 @@ fn textured_scene(context: SceneStateContext, bounds: [(f32, f32); 2]) -> SceneS
             physical_size: (32, 32),
             scale_factor: 1.0,
         },
-        0.75,
     );
     let shape = scene.tessellate(&Shape::rect(bounds), None);
     scene.insert_node(

@@ -14,7 +14,6 @@ pub(crate) struct ShapeMaskCacheKey {
     pub local_raster_origin: [i32; 2],
     pub raster_size: [u32; 2],
     pub scale_factor_bits: u64,
-    pub fringe_width_bits: u32,
     pub downsample_bits: u32,
     pub texture_format: TextureFormat,
 }
@@ -25,7 +24,6 @@ impl PartialEq for ShapeMaskCacheKey {
             && self.local_raster_origin == other.local_raster_origin
             && self.raster_size == other.raster_size
             && self.scale_factor_bits == other.scale_factor_bits
-            && self.fringe_width_bits == other.fringe_width_bits
             && self.downsample_bits == other.downsample_bits
             && self.texture_format == other.texture_format
     }
@@ -39,7 +37,6 @@ impl Hash for ShapeMaskCacheKey {
         self.local_raster_origin.hash(state);
         self.raster_size.hash(state);
         self.scale_factor_bits.hash(state);
-        self.fringe_width_bits.hash(state);
         self.downsample_bits.hash(state);
         self.texture_format.hash(state);
     }

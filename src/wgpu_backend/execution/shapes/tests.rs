@@ -86,7 +86,6 @@ fn removal_compacts_buffers_and_keeps_shared_geometry_until_its_last_draw() {
             physical_size: (32, 32),
             scale_factor: 1.0,
         },
-        0.75,
     );
     let shared = ShapeInstance::new(
         scene.tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1)),
@@ -156,7 +155,6 @@ fn batch_removal_keeps_surviving_geometry_and_instances() {
             physical_size: (32, 32),
             scale_factor: 1.0,
         },
-        0.75,
     );
     let shared = ShapeInstance::new(
         scene.tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1)),
@@ -268,7 +266,6 @@ fn batch_replacement_compacts_overwritten_instances_and_preserves_shared_geometr
             physical_size: (32, 32),
             scale_factor: 1.0,
         },
-        0.75,
     );
     let shared = ShapeInstance::new(
         scene.tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1)),

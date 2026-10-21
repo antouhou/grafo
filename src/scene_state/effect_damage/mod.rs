@@ -34,7 +34,6 @@ impl EffectDamageEntry {
         node: &DrawTreeNode,
         capture_region: Option<CaptureRegion>,
         viewport: Viewport,
-        fringe_width: f32,
     ) -> Option<Self> {
         let capture_region = capture_region?.source_rect;
         let DrawTreeNode::CachedShape(shape) = node else {
@@ -43,11 +42,8 @@ impl EffectDamageEntry {
         if !shape.has_geometry() {
             return None;
         }
-        let target_region = geometry::logical_bounds_to_viewport_rect(
-            shape.logical_screen_bounds,
-            viewport,
-            fringe_width,
-        );
+        let target_region =
+            geometry::logical_bounds_to_viewport_rect(shape.logical_screen_bounds, viewport);
         if capture_region.is_none() && target_region.is_none() {
             return None;
         }
