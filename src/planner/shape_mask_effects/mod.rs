@@ -34,11 +34,13 @@ pub(super) fn append_shape_mask_effect<'scene>(
     }
     let bounds = effect.bounds;
     let [width, height] = bounds.texture_size;
-    if !effect::can_allocate_texture(
+    if effect::validate_texture_size(
         Size::new(width, height),
         viewport.physical_size.into(),
         maximum_texture_dimension,
-    ) {
+    )
+    .is_err()
+    {
         tracing::warn!(node_id, "skipping oversized shape mask effect texture");
         return;
     }

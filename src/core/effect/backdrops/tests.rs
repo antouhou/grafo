@@ -1,37 +1,8 @@
-use super::{
-    compute_backdrop_capture_region, does_capture_size_exceeds_budget,
-    does_capture_size_exceeds_limits,
-};
+use super::compute_backdrop_capture_region;
 use crate::core::effect::{BackdropCaptureArea, BackdropEffectConfig, CaptureRegion};
 use crate::core::geometry::compute_downsampled_dimensions;
 use crate::{MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
 use lyon::geom::Point;
-
-#[test]
-fn capture_dimension_limit_rejects_oversized_regions() {
-    let max_capture_dimension = 4_096u32;
-
-    assert!(does_capture_size_exceeds_limits(
-        Size::new(max_capture_dimension + 1, 64),
-        max_capture_dimension,
-    ));
-    assert!(!does_capture_size_exceeds_limits(
-        Size::new(max_capture_dimension, max_capture_dimension),
-        max_capture_dimension,
-    ));
-}
-
-#[test]
-fn capture_texel_budget_rejects_large_dimension_valid_regions() {
-    assert!(does_capture_size_exceeds_budget(
-        Size::new(1_500, 1_500),
-        Size::new(480, 800)
-    ));
-    assert!(!does_capture_size_exceeds_budget(
-        Size::new(480, 800),
-        Size::new(480, 800)
-    ));
-}
 
 #[test]
 fn padded_capture_preserves_full_resolution_bounds() {

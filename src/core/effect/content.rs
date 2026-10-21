@@ -90,11 +90,12 @@ fn input_bounds(
     maximum_texture_dimension: u32,
 ) -> MathRect {
     let Some(bounds) = shape_mask_effect_bounds.filter(|bounds| {
-        effect::can_allocate_texture(
+        effect::validate_texture_size(
             Size::new(bounds.texture_size[0], bounds.texture_size[1]),
             viewport_size,
             maximum_texture_dimension,
         )
+        .is_ok()
     }) else {
         return shape_bounds;
     };
@@ -133,7 +134,9 @@ impl ContentEffectBounds {
         let output_bounds =
             geometry::logical_rect_to_physical_rect(padded_bounds, viewport.scale_factor)?;
         let capture_size = output_bounds.size().to_u32();
-        if !effect::can_allocate_texture(capture_size, viewport_size, maximum_texture_dimension) {
+        if effect::validate_texture_size(capture_size, viewport_size, maximum_texture_dimension)
+            .is_err()
+        {
             warn!("skipping oversized content effect texture");
             return None;
         }

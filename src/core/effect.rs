@@ -22,21 +22,39 @@ use crate::core::vertex::InstanceTransform;
 use crate::core::{MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
 pub(crate) use content::ContentEffectBounds;
 pub use content::ContentEffectConfig;
+use thiserror::Error;
 
 pub(crate) mod backdrops;
 mod content;
 
-pub(crate) fn can_allocate_texture(
+#[derive(Debug, Error, PartialEq, Eq)]
+pub(crate) enum TextureSizeError {
+    #[error("Texture dimensions exceed the supported maximum")]
+    DimensionExceeded,
+    #[error("Texture requires {requested} texels, exceeding the budget of {maximum}")]
+    TexelBudgetExceeded { requested: u64, maximum: u64 },
+}
+
+pub(crate) fn validate_texture_size(
     texture_size: Size,
     viewport_size: Size,
     maximum_texture_dimension: u32,
-) -> bool {
+) -> Result<(), TextureSizeError> {
+    if texture_size.width > maximum_texture_dimension
+        || texture_size.height > maximum_texture_dimension
+    {
+        return Err(TextureSizeError::DimensionExceeded);
+    }
     let viewport_texels = u64::from(viewport_size.width) * u64::from(viewport_size.height);
     let maximum_texels = viewport_texels.saturating_mul(4);
     let texture_texels = u64::from(texture_size.width) * u64::from(texture_size.height);
-    texture_size.width <= maximum_texture_dimension
-        && texture_size.height <= maximum_texture_dimension
-        && texture_texels <= maximum_texels
+    if texture_texels > maximum_texels {
+        return Err(TextureSizeError::TexelBudgetExceeded {
+            requested: texture_texels,
+            maximum: maximum_texels,
+        });
+    }
+    Ok(())
 }
 
 /// The rendered region to capture as input to a backdrop effect.
