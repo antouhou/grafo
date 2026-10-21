@@ -7,6 +7,7 @@ use wgpu::TextureFormat;
 
 fn tessellation() -> Arc<CachedTessellation> {
     Arc::new(CachedTessellation {
+        is_rect: false,
         boundary_edges: Vec::new(),
         rounded_rect_boundary: None,
         vertex_buffers: Arc::new(VertexBuffers::<CustomVertex, u16>::new()),
@@ -25,7 +26,6 @@ fn cache_key(
             local_raster_origin: [-1, -1],
             raster_size: [12, 12],
             scale_factor_bits: 1.0f64.to_bits(),
-            fringe_width_bits: 0.75f32.to_bits(),
             downsample_bits: 1.0f32.to_bits(),
             texture_format: TextureFormat::Bgra8UnormSrgb,
         },

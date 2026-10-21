@@ -14,22 +14,19 @@ pub struct WgpuSurface {
 }
 
 impl WgpuBackend {
-    pub(in crate::wgpu_backend) fn resize(&mut self, viewport: Viewport, fringe_width: f32) {
+    pub(in crate::wgpu_backend) fn resize(&mut self, viewport: Viewport) {
         let should_rebuild_coverage = self.viewport.physical_size != viewport.physical_size
             || self.viewport.scale_factor != viewport.scale_factor;
         self.viewport = viewport;
-        self.fringe_width = fringe_width;
         let new_physical_size = viewport.physical_size;
 
         let pipelines = &mut self.pipeline_resources.shapes;
         let logical_size = to_logical(new_physical_size, self.viewport.scale_factor);
         pipelines.and_uniforms.canvas_size = [logical_size.0, logical_size.1];
         pipelines.and_uniforms.scale_factor = self.viewport.scale_factor as f32;
-        pipelines.and_uniforms.fringe_width = self.fringe_width;
 
         pipelines.decrementing_uniforms.canvas_size = [logical_size.0, logical_size.1];
         pipelines.decrementing_uniforms.scale_factor = self.viewport.scale_factor as f32;
-        pipelines.decrementing_uniforms.fringe_width = self.fringe_width;
 
         self.queue.write_buffer(
             &pipelines.and_uniform_buffer,

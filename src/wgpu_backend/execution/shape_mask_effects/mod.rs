@@ -30,9 +30,6 @@ mod pipelines;
 struct MaskUniform {
     local_origin: [f32; 2],
     logical_size: [f32; 2],
-    scale_factor: f32,
-    fringe_width: f32,
-    padding: [f32; 2],
 }
 
 #[derive(Clone)]
@@ -78,7 +75,6 @@ impl ShapeMaskEffectExecutionResources<'_> {
             local_raster_origin: command.local_physical_origin,
             raster_size: target.size,
             scale_factor_bits: command.scale_factor.to_bits(),
-            fringe_width_bits: command.fringe_width.to_bits(),
             downsample_bits: command.downsample.to_bits(),
             texture_format: self.format,
         };
@@ -100,9 +96,6 @@ impl ShapeMaskEffectExecutionResources<'_> {
                         command.local_bounds[1].0 - command.local_bounds[0].0,
                         command.local_bounds[1].1 - command.local_bounds[0].1,
                     ],
-                    scale_factor: command.scale_factor as f32,
-                    fringe_width: command.fringe_width,
-                    padding: [0.0; 2],
                 };
                 let coverage = if let Some(path) = &shape.path_coverage {
                     let scale_x = width as f32 / uniform.logical_size[0];

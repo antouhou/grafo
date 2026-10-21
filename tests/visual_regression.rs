@@ -135,8 +135,9 @@ fn root_replacement_and_partial_updates_preserve_retained_pixels() {
 }
 
 #[test]
-fn negative_w_addition_and_removal_update_retained_pixels() {
-    let Some(mut scene) = create_headless_scene_with_size_and_scale((32, 32), 1.0) else {
+fn projected_rect_addition_and_removal_update_retained_pixels() {
+    let size = (64, 64);
+    let Some(mut scene) = create_headless_scene_with_size_and_scale(size, 1.0) else {
         return;
     };
     scene
@@ -144,17 +145,39 @@ fn negative_w_addition_and_removal_update_retained_pixels() {
         .unwrap();
     let mut transform = TransformInstance::identity();
     transform.col3[3] = -1.0;
+    let cases = [
+        ([(8.0, 8.0), (16.0, 16.0)], transform),
+        (
+            [(999_980.0, 8.0), (1_000_000.0, 16.0)],
+            TransformInstance::affine_2d(1.1, 0.0, 0.0, 1.0, -1_099_984.0, 0.0),
+        ),
+        (
+            [(999_981.5, 8.0), (1_000_000.0, 28.0)],
+            TransformInstance::translation(-999_970.0, 0.0),
+        ),
+        (
+            [(8.0, 999_981.5), (28.0, 1_000_000.0)],
+            TransformInstance::translation(0.0, -999_970.0),
+        ),
+    ];
     let mut pixels = Vec::new();
 
     // A populated first render cannot exercise retained-output damage.
-    for samples in [1, 4] {
+    for (samples, scale_factor) in [1, 4].into_iter().flat_map(|samples| {
+        [1.0, 1.25, 1.5, 0.7, 1.3, 2.0].map(|scale_factor| (samples, scale_factor))
+    }) {
         scene.set_msaa_samples(samples);
-        for has_shape_mask_effect in [false, true] {
+        scene.change_scale_factor(scale_factor).unwrap();
+        for (bounds, transform, has_shape_mask_effect) in
+            cases.into_iter().flat_map(|(bounds, transform)| {
+                [false, true].map(|has_effect| (bounds, transform, has_effect))
+            })
+        {
             render_bgra(&mut scene, &mut pixels).unwrap();
             assert!(pixels.iter().all(|&byte| byte == 0));
             let node = scene
                 .add_shape(
-                    Shape::rect([(8.0, 8.0), (16.0, 16.0)]),
+                    Shape::rect(bounds),
                     None,
                     None,
                     ShapeDrawCommandOptions::new()
@@ -173,14 +196,35 @@ fn negative_w_addition_and_removal_update_retained_pixels() {
                     .unwrap();
             }
             render_bgra(&mut scene, &mut pixels).unwrap();
-            assert_eq!(read_pixel_rgba(&pixels, 32, 12, 12), [255, 0, 0, 255]);
+            let center = (14.0 * scale_factor) as u32;
+            assert_eq!(
+                read_pixel_rgba(&pixels, size.0, center, center),
+                [255, 0, 0, 255]
+            );
             let incremental = pixels.clone();
-            scene.resize((32, 32));
+            scene.resize(size);
             render_bgra(&mut scene, &mut pixels).unwrap();
-            assert_eq!(pixels, incremental);
+            let redraw_difference = pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(incremental.as_chunks::<4>().0)
+                .filter(|(full, incremental)| full != incremental)
+                .count();
             scene.remove_subtrees([node], |_| {});
             render_bgra(&mut scene, &mut pixels).unwrap();
-            assert!(pixels.iter().all(|&byte| byte == 0));
+            let residual_pixels = pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|pixel| pixel.iter().any(|&byte| byte != 0))
+                .count();
+            assert_eq!(
+                (redraw_difference, residual_pixels),
+                (0, 0),
+                "bounds {bounds:?}, transform {transform:?}, scale {scale_factor}, \
+                 samples {samples}, shape mask effect {has_shape_mask_effect}"
+            );
         }
     }
 }
@@ -220,7 +264,6 @@ fn rejected_rasterization_changes_preserve_shape_mask_effect_pixels() {
     assert_eq!(read_pixel_rgba(&pixels, 512, 192, 32), [0, 0, 0, 0]);
     let recovered = pixels.clone();
 
-    let _ = scene.set_fringe_width(f32::MAX);
     render_bgra(&mut scene, &mut pixels).unwrap();
     assert_eq!(pixels, recovered);
     scene.change_scale_factor(1.0).unwrap();

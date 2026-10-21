@@ -10,7 +10,6 @@ fn finished_coverage_combines_many_edges_inside_a_single_pixel() {
             physical_size: (40, 40),
             scale_factor: 1.0,
         },
-        0.75,
     );
     let mut mesh = CoverageTestMesh::default();
     for is_horizontal in [false, true] {
@@ -63,7 +62,6 @@ fn sparse_sweeps_preserve_empty_regions_and_reused_storage() {
             physical_size: (128, 128),
             scale_factor: 1.0,
         },
-        0.75,
     );
     let mut mesh = CoverageTestMesh::default();
     for size in [(128, 128), (19, 35), (96, 81), (128, 128)] {

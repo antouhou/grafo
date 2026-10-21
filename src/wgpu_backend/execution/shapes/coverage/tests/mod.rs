@@ -10,6 +10,7 @@ use crate::scene_state::{SceneState, SceneStateContext};
 use std::ops::Deref;
 use std::sync::Arc;
 
+mod rectangles;
 mod rounded_rect;
 mod sparse;
 
@@ -142,16 +143,11 @@ fn path_tiles_match_independently_clipped_triangles() {
             physical_size: (64, 64),
             scale_factor: 1.0,
         },
-        0.75,
     );
     let mut mesh = CoverageTestMesh::default();
     for shape in shapes {
         let cached = scene.tessellate(&shape, None);
         let geometry = cached.vertex_buffers();
-        assert!(geometry
-            .vertices
-            .iter()
-            .all(|vertex| vertex.coverage == 1.0));
         mesh.build(&cached.tessellation, None, 1.0, (64, 64));
         for y in 0..64 {
             for x in 0..64 {
@@ -184,7 +180,6 @@ fn transformed_tiles_preserve_thin_features_and_rebuild_for_viewport_changes() {
             physical_size: (32, 32),
             scale_factor: 1.0,
         },
-        0.75,
     );
     let cached = scene.tessellate(
         &Shape::builder()
@@ -229,7 +224,6 @@ fn projected_path_tiles_match_the_projected_triangle_areas() {
             physical_size: (64, 64),
             scale_factor: 1.0,
         },
-        0.75,
     );
     let cached = scene.tessellate(
         &Shape::builder()
@@ -295,7 +289,6 @@ fn coverage_reuse_distinguishes_placement_and_replaced_geometry() {
             physical_size: (128, 128),
             scale_factor: 1.0,
         },
-        0.75,
     );
     let first = scene.tessellate(
         &Shape::rounded_rect([(0.0, 0.0), (32.0, 32.0)], BorderRadii::new(8.0)),
@@ -350,7 +343,6 @@ fn sparse_spans_preserve_holes_partial_rows_and_separate_draw_ranges() {
             physical_size: (128, 64),
             scale_factor: 1.0,
         },
-        0.75,
     );
     let cached = scene.tessellate(&shape, None);
     let geometry = cached.vertex_buffers();
@@ -393,7 +385,7 @@ fn translated_coverage_preserves_pixel_phase_and_viewport_clipping() {
         physical_size: (192, 128),
         scale_factor: 1.0,
     };
-    let mut scene = SceneState::new(SceneStateContext::default(), viewport, 0.75);
+    let mut scene = SceneState::new(SceneStateContext::default(), viewport);
     let cached = scene.tessellate(
         &Shape::rounded_rect([(0.375, 0.625), (60.875, 40.75)], BorderRadii::new(12.0)),
         None,
@@ -465,7 +457,6 @@ fn non_finite_projected_triangles_do_not_produce_coverage() {
             physical_size: (64, 64),
             scale_factor: 1.0,
         },
-        0.75,
     );
     let cached = scene.tessellate(
         &Shape::builder()

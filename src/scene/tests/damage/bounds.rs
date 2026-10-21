@@ -26,7 +26,7 @@ fn negative_w_shape_addition_dirties_shader_footprint_after_empty_render() {
     scene.render(&mut surface).unwrap();
     assert_eq!(
         scene.backend.root_scissor,
-        Some(UnsignedPhysicalRect::new((7, 7).into(), (17, 17).into()))
+        Some(UnsignedPhysicalRect::new((8, 8).into(), (16, 16).into()))
     );
 }
 
@@ -51,7 +51,7 @@ fn negative_w_shape_removal_dirties_shader_footprint_after_render() {
     scene.render(&mut surface).unwrap();
     assert_eq!(
         scene.backend.root_scissor,
-        Some(UnsignedPhysicalRect::new((7, 7).into(), (17, 17).into()))
+        Some(UnsignedPhysicalRect::new((8, 8).into(), (16, 16).into()))
     );
 }
 
@@ -138,7 +138,7 @@ fn subtree_replacement_accumulates_bounds_until_a_successful_render() {
         )
         .unwrap();
     scene.render(&mut surface).unwrap();
-    let bounds = UnsignedPhysicalRect::new((3, 5).into(), (25, 27).into());
+    let bounds = UnsignedPhysicalRect::new((4, 6).into(), (24, 26).into());
     assert_eq!(scene.backend.root_scissor, Some(bounds));
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, None);
@@ -159,7 +159,7 @@ fn subtree_replacement_accumulates_bounds_until_a_successful_render() {
     assert!(scene.is_dirty_region_overlay_enabled());
     assert_eq!(
         scene.backend.root_scissor,
-        Some(UnsignedPhysicalRect::new((3, 1).into(), (32, 27).into()))
+        Some(UnsignedPhysicalRect::new((4, 2).into(), (32, 26).into()))
     );
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, None);
@@ -168,7 +168,7 @@ fn subtree_replacement_accumulates_bounds_until_a_successful_render() {
     scene.render(&mut surface).unwrap();
     assert_eq!(
         scene.backend.root_scissor,
-        Some(UnsignedPhysicalRect::new((27, 1).into(), (32, 7).into()))
+        Some(UnsignedPhysicalRect::new((28, 2).into(), (32, 6).into()))
     );
     scene.remove_subtrees([usize::MAX], |_| panic!("missing node"));
     scene.set_dirty_region_overlay_enabled(false);
@@ -237,11 +237,10 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
         )
         .unwrap();
 
-    for (scale, size, fringe, expected_clip, expected_cached_clip, expected_capture) in [
+    for (scale, size, expected_clip, expected_cached_clip, expected_capture) in [
         (
             1.0,
             (32, 32),
-            0.75,
             UnsignedPhysicalRect::new((5, 4).into(), (25, 24).into()),
             UnsignedPhysicalRect::new((9, 7).into(), (13, 10).into()),
             PhysicalRect::new((15, 10).into(), (22, 17).into()),
@@ -249,7 +248,6 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
         (
             2.0,
             (64, 48),
-            2.0,
             UnsignedPhysicalRect::new((10, 8).into(), (50, 48).into()),
             UnsignedPhysicalRect::new((18, 14).into(), (26, 20).into()),
             PhysicalRect::new((31, 21).into(), (43, 33).into()),
@@ -258,13 +256,12 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
         if scale != 1.0 {
             surface.resize(size);
             scene.change_scale_factor(scale).unwrap();
-            scene.set_fringe_width(fringe).unwrap();
         }
         scene.render(&mut surface).unwrap();
         if scale == 1.0 {
             assert_eq!(
                 scene.backend.root_scissor,
-                Some(UnsignedPhysicalRect::new((8, 6).into(), (22, 17).into()))
+                Some(UnsignedPhysicalRect::new((9, 7).into(), (22, 17).into()))
             );
         }
         assert_eq!(
@@ -300,12 +297,12 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
     scene.render(&mut surface).unwrap();
     assert_eq!(
         scene.backend.root_scissor,
-        Some(UnsignedPhysicalRect::new((16, 12).into(), (28, 22).into()))
+        Some(UnsignedPhysicalRect::new((18, 14).into(), (26, 20).into()))
     );
     scene.remove_subtrees([branch], |_| {});
     scene.render(&mut surface).unwrap();
     assert_eq!(
         scene.backend.root_scissor,
-        Some(UnsignedPhysicalRect::new((30, 20).into(), (44, 34).into()))
+        Some(UnsignedPhysicalRect::new((32, 22).into(), (42, 32).into()))
     );
 }

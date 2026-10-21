@@ -8,14 +8,12 @@ use crate::core::shape::boundary::RoundedRectBoundary;
 use crate::core::util::ShapeResources;
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
 use crate::core::Color;
-use ahash::AHashMap;
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, VertexBuffers,
 };
 pub use lyon::path::FillRule;
 use lyon::path::{Builder, Path, Winding};
 use lyon::tessellation::FillVertexConstructor;
-use smallvec::SmallVec;
 use std::sync::Arc;
 
 pub(crate) mod boundary;
@@ -23,9 +21,6 @@ pub(crate) mod boundary;
 #[derive(Debug, Clone)]
 pub struct CachedShapeHandle {
     pub tessellation: Arc<CachedTessellation>,
-    /// Whether the original shape was an axis-aligned rectangle. Used to enable scissor-based
-    /// clipping instead of stencil for rect parents.
-    pub(crate) is_rect: bool,
     pub geometry_id: Option<u64>,
 }
 
@@ -42,7 +37,6 @@ impl CachedShapeHandle {
         let tessellation = shape.tessellate(tessellator, shape_resources, geometry_id);
         Self {
             tessellation,
-            is_rect: matches!(shape, Shape::Rect(_)),
             geometry_id,
         }
     }
@@ -223,26 +217,18 @@ impl Shape {
                     CustomVertex {
                         position: [min_x, min_y],
                         tex_coords: uv(min_x, min_y),
-                        normal: [0.0, 0.0],
-                        coverage: 1.0,
                     },
                     CustomVertex {
                         position: [max_x, min_y],
                         tex_coords: uv(max_x, min_y),
-                        normal: [0.0, 0.0],
-                        coverage: 1.0,
                     },
                     CustomVertex {
                         position: [max_x, max_y],
                         tex_coords: uv(max_x, max_y),
-                        normal: [0.0, 0.0],
-                        coverage: 1.0,
                     },
                     CustomVertex {
                         position: [min_x, max_y],
                         tex_coords: uv(min_x, max_y),
-                        normal: [0.0, 0.0],
-                        coverage: 1.0,
                     },
                 ];
                 let indices = [0u16, 1, 2, 0, 2, 3];
@@ -253,14 +239,18 @@ impl Shape {
                 vertex_buffers.vertices.extend(quad);
                 vertex_buffers.indices.extend(indices);
 
-                generate_aa_fringe(
-                    &mut vertex_buffers.vertices,
-                    &mut vertex_buffers.indices,
-                    &mut shape_resources.aa_fringe_scratch,
-                );
+                let boundary_edges = shape_resources
+                    .path_boundary_builder
+                    .build(
+                        &vertex_buffers.vertices,
+                        &vertex_buffers.indices,
+                        |position| position,
+                    )
+                    .collect();
 
                 let tessellation = Arc::new(CachedTessellation {
-                    boundary_edges: Vec::new(),
+                    is_rect: true,
+                    boundary_edges,
                     rounded_rect_boundary: None,
                     vertex_buffers: Arc::new(vertex_buffers),
                     local_bounds,
@@ -330,441 +320,6 @@ impl FillVertexConstructor<CustomVertex> for VertexConverter {
         CustomVertex {
             position: vertex.position().to_array(),
             tex_coords: [0.0, 0.0],
-            normal: [0.0, 0.0],
-            coverage: 1.0,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-struct BoundaryVertexKey {
-    x_bits: u32,
-    y_bits: u32,
-}
-
-impl BoundaryVertexKey {
-    fn from_position(position: [f32; 2]) -> Self {
-        Self {
-            x_bits: normalized_float_bits(position[0]),
-            y_bits: normalized_float_bits(position[1]),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct BoundaryEdgeKey {
-    start: BoundaryVertexKey,
-    end: BoundaryVertexKey,
-}
-
-impl BoundaryEdgeKey {
-    fn new(start_position: [f32; 2], end_position: [f32; 2]) -> Self {
-        let start = BoundaryVertexKey::from_position(start_position);
-        let end = BoundaryVertexKey::from_position(end_position);
-        if start <= end {
-            Self { start, end }
-        } else {
-            Self {
-                start: end,
-                end: start,
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct BoundaryEdge {
-    start_vertex_index: u16,
-    end_vertex_index: u16,
-    opposite_vertex_index: u16,
-    triangle_index: usize,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct BoundaryCornerKey {
-    vertex_key: BoundaryVertexKey,
-    component_index: usize,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct BoundaryCornerNormalData {
-    accumulated_normal: [f32; 2],
-    source_vertex_index: u16,
-}
-
-pub(crate) struct AaFringeScratch {
-    edge_use_counts: AHashMap<BoundaryEdgeKey, (usize, BoundaryEdge)>,
-    edge_owners: AHashMap<BoundaryEdgeKey, SmallVec<[usize; 2]>>,
-    incident_triangles_by_vertex: AHashMap<BoundaryVertexKey, SmallVec<[usize; 4]>>,
-    triangle_adjacency: AHashMap<(BoundaryVertexKey, usize), SmallVec<[usize; 4]>>,
-    visited_triangles: AHashMap<usize, usize>,
-    triangle_component_map: AHashMap<(usize, BoundaryVertexKey), usize>,
-    boundary_corner_normals: AHashMap<BoundaryCornerKey, BoundaryCornerNormalData>,
-    outer_vertex_indices: AHashMap<BoundaryCornerKey, u16>,
-    boundary_edges: Vec<BoundaryEdge>,
-    triangle_stack: Vec<usize>,
-}
-
-impl AaFringeScratch {
-    pub(crate) fn new() -> Self {
-        Self {
-            edge_use_counts: AHashMap::new(),
-            edge_owners: AHashMap::new(),
-            incident_triangles_by_vertex: AHashMap::new(),
-            triangle_adjacency: AHashMap::new(),
-            visited_triangles: AHashMap::new(),
-            triangle_component_map: AHashMap::new(),
-            boundary_corner_normals: AHashMap::new(),
-            outer_vertex_indices: AHashMap::new(),
-            boundary_edges: Vec::new(),
-            triangle_stack: Vec::new(),
-        }
-    }
-
-    fn clear(&mut self) {
-        self.edge_use_counts.clear();
-        self.edge_owners.clear();
-        self.incident_triangles_by_vertex.clear();
-        self.triangle_adjacency.clear();
-        self.visited_triangles.clear();
-        self.triangle_component_map.clear();
-        self.boundary_corner_normals.clear();
-        self.outer_vertex_indices.clear();
-        self.boundary_edges.clear();
-        self.triangle_stack.clear();
-    }
-}
-
-fn normalized_float_bits(value: f32) -> u32 {
-    if value == 0.0 {
-        0.0f32.to_bits()
-    } else {
-        value.to_bits()
-    }
-}
-
-/// Clears and fills scratch storage with edge owners and incident triangles keyed by position.
-///
-/// Edges used by one triangle become boundary edges. Each records the triangle and its
-/// opposite vertex so fringe generation can determine the outward direction.
-fn build_boundary_data(vertices: &[CustomVertex], indices: &[u16], scratch: &mut AaFringeScratch) {
-    scratch.clear();
-
-    for (triangle_index, tri) in indices.as_chunks::<3>().0.iter().enumerate() {
-        let a = tri[0];
-        let b = tri[1];
-        let c = tri[2];
-        let vertex_keys = [a, b, c].map(|vertex_index| {
-            BoundaryVertexKey::from_position(vertices[vertex_index as usize].position)
-        });
-
-        for &vertex_key in &vertex_keys {
-            scratch
-                .incident_triangles_by_vertex
-                .entry(vertex_key)
-                .or_default()
-                .push(triangle_index);
-        }
-
-        for &(i, j, opp) in &[(a, b, c), (b, c, a), (c, a, b)] {
-            let key =
-                BoundaryEdgeKey::new(vertices[i as usize].position, vertices[j as usize].position);
-            scratch
-                .edge_use_counts
-                .entry(key)
-                .and_modify(|(count, _)| *count += 1)
-                .or_insert((
-                    1,
-                    BoundaryEdge {
-                        start_vertex_index: i,
-                        end_vertex_index: j,
-                        opposite_vertex_index: opp,
-                        triangle_index,
-                    },
-                ));
-            scratch
-                .edge_owners
-                .entry(key)
-                .or_default()
-                .push(triangle_index);
-        }
-    }
-
-    scratch.boundary_edges.extend(
-        scratch
-            .edge_use_counts
-            .values()
-            .filter_map(|(count, boundary_edge)| (*count == 1).then_some(*boundary_edge)),
-    );
-}
-
-fn build_triangle_component_map(scratch: &mut AaFringeScratch) {
-    for (edge_key, owners) in &scratch.edge_owners {
-        if owners.len() < 2 {
-            continue;
-        }
-
-        for &vertex_key in &[edge_key.start, edge_key.end] {
-            for (owner_index, &owner_triangle_index) in owners.iter().enumerate() {
-                for &other_triangle_index in &owners[owner_index + 1..] {
-                    scratch
-                        .triangle_adjacency
-                        .entry((vertex_key, owner_triangle_index))
-                        .or_default()
-                        .push(other_triangle_index);
-                    scratch
-                        .triangle_adjacency
-                        .entry((vertex_key, other_triangle_index))
-                        .or_default()
-                        .push(owner_triangle_index);
-                }
-            }
-        }
-    }
-
-    for (&vertex_key, incident_triangles) in &scratch.incident_triangles_by_vertex {
-        scratch.visited_triangles.clear();
-        let mut component_index = 0usize;
-
-        for &triangle_index in incident_triangles {
-            if scratch.visited_triangles.contains_key(&triangle_index) {
-                continue;
-            }
-
-            scratch.triangle_stack.push(triangle_index);
-            while let Some(current_triangle_index) = scratch.triangle_stack.pop() {
-                if scratch
-                    .visited_triangles
-                    .insert(current_triangle_index, component_index)
-                    .is_some()
-                {
-                    continue;
-                }
-
-                if let Some(neighbors) = scratch
-                    .triangle_adjacency
-                    .get(&(vertex_key, current_triangle_index))
-                {
-                    for &neighbor_triangle_index in neighbors {
-                        if !scratch
-                            .visited_triangles
-                            .contains_key(&neighbor_triangle_index)
-                        {
-                            scratch.triangle_stack.push(neighbor_triangle_index);
-                        }
-                    }
-                }
-            }
-
-            component_index += 1;
-        }
-
-        for (&triangle_index, &component_index) in &scratch.visited_triangles {
-            scratch
-                .triangle_component_map
-                .insert((triangle_index, vertex_key), component_index);
-        }
-    }
-}
-
-/// Adds two antialiasing triangles per boundary edge, fading coverage from 1 to 0.
-/// Outer vertices keep the boundary positions. The vertex shader uses their normals
-/// to apply the screen-space offset.
-fn generate_aa_fringe(
-    vertices: &mut Vec<CustomVertex>,
-    indices: &mut Vec<u16>,
-    scratch: &mut AaFringeScratch,
-) {
-    build_boundary_data(vertices, indices, scratch);
-
-    if scratch.boundary_edges.is_empty() {
-        return;
-    }
-
-    build_triangle_component_map(scratch);
-
-    // Average outward normals at each boundary corner.
-
-    for boundary_edge in &scratch.boundary_edges {
-        let pa = vertices[boundary_edge.start_vertex_index as usize].position;
-        let pb = vertices[boundary_edge.end_vertex_index as usize].position;
-        let po = vertices[boundary_edge.opposite_vertex_index as usize].position;
-
-        let dx = pb[0] - pa[0];
-        let dy = pb[1] - pa[1];
-        let edge_len = (dx * dx + dy * dy).sqrt();
-        if edge_len < 1e-10 {
-            continue;
-        }
-
-        let n1 = [-dy / edge_len, dx / edge_len];
-        let n2 = [dy / edge_len, -dx / edge_len];
-
-        let to_opp = [po[0] - pa[0], po[1] - pa[1]];
-        let dot1 = n1[0] * to_opp[0] + n1[1] * to_opp[1];
-        let outward = if dot1 < 0.0 { n1 } else { n2 };
-
-        for &vertex_index in &[
-            boundary_edge.start_vertex_index,
-            boundary_edge.end_vertex_index,
-        ] {
-            let vertex_key =
-                BoundaryVertexKey::from_position(vertices[vertex_index as usize].position);
-            let component_index = *scratch
-                .triangle_component_map
-                .get(&(boundary_edge.triangle_index, vertex_key))
-                .unwrap_or_else(|| {
-                    panic!(
-                    "missing triangle component mapping for triangle {} and boundary vertex {:?}",
-                    boundary_edge.triangle_index,
-                    vertex_key
-                )
-                });
-            let entry = scratch
-                .boundary_corner_normals
-                .entry(BoundaryCornerKey {
-                    vertex_key,
-                    component_index,
-                })
-                .or_insert(BoundaryCornerNormalData {
-                    accumulated_normal: [0.0, 0.0],
-                    source_vertex_index: vertex_index,
-                });
-            entry.accumulated_normal[0] += outward[0];
-            entry.accumulated_normal[1] += outward[1];
-        }
-    }
-
-    for boundary_corner_normal in scratch.boundary_corner_normals.values_mut() {
-        let len = (boundary_corner_normal.accumulated_normal[0]
-            * boundary_corner_normal.accumulated_normal[0]
-            + boundary_corner_normal.accumulated_normal[1]
-                * boundary_corner_normal.accumulated_normal[1])
-            .sqrt();
-        if len > 1e-10 {
-            boundary_corner_normal.accumulated_normal[0] /= len;
-            boundary_corner_normal.accumulated_normal[1] /= len;
-        }
-    }
-
-    // Duplicate boundary vertices with zero coverage for the outer fringe.
-
-    vertices.reserve(scratch.boundary_corner_normals.len());
-    indices.reserve(scratch.boundary_edges.len() * 6);
-
-    for (&boundary_corner_key, boundary_corner_normal) in &scratch.boundary_corner_normals {
-        let source_vertex = &vertices[boundary_corner_normal.source_vertex_index as usize];
-        let outer_vertex = CustomVertex {
-            position: source_vertex.position,
-            tex_coords: source_vertex.tex_coords,
-            normal: boundary_corner_normal.accumulated_normal,
-            coverage: 0.0,
-        };
-        let new_idx = vertices.len() as u16;
-        vertices.push(outer_vertex);
-        scratch
-            .outer_vertex_indices
-            .insert(boundary_corner_key, new_idx);
-    }
-
-    // Join each boundary edge to its outer vertices with two triangles.
-
-    for boundary_edge in &scratch.boundary_edges {
-        let start_vertex_key = BoundaryVertexKey::from_position(
-            vertices[boundary_edge.start_vertex_index as usize].position,
-        );
-        let end_vertex_key = BoundaryVertexKey::from_position(
-            vertices[boundary_edge.end_vertex_index as usize].position,
-        );
-        let pa = vertices[boundary_edge.start_vertex_index as usize].position;
-        let pb = vertices[boundary_edge.end_vertex_index as usize].position;
-        let po = vertices[boundary_edge.opposite_vertex_index as usize].position;
-
-        let dx = pb[0] - pa[0];
-        let dy = pb[1] - pa[1];
-        let edge_len = (dx * dx + dy * dy).sqrt();
-        if edge_len < 1e-10 {
-            continue;
-        }
-
-        let start_component_index = *scratch
-            .triangle_component_map
-            .get(&(boundary_edge.triangle_index, start_vertex_key))
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing triangle component mapping for triangle {} and boundary vertex {:?}",
-                    boundary_edge.triangle_index, start_vertex_key
-                )
-            });
-        let end_component_index = *scratch
-            .triangle_component_map
-            .get(&(boundary_edge.triangle_index, end_vertex_key))
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing triangle component mapping for triangle {} and boundary vertex {:?}",
-                    boundary_edge.triangle_index, end_vertex_key
-                )
-            });
-
-        let start_boundary_corner_key = BoundaryCornerKey {
-            vertex_key: start_vertex_key,
-            component_index: start_component_index,
-        };
-        let start_outer_vertex_index = match scratch
-            .outer_vertex_indices
-            .get(&start_boundary_corner_key)
-        {
-            Some(&idx) => idx,
-            None => {
-                debug_assert!(
-                    false,
-                    "missing outer vertex index for {:?} (start_vertex_key: {:?}, start_component_index: {})",
-                    start_boundary_corner_key,
-                    start_vertex_key,
-                    start_component_index
-                );
-                continue;
-            }
-        };
-        let end_boundary_corner_key = BoundaryCornerKey {
-            vertex_key: end_vertex_key,
-            component_index: end_component_index,
-        };
-        let end_outer_vertex_index = match scratch
-            .outer_vertex_indices
-            .get(&end_boundary_corner_key)
-        {
-            Some(&idx) => idx,
-            None => {
-                debug_assert!(
-                    false,
-                    "missing outer vertex index for {:?} (end_vertex_key: {:?}, end_component_index: {})",
-                    end_boundary_corner_key,
-                    end_vertex_key,
-                    end_component_index
-                );
-                continue;
-            }
-        };
-
-        let cross = (pb[0] - pa[0]) * (po[1] - pa[1]) - (pb[1] - pa[1]) * (po[0] - pa[0]);
-
-        if cross >= 0.0 {
-            indices.push(boundary_edge.start_vertex_index);
-            indices.push(boundary_edge.end_vertex_index);
-            indices.push(start_outer_vertex_index);
-
-            indices.push(boundary_edge.end_vertex_index);
-            indices.push(end_outer_vertex_index);
-            indices.push(start_outer_vertex_index);
-        } else {
-            indices.push(boundary_edge.start_vertex_index);
-            indices.push(start_outer_vertex_index);
-            indices.push(boundary_edge.end_vertex_index);
-
-            indices.push(boundary_edge.end_vertex_index);
-            indices.push(start_outer_vertex_index);
-            indices.push(end_outer_vertex_index);
         }
     }
 }
@@ -820,6 +375,7 @@ impl PathShape {
             .then(|| RoundedRectBoundary::new(&mut boundary_edges))
             .flatten();
         let tessellation = Arc::new(CachedTessellation {
+            is_rect: false,
             boundary_edges,
             rounded_rect_boundary,
             vertex_buffers: Arc::new(buffers),

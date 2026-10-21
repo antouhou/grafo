@@ -222,7 +222,6 @@ impl ShapeMaskEffectBounds {
         config: ShapeMaskEffectConfig,
         transform: Option<InstanceTransform>,
         scale_factor: f64,
-        fringe_width: f32,
     ) -> Option<Self> {
         let bounds_and_outsets = [
             local_bounds[0].0,
@@ -236,8 +235,6 @@ impl ShapeMaskEffectBounds {
         ];
         if !scale_factor.is_finite()
             || scale_factor <= 0.0
-            || !fringe_width.is_finite()
-            || fringe_width < 0.0
             || !config.downsample.is_finite()
             || config.downsample <= 0.0
             || config.downsample > 1.0
@@ -257,7 +254,8 @@ impl ShapeMaskEffectBounds {
             return None;
         }
 
-        let guard = f64::from(fringe_width).ceil();
+        // Keep a transparent border for filtering the mask texture.
+        let guard = 1.0;
         let physical_minimum_x = (f64::from(minimum_x) * scale_factor).floor() - guard;
         let physical_minimum_y = (f64::from(minimum_y) * scale_factor).floor() - guard;
         let physical_maximum_x = (f64::from(maximum_x) * scale_factor).ceil() + guard;

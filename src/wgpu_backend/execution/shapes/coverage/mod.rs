@@ -20,6 +20,7 @@ mod cache;
 mod geometry;
 mod placement;
 mod projection;
+mod rectangles;
 mod rounded_rect;
 mod scanline;
 mod tiles;

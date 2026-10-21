@@ -35,12 +35,7 @@ impl PendingDamage {
                 continue;
             };
             if matches!(node, DrawTreeNode::CachedShape(_)) {
-                mark_dirty(
-                    dirty_bounds,
-                    node.logical_screen_bounds(),
-                    state.viewport(),
-                    state.fringe_width(),
-                );
+                mark_dirty(dirty_bounds, node.logical_screen_bounds(), state.viewport());
             }
             if let Some(effect) = state.shape_mask_effects.get(&node_id) {
                 mark_shape_mask_effect_dirty(dirty_bounds, effect.bounds, state.viewport());

@@ -72,7 +72,6 @@ impl ShapePipelines {
         format: TextureFormat,
         physical_size: (u32, u32),
         scale_factor: f64,
-        fringe_width: f32,
         msaa_sample_count: u32,
         gradient_layout: Option<BindGroupLayout>,
     ) -> Self {
@@ -85,7 +84,6 @@ impl ShapePipelines {
             canvas_logical_size.0,
             canvas_logical_size.1,
             scale_factor as f32,
-            fringe_width,
         );
         let decrementing_uniforms = and_uniforms;
         let create_uniform_buffer = |uniforms: &Uniforms| {
@@ -181,7 +179,6 @@ impl RendererPipelineResources {
         format: TextureFormat,
         physical_size: (u32, u32),
         scale_factor: f64,
-        fringe_width: f32,
         msaa_sample_count: u32,
     ) -> Self {
         let device = &context.device;
@@ -195,7 +192,6 @@ impl RendererPipelineResources {
                 format,
                 physical_size,
                 scale_factor,
-                fringe_width,
                 msaa_sample_count,
                 None,
             ),

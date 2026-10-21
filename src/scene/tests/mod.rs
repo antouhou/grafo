@@ -148,10 +148,6 @@ impl RenderBackend for TestBackend {
         }
     }
 
-    fn fringe_width(&self) -> f32 {
-        0.75
-    }
-
     fn load_effect(&mut self, _: u64, _: &[&str]) -> Result<bool, TestBackendError> {
         Ok(true)
     }
@@ -172,7 +168,7 @@ impl RenderBackend for TestBackend {
 
     fn remove_shape_mask_effect(&mut self, _: ShapeDrawId) {}
     fn remove_backdrop_effect(&mut self, _: ShapeDrawId) {}
-    fn resize(&mut self, viewport: Viewport, _: f32) {
+    fn resize(&mut self, viewport: Viewport) {
         self.size = Some(viewport.physical_size);
     }
     fn set_msaa_samples(&mut self, _: u32) {}

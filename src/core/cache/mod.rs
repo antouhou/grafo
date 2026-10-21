@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct CachedTessellation {
+    pub(crate) is_rect: bool,
     pub(crate) boundary_edges: Vec<PathBoundaryEdge>,
     pub(crate) rounded_rect_boundary: Option<RoundedRectBoundary>,
     pub(crate) vertex_buffers: Arc<VertexBuffers<CustomVertex, u16>>,

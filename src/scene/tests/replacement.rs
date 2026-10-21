@@ -164,7 +164,7 @@ fn clip_damage_is_bounded_and_deferred_before_backdrop_expansion_and_planning() 
     scene.render(&mut surface).unwrap();
     clip(&mut scene, parent, true);
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((7, 7), (19, 19)));
+    assert_eq!(scene.backend.root_scissor, rect((8, 8), (18, 18)));
 
     scene.load_effect(7, &["backdrop"]).unwrap();
     let backdrop = shape(&mut scene, [(2.0, 20.0), (4.0, 24.0)], 0);
@@ -183,12 +183,12 @@ fn clip_damage_is_bounded_and_deferred_before_backdrop_expansion_and_planning() 
     for clips_children in [false, true, false] {
         clip(&mut scene, parent, clips_children);
     }
-    assert_eq!(scene.dirty_bounds, rect((9, 9), (19, 19)));
+    assert_eq!(scene.dirty_bounds, rect((10, 10), (18, 18)));
     scene.backend.should_fail = true;
     assert!(scene.render(&mut surface).is_err());
     scene.backend.should_fail = false;
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.backend.root_scissor, rect((1, 9), (25, 25)));
+    assert_eq!(scene.backend.root_scissor, rect((2, 10), (24, 24)));
     scene.render(&mut surface).unwrap();
     assert_eq!(scene.backend.root_scissor, None);
 }

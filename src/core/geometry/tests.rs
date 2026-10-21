@@ -77,7 +77,7 @@ fn projection_bounds_fall_back_when_the_divisor_crosses_clamp_regions() {
         );
         assert!(!bounds.is_finite(), "transform: {transform:?}");
         assert_eq!(
-            logical_bounds_to_viewport_rect(bounds, viewport, 0.75),
+            logical_bounds_to_viewport_rect(bounds, viewport),
             Some(UnsignedPhysicalRect::from_size((32, 24).into()))
         );
     }

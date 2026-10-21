@@ -181,12 +181,10 @@ impl ShapeExecutionResources {
         physical_size: (u32, u32),
     ) -> Result<ShapeDrawResources, GeometryBufferError> {
         let mut resources = ShapeDrawResources::default();
-        if !cached_shape_data.cached_shape.is_rect
-            && supports_projection(
-                cached_shape_data.transform,
-                cached_shape_data.cached_shape.tessellation.local_bounds,
-            )
-        {
+        if supports_projection(
+            cached_shape_data.transform,
+            cached_shape_data.cached_shape.tessellation.local_bounds,
+        ) {
             resources.path_coverage = Some(self.coverage_cache.prepare(
                 &cached_shape_data.cached_shape.tessellation,
                 cached_shape_data.transform,

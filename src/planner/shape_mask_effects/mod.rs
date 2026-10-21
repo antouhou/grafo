@@ -23,7 +23,6 @@ pub(super) fn append_shape_mask_effect<'scene>(
     effect: &ShapeMaskEffectInstance,
     parameters: &'scene EffectParameterStorage,
     viewport: Viewport,
-    fringe_width: f32,
     maximum_texture_dimension: u32,
 ) {
     let Some(DrawTreeNode::CachedShape(shape)) = tree.get(node_id) else {
@@ -59,7 +58,6 @@ pub(super) fn append_shape_mask_effect<'scene>(
         local_physical_origin: bounds.local_physical_origin,
         local_bounds: bounds.local_bounds,
         scale_factor: viewport.scale_factor,
-        fringe_width,
         downsample: effect.config.downsample,
     }));
     commands.push(RenderOperation::EndTarget);

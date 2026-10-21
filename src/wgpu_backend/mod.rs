@@ -57,7 +57,6 @@ pub struct WgpuBackend {
 
     pub(in crate::wgpu_backend) readback_bytes: Vec<u8>,
     pub(in crate::wgpu_backend) viewport: Viewport,
-    pub(in crate::wgpu_backend) fringe_width: f32,
 
     pub(in crate::wgpu_backend) pipeline_resources: RendererPipelineResources,
 

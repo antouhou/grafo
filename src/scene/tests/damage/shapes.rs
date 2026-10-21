@@ -73,7 +73,6 @@ fn assert_shape_mask_effect_bounds_match_settings(scene: &Scene<TestBackend>, no
                 effect.config,
                 shape.transform,
                 scene.scale_factor(),
-                scene.fringe_width(),
             )
         );
     }
@@ -93,7 +92,6 @@ fn rejected_scale_change_preserves_all_effects_and_allows_a_later_valid_change()
         Err(SceneError::InvalidShapeMaskEffectBounds(node)) if node == nodes[1]
     ));
     assert_eq!(scene.scale_factor(), 1.0);
-    assert_eq!(scene.fringe_width(), 0.75);
     assert_eq!(scene.size(), (32, 32));
     assert_eq!(scene.backend.size, None);
     assert_eq!(scene.dirty_bounds, None);
@@ -102,44 +100,6 @@ fn rejected_scale_change_preserves_all_effects_and_allows_a_later_valid_change()
 
     scene.change_scale_factor(0.5).unwrap();
     assert_eq!(scene.scale_factor(), 0.5);
-    assert_eq!(scene.fringe_width(), 0.75);
-    assert_eq!(scene.backend.size, Some((32, 32)));
-    assert_shape_mask_effect_bounds_match_settings(&scene, nodes);
-    for (node, previous) in previous {
-        let current = scene.state.shape_mask_effect(node).unwrap();
-        assert_ne!(current.bounds, previous.bounds);
-        assert_eq!(current.config, previous.config);
-        assert_eq!(current.parameters.range, previous.parameters.range);
-        assert_eq!(current.parameters.hash, previous.parameters.hash);
-    }
-    scene.render(&mut surface).unwrap();
-    assert_eq!(surface.resource().shape_masks, 2);
-}
-
-#[test]
-fn rejected_fringe_change_preserves_all_effects_and_allows_a_later_valid_change() {
-    let mut scene = scene();
-    let mut surface = surface();
-    let nodes = add_effects_with_mixed_coordinate_ranges(&mut scene);
-    scene.render(&mut surface).unwrap();
-    assert_eq!(surface.resource().shape_masks, 2);
-    let previous = nodes.map(|node| (node, *scene.state.shape_mask_effect(node).unwrap()));
-
-    assert!(matches!(
-        scene.set_fringe_width(700_000_000.0),
-        Err(SceneError::InvalidShapeMaskEffectBounds(node)) if node == nodes[1]
-    ));
-    assert_eq!(scene.scale_factor(), 1.0);
-    assert_eq!(scene.fringe_width(), 0.75);
-    assert_eq!(scene.size(), (32, 32));
-    assert_eq!(scene.backend.size, None);
-    assert_eq!(scene.dirty_bounds, None);
-    assert_shape_mask_effects_preserved(&scene, previous);
-    assert_shape_mask_effect_bounds_match_settings(&scene, nodes);
-
-    scene.set_fringe_width(2.25).unwrap();
-    assert_eq!(scene.scale_factor(), 1.0);
-    assert_eq!(scene.fringe_width(), 2.25);
     assert_eq!(scene.backend.size, Some((32, 32)));
     assert_shape_mask_effect_bounds_match_settings(&scene, nodes);
     for (node, previous) in previous {
@@ -295,30 +255,22 @@ fn cached_effect_bounds_follow_rasterization_and_keep_offscreen_coverage() {
     scene.change_scale_factor(2.0).unwrap();
     let scaled = scene.state.shape_mask_effect(node).unwrap().bounds;
     assert_eq!(scaled.local_bounds, [(-1.5, -2.0), (8.0, 8.0)]);
-    scene.set_fringe_width(2.25).unwrap();
-    let padded = scene.state.shape_mask_effect(node).unwrap().bounds;
-    assert_eq!(padded.local_bounds, [(-2.5, -3.0), (9.0, 9.0)]);
-    assert_eq!(
-        padded.logical_screen_bounds,
-        MathRect::new((9.0, -1.0).into(), (21.0, 22.0).into())
-    );
-
     surface.resize((64, 64));
     scene.render(&mut surface).unwrap();
-    assert_eq!(scene.state.shape_mask_effect(node).unwrap().bounds, padded);
+    assert_eq!(scene.state.shape_mask_effect(node).unwrap().bounds, scaled);
     scene
         .set_shape_mask_effect(node, 7, &[1, 2, 3, 4], config.downsample(0.25))
         .unwrap();
     let downsampled = scene.state.shape_mask_effect(node).unwrap().bounds;
     assert_eq!(
         downsampled.logical_screen_bounds,
-        padded.logical_screen_bounds
+        scaled.logical_screen_bounds
     );
-    assert_eq!(downsampled.texture_size, [6, 6]);
+    assert_eq!(downsampled.texture_size, [5, 5]);
     scene.render(&mut surface).unwrap();
     assert_eq!(
         scene.backend.root_scissor,
-        Some(UnsignedPhysicalRect::new((18, 0).into(), (42, 44).into()))
+        Some(UnsignedPhysicalRect::new((20, 2).into(), (40, 40).into()))
     );
     let mask = scene
         .planner
@@ -334,7 +286,6 @@ fn cached_effect_bounds_follow_rasterization_and_keep_offscreen_coverage() {
         downsampled.local_physical_origin
     );
     assert_eq!(mask.scale_factor, 2.0);
-    assert_eq!(mask.fringe_width, 2.25);
 
     surface.resize((32, 32));
     scene.render(&mut surface).unwrap();
@@ -348,7 +299,7 @@ fn cached_effect_bounds_follow_rasterization_and_keep_offscreen_coverage() {
     scene.render(&mut surface).unwrap();
     assert_eq!(
         scene.backend.root_scissor,
-        Some(UnsignedPhysicalRect::new((18, 0).into(), (32, 32).into()))
+        Some(UnsignedPhysicalRect::new((20, 2).into(), (32, 32).into()))
     );
     assert_eq!(
         scene.state.shape_mask_effect(node).unwrap().bounds,
@@ -358,7 +309,7 @@ fn cached_effect_bounds_follow_rasterization_and_keep_offscreen_coverage() {
     scene.render(&mut surface).unwrap();
     assert_eq!(
         scene.backend.root_scissor,
-        Some(UnsignedPhysicalRect::new((18, 0).into(), (32, 32).into()))
+        Some(UnsignedPhysicalRect::new((20, 2).into(), (32, 32).into()))
     );
 }
 
@@ -484,6 +435,6 @@ fn removing_effect_subtrees_clears_shadow_pixels_and_allows_id_reuse() {
     scene.render(&mut surface).unwrap();
     assert_eq!(
         scene.backend.root_scissor,
-        Some(UnsignedPhysicalRect::new((21, 21).into(), (25, 25).into()))
+        Some(UnsignedPhysicalRect::new((22, 22).into(), (24, 24).into()))
     );
 }

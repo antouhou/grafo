@@ -104,8 +104,6 @@ fn cache_returns_shared_arc_without_cloning_vertex_buffers() {
     vertex_buffers.vertices.push(CustomVertex {
         position: [0.0, 0.0],
         tex_coords: [0.0, 0.0],
-        normal: [0.0, 0.0],
-        coverage: 1.0,
     });
     vertex_buffers.indices.push(0);
 
@@ -113,6 +111,7 @@ fn cache_returns_shared_arc_without_cloning_vertex_buffers() {
     cache.insert_tessellation(
         7,
         Arc::new(CachedTessellation {
+            is_rect: false,
             boundary_edges: Vec::new(),
             rounded_rect_boundary: None,
             vertex_buffers: shared_vertex_buffers.clone(),
@@ -135,6 +134,7 @@ fn cache_promotes_previous_frame_hits_into_current_frame() {
     cache.insert_tessellation(
         7,
         Arc::new(CachedTessellation {
+            is_rect: false,
             boundary_edges: Vec::new(),
             rounded_rect_boundary: None,
             vertex_buffers: Arc::clone(&shared_vertex_buffers),
@@ -167,6 +167,7 @@ fn cache_drops_entries_not_used_for_a_frame() {
     cache.insert_tessellation(
         7,
         Arc::new(CachedTessellation {
+            is_rect: false,
             boundary_edges: Vec::new(),
             rounded_rect_boundary: None,
             vertex_buffers: shared_vertex_buffers,
@@ -189,6 +190,7 @@ fn cache_refresh_keeps_rendered_geometry_available_next_frame() {
     cache.refresh_tessellation(
         7,
         &Arc::new(CachedTessellation {
+            is_rect: false,
             boundary_edges: Vec::new(),
             rounded_rect_boundary: None,
             vertex_buffers: shared_vertex_buffers.clone(),

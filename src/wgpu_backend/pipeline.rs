@@ -21,23 +21,21 @@ pub(crate) const SHAPE_SHADER: &str = concat!(
     include_str!("../shaders/solid.wgsl"),
 );
 
-/// Viewport dimensions and antialiasing settings used by the vertex shader.
+/// Logical viewport dimensions and physical pixels per logical pixel.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Uniforms {
     pub canvas_size: [f32; 2],
-    /// Physical pixels per logical pixel, used to convert the configured fringe width.
     pub scale_factor: f32,
-    /// Outward AA fringe width in physical pixels. Zero disables the fringe.
-    pub fringe_width: f32,
+    padding: f32,
 }
 
 impl Uniforms {
-    pub fn new(width: f32, height: f32, scale_factor: f32, fringe_width: f32) -> Self {
+    pub fn new(width: f32, height: f32, scale_factor: f32) -> Self {
         Self {
             canvas_size: [width, height],
             scale_factor,
-            fringe_width,
+            padding: 0.0,
         }
     }
 }

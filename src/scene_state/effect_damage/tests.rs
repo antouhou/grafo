@@ -44,7 +44,6 @@ fn shape_node(bounds: [(f32, f32); 2]) -> DrawTreeNode {
             physical_size: (32, 32),
             scale_factor: 1.0,
         },
-        0.75,
     )
     .tessellate(&Shape::rect(bounds), None);
     DrawTreeNode::CachedShape(CachedShapeDrawData::new(
@@ -125,7 +124,7 @@ fn replacement_removal_and_rebuild_keep_spatial_queries_and_storage_consistent()
 }
 
 #[test]
-fn capture_and_target_regions_keep_independent_viewport_clipping_and_fringe_coverage() {
+fn capture_and_target_regions_keep_independent_viewport_clipping_and_pixel_coverage() {
     let viewport = Viewport {
         physical_size: (1024, 512),
         scale_factor: 2.0,
@@ -134,22 +133,22 @@ fn capture_and_target_regions_keep_independent_viewport_clipping_and_fringe_cove
     let offscreen = shape_node([(600.0, 8.0), (616.0, 24.0)]);
     let visible_capture = capture([(256.0, 8.0), (272.0, 24.0)], viewport);
     let offscreen_capture = capture([(600.0, 8.0), (616.0, 24.0)], viewport);
-    let target_region = rect((0, 15), (25, 49));
+    let target_region = rect((0, 16), (24, 48));
     let capture_region = rect((512, 16), (544, 48));
 
-    let both = EffectDamageEntry::backdrop(1, &visible, visible_capture, viewport, 1.0).unwrap();
+    let both = EffectDamageEntry::backdrop(1, &visible, visible_capture, viewport).unwrap();
     assert_eq!(both.capture_region, Some(capture_region));
     assert_eq!(both.target_region, Some(target_region));
     let target_only =
-        EffectDamageEntry::backdrop(2, &visible, offscreen_capture, viewport, 1.0).unwrap();
+        EffectDamageEntry::backdrop(2, &visible, offscreen_capture, viewport).unwrap();
     assert_eq!(target_only.capture_region, None);
     assert_eq!(target_only.target_region, Some(target_region));
     let capture_only =
-        EffectDamageEntry::backdrop(3, &offscreen, visible_capture, viewport, 1.0).unwrap();
+        EffectDamageEntry::backdrop(3, &offscreen, visible_capture, viewport).unwrap();
     assert_eq!(capture_only.capture_region, Some(capture_region));
     assert_eq!(capture_only.target_region, None);
-    assert!(EffectDamageEntry::backdrop(4, &offscreen, offscreen_capture, viewport, 1.0).is_none());
-    assert!(EffectDamageEntry::backdrop(5, &visible, None, viewport, 1.0).is_none());
+    assert!(EffectDamageEntry::backdrop(4, &offscreen, offscreen_capture, viewport).is_none());
+    assert!(EffectDamageEntry::backdrop(5, &visible, None, viewport).is_none());
 
     let mut damage = EffectDamage::default();
     damage.rebuild([both, target_only, capture_only]);
