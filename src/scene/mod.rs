@@ -1,23 +1,47 @@
-//! Coordinates scene mutation, planning and backend execution.
+//! Public scene construction, configuration, and rendering API.
 use crate::commands::ShapeDrawId;
+use crate::core::effect::{
+    BackdropEffectConfig, ContentEffectConfig, ShapeMaskEffectBounds, ShapeMaskEffectConfig,
+};
+use crate::core::shape::{Shape, ShapeDrawCommandOptions};
+use crate::core::vertex::InstanceTransform;
 use crate::core::UnsignedPhysicalRect;
 use crate::planner::Planner;
 use crate::render_backend::render_target::RenderTarget;
 use crate::render_backend::RenderBackend;
-use crate::scene_state::{SceneState, SceneStateContext};
-use damage::{mark_dirty, PendingDamage};
+use crate::scene_state::effects::EffectAttachmentKind;
+use crate::scene_state::types::DrawTreeNode;
+use crate::scene_state::{SceneError, SceneState, SceneStateContext};
+use damage::{mark_dirty, mark_physical_dirty, mark_shape_mask_effect_dirty, PendingDamage};
+use draw_commands::{DrawCommand, NodeTarget};
 #[cfg(feature = "render_metrics")]
 use metrics::RenderLoopMetricsTracker;
 #[cfg(feature = "render_metrics")]
 use std::time::Instant;
-pub use types::{DrawCommandError, EffectError};
+use thiserror::Error;
+
 mod damage;
-mod draw_queue;
-mod effects;
+mod draw_commands;
 #[cfg(feature = "render_metrics")]
-pub mod metrics;
-mod types;
-mod viewport;
+mod metrics;
+
+/// Scene mutation or backend resource preparation failed.
+#[derive(Debug, Error)]
+pub enum DrawCommandError<E> {
+    #[error(transparent)]
+    Scene(#[from] SceneError),
+    #[error("Backend upload failed: {0}")]
+    Backend(#[source] E),
+}
+
+/// Scene attachment or backend effect validation failed.
+#[derive(Debug, Error)]
+pub enum EffectError<E> {
+    #[error(transparent)]
+    Scene(#[from] SceneError),
+    #[error("Backend effect failed: {0}")]
+    Backend(#[source] E),
+}
 
 /// CPU shape storage and backend context shared between scenes.
 #[derive(Clone)]
@@ -60,6 +84,389 @@ impl<B: RenderBackend> Scene<B> {
     /// Provides read-only access to backend-specific resources and diagnostics.
     pub fn backend(&self) -> &B {
         &self.backend
+    }
+
+    pub fn texture_manager(&self) -> &B::TextureManager {
+        self.backend.texture_manager()
+    }
+
+    pub fn size(&self) -> (u32, u32) {
+        self.state.viewport().physical_size
+    }
+
+    pub fn scale_factor(&self) -> f64 {
+        self.state.viewport().scale_factor
+    }
+
+    pub fn fringe_width(&self) -> f32 {
+        self.state.fringe_width()
+    }
+
+    /// Returns an error and preserves settings if attached shape mask effects cannot use the new scale.
+    pub fn change_scale_factor(&mut self, new_scale_factor: f64) -> Result<(), SceneError> {
+        self.update_raster_settings(new_scale_factor, self.state.fringe_width())
+    }
+
+    /// Returns an error and preserves settings if attached shape mask effects cannot use the new fringe.
+    /// Path edges use pixel-area coverage independently of this setting.
+    pub fn set_fringe_width(&mut self, fringe_width: f32) -> Result<(), SceneError> {
+        self.update_raster_settings(self.state.viewport().scale_factor, fringe_width)
+    }
+
+    pub fn resize(&mut self, new_physical_size: (u32, u32)) {
+        self.state
+            .resize(new_physical_size, self.backend.maximum_texture_dimension());
+        self.update_backend_viewport();
+    }
+
+    pub fn set_msaa_samples(&mut self, samples: u32) {
+        self.backend.set_msaa_samples(samples);
+        self.dirty_bounds = Some(UnsignedPhysicalRect::from_size(
+            self.state.viewport().physical_size.into(),
+        ));
+    }
+
+    /// Tessellates into the shared CPU cache. Geometry IDs let identical shapes share uploads.
+    pub fn load_shape(
+        &mut self,
+        shape: impl AsRef<Shape>,
+        cache_key: u64,
+        geometry_id: Option<u64>,
+    ) {
+        self.state.load_shape(shape, cache_key, geometry_id);
+    }
+
+    pub fn remove_shape(&mut self, cache_key: u64) {
+        self.state.remove_shape(cache_key);
+    }
+
+    /// Queues a shape without retaining it in the loaded-shape cache.
+    /// Children inherit clipping unless their parent uses `clips_children(false)`.
+    pub fn add_shape(
+        &mut self,
+        shape: impl AsRef<Shape>,
+        parent_shape_id: Option<usize>,
+        geometry_id: Option<u64>,
+        options: ShapeDrawCommandOptions,
+    ) -> Result<usize, DrawCommandError<B::Error>> {
+        self.queue_draw_command(
+            NodeTarget::Insert {
+                parent: parent_shape_id,
+            },
+            DrawCommand::Shape {
+                shape: shape.as_ref(),
+                geometry_id,
+                options,
+            },
+        )
+    }
+
+    /// Queues a loaded shape and prepares backend resources for this instance.
+    pub fn add_cached_shape(
+        &mut self,
+        cache_key: u64,
+        parent_shape_id: Option<usize>,
+        options: ShapeDrawCommandOptions,
+    ) -> Result<usize, DrawCommandError<B::Error>> {
+        self.queue_draw_command(
+            NodeTarget::Insert {
+                parent: parent_shape_id,
+            },
+            DrawCommand::CachedShape { cache_key, options },
+        )
+    }
+
+    /// Adds a scissor clip without geometry. Rotation, skew and perspective are rejected.
+    pub fn add_clipping_rect(
+        &mut self,
+        rect_bounds: [(f32, f32); 2],
+        parent_shape_id: Option<usize>,
+        transform: Option<impl Into<InstanceTransform>>,
+        clips_children: bool,
+    ) -> Result<usize, DrawCommandError<B::Error>> {
+        self.queue_draw_command(
+            NodeTarget::Insert {
+                parent: parent_shape_id,
+            },
+            DrawCommand::ClippingRect {
+                rect_bounds,
+                transform: transform.map(Into::into),
+                clips_children,
+            },
+        )
+    }
+
+    /// Replaces one command with a shape and returns its unchanged ID.
+    /// Parent, children and attached effects are preserved.
+    pub fn replace_with_shape(
+        &mut self,
+        node_id: usize,
+        shape: impl AsRef<Shape>,
+        geometry_id: Option<u64>,
+        options: ShapeDrawCommandOptions,
+    ) -> Result<usize, DrawCommandError<B::Error>> {
+        self.queue_draw_command(
+            NodeTarget::Replace { node_id },
+            DrawCommand::Shape {
+                shape: shape.as_ref(),
+                geometry_id,
+                options,
+            },
+        )
+    }
+
+    /// Replaces one command with a loaded shape and returns its unchanged ID.
+    /// Children and attached effects are retained.
+    pub fn replace_with_cached_shape(
+        &mut self,
+        node_id: usize,
+        cache_key: u64,
+        options: ShapeDrawCommandOptions,
+    ) -> Result<usize, DrawCommandError<B::Error>> {
+        self.queue_draw_command(
+            NodeTarget::Replace { node_id },
+            DrawCommand::CachedShape { cache_key, options },
+        )
+    }
+
+    /// Replaces one command with a clip rectangle and returns its unchanged ID.
+    /// Children are retained.
+    /// Effects attached to this node are removed because they require a shape.
+    pub fn replace_with_clipping_rect(
+        &mut self,
+        node_id: usize,
+        rect_bounds: [(f32, f32); 2],
+        transform: Option<impl Into<InstanceTransform>>,
+        clips_children: bool,
+    ) -> Result<usize, DrawCommandError<B::Error>> {
+        self.queue_draw_command(
+            NodeTarget::Replace { node_id },
+            DrawCommand::ClippingRect {
+                rect_bounds,
+                transform: transform.map(Into::into),
+                clips_children,
+            },
+        )
+    }
+
+    /// Removes queued nodes and their descendants.
+    ///
+    /// Calls `removed` once per removed ID.
+    /// Remaining nodes keep their IDs and effects. New nodes may reuse removed IDs.
+    /// Loaded shapes and textures remain available.
+    pub fn remove_subtrees(
+        &mut self,
+        node_ids: impl IntoIterator<Item = usize>,
+        mut removed: impl FnMut(usize),
+    ) {
+        self.removed_shape_ids.clear();
+        let mut has_removed_nodes = false;
+        let viewport = self.state.viewport();
+        let fringe_width = self.state.fringe_width();
+        self.state
+            .remove_subtrees_with(node_ids, |id, node, effect, group_output| {
+                if matches!(node, DrawTreeNode::CachedShape(_)) {
+                    mark_dirty(
+                        &mut self.dirty_bounds,
+                        node.logical_screen_bounds(),
+                        viewport,
+                        fringe_width,
+                    );
+                }
+                if let Some(effect) = effect {
+                    mark_shape_mask_effect_dirty(&mut self.dirty_bounds, effect.bounds, viewport);
+                }
+                mark_physical_dirty(&mut self.dirty_bounds, group_output);
+                has_removed_nodes = true;
+                if matches!(node, DrawTreeNode::CachedShape(_)) {
+                    self.removed_shape_ids.push(ShapeDrawId(id));
+                }
+                removed(id);
+            });
+        if !has_removed_nodes {
+            return;
+        }
+        if self.state.draw_tree.is_empty() {
+            self.planner.clear();
+            self.backend.clear();
+        } else if !self.removed_shape_ids.is_empty() {
+            self.backend.unregister_shapes(&self.removed_shape_ids);
+        }
+        self.removed_shape_ids.clear();
+    }
+
+    /// Removes all shapes, clipping rectangles, and attached effects from the scene.
+    /// Loaded shapes, textures, and effect definitions remain available.
+    pub fn clear(&mut self) {
+        self.remove_subtrees([0], |_| {});
+    }
+
+    /// Loads shader passes. Changed sources detach old instances and invalidate cached results.
+    pub fn load_effect(
+        &mut self,
+        effect_id: u64,
+        pass_sources: &[&str],
+    ) -> Result<(), EffectError<B::Error>> {
+        if self
+            .backend
+            .load_effect(effect_id, pass_sources)
+            .map_err(EffectError::Backend)?
+        {
+            self.remove_effect_attachments(effect_id);
+        }
+        Ok(())
+    }
+
+    pub fn unload_effect(&mut self, effect_id: u64) {
+        self.remove_effect_attachments(effect_id);
+        self.backend.unload_effect(effect_id);
+    }
+
+    /// Sets an effect applied to the node and its descendants.
+    ///
+    /// Captures all descendants rendered within the shape's bounds and uses that as an input for
+    /// the effect. Overflowing children are not included into the capture. The output is drawn in
+    /// a place of the shape. You can reserve additional space around the shape for the output via
+    /// the effect config, if the output needs to expand original shape.
+    pub fn set_content_effect(
+        &mut self,
+        node_id: usize,
+        effect_id: u64,
+        params: &[u8],
+        config: ContentEffectConfig,
+    ) -> Result<(), EffectError<B::Error>> {
+        self.state.shape(node_id)?;
+        self.backend
+            .validate_effect_params(effect_id, params)
+            .map_err(EffectError::Backend)?;
+        let previous_output = self.state.content_effect_output(node_id);
+        self.state.set_content_effect(
+            node_id,
+            effect_id,
+            params,
+            config,
+            self.backend.maximum_texture_dimension(),
+        )?;
+        mark_physical_dirty(&mut self.dirty_bounds, previous_output);
+        mark_physical_dirty(
+            &mut self.dirty_bounds,
+            self.state.content_effect_output(node_id),
+        );
+        self.mark_shape_dirty(node_id);
+        Ok(())
+    }
+
+    /// Removes the content effect, restoring the node's ordinary rendering.
+    pub fn remove_content_effect(&mut self, node_id: usize) {
+        let previous_output = self.state.content_effect_output(node_id);
+        if self.state.remove_content_effect(node_id) {
+            mark_physical_dirty(&mut self.dirty_bounds, previous_output);
+            self.mark_shape_dirty(node_id);
+        }
+    }
+
+    /// A backdrop filter: Filters previously rendered scene pixels behind the node. Perfect fit
+    /// for frosted glass background and similar effects.
+    ///
+    /// Effect config can be used to control capture area and padding around the input, independently
+    /// of the node's own config
+    pub fn set_backdrop_effect(
+        &mut self,
+        node_id: usize,
+        effect_id: u64,
+        params: &[u8],
+        config: BackdropEffectConfig,
+    ) -> Result<(), EffectError<B::Error>> {
+        self.state.shape(node_id)?;
+        self.backend
+            .validate_effect_params(effect_id, params)
+            .map_err(EffectError::Backend)?;
+        self.state.set_backdrop_effect(
+            node_id,
+            effect_id,
+            params,
+            config,
+            self.backend.maximum_texture_dimension(),
+        )?;
+        // Damage expansion performed before planning will include the capture region
+        self.mark_shape_dirty(node_id);
+        Ok(())
+    }
+
+    /// Removes the node's backdrop effect.
+    pub fn remove_backdrop_effect(&mut self, node_id: usize) {
+        if self.state.remove_backdrop_effect(node_id) {
+            self.mark_shape_dirty(node_id);
+        }
+        self.backend.remove_backdrop_effect(ShapeDrawId(node_id));
+    }
+
+    /// Applies an effect to the shape's white geometric coverage alpha mask. Perfect for things
+    /// like box shadows.
+    ///
+    /// The input is an alpha mask of the shape it is attached to. It excludes the shape's fill,
+    /// textures, and children. The result is drawn behind the shape.
+    pub fn set_shape_mask_effect(
+        &mut self,
+        node_id: usize,
+        effect_id: u64,
+        params: &[u8],
+        config: ShapeMaskEffectConfig,
+    ) -> Result<(), EffectError<B::Error>> {
+        self.state.shape(node_id)?;
+        self.backend
+            .validate_effect_params(effect_id, params)
+            .map_err(EffectError::Backend)?;
+        let old_bounds = self
+            .state
+            .shape_mask_effects
+            .get(&node_id)
+            .map(|effect| effect.bounds);
+        let previous_content_output = self.state.content_effect_output(node_id);
+        self.state.set_shape_mask_effect(
+            node_id,
+            effect_id,
+            params,
+            config,
+            self.backend.maximum_texture_dimension(),
+        )?;
+        self.backend.set_shape_mask_effect_geometry(
+            ShapeDrawId(node_id),
+            &self.state.shape(node_id)?.cached_shape,
+        );
+        if let Some(bounds) = old_bounds {
+            self.mark_shape_mask_effect_dirty(bounds);
+        }
+        self.mark_shape_mask_effect_dirty(self.state.shape_mask_effect(node_id)?.bounds);
+        mark_physical_dirty(&mut self.dirty_bounds, previous_content_output);
+        mark_physical_dirty(
+            &mut self.dirty_bounds,
+            self.state.content_effect_output(node_id),
+        );
+        Ok(())
+    }
+
+    /// Removes the shape's mask effect while keeping its fill and children.
+    pub fn remove_shape_mask_effect(&mut self, node_id: usize) {
+        let previous_content_output = self.state.content_effect_output(node_id);
+        let bounds = self
+            .state
+            .shape_mask_effects
+            .get(&node_id)
+            .map(|effect| effect.bounds);
+        self.state
+            .remove_shape_mask_effect(node_id, self.backend.maximum_texture_dimension());
+        if let Some(bounds) = bounds {
+            self.mark_shape_mask_effect_dirty(bounds);
+        }
+        self.backend.remove_shape_mask_effect(ShapeDrawId(node_id));
+        if bounds.is_some() {
+            mark_physical_dirty(&mut self.dirty_bounds, previous_content_output);
+            mark_physical_dirty(
+                &mut self.dirty_bounds,
+                self.state.content_effect_output(node_id),
+            );
+        }
     }
 
     /// Enables a red overlay at 25% opacity over the current surface redraw bounds.
@@ -122,5 +529,67 @@ impl<B: RenderBackend> Scene<B> {
         Ok(())
     }
 }
+
+impl<B: RenderBackend> Scene<B> {
+    fn update_raster_settings(
+        &mut self,
+        scale_factor: f64,
+        fringe_width: f32,
+    ) -> Result<(), SceneError> {
+        self.state.update_raster_settings(
+            scale_factor,
+            fringe_width,
+            self.backend.maximum_texture_dimension(),
+        )?;
+        self.update_backend_viewport();
+        Ok(())
+    }
+
+    fn update_backend_viewport(&mut self) {
+        let viewport = self.state.viewport();
+        self.dirty_bounds = Some(UnsignedPhysicalRect::from_size(
+            viewport.physical_size.into(),
+        ));
+        self.backend.resize(viewport, self.state.fringe_width());
+    }
+
+    fn remove_effect_attachments(&mut self, effect_id: u64) {
+        self.state.remove_effect_attachments(
+            effect_id,
+            self.backend.maximum_texture_dimension(),
+            |attachment| {
+                mark_physical_dirty(&mut self.dirty_bounds, attachment.damage_bounds);
+                match attachment.kind {
+                    EffectAttachmentKind::Content => {}
+                    EffectAttachmentKind::Backdrop => {
+                        self.backend
+                            .remove_backdrop_effect(ShapeDrawId(attachment.node_id));
+                    }
+                    EffectAttachmentKind::ShapeMask => {
+                        self.backend
+                            .remove_shape_mask_effect(ShapeDrawId(attachment.node_id));
+                    }
+                }
+            },
+        );
+        self.backend.invalidate_effect(effect_id);
+    }
+
+    fn mark_shape_dirty(&mut self, node_id: usize) {
+        if let Some(DrawTreeNode::CachedShape(shape)) = self.state.draw_tree.get(node_id) {
+            mark_dirty(
+                &mut self.dirty_bounds,
+                shape.logical_screen_bounds,
+                self.state.viewport(),
+                self.state.fringe_width(),
+            );
+        }
+    }
+
+    fn mark_shape_mask_effect_dirty(&mut self, bounds: ShapeMaskEffectBounds) {
+        mark_shape_mask_effect_dirty(&mut self.dirty_bounds, bounds, self.state.viewport());
+    }
+}
+
 #[cfg(test)]
 mod tests;

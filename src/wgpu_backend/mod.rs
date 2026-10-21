@@ -25,6 +25,7 @@ pub(in crate::wgpu_backend) mod execution;
 mod gradient;
 mod interface;
 #[cfg(feature = "render_metrics")]
+#[doc(hidden)]
 pub mod metrics;
 mod pipeline;
 mod pipelines;

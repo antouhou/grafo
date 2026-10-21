@@ -1,4 +1,5 @@
-use super::{RenderBackend, Scene};
+use super::Scene;
+use crate::render_backend::RenderBackend;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -144,6 +145,7 @@ impl RenderLoopMetricsTracker {
     }
 }
 
+#[doc(hidden)]
 impl<B: RenderBackend> Scene<B> {
     /// Returns the average frames-per-second since metrics tracking started.
     ///

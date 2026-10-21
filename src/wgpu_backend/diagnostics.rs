@@ -5,6 +5,7 @@ use std::mem;
 
 const INDEX_ELEMENT_SIZE: usize = mem::size_of::<u16>();
 
+#[doc(hidden)]
 impl WgpuBackend {
     pub fn print_memory_usage_info(&self) {
         println!("\n--- Temporary Vectors ---");

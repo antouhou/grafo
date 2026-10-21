@@ -46,6 +46,7 @@ pub struct PhaseTimings {
     pub total: Duration,
 }
 
+#[doc(hidden)]
 impl WgpuBackend {
     /// Returns CPU time spent updating the retained scene image.
     /// Includes image allocation, render setup, command execution, submission,

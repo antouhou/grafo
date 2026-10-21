@@ -11,7 +11,7 @@ some shape or form in the core module.
 - [`src/planner`]: borrows `SceneState` and yields commands via an iterator. Planning must not access backend resources.
 - [`src/render_backend`]: backend and texture manager traits, shared by the coordinator and backend implementations. Owns the shared surface and pixmap render targets and depends only on core types and commands.
 - [`src/wgpu_backend`]: WGPU resource uploads, GPU caches, command execution, surfaces, and readback. Backends borrow core data for resource preparation and never access the scene or planner.
-- [`src/scene`]: public scene API and generic coordinator. Scene mutations go through `SceneState`; backend operations go through `RenderBackend`. Must not depend on a concrete backend.
+- [`src/scene`]: public scene API and generic coordinator. All public API lives together in `src/scene/mod.rs`. Scene mutations go through `SceneState`; backend operations go through `RenderBackend`. Must not depend on a concrete backend.
 - [`src/lib.rs`] and [`src/wgpu_scene.rs`]: public defaults and WGPU construction, assembling the coordinator, scene context and backend.
 
 ## Basic rules
