@@ -1,7 +1,7 @@
 use super::render_pass::RenderPass;
 use super::shapes::{ShapeDrawResources, ShapeGeometryType, ShapeShaderType, StencilAction};
 use super::textures::IntermediateTextureResources;
-use crate::commands::{IntermediateTextureId, ShapeDrawMaterial, ShapeTextureBinding};
+use crate::commands::{IntermediateTextureId, ShapeDrawMaterial};
 use crate::core::vertex::InstanceTransform;
 use crate::core::UnsignedPhysicalRect;
 use crate::wgpu_backend::resources::{Buffers, RendererPipelineResources, ShapePipelines};
@@ -61,13 +61,6 @@ fn bind_decrement_pipeline(render_pass: &mut RenderPass<'_>, pipelines: &ShapePi
         StencilAction::Decrement,
     ));
     render_pass.set_bind_group(0, &pipelines.decrementing_bind_group, &[]);
-    for layer in 0..2 {
-        render_pass.set_texture_bind_group(
-            layer,
-            ShapeTextureBinding::None,
-            &pipelines.default_shape_texture_bind_groups[layer],
-        );
-    }
 }
 
 pub(super) struct DrawPass<'pass, 'encoder> {
@@ -191,19 +184,12 @@ impl DrawPass<'_, '_> {
             let buffers = allocation.buffers();
             self.render_pass
                 .set_bind_group(0, &buffers.decrement_bind_group, &[]);
-            for layer in 0..2 {
-                self.render_pass.set_texture_bind_group(
-                    layer,
-                    ShapeTextureBinding::None,
-                    &self.pipelines.shapes.default_shape_texture_bind_groups[layer],
-                );
-            }
             bind_instance_buffers(
                 self.render_pass,
                 location.instance_index,
                 self.buffers,
                 true,
-                true,
+                false,
             );
             buffers.bind(self.render_pass);
             self.render_pass.set_stencil_reference(stencil_reference);
@@ -227,7 +213,7 @@ impl DrawPass<'_, '_> {
             location.instance_index,
             self.buffers,
             false,
-            true,
+            false,
         );
         self.render_pass.set_stencil_reference(stencil_reference);
         self.buffers
