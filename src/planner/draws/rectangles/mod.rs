@@ -1,8 +1,8 @@
 use crate::commands::ShapeDrawMaterial;
 use crate::core::geometry;
 use crate::core::{Size, UnsignedPhysicalRect};
-use crate::scene::effects::ContentEffectInstance;
-use crate::scene::types::DrawTreeNode;
+use crate::scene_state::effects::ContentEffectInstance;
+use crate::scene_state::types::DrawTreeNode;
 use ahash::HashMap;
 
 pub(super) fn should_skip_visible_rect_draw(

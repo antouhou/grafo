@@ -11,7 +11,7 @@
 //!   The result is drawn through the shape beneath its fill.
 //!
 //! These descriptions contain effect IDs, configuration, and parameter bytes.
-//! `Renderer::load_effect()` delegates WGSL compilation to execution, which owns
+//! `Scene::load_effect()` delegates WGSL compilation to execution, which owns
 //! the pipelines and uploaded parameters.
 //! `set_content_effect()`, `set_backdrop_effect()`, and `set_shape_mask_effect()`
 //! attach a loaded effect to a draw tree node. Nodes share the compiled pipelines

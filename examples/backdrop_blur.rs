@@ -2,9 +2,9 @@
 //! Uses the same two-pass Gaussian blur shader as the `gaussian_blur` example.
 
 use futures::executor::block_on;
-use grafo::{BackdropEffectConfig, BorderRadii, Shape};
+use grafo::{BackdropEffectConfig, BorderRadii, Scene, Shape};
 use grafo::{Color, ShapeDrawCommandOptions};
-use grafo::{RendererContext, Surface};
+use grafo::{SceneContext, Surface};
 use grafo_test_scenes::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -19,7 +19,7 @@ const BLUR_EFFECT: u64 = 1;
 #[derive(Default)]
 struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer>,
+    scene: Option<Scene>,
     surface: Option<Surface>,
 }
 
@@ -35,18 +35,17 @@ impl ApplicationHandler for App {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        let context = block_on(RendererContext::new());
+        let context = block_on(SceneContext::new());
         let surface = Surface::new(&context, window.clone(), physical_size, true, false)
             .expect("Failed to create surface");
-        let mut renderer =
-            grafo::Renderer::new_with_context(context, physical_size, scale_factor, 1);
+        let mut scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
 
-        renderer
+        scene
             .load_effect(BLUR_EFFECT, &[HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL])
             .expect("Failed to compile blur effect");
 
         self.window = Some(window);
-        self.renderer = Some(renderer);
+        self.scene = Some(scene);
         self.surface = Some(surface);
     }
 
@@ -57,7 +56,7 @@ impl ApplicationHandler for App {
         event: WindowEvent,
     ) {
         let Some(window) = &self.window else { return };
-        let Some(renderer) = &mut self.renderer else {
+        let Some(scene) = &mut self.scene else {
             return;
         };
         let Some(surface) = &mut self.surface else {
@@ -76,10 +75,10 @@ impl ApplicationHandler for App {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                renderer.clear_draw_queue();
+                scene.clear();
                 // Shapes behind the panel
                 let bg = Shape::rect([(20.0, 20.0), (780.0, 580.0)]);
-                let bg_id = renderer
+                let bg_id = scene
                     .add_shape(
                         bg,
                         None,
@@ -90,7 +89,7 @@ impl ApplicationHandler for App {
 
                 // These rectangles remain visible through the blurred panel.
                 let r1 = Shape::rect([(60.0, 80.0), (260.0, 260.0)]);
-                renderer
+                scene
                     .add_shape(
                         r1,
                         Some(bg_id),
@@ -100,7 +99,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let r2 = Shape::rect([(180.0, 160.0), (420.0, 380.0)]);
-                renderer
+                scene
                     .add_shape(
                         r2,
                         Some(bg_id),
@@ -110,7 +109,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let r3 = Shape::rect([(340.0, 100.0), (560.0, 300.0)]);
-                renderer
+                scene
                     .add_shape(
                         r3,
                         Some(bg_id),
@@ -120,7 +119,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let r4 = Shape::rect([(100.0, 350.0), (700.0, 540.0)]);
-                renderer
+                scene
                     .add_shape(
                         r4,
                         Some(bg_id),
@@ -131,7 +130,7 @@ impl ApplicationHandler for App {
 
                 // The backdrop effect blurs the shapes already drawn behind this panel.
                 let panel = Shape::rect([(120.0, 120.0), (520.0, 460.0)]);
-                let panel_id = renderer
+                let panel_id = scene
                     .add_shape(
                         panel,
                         None,
@@ -143,7 +142,7 @@ impl ApplicationHandler for App {
                 // The panel clips this child.
                 let panel_content =
                     Shape::rounded_rect([(240.0, 240.0), (600.0, 540.0)], BorderRadii::new(100.0));
-                renderer
+                scene
                     .add_shape(
                         panel_content,
                         Some(panel_id),
@@ -153,7 +152,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let blur_params = BlurParams::new(12.0);
-                renderer
+                scene
                     .set_backdrop_effect(
                         panel_id,
                         BLUR_EFFECT,
@@ -164,7 +163,7 @@ impl ApplicationHandler for App {
 
                 // A second, smaller frosted panel for comparison
                 let panel2 = Shape::rect([(560.0, 200.0), (740.0, 400.0)]);
-                let panel2_id = renderer
+                let panel2_id = scene
                     .add_shape(
                         panel2,
                         None,
@@ -174,7 +173,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let blur_params2 = BlurParams::new(20.0);
-                renderer
+                scene
                     .set_backdrop_effect(
                         panel2_id,
                         BLUR_EFFECT,
@@ -183,7 +182,7 @@ impl ApplicationHandler for App {
                     )
                     .expect("Failed to set backdrop effect");
 
-                window_rendering::render(renderer, surface, event_loop);
+                window_rendering::render(scene, surface, event_loop);
             }
             _ => {}
         }

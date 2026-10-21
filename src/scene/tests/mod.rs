@@ -1,5 +1,5 @@
 use super::types::DrawCommandError;
-use super::{RenderBackend, Renderer};
+use super::{RenderBackend, Scene};
 use crate::commands::{RenderCommand, RenderOperation, ShapeDrawId, Target};
 use crate::core::{
     CachedShapeHandle, Color, ContentEffectConfig, Shape, ShapeDrawCommandOptions, ShapeInstance,
@@ -9,7 +9,7 @@ use crate::render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError, Surface,
 };
 use crate::render_backend::texture_manager::{TextureManager, TextureUpdatePublisher};
-use crate::scene::SceneContext;
+use crate::scene_state::SceneStateContext;
 use ahash::HashSet;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
@@ -130,7 +130,7 @@ impl RenderBackend for TestBackend {
             .retain(|&registered| !ids.contains(&ShapeDrawId(registered)));
     }
 
-    fn clear_draw_queue(&mut self) {
+    fn clear(&mut self) {
         self.registered_shapes.clear();
     }
 
@@ -250,9 +250,9 @@ impl RenderBackend for TestBackend {
     }
 }
 
-fn queue_shape(renderer: &mut Renderer<TestBackend>, with_effects: bool) -> usize {
-    renderer.load_shape(Shape::rect([(0.0, 0.0), (16.0, 16.0)]), 1, Some(1));
-    let id = renderer
+fn queue_shape(scene: &mut Scene<TestBackend>, with_effects: bool) -> usize {
+    scene.load_shape(Shape::rect([(0.0, 0.0), (16.0, 16.0)]), 1, Some(1));
+    let id = scene
         .add_cached_shape(
             1,
             None,
@@ -260,22 +260,22 @@ fn queue_shape(renderer: &mut Renderer<TestBackend>, with_effects: bool) -> usiz
         )
         .unwrap();
     if with_effects {
-        renderer.load_effect(7, &["shape mask effect"]).unwrap();
-        renderer.load_effect(8, &["content effect"]).unwrap();
-        renderer
+        scene.load_effect(7, &["shape mask effect"]).unwrap();
+        scene.load_effect(8, &["content effect"]).unwrap();
+        scene
             .set_content_effect(id, 8, &[1, 2, 3, 4], ContentEffectConfig::default())
             .unwrap();
-        renderer
+        scene
             .set_shape_mask_effect(id, 7, &[1, 2, 3, 4], ShapeMaskEffectConfig::default())
             .unwrap();
     }
     id
 }
 
-fn renderer() -> Renderer<TestBackend> {
+fn scene() -> Scene<TestBackend> {
     let backend = TestBackend::default();
-    let context = SceneContext::new(backend.texture_manager.updates.clone());
-    Renderer::from_parts(backend, context)
+    let context = SceneStateContext::new(backend.texture_manager.updates.clone());
+    Scene::from_parts(backend, context)
 }
 
 fn surface() -> Surface<TestSurface> {
@@ -284,10 +284,10 @@ fn surface() -> Surface<TestSurface> {
 
 #[test]
 fn render_submits_planned_shapes_and_effects() {
-    let mut renderer = renderer();
+    let mut scene = scene();
     let mut surface = surface();
-    let shape = queue_shape(&mut renderer, true);
-    renderer.render(&mut surface).unwrap();
+    let shape = queue_shape(&mut scene, true);
+    scene.render(&mut surface).unwrap();
     assert_eq!(surface.resource().draws, [shape]);
     assert_eq!(surface.resource().shape_masks, 1);
     assert_eq!(surface.resource().effects, [7, 8]);
@@ -295,31 +295,31 @@ fn render_submits_planned_shapes_and_effects() {
 
 #[test]
 fn queue_rebuilds_reuse_scene_parameter_storage() {
-    let mut renderer = renderer();
+    let mut scene = scene();
     let mut surface = surface();
-    let shape = queue_shape(&mut renderer, true);
-    renderer.render(&mut surface).unwrap();
-    let parameters_address = renderer.scene.effect_parameters.bytes.as_ptr();
-    let parameters_capacity = renderer.scene.effect_parameters.bytes.capacity();
-    let parameters = renderer.scene.shape_mask_effect(shape).unwrap().parameters;
+    let shape = queue_shape(&mut scene, true);
+    scene.render(&mut surface).unwrap();
+    let parameters_address = scene.state.effect_parameters.bytes.as_ptr();
+    let parameters_capacity = scene.state.effect_parameters.bytes.capacity();
+    let parameters = scene.state.shape_mask_effect(shape).unwrap().parameters;
 
     for _ in 0..3 {
-        renderer.clear_draw_queue();
-        let rebuilt = queue_shape(&mut renderer, true);
+        scene.clear();
+        let rebuilt = queue_shape(&mut scene, true);
         assert_eq!(rebuilt, shape);
-        renderer.render(&mut surface).unwrap();
+        scene.render(&mut surface).unwrap();
         assert_eq!(
-            renderer.scene.effect_parameters.bytes.as_ptr(),
+            scene.state.effect_parameters.bytes.as_ptr(),
             parameters_address
         );
         assert_eq!(
-            renderer.scene.effect_parameters.bytes.capacity(),
+            scene.state.effect_parameters.bytes.capacity(),
             parameters_capacity
         );
         assert_eq!(surface.resource().effects, [7, 8]);
         assert_eq!(
-            renderer
-                .scene
+            scene
+                .state
                 .shape_mask_effect(rebuilt)
                 .unwrap()
                 .parameters
@@ -331,17 +331,17 @@ fn queue_rebuilds_reuse_scene_parameter_storage() {
 
 #[test]
 fn clearing_queue_removes_planned_draws_and_effects() {
-    let mut renderer = renderer();
+    let mut scene = scene();
     let mut surface = surface();
-    queue_shape(&mut renderer, true);
-    renderer.render(&mut surface).unwrap();
+    queue_shape(&mut scene, true);
+    scene.render(&mut surface).unwrap();
 
-    renderer.clear_draw_queue();
-    renderer.render(&mut surface).unwrap();
+    scene.clear();
+    scene.render(&mut surface).unwrap();
     assert!(surface.resource().draws.is_empty());
     assert!(surface.resource().effects.is_empty());
     assert_eq!(surface.resource().shape_masks, 0);
-    let plan: Vec<_> = renderer.planner.plan(&renderer.scene, 4096).collect();
+    let plan: Vec<_> = scene.planner.plan(&scene.state, 4096).collect();
     assert!(matches!(
         plan.as_slice(),
         [
@@ -359,21 +359,21 @@ fn clearing_queue_removes_planned_draws_and_effects() {
 
 #[test]
 fn rendering_to_one_surface_does_not_change_another() {
-    let mut first = renderer();
+    let mut first = scene();
     let mut first_surface = surface();
     let first_shape = queue_shape(&mut first, false);
-    let mut second = renderer();
+    let mut second = scene();
     let mut second_surface = surface();
     let second_shapes = [
         queue_shape(&mut second, false),
         queue_shape(&mut second, false),
     ];
-    let commands = first.planner.plan(&first.scene, 4096);
+    let commands = first.planner.plan(&first.state, 4096);
     first
         .backend
         .render(first.dirty_bounds, commands, (&mut first_surface).into())
         .unwrap();
-    let commands = second.planner.plan(&second.scene, 4096);
+    let commands = second.planner.plan(&second.state, 4096);
     second
         .backend
         .render(second.dirty_bounds, commands, (&mut second_surface).into())
@@ -381,7 +381,7 @@ fn rendering_to_one_surface_does_not_change_another() {
     assert_eq!(first_surface.resource().draws, [first_shape]);
     assert_eq!(second_surface.resource().draws, second_shapes);
 
-    second.clear_draw_queue();
+    second.clear();
     second.render(&mut second_surface).unwrap();
     assert!(second_surface.resource().draws.is_empty());
     assert_eq!(first_surface.resource().draws, [first_shape]);
@@ -389,20 +389,20 @@ fn rendering_to_one_surface_does_not_change_another() {
 
 #[test]
 fn failed_registration_leaves_scene_unchanged() {
-    let mut renderer = renderer();
-    let shape = queue_shape(&mut renderer, false);
+    let mut scene = scene();
+    let shape = queue_shape(&mut scene, false);
 
-    renderer.backend.should_fail = true;
+    scene.backend.should_fail = true;
     assert!(matches!(
-        renderer.add_cached_shape(1, None, ShapeDrawCommandOptions::new()),
+        scene.add_cached_shape(1, None, ShapeDrawCommandOptions::new()),
         Err(DrawCommandError::Backend(TestBackendError))
     ));
-    assert!(renderer.scene.shape(shape + 1).is_err());
-    assert_eq!(renderer.backend.registered_shapes, [shape]);
+    assert!(scene.state.shape(shape + 1).is_err());
+    assert_eq!(scene.backend.registered_shapes, [shape]);
 
-    renderer.backend.should_fail = false;
+    scene.backend.should_fail = false;
     assert_eq!(
-        renderer
+        scene
             .add_cached_shape(1, None, ShapeDrawCommandOptions::new())
             .unwrap(),
         shape + 1
@@ -411,32 +411,32 @@ fn failed_registration_leaves_scene_unchanged() {
 
 #[test]
 fn failed_render_preserves_surface_contents() {
-    let mut renderer = renderer();
+    let mut scene = scene();
     let mut surface = surface();
-    let shape = queue_shape(&mut renderer, false);
-    renderer.render(&mut surface).unwrap();
+    let shape = queue_shape(&mut scene, false);
+    scene.render(&mut surface).unwrap();
 
-    renderer.backend.should_fail = true;
-    assert_eq!(renderer.render(&mut surface), Err(TestBackendError));
+    scene.backend.should_fail = true;
+    assert_eq!(scene.render(&mut surface), Err(TestBackendError));
     assert_eq!(surface.resource().draws, [shape]);
 
-    renderer.backend.should_fail = false;
-    renderer.clear_draw_queue();
-    renderer.render(&mut surface).unwrap();
+    scene.backend.should_fail = false;
+    scene.clear();
+    scene.render(&mut surface).unwrap();
     assert!(surface.resource().draws.is_empty());
 }
 
 #[test]
 fn shared_render_target_contract_accepts_owned_and_borrowed_memory_without_wgpu() {
-    let mut renderer = renderer();
-    queue_shape(&mut renderer, false);
+    let mut scene = scene();
+    queue_shape(&mut scene, false);
     let mut owned = Pixmap::new((12, 7), PixelFormat::Bgra8).unwrap();
-    renderer.render(&mut owned).unwrap();
+    scene.render(&mut owned).unwrap();
     assert!(owned.pixels().iter().all(|byte| *byte == 71));
-    assert_eq!(renderer.size(), (12, 7));
+    assert_eq!(scene.size(), (12, 7));
     let mut borrowed = [99; 32];
     let layout = PixelLayout::new((2, 2), PixelFormat::Argb32, 12).unwrap();
-    renderer
+    scene
         .render(PixmapMut::new(&mut borrowed, layout).unwrap())
         .unwrap();
     assert_eq!(&borrowed[..8], &[71; 8]);
@@ -444,9 +444,9 @@ fn shared_render_target_contract_accepts_owned_and_borrowed_memory_without_wgpu(
     assert_eq!(&borrowed[12..20], &[71; 8]);
     assert_eq!(&borrowed[20..], &[99; 12]);
     let before_failure = borrowed;
-    renderer.backend.should_fail = true;
+    scene.backend.should_fail = true;
     assert_eq!(
-        renderer.render(PixmapMut::new(&mut borrowed, layout).unwrap()),
+        scene.render(PixmapMut::new(&mut borrowed, layout).unwrap()),
         Err(TestBackendError)
     );
     assert_eq!(borrowed, before_failure);
@@ -454,13 +454,13 @@ fn shared_render_target_contract_accepts_owned_and_borrowed_memory_without_wgpu(
 
 #[test]
 fn invalid_surface_size_is_rejected_before_submission() {
-    let mut renderer = renderer();
+    let mut scene = scene();
     let mut surface = surface();
-    renderer.render(&mut surface).unwrap();
-    let previous_size = renderer.size();
+    scene.render(&mut surface).unwrap();
+    let previous_size = scene.size();
     for size in [(0, 32), (4097, 32)] {
         surface.resize(size);
-        assert_eq!(renderer.render(&mut surface), Err(TestBackendError));
-        assert_eq!(renderer.size(), previous_size);
+        assert_eq!(scene.render(&mut surface), Err(TestBackendError));
+        assert_eq!(scene.size(), previous_size);
     }
 }

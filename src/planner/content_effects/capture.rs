@@ -7,8 +7,8 @@ use crate::core::geometry;
 use crate::core::vertex::TextureUvTransform;
 use crate::planner::commands::TraversalCommands;
 use crate::planner::TextureIdAllocator;
-use crate::scene::effects::parameters::EffectParameterStorage;
-use crate::scene::effects::{ContentEffectInstance, EffectInstance};
+use crate::scene_state::effects::parameters::EffectParameterStorage;
+use crate::scene_state::effects::{ContentEffectInstance, EffectInstance};
 
 #[derive(Clone, Copy)]
 pub(crate) struct ContentCapture {

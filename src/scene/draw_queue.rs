@@ -1,12 +1,12 @@
 use super::damage::{mark_dirty, mark_physical_dirty, mark_shape_mask_effect_dirty};
 use super::types::DrawCommandError;
-use super::{RenderBackend, Renderer};
+use super::{RenderBackend, Scene};
 use crate::commands::ShapeDrawId;
 use crate::core::effect::ShapeMaskEffectBounds;
 use crate::core::shape::{Shape, ShapeDrawCommandOptions};
 use crate::core::vertex::InstanceTransform;
-use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
-use crate::scene::{Scene, SceneError};
+use crate::scene_state::types::{CachedShapeDrawData, DrawTreeNode};
+use crate::scene_state::{SceneError, SceneState};
 
 #[derive(Debug)]
 enum DrawCommand<'shape> {
@@ -39,7 +39,7 @@ fn has_child_clip(node: &DrawTreeNode) -> bool {
         }
 }
 
-impl<B: RenderBackend> Renderer<B> {
+impl<B: RenderBackend> Scene<B> {
     /// Tessellates into the shared CPU cache. Geometry IDs let identical shapes share uploads.
     pub fn load_shape(
         &mut self,
@@ -47,11 +47,11 @@ impl<B: RenderBackend> Renderer<B> {
         cache_key: u64,
         geometry_id: Option<u64>,
     ) {
-        self.scene.load_shape(shape, cache_key, geometry_id);
+        self.state.load_shape(shape, cache_key, geometry_id);
     }
 
     pub fn remove_shape(&mut self, cache_key: u64) {
-        self.scene.remove_shape(cache_key);
+        self.state.remove_shape(cache_key);
     }
 
     /// Queues a loaded shape and prepares backend resources for this instance.
@@ -173,17 +173,17 @@ impl<B: RenderBackend> Renderer<B> {
                 geometry_id,
                 options,
             } => DrawTreeNode::CachedShape(CachedShapeDrawData::new(
-                self.scene.tessellate(shape, geometry_id),
+                self.state.tessellate(shape, geometry_id),
                 options,
             )),
             DrawCommand::CachedShape { cache_key, options } => DrawTreeNode::CachedShape(
-                CachedShapeDrawData::new(self.scene.loaded_shape(cache_key)?, options),
+                CachedShapeDrawData::new(self.state.loaded_shape(cache_key)?, options),
             ),
             DrawCommand::ClippingRect {
                 rect_bounds,
                 transform,
                 clips_children,
-            } => Scene::prepare_clipping_rect(rect_bounds, transform, clips_children)?,
+            } => SceneState::prepare_clipping_rect(rect_bounds, transform, clips_children)?,
         })
     }
 
@@ -194,11 +194,11 @@ impl<B: RenderBackend> Renderer<B> {
     ) -> Result<usize, DrawCommandError<B::Error>> {
         let node_id = match target {
             NodeTarget::Insert { parent } => {
-                self.scene.validate_parent(parent)?;
-                self.scene.next_node_id()
+                self.state.validate_parent(parent)?;
+                self.state.next_node_id()
             }
             NodeTarget::Replace { node_id } => {
-                self.scene
+                self.state
                     .draw_tree
                     .get(node_id)
                     .ok_or(SceneError::NodeNotFound(node_id))?;
@@ -206,14 +206,14 @@ impl<B: RenderBackend> Renderer<B> {
             }
         };
         let node = self.prepare_draw_command(command)?;
-        let shape_mask_effect_bounds = match (&node, self.scene.shape_mask_effects.get(&node_id)) {
+        let shape_mask_effect_bounds = match (&node, self.state.shape_mask_effects.get(&node_id)) {
             (DrawTreeNode::CachedShape(shape), Some(effect)) => Some(
                 ShapeMaskEffectBounds::new(
                     shape.instance.cached_shape.local_bounds(),
                     effect.config,
                     shape.instance.transform,
-                    self.scene.viewport().scale_factor,
-                    self.scene.fringe_width(),
+                    self.state.viewport().scale_factor,
+                    self.state.fringe_width(),
                 )
                 .ok_or(SceneError::InvalidShapeMaskEffectBounds(node_id))?,
             ),
@@ -238,14 +238,14 @@ impl<B: RenderBackend> Renderer<B> {
                     DrawTreeNode::CachedShape(shape) => Some(shape.logical_screen_bounds),
                     DrawTreeNode::ClipRect(_) => None,
                 };
-                let inserted_id = self.scene.insert_node(node, parent);
+                let inserted_id = self.state.insert_node(node, parent);
                 debug_assert_eq!(inserted_id, node_id);
                 if let Some(bounds) = shape_bounds {
                     mark_dirty(
                         &mut self.dirty_bounds,
                         bounds,
-                        self.scene.viewport(),
-                        self.scene.fringe_width(),
+                        self.state.viewport(),
+                        self.state.fringe_width(),
                     );
                 }
             }
@@ -262,15 +262,15 @@ impl<B: RenderBackend> Renderer<B> {
         node: DrawTreeNode,
         shape_mask_effect_bounds: Option<ShapeMaskEffectBounds>,
     ) {
-        let previous_group_output = self.scene.content_effect_output(node_id);
+        let previous_group_output = self.state.content_effect_output(node_id);
         let old_effect_bounds = self
-            .scene
+            .state
             .shape_mask_effects
             .get(&node_id)
             .map(|effect| effect.bounds);
         let new_bounds = node.logical_screen_bounds();
         let clips_children = has_child_clip(&node);
-        let previous = self.scene.replace_node(
+        let previous = self.state.replace_node(
             node_id,
             node,
             shape_mask_effect_bounds,
@@ -280,23 +280,23 @@ impl<B: RenderBackend> Renderer<B> {
             mark_dirty(
                 &mut self.dirty_bounds,
                 bounds,
-                self.scene.viewport(),
-                self.scene.fringe_width(),
+                self.state.viewport(),
+                self.state.fringe_width(),
             );
         }
         for bounds in old_effect_bounds
             .into_iter()
             .chain(shape_mask_effect_bounds)
         {
-            mark_shape_mask_effect_dirty(&mut self.dirty_bounds, bounds, self.scene.viewport());
+            mark_shape_mask_effect_dirty(&mut self.dirty_bounds, bounds, self.state.viewport());
         }
         mark_physical_dirty(&mut self.dirty_bounds, previous_group_output);
         mark_physical_dirty(
             &mut self.dirty_bounds,
-            self.scene.content_effect_output(node_id),
+            self.state.content_effect_output(node_id),
         );
         if has_child_clip(&previous) != clips_children
-            && !self.scene.draw_tree.children(node_id).is_empty()
+            && !self.state.draw_tree.children(node_id).is_empty()
         {
             self.pending_damage.insert(node_id);
         }
@@ -318,9 +318,9 @@ impl<B: RenderBackend> Renderer<B> {
     ) {
         self.removed_shape_ids.clear();
         let mut has_removed_nodes = false;
-        let viewport = self.scene.viewport();
-        let fringe_width = self.scene.fringe_width();
-        self.scene
+        let viewport = self.state.viewport();
+        let fringe_width = self.state.fringe_width();
+        self.state
             .remove_subtrees_with(node_ids, |id, node, effect, group_output| {
                 if matches!(node, DrawTreeNode::CachedShape(_)) {
                     mark_dirty(
@@ -343,16 +343,18 @@ impl<B: RenderBackend> Renderer<B> {
         if !has_removed_nodes {
             return;
         }
-        if self.scene.draw_tree.is_empty() {
+        if self.state.draw_tree.is_empty() {
             self.planner.clear();
-            self.backend.clear_draw_queue();
+            self.backend.clear();
         } else if !self.removed_shape_ids.is_empty() {
             self.backend.unregister_shapes(&self.removed_shape_ids);
         }
         self.removed_shape_ids.clear();
     }
 
-    pub fn clear_draw_queue(&mut self) {
+    /// Removes all shapes, clipping rectangles, and attached effects from the scene.
+    /// Loaded shapes, textures, and effect definitions remain available.
+    pub fn clear(&mut self) {
         self.remove_subtrees([0], |_| {});
     }
 }

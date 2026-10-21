@@ -1,4 +1,4 @@
-use super::super::{renderer, surface};
+use super::super::{scene, surface};
 use crate::commands::RenderOperation;
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
@@ -8,12 +8,12 @@ use crate::core::{
 
 #[test]
 fn negative_w_shape_addition_dirties_shader_footprint_after_empty_render() {
-    let mut renderer = renderer();
+    let mut scene = scene();
     let mut surface = surface();
-    renderer.render(&mut surface).unwrap();
+    scene.render(&mut surface).unwrap();
     let mut transform = InstanceTransform::identity();
     transform.col3[3] = -1.0;
-    renderer
+    scene
         .add_shape(
             Shape::rect([(8.0, 8.0), (16.0, 16.0)]),
             None,
@@ -23,20 +23,20 @@ fn negative_w_shape_addition_dirties_shader_footprint_after_empty_render() {
                 .transform(transform),
         )
         .unwrap();
-    renderer.render(&mut surface).unwrap();
+    scene.render(&mut surface).unwrap();
     assert_eq!(
-        renderer.backend.root_scissor,
+        scene.backend.root_scissor,
         Some(UnsignedPhysicalRect::new((7, 7).into(), (17, 17).into()))
     );
 }
 
 #[test]
 fn negative_w_shape_removal_dirties_shader_footprint_after_render() {
-    let mut renderer = renderer();
+    let mut scene = scene();
     let mut surface = surface();
     let mut transform = InstanceTransform::identity();
     transform.col3[3] = -1.0;
-    let shape = renderer
+    let shape = scene
         .add_shape(
             Shape::rect([(8.0, 8.0), (16.0, 16.0)]),
             None,
@@ -46,11 +46,11 @@ fn negative_w_shape_removal_dirties_shader_footprint_after_render() {
                 .transform(transform),
         )
         .unwrap();
-    renderer.render(&mut surface).unwrap();
-    renderer.remove_subtrees([shape], |_| {});
-    renderer.render(&mut surface).unwrap();
+    scene.render(&mut surface).unwrap();
+    scene.remove_subtrees([shape], |_| {});
+    scene.render(&mut surface).unwrap();
     assert_eq!(
-        renderer.backend.root_scissor,
+        scene.backend.root_scissor,
         Some(UnsignedPhysicalRect::new((7, 7).into(), (17, 17).into()))
     );
 }
@@ -63,12 +63,12 @@ fn uncertain_projection_redraws_viewport_on_removal_and_addition() {
         (0.25, -3.0),
         (f32::MAX, 1.0),
     ] {
-        let mut renderer = renderer();
+        let mut scene = scene();
         let mut surface = surface();
         let mut transform = InstanceTransform::identity();
         transform.col0[3] = horizontal_w;
         transform.col3[3] = origin_w;
-        let shape = renderer
+        let shape = scene
             .add_shape(
                 Shape::rect([(8.0, 8.0), (16.0, 16.0)]),
                 None,
@@ -76,15 +76,15 @@ fn uncertain_projection_redraws_viewport_on_removal_and_addition() {
                 ShapeDrawCommandOptions::new().transform(transform),
             )
             .unwrap();
-        renderer.render(&mut surface).unwrap();
-        renderer.remove_subtrees([shape], |_| {});
-        renderer.render(&mut surface).unwrap();
+        scene.render(&mut surface).unwrap();
+        scene.remove_subtrees([shape], |_| {});
+        scene.render(&mut surface).unwrap();
         assert_eq!(
-            renderer.backend.root_scissor,
+            scene.backend.root_scissor,
             Some(UnsignedPhysicalRect::from_size((32, 32).into())),
             "transform: {transform:?}"
         );
-        renderer
+        scene
             .add_shape(
                 Shape::rect([(8.0, 8.0), (16.0, 16.0)]),
                 None,
@@ -92,9 +92,9 @@ fn uncertain_projection_redraws_viewport_on_removal_and_addition() {
                 ShapeDrawCommandOptions::new().transform(transform),
             )
             .unwrap();
-        renderer.render(&mut surface).unwrap();
+        scene.render(&mut surface).unwrap();
         assert_eq!(
-            renderer.backend.root_scissor,
+            scene.backend.root_scissor,
             Some(UnsignedPhysicalRect::from_size((32, 32).into())),
             "transform: {transform:?}"
         );
@@ -103,15 +103,15 @@ fn uncertain_projection_redraws_viewport_on_removal_and_addition() {
 
 #[test]
 fn subtree_replacement_accumulates_bounds_until_a_successful_render() {
-    let mut renderer = renderer();
+    let mut scene = scene();
     let mut surface = surface();
-    renderer.change_scale_factor(2.0).unwrap();
-    renderer.render(&mut surface).unwrap();
-    assert!(!renderer.is_dirty_region_overlay_enabled());
-    renderer.set_dirty_region_overlay_enabled(true);
-    renderer.render(&mut surface).unwrap();
-    assert_eq!(renderer.backend.root_scissor, None);
-    let branch = renderer
+    scene.change_scale_factor(2.0).unwrap();
+    scene.render(&mut surface).unwrap();
+    assert!(!scene.is_dirty_region_overlay_enabled());
+    scene.set_dirty_region_overlay_enabled(true);
+    scene.render(&mut surface).unwrap();
+    assert_eq!(scene.backend.root_scissor, None);
+    let branch = scene
         .add_clipping_rect(
             [(0.0, 0.0), (16.0, 16.0)],
             None,
@@ -119,8 +119,8 @@ fn subtree_replacement_accumulates_bounds_until_a_successful_render() {
             false,
         )
         .unwrap();
-    renderer.load_shape(Shape::rect([(0.0, 0.0), (2.0, 2.0)]), 17, None);
-    let first = renderer
+    scene.load_shape(Shape::rect([(0.0, 0.0), (2.0, 2.0)]), 17, None);
+    let first = scene
         .add_cached_shape(
             17,
             Some(branch),
@@ -129,7 +129,7 @@ fn subtree_replacement_accumulates_bounds_until_a_successful_render() {
                 .transform(InstanceTransform::translation(2.0, 3.0)),
         )
         .unwrap();
-    renderer
+    scene
         .add_shape(
             Shape::rect([(10.0, 11.0), (12.0, 13.0)]),
             Some(branch),
@@ -137,14 +137,14 @@ fn subtree_replacement_accumulates_bounds_until_a_successful_render() {
             ShapeDrawCommandOptions::new().color(Color::WHITE),
         )
         .unwrap();
-    renderer.render(&mut surface).unwrap();
+    scene.render(&mut surface).unwrap();
     let bounds = UnsignedPhysicalRect::new((3, 5).into(), (25, 27).into());
-    assert_eq!(renderer.backend.root_scissor, Some(bounds));
-    renderer.render(&mut surface).unwrap();
-    assert_eq!(renderer.backend.root_scissor, None);
+    assert_eq!(scene.backend.root_scissor, Some(bounds));
+    scene.render(&mut surface).unwrap();
+    assert_eq!(scene.backend.root_scissor, None);
 
-    renderer.remove_subtrees([branch, first, branch], |_| {});
-    renderer
+    scene.remove_subtrees([branch, first, branch], |_| {});
+    scene
         .add_shape(
             Shape::rect([(14.0, 1.0), (18.0, 3.0)]),
             None,
@@ -152,37 +152,37 @@ fn subtree_replacement_accumulates_bounds_until_a_successful_render() {
             ShapeDrawCommandOptions::new().color(Color::WHITE),
         )
         .unwrap();
-    renderer.backend.should_fail = true;
-    assert!(renderer.render(&mut surface).is_err());
-    renderer.backend.should_fail = false;
-    renderer.render(&mut surface).unwrap();
-    assert!(renderer.is_dirty_region_overlay_enabled());
+    scene.backend.should_fail = true;
+    assert!(scene.render(&mut surface).is_err());
+    scene.backend.should_fail = false;
+    scene.render(&mut surface).unwrap();
+    assert!(scene.is_dirty_region_overlay_enabled());
     assert_eq!(
-        renderer.backend.root_scissor,
+        scene.backend.root_scissor,
         Some(UnsignedPhysicalRect::new((3, 1).into(), (32, 27).into()))
     );
-    renderer.render(&mut surface).unwrap();
-    assert_eq!(renderer.backend.root_scissor, None);
+    scene.render(&mut surface).unwrap();
+    assert_eq!(scene.backend.root_scissor, None);
 
-    renderer.clear_draw_queue();
-    renderer.render(&mut surface).unwrap();
+    scene.clear();
+    scene.render(&mut surface).unwrap();
     assert_eq!(
-        renderer.backend.root_scissor,
+        scene.backend.root_scissor,
         Some(UnsignedPhysicalRect::new((27, 1).into(), (32, 7).into()))
     );
-    renderer.remove_subtrees([usize::MAX], |_| panic!("missing node"));
-    renderer.set_dirty_region_overlay_enabled(false);
-    renderer.render(&mut surface).unwrap();
-    assert_eq!(renderer.backend.root_scissor, None);
-    assert!(!renderer.is_dirty_region_overlay_enabled());
+    scene.remove_subtrees([usize::MAX], |_| panic!("missing node"));
+    scene.set_dirty_region_overlay_enabled(false);
+    scene.render(&mut surface).unwrap();
+    assert_eq!(scene.backend.root_scissor, None);
+    assert!(!scene.is_dirty_region_overlay_enabled());
 }
 
 #[test]
 fn retained_node_bounds_follow_viewport_changes_and_removal() {
-    let mut renderer = renderer();
+    let mut scene = scene();
     let mut surface = surface();
-    renderer.render(&mut surface).unwrap();
-    let branch = renderer
+    scene.render(&mut surface).unwrap();
+    let branch = scene
         .add_clipping_rect(
             [(0.0, 0.0), (20.0, 20.0)],
             None,
@@ -190,8 +190,8 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
             true,
         )
         .unwrap();
-    renderer.load_shape(Shape::rect([(0.0, 0.0), (4.0, 3.0)]), 17, None);
-    let cached = renderer
+    scene.load_shape(Shape::rect([(0.0, 0.0), (4.0, 3.0)]), 17, None);
+    let cached = scene
         .add_cached_shape(
             17,
             Some(branch),
@@ -200,7 +200,7 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
                 .transform(InstanceTransform::affine_2d(-1.0, 0.0, 0.0, 1.0, 13.0, 7.0)),
         )
         .unwrap();
-    renderer
+    scene
         .add_cached_shape(
             17,
             Some(cached),
@@ -209,7 +209,7 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
                 .transform(InstanceTransform::translation(9.0, 7.0)),
         )
         .unwrap();
-    let path = renderer
+    let path = scene
         .add_shape(
             Shape::builder()
                 .begin((0.0, 0.0))
@@ -227,8 +227,8 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
                 )),
         )
         .unwrap();
-    renderer.load_effect(7, &["backdrop effect"]).unwrap();
-    renderer
+    scene.load_effect(7, &["backdrop effect"]).unwrap();
+    scene
         .set_backdrop_effect(
             path,
             7,
@@ -257,26 +257,26 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
     ] {
         if scale != 1.0 {
             surface.resize(size);
-            renderer.change_scale_factor(scale).unwrap();
-            renderer.set_fringe_width(fringe).unwrap();
+            scene.change_scale_factor(scale).unwrap();
+            scene.set_fringe_width(fringe).unwrap();
         }
-        renderer.render(&mut surface).unwrap();
+        scene.render(&mut surface).unwrap();
         if scale == 1.0 {
             assert_eq!(
-                renderer.backend.root_scissor,
+                scene.backend.root_scissor,
                 Some(UnsignedPhysicalRect::new((8, 6).into(), (22, 17).into()))
             );
         }
         assert_eq!(
-            renderer
-                .scene
+            scene
+                .state
                 .draw_tree
                 .get(path)
                 .unwrap()
                 .logical_screen_bounds(),
             MathRect::new((16.25, 11.0).into(), (21.0, 16.0).into())
         );
-        let commands: Vec<_> = renderer.planner.plan(&renderer.scene, 4096).collect();
+        let commands: Vec<_> = scene.planner.plan(&scene.state, 4096).collect();
         let capture = commands.iter().find_map(|command| match command.operation {
             RenderOperation::Capture(capture) => Some(capture.region.bounds),
             _ => None,
@@ -296,16 +296,16 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
         }
     }
 
-    renderer.remove_subtrees([cached], |_| {});
-    renderer.render(&mut surface).unwrap();
+    scene.remove_subtrees([cached], |_| {});
+    scene.render(&mut surface).unwrap();
     assert_eq!(
-        renderer.backend.root_scissor,
+        scene.backend.root_scissor,
         Some(UnsignedPhysicalRect::new((16, 12).into(), (28, 22).into()))
     );
-    renderer.remove_subtrees([branch], |_| {});
-    renderer.render(&mut surface).unwrap();
+    scene.remove_subtrees([branch], |_| {});
+    scene.render(&mut surface).unwrap();
     assert_eq!(
-        renderer.backend.root_scissor,
+        scene.backend.root_scissor,
         Some(UnsignedPhysicalRect::new((30, 20).into(), (44, 34).into()))
     );
 }

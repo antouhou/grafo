@@ -1,5 +1,5 @@
 use crate::core::effect::{BackdropCaptureArea, BackdropEffectConfig, ShapeMaskEffectConfig};
-use crate::scene::effects::{self, backdrops};
+use crate::scene_state::effects::{self, backdrops};
 
 #[test]
 fn validate_backdrop_config_rejects_non_positive_downsample() {

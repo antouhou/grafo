@@ -2,7 +2,9 @@
 //! Both passes use the same radius and sample in input texture pixels.
 
 use futures::executor::block_on;
-use grafo::{Color, ContentEffectConfig, RendererContext, Shape, ShapeDrawCommandOptions, Surface};
+use grafo::{
+    Color, ContentEffectConfig, Scene, SceneContext, Shape, ShapeDrawCommandOptions, Surface,
+};
 use grafo_test_scenes::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -17,7 +19,7 @@ const BLUR_EFFECT: u64 = 1;
 #[derive(Default)]
 struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer>,
+    scene: Option<Scene>,
     surface: Option<Surface>,
 }
 
@@ -33,18 +35,17 @@ impl ApplicationHandler for App {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        let context = block_on(RendererContext::new());
+        let context = block_on(SceneContext::new());
         let surface = Surface::new(&context, window.clone(), physical_size, true, false)
             .expect("Failed to create surface");
-        let mut renderer =
-            grafo::Renderer::new_with_context(context, physical_size, scale_factor, 1);
+        let mut scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
 
-        renderer
+        scene
             .load_effect(BLUR_EFFECT, &[HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL])
             .expect("Failed to compile blur effect");
 
         self.window = Some(window);
-        self.renderer = Some(renderer);
+        self.scene = Some(scene);
         self.surface = Some(surface);
     }
 
@@ -55,7 +56,7 @@ impl ApplicationHandler for App {
         event: WindowEvent,
     ) {
         let Some(window) = &self.window else { return };
-        let Some(renderer) = &mut self.renderer else {
+        let Some(scene) = &mut self.scene else {
             return;
         };
         let Some(surface) = &mut self.surface else {
@@ -74,10 +75,10 @@ impl ApplicationHandler for App {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                renderer.clear_draw_queue();
+                scene.clear();
                 // Background without an effect
                 let bg = Shape::rect([(30.0, 30.0), (770.0, 570.0)]);
-                let bg_id = renderer
+                let bg_id = scene
                     .add_shape(
                         bg,
                         None,
@@ -87,7 +88,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let marker = Shape::rect([(310.0, 200.0), (750.0, 230.0)]);
-                renderer
+                scene
                     .add_shape(
                         marker,
                         Some(bg_id),
@@ -97,7 +98,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let group_bg = Shape::rect([(80.0, 80.0), (500.0, 400.0)]);
-                let group = renderer
+                let group = scene
                     .add_shape(
                         group_bg,
                         None,
@@ -107,7 +108,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let child1 = Shape::rect([(100.0, 100.0), (300.0, 280.0)]);
-                renderer
+                scene
                     .add_shape(
                         child1,
                         Some(group),
@@ -117,7 +118,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let child2 = Shape::rect([(200.0, 180.0), (450.0, 360.0)]);
-                renderer
+                scene
                     .add_shape(
                         child2,
                         Some(group),
@@ -127,7 +128,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let blur_params = BlurParams::new(8.0);
-                renderer
+                scene
                     .set_content_effect(
                         group,
                         BLUR_EFFECT,
@@ -138,7 +139,7 @@ impl ApplicationHandler for App {
 
                 // Sharp group for comparison
                 let sharp_bg = Shape::rect([(80.0, 420.0), (500.0, 560.0)]);
-                let sharp = renderer
+                let sharp = scene
                     .add_shape(
                         sharp_bg,
                         None,
@@ -148,7 +149,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let sc1 = Shape::rect([(100.0, 430.0), (300.0, 550.0)]);
-                renderer
+                scene
                     .add_shape(
                         sc1,
                         Some(sharp),
@@ -158,7 +159,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let sc2 = Shape::rect([(200.0, 440.0), (450.0, 550.0)]);
-                renderer
+                scene
                     .add_shape(
                         sc2,
                         Some(sharp),
@@ -167,7 +168,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                window_rendering::render(renderer, surface, event_loop);
+                window_rendering::render(scene, surface, event_loop);
             }
             _ => {}
         }

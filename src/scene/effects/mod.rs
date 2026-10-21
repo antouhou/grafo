@@ -1,538 +1,215 @@
-use super::effect_damage::{EffectDamageEntry, EffectDamageKind};
-use super::types::DrawTreeNode;
-use super::{Scene, SceneError};
+use super::damage::{mark_dirty, mark_physical_dirty, mark_shape_mask_effect_dirty};
+use super::{EffectError, RenderBackend, Scene};
+use crate::commands::ShapeDrawId;
 use crate::core::effect::{
-    BackdropEffectConfig, ContentEffectBounds, ContentEffectConfig, ShapeMaskEffectBounds,
-    ShapeMaskEffectConfig,
+    BackdropEffectConfig, ContentEffectConfig, ShapeMaskEffectBounds, ShapeMaskEffectConfig,
 };
-use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
-use backdrops::validate_backdrop_config;
-pub(crate) use backdrops::BackdropEffectInstance;
-use parameters::EffectParametersHandle;
+use crate::scene_state::effects::EffectAttachmentKind;
+use crate::scene_state::types::DrawTreeNode;
 
-mod backdrops;
-pub(crate) mod parameters;
-
-/// A cached shape mask effect attachment. GPU parameter resources are created only on cache misses.
-#[derive(Clone, Copy)]
-pub(crate) struct ShapeMaskEffectInstance {
-    pub effect_id: u64,
-    pub parameters: EffectParametersHandle,
-    pub config: ShapeMaskEffectConfig,
-    pub bounds: ShapeMaskEffectBounds,
-}
-
-/// Parameters shared by content and backdrop effect attachments.
-#[derive(Clone, Copy)]
-pub(crate) struct EffectInstance {
-    /// The loaded effect's ID.
-    pub effect_id: u64,
-    pub parameters: EffectParametersHandle,
-}
-
-/// A content attachment with its resolved input and output bounds.
-#[derive(Clone, Copy)]
-pub(crate) struct ContentEffectInstance {
-    pub effect_id: u64,
-    pub parameters: EffectParametersHandle,
-    pub config: ContentEffectConfig,
-    pub bounds: Option<ContentEffectBounds>,
-}
-
-impl ContentEffectInstance {
-    pub(crate) fn new(
-        effect: EffectInstance,
-        config: ContentEffectConfig,
-        node: &DrawTreeNode,
-        shape_mask_effect: Option<&ShapeMaskEffectInstance>,
-        viewport: Viewport,
-        maximum_texture_dimension: u32,
-    ) -> Self {
-        let shape_mask_effect_bounds = shape_mask_effect
-            .filter(|_| matches!(node, DrawTreeNode::CachedShape(shape) if shape.has_geometry()))
-            .map(|effect| effect.bounds);
-        Self {
-            effect_id: effect.effect_id,
-            parameters: effect.parameters,
-            config,
-            bounds: ContentEffectBounds::new(
-                node.logical_screen_bounds(),
-                shape_mask_effect_bounds,
-                config,
-                viewport,
-                maximum_texture_dimension,
-            ),
-        }
-    }
-}
-
-fn resolve_content_effect(
-    node_id: usize,
-    node: &DrawTreeNode,
-    effect: EffectInstance,
-    config: ContentEffectConfig,
-    shape_mask_effect: Option<&ShapeMaskEffectInstance>,
-    viewport: Viewport,
-    maximum_texture_dimension: u32,
-) -> (ContentEffectInstance, Option<EffectDamageEntry>) {
-    let instance = ContentEffectInstance::new(
-        effect,
-        config,
-        node,
-        shape_mask_effect,
-        viewport,
-        maximum_texture_dimension,
-    );
-    let entry = EffectDamageEntry::content(node_id, instance.bounds, viewport.physical_size.into());
-    (instance, entry)
-}
-
-pub(super) fn resolve_backdrop_effect(
-    node_id: usize,
-    node: &DrawTreeNode,
-    effect: EffectInstance,
-    config: BackdropEffectConfig,
-    viewport: Viewport,
-    fringe_width: f32,
-    maximum_texture_dimension: u32,
-) -> (BackdropEffectInstance, Option<EffectDamageEntry>) {
-    let instance = BackdropEffectInstance::new(
-        effect,
-        config,
-        node.logical_screen_bounds(),
-        viewport,
-        maximum_texture_dimension,
-    );
-    let entry = EffectDamageEntry::backdrop(
-        node_id,
-        node,
-        instance.capture_region,
-        viewport,
-        fringe_width,
-    );
-    (instance, entry)
-}
-
-fn validate_shape_mask_effect_config(config: &ShapeMaskEffectConfig) -> Result<(), SceneError> {
-    if !(config.downsample > 0.0 && config.downsample <= 1.0) {
-        return Err(SceneError::InvalidParams(format!(
-            "shape mask effect downsample must be in the range (0.0, 1.0], got {}",
-            config.downsample
-        )));
-    }
-
-    let outsets = [
-        config.left_outset,
-        config.top_outset,
-        config.right_outset,
-        config.bottom_outset,
-    ];
-    if outsets
-        .iter()
-        .any(|outset| !outset.is_finite() || *outset < 0.0)
-    {
-        return Err(SceneError::InvalidParams(
-            "shape mask effect outsets must be finite and non-negative".to_string(),
-        ));
-    }
-
-    Ok(())
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum EffectAttachmentKind {
-    Content,
-    Backdrop,
-    ShapeMask,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct RemovedEffectAttachment {
-    pub node_id: usize,
-    pub kind: EffectAttachmentKind,
-    pub damage_bounds: Option<UnsignedPhysicalRect>,
-}
-
-impl Scene {
-    pub(crate) fn compact_effect_parameters(&mut self) {
-        let parameters = self
-            .content_effects
-            .values_mut()
-            .map(|effect| &mut effect.parameters)
-            .chain(
-                self.backdrop_effects
-                    .values_mut()
-                    .map(|effect| &mut effect.effect.parameters),
-            )
-            .chain(
-                self.shape_mask_effects
-                    .values_mut()
-                    .map(|effect| &mut effect.parameters),
-            );
-        self.effect_parameters.compact(parameters);
-    }
-
-    pub(crate) fn shape_mask_effect(
-        &self,
-        node_id: usize,
-    ) -> Result<&ShapeMaskEffectInstance, SceneError> {
-        self.shape_mask_effects
-            .get(&node_id)
-            .ok_or(SceneError::NodeNotFound(node_id))
-    }
-
-    pub(crate) fn set_content_effect(
+impl<B: RenderBackend> Scene<B> {
+    /// Loads shader passes. Changed sources detach old instances and invalidate cached results.
+    pub fn load_effect(
         &mut self,
-        node_id: usize,
         effect_id: u64,
-        parameters: &[u8],
-        config: ContentEffectConfig,
-        maximum_texture_dimension: u32,
-    ) -> Result<(), SceneError> {
-        self.shape(node_id)?;
-        if !config.is_valid() {
-            return Err(SceneError::InvalidParams(
-                "content effect outsets must be finite and non-negative, and downsample must be in the range (0.0, 1.0]".to_string(),
-            ));
+        pass_sources: &[&str],
+    ) -> Result<(), EffectError<B::Error>> {
+        if self
+            .backend
+            .load_effect(effect_id, pass_sources)
+            .map_err(EffectError::Backend)?
+        {
+            self.remove_effect_attachments(effect_id);
         }
-        let parameters = self.effect_parameters.store(parameters);
-        if self.content_effects.contains_key(&node_id) {
-            self.effect_parameters.request_compaction();
-        }
-        let (instance, entry) = resolve_content_effect(
-            node_id,
-            self.draw_tree.get_unchecked(node_id),
-            EffectInstance {
-                effect_id,
-                parameters,
-            },
-            config,
-            self.shape_mask_effects.get(&node_id),
-            self.viewport,
-            maximum_texture_dimension,
-        );
-        self.replace_content_effect(node_id, instance, entry);
         Ok(())
     }
 
-    fn replace_content_effect(
-        &mut self,
-        node_id: usize,
-        instance: ContentEffectInstance,
-        entry: Option<EffectDamageEntry>,
-    ) {
-        self.effect_damage
-            .replace(EffectDamageKind::Content, node_id, entry);
-        self.content_effects.insert(node_id, instance);
-    }
-
-    pub(crate) fn remove_content_effect(&mut self, node_id: usize) -> bool {
-        if self.content_effects.remove(&node_id).is_none() {
-            return false;
-        }
-        self.effect_parameters.request_compaction();
-        self.effect_damage
-            .remove(EffectDamageKind::Content, node_id);
-        true
-    }
-
-    pub(super) fn replace_backdrop_effect(
-        &mut self,
-        node_id: usize,
-        instance: BackdropEffectInstance,
-        entry: Option<EffectDamageEntry>,
-    ) {
-        self.effect_damage
-            .replace(EffectDamageKind::Backdrop, node_id, entry);
-        self.backdrop_effects.insert(node_id, instance);
-    }
-
-    pub(crate) fn set_backdrop_effect(
+    /// Sets an effect applied to the node and its descendants.
+    ///
+    /// Captures all descendants rendered within the shape's bounds and uses that as an input for
+    /// the effect. Overflowing children are not included into the capture. The output is drawn in
+    /// a place of the shape. You can reserve additional space around the shape for the output via
+    /// the effect config, if the output needs to expand original shape.
+    pub fn set_content_effect(
         &mut self,
         node_id: usize,
         effect_id: u64,
-        parameters: &[u8],
-        config: BackdropEffectConfig,
-        maximum_texture_dimension: u32,
-    ) -> Result<(), SceneError> {
-        let node = self
-            .draw_tree
-            .get(node_id)
-            .ok_or(SceneError::NodeNotFound(node_id))?;
-        let DrawTreeNode::CachedShape(_) = node else {
-            return Err(SceneError::UnsupportedClipRectOperation(node_id, "effects"));
-        };
-        validate_backdrop_config(&config)?;
-        let parameters = self.effect_parameters.store(parameters);
-        if self.backdrop_effects.contains_key(&node_id) {
-            self.effect_parameters.request_compaction();
-        }
-        let effect = EffectInstance {
+        params: &[u8],
+        config: ContentEffectConfig,
+    ) -> Result<(), EffectError<B::Error>> {
+        self.state.shape(node_id)?;
+        self.backend
+            .validate_effect_params(effect_id, params)
+            .map_err(EffectError::Backend)?;
+        let previous_output = self.state.content_effect_output(node_id);
+        self.state.set_content_effect(
+            node_id,
             effect_id,
-            parameters,
-        };
-        let (instance, entry) = resolve_backdrop_effect(
-            node_id,
-            node,
-            effect,
+            params,
             config,
-            self.viewport,
-            self.fringe_width,
-            maximum_texture_dimension,
+            self.backend.maximum_texture_dimension(),
+        )?;
+        mark_physical_dirty(&mut self.dirty_bounds, previous_output);
+        mark_physical_dirty(
+            &mut self.dirty_bounds,
+            self.state.content_effect_output(node_id),
         );
-        self.replace_backdrop_effect(node_id, instance, entry);
+        self.mark_shape_dirty(node_id);
         Ok(())
     }
 
-    /// Refreshes capture bounds, viewport overlap and allocation limits after viewport changes.
-    pub(super) fn refresh_backdrop_capture_regions(&mut self, maximum_texture_dimension: u32) {
-        let entries = self
-            .backdrop_effects
-            .iter_mut()
-            .filter_map(|(&node_id, instance)| {
-                let node = self.draw_tree.get(node_id)?;
-                let (updated, entry) = resolve_backdrop_effect(
-                    node_id,
-                    node,
-                    instance.effect,
-                    instance.config,
-                    self.viewport,
-                    self.fringe_width,
-                    maximum_texture_dimension,
-                );
-                *instance = updated;
-                entry
-            });
-        self.effect_damage.rebuild(entries);
-    }
-
-    pub(crate) fn remove_backdrop_effect(&mut self, node_id: usize) -> bool {
-        if self.backdrop_effects.remove(&node_id).is_none() {
-            return false;
+    /// Removes the content effect, restoring the node's ordinary rendering.
+    pub fn remove_content_effect(&mut self, node_id: usize) {
+        let previous_output = self.state.content_effect_output(node_id);
+        if self.state.remove_content_effect(node_id) {
+            mark_physical_dirty(&mut self.dirty_bounds, previous_output);
+            self.mark_shape_dirty(node_id);
         }
-        self.effect_parameters.request_compaction();
-        self.effect_damage
-            .remove(EffectDamageKind::Backdrop, node_id);
-        true
     }
 
-    /// Attaches an effect using the scene's rasterization settings.
-    /// Leaves the previous attachment unchanged if its bounds cannot be calculated.
-    pub(crate) fn set_shape_mask_effect(
+    /// A backdrop filter: Filters previously rendered scene pixels behind the node. Perfect fit
+    /// for frosted glass background and similar effects.
+    ///
+    /// Effect config can be used to control capture area and padding around the input, independently
+    /// of the node's own config
+    pub fn set_backdrop_effect(
         &mut self,
         node_id: usize,
         effect_id: u64,
-        parameters: &[u8],
+        params: &[u8],
+        config: BackdropEffectConfig,
+    ) -> Result<(), EffectError<B::Error>> {
+        self.state.shape(node_id)?;
+        self.backend
+            .validate_effect_params(effect_id, params)
+            .map_err(EffectError::Backend)?;
+        self.state.set_backdrop_effect(
+            node_id,
+            effect_id,
+            params,
+            config,
+            self.backend.maximum_texture_dimension(),
+        )?;
+        // Damage expansion performed before planning will include the capture region
+        self.mark_shape_dirty(node_id);
+        Ok(())
+    }
+
+    /// Removes the node's backdrop effect.
+    pub fn remove_backdrop_effect(&mut self, node_id: usize) {
+        if self.state.remove_backdrop_effect(node_id) {
+            self.mark_shape_dirty(node_id);
+        }
+        self.backend.remove_backdrop_effect(ShapeDrawId(node_id));
+    }
+
+    /// Applies an effect to the shape's white geometric coverage alpha mask. Perfect for things
+    /// like box shadows.
+    ///
+    /// The input is an alpha mask of the shape it is attached to. It excludes the shape's fill,
+    /// textures, and children. The result is drawn behind the shape.
+    pub fn set_shape_mask_effect(
+        &mut self,
+        node_id: usize,
+        effect_id: u64,
+        params: &[u8],
         config: ShapeMaskEffectConfig,
-        maximum_texture_dimension: u32,
-    ) -> Result<(), SceneError> {
-        let shape = self.shape(node_id)?;
-        validate_shape_mask_effect_config(&config)?;
-        let bounds = ShapeMaskEffectBounds::new(
-            shape.cached_shape.tessellation.local_bounds,
+    ) -> Result<(), EffectError<B::Error>> {
+        self.state.shape(node_id)?;
+        self.backend
+            .validate_effect_params(effect_id, params)
+            .map_err(EffectError::Backend)?;
+        let old_bounds = self
+            .state
+            .shape_mask_effects
+            .get(&node_id)
+            .map(|effect| effect.bounds);
+        let previous_content_output = self.state.content_effect_output(node_id);
+        self.state.set_shape_mask_effect(
+            node_id,
+            effect_id,
+            params,
             config,
-            shape.transform,
-            self.viewport.scale_factor,
-            self.fringe_width,
-        )
-        .ok_or(SceneError::InvalidShapeMaskEffectBounds(node_id))?;
-        let parameters = self.effect_parameters.store(parameters);
-        if self.shape_mask_effects.contains_key(&node_id) {
-            self.effect_parameters.request_compaction();
-        }
-        self.shape_mask_effects.insert(
-            node_id,
-            ShapeMaskEffectInstance {
-                effect_id,
-                parameters,
-                config,
-                bounds,
-            },
+            self.backend.maximum_texture_dimension(),
+        )?;
+        self.backend.set_shape_mask_effect_geometry(
+            ShapeDrawId(node_id),
+            &self.state.shape(node_id)?.cached_shape,
         );
-        self.refresh_content_effect_bounds(node_id, maximum_texture_dimension);
+        if let Some(bounds) = old_bounds {
+            self.mark_shape_mask_effect_dirty(bounds);
+        }
+        self.mark_shape_mask_effect_dirty(self.state.shape_mask_effect(node_id)?.bounds);
+        mark_physical_dirty(&mut self.dirty_bounds, previous_content_output);
+        mark_physical_dirty(
+            &mut self.dirty_bounds,
+            self.state.content_effect_output(node_id),
+        );
         Ok(())
     }
 
-    /// Refreshes cached rectangles using the supplied rasterization settings.
-    pub(super) fn refresh_shape_mask_effect_bounds(
-        &mut self,
-        scale_factor: f64,
-        fringe_width: f32,
-    ) -> Result<(), SceneError> {
-        for (&node_id, effect) in &mut self.shape_mask_effects {
-            let node = self
-                .draw_tree
-                .get(node_id)
-                .ok_or(SceneError::NodeNotFound(node_id))?;
-            let DrawTreeNode::CachedShape(shape) = node else {
-                return Err(SceneError::UnsupportedClipRectOperation(node_id, "effects"));
-            };
-            effect.bounds = ShapeMaskEffectBounds::new(
-                shape.instance.cached_shape.tessellation.local_bounds,
-                effect.config,
-                shape.instance.transform,
-                scale_factor,
-                fringe_width,
-            )
-            .ok_or(SceneError::InvalidShapeMaskEffectBounds(node_id))?;
+    /// Removes the shape's mask effect while keeping its fill and children.
+    pub fn remove_shape_mask_effect(&mut self, node_id: usize) {
+        let previous_content_output = self.state.content_effect_output(node_id);
+        let bounds = self
+            .state
+            .shape_mask_effects
+            .get(&node_id)
+            .map(|effect| effect.bounds);
+        self.state
+            .remove_shape_mask_effect(node_id, self.backend.maximum_texture_dimension());
+        if let Some(bounds) = bounds {
+            self.mark_shape_mask_effect_dirty(bounds);
         }
-        Ok(())
-    }
-
-    pub(crate) fn remove_shape_mask_effect(
-        &mut self,
-        node_id: usize,
-        maximum_texture_dimension: u32,
-    ) {
-        if self.shape_mask_effects.remove(&node_id).is_some() {
-            self.effect_parameters.request_compaction();
-            self.refresh_content_effect_bounds(node_id, maximum_texture_dimension);
-        }
-    }
-
-    pub(crate) fn remove_effect_attachments(
-        &mut self,
-        effect_id: u64,
-        maximum_texture_dimension: u32,
-        mut removed: impl FnMut(RemovedEffectAttachment),
-    ) {
-        self.content_effects.retain(|node_id, instance| {
-            if instance.effect_id != effect_id {
-                return true;
-            }
-            let damage_bounds = self
-                .effect_damage
-                .output_region(EffectDamageKind::Content, *node_id);
-            self.effect_damage
-                .remove(EffectDamageKind::Content, *node_id);
-            self.effect_parameters.request_compaction();
-            removed(RemovedEffectAttachment {
-                node_id: *node_id,
-                kind: EffectAttachmentKind::Content,
-                damage_bounds,
-            });
-            false
-        });
-        self.backdrop_effects.retain(|node_id, instance| {
-            if instance.effect.effect_id != effect_id {
-                return true;
-            }
-            self.effect_damage
-                .remove(EffectDamageKind::Backdrop, *node_id);
-            let damage_bounds = self.draw_tree.get(*node_id).and_then(|node| {
-                geometry::logical_bounds_to_viewport_rect(
-                    node.logical_screen_bounds(),
-                    self.viewport,
-                    self.fringe_width,
-                )
-            });
-            self.effect_parameters.request_compaction();
-            removed(RemovedEffectAttachment {
-                node_id: *node_id,
-                kind: EffectAttachmentKind::Backdrop,
-                damage_bounds,
-            });
-            false
-        });
-        self.shape_mask_effects.retain(|node_id, instance| {
-            if instance.effect_id != effect_id {
-                return true;
-            }
-            let mut damage_bounds = geometry::logical_bounds_to_viewport_rect(
-                instance.bounds.logical_screen_bounds,
-                self.viewport,
-                0.0,
+        self.backend.remove_shape_mask_effect(ShapeDrawId(node_id));
+        if bounds.is_some() {
+            mark_physical_dirty(&mut self.dirty_bounds, previous_content_output);
+            mark_physical_dirty(
+                &mut self.dirty_bounds,
+                self.state.content_effect_output(node_id),
             );
-            if let (Some(group), Some(node)) = (
-                self.content_effects.get_mut(node_id),
-                self.draw_tree.get(*node_id),
-            ) {
-                if let Some(output) = self
-                    .effect_damage
-                    .output_region(EffectDamageKind::Content, *node_id)
-                {
-                    damage_bounds =
-                        Some(damage_bounds.map_or(output, |bounds| bounds.union(&output)));
-                }
-                let (updated, entry) = resolve_content_effect(
-                    *node_id,
-                    node,
-                    EffectInstance {
-                        effect_id: group.effect_id,
-                        parameters: group.parameters,
-                    },
-                    group.config,
-                    None,
-                    self.viewport,
-                    maximum_texture_dimension,
-                );
-                *group = updated;
-                if let Some(output) = entry.and_then(|entry| entry.target_region) {
-                    damage_bounds =
-                        Some(damage_bounds.map_or(output, |bounds| bounds.union(&output)));
-                }
-                self.effect_damage
-                    .replace(EffectDamageKind::Content, *node_id, entry);
-            }
-            self.effect_parameters.request_compaction();
-            removed(RemovedEffectAttachment {
-                node_id: *node_id,
-                kind: EffectAttachmentKind::ShapeMask,
-                damage_bounds,
-            });
-            false
-        });
+        }
     }
 
-    pub(super) fn refresh_content_effect_bounds(
-        &mut self,
-        node_id: usize,
-        maximum_texture_dimension: u32,
-    ) {
-        let Some(instance) = self.content_effects.get(&node_id) else {
-            return;
-        };
-        let Some(node) = self.draw_tree.get(node_id) else {
-            return;
-        };
-        let (updated, entry) = resolve_content_effect(
-            node_id,
-            node,
-            EffectInstance {
-                effect_id: instance.effect_id,
-                parameters: instance.parameters,
+    pub fn unload_effect(&mut self, effect_id: u64) {
+        self.remove_effect_attachments(effect_id);
+        self.backend.unload_effect(effect_id);
+    }
+
+    fn remove_effect_attachments(&mut self, effect_id: u64) {
+        self.state.remove_effect_attachments(
+            effect_id,
+            self.backend.maximum_texture_dimension(),
+            |attachment| {
+                mark_physical_dirty(&mut self.dirty_bounds, attachment.damage_bounds);
+                match attachment.kind {
+                    EffectAttachmentKind::Content => {}
+                    EffectAttachmentKind::Backdrop => {
+                        self.backend
+                            .remove_backdrop_effect(ShapeDrawId(attachment.node_id));
+                    }
+                    EffectAttachmentKind::ShapeMask => {
+                        self.backend
+                            .remove_shape_mask_effect(ShapeDrawId(attachment.node_id));
+                    }
+                }
             },
-            instance.config,
-            self.shape_mask_effects.get(&node_id),
-            self.viewport,
-            maximum_texture_dimension,
         );
-        self.replace_content_effect(node_id, updated, entry);
+        self.backend.invalidate_effect(effect_id);
     }
 
-    pub(super) fn refresh_all_content_effect_bounds(&mut self, maximum_texture_dimension: u32) {
-        for (&node_id, instance) in &mut self.content_effects {
-            let Some(node) = self.draw_tree.get(node_id) else {
-                continue;
-            };
-            let (updated, entry) = resolve_content_effect(
-                node_id,
-                node,
-                EffectInstance {
-                    effect_id: instance.effect_id,
-                    parameters: instance.parameters,
-                },
-                instance.config,
-                self.shape_mask_effects.get(&node_id),
-                self.viewport,
-                maximum_texture_dimension,
+    fn mark_shape_dirty(&mut self, node_id: usize) {
+        if let Some(DrawTreeNode::CachedShape(shape)) = self.state.draw_tree.get(node_id) {
+            mark_dirty(
+                &mut self.dirty_bounds,
+                shape.logical_screen_bounds,
+                self.state.viewport(),
+                self.state.fringe_width(),
             );
-            *instance = updated;
-            self.effect_damage
-                .replace(EffectDamageKind::Content, node_id, entry);
         }
+    }
+
+    fn mark_shape_mask_effect_dirty(&mut self, bounds: ShapeMaskEffectBounds) {
+        mark_shape_mask_effect_dirty(&mut self.dirty_bounds, bounds, self.state.viewport());
     }
 }
-
-#[cfg(test)]
-mod tests;

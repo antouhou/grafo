@@ -49,14 +49,14 @@ pub use render_backend::render_target::{
 };
 pub use render_backend::texture_manager::TextureManager;
 pub use render_backend::RenderBackend;
-pub use scene::SceneError;
+pub use scene_state::SceneError;
 use std::sync::Arc;
 pub use wgpu;
 #[cfg(feature = "render_metrics")]
 pub use wgpu_backend::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeMaskEffectCacheMetrics};
 pub use wgpu_backend::texture_manager::WgpuTextureManager;
 pub use wgpu_backend::{
-    BackendCreationError as RendererCreationError, EffectResourceError, EffectShaderError,
+    BackendCreationError as SceneCreationError, EffectResourceError, EffectShaderError,
     GeometryBufferError, ReadbackError, WgpuBackend, WgpuBackendError,
 };
 use wgpu_backend::{WgpuContext, WgpuSurface};
@@ -65,18 +65,18 @@ pub mod commands;
 pub mod core;
 pub(crate) mod planner;
 pub mod render_backend;
-pub mod renderer;
-mod scene;
+pub mod scene;
+mod scene_state;
 pub mod wgpu_backend;
-mod wgpu_renderer;
+mod wgpu_scene;
 
-/// Coordinates scene construction, planning and execution, using WGPU by default.
-pub type Renderer<B = WgpuBackend> = renderer::Renderer<B>;
+/// A retained scene of shapes, clipping rectangles, and effects, using WGPU by default.
+pub type Scene<B = WgpuBackend> = scene::Scene<B>;
 /// A platform surface with size and vsync settings, using WGPU by default.
 pub type Surface<Resource = WgpuSurface> = render_backend::render_target::Surface<Resource>;
 /// Shared CPU shape storage and backend context, using WGPU by default.
-pub type RendererContext<C = Arc<WgpuContext>> = renderer::RendererContext<C>;
+pub type SceneContext<C = Arc<WgpuContext>> = scene::SceneContext<C>;
 /// Scene mutation or backend resource preparation failed.
-pub type DrawCommandError<E = WgpuBackendError> = renderer::DrawCommandError<E>;
+pub type DrawCommandError<E = WgpuBackendError> = scene::DrawCommandError<E>;
 /// Scene attachment or backend effect validation failed.
-pub type EffectError<E = WgpuBackendError> = renderer::EffectError<E>;
+pub type EffectError<E = WgpuBackendError> = scene::EffectError<E>;

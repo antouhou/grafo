@@ -1,4 +1,4 @@
-//! Contracts shared by the renderer coordinator and backend implementations.
+//! Contracts shared by the scene coordinator and backend implementations.
 
 use crate::commands::{RenderCommand, ShapeDrawId};
 use crate::core::{CachedShapeHandle, ShapeInstance, Viewport};
@@ -29,7 +29,7 @@ pub trait RenderBackend {
     /// Preserve other instances and resource caches.
     fn unregister_shapes(&mut self, ids: &[ShapeDrawId]);
     /// Releases queued references, retaining reusable storage and resource caches.
-    fn clear_draw_queue(&mut self);
+    fn clear(&mut self);
 
     fn texture_manager(&self) -> &Self::TextureManager;
 

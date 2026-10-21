@@ -1,5 +1,5 @@
 use super::types::DrawTreeNode;
-use super::Scene;
+use super::SceneState;
 use crate::core::effect::{CaptureRegion, ContentEffectBounds};
 use crate::core::geometry;
 use crate::core::{Size, UnsignedPhysicalRect, Viewport};
@@ -239,7 +239,7 @@ impl EffectDamage {
     }
 }
 
-impl Scene {
+impl SceneState {
     pub(crate) fn content_effect_output(&self, node_id: usize) -> Option<UnsignedPhysicalRect> {
         self.effect_damage
             .output_region(EffectDamageKind::Content, node_id)

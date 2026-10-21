@@ -7,14 +7,14 @@
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use futures::executor::block_on;
-use grafo::{PixelFormat, Pixmap, PixmapMut, Renderer};
+use grafo::{PixelFormat, Pixmap, PixmapMut, Scene};
 use grafo_test_scenes::{
     build_main_scene, check_pixels, PixelExpectation, CANVAS_HEIGHT, CANVAS_WIDTH,
 };
 use std::hint::black_box;
 
-fn create_renderer() -> Renderer {
-    block_on(Renderer::try_new((CANVAS_WIDTH, CANVAS_HEIGHT), 1.0, 1))
+fn create_scene() -> Scene {
+    block_on(Scene::try_new((CANVAS_WIDTH, CANVAS_HEIGHT), 1.0, 1))
         .expect("visual-regression benchmark requires a GPU adapter")
 }
 
@@ -29,20 +29,20 @@ fn validate_scene(pixel_buffer: &[u8], expectations: &[PixelExpectation]) {
 }
 
 fn benchmark_visual_regression_scene(criterion: &mut Criterion) {
-    let mut renderer = create_renderer();
-    let expectations = build_main_scene(&mut renderer);
-    let mut pixel_buffer = Pixmap::new(renderer.size(), PixelFormat::Bgra8).unwrap();
+    let mut scene = create_scene();
+    let expectations = build_main_scene(&mut scene);
+    let mut pixel_buffer = Pixmap::new(scene.size(), PixelFormat::Bgra8).unwrap();
 
-    renderer.render(&mut pixel_buffer).unwrap();
+    scene.render(&mut pixel_buffer).unwrap();
     validate_scene(pixel_buffer.pixels(), &expectations);
 
     criterion.bench_function("visual_regression/end_to_end_readback", |bencher| {
-        bencher.iter(|| renderer.render(black_box(&mut pixel_buffer)).unwrap());
+        bencher.iter(|| scene.render(black_box(&mut pixel_buffer)).unwrap());
     });
 
     let mut argb_pixels = vec![0; (CANVAS_WIDTH * CANVAS_HEIGHT) as usize];
-    renderer
-        .render(PixmapMut::argb32(&mut argb_pixels, renderer.size()).unwrap())
+    scene
+        .render(PixmapMut::argb32(&mut argb_pixels, scene.size()).unwrap())
         .unwrap();
     let argb_bytes: Vec<u8> = argb_pixels
         .iter()
@@ -52,8 +52,8 @@ fn benchmark_visual_regression_scene(criterion: &mut Criterion) {
 
     criterion.bench_function("visual_regression/argb_readback", |bencher| {
         bencher.iter(|| {
-            renderer
-                .render(PixmapMut::argb32(black_box(&mut argb_pixels), renderer.size()).unwrap())
+            scene
+                .render(PixmapMut::argb32(black_box(&mut argb_pixels), scene.size()).unwrap())
                 .unwrap()
         });
     });

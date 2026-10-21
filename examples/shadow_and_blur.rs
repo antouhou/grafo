@@ -3,7 +3,7 @@
 
 use futures::executor::block_on;
 use grafo::{
-    BackdropEffectConfig, BorderRadii, Color, ContentEffectConfig, RendererContext, Shape,
+    BackdropEffectConfig, BorderRadii, Color, ContentEffectConfig, Scene, SceneContext, Shape,
     ShapeDrawCommandOptions, Surface,
 };
 use grafo_test_scenes::shaders::{BlurParams, HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL};
@@ -86,7 +86,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 #[derive(Default)]
 struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer>,
+    scene: Option<Scene>,
     surface: Option<Surface>,
 }
 
@@ -104,21 +104,20 @@ impl ApplicationHandler for App {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        let context = block_on(RendererContext::new());
+        let context = block_on(SceneContext::new());
         let surface = Surface::new(&context, window.clone(), physical_size, true, false)
             .expect("Failed to create surface");
-        let mut renderer =
-            grafo::Renderer::new_with_context(context, physical_size, scale_factor, 1);
+        let mut scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
 
-        renderer
+        scene
             .load_effect(BOX_SHADOW_EFFECT, &[BOX_SHADOW_WGSL])
             .expect("Failed to compile box shadow effect");
-        renderer
+        scene
             .load_effect(BLUR_EFFECT, &[HORIZONTAL_BLUR_WGSL, VERTICAL_BLUR_WGSL])
             .expect("Failed to compile blur effect");
 
         self.window = Some(window);
-        self.renderer = Some(renderer);
+        self.scene = Some(scene);
         self.surface = Some(surface);
     }
 
@@ -129,7 +128,7 @@ impl ApplicationHandler for App {
         event: WindowEvent,
     ) {
         let Some(window) = &self.window else { return };
-        let Some(renderer) = &mut self.renderer else {
+        let Some(scene) = &mut self.scene else {
             return;
         };
         let Some(surface) = &mut self.surface else {
@@ -148,14 +147,14 @@ impl ApplicationHandler for App {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                renderer.clear_draw_queue();
+                scene.clear();
                 let (pw, ph) = surface.size();
                 let pw = pw as f32;
                 let ph = ph as f32;
 
                 // Scene background
                 let scene_bg = Shape::rect([(0.0, 0.0), (pw, ph)]);
-                let bg_id = renderer
+                let bg_id = scene
                     .add_shape(
                         scene_bg,
                         None,
@@ -166,7 +165,7 @@ impl ApplicationHandler for App {
 
                 // Background colors for the blur
                 let r1 = Shape::rect([(40.0, 60.0), (300.0, 280.0)]);
-                renderer
+                scene
                     .add_shape(
                         r1,
                         Some(bg_id),
@@ -176,7 +175,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let r2 = Shape::rect([(200.0, 150.0), (500.0, 400.0)]);
-                renderer
+                scene
                     .add_shape(
                         r2,
                         Some(bg_id),
@@ -186,7 +185,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let r3 = Shape::rect([(400.0, 80.0), (700.0, 320.0)]);
-                renderer
+                scene
                     .add_shape(
                         r3,
                         Some(bg_id),
@@ -196,7 +195,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let r4 = Shape::rect([(100.0, 380.0), (650.0, 550.0)]);
-                renderer
+                scene
                     .add_shape(
                         r4,
                         Some(bg_id),
@@ -216,7 +215,7 @@ impl ApplicationHandler for App {
                     [(panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h)],
                     BorderRadii::new(panel_radius),
                 );
-                let panel = renderer
+                let panel = scene
                     .add_shape(
                         panel_shape,
                         None,
@@ -242,7 +241,7 @@ impl ApplicationHandler for App {
                     sigma: 16.0 * scale_factor,
                     corner_radius: panel_radius * scale_factor,
                 };
-                renderer
+                scene
                     .set_content_effect(
                         panel,
                         BOX_SHADOW_EFFECT,
@@ -257,7 +256,7 @@ impl ApplicationHandler for App {
                     [(panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h)],
                     BorderRadii::new(panel_radius),
                 );
-                let glass = renderer
+                let glass = scene
                     .add_shape(
                         glass_shape,
                         Some(panel),
@@ -267,7 +266,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let blur_params = BlurParams::new(14.0);
-                renderer
+                scene
                     .set_backdrop_effect(
                         glass,
                         BLUR_EFFECT,
@@ -276,7 +275,7 @@ impl ApplicationHandler for App {
                     )
                     .expect("Failed to set backdrop blur effect");
 
-                window_rendering::render(renderer, surface, event_loop);
+                window_rendering::render(scene, surface, event_loop);
             }
             _ => {}
         }

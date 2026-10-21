@@ -1,7 +1,7 @@
 use super::{coverage_at, CoverageTestMesh};
 use crate::core::cache::CachedTessellation;
 use crate::core::{BorderRadii, Shape, TransformInstance, Viewport};
-use crate::scene::{Scene, SceneContext};
+use crate::scene_state::{SceneState, SceneStateContext};
 use std::{fmt, sync::Arc};
 
 fn assert_matching_coverage(
@@ -28,8 +28,8 @@ fn assert_matching_coverage(
 #[test]
 fn rounded_rect_sweep_matches_general_coverage() {
     let size = (96, 80);
-    let mut scene = Scene::new(
-        SceneContext::default(),
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
         Viewport {
             physical_size: size,
             scale_factor: 1.0,

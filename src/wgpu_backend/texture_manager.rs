@@ -17,9 +17,9 @@ pub enum TextureManagerError {
 /// # Examples
 ///
 /// ```rust,no_run
-/// use grafo::{premultiply_rgba8_srgb_inplace, TextureManager};
-/// # fn example(renderer: &grafo::Renderer) {
-/// let texture_manager = renderer.texture_manager();
+/// use grafo::{premultiply_rgba8_srgb_inplace, Scene, TextureManager};
+/// # fn example(scene: &Scene) {
+/// let texture_manager = scene.texture_manager();
 /// let texture_id = 42;
 /// let texture_dimensions = (256, 256);
 /// let mut data = vec![255u8; 256 * 256 * 4];
@@ -39,7 +39,7 @@ pub struct WgpuTextureManager {
     sampler: Arc<wgpu::Sampler>,
     // Operations needing both locks acquire storage before the bind-group cache.
     texture_storage: Arc<RwLock<HashMap<u64, wgpu::Texture>>>,
-    /// Both shape texture layers use the same layout across renderers and MSAA settings.
+    /// Both shape texture layers use the same layout across scenes and MSAA settings.
     shape_bind_group_cache: Arc<RwLock<BindGroupCache>>,
     updates: TextureUpdatePublisher,
 }

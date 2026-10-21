@@ -2,7 +2,9 @@
 //! Each group composites its parent and children into one translucent layer.
 
 use futures::executor::block_on;
-use grafo::{Color, ContentEffectConfig, RendererContext, Shape, ShapeDrawCommandOptions, Surface};
+use grafo::{
+    Color, ContentEffectConfig, Scene, SceneContext, Shape, ShapeDrawCommandOptions, Surface,
+};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -16,7 +18,7 @@ const OPACITY_EFFECT: u64 = 1;
 #[derive(Default)]
 struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer>,
+    scene: Option<Scene>,
     surface: Option<Surface>,
 }
 
@@ -32,11 +34,10 @@ impl ApplicationHandler for App {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        let context = block_on(RendererContext::new());
+        let context = block_on(SceneContext::new());
         let surface = Surface::new(&context, window.clone(), physical_size, true, false)
             .expect("Failed to create surface");
-        let mut renderer =
-            grafo::Renderer::new_with_context(context, physical_size, scale_factor, 1);
+        let mut scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
 
         let opacity_wgsl = r#"
             struct Params {
@@ -51,12 +52,12 @@ impl ApplicationHandler for App {
             }
         "#;
 
-        renderer
+        scene
             .load_effect(OPACITY_EFFECT, &[opacity_wgsl])
             .expect("Failed to compile opacity effect");
 
         self.window = Some(window);
-        self.renderer = Some(renderer);
+        self.scene = Some(scene);
         self.surface = Some(surface);
     }
 
@@ -67,7 +68,7 @@ impl ApplicationHandler for App {
         event: WindowEvent,
     ) {
         let Some(window) = &self.window else { return };
-        let Some(renderer) = &mut self.renderer else {
+        let Some(scene) = &mut self.scene else {
             return;
         };
         let Some(surface) = &mut self.surface else {
@@ -86,10 +87,10 @@ impl ApplicationHandler for App {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                renderer.clear_draw_queue();
+                scene.clear();
                 // Background without an effect
                 let bg = Shape::rect([(50.0, 50.0), (750.0, 550.0)]);
-                let _bg_id = renderer
+                let _bg_id = scene
                     .add_shape(
                         bg,
                         None,
@@ -99,7 +100,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let group1_bg = Shape::rect([(100.0, 100.0), (400.0, 350.0)]);
-                let group1 = renderer
+                let group1 = scene
                     .add_shape(
                         group1_bg,
                         None,
@@ -110,7 +111,7 @@ impl ApplicationHandler for App {
 
                 // The overlap gets the group's opacity once, after the children are composited.
                 let child1 = Shape::rect([(120.0, 120.0), (300.0, 250.0)]);
-                renderer
+                scene
                     .add_shape(
                         child1,
                         Some(group1),
@@ -120,7 +121,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let child2 = Shape::rect([(200.0, 180.0), (380.0, 320.0)]);
-                renderer
+                scene
                     .add_shape(
                         child2,
                         Some(group1),
@@ -130,7 +131,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let opacity: f32 = 0.5;
-                renderer
+                scene
                     .set_content_effect(
                         group1,
                         OPACITY_EFFECT,
@@ -140,7 +141,7 @@ impl ApplicationHandler for App {
                     .expect("Failed to set effect");
 
                 let group2_bg = Shape::rect([(350.0, 100.0), (700.0, 350.0)]);
-                let group2 = renderer
+                let group2 = scene
                     .add_shape(
                         group2_bg,
                         None,
@@ -150,7 +151,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let child3 = Shape::rect([(370.0, 130.0), (680.0, 320.0)]);
-                renderer
+                scene
                     .add_shape(
                         child3,
                         Some(group2),
@@ -160,7 +161,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let opacity2: f32 = 0.8;
-                renderer
+                scene
                     .set_content_effect(
                         group2,
                         OPACITY_EFFECT,
@@ -169,7 +170,7 @@ impl ApplicationHandler for App {
                     )
                     .expect("Failed to set effect");
 
-                window_rendering::render(renderer, surface, event_loop);
+                window_rendering::render(scene, surface, event_loop);
             }
             _ => {}
         }

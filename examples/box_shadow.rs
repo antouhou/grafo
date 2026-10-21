@@ -3,8 +3,8 @@
 //! rendered shadow while the geometry and effect parameters stay unchanged.
 
 use futures::executor::block_on;
-use grafo::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig};
-use grafo::{RendererContext, Surface};
+use grafo::{BorderRadii, Color, Scene, Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig};
+use grafo::{SceneContext, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -38,19 +38,19 @@ struct CardSpec {
 
 /// Creates a card with a box shadow effect attached directly to it.
 ///
-/// The renderer rasterizes the card's coverage into a local texture. Two shader
+/// The scene rasterizes the card's coverage into a local texture. Two shader
 /// passes blur that mask and color the shadow, which is composited behind the card.
 /// The configured outsets leave room for the blur and offset beyond the card bounds.
 ///
 /// Returns the card's node ID. Use it as the parent ID when adding children.
-fn draw_card(renderer: &mut grafo::Renderer, card_spec: CardSpec) -> usize {
+fn draw_card(scene: &mut Scene, card_spec: CardSpec) -> usize {
     let (x, y) = card_spec.position;
     let (width, height) = card_spec.size;
     let card_shape = Shape::rounded_rect(
         [(x, y), (x + width, y + height)],
         BorderRadii::new(card_spec.corner_radius),
     );
-    let card = renderer
+    let card = scene
         .add_shape(
             card_shape,
             None,
@@ -61,8 +61,8 @@ fn draw_card(renderer: &mut grafo::Renderer, card_spec: CardSpec) -> usize {
 
     // The shader samples in physical texels, so convert sigma and offset from logical
     // pixels to physical pixels using the current DPI scale factor. The outsets stay in
-    // logical units. The renderer converts them to physical pixels.
-    let scale_factor = renderer.scale_factor() as f32;
+    // logical units. The scene converts them to physical pixels.
+    let scale_factor = scene.scale_factor() as f32;
     let [red, green, blue, alpha] = card_spec.shadow_rgba;
     let params = BoxShadowParams {
         shadow_color: [red * alpha, green * alpha, blue * alpha, alpha],
@@ -75,7 +75,7 @@ fn draw_card(renderer: &mut grafo::Renderer, card_spec: CardSpec) -> usize {
     };
     let blur_outset = card_spec.shadow_sigma * 3.0;
 
-    renderer
+    scene
         .set_shape_mask_effect(
             card,
             BOX_SHADOW_EFFECT,
@@ -154,7 +154,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 #[derive(Default)]
 struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer>,
+    scene: Option<Scene>,
     surface: Option<Surface>,
 }
 
@@ -170,13 +170,12 @@ impl ApplicationHandler for App {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        let context = block_on(RendererContext::new());
+        let context = block_on(SceneContext::new());
         let surface = Surface::new(&context, window.clone(), physical_size, true, false)
             .expect("Failed to create surface");
-        let mut renderer =
-            grafo::Renderer::new_with_context(context, physical_size, scale_factor, 1);
+        let mut scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
 
-        renderer
+        scene
             .load_effect(
                 BOX_SHADOW_EFFECT,
                 &[BOX_SHADOW_HORIZONTAL_WGSL, BOX_SHADOW_VERTICAL_WGSL],
@@ -184,7 +183,7 @@ impl ApplicationHandler for App {
             .expect("Failed to compile box shadow effect");
 
         self.window = Some(window);
-        self.renderer = Some(renderer);
+        self.scene = Some(scene);
         self.surface = Some(surface);
     }
 
@@ -195,7 +194,7 @@ impl ApplicationHandler for App {
         event: WindowEvent,
     ) {
         let Some(window) = &self.window else { return };
-        let Some(renderer) = &mut self.renderer else {
+        let Some(scene) = &mut self.scene else {
             return;
         };
         let Some(surface) = &mut self.surface else {
@@ -214,14 +213,14 @@ impl ApplicationHandler for App {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                renderer.clear_draw_queue();
+                scene.clear();
                 let (pw, ph) = surface.size();
                 let pw = pw as f32;
                 let ph = ph as f32;
 
                 // Scene background
                 let scene_bg = Shape::rect([(0.0, 0.0), (pw, ph)]);
-                renderer
+                scene
                     .add_shape(
                         scene_bg,
                         None,
@@ -232,7 +231,7 @@ impl ApplicationHandler for App {
 
                 // Large blur radius.
                 draw_card(
-                    renderer,
+                    scene,
                     CardSpec {
                         geometry_id: 1,
                         position: (80.0, 60.0),
@@ -247,7 +246,7 @@ impl ApplicationHandler for App {
 
                 // Small blur radius and high opacity.
                 draw_card(
-                    renderer,
+                    scene,
                     CardSpec {
                         geometry_id: 2,
                         position: (420.0, 60.0),
@@ -262,7 +261,7 @@ impl ApplicationHandler for App {
 
                 // Offset colored shadow.
                 draw_card(
-                    renderer,
+                    scene,
                     CardSpec {
                         geometry_id: 3,
                         position: (80.0, 320.0),
@@ -277,7 +276,7 @@ impl ApplicationHandler for App {
 
                 // Small offset and low opacity.
                 draw_card(
-                    renderer,
+                    scene,
                     CardSpec {
                         geometry_id: 4,
                         position: (420.0, 320.0),
@@ -290,7 +289,7 @@ impl ApplicationHandler for App {
                     },
                 );
 
-                window_rendering::render(renderer, surface, event_loop);
+                window_rendering::render(scene, surface, event_loop);
             }
             _ => {}
         }

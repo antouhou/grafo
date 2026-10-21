@@ -1,6 +1,6 @@
 use super::{CoverageUploads, SHARED_BUFFER_BYTES};
 use crate::core::{BorderRadii, Shape, TransformInstance, Viewport};
-use crate::scene::{Scene, SceneContext};
+use crate::scene_state::{SceneState, SceneStateContext};
 use crate::wgpu_backend::execution::shapes::coverage::{CoverageBuilder, CoverageGeometry};
 use std::sync::Arc;
 
@@ -31,7 +31,7 @@ fn retained_small_path_does_not_keep_oversized_upload_alive() {
         physical_size: (1024, 2048),
         scale_factor: 1.0,
     };
-    let mut scene = Scene::new(SceneContext::default(), viewport, 0.75);
+    let mut scene = SceneState::new(SceneStateContext::default(), viewport, 0.75);
     let small = scene.tessellate(
         &Shape::rounded_rect([(0.375, 0.625), (12.875, 12.25)], BorderRadii::new(3.0)),
         None,
@@ -61,7 +61,7 @@ fn incoming_path_size_limits_groups_and_preserves_coverage_offsets() {
         physical_size: (512, 128),
         scale_factor: 1.0,
     };
-    let mut scene = Scene::new(SceneContext::default(), viewport, 0.75);
+    let mut scene = SceneState::new(SceneStateContext::default(), viewport, 0.75);
     let small = scene.tessellate(
         &Shape::rounded_rect([(0.375, 0.625), (12.875, 12.25)], BorderRadii::new(3.0)),
         None,

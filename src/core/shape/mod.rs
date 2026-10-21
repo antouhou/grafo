@@ -1,4 +1,4 @@
-//! Rectangles and paths. Set each instance's fill through the renderer.
+//! Rectangles and paths. Set each instance's fill through the scene.
 //!
 //! See [`Shape::rect`], [`Shape::rounded_rect`], and [`ShapeBuilder`] for examples.
 
@@ -1058,16 +1058,16 @@ impl ShapeDrawCommandOptions {
 /// # Examples
 ///
 /// ```rust
-/// use grafo::{Color, ShapeBuilder, ShapeDrawCommandOptions};
+/// use grafo::{Color, Scene, ShapeBuilder, ShapeDrawCommandOptions};
 ///
-/// # fn example(renderer: &mut grafo::Renderer) {
+/// # fn example(scene: &mut Scene) {
 /// let custom_shape = ShapeBuilder::new()
 ///     .begin((0.0, 0.0))
 ///     .line_to((50.0, 10.0))
 ///     .line_to((50.0, 50.0))
 ///     .close()
 ///     .build();
-/// renderer.add_shape(
+/// scene.add_shape(
 ///     custom_shape,
 ///     None,
 ///     None,

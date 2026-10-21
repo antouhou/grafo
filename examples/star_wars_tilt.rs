@@ -1,7 +1,7 @@
 use euclid::{Point2D, UnknownUnit};
 use futures::executor::block_on;
-use grafo::{Color, Shape, ShapeDrawCommandOptions};
-use grafo::{RendererContext, Surface};
+use grafo::{Color, Scene, Shape, ShapeDrawCommandOptions};
+use grafo::{SceneContext, Surface};
 use std::sync::Arc;
 use tracing::warn;
 use winit::application::ApplicationHandler;
@@ -13,7 +13,7 @@ mod window_rendering;
 
 struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer>,
+    scene: Option<Scene>,
     surface: Option<Surface>,
     mouse_position: Point2D<f32, UnknownUnit>,
     // Track which shapes are being hovered
@@ -26,7 +26,7 @@ impl App {
     fn new() -> Self {
         Self {
             window: None,
-            renderer: None,
+            scene: None,
             surface: None,
             mouse_position: Point2D::new(0.0, 0.0),
             parent_hovered: false,
@@ -53,12 +53,12 @@ impl ApplicationHandler for App {
 
         self.window = Some(window.clone());
 
-        let context = block_on(RendererContext::new());
+        let context = block_on(SceneContext::new());
         let surface = Surface::new(&context, window.clone(), physical_size, true, false)
             .expect("Failed to create surface");
-        let renderer = grafo::Renderer::new_with_context(context, physical_size, scale_factor, 1);
+        let scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
 
-        self.renderer = Some(renderer);
+        self.scene = Some(scene);
         self.surface = Some(surface);
 
         window.request_redraw();
@@ -75,9 +75,9 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                if let (Some(renderer), Some(surface)) = (&mut self.renderer, &mut self.surface) {
-                    renderer.clear_draw_queue();
-                    let scale_factor = renderer.scale_factor();
+                if let (Some(scene), Some(surface)) = (&mut self.scene, &mut self.surface) {
+                    scene.clear();
+                    let scale_factor = scene.scale_factor();
                     let (width, height) = surface.size();
                     let (width, height) = (
                         width as f32 / scale_factor as f32,
@@ -150,7 +150,7 @@ impl ApplicationHandler for App {
                     self.child1_hovered = child1_hit;
                     self.child2_hovered = child2_hit;
 
-                    renderer
+                    scene
                         .add_shape(
                             Shape::rect([(0.0, 0.0), (width, height)]),
                             None,
@@ -159,7 +159,7 @@ impl ApplicationHandler for App {
                         )
                         .unwrap();
 
-                    renderer
+                    scene
                         .add_shape(
                             Shape::rect([(0.0, 0.0), (100.0, 100.0)]),
                             None,
@@ -177,7 +177,7 @@ impl ApplicationHandler for App {
                         .unwrap();
 
                     let inner_rect_shape = Shape::rect([(0.0, 0.0), (35.0, 80.0)]);
-                    renderer
+                    scene
                         .add_shape(
                             inner_rect_shape.clone(),
                             None,
@@ -193,7 +193,7 @@ impl ApplicationHandler for App {
                                 )),
                         )
                         .unwrap();
-                    renderer
+                    scene
                         .add_shape(
                             inner_rect_shape,
                             None,
@@ -210,7 +210,7 @@ impl ApplicationHandler for App {
                         )
                         .unwrap();
 
-                    window_rendering::render(renderer, surface, event_loop);
+                    window_rendering::render(scene, surface, event_loop);
                 }
             }
             WindowEvent::Resized(new_size) => {
@@ -226,9 +226,9 @@ impl ApplicationHandler for App {
                 scale_factor,
                 inner_size_writer: _,
             } => {
-                if let Some(renderer) = &mut self.renderer {
+                if let Some(scene) = &mut self.scene {
                     println!("Change scale factor to {}", scale_factor);
-                    if let Err(error) = renderer.change_scale_factor(scale_factor) {
+                    if let Err(error) = scene.change_scale_factor(scale_factor) {
                         warn!(%error, scale_factor, "scale factor change rejected");
                     }
 

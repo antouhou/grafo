@@ -6,7 +6,7 @@ use crate::core::cache::CachedTessellation;
 use crate::core::cache::FrameCache;
 use crate::core::vertex::InstanceTransform;
 use crate::core::{BorderRadii, FillRule, Shape, TransformInstance, Viewport};
-use crate::scene::{Scene, SceneContext};
+use crate::scene_state::{SceneState, SceneStateContext};
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -136,8 +136,8 @@ fn path_tiles_match_independently_clipped_triangles() {
             .build(),
         Shape::rounded_rect([(3.125, 5.625), (50.25, 47.875)], BorderRadii::new(13.0)),
     ];
-    let mut scene = Scene::new(
-        SceneContext::default(),
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
         Viewport {
             physical_size: (64, 64),
             scale_factor: 1.0,
@@ -178,8 +178,8 @@ fn path_tiles_match_independently_clipped_triangles() {
 
 #[test]
 fn transformed_tiles_preserve_thin_features_and_rebuild_for_viewport_changes() {
-    let mut scene = Scene::new(
-        SceneContext::default(),
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
         Viewport {
             physical_size: (32, 32),
             scale_factor: 1.0,
@@ -223,8 +223,8 @@ fn transformed_tiles_preserve_thin_features_and_rebuild_for_viewport_changes() {
 
 #[test]
 fn projected_path_tiles_match_the_projected_triangle_areas() {
-    let mut scene = Scene::new(
-        SceneContext::default(),
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
         Viewport {
             physical_size: (64, 64),
             scale_factor: 1.0,
@@ -289,8 +289,8 @@ fn projected_path_tiles_match_the_projected_triangle_areas() {
 
 #[test]
 fn coverage_reuse_distinguishes_placement_and_replaced_geometry() {
-    let mut scene = Scene::new(
-        SceneContext::default(),
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
         Viewport {
             physical_size: (128, 128),
             scale_factor: 1.0,
@@ -344,8 +344,8 @@ fn sparse_spans_preserve_holes_partial_rows_and_separate_draw_ranges() {
         .line_to((24.0, 49.375))
         .close()
         .build();
-    let mut scene = Scene::new(
-        SceneContext::default(),
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
         Viewport {
             physical_size: (128, 64),
             scale_factor: 1.0,
@@ -393,7 +393,7 @@ fn translated_coverage_preserves_pixel_phase_and_viewport_clipping() {
         physical_size: (192, 128),
         scale_factor: 1.0,
     };
-    let mut scene = Scene::new(SceneContext::default(), viewport, 0.75);
+    let mut scene = SceneState::new(SceneStateContext::default(), viewport, 0.75);
     let cached = scene.tessellate(
         &Shape::rounded_rect([(0.375, 0.625), (60.875, 40.75)], BorderRadii::new(12.0)),
         None,
@@ -459,8 +459,8 @@ fn translated_coverage_preserves_pixel_phase_and_viewport_clipping() {
 
 #[test]
 fn non_finite_projected_triangles_do_not_produce_coverage() {
-    let mut scene = Scene::new(
-        SceneContext::default(),
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
         Viewport {
             physical_size: (64, 64),
             scale_factor: 1.0,
