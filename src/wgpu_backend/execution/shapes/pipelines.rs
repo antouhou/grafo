@@ -187,7 +187,7 @@ impl ShapePipelineCompiler {
         shader: ShapeShaderType,
         stencil: StencilAction,
     ) -> RenderPipeline {
-        let is_solid = shader == ShapeShaderType::Solid && stencil != StencilAction::Decrement;
+        let is_solid = shader == ShapeShaderType::Solid;
         let layout = layouts.create_pipeline_layout(&self.device, shader, is_solid);
         let vertex_entry_point = shader.vertex_entry_point(geometry_type, is_solid);
         let fragment_entry_point = shader.fragment_entry_point(stencil);
