@@ -1,5 +1,4 @@
-use super::types::DrawCommandError;
-use super::{RenderBackend, Scene};
+use super::{DrawCommandError, RenderBackend, Scene};
 use crate::commands::{RenderCommand, RenderOperation, ShapeDrawId, Target};
 use crate::core::{
     CachedShapeHandle, Color, ContentEffectConfig, Shape, ShapeDrawCommandOptions, ShapeInstance,

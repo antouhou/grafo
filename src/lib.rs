@@ -53,6 +53,7 @@ pub use scene_state::SceneError;
 use std::sync::Arc;
 pub use wgpu;
 #[cfg(feature = "render_metrics")]
+#[doc(hidden)]
 pub use wgpu_backend::metrics::{PhaseTimings, PipelineSwitchCounts, ShapeMaskEffectCacheMetrics};
 pub use wgpu_backend::texture_manager::WgpuTextureManager;
 pub use wgpu_backend::{
