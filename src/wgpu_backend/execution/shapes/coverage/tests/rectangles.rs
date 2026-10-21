@@ -5,6 +5,7 @@ use crate::scene_state::{SceneState, SceneStateContext};
 use crate::wgpu_backend::execution::shapes::coverage::geometry::{
     CoverageBuilder, SOLID_COVERAGE, TILE_SIZE,
 };
+use crate::wgpu_backend::execution::shapes::coverage::placement::CoveragePlacement;
 use crate::wgpu_backend::execution::shapes::coverage::projection::Projection;
 use crate::wgpu_backend::execution::shapes::coverage::tiles::{
     CoverageDrawMetadata, CoverageGeometry,
@@ -234,7 +235,7 @@ fn rectangle_interior_and_repeated_edge_samples_stay_compact() {
 }
 
 #[test]
-fn rectangle_damage_bounds_contain_coverage_after_large_translations() {
+fn rectangle_placement_preserves_coverage_after_large_translations() {
     let mut scene = SceneState::new(
         SceneStateContext::default(),
         Viewport {
@@ -244,6 +245,7 @@ fn rectangle_damage_bounds_contain_coverage_after_large_translations() {
     );
     let mut builder = CoverageBuilder::default();
     let mut geometry = CoverageGeometry::default();
+    let mut original = CoverageTestMesh::default();
     for (bounds, transform) in [
         (
             [(999_980.0, 0.0), (1_000_000.0, 20.0)],
@@ -253,32 +255,62 @@ fn rectangle_damage_bounds_contain_coverage_after_large_translations() {
             [(999_980.0, 0.0), (1_000_000.0, 20.0)],
             TransformInstance::affine_2d(-1.1, 0.0, 0.0, 1.0, 1_100_010.0, 8.0),
         ),
+        (
+            [(999_981.5, 8.0), (1_000_000.0, 28.0)],
+            TransformInstance::translation(-999_970.0, 0.0),
+        ),
+        (
+            [(8.0, 999_981.5), (28.0, 1_000_000.0)],
+            TransformInstance::translation(0.0, -999_970.0),
+        ),
     ] {
         let cached = scene.tessellate(&Shape::rect(bounds), None);
         let logical_bounds = geometry::transformed_bounds_to_logical_screen_rect(
             MathRect::new(bounds[0].into(), bounds[1].into()),
             Some(transform),
         );
-        for scale_factor in [0.7, 1.0, 1.3, 2.0] {
+        for scale_factor in [0.7, 1.0, 1.25, 1.3, 1.5, 2.0] {
             let viewport = Viewport {
                 physical_size: (64, 64),
                 scale_factor,
             };
+            let placement = CoveragePlacement::new(Some(transform), bounds, viewport);
             geometry.clear();
             let draw = builder.build(
                 &cached.tessellation,
-                Some(transform),
+                placement.transform,
                 scale_factor,
                 viewport.physical_size,
                 &mut geometry,
             );
             let damage =
                 geometry::logical_bounds_to_viewport_rect(logical_bounds, viewport).unwrap();
+            let [offset_x, offset_y] = placement.translation.map(|offset| offset as u32);
+            let coverage_bounds = draw.bounds.translate([offset_x, offset_y].into());
             assert!(
-                damage.contains_box(&draw.bounds),
-                "damage {damage:?} excludes coverage {:?}, scale {scale_factor}",
-                draw.bounds
+                damage.contains_box(&coverage_bounds),
+                "damage {damage:?} excludes coverage {coverage_bounds:?}, scale {scale_factor}"
             );
+            let placed = rasterize(&geometry, &draw, viewport.physical_size);
+            original.build(
+                &cached.tessellation,
+                Some(transform),
+                scale_factor,
+                viewport.physical_size,
+            );
+            for y in 0..viewport.physical_size.1 {
+                for x in 0..viewport.physical_size.0 {
+                    let actual = if x < offset_x || y < offset_y {
+                        0.0
+                    } else {
+                        placed[((y - offset_y) * viewport.physical_size.0 + x - offset_x) as usize]
+                    };
+                    assert!(
+                        (coverage_at(&original, x, y) - actual).abs() < 0.00001,
+                        "pixel {x},{y}, scale {scale_factor}, transform {transform:?}"
+                    );
+                }
+            }
         }
     }
 }

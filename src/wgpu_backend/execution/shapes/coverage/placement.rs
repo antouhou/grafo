@@ -46,8 +46,16 @@ impl CoveragePlacement {
         }
         let translation = minimum.map(f32::floor);
         for (axis, offset) in translation.iter().enumerate() {
-            normalized.col3[axis] =
-                (normalized.col3[axis] as f64 - *offset as f64 / viewport.scale_factor) as f32;
+            let original_translation = f64::from(normalized.col3[axis]);
+            let normalized_translation =
+                (original_translation - f64::from(*offset) / viewport.scale_factor) as f32;
+            // Rounding the normalized transform must not move coverage outside the damage bounds.
+            if (original_translation - f64::from(normalized_translation)) * viewport.scale_factor
+                != f64::from(*offset)
+            {
+                return original;
+            }
+            normalized.col3[axis] = normalized_translation;
         }
         Self {
             transform: Some(normalized),
