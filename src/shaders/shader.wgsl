@@ -50,7 +50,7 @@ struct GradientVertexOutput {
     @location(9) @interpolate(flat) coverage_origin: vec2<f32>,
 };
 
-// Viewport dimensions and antialiasing settings from the renderer.
+// Viewport dimensions and antialiasing settings from the scene.
 struct Uniforms {
     canvas_size: vec2<f32>,
     scale_factor: f32,

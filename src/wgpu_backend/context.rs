@@ -47,7 +47,7 @@ fn pick_alpha_mode(alpha_modes: &[CompositeAlphaMode], transparent: bool) -> Com
     }
 }
 
-/// Errors from creating a WGPU renderer, context, or surface.
+/// Errors from creating a WGPU scene, context, or surface.
 #[derive(Debug, thiserror::Error)]
 pub enum BackendCreationError {
     /// The `scale_factor` is not finite and positive.
@@ -63,12 +63,12 @@ pub enum BackendCreationError {
     #[error("Surface creation failed: {0}")]
     SurfaceCreationFailed(#[from] wgpu::CreateSurfaceError),
     /// The context's adapter cannot render to the provided surface.
-    #[error("The renderer context adapter does not support the provided surface")]
+    #[error("The scene context adapter does not support the provided surface")]
     UnsupportedSurface,
 }
 
 impl WgpuContext {
-    /// Creates a device, command queue, and texture manager that renderers can share.
+    /// Creates a device, command queue, and texture manager that scenes can share.
     pub(crate) async fn try_new(
         texture_updates: TextureUpdatePublisher,
     ) -> Result<Self, BackendCreationError> {

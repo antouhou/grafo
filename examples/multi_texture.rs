@@ -1,8 +1,8 @@
 //! Composites a background texture and a foreground texture on one shape.
 //! Run with `cargo run --example multi_texture`.
 
-use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, TextureManager};
-use grafo::{RendererContext, Surface};
+use grafo::{Color, Scene, Shape, ShapeDrawCommandOptions, TextureManager};
+use grafo::{SceneContext, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -13,7 +13,7 @@ mod window_rendering;
 
 struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<Renderer>,
+    scene: Option<Scene>,
     surface: Option<Surface>,
     bg_tex_id: u64,
     fg_tex_id: u64,
@@ -23,7 +23,7 @@ impl Default for App {
     fn default() -> Self {
         Self {
             window: None,
-            renderer: None,
+            scene: None,
             surface: None,
             bg_tex_id: 100,
             fg_tex_id: 101,
@@ -40,13 +40,13 @@ impl ApplicationHandler for App {
         );
         let physical_size = (800, 600);
         let scale_factor = 1.0;
-        let context = futures::executor::block_on(RendererContext::new());
+        let context = futures::executor::block_on(SceneContext::new());
         let surface = Surface::new(&context, window.clone(), physical_size, true, false)
             .expect("Failed to create surface");
-        let mut renderer = Renderer::new_with_context(context, physical_size, scale_factor, 1);
+        let mut scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
 
         // Layer a circle mask over a checkerboard.
-        let tex_mgr = renderer.texture_manager();
+        let tex_mgr = scene.texture_manager();
 
         let w = 256u32;
         let h = 256u32;
@@ -88,7 +88,7 @@ impl ApplicationHandler for App {
         }
         tex_mgr.allocate_texture_with_data(self.fg_tex_id, (w, h), &fg);
 
-        renderer
+        scene
             .add_shape(
                 Shape::rect([(100.0, 100.0), (500.0, 400.0)]),
                 None,
@@ -100,7 +100,7 @@ impl ApplicationHandler for App {
             )
             .unwrap();
         self.window = Some(window);
-        self.renderer = Some(renderer);
+        self.scene = Some(scene);
         self.surface = Some(surface);
     }
 
@@ -110,8 +110,8 @@ impl ApplicationHandler for App {
         _id: winit::window::WindowId,
         event: WindowEvent,
     ) {
-        let (Some(window), Some(renderer), Some(surface)) =
-            (&self.window, &mut self.renderer, &mut self.surface)
+        let (Some(window), Some(scene), Some(surface)) =
+            (&self.window, &mut self.scene, &mut self.surface)
         else {
             return;
         };
@@ -124,7 +124,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 // The draw queue is populated once in `resumed` and persists across frames.
-                window_rendering::render(renderer, surface, event_loop);
+                window_rendering::render(scene, surface, event_loop);
             }
             _ => {}
         }

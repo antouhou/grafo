@@ -3,7 +3,7 @@ use super::{ShapeBufferLocation, ShapeDrawResources, ShapeExecutionResources};
 use crate::commands::ShapeDrawId;
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
 use crate::core::{BorderRadii, Shape, ShapeDrawCommandOptions, ShapeInstance, Viewport};
-use crate::scene::{Scene, SceneContext};
+use crate::scene_state::{SceneState, SceneStateContext};
 
 fn insert_draw(resources: &mut ShapeExecutionResources, id: usize, shape: &ShapeInstance) {
     let geometry_range = preparation::append_aggregated_geometry_for_shape(
@@ -80,8 +80,8 @@ fn assert_draw_data(resources: &ShapeExecutionResources, id: usize, shape: &Shap
 
 #[test]
 fn removal_compacts_buffers_and_keeps_shared_geometry_until_its_last_draw() {
-    let mut scene = Scene::new(
-        SceneContext::default(),
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
         Viewport {
             physical_size: (32, 32),
             scale_factor: 1.0,
@@ -150,8 +150,8 @@ fn removal_compacts_buffers_and_keeps_shared_geometry_until_its_last_draw() {
 
 #[test]
 fn batch_removal_keeps_surviving_geometry_and_instances() {
-    let mut scene = Scene::new(
-        SceneContext::default(),
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
         Viewport {
             physical_size: (32, 32),
             scale_factor: 1.0,
@@ -262,8 +262,8 @@ fn batch_removal_keeps_surviving_geometry_and_instances() {
 
 #[test]
 fn batch_replacement_compacts_overwritten_instances_and_preserves_shared_geometry() {
-    let mut scene = Scene::new(
-        SceneContext::default(),
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
         Viewport {
             physical_size: (32, 32),
             scale_factor: 1.0,

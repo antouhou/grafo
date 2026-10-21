@@ -1,8 +1,8 @@
 use super::TextureIndex;
 use crate::core::{MathRect, Shape, ShapeDrawCommandOptions, Viewport};
 use crate::render_backend::texture_manager::TextureUpdatePublisher;
-use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
-use crate::scene::{Scene, SceneContext};
+use crate::scene_state::types::{CachedShapeDrawData, DrawTreeNode};
+use crate::scene_state::{SceneState, SceneStateContext};
 
 impl TextureIndex {
     fn textures_used_by(&self, shape_id: usize) -> &[u64] {
@@ -12,9 +12,9 @@ impl TextureIndex {
     }
 }
 
-fn scene() -> Scene {
-    Scene::new(
-        SceneContext::default(),
+fn scene() -> SceneState {
+    SceneState::new(
+        SceneStateContext::default(),
         Viewport {
             physical_size: (32, 32),
             scale_factor: 1.0,
@@ -23,13 +23,13 @@ fn scene() -> Scene {
     )
 }
 
-fn shape(scene: &mut Scene, options: ShapeDrawCommandOptions) -> DrawTreeNode {
+fn shape(scene: &mut SceneState, options: ShapeDrawCommandOptions) -> DrawTreeNode {
     let cached_shape = scene.tessellate(&Shape::rect([(0.0, 0.0), (16.0, 16.0)]), Some(1));
     DrawTreeNode::CachedShape(CachedShapeDrawData::new(cached_shape, options))
 }
 
-fn textured_scene(context: SceneContext, bounds: [(f32, f32); 2]) -> Scene {
-    let mut scene = Scene::new(
+fn textured_scene(context: SceneStateContext, bounds: [(f32, f32); 2]) -> SceneState {
+    let mut scene = SceneState::new(
         context,
         Viewport {
             physical_size: (32, 32),
@@ -50,13 +50,13 @@ fn textured_scene(context: SceneContext, bounds: [(f32, f32); 2]) -> Scene {
     scene
 }
 
-fn assert_texture_shapes(scene: &Scene, texture_id: u64, expected: &[usize]) {
+fn assert_texture_shapes(scene: &SceneState, texture_id: u64, expected: &[usize]) {
     let mut shapes: Vec<_> = scene.texture_index.shapes_using(texture_id).collect();
     shapes.sort_unstable();
     assert_eq!(shapes, expected);
 }
 
-fn assert_texture_dirty_shapes(scene: &mut Scene, expected: Option<MathRect>) {
+fn assert_texture_dirty_shapes(scene: &mut SceneState, expected: Option<MathRect>) {
     let mut shapes = scene.shapes_with_updated_textures();
     assert_eq!(
         shapes.next().map(|(id, shape)| {
@@ -92,7 +92,7 @@ fn insertion_indexes_shared_textures_and_deduplicates_layers_per_instance() {
     let foreground_only = scene.insert_node(node, Some(first));
     let node = shape(&mut scene, ShapeDrawCommandOptions::new());
     let untextured = scene.insert_node(node, Some(first));
-    let clip = Scene::prepare_clipping_rect([(0.0, 0.0), (16.0, 16.0)], None, true).unwrap();
+    let clip = SceneState::prepare_clipping_rect([(0.0, 0.0), (16.0, 16.0)], None, true).unwrap();
     let clip = scene.insert_node(clip, Some(first));
 
     assert_eq!(scene.texture_index.textures_used_by(first), &[0, 2]);
@@ -144,7 +144,7 @@ fn replacements_update_only_the_shapes_texture_associations() {
         assert_eq!(scene.texture_index.textures_used_by(child), &[1]);
     }
 
-    let clip = Scene::prepare_clipping_rect([(0.0, 0.0), (16.0, 16.0)], None, true).unwrap();
+    let clip = SceneState::prepare_clipping_rect([(0.0, 0.0), (16.0, 16.0)], None, true).unwrap();
     scene.replace_node(parent, clip, None, 4096);
     assert!(scene.texture_index.textures_used_by(parent).is_empty());
     assert_texture_shapes(&scene, 1, &[child]);
@@ -170,9 +170,9 @@ fn replacements_update_only_the_shapes_texture_associations() {
 #[test]
 fn subtree_removal_clears_descendants_and_keeps_reused_ids_free_of_old_textures() {
     let mut scene = scene();
-    let root = Scene::prepare_clipping_rect([(0.0, 0.0), (32.0, 32.0)], None, true).unwrap();
+    let root = SceneState::prepare_clipping_rect([(0.0, 0.0), (32.0, 32.0)], None, true).unwrap();
     let root = scene.insert_node(root, None);
-    let branch = Scene::prepare_clipping_rect([(0.0, 0.0), (16.0, 16.0)], None, true).unwrap();
+    let branch = SceneState::prepare_clipping_rect([(0.0, 0.0), (16.0, 16.0)], None, true).unwrap();
     let branch = scene.insert_node(branch, Some(root));
     let node = shape(
         &mut scene,
@@ -222,7 +222,7 @@ fn subtree_removal_clears_descendants_and_keeps_reused_ids_free_of_old_textures(
 #[test]
 fn shared_context_scenes_consume_texture_dirty_shapes_independently() {
     let updates = TextureUpdatePublisher::default();
-    let context = SceneContext::new(updates.clone());
+    let context = SceneStateContext::new(updates.clone());
     let mut first = textured_scene(context.clone(), [(8.0, 8.0), (16.0, 16.0)]);
     let mut second = textured_scene(context.clone(), [(20.0, 20.0), (28.0, 28.0)]);
     let first_bounds = Some(MathRect::new((8.0, 8.0).into(), (16.0, 16.0).into()));

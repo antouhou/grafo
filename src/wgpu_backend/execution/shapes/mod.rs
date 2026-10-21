@@ -133,7 +133,7 @@ impl ShapeExecutionResources {
     }
 
     /// Drops draw references while retaining GPU material slots, gradients, and CPU capacity.
-    pub(crate) fn clear_draw_queue(&mut self) {
+    pub(crate) fn clear(&mut self) {
         for (_, draw) in self.draws.drain() {
             if let Some(coverage) = draw.path_coverage {
                 self.coverage_cache.retain(coverage);

@@ -5,8 +5,8 @@ use crate::core::{
     BackdropCaptureArea, BackdropEffectConfig, CaptureRegion, ContentEffectConfig, MathRect, Shape,
     ShapeDrawCommandOptions, Size, UnsignedPhysicalRect, Viewport,
 };
-use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
-use crate::scene::{Scene, SceneContext};
+use crate::scene_state::types::{CachedShapeDrawData, DrawTreeNode};
+use crate::scene_state::{SceneState, SceneStateContext};
 
 fn rect(min: (u32, u32), max: (u32, u32)) -> UnsignedPhysicalRect {
     UnsignedPhysicalRect::new(min.into(), max.into())
@@ -38,8 +38,8 @@ fn assert_matching_nodes(damage: &EffectDamage, query: UnsignedPhysicalRect, exp
 }
 
 fn shape_node(bounds: [(f32, f32); 2]) -> DrawTreeNode {
-    let shape = Scene::new(
-        SceneContext::default(),
+    let shape = SceneState::new(
+        SceneStateContext::default(),
         Viewport {
             physical_size: (32, 32),
             scale_factor: 1.0,

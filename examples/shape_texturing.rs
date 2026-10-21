@@ -1,7 +1,7 @@
 use futures::executor::block_on;
-use grafo::{BorderRadii, Shape, TextureManager};
+use grafo::{BorderRadii, Scene, Shape, TextureManager};
 use grafo::{Color, ShapeDrawCommandOptions};
-use grafo::{RendererContext, Surface};
+use grafo::{SceneContext, Surface};
 use image::ImageReader;
 use std::sync::Arc;
 use std::time::Instant;
@@ -17,7 +17,7 @@ const RUST_LOGO_TEXTURE_ID: u64 = 100;
 
 struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer>,
+    scene: Option<Scene>,
     surface: Option<Surface>,
     rust_logo_png_bytes: Vec<u8>,
     rust_logo_png_dimensions: (u32, u32),
@@ -37,7 +37,7 @@ impl Default for App {
 
         Self {
             window: None,
-            renderer: None,
+            scene: None,
             surface: None,
             rust_logo_png_bytes,
             rust_logo_png_dimensions,
@@ -57,18 +57,18 @@ impl ApplicationHandler for App {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        let context = block_on(RendererContext::new());
+        let context = block_on(SceneContext::new());
         let surface = Surface::new(&context, window.clone(), physical_size, true, true)
             .expect("Failed to create surface");
-        let renderer = grafo::Renderer::new_with_context(context, physical_size, scale_factor, 1);
-        renderer.texture_manager().allocate_texture_with_data(
+        let scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
+        scene.texture_manager().allocate_texture_with_data(
             RUST_LOGO_TEXTURE_ID,
             self.rust_logo_png_dimensions,
             &self.rust_logo_png_bytes,
         );
 
         self.window = Some(window);
-        self.renderer = Some(renderer);
+        self.scene = Some(scene);
         self.surface = Some(surface);
     }
 
@@ -79,7 +79,7 @@ impl ApplicationHandler for App {
         event: WindowEvent,
     ) {
         let Some(window) = &self.window else { return };
-        let Some(renderer) = &mut self.renderer else {
+        let Some(scene) = &mut self.scene else {
             return;
         };
         let Some(surface) = &mut self.surface else {
@@ -98,7 +98,7 @@ impl ApplicationHandler for App {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                renderer.clear_draw_queue();
+                scene.clear();
                 let window_size = window.inner_size();
 
                 // Background
@@ -106,7 +106,7 @@ impl ApplicationHandler for App {
                     (0.0, 0.0),
                     (window_size.width as f32, window_size.height as f32),
                 ]);
-                let background_id = renderer
+                let background_id = scene
                     .add_shape(
                         background,
                         None,
@@ -118,7 +118,7 @@ impl ApplicationHandler for App {
                 // A white rounded rect that we will texture
                 let textured_rect =
                     Shape::rounded_rect([(0.0, 0.0), (300.0, 300.0)], BorderRadii::new(20.0));
-                renderer
+                scene
                     .add_shape(
                         textured_rect,
                         Some(background_id),
@@ -131,11 +131,11 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let timer = Instant::now();
-                window_rendering::render(renderer, surface, event_loop);
+                window_rendering::render(scene, surface, event_loop);
                 println!("Render time: {:?}", timer.elapsed());
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                if let Err(error) = renderer.change_scale_factor(scale_factor) {
+                if let Err(error) = scene.change_scale_factor(scale_factor) {
                     warn!(%error, scale_factor, "scale factor change rejected");
                 }
             }

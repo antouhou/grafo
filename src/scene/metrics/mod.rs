@@ -1,4 +1,4 @@
-use super::{RenderBackend, Renderer};
+use super::{RenderBackend, Scene};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -144,7 +144,7 @@ impl RenderLoopMetricsTracker {
     }
 }
 
-impl<B: RenderBackend> Renderer<B> {
+impl<B: RenderBackend> Scene<B> {
     /// Returns the average frames-per-second since metrics tracking started.
     ///
     /// Divides the completed frame count by the time from the first render's start

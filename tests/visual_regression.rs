@@ -6,7 +6,7 @@ use grafo::{
     BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color, ColorInterpolation,
     ContentEffectConfig, DrawCommandError, EffectError, EffectResourceError, Fill, Gradient,
     GradientStop, GradientStopOffset, LinearGradientDesc, LinearGradientLine, PixelFormat,
-    PixelLayout, Pixmap, PixmapMut, Renderer, RendererCreationError, SceneError, Shape,
+    PixelLayout, Pixmap, PixmapMut, Scene, SceneCreationError, SceneError, Shape,
     ShapeDrawCommandOptions, ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
     TextureManager, TransformInstance, WgpuBackendError,
 };
@@ -23,23 +23,23 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 "#;
 
-/// Creates a headless renderer. If no suitable GPU adapter is available,
+/// Creates a headless scene. If no suitable GPU adapter is available,
 /// prints a skip message and returns `None`.
-fn create_headless_renderer() -> Option<Renderer> {
-    create_headless_renderer_with_size_and_scale((CANVAS_WIDTH, CANVAS_HEIGHT), 1.0)
+fn create_headless_scene() -> Option<Scene> {
+    create_headless_scene_with_size_and_scale((CANVAS_WIDTH, CANVAS_HEIGHT), 1.0)
 }
 
-fn create_headless_renderer_with_size_and_scale(
+fn create_headless_scene_with_size_and_scale(
     physical_size: (u32, u32),
     scale_factor: f64,
-) -> Option<Renderer> {
-    match block_on(Renderer::try_new(physical_size, scale_factor, 1)) {
+) -> Option<Scene> {
+    match block_on(Scene::try_new(physical_size, scale_factor, 1)) {
         Ok(r) => Some(r),
-        Err(RendererCreationError::AdapterNotAvailable(_)) => {
+        Err(SceneCreationError::AdapterNotAvailable(_)) => {
             println!("Skipping test: no suitable GPU adapter available.");
             None
         }
-        Err(e) => panic!("Failed to create headless renderer: {e}"),
+        Err(e) => panic!("Failed to create headless scene: {e}"),
     }
 }
 
@@ -55,21 +55,21 @@ fn assert_pixels_match(pixel_buffer: &[u8], expectations: &[PixelExpectation]) {
     }
 }
 
-fn render_bgra(renderer: &mut Renderer, pixels: &mut Vec<u8>) -> Result<(), WgpuBackendError> {
-    let size = renderer.size();
+fn render_bgra(scene: &mut Scene, pixels: &mut Vec<u8>) -> Result<(), WgpuBackendError> {
+    let size = scene.size();
     pixels.resize(size.0 as usize * size.1 as usize * 4, 0);
-    renderer.render(PixmapMut::bgra8(pixels, size)?)
+    scene.render(PixmapMut::bgra8(pixels, size)?)
 }
 
 #[test]
 fn root_replacement_and_partial_updates_preserve_retained_pixels() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
+    let Some(mut scene) = create_headless_scene_with_size_and_scale((64, 64), 1.0) else {
         return;
     };
     let mut pixels = Vec::new();
     for samples in [1, 4] {
-        renderer.set_msaa_samples(samples);
-        let root = renderer
+        scene.set_msaa_samples(samples);
+        let root = scene
             .add_shape(
                 Shape::rounded_rect([(0.0, 0.0), (64.0, 64.0)], BorderRadii::new(8.0)),
                 None,
@@ -77,8 +77,8 @@ fn root_replacement_and_partial_updates_preserve_retained_pixels() {
                 ShapeDrawCommandOptions::new().color(Color::WHITE),
             )
             .unwrap();
-        render_bgra(&mut renderer, &mut pixels).unwrap();
-        let child = renderer
+        render_bgra(&mut scene, &mut pixels).unwrap();
+        let child = scene
             .add_shape(
                 Shape::rect([(4.0, 4.0), (12.0, 12.0)]),
                 Some(root),
@@ -86,11 +86,11 @@ fn root_replacement_and_partial_updates_preserve_retained_pixels() {
                 ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
             )
             .unwrap();
-        render_bgra(&mut renderer, &mut pixels).unwrap();
+        render_bgra(&mut scene, &mut pixels).unwrap();
         assert_eq!(read_pixel_rgba(&pixels, 64, 8, 8), [255, 0, 0, 255]);
         assert_eq!(read_pixel_rgba(&pixels, 64, 56, 56), [255; 4]);
 
-        renderer
+        scene
             .replace_with_shape(
                 root,
                 Shape::builder()
@@ -103,7 +103,7 @@ fn root_replacement_and_partial_updates_preserve_retained_pixels() {
                 ShapeDrawCommandOptions::new().color(Color::rgb(0, 255, 0)),
             )
             .unwrap();
-        renderer
+        scene
             .replace_with_shape(
                 child,
                 Shape::rect([(4.0, 4.0), (12.0, 12.0)]),
@@ -111,12 +111,12 @@ fn root_replacement_and_partial_updates_preserve_retained_pixels() {
                 ShapeDrawCommandOptions::new().color(Color::rgb(0, 0, 255)),
             )
             .unwrap();
-        render_bgra(&mut renderer, &mut pixels).unwrap();
+        render_bgra(&mut scene, &mut pixels).unwrap();
         assert_eq!(read_pixel_rgba(&pixels, 64, 8, 8), [0, 0, 255, 255]);
         assert_eq!(read_pixel_rgba(&pixels, 64, 20, 8), [0, 255, 0, 255]);
         assert_eq!(read_pixel_rgba(&pixels, 64, 56, 56), [0; 4]);
 
-        renderer
+        scene
             .replace_with_shape(
                 child,
                 Shape::rect([(16.0, 16.0), (24.0, 24.0)]),
@@ -124,22 +124,22 @@ fn root_replacement_and_partial_updates_preserve_retained_pixels() {
                 ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
             )
             .unwrap();
-        render_bgra(&mut renderer, &mut pixels).unwrap();
+        render_bgra(&mut scene, &mut pixels).unwrap();
         assert_eq!(read_pixel_rgba(&pixels, 64, 8, 8), [0, 255, 0, 255]);
         assert_eq!(read_pixel_rgba(&pixels, 64, 20, 20), [255, 0, 0, 255]);
         assert_eq!(read_pixel_rgba(&pixels, 64, 56, 56), [0; 4]);
-        renderer.clear_draw_queue();
-        render_bgra(&mut renderer, &mut pixels).unwrap();
+        scene.clear();
+        render_bgra(&mut scene, &mut pixels).unwrap();
         assert!(pixels.iter().all(|&byte| byte == 0));
     }
 }
 
 #[test]
 fn negative_w_addition_and_removal_update_retained_pixels() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((32, 32), 1.0) else {
+    let Some(mut scene) = create_headless_scene_with_size_and_scale((32, 32), 1.0) else {
         return;
     };
-    renderer
+    scene
         .load_effect(9_301, &[CACHED_SHAPE_MASK_EFFECT_RED_MASK])
         .unwrap();
     let mut transform = TransformInstance::identity();
@@ -148,11 +148,11 @@ fn negative_w_addition_and_removal_update_retained_pixels() {
 
     // A populated first render cannot exercise retained-output damage.
     for samples in [1, 4] {
-        renderer.set_msaa_samples(samples);
+        scene.set_msaa_samples(samples);
         for has_shape_mask_effect in [false, true] {
-            render_bgra(&mut renderer, &mut pixels).unwrap();
+            render_bgra(&mut scene, &mut pixels).unwrap();
             assert!(pixels.iter().all(|&byte| byte == 0));
-            let node = renderer
+            let node = scene
                 .add_shape(
                     Shape::rect([(8.0, 8.0), (16.0, 16.0)]),
                     None,
@@ -163,7 +163,7 @@ fn negative_w_addition_and_removal_update_retained_pixels() {
                 )
                 .unwrap();
             if has_shape_mask_effect {
-                renderer
+                scene
                     .set_shape_mask_effect(
                         node,
                         9_301,
@@ -172,14 +172,14 @@ fn negative_w_addition_and_removal_update_retained_pixels() {
                     )
                     .unwrap();
             }
-            render_bgra(&mut renderer, &mut pixels).unwrap();
+            render_bgra(&mut scene, &mut pixels).unwrap();
             assert_eq!(read_pixel_rgba(&pixels, 32, 12, 12), [255, 0, 0, 255]);
             let incremental = pixels.clone();
-            renderer.resize((32, 32));
-            render_bgra(&mut renderer, &mut pixels).unwrap();
+            scene.resize((32, 32));
+            render_bgra(&mut scene, &mut pixels).unwrap();
             assert_eq!(pixels, incremental);
-            renderer.remove_subtrees([node], |_| {});
-            render_bgra(&mut renderer, &mut pixels).unwrap();
+            scene.remove_subtrees([node], |_| {});
+            render_bgra(&mut scene, &mut pixels).unwrap();
             assert!(pixels.iter().all(|&byte| byte == 0));
         }
     }
@@ -187,13 +187,13 @@ fn negative_w_addition_and_removal_update_retained_pixels() {
 
 #[test]
 fn rejected_rasterization_changes_preserve_shape_mask_effect_pixels() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((512, 256), 1.0) else {
+    let Some(mut scene) = create_headless_scene_with_size_and_scale((512, 256), 1.0) else {
         return;
     };
-    renderer
+    scene
         .load_effect(9_302, &[CONSTANT_BLUE_SHAPE_MASK_EFFECT])
         .unwrap();
-    let node = renderer
+    let node = scene
         .add_shape(
             Shape::rect([(1_500_000_000.0, 0.0), (1_500_000_128.0, 64.0)]),
             None,
@@ -202,32 +202,32 @@ fn rejected_rasterization_changes_preserve_shape_mask_effect_pixels() {
                 .transform(TransformInstance::translation(-1_500_000_000.0, 0.0)),
         )
         .unwrap();
-    renderer
+    scene
         .set_shape_mask_effect(node, 9_302, &[], ShapeMaskEffectConfig::new().outset(128.0))
         .unwrap();
     let mut pixels = Vec::new();
-    render_bgra(&mut renderer, &mut pixels).unwrap();
+    render_bgra(&mut scene, &mut pixels).unwrap();
     assert_eq!(read_pixel_rgba(&pixels, 512, 192, 32), [0, 0, 255, 255]);
     assert_eq!(read_pixel_rgba(&pixels, 512, 384, 32), [0, 0, 0, 0]);
     let initial = pixels.clone();
 
-    let _ = renderer.change_scale_factor(2.0);
-    render_bgra(&mut renderer, &mut pixels).unwrap();
+    let _ = scene.change_scale_factor(2.0);
+    render_bgra(&mut scene, &mut pixels).unwrap();
     assert_eq!(pixels, initial);
-    renderer.change_scale_factor(0.5).unwrap();
-    render_bgra(&mut renderer, &mut pixels).unwrap();
+    scene.change_scale_factor(0.5).unwrap();
+    render_bgra(&mut scene, &mut pixels).unwrap();
     assert_eq!(read_pixel_rgba(&pixels, 512, 64, 16), [0, 0, 255, 255]);
     assert_eq!(read_pixel_rgba(&pixels, 512, 192, 32), [0, 0, 0, 0]);
     let recovered = pixels.clone();
 
-    let _ = renderer.set_fringe_width(f32::MAX);
-    render_bgra(&mut renderer, &mut pixels).unwrap();
+    let _ = scene.set_fringe_width(f32::MAX);
+    render_bgra(&mut scene, &mut pixels).unwrap();
     assert_eq!(pixels, recovered);
-    renderer.change_scale_factor(1.0).unwrap();
-    render_bgra(&mut renderer, &mut pixels).unwrap();
+    scene.change_scale_factor(1.0).unwrap();
+    render_bgra(&mut scene, &mut pixels).unwrap();
     assert_eq!(pixels, initial);
-    renderer.remove_shape_mask_effect(node);
-    render_bgra(&mut renderer, &mut pixels).unwrap();
+    scene.remove_shape_mask_effect(node);
+    render_bgra(&mut scene, &mut pixels).unwrap();
     assert!(pixels.iter().all(|&byte| byte == 0));
 }
 
@@ -235,18 +235,18 @@ fn rejected_rasterization_changes_preserve_shape_mask_effect_pixels() {
 fn shape_mask_effect_is_resolved_before_backdrop_capture_with_msaa() {
     // This test passes when no GPU present on purpose: I don't have a GPU on my CI just yet, so I'm
     //  running this test and the visual regression example manually before commiting changes
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
+    let Some(mut scene) = create_headless_scene_with_size_and_scale((64, 64), 1.0) else {
         return;
     };
-    renderer.set_msaa_samples(4);
-    renderer
+    scene.set_msaa_samples(4);
+    scene
         .load_effect(9_101, &[SHAPE_DROP_WGSL])
         .expect("to load the MSAA shape mask effect");
-    renderer
+    scene
         .load_effect(9_102, &[PASSTHROUGH_WGSL])
         .expect("to load the MSAA backdrop effect");
 
-    renderer
+    scene
         .add_shape(
             Shape::rect([(0.0, 0.0), (64.0, 64.0)]),
             None,
@@ -254,7 +254,7 @@ fn shape_mask_effect_is_resolved_before_backdrop_capture_with_msaa() {
             ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 50)),
         )
         .unwrap();
-    let panel_id = renderer
+    let panel_id = scene
         .add_shape(
             Shape::rect([(16.0, 16.0), (48.0, 48.0)]),
             None,
@@ -262,7 +262,7 @@ fn shape_mask_effect_is_resolved_before_backdrop_capture_with_msaa() {
             ShapeDrawCommandOptions::new(),
         )
         .unwrap();
-    renderer
+    scene
         .set_shape_mask_effect(
             panel_id,
             9_101,
@@ -270,12 +270,12 @@ fn shape_mask_effect_is_resolved_before_backdrop_capture_with_msaa() {
             ShapeMaskEffectConfig::new().outset(12.0),
         )
         .expect("to attach the MSAA shape mask effect");
-    renderer
+    scene
         .set_backdrop_effect(panel_id, 9_102, &[], BackdropEffectConfig::default())
         .expect("to attach the MSAA backdrop effect");
 
     let mut pixel_buffer = Vec::new();
-    render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+    render_bgra(&mut scene, &mut pixel_buffer).unwrap();
 
     assert_eq!(read_pixel_rgba(&pixel_buffer, 64, 32, 32), [0, 0, 255, 255]);
     assert_eq!(read_pixel_rgba(&pixel_buffer, 64, 52, 32), [0, 0, 255, 255]);
@@ -303,25 +303,25 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 
 #[test]
 fn invalid_effect_can_be_replaced_with_a_valid_shader() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((32, 32), 1.0) else {
+    let Some(mut scene) = create_headless_scene_with_size_and_scale((32, 32), 1.0) else {
         return;
     };
 
-    // Parsing and semantic failures must not poison the renderer's shared validator.
+    // Parsing and semantic failures must not poison the scene's shared validator.
     for source in [
         "@fragment fn effect_main(",
         "",
         "@fragment fn effect_main() -> @location(0) vec4<f32> { return vec3<f32>(1.0); }",
     ] {
         assert!(matches!(
-            renderer.load_effect(9_201, &[source]),
+            scene.load_effect(9_201, &[source]),
             Err(EffectError::Backend(WgpuBackendError::Effect(
                 EffectResourceError::InvalidShader { pass_index: 0, .. }
             )))
         ));
     }
-    renderer.load_effect(9_201, &[PASSTHROUGH_WGSL]).unwrap();
-    let shape_id = renderer
+    scene.load_effect(9_201, &[PASSTHROUGH_WGSL]).unwrap();
+    let shape_id = scene
         .add_shape(
             Shape::rect([(8.0, 8.0), (24.0, 24.0)]),
             None,
@@ -329,38 +329,38 @@ fn invalid_effect_can_be_replaced_with_a_valid_shader() {
             ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
         )
         .unwrap();
-    renderer
+    scene
         .set_content_effect(shape_id, 9_201, &[], ContentEffectConfig::default())
         .unwrap();
 
     let mut pixel_buffer = Vec::new();
-    render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+    render_bgra(&mut scene, &mut pixel_buffer).unwrap();
     assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 16, 16), [255, 0, 0, 255]);
 
     for _ in 0..2 {
         assert!(matches!(
-            renderer.load_effect(9_201, &[PASSTHROUGH_WGSL, ""]),
+            scene.load_effect(9_201, &[PASSTHROUGH_WGSL, ""]),
             Err(EffectError::Backend(WgpuBackendError::Effect(
                 EffectResourceError::InvalidShader { pass_index: 1, .. }
             )))
         ));
         // Force a redraw so the preserved shader runs after each failed reload.
-        renderer.resize(renderer.size());
-        render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+        scene.resize(scene.size());
+        render_bgra(&mut scene, &mut pixel_buffer).unwrap();
         assert_eq!(read_pixel_rgba(&pixel_buffer, 32, 16, 16), [255, 0, 0, 255]);
     }
 }
 
 #[test]
 fn shape_mask_effects_follow_geometry_and_placement_across_queue_rebuilds() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 48), 1.0) else {
+    let Some(mut scene) = create_headless_scene_with_size_and_scale((96, 48), 1.0) else {
         return;
     };
-    renderer
+    scene
         .load_effect(8_101, &[CACHED_SHAPE_MASK_EFFECT_RED_MASK])
         .unwrap();
-    renderer.load_shape(Shape::rect([(0.0, 0.0), (24.0, 24.0)]), 8_102, Some(8_103));
-    renderer.load_shape(
+    scene.load_shape(Shape::rect([(0.0, 0.0), (24.0, 24.0)]), 8_102, Some(8_103));
+    scene.load_shape(
         Shape::builder()
             .begin((0.0, 0.0))
             .line_to((24.0, 0.0))
@@ -378,8 +378,8 @@ fn shape_mask_effects_follow_geometry_and_placement_across_queue_rebuilds() {
         [(8_104, 36), (8_102, 68), (8_102, 4)],
         [(8_102, 36), (8_104, 4), (8_102, 68)],
     ] {
-        renderer.clear_draw_queue();
-        let root_id = renderer
+        scene.clear();
+        let root_id = scene
             .add_shape(
                 Shape::rect([(0.0, 0.0), (96.0, 48.0)]),
                 None,
@@ -388,7 +388,7 @@ fn shape_mask_effects_follow_geometry_and_placement_across_queue_rebuilds() {
             )
             .unwrap();
         for (shape_key, left) in placements {
-            let node_id = renderer
+            let node_id = scene
                 .add_cached_shape(
                     shape_key,
                     Some(root_id),
@@ -396,7 +396,7 @@ fn shape_mask_effects_follow_geometry_and_placement_across_queue_rebuilds() {
                         .transform(TransformInstance::translation(left as f32, 12.0)),
                 )
                 .unwrap();
-            renderer
+            scene
                 .set_shape_mask_effect(
                     node_id,
                     8_101,
@@ -405,7 +405,7 @@ fn shape_mask_effects_follow_geometry_and_placement_across_queue_rebuilds() {
                 )
                 .unwrap();
         }
-        render_bgra(&mut renderer, &mut pixels).unwrap();
+        render_bgra(&mut scene, &mut pixels).unwrap();
 
         for (shape_key, left) in placements {
             assert_eq!(read_pixel_rgba(&pixels, 96, left + 6, 18), [255, 0, 0, 255]);
@@ -422,12 +422,12 @@ fn shape_mask_effects_follow_geometry_and_placement_across_queue_rebuilds() {
 #[cfg(feature = "render_metrics")]
 #[test]
 fn cached_shape_mask_effects_composite_with_solid_shapes() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 48), 1.0) else {
+    let Some(mut scene) = create_headless_scene_with_size_and_scale((96, 48), 1.0) else {
         return;
     };
-    renderer.load_effect(8_151, &[PASSTHROUGH_WGSL]).unwrap();
-    renderer.load_shape(Shape::rect([(0.0, 0.0), (24.0, 24.0)]), 8_152, Some(8_153));
-    let root_id = renderer
+    scene.load_effect(8_151, &[PASSTHROUGH_WGSL]).unwrap();
+    scene.load_shape(Shape::rect([(0.0, 0.0), (24.0, 24.0)]), 8_152, Some(8_153));
+    let root_id = scene
         .add_shape(
             Shape::rect([(0.0, 0.0), (96.0, 48.0)]),
             None,
@@ -440,7 +440,7 @@ fn cached_shape_mask_effects_composite_with_solid_shapes() {
         (8.0, Color::rgb(220, 50, 50)),
         (48.0, Color::rgb(50, 90, 220)),
     ] {
-        let node_id = renderer
+        let node_id = scene
             .add_cached_shape(
                 8_152,
                 Some(root_id),
@@ -449,7 +449,7 @@ fn cached_shape_mask_effects_composite_with_solid_shapes() {
                     .transform(TransformInstance::translation(translation_x, 12.0)),
             )
             .unwrap();
-        renderer
+        scene
             .set_shape_mask_effect(
                 node_id,
                 8_151,
@@ -460,11 +460,11 @@ fn cached_shape_mask_effects_composite_with_solid_shapes() {
     }
 
     let mut pixels = Vec::new();
-    render_bgra(&mut renderer, &mut pixels).unwrap();
-    render_bgra(&mut renderer, &mut pixels).unwrap();
+    render_bgra(&mut scene, &mut pixels).unwrap();
+    render_bgra(&mut scene, &mut pixels).unwrap();
 
     // Queue a transparent shape to redraw and exercise the retained effect cache.
-    renderer
+    scene
         .add_shape(
             Shape::rect([(0.0, 0.0), (96.0, 48.0)]),
             Some(root_id),
@@ -472,9 +472,9 @@ fn cached_shape_mask_effects_composite_with_solid_shapes() {
             ShapeDrawCommandOptions::new(),
         )
         .unwrap();
-    render_bgra(&mut renderer, &mut pixels).unwrap();
+    render_bgra(&mut scene, &mut pixels).unwrap();
 
-    let cache_metrics = renderer.backend().last_shape_mask_effect_cache_metrics();
+    let cache_metrics = scene.backend().last_shape_mask_effect_cache_metrics();
     assert_eq!(cache_metrics.hits, 2);
     assert_eq!(cache_metrics.misses, 0);
 
@@ -485,11 +485,11 @@ fn cached_shape_mask_effects_composite_with_solid_shapes() {
 #[cfg(feature = "render_metrics")]
 #[test]
 fn cached_shape_mask_effect_is_invalidated_by_normal_pipeline_recreation() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
+    let Some(mut scene) = create_headless_scene_with_size_and_scale((64, 64), 1.0) else {
         return;
     };
-    renderer.load_effect(8_161, &[SHAPE_DROP_WGSL]).unwrap();
-    let shape_id = renderer
+    scene.load_effect(8_161, &[SHAPE_DROP_WGSL]).unwrap();
+    let shape_id = scene
         .add_shape(
             Shape::rect([(16.0, 16.0), (48.0, 48.0)]),
             None,
@@ -497,7 +497,7 @@ fn cached_shape_mask_effect_is_invalidated_by_normal_pipeline_recreation() {
             ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 50)),
         )
         .unwrap();
-    renderer
+    scene
         .set_shape_mask_effect(
             shape_id,
             8_161,
@@ -507,22 +507,22 @@ fn cached_shape_mask_effect_is_invalidated_by_normal_pipeline_recreation() {
         .unwrap();
 
     let mut pixels = Vec::new();
-    render_bgra(&mut renderer, &mut pixels).unwrap();
-    renderer.set_msaa_samples(4);
-    render_bgra(&mut renderer, &mut pixels).unwrap();
+    render_bgra(&mut scene, &mut pixels).unwrap();
+    scene.set_msaa_samples(4);
+    render_bgra(&mut scene, &mut pixels).unwrap();
 
-    let cache_metrics = renderer.backend().last_shape_mask_effect_cache_metrics();
+    let cache_metrics = scene.backend().last_shape_mask_effect_cache_metrics();
     assert_eq!(cache_metrics.hits, 0);
     assert_eq!(cache_metrics.misses, 1);
     assert_eq!(read_pixel_rgba(&pixels, 64, 52, 32), [0, 0, 255, 255]);
 }
 
 fn assert_scene_restored_after_overlay_removal(
-    renderer: &mut Renderer,
+    scene: &mut Scene,
     pixel_buffer: &mut Vec<u8>,
     expectations: &[PixelExpectation],
 ) {
-    let overlay = renderer
+    let overlay = scene
         .add_clipping_rect(
             [(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)],
             None,
@@ -530,7 +530,7 @@ fn assert_scene_restored_after_overlay_removal(
             true,
         )
         .unwrap();
-    let overlay_shape = renderer
+    let overlay_shape = scene
         .add_shape(
             Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]),
             Some(overlay),
@@ -538,61 +538,61 @@ fn assert_scene_restored_after_overlay_removal(
             ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 255)),
         )
         .unwrap();
-    render_bgra(renderer, pixel_buffer).unwrap();
+    render_bgra(scene, pixel_buffer).unwrap();
     assert_eq!(
         read_pixel_rgba(pixel_buffer, CANVAS_WIDTH, 40, 40),
         [255, 0, 255, 255]
     );
-    renderer.remove_subtrees([overlay_shape, overlay, overlay_shape], |_| {});
-    render_bgra(renderer, pixel_buffer).unwrap();
+    scene.remove_subtrees([overlay_shape, overlay, overlay_shape], |_| {});
+    render_bgra(scene, pixel_buffer).unwrap();
     assert_pixels_match(pixel_buffer, expectations);
 }
 
 #[test]
 fn main_scene_pixel_expectations() {
-    let Some(mut renderer) = create_headless_renderer() else {
+    let Some(mut scene) = create_headless_scene() else {
         return;
     };
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
     // Start with MSAA so a rejected submission cannot reuse a prior valid output.
     for sample_count in [4, 1, 4, 1] {
-        renderer.set_msaa_samples(sample_count);
+        scene.set_msaa_samples(sample_count);
         // Exercise both full clears and root removal after a completed render.
         for should_remove_root in [false, true] {
             if should_remove_root {
-                renderer.remove_subtrees([0], |_| {});
+                scene.remove_subtrees([0], |_| {});
             } else {
-                renderer.clear_draw_queue();
+                scene.clear();
             }
-            let expectations = build_main_scene(&mut renderer);
-            render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+            let expectations = build_main_scene(&mut scene);
+            render_bgra(&mut scene, &mut pixel_buffer).unwrap();
             assert_pixels_match(&pixel_buffer, &expectations);
             if should_remove_root {
                 assert_scene_restored_after_overlay_removal(
-                    &mut renderer,
+                    &mut scene,
                     &mut pixel_buffer,
                     &expectations,
                 );
             }
         }
         for _ in 0..2 {
-            renderer.clear_draw_queue();
-            let expectations = build_nested_targets_scene(&mut renderer);
-            render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+            scene.clear();
+            let expectations = build_nested_targets_scene(&mut scene);
+            render_bgra(&mut scene, &mut pixel_buffer).unwrap();
             assert_pixels_match(&pixel_buffer, &expectations);
         }
     }
 }
 
 fn rebuild_texture_material_scene(
-    renderer: &mut Renderer,
+    scene: &mut Scene,
     gradient_color: Color,
     offset: f32,
     swaps_fills: bool,
 ) {
-    renderer.clear_draw_queue();
-    renderer
+    scene.clear();
+    scene
         .add_shape(
             Shape::rect([(0.0, 0.0), (64.0, 32.0)]),
             None,
@@ -601,7 +601,7 @@ fn rebuild_texture_material_scene(
         )
         .unwrap();
     for left in [14.0, 46.0] {
-        renderer
+        scene
             .add_shape(
                 Shape::rect([(left, 0.0), (left + 4.0, 32.0)]),
                 None,
@@ -635,7 +635,7 @@ fn rebuild_texture_material_scene(
         } else {
             Fill::Solid(Color::rgba(0, 0, 255, 128))
         };
-        let panel = renderer
+        let panel = scene
             .add_shape(
                 Shape::rect([(left, 4.0), (left + 24.0, 28.0)]),
                 None,
@@ -643,7 +643,7 @@ fn rebuild_texture_material_scene(
                 ShapeDrawCommandOptions::new().fill(fill),
             )
             .unwrap();
-        renderer
+        scene
             .set_backdrop_effect(panel, 9_301, &[], BackdropEffectConfig::default())
             .unwrap();
     }
@@ -651,16 +651,16 @@ fn rebuild_texture_material_scene(
 
 #[test]
 fn texture_materials_follow_scene_changes_across_queue_rebuilds() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 32), 1.0) else {
+    let Some(mut scene) = create_headless_scene_with_size_and_scale((64, 32), 1.0) else {
         return;
     };
-    renderer.load_effect(9_301, &[PASSTHROUGH_WGSL]).unwrap();
+    scene.load_effect(9_301, &[PASSTHROUGH_WGSL]).unwrap();
     let mut pixels = Vec::new();
     for samples in [1, 4, 1] {
-        renderer.set_msaa_samples(samples);
+        scene.set_msaa_samples(samples);
         for _ in 0..2 {
-            rebuild_texture_material_scene(&mut renderer, Color::rgba(255, 0, 0, 128), 2.0, false);
-            render_bgra(&mut renderer, &mut pixels).unwrap();
+            rebuild_texture_material_scene(&mut scene, Color::rgba(255, 0, 0, 128), 2.0, false);
+            render_bgra(&mut scene, &mut pixels).unwrap();
             assert_eq!(read_pixel_rgba(&pixels, 64, 63, 16), [255; 4]);
             let solid = read_pixel_rgba(&pixels, 64, 10, 16);
             assert!(solid[0] < 200 && solid[2] == 255);
@@ -676,8 +676,8 @@ fn texture_materials_follow_scene_changes_across_queue_rebuilds() {
         (Color::rgba(0, 255, 0, 128), 6.0, true),
         (Color::rgba(0, 255, 0, 128), 6.0, true),
     ] {
-        rebuild_texture_material_scene(&mut renderer, color, offset, swaps_fills);
-        render_bgra(&mut renderer, &mut pixels).unwrap();
+        rebuild_texture_material_scene(&mut scene, color, offset, swaps_fills);
+        render_bgra(&mut scene, &mut pixels).unwrap();
         let solid_left = if swaps_fills { 32 } else { 0 };
         let solid_over_black = read_pixel_rgba(&pixels, 64, solid_left + 16, 16);
         assert_eq!(
@@ -698,15 +698,15 @@ fn texture_materials_follow_scene_changes_across_queue_rebuilds() {
 
 #[test]
 fn dirty_subtree_addition_and_removal_preserve_retained_pixels() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
+    let Some(mut scene) = create_headless_scene_with_size_and_scale((64, 64), 1.0) else {
         return;
     };
-    renderer.set_dirty_region_overlay_enabled(true);
+    scene.set_dirty_region_overlay_enabled(true);
     let mut pixels = Vec::new();
     for samples in [1, 4] {
-        renderer.clear_draw_queue();
-        renderer.set_msaa_samples(samples);
-        let root = renderer
+        scene.clear();
+        scene.set_msaa_samples(samples);
+        let root = scene
             .add_clipping_rect(
                 [(0.0, 0.0), (64.0, 64.0)],
                 None,
@@ -714,7 +714,7 @@ fn dirty_subtree_addition_and_removal_preserve_retained_pixels() {
                 true,
             )
             .unwrap();
-        renderer
+        scene
             .add_shape(
                 Shape::rect([(2.0, 2.0), (48.0, 48.0)]),
                 Some(root),
@@ -722,9 +722,9 @@ fn dirty_subtree_addition_and_removal_preserve_retained_pixels() {
                 ShapeDrawCommandOptions::new().color(Color::rgba(255, 0, 0, 128)),
             )
             .unwrap();
-        render_bgra(&mut renderer, &mut pixels).unwrap();
+        render_bgra(&mut scene, &mut pixels).unwrap();
         let background = pixels.clone();
-        let branch = renderer
+        let branch = scene
             .add_clipping_rect(
                 [(8.0, 8.0), (60.0, 60.0)],
                 Some(root),
@@ -732,7 +732,7 @@ fn dirty_subtree_addition_and_removal_preserve_retained_pixels() {
                 true,
             )
             .unwrap();
-        renderer
+        scene
             .add_shape(
                 Shape::rect([(10.25, 10.25), (20.75, 20.75)]),
                 Some(branch),
@@ -740,7 +740,7 @@ fn dirty_subtree_addition_and_removal_preserve_retained_pixels() {
                 ShapeDrawCommandOptions::new().color(Color::rgba(0, 0, 255, 128)),
             )
             .unwrap();
-        renderer
+        scene
             .add_shape(
                 Shape::rect([(50.25, 50.25), (56.75, 56.75)]),
                 Some(branch),
@@ -748,7 +748,7 @@ fn dirty_subtree_addition_and_removal_preserve_retained_pixels() {
                 ShapeDrawCommandOptions::new().color(Color::WHITE),
             )
             .unwrap();
-        render_bgra(&mut renderer, &mut pixels).unwrap();
+        render_bgra(&mut scene, &mut pixels).unwrap();
         assert_eq!(read_pixel_rgba(&pixels, 64, 54, 54), [255, 255, 255, 255]);
         assert_eq!(
             read_pixel_rgba(&pixels, 64, 4, 4),
@@ -756,24 +756,24 @@ fn dirty_subtree_addition_and_removal_preserve_retained_pixels() {
         );
         let overlay = pixels.clone();
         pixels.fill(0x71);
-        render_bgra(&mut renderer, &mut pixels).unwrap();
+        render_bgra(&mut scene, &mut pixels).unwrap();
         assert_eq!(pixels, overlay, "unchanged renders must preserve the image");
-        renderer.remove_subtrees([branch], |_| {});
-        render_bgra(&mut renderer, &mut pixels).unwrap();
+        scene.remove_subtrees([branch], |_| {});
+        render_bgra(&mut scene, &mut pixels).unwrap();
         assert_eq!(
             pixels, background,
             "removal must restore transparent pixels and AA edges"
         );
-        renderer.clear_draw_queue();
-        render_bgra(&mut renderer, &mut pixels).unwrap();
+        scene.clear();
+        render_bgra(&mut scene, &mut pixels).unwrap();
         assert!(pixels.iter().all(|&byte| byte == 0));
     }
 }
 
-fn assert_incremental_pixels_match_full_redraw(renderer: &mut Renderer, pixels: &mut Vec<u8>) {
+fn assert_incremental_pixels_match_full_redraw(scene: &mut Scene, pixels: &mut Vec<u8>) {
     let incremental = pixels.clone();
-    renderer.resize(renderer.size());
-    render_bgra(renderer, pixels).unwrap();
+    scene.resize(scene.size());
+    render_bgra(scene, pixels).unwrap();
     assert_eq!(
         pixels, &incremental,
         "partial updates must match a full redraw"
@@ -850,25 +850,25 @@ fn assert_fitted_texture_pixels(pixels: &[u8], fit_mode: ShapeTextureFitMode, si
 
 #[test]
 fn retained_texture_fits_follow_allocation_dimensions() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 96), 1.0) else {
+    let Some(mut scene) = create_headless_scene_with_size_and_scale((96, 96), 1.0) else {
         return;
     };
     let texture_id = 9_410;
-    renderer.load_effect(9_410, &[PASSTHROUGH_WGSL]).unwrap();
-    let manager = renderer.texture_manager().clone();
+    scene.load_effect(9_410, &[PASSTHROUGH_WGSL]).unwrap();
+    let manager = scene.texture_manager().clone();
     let mut pixels = Vec::new();
     for samples in [1, 4] {
-        renderer.set_msaa_samples(samples);
+        scene.set_msaa_samples(samples);
         for fit_mode in [
             ShapeTextureFitMode::OriginalSize,
             ShapeTextureFitMode::Cover,
             ShapeTextureFitMode::Contain,
         ] {
             for is_foreground in [false, true] {
-                renderer.clear_draw_queue();
+                scene.clear();
                 manager.clear();
-                renderer.change_scale_factor(1.0).unwrap();
-                let root = renderer
+                scene.change_scale_factor(1.0).unwrap();
+                let root = scene
                     .add_clipping_rect(
                         [(0.0, 0.0), (96.0, 96.0)],
                         None,
@@ -876,7 +876,7 @@ fn retained_texture_fits_follow_allocation_dimensions() {
                         false,
                     )
                     .unwrap();
-                let discarded = renderer
+                let discarded = scene
                     .add_shape(
                         Shape::rect([(90.0, 90.0), (94.0, 94.0)]),
                         Some(root),
@@ -891,7 +891,7 @@ fn retained_texture_fits_follow_allocation_dimensions() {
                 } else {
                     options.background_texture(texture)
                 };
-                let shape = renderer
+                let shape = scene
                     .add_shape(
                         Shape::rect([(8.0, 8.0), (40.0, 40.0)]),
                         Some(root),
@@ -899,12 +899,12 @@ fn retained_texture_fits_follow_allocation_dimensions() {
                         options,
                     )
                     .unwrap();
-                renderer
+                scene
                     .set_shape_mask_effect(shape, 9_410, &[], ShapeMaskEffectConfig::new())
                     .unwrap();
-                render_bgra(&mut renderer, &mut pixels).unwrap();
+                render_bgra(&mut scene, &mut pixels).unwrap();
                 assert_eq!(read_pixel_rgba(&pixels, 96, 10, 10), [255; 4]);
-                renderer.remove_subtrees([discarded], |_| {});
+                scene.remove_subtrees([discarded], |_| {});
 
                 for size in [(8, 16), (16, 8)] {
                     manager.allocate_texture_with_data(
@@ -912,19 +912,19 @@ fn retained_texture_fits_follow_allocation_dimensions() {
                         size,
                         &fitted_texture_data(fit_mode, size),
                     );
-                    render_bgra(&mut renderer, &mut pixels).unwrap();
+                    render_bgra(&mut scene, &mut pixels).unwrap();
                     assert_fitted_texture_pixels(&pixels, fit_mode, size);
-                    assert_incremental_pixels_match_full_redraw(&mut renderer, &mut pixels);
+                    assert_incremental_pixels_match_full_redraw(&mut scene, &mut pixels);
                 }
                 manager.remove_texture(texture_id);
-                render_bgra(&mut renderer, &mut pixels).unwrap();
+                render_bgra(&mut scene, &mut pixels).unwrap();
                 assert_eq!(read_pixel_rgba(&pixels, 96, 10, 10), [255; 4]);
                 manager.allocate_texture_with_data(
                     texture_id,
                     (8, 16),
                     &fitted_texture_data(fit_mode, (8, 16)),
                 );
-                render_bgra(&mut renderer, &mut pixels).unwrap();
+                render_bgra(&mut scene, &mut pixels).unwrap();
                 assert_fitted_texture_pixels(&pixels, fit_mode, (8, 16));
             }
         }
@@ -933,16 +933,16 @@ fn retained_texture_fits_follow_allocation_dimensions() {
 
 #[test]
 fn texture_mutations_redraw_retained_layers_and_backdrop_captures() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 64), 1.0) else {
+    let Some(mut scene) = create_headless_scene_with_size_and_scale((96, 64), 1.0) else {
         return;
     };
     let texture_id = 9_402;
-    renderer.load_effect(9_402, &[PASSTHROUGH_WGSL]).unwrap();
-    let manager = renderer.texture_manager().clone();
+    scene.load_effect(9_402, &[PASSTHROUGH_WGSL]).unwrap();
+    let manager = scene.texture_manager().clone();
     let mut pixels = Vec::new();
     for samples in [1, 4] {
-        renderer.set_msaa_samples(samples);
-        let root = renderer
+        scene.set_msaa_samples(samples);
+        let root = scene
             .add_shape(
                 Shape::rect([(0.0, 0.0), (96.0, 64.0)]),
                 None,
@@ -968,11 +968,11 @@ fn texture_mutations_redraw_retained_layers_and_backdrop_captures() {
                 ShapeDrawCommandOptions::new().color(Color::rgb(0, 0, 255)),
             ),
         ] {
-            renderer
+            scene
                 .add_shape(Shape::rect(bounds), Some(root), None, options)
                 .unwrap();
         }
-        let backdrop = renderer
+        let backdrop = scene
             .add_shape(
                 Shape::rect([(48.0, 8.0), (64.0, 24.0)]),
                 Some(root),
@@ -980,7 +980,7 @@ fn texture_mutations_redraw_retained_layers_and_backdrop_captures() {
                 ShapeDrawCommandOptions::new().color(Color::TRANSPARENT),
             )
             .unwrap();
-        renderer
+        scene
             .set_backdrop_effect(
                 backdrop,
                 9_402,
@@ -989,7 +989,7 @@ fn texture_mutations_redraw_retained_layers_and_backdrop_captures() {
                     .capture_area(BackdropCaptureArea::ScreenRect([(8.0, 8.0), (24.0, 24.0)])),
             )
             .unwrap();
-        render_bgra(&mut renderer, &mut pixels).unwrap();
+        render_bgra(&mut scene, &mut pixels).unwrap();
         assert_eq!(read_pixel_rgba(&pixels, 96, 16, 16), [255; 4]);
         assert_eq!(read_pixel_rgba(&pixels, 96, 16, 44), [255; 4]);
         assert_eq!(read_pixel_rgba(&pixels, 96, 56, 16), [255; 4]);
@@ -1023,25 +1023,25 @@ fn texture_mutations_redraw_retained_layers_and_backdrop_captures() {
                 TextureMutation::Remove => manager.remove_texture(texture_id),
                 TextureMutation::Clear => manager.clear(),
             }
-            render_bgra(&mut renderer, &mut pixels).unwrap();
+            render_bgra(&mut scene, &mut pixels).unwrap();
             for (x, y) in [(16, 16), (16, 44), (56, 16)] {
                 assert_eq!(read_pixel_rgba(&pixels, 96, x, y), expected);
             }
             assert_eq!(read_pixel_rgba(&pixels, 96, 84, 40), [0, 0, 255, 255]);
             assert_eq!(read_pixel_rgba(&pixels, 96, 40, 44), [30, 40, 50, 255]);
-            assert_incremental_pixels_match_full_redraw(&mut renderer, &mut pixels);
+            assert_incremental_pixels_match_full_redraw(&mut scene, &mut pixels);
         }
-        renderer.clear_draw_queue();
+        scene.clear();
     }
 }
 
 #[test]
 fn command_replacements_update_retained_geometry_effects_and_child_clips() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((96, 96), 1.0) else {
+    let Some(mut scene) = create_headless_scene_with_size_and_scale((96, 96), 1.0) else {
         return;
     };
-    renderer.load_effect(9_401, &[SHAPE_DROP_WGSL]).unwrap();
-    renderer.load_shape(
+    scene.load_effect(9_401, &[SHAPE_DROP_WGSL]).unwrap();
+    scene.load_shape(
         Shape::builder()
             .begin((20.25, 42.25))
             .line_to((40.75, 42.25))
@@ -1055,9 +1055,9 @@ fn command_replacements_update_retained_geometry_effects_and_child_clips() {
     let blue = [0, 0, 255, 255];
     let mut pixels = Vec::new();
     for samples in [1, 4] {
-        renderer.clear_draw_queue();
-        renderer.set_msaa_samples(samples);
-        let root = renderer
+        scene.clear();
+        scene.set_msaa_samples(samples);
+        let root = scene
             .add_shape(
                 Shape::rect([(0.0, 0.0), (96.0, 96.0)]),
                 None,
@@ -1065,7 +1065,7 @@ fn command_replacements_update_retained_geometry_effects_and_child_clips() {
                 ShapeDrawCommandOptions::new().color(Color::rgb(190, 50, 20)),
             )
             .unwrap();
-        let parent = renderer
+        let parent = scene
             .add_shape(
                 Shape::rect([(10.25, 10.25), (30.75, 30.75)]),
                 Some(root),
@@ -1073,7 +1073,7 @@ fn command_replacements_update_retained_geometry_effects_and_child_clips() {
                 ShapeDrawCommandOptions::new().clips_children(false),
             )
             .unwrap();
-        renderer
+        scene
             .set_shape_mask_effect(
                 parent,
                 9_401,
@@ -1081,7 +1081,7 @@ fn command_replacements_update_retained_geometry_effects_and_child_clips() {
                 ShapeMaskEffectConfig::new().outset(12.0),
             )
             .unwrap();
-        renderer
+        scene
             .add_shape(
                 Shape::rect([(78.25, 12.25), (88.75, 22.75)]),
                 Some(parent),
@@ -1089,12 +1089,12 @@ fn command_replacements_update_retained_geometry_effects_and_child_clips() {
                 ShapeDrawCommandOptions::new().color(Color::WHITE),
             )
             .unwrap();
-        render_bgra(&mut renderer, &mut pixels).unwrap();
+        render_bgra(&mut scene, &mut pixels).unwrap();
         assert_eq!(read_pixel_rgba(&pixels, 96, 25, 25), blue);
         assert_eq!(read_pixel_rgba(&pixels, 96, 36, 36), blue);
         assert_eq!(read_pixel_rgba(&pixels, 96, 87, 15), [255; 4]);
 
-        renderer
+        scene
             .replace_with_shape(
                 parent,
                 Shape::rect([(40.25, 10.25), (60.75, 30.75)]),
@@ -1102,31 +1102,31 @@ fn command_replacements_update_retained_geometry_effects_and_child_clips() {
                 ShapeDrawCommandOptions::new().clips_children(false),
             )
             .unwrap();
-        render_bgra(&mut renderer, &mut pixels).unwrap();
+        render_bgra(&mut scene, &mut pixels).unwrap();
         assert_eq!(read_pixel_rgba(&pixels, 96, 25, 25), background);
         assert_eq!(read_pixel_rgba(&pixels, 96, 36, 36), background);
         assert_eq!(read_pixel_rgba(&pixels, 96, 55, 25), blue);
         assert_eq!(read_pixel_rgba(&pixels, 96, 66, 36), blue);
         assert_eq!(read_pixel_rgba(&pixels, 96, 87, 15), [255; 4]);
-        assert_incremental_pixels_match_full_redraw(&mut renderer, &mut pixels);
+        assert_incremental_pixels_match_full_redraw(&mut scene, &mut pixels);
 
-        renderer
+        scene
             .replace_with_cached_shape(
                 parent,
                 9_402,
                 ShapeDrawCommandOptions::new().clips_children(false),
             )
             .unwrap();
-        render_bgra(&mut renderer, &mut pixels).unwrap();
+        render_bgra(&mut scene, &mut pixels).unwrap();
         assert_eq!(read_pixel_rgba(&pixels, 96, 55, 25), background);
         assert_eq!(read_pixel_rgba(&pixels, 96, 66, 36), background);
         assert_eq!(read_pixel_rgba(&pixels, 96, 32, 54), blue);
         assert_eq!(read_pixel_rgba(&pixels, 96, 30, 64), blue);
         assert_eq!(read_pixel_rgba(&pixels, 96, 45, 67), background);
         assert_eq!(read_pixel_rgba(&pixels, 96, 87, 15), [255; 4]);
-        assert_incremental_pixels_match_full_redraw(&mut renderer, &mut pixels);
+        assert_incremental_pixels_match_full_redraw(&mut scene, &mut pixels);
 
-        renderer
+        scene
             .replace_with_clipping_rect(
                 parent,
                 [(80.0, 10.0), (86.0, 18.0)],
@@ -1134,15 +1134,15 @@ fn command_replacements_update_retained_geometry_effects_and_child_clips() {
                 true,
             )
             .unwrap();
-        render_bgra(&mut renderer, &mut pixels).unwrap();
+        render_bgra(&mut scene, &mut pixels).unwrap();
         assert_eq!(read_pixel_rgba(&pixels, 96, 32, 54), background);
         assert_eq!(read_pixel_rgba(&pixels, 96, 30, 64), background);
         assert_eq!(read_pixel_rgba(&pixels, 96, 82, 15), [255; 4]);
         assert_eq!(read_pixel_rgba(&pixels, 96, 87, 15), background);
         assert_eq!(read_pixel_rgba(&pixels, 96, 82, 21), background);
-        assert_incremental_pixels_match_full_redraw(&mut renderer, &mut pixels);
+        assert_incremental_pixels_match_full_redraw(&mut scene, &mut pixels);
 
-        renderer
+        scene
             .replace_with_shape(
                 parent,
                 Shape::rect([(40.25, 42.25), (60.75, 62.75)]),
@@ -1152,31 +1152,31 @@ fn command_replacements_update_retained_geometry_effects_and_child_clips() {
                     .clips_children(false),
             )
             .unwrap();
-        render_bgra(&mut renderer, &mut pixels).unwrap();
+        render_bgra(&mut scene, &mut pixels).unwrap();
         assert_eq!(read_pixel_rgba(&pixels, 96, 45, 50), [0, 255, 0, 255]);
         assert_eq!(read_pixel_rgba(&pixels, 96, 66, 66), background);
         assert_eq!(read_pixel_rgba(&pixels, 96, 87, 15), [255; 4]);
-        assert_incremental_pixels_match_full_redraw(&mut renderer, &mut pixels);
+        assert_incremental_pixels_match_full_redraw(&mut scene, &mut pixels);
     }
 }
 
 #[test]
 fn empty_draw_queue() {
-    let Some(mut renderer) = create_headless_renderer() else {
+    let Some(mut scene) = create_headless_scene() else {
         return;
     };
 
     let mut pixel_buffer = Vec::new();
-    render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+    render_bgra(&mut scene, &mut pixel_buffer).unwrap();
     assert_eq!(
         pixel_buffer.len(),
         (CANVAS_WIDTH * CANVAS_HEIGHT * 4) as usize
     );
     assert!(pixel_buffer.iter().all(|&byte| byte == 0));
     for samples in [4, 1] {
-        renderer.set_msaa_samples(samples);
-        renderer.clear_draw_queue();
-        renderer
+        scene.set_msaa_samples(samples);
+        scene.clear();
+        scene
             .add_shape(
                 Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]),
                 None,
@@ -1184,10 +1184,10 @@ fn empty_draw_queue() {
                 ShapeDrawCommandOptions::new().color(Color::WHITE),
             )
             .unwrap();
-        render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+        render_bgra(&mut scene, &mut pixel_buffer).unwrap();
         assert!(pixel_buffer.iter().all(|&byte| byte == 255));
-        renderer.clear_draw_queue();
-        render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+        scene.clear();
+        render_bgra(&mut scene, &mut pixel_buffer).unwrap();
         assert_eq!(
             pixel_buffer.len(),
             (CANVAS_WIDTH * CANVAS_HEIGHT * 4) as usize
@@ -1201,12 +1201,12 @@ fn empty_draw_queue() {
 
 #[test]
 fn single_root_no_children() {
-    let Some(mut renderer) = create_headless_renderer() else {
+    let Some(mut scene) = create_headless_scene() else {
         return;
     };
 
     let shape = Shape::rect([(10.0, 10.0), (100.0, 100.0)]);
-    renderer
+    scene
         .add_shape(
             shape,
             None,
@@ -1216,7 +1216,7 @@ fn single_root_no_children() {
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+    render_bgra(&mut scene, &mut pixel_buffer).unwrap();
 
     let expectations = vec![
         PixelExpectation::opaque(55, 55, 200, 50, 50, "center_red"),
@@ -1230,8 +1230,7 @@ fn single_root_no_children() {
 fn original_size_texture_fit_uses_physical_pixels_on_hidpi() {
     let physical_size = (200, 200);
     let scale_factor = 2.0;
-    let Some(mut renderer) =
-        create_headless_renderer_with_size_and_scale(physical_size, scale_factor)
+    let Some(mut scene) = create_headless_scene_with_size_and_scale(physical_size, scale_factor)
     else {
         return;
     };
@@ -1248,14 +1247,14 @@ fn original_size_texture_fit_uses_physical_pixels_on_hidpi() {
             })
         })
         .collect::<Vec<_>>();
-    renderer.texture_manager().allocate_texture_with_data(
+    scene.texture_manager().allocate_texture_with_data(
         green_texture_id,
         (20, 20),
         &green_texture_with_transparent_border_20x20,
     );
 
     let shape = Shape::rect([(10.0, 10.0), (70.0, 70.0)]);
-    renderer
+    scene
         .add_shape(
             shape,
             None,
@@ -1270,7 +1269,7 @@ fn original_size_texture_fit_uses_physical_pixels_on_hidpi() {
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+    render_bgra(&mut scene, &mut pixel_buffer).unwrap();
 
     let expectations = vec![
         PixelExpectation::opaque(30, 30, 0, 255, 0, "inside_20px_physical_texture_region"),
@@ -1297,8 +1296,7 @@ fn original_size_texture_fit_uses_physical_pixels_on_hidpi() {
 #[test]
 fn cover_and_contain_texture_fit_preserve_aspect_ratio() {
     let physical_size = (160, 64);
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale(physical_size, 1.0)
-    else {
+    let Some(mut scene) = create_headless_scene_with_size_and_scale(physical_size, 1.0) else {
         return;
     };
 
@@ -1316,11 +1314,11 @@ fn cover_and_contain_texture_fit_preserve_aspect_ratio() {
             })
         })
         .collect::<Vec<_>>();
-    renderer
+    scene
         .texture_manager()
         .allocate_texture_with_data(texture_id, (20, 10), &texture_data);
 
-    renderer
+    scene
         .add_shape(
             Shape::rect([(8.0, 8.0), (56.0, 56.0)]),
             None,
@@ -1333,7 +1331,7 @@ fn cover_and_contain_texture_fit_preserve_aspect_ratio() {
                 .color(Color::WHITE),
         )
         .unwrap();
-    renderer
+    scene
         .add_shape(
             Shape::rect([(88.0, 8.0), (136.0, 56.0)]),
             None,
@@ -1347,7 +1345,7 @@ fn cover_and_contain_texture_fit_preserve_aspect_ratio() {
         .unwrap();
 
     let mut pixel_buffer = Vec::new();
-    render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+    render_bgra(&mut scene, &mut pixel_buffer).unwrap();
 
     assert_eq!(
         read_pixel_rgba(&pixel_buffer, physical_size.0, 12, 32),
@@ -1383,11 +1381,11 @@ fn cover_and_contain_texture_fit_preserve_aspect_ratio() {
 
 #[test]
 fn clipping_rect_clips_child_without_visible_surface() {
-    let Some(mut renderer) = create_headless_renderer() else {
+    let Some(mut scene) = create_headless_scene() else {
         return;
     };
 
-    let clip_rect_id = renderer
+    let clip_rect_id = scene
         .add_clipping_rect(
             [(20.0, 20.0), (80.0, 80.0)],
             None,
@@ -1396,7 +1394,7 @@ fn clipping_rect_clips_child_without_visible_surface() {
         )
         .unwrap();
     let child = Shape::rect([(0.0, 0.0), (100.0, 100.0)]);
-    renderer
+    scene
         .add_shape(
             child,
             Some(clip_rect_id),
@@ -1406,7 +1404,7 @@ fn clipping_rect_clips_child_without_visible_surface() {
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+    render_bgra(&mut scene, &mut pixel_buffer).unwrap();
 
     let expectations = vec![
         PixelExpectation::opaque(50, 50, 200, 50, 50, "inside_clip_rect"),
@@ -1422,8 +1420,7 @@ fn clipping_rect_clips_child_without_visible_surface() {
 #[test]
 fn partially_offscreen_backdrop_capture_clears_reused_texture_space() {
     let physical_size = (100, 80);
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale(physical_size, 1.0)
-    else {
+    let Some(mut scene) = create_headless_scene_with_size_and_scale(physical_size, 1.0) else {
         return;
     };
 
@@ -1440,7 +1437,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 "#;
 
-    renderer
+    scene
         .load_effect(
             AVERAGE_WITH_RIGHT_NEIGHBOR_EFFECT_ID,
             &[AVERAGE_WITH_RIGHT_NEIGHBOR_WGSL],
@@ -1448,7 +1445,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
         .expect("Failed to compile deterministic backdrop test effect");
 
     let seeded_blue_panel = Shape::rect([(20.0, 20.0), (60.0, 60.0)]);
-    renderer
+    scene
         .add_shape(
             seeded_blue_panel.clone(),
             None,
@@ -1456,7 +1453,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
             ShapeDrawCommandOptions::new().color(Color::rgb(40, 40, 220)),
         )
         .unwrap();
-    let seeded_blue_panel_id = renderer
+    let seeded_blue_panel_id = scene
         .add_shape(
             seeded_blue_panel,
             None,
@@ -1464,7 +1461,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
             ShapeDrawCommandOptions::new(),
         )
         .unwrap();
-    renderer
+    scene
         .set_backdrop_effect(
             seeded_blue_panel_id,
             AVERAGE_WITH_RIGHT_NEIGHBOR_EFFECT_ID,
@@ -1477,12 +1474,12 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
         .unwrap();
 
     let mut seeded_frame: Vec<u8> = Vec::new();
-    render_bgra(&mut renderer, &mut seeded_frame).unwrap();
+    render_bgra(&mut scene, &mut seeded_frame).unwrap();
 
-    renderer.clear_draw_queue();
+    scene.clear();
 
     let visible_red_source = Shape::rect([(70.0, 20.0), (100.0, 60.0)]);
-    renderer
+    scene
         .add_shape(
             visible_red_source,
             None,
@@ -1492,7 +1489,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
         .unwrap();
 
     let partially_offscreen_panel = Shape::rect([(70.0, 20.0), (100.0, 60.0)]);
-    let partially_offscreen_panel_id = renderer
+    let partially_offscreen_panel_id = scene
         .add_shape(
             partially_offscreen_panel,
             None,
@@ -1500,7 +1497,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
             ShapeDrawCommandOptions::new(),
         )
         .unwrap();
-    renderer
+    scene
         .set_backdrop_effect(
             partially_offscreen_panel_id,
             AVERAGE_WITH_RIGHT_NEIGHBOR_EFFECT_ID,
@@ -1515,7 +1512,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+    render_bgra(&mut scene, &mut pixel_buffer).unwrap();
 
     let failures = check_pixels(
         &pixel_buffer,
@@ -1533,11 +1530,11 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 
 #[test]
 fn standalone_clipping_rect_does_not_panic() {
-    let Some(mut renderer) = create_headless_renderer() else {
+    let Some(mut scene) = create_headless_scene() else {
         return;
     };
 
-    renderer
+    scene
         .add_clipping_rect(
             [(20.0, 20.0), (80.0, 80.0)],
             None,
@@ -1547,7 +1544,7 @@ fn standalone_clipping_rect_does_not_panic() {
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+    render_bgra(&mut scene, &mut pixel_buffer).unwrap();
 
     assert!(
         pixel_buffer.iter().all(|&byte| byte == 0),
@@ -1557,11 +1554,11 @@ fn standalone_clipping_rect_does_not_panic() {
 
 #[test]
 fn clipping_rect_rejects_non_axis_aligned_transform() {
-    let Some(mut renderer) = create_headless_renderer() else {
+    let Some(mut scene) = create_headless_scene() else {
         return;
     };
 
-    let clip_rect_id = renderer
+    let clip_rect_id = scene
         .add_clipping_rect(
             [(20.0, 20.0), (80.0, 80.0)],
             None,
@@ -1570,7 +1567,7 @@ fn clipping_rect_rejects_non_axis_aligned_transform() {
         )
         .unwrap();
     assert!(matches!(
-        renderer.add_clipping_rect(
+        scene.add_clipping_rect(
             [(20.0, 20.0), (80.0, 80.0)],
             None,
             Some(TransformInstance::rotation_z_deg(45.0)),
@@ -1582,7 +1579,7 @@ fn clipping_rect_rejects_non_axis_aligned_transform() {
     ));
 
     let child = Shape::rect([(0.0, 0.0), (100.0, 100.0)]);
-    renderer
+    scene
         .add_shape(
             child,
             Some(clip_rect_id),
@@ -1592,7 +1589,7 @@ fn clipping_rect_rejects_non_axis_aligned_transform() {
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+    render_bgra(&mut scene, &mut pixel_buffer).unwrap();
 
     let expectations = vec![
         PixelExpectation::opaque(50, 50, 200, 50, 50, "inside_unrotated_clip_rect"),
@@ -1604,12 +1601,12 @@ fn clipping_rect_rejects_non_axis_aligned_transform() {
 
 #[test]
 fn gradient_fill_basic() {
-    let Some(mut renderer) = create_headless_renderer() else {
+    let Some(mut scene) = create_headless_scene() else {
         return;
     };
 
     let root = Shape::rect([(0.0, 0.0), (100.0, 100.0)]);
-    let root_id = renderer
+    let root_id = scene
         .add_shape(
             root,
             None,
@@ -1639,7 +1636,7 @@ fn gradient_fill_basic() {
     )
     .expect("valid gradient");
 
-    renderer
+    scene
         .add_shape(
             Shape::rect([(10.0, 10.0), (90.0, 90.0)]),
             Some(root_id),
@@ -1649,7 +1646,7 @@ fn gradient_fill_basic() {
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+    render_bgra(&mut scene, &mut pixel_buffer).unwrap();
 
     // At each pixel center, t = (x + 0.5 - 10) / 80 and sRGB = 255 * [1 - t, 0, t].
     let expectations = [
@@ -1662,7 +1659,7 @@ fn gradient_fill_basic() {
 
 #[test]
 fn gradient_survives_pipeline_recreation() {
-    let Some(mut renderer) = create_headless_renderer() else {
+    let Some(mut scene) = create_headless_scene() else {
         return;
     };
 
@@ -1687,7 +1684,7 @@ fn gradient_survives_pipeline_recreation() {
     )
     .expect("valid gradient");
 
-    renderer
+    scene
         .add_shape(
             Shape::rect([(10.0, 10.0), (90.0, 90.0)]),
             None,
@@ -1703,14 +1700,14 @@ fn gradient_survives_pipeline_recreation() {
         PixelExpectation::opaque_approx(80, 50, 30, 0, 225, 3, "gradient_right"),
     ];
     let mut pixel_buffer = Vec::new();
-    render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+    render_bgra(&mut scene, &mut pixel_buffer).unwrap();
     assert_pixels_match(&pixel_buffer, &expectations);
 
     // Changing MSAA recreates pipelines and their bind group layouts.
-    renderer.set_msaa_samples(4);
+    scene.set_msaa_samples(4);
 
     pixel_buffer.clear();
-    render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+    render_bgra(&mut scene, &mut pixel_buffer).unwrap();
     assert_pixels_match(&pixel_buffer, &expectations);
 }
 
@@ -1718,12 +1715,12 @@ fn gradient_survives_pipeline_recreation() {
 /// opaque child cannot hide an incorrectly inherited gradient.
 #[test]
 fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
-    let Some(mut renderer) = create_headless_renderer() else {
+    let Some(mut scene) = create_headless_scene() else {
         return;
     };
 
     // Full-canvas rect root so all children are visible.
-    let root = renderer
+    let root = scene
         .add_shape(
             Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]),
             None,
@@ -1755,7 +1752,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
     )
     .expect("valid gradient");
 
-    let gradient_parent = renderer
+    let gradient_parent = scene
         .add_shape(
             Shape::rounded_rect([(10.0, 10.0), (140.0, 90.0)], radii),
             Some(root),
@@ -1764,7 +1761,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
         )
         .unwrap();
 
-    renderer
+    scene
         .add_shape(
             Shape::rect([(20.0, 20.0), (130.0, 80.0)]),
             Some(gradient_parent),
@@ -1773,7 +1770,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
         )
         .unwrap();
 
-    let solid_parent = renderer
+    let solid_parent = scene
         .add_shape(
             Shape::rounded_rect([(160.0, 10.0), (290.0, 90.0)], radii),
             Some(root),
@@ -1782,7 +1779,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
         )
         .unwrap();
 
-    renderer
+    scene
         .add_shape(
             Shape::rect([(170.0, 20.0), (280.0, 80.0)]),
             Some(solid_parent),
@@ -1792,7 +1789,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
         .unwrap();
 
     let mut pixel_buffer = Vec::new();
-    render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+    render_bgra(&mut scene, &mut pixel_buffer).unwrap();
     assert_pixels_match(
         &pixel_buffer,
         &[
@@ -1806,12 +1803,12 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
 /// Touching triangle subpaths must not create an AA seam along their shared diagonal.
 #[test]
 fn multi_subpath_fill_has_no_internal_seam() {
-    let Some(mut renderer) = create_headless_renderer() else {
+    let Some(mut scene) = create_headless_scene() else {
         return;
     };
 
     let canvas_root = Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]);
-    let canvas_root_id = renderer
+    let canvas_root_id = scene
         .add_shape(
             canvas_root,
             None,
@@ -1830,7 +1827,7 @@ fn multi_subpath_fill_has_no_internal_seam() {
         .line_to((10.0, 100.0))
         .close()
         .build();
-    renderer
+    scene
         .add_shape(
             shape,
             Some(canvas_root_id),
@@ -1840,7 +1837,7 @@ fn multi_subpath_fill_has_no_internal_seam() {
         .unwrap();
 
     let rect = Shape::rect([(140.0, 10.0), (230.0, 100.0)]);
-    renderer
+    scene
         .add_shape(
             rect,
             Some(canvas_root_id),
@@ -1850,7 +1847,7 @@ fn multi_subpath_fill_has_no_internal_seam() {
         .unwrap();
 
     let mut pixel_buffer: Vec<u8> = Vec::new();
-    render_bgra(&mut renderer, &mut pixel_buffer).unwrap();
+    render_bgra(&mut scene, &mut pixel_buffer).unwrap();
 
     let expectations = vec![
         PixelExpectation::opaque(30, 30, 200, 50, 50, "diag_top_left"),
@@ -1865,26 +1862,26 @@ fn multi_subpath_fill_has_no_internal_seam() {
     assert_pixels_match(&pixel_buffer, &expectations);
 }
 
-fn assert_layered_backdrop_pixels(renderer: &mut Renderer, pixels: &mut Vec<u8>) {
-    render_bgra(renderer, pixels).unwrap();
-    let width = renderer.size().0;
+fn assert_layered_backdrop_pixels(scene: &mut Scene, pixels: &mut Vec<u8>) {
+    render_bgra(scene, pixels).unwrap();
+    let width = scene.size().0;
     assert_eq!(read_pixel_rgba(pixels, width, 24, 32), [255, 0, 0, 255]);
     assert_eq!(read_pixel_rgba(pixels, width, 40, 32), [0, 255, 0, 255]);
 }
 
 #[test]
 fn layered_backdrop_survives_capture_and_resource_changes() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((64, 64), 1.0) else {
+    let Some(mut scene) = create_headless_scene_with_size_and_scale((64, 64), 1.0) else {
         return;
     };
     let effect_id = 9_301;
-    renderer
+    scene
         .load_effect(
             effect_id,
             &[PASSTHROUGH_WGSL, PASSTHROUGH_WGSL, PASSTHROUGH_WGSL],
         )
         .unwrap();
-    renderer
+    scene
         .add_shape(
             Shape::rect([(0.0, 0.0), (64.0, 64.0)]),
             None,
@@ -1892,7 +1889,7 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
             ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
         )
         .unwrap();
-    let group = renderer
+    let group = scene
         .add_shape(
             Shape::rect([(4.0, 4.0), (60.0, 60.0)]),
             None,
@@ -1900,10 +1897,10 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
             ShapeDrawCommandOptions::new(),
         )
         .unwrap();
-    renderer
+    scene
         .set_content_effect(group, effect_id, &[], ContentEffectConfig::default())
         .unwrap();
-    renderer
+    scene
         .add_shape(
             Shape::rect([(32.0, 4.0), (60.0, 60.0)]),
             Some(group),
@@ -1911,7 +1908,7 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
             ShapeDrawCommandOptions::new().color(Color::rgb(0, 255, 0)),
         )
         .unwrap();
-    let panel = renderer
+    let panel = scene
         .add_shape(
             Shape::rect([(16.0, 16.0), (48.0, 48.0)]),
             Some(group),
@@ -1919,7 +1916,7 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
             ShapeDrawCommandOptions::new(),
         )
         .unwrap();
-    renderer
+    scene
         .set_backdrop_effect(
             panel,
             effect_id,
@@ -1930,7 +1927,7 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
 
     let mut pixels = Vec::new();
     for _ in 0..4 {
-        assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
+        assert_layered_backdrop_pixels(&mut scene, &mut pixels);
     }
 
     let moved_capture = BackdropEffectConfig::new()
@@ -1940,37 +1937,37 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
         ]))
         .padding(4.0)
         .downsample(0.5);
-    renderer
+    scene
         .set_backdrop_effect(panel, effect_id, &[], moved_capture)
         .unwrap();
-    assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
+    assert_layered_backdrop_pixels(&mut scene, &mut pixels);
 
     for samples in [4, 1] {
-        renderer.set_msaa_samples(samples);
+        scene.set_msaa_samples(samples);
         for _ in 0..2 {
-            assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
+            assert_layered_backdrop_pixels(&mut scene, &mut pixels);
         }
     }
 
-    renderer.resize((80, 64));
+    scene.resize((80, 64));
     for _ in 0..2 {
-        assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
+        assert_layered_backdrop_pixels(&mut scene, &mut pixels);
     }
 
-    renderer
+    scene
         .set_backdrop_effect(panel, effect_id, &[], moved_capture.downsample(1.0))
         .unwrap();
-    assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
+    assert_layered_backdrop_pixels(&mut scene, &mut pixels);
 
-    renderer.remove_backdrop_effect(panel);
-    renderer
+    scene.remove_backdrop_effect(panel);
+    scene
         .set_backdrop_effect(panel, effect_id, &[], moved_capture)
         .unwrap();
-    assert_layered_backdrop_pixels(&mut renderer, &mut pixels);
+    assert_layered_backdrop_pixels(&mut scene, &mut pixels);
 }
 
 fn assert_repeated_readback_pixels(
-    renderer: &mut Renderer,
+    scene: &mut Scene,
     pixels: &mut Vec<u8>,
     size: (u32, u32),
     format: PixelFormat,
@@ -1984,7 +1981,7 @@ fn assert_repeated_readback_pixels(
     pixels.resize(layout.byte_len(), 0);
     for _ in 0..3 {
         pixels.fill(0x71);
-        renderer
+        scene
             .render(PixmapMut::new(pixels, layout).unwrap())
             .unwrap();
         for pixel in pixels.as_chunks::<4>().0 {
@@ -1995,11 +1992,11 @@ fn assert_repeated_readback_pixels(
 
 #[test]
 fn readback_targets_survive_alternating_formats_and_resize() {
-    let Some(mut renderer) = create_headless_renderer_with_size_and_scale((65, 7), 1.0) else {
+    let Some(mut scene) = create_headless_scene_with_size_and_scale((65, 7), 1.0) else {
         return;
     };
-    renderer.set_dirty_region_overlay_enabled(true);
-    renderer
+    scene.set_dirty_region_overlay_enabled(true);
+    scene
         .add_shape(
             Shape::rect([(0.0, 0.0), (130.0, 10.0)]),
             None,
@@ -2009,7 +2006,7 @@ fn readback_targets_survive_alternating_formats_and_resize() {
         .unwrap();
     let mut pixels = Vec::new();
     for samples in [1, 4] {
-        renderer.set_msaa_samples(samples);
+        scene.set_msaa_samples(samples);
         for size in [(65, 7), (129, 5), (65, 7)] {
             for format in [
                 PixelFormat::Bgra8,
@@ -2019,7 +2016,7 @@ fn readback_targets_survive_alternating_formats_and_resize() {
                 PixelFormat::Rgba8,
                 PixelFormat::Argb32,
             ] {
-                assert_repeated_readback_pixels(&mut renderer, &mut pixels, size, format);
+                assert_repeated_readback_pixels(&mut scene, &mut pixels, size, format);
             }
         }
     }
@@ -2027,24 +2024,24 @@ fn readback_targets_survive_alternating_formats_and_resize() {
 
 #[test]
 fn main_scene_matches_owned_and_borrowed_surfaces_with_padding() {
-    let Some(mut renderer) = create_headless_renderer() else {
+    let Some(mut scene) = create_headless_scene() else {
         return;
     };
-    let expectations = build_main_scene(&mut renderer);
+    let expectations = build_main_scene(&mut scene);
     let size = (CANVAS_WIDTH, CANVAS_HEIGHT);
     let mut reference = Pixmap::new(size, PixelFormat::Bgra8).unwrap();
     let row_bytes = CANVAS_WIDTH as usize * 4;
     for samples in [1, 4] {
-        renderer.set_msaa_samples(samples);
-        renderer.render(&mut reference).unwrap();
+        scene.set_msaa_samples(samples);
+        scene.render(&mut reference).unwrap();
         assert_pixels_match(reference.pixels(), &expectations);
         for format in [PixelFormat::Bgra8, PixelFormat::Rgba8, PixelFormat::Argb32] {
             let mut owned = Pixmap::new(size, format).unwrap();
-            renderer.render(&mut owned).unwrap();
+            scene.render(&mut owned).unwrap();
             let layout = PixelLayout::new(size, format, row_bytes + 12).unwrap();
             let mut storage = vec![99; layout.byte_len() + 16];
             let mut borrowed = PixmapMut::new(&mut storage, layout).unwrap();
-            renderer.render(&mut borrowed).unwrap();
+            scene.render(&mut borrowed).unwrap();
             for row in 0..CANVAS_HEIGHT as usize {
                 let borrowed_row =
                     &storage[row * layout.stride()..row * layout.stride() + row_bytes];

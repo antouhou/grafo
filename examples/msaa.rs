@@ -1,9 +1,9 @@
 //! Press Space to toggle 4x MSAA and compare straight, diagonal, and curved edges.
 
 use futures::executor::block_on;
-use grafo::{BorderRadii, Shape};
+use grafo::{BorderRadii, Scene, Shape};
 use grafo::{Color, ShapeDrawCommandOptions};
-use grafo::{RendererContext, Surface};
+use grafo::{SceneContext, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
@@ -15,7 +15,7 @@ mod window_rendering;
 
 struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer>,
+    scene: Option<Scene>,
     surface: Option<Surface>,
     msaa_enabled: bool,
 }
@@ -24,7 +24,7 @@ impl Default for App {
     fn default() -> Self {
         Self {
             window: None,
-            renderer: None,
+            scene: None,
             surface: None,
             msaa_enabled: true,
         }
@@ -45,14 +45,13 @@ impl ApplicationHandler for App {
 
         let msaa_samples = if self.msaa_enabled { 4 } else { 1 };
 
-        let context = block_on(RendererContext::new());
+        let context = block_on(SceneContext::new());
         let surface = Surface::new(&context, window.clone(), physical_size, true, false)
             .expect("Failed to create surface");
-        let renderer =
-            grafo::Renderer::new_with_context(context, physical_size, scale_factor, msaa_samples);
+        let scene = Scene::new_with_context(context, physical_size, scale_factor, msaa_samples);
 
         self.window = Some(window);
-        self.renderer = Some(renderer);
+        self.scene = Some(scene);
         self.surface = Some(surface);
     }
 
@@ -63,7 +62,7 @@ impl ApplicationHandler for App {
         event: WindowEvent,
     ) {
         let Some(window) = &self.window else { return };
-        let Some(renderer) = &mut self.renderer else {
+        let Some(scene) = &mut self.scene else {
             return;
         };
         let Some(surface) = &mut self.surface else {
@@ -92,7 +91,7 @@ impl ApplicationHandler for App {
             } => {
                 self.msaa_enabled = !self.msaa_enabled;
                 let new_samples = if self.msaa_enabled { 4 } else { 1 };
-                renderer.set_msaa_samples(new_samples);
+                scene.set_msaa_samples(new_samples);
                 println!(
                     "MSAA: {} (sample count: {})",
                     if self.msaa_enabled { "ON" } else { "OFF" },
@@ -101,9 +100,9 @@ impl ApplicationHandler for App {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                renderer.clear_draw_queue();
+                scene.clear();
                 let background = Shape::rect([(0.0, 0.0), (800.0, 600.0)]);
-                renderer
+                scene
                     .add_shape(
                         background,
                         None,
@@ -119,7 +118,7 @@ impl ApplicationHandler for App {
                     .line_to((320.0, 350.0))
                     .close()
                     .build();
-                renderer
+                scene
                     .add_shape(
                         triangle,
                         Some(0),
@@ -131,7 +130,7 @@ impl ApplicationHandler for App {
                 // Curved edges show the effect of MSAA.
                 let rounded_rect =
                     Shape::rounded_rect([(380.0, 100.0), (620.0, 330.0)], BorderRadii::new(30.0));
-                renderer
+                scene
                     .add_shape(
                         rounded_rect,
                         Some(0),
@@ -143,7 +142,7 @@ impl ApplicationHandler for App {
                 // A corner radius of half the width makes this square circular.
                 let circle =
                     Shape::rounded_rect([(100.0, 270.0), (260.0, 430.0)], BorderRadii::new(80.0));
-                renderer
+                scene
                     .add_shape(
                         circle,
                         Some(0),
@@ -153,7 +152,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let small_rect = Shape::rect([(400.0, 280.0), (550.0, 420.0)]);
-                renderer
+                scene
                     .add_shape(
                         small_rect,
                         None,
@@ -162,7 +161,7 @@ impl ApplicationHandler for App {
                     )
                     .unwrap();
 
-                window_rendering::render(renderer, surface, event_loop);
+                window_rendering::render(scene, surface, event_loop);
             }
             _ => {}
         }

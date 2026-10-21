@@ -2,7 +2,7 @@
 //! Run with `cargo run --example visual_test_grid`.
 
 use futures::executor::block_on;
-use grafo::{RendererContext, Surface};
+use grafo::{Scene, SceneContext, Surface};
 use grafo_test_scenes::{build_main_scene, CANVAS_HEIGHT, CANVAS_WIDTH};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -15,7 +15,7 @@ mod window_rendering;
 #[derive(Default)]
 struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer>,
+    scene: Option<Scene>,
     surface: Option<Surface>,
 }
 
@@ -35,15 +35,15 @@ impl ApplicationHandler for App {
         let window_size = window.inner_size();
         let physical_size = (window_size.width, window_size.height);
 
-        let context = block_on(RendererContext::new());
+        let context = block_on(SceneContext::new());
         let surface = Surface::new(&context, window.clone(), physical_size, true, false)
             .expect("Failed to create surface");
-        let mut renderer = grafo::Renderer::new_with_context(context, physical_size, 1.0, 1);
+        let mut scene = Scene::new_with_context(context, physical_size, 1.0, 1);
 
-        build_main_scene(&mut renderer);
+        build_main_scene(&mut scene);
 
         self.window = Some(window);
-        self.renderer = Some(renderer);
+        self.scene = Some(scene);
         self.surface = Some(surface);
     }
 
@@ -54,7 +54,7 @@ impl ApplicationHandler for App {
         event: WindowEvent,
     ) {
         let Some(window) = &self.window else { return };
-        let Some(renderer) = &mut self.renderer else {
+        let Some(scene) = &mut self.scene else {
             return;
         };
         let Some(surface) = &mut self.surface else {
@@ -69,10 +69,10 @@ impl ApplicationHandler for App {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                renderer.clear_draw_queue();
-                build_main_scene(renderer);
+                scene.clear();
+                build_main_scene(scene);
 
-                window_rendering::render(renderer, surface, event_loop);
+                window_rendering::render(scene, surface, event_loop);
             }
             _ => {}
         }

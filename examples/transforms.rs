@@ -1,10 +1,10 @@
 use euclid::{default::Transform3D, Angle};
 use futures::executor::block_on;
 use grafo::{
-    premultiply_rgba8_srgb_inplace, Color, PathShape, Shape, ShapeDrawCommandOptions,
+    premultiply_rgba8_srgb_inplace, Color, PathShape, Scene, Shape, ShapeDrawCommandOptions,
     TextureManager, TransformInstance,
 };
-use grafo::{RendererContext, Surface};
+use grafo::{SceneContext, Surface};
 use lyon::algorithms::hit_test::hit_test_path;
 use lyon::algorithms::math::point as algo_point;
 use lyon::geom::point;
@@ -108,7 +108,7 @@ fn build_perspective_demo_path() -> Path {
 #[derive(Default)]
 struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer>,
+    scene: Option<Scene>,
     surface: Option<Surface>,
     angle: f32,
     // Last mouse position in logical window coordinates.
@@ -163,11 +163,10 @@ impl ApplicationHandler for App {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        let context = block_on(RendererContext::new());
+        let context = block_on(SceneContext::new());
         let surface = Surface::new(&context, window.clone(), physical_size, true, false)
             .expect("Failed to create surface");
-        let mut renderer =
-            grafo::Renderer::new_with_context(context, physical_size, scale_factor, 1);
+        let mut scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
 
         let rust_logo_png_bytes = include_bytes!("assets/rust-logo-256x256-blk.png");
         let rust_logo_png = image::ImageReader::new(std::io::Cursor::new(rust_logo_png_bytes))
@@ -181,7 +180,7 @@ impl ApplicationHandler for App {
         // Premultiply to avoid fringes when minifying near transparent edges
         premultiply_rgba8_srgb_inplace(&mut rust_logo_png_bytes);
         let rust_logo_texture_id = 1u64;
-        renderer.texture_manager().allocate_texture_with_data(
+        scene.texture_manager().allocate_texture_with_data(
             rust_logo_texture_id,
             rust_logo_png_dimensions,
             &rust_logo_png_bytes,
@@ -194,32 +193,32 @@ impl ApplicationHandler for App {
         self.heart_path = build_heart_path();
         self.perspective_path = build_perspective_demo_path();
 
-        renderer.load_shape(
+        scene.load_shape(
             Shape::Path(PathShape::new(self.red_path.clone())),
             RED_SHAPE_CACHE_KEY,
             Some(RED_SHAPE_CACHE_KEY),
         );
-        renderer.load_shape(
+        scene.load_shape(
             Shape::Path(PathShape::new(self.green_path.clone())),
             GREEN_SHAPE_CACHE_KEY,
             Some(GREEN_SHAPE_CACHE_KEY),
         );
-        renderer.load_shape(
+        scene.load_shape(
             Shape::Path(PathShape::new(self.blue_path.clone())),
             BLUE_SHAPE_CACHE_KEY,
             Some(BLUE_SHAPE_CACHE_KEY),
         );
-        renderer.load_shape(
+        scene.load_shape(
             Shape::Path(PathShape::new(self.jelly_path.clone())),
             JELLY_SHAPE_CACHE_KEY,
             Some(JELLY_SHAPE_CACHE_KEY),
         );
-        renderer.load_shape(
+        scene.load_shape(
             Shape::Path(PathShape::new(self.heart_path.clone())),
             HEART_SHAPE_CACHE_KEY,
             Some(HEART_SHAPE_CACHE_KEY),
         );
-        renderer.load_shape(
+        scene.load_shape(
             Shape::Path(PathShape::new(self.perspective_path.clone())),
             PERSPECTIVE_SHAPE_CACHE_KEY,
             Some(PERSPECTIVE_SHAPE_CACHE_KEY),
@@ -236,7 +235,7 @@ impl ApplicationHandler for App {
         self.rust_logo_png_bytes = rust_logo_png_bytes;
         self.rust_logo_texture_id = rust_logo_texture_id;
         self.window = Some(window);
-        self.renderer = Some(renderer);
+        self.scene = Some(scene);
         self.surface = Some(surface);
     }
 
@@ -247,7 +246,7 @@ impl ApplicationHandler for App {
         event: WindowEvent,
     ) {
         let Some(window) = &self.window else { return };
-        let Some(renderer) = &mut self.renderer else {
+        let Some(scene) = &mut self.scene else {
             return;
         };
         let Some(surface) = &mut self.surface else {
@@ -261,7 +260,7 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::CursorMoved { position, .. } => {
-                // Convert physical coords to logical to match the renderer's logical space
+                // Convert physical coords to logical to match the scene's logical space
                 let (x, y) = (
                     position.x as f32 / self.scale_factor as f32,
                     position.y as f32 / self.scale_factor as f32,
@@ -341,7 +340,7 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                match renderer.change_scale_factor(scale_factor) {
+                match scene.change_scale_factor(scale_factor) {
                     Ok(()) => self.scale_factor = scale_factor,
                     Err(error) => warn!(%error, scale_factor, "scale factor change rejected"),
                 }
@@ -353,12 +352,12 @@ impl ApplicationHandler for App {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                renderer.clear_draw_queue();
-                // The renderer uses logical canvas coordinates for the background
+                scene.clear();
+                // The scene uses logical canvas coordinates for the background
                 let logical_w = window.inner_size().width as f32 / self.scale_factor as f32;
                 let logical_h = window.inner_size().height as f32 / self.scale_factor as f32;
                 let background = Shape::rect([(0.0, 0.0), (logical_w, logical_h)]);
-                renderer
+                scene
                     .add_shape(
                         background,
                         None,
@@ -469,7 +468,7 @@ impl ApplicationHandler for App {
                     .then(&persp);
                 let perspective_hover = is_hover(&self.perspective_path, &perspective_tx, mouse);
 
-                renderer
+                scene
                     .add_cached_shape(
                         RED_SHAPE_CACHE_KEY,
                         None,
@@ -482,7 +481,7 @@ impl ApplicationHandler for App {
                             .transform(transform_instance_from_euclid(red_tx)),
                     )
                     .unwrap();
-                renderer
+                scene
                     .add_cached_shape(
                         GREEN_SHAPE_CACHE_KEY,
                         None,
@@ -495,7 +494,7 @@ impl ApplicationHandler for App {
                             .transform(transform_instance_from_euclid(green_tx)),
                     )
                     .unwrap();
-                renderer
+                scene
                     .add_cached_shape(
                         BLUE_SHAPE_CACHE_KEY,
                         None,
@@ -509,7 +508,7 @@ impl ApplicationHandler for App {
                             .transform(transform_instance_from_euclid(blue_tx)),
                     )
                     .unwrap();
-                renderer
+                scene
                     .add_cached_shape(
                         JELLY_SHAPE_CACHE_KEY,
                         None,
@@ -522,7 +521,7 @@ impl ApplicationHandler for App {
                             .transform(transform_instance_from_euclid(jelly_tx)),
                     )
                     .unwrap();
-                renderer
+                scene
                     .add_cached_shape(
                         HEART_SHAPE_CACHE_KEY,
                         None,
@@ -535,7 +534,7 @@ impl ApplicationHandler for App {
                             .transform(transform_instance_from_euclid(heart_tx)),
                     )
                     .unwrap();
-                renderer
+                scene
                     .add_cached_shape(
                         PERSPECTIVE_SHAPE_CACHE_KEY,
                         None,
@@ -551,7 +550,7 @@ impl ApplicationHandler for App {
 
                 self.angle = (self.angle + 0.02) % (std::f32::consts::TAU);
 
-                if window_rendering::render(renderer, surface, event_loop) {
+                if window_rendering::render(scene, surface, event_loop) {
                     window.request_redraw();
                 }
             }
@@ -566,7 +565,7 @@ pub fn main() {
 
     let mut app = App {
         window: None,
-        renderer: None,
+        scene: None,
         surface: None,
         angle: 0.0,
         last_mouse_pos: None,

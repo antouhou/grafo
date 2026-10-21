@@ -1,7 +1,7 @@
 use futures::executor::block_on;
-use grafo::{BorderRadii, Shape, TextureManager};
+use grafo::{BorderRadii, Scene, Shape, TextureManager};
 use grafo::{Color, ShapeDrawCommandOptions};
-use grafo::{RendererContext, Surface};
+use grafo::{SceneContext, Surface};
 use image::ImageReader;
 use std::sync::Arc;
 use std::time::Instant;
@@ -15,7 +15,7 @@ mod window_rendering;
 
 struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer>,
+    scene: Option<Scene>,
     surface: Option<Surface>,
     rust_logo_png_bytes: Vec<u8>,
     rust_logo_png_dimensions: (u32, u32),
@@ -40,7 +40,7 @@ impl Default for App {
 
         Self {
             window: None,
-            renderer: None,
+            scene: None,
             surface: None,
             rust_logo_png_bytes,
             rust_logo_png_dimensions,
@@ -61,13 +61,13 @@ impl ApplicationHandler for App {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        let context = block_on(RendererContext::new());
+        let context = block_on(SceneContext::new());
         let surface = Surface::new(&context, window.clone(), physical_size, true, true)
             .expect("Failed to create surface");
-        let renderer = grafo::Renderer::new_with_context(context, physical_size, scale_factor, 1);
+        let scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
 
         self.window = Some(window);
-        self.renderer = Some(renderer);
+        self.scene = Some(scene);
         self.surface = Some(surface);
     }
 
@@ -78,7 +78,7 @@ impl ApplicationHandler for App {
         event: WindowEvent,
     ) {
         let Some(window) = &self.window else { return };
-        let Some(renderer) = &mut self.renderer else {
+        let Some(scene) = &mut self.scene else {
             return;
         };
         let Some(surface) = &mut self.surface else {
@@ -97,14 +97,14 @@ impl ApplicationHandler for App {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
-                renderer.clear_draw_queue();
+                scene.clear();
                 let window_size = window.inner_size();
 
                 let background = Shape::rect([
                     (0.0, 0.0),
                     (window_size.width as f32, window_size.height as f32),
                 ]);
-                let background_id = renderer
+                let background_id = scene
                     .add_shape(
                         background,
                         None,
@@ -114,7 +114,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let red = Shape::rounded_rect([(0.0, 0.0), (200.0, 200.0)], BorderRadii::new(0.0));
-                let red_id = renderer
+                let red_id = scene
                     .add_shape(
                         red,
                         Some(background_id),
@@ -125,7 +125,7 @@ impl ApplicationHandler for App {
 
                 let green =
                     Shape::rounded_rect([(0.0, 0.0), (200.0, 200.0)], BorderRadii::new(0.0));
-                let green_id = renderer
+                let green_id = scene
                     .add_shape(
                         green,
                         Some(red_id),
@@ -138,7 +138,7 @@ impl ApplicationHandler for App {
 
                 let blue =
                     Shape::rounded_rect([(0.0, 0.0), (200.0, 200.0)], BorderRadii::new(10.0));
-                let blue_id = renderer
+                let blue_id = scene
                     .add_shape(
                         blue,
                         Some(green_id),
@@ -151,7 +151,7 @@ impl ApplicationHandler for App {
 
                 let yellow =
                     Shape::rounded_rect([(0.0, 0.0), (150.0, 150.0)], BorderRadii::new(0.0));
-                renderer
+                scene
                     .add_shape(
                         yellow,
                         Some(green_id),
@@ -161,7 +161,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let white = Shape::rounded_rect([(0.0, 0.0), (20.0, 20.0)], BorderRadii::new(0.0));
-                renderer
+                scene
                     .add_shape(
                         white,
                         Some(red_id),
@@ -172,7 +172,7 @@ impl ApplicationHandler for App {
 
                 let shape_that_doesnt_fit =
                     Shape::rounded_rect([(0.0, 0.0), (20.0, 20.0)], BorderRadii::new(0.0));
-                renderer
+                scene
                     .add_shape(
                         shape_that_doesnt_fit,
                         Some(blue_id),
@@ -182,10 +182,10 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let texture_id = 1;
-                renderer
+                scene
                     .texture_manager()
                     .allocate_texture(texture_id, self.rust_logo_png_dimensions);
-                renderer
+                scene
                     .texture_manager()
                     .load_data_into_texture(
                         texture_id,
@@ -203,7 +203,7 @@ impl ApplicationHandler for App {
                 let img_rect2 = img_rect1.clone();
                 let img_rect3 = img_rect1.clone();
 
-                renderer
+                scene
                     .add_shape(
                         img_rect1,
                         Some(red_id),
@@ -214,7 +214,7 @@ impl ApplicationHandler for App {
                             .transform(grafo::TransformInstance::translation(100.0, 100.0)),
                     )
                     .unwrap();
-                renderer
+                scene
                     .add_shape(
                         img_rect2,
                         Some(background_id),
@@ -225,7 +225,7 @@ impl ApplicationHandler for App {
                             .transform(grafo::TransformInstance::translation(200.0, 200.0)),
                     )
                     .unwrap();
-                renderer
+                scene
                     .add_shape(
                         img_rect3,
                         None,
@@ -238,11 +238,11 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 let timer = Instant::now();
-                window_rendering::render(renderer, surface, event_loop);
+                window_rendering::render(scene, surface, event_loop);
                 println!("Render time: {:?}", timer.elapsed());
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                if let Err(error) = renderer.change_scale_factor(scale_factor) {
+                if let Err(error) = scene.change_scale_factor(scale_factor) {
                     warn!(%error, scale_factor, "scale factor change rejected");
                 }
             }

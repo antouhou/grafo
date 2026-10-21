@@ -7,9 +7,9 @@ use crate::core::{effect, geometry};
 use crate::core::{Size, UnsignedPhysicalRect, Viewport};
 use crate::planner::commands::TraversalCommands;
 use crate::planner::TextureIdAllocator;
-use crate::scene::effects::parameters::EffectParameterStorage;
-use crate::scene::effects::ShapeMaskEffectInstance;
-use crate::scene::types::DrawTreeNode;
+use crate::scene_state::effects::parameters::EffectParameterStorage;
+use crate::scene_state::effects::ShapeMaskEffectInstance;
+use crate::scene_state::types::DrawTreeNode;
 use ahash::HashMap;
 use easy_tree::Tree;
 

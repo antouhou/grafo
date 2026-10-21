@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use futures::executor::block_on;
 use grafo::{
-    BorderRadii, Color, PixelFormat, Pixmap, Renderer, Shape, ShapeDrawCommandOptions,
+    BorderRadii, Color, PixelFormat, Pixmap, Scene, Shape, ShapeDrawCommandOptions,
     TransformInstance,
 };
 
@@ -36,14 +36,14 @@ fn background(size: (u32, u32)) -> Shape {
 }
 
 fn populate(
-    renderer: &mut Renderer,
+    scene: &mut Scene,
     count: usize,
     translation_x: f32,
     should_use_distinct_geometry: bool,
 ) -> usize {
-    let root = renderer
+    let root = scene
         .add_shape(
-            background(renderer.size()),
+            background(scene.size()),
             None,
             None,
             ShapeDrawCommandOptions::new()
@@ -60,7 +60,7 @@ fn populate(
                 ((index / 20) * 90) as f32,
             )
         };
-        renderer
+        scene
             .add_cached_shape(
                 if should_use_distinct_geometry {
                     index as u64 + 1
@@ -115,7 +115,7 @@ fn benchmark_paths(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("path_coverage_with_readback");
     group.sample_size(20);
     for workload in workloads {
-        let mut renderer = block_on(Renderer::try_new(workload.size, 1.0, 1))
+        let mut scene = block_on(Scene::try_new(workload.size, 1.0, 1))
             .expect("path benchmark requires a GPU adapter");
         let geometry_count = if workload.should_use_distinct_geometry {
             workload.count
@@ -124,7 +124,7 @@ fn benchmark_paths(criterion: &mut Criterion) {
         };
         for index in 0..geometry_count {
             let key = index as u64 + 1;
-            renderer.load_shape(
+            scene.load_shape(
                 Shape::rounded_rect(
                     [(0.375, 0.625), (workload.side, workload.side)],
                     BorderRadii::new(workload.radius + index as f32 * 0.05),
@@ -135,17 +135,17 @@ fn benchmark_paths(criterion: &mut Criterion) {
         }
         let mut pixels = Pixmap::new(workload.size, PixelFormat::Bgra8).expect("valid size");
         let root = populate(
-            &mut renderer,
+            &mut scene,
             workload.count,
             0.0,
             workload.should_use_distinct_geometry,
         );
-        renderer.render(&mut pixels).expect("initial render");
+        scene.render(&mut pixels).expect("initial render");
         group.bench_function(
             BenchmarkId::new(workload.name, "retained_redraw"),
             |bencher| {
                 bencher.iter(|| {
-                    renderer
+                    scene
                         .replace_with_shape(
                             root,
                             background(workload.size),
@@ -155,7 +155,7 @@ fn benchmark_paths(criterion: &mut Criterion) {
                                 .clips_children(false),
                         )
                         .expect("background replacement");
-                    renderer.render(&mut pixels).expect("redraw");
+                    scene.render(&mut pixels).expect("redraw");
                 });
             },
         );
@@ -170,10 +170,10 @@ fn benchmark_paths(criterion: &mut Criterion) {
                     if matches!(mode, BenchmarkMode::Moving | BenchmarkMode::Resizing) {
                         translation_x = (translation_x + 0.03125) % 1.0;
                     }
-                    renderer.clear_draw_queue();
+                    scene.clear();
                     if matches!(mode, BenchmarkMode::Resizing) {
                         for index in 0..geometry_count {
-                            renderer.load_shape(
+                            scene.load_shape(
                                 Shape::rounded_rect(
                                     [
                                         (0.375, 0.625),
@@ -191,12 +191,12 @@ fn benchmark_paths(criterion: &mut Criterion) {
                         }
                     }
                     populate(
-                        &mut renderer,
+                        &mut scene,
                         workload.count,
                         translation_x,
                         workload.should_use_distinct_geometry,
                     );
-                    renderer.render(&mut pixels).expect("rebuilt scene");
+                    scene.render(&mut pixels).expect("rebuilt scene");
                 });
             });
         }

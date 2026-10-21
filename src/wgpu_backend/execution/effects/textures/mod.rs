@@ -74,7 +74,7 @@ impl PooledTexture {
             .bind_group
     }
 
-    /// All effect inputs use the registry's fixed layout and the renderer's shared sampler.
+    /// All effect inputs use the registry's fixed layout and the backend's shared sampler.
     pub(crate) fn input_bind_group(
         &mut self,
         device: &Device,

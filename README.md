@@ -40,7 +40,7 @@ use grafo::{Color, Shape, ShapeDrawCommandOptions};
 
 // Set the fill when queueing the shape.
 let rect = Shape::rect([(0.0, 0.0), (200.0, 100.0)]);
-renderer
+scene
     .add_shape(
         rect,
         None,
@@ -52,21 +52,24 @@ renderer
     .unwrap();
 
 // Call this on RedrawRequested in a winit event loop
-renderer.render(&mut surface).unwrap();
-renderer.clear_draw_queue();
+scene.render(&mut surface).unwrap();
+scene.clear();
 ```
+
+`Scene` retains its contents between renders. `clear()` removes those contents while keeping
+loaded shapes, textures, and effect definitions available for reuse.
 
 ### Render targets
 
-Create a surface and renderer from the same context:
+Create a surface and scene from the same context:
 
 ```rust,no_run
-use grafo::{Renderer, RendererContext, Surface};
+use grafo::{Scene, SceneContext, Surface};
 
-let context = RendererContext::new().await;
+let context = SceneContext::new().await;
 let mut surface = Surface::new(&context, platform_target, size, true, false)?;
-let mut renderer = Renderer::new_with_context(context, size, scale_factor, 1);
-renderer.render(&mut surface)?;
+let mut scene = Scene::new_with_context(context, size, scale_factor, 1);
+scene.render(&mut surface)?;
 ```
 
 Pass a window or an object that provides native display and surface handles to `Surface::new`.
@@ -80,17 +83,17 @@ use grafo::{PixelFormat, PixelLayout, Pixmap, PixmapMut};
 
 let size = (640, 480);
 let mut image = Pixmap::new(size, PixelFormat::Bgra8)?;
-renderer.render(&mut image)?;
+scene.render(&mut image)?;
 let bytes = image.pixels();
 
 let mut pixels = vec![0_u32; 640 * 480];
-renderer.render(PixmapMut::argb32(&mut pixels, size)?)?;
+scene.render(PixmapMut::argb32(&mut pixels, size)?)?;
 
 // RGBA rows with 32 bytes of padding.
 let layout = PixelLayout::new(size, PixelFormat::Rgba8, 640 * 4 + 32)?;
 let mut storage = vec![0; layout.byte_len()];
 let mut borrowed = PixmapMut::new(&mut storage, layout)?;
-renderer.render(&mut borrowed)?;
+scene.render(&mut borrowed)?;
 ```
 
 `Pixmap::resize` reuses buffer capacity when it can. A borrowed slice must fit its layout.
@@ -104,32 +107,32 @@ RGB is premultiplied in linear space, then encoded as sRGB. Alpha stays linear.
 
 ### Multiple independent windows
 
-Reuse a `RendererContext` to share the WGPU device, queue, and textures across windows:
+Reuse a `SceneContext` to share the WGPU device, queue, and textures across windows:
 
 ```rust,no_run
 use futures::executor::block_on;
-use grafo::{Renderer, RendererContext, Surface};
+use grafo::{Scene, SceneContext, Surface};
 
-let context = block_on(RendererContext::new());
+let context = block_on(SceneContext::new());
 
 let first_surface = Surface::new(&context, first_window, first_size, true, false)?;
 let second_surface = Surface::new(&context, second_window, second_size, true, false)?;
-let first_renderer = Renderer::new_with_context(
+let first_scene = Scene::new_with_context(
     context.clone(), first_size, first_scale_factor, 1,
 );
-let second_renderer = Renderer::new_with_context(
+let second_scene = Scene::new_with_context(
     context, second_size, second_scale_factor, 1,
 );
 ```
 
-Create a renderer when you open a window and drop it when you close the window.
-Draw calls added to one renderer never appear in another renderer's draw queue.
+Create a scene when you open a window and drop it when you close the window.
+Draw calls added to one scene never appear in another scene's draw queue.
 
 Loaded shapes are also shared by the context. A `cache_key` passed to `load_shape` is scoped to
-the `RendererContext`, so another renderer can reuse that shape through
+the `SceneContext`, so another scene can reuse that shape through
 `add_cached_shape`. Use a content-derived key when the same geometry should
 be shared; loading a different shape with the same key replaces the shared entry, and
-`remove_shape` removes it for every renderer using the context.
+`remove_shape` removes it for every scene using the context.
 
 ### Shape hierarchy and overflow
 
@@ -140,7 +143,7 @@ By default, parents clip their children:
 ```rust
 use grafo::{Color, Shape, ShapeDrawCommandOptions};
 
-let clipping_parent_id = renderer
+let clipping_parent_id = scene
     .add_shape(
         Shape::rect([(0.0, 0.0), (120.0, 80.0)]),
         None,
@@ -149,7 +152,7 @@ let clipping_parent_id = renderer
     )
     .unwrap();
 
-renderer
+scene
     .add_shape(
         Shape::rect([(80.0, 20.0), (160.0, 60.0)]),
         Some(clipping_parent_id),
@@ -159,7 +162,7 @@ renderer
     .unwrap();
 
 // Let children render outside `overflow_parent_id`, while still respecting any ancestor clip.
-let overflow_parent_id = renderer
+let overflow_parent_id = scene
     .add_shape(
         Shape::rect([(0.0, 0.0), (120.0, 80.0)]),
         None,
@@ -170,7 +173,7 @@ let overflow_parent_id = renderer
     )
     .unwrap();
 
-renderer
+scene
     .add_shape(
         Shape::rect([(80.0, 20.0), (160.0, 60.0)]),
         Some(overflow_parent_id),
@@ -218,10 +221,10 @@ Composition from bottom to top:
 API:
 
 ```rust
-use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions};
+use grafo::{Color, Scene, Shape, ShapeDrawCommandOptions};
 
-// After allocating textures via renderer.texture_manager()
-renderer
+// After allocating textures via scene.texture_manager()
+scene
     .add_shape(
         Shape::rect([(0.0, 0.0), (300.0, 200.0)]),
         None,
@@ -234,7 +237,7 @@ renderer
     .unwrap();
 
 // Transparent parts of the background texture reveal the white fill.
-renderer
+scene
     .add_shape(
         Shape::rect([(0.0, 0.0), (300.0, 200.0)]),
         None,
@@ -265,7 +268,7 @@ use grafo::ShapeDrawCommandOptions;
 let r = grafo::TransformInstance::rotation_z_deg(15.0);
 let t = grafo::TransformInstance::translation(150.0, 80.0);
 // Rotate first, then translate
-renderer
+scene
     .add_shape(
         my_shape,
         None,

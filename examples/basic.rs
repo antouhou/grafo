@@ -1,6 +1,6 @@
 use futures::executor::block_on;
-use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions};
-use grafo::{RendererContext, Surface};
+use grafo::{Color, Scene, Shape, ShapeDrawCommandOptions};
+use grafo::{SceneContext, Surface};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -13,7 +13,7 @@ mod window_rendering;
 #[derive(Default)]
 struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<Renderer>,
+    scene: Option<Scene>,
     surface: Option<Surface>,
 }
 
@@ -29,13 +29,13 @@ impl ApplicationHandler for App {
         let scale_factor = window.scale_factor();
         let physical_size = (window_size.width, window_size.height);
 
-        let context = block_on(RendererContext::new());
+        let context = block_on(SceneContext::new());
         let surface = Surface::new(&context, window.clone(), physical_size, true, false)
             .expect("Failed to create surface");
-        let mut renderer = Renderer::new_with_context(context, physical_size, scale_factor, 1);
+        let mut scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
 
         let rect = Shape::rect([(100.0, 100.0), (300.0, 200.0)]);
-        renderer
+        scene
             .add_shape(
                 rect,
                 None,
@@ -45,7 +45,7 @@ impl ApplicationHandler for App {
             .unwrap();
 
         let rect = Shape::rect([(500.0, 100.0), (600.0, 200.0)]);
-        renderer
+        scene
             .add_shape(
                 rect,
                 None,
@@ -56,7 +56,7 @@ impl ApplicationHandler for App {
 
         window.request_redraw();
         self.window = Some(window);
-        self.renderer = Some(renderer);
+        self.scene = Some(scene);
         self.surface = Some(surface);
     }
 
@@ -67,7 +67,7 @@ impl ApplicationHandler for App {
         event: WindowEvent,
     ) {
         let Some(window) = &self.window else { return };
-        let Some(renderer) = &mut self.renderer else {
+        let Some(scene) = &mut self.scene else {
             return;
         };
         let Some(surface) = &mut self.surface else {
@@ -87,7 +87,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 // Keep the static scene queued so later redraws render the same shapes.
-                window_rendering::render(renderer, surface, event_loop);
+                window_rendering::render(scene, surface, event_loop);
             }
             _ => {}
         }

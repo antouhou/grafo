@@ -1,8 +1,8 @@
 use crate::commands::{
     IntermediateTextureId, RenderCommand, RenderOperation, Target, TextureComposite,
 };
-use crate::scene::effects::ShapeMaskEffectInstance;
-use crate::scene::Scene;
+use crate::scene_state::effects::ShapeMaskEffectInstance;
+use crate::scene_state::SceneState;
 use ahash::HashMap;
 use commands::{PendingCommands, TraversalCommands};
 use content_effects::{ContentPlanningInput, SceneTraversal};
@@ -43,11 +43,11 @@ pub(crate) struct Planner {
     traversal: SceneTraversal,
 }
 
-pub(crate) struct CommandIterator<'scene, 'planner> {
-    scene: &'scene Scene,
+pub(crate) struct CommandIterator<'state, 'planner> {
+    state: &'state SceneState,
     planner: &'planner mut Planner,
-    shape_effects: hash_map::Iter<'scene, usize, ShapeMaskEffectInstance>,
-    pending_commands: PendingCommands<'scene>,
+    shape_effects: hash_map::Iter<'state, usize, ShapeMaskEffectInstance>,
+    pending_commands: PendingCommands<'state>,
     texture_ids: TextureIdAllocator,
     phase: PlanningPhase,
     maximum_texture_dimension: u32,
@@ -55,25 +55,25 @@ pub(crate) struct CommandIterator<'scene, 'planner> {
 
 impl Planner {
     /// Starts a fresh traversal, including after an earlier iterator was dropped.
-    pub(crate) fn plan<'scene, 'planner>(
+    pub(crate) fn plan<'state, 'planner>(
         &'planner mut self,
-        scene: &'scene Scene,
+        state: &'state SceneState,
         maximum_texture_dimension: u32,
-    ) -> CommandIterator<'scene, 'planner> {
+    ) -> CommandIterator<'state, 'planner> {
         self.shape_composites.clear();
         self.traversal.start(&ContentPlanningInput {
-            tree: &scene.draw_tree,
-            parameters: &scene.effect_parameters,
-            content_effects: &scene.content_effects,
-            backdrop_effects: &scene.backdrop_effects,
+            tree: &state.draw_tree,
+            parameters: &state.effect_parameters,
+            content_effects: &state.content_effects,
+            backdrop_effects: &state.backdrop_effects,
             shape_mask_effects: &self.shape_composites,
-            scale_factor: scene.viewport().scale_factor,
-            physical_size: scene.viewport().physical_size.into(),
+            scale_factor: state.viewport().scale_factor,
+            physical_size: state.viewport().physical_size.into(),
         });
         CommandIterator {
-            scene,
+            state,
             planner: self,
-            shape_effects: scene.shape_mask_effects.iter(),
+            shape_effects: state.shape_mask_effects.iter(),
             pending_commands: TraversalCommands::default().into_iter(),
             texture_ids: TextureIdAllocator::default(),
             phase: PlanningPhase::Beginning,
@@ -86,8 +86,8 @@ impl Planner {
     }
 }
 
-impl<'scene> Iterator for CommandIterator<'scene, '_> {
-    type Item = RenderCommand<'scene>;
+impl<'state> Iterator for CommandIterator<'state, '_> {
+    type Item = RenderCommand<'state>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -106,12 +106,12 @@ impl<'scene> Iterator for CommandIterator<'scene, '_> {
                             &mut commands,
                             &mut self.texture_ids,
                             &mut self.planner.shape_composites,
-                            &self.scene.draw_tree,
+                            &self.state.draw_tree,
                             node_id,
                             effect,
-                            &self.scene.effect_parameters,
-                            self.scene.viewport(),
-                            self.scene.fringe_width(),
+                            &self.state.effect_parameters,
+                            self.state.viewport(),
+                            self.state.fringe_width(),
                             self.maximum_texture_dimension,
                         );
                     } else {
@@ -121,13 +121,13 @@ impl<'scene> Iterator for CommandIterator<'scene, '_> {
                 PlanningPhase::PlanningMainContent => {
                     let progressed = self.planner.traversal.advance(
                         &ContentPlanningInput {
-                            tree: &self.scene.draw_tree,
-                            parameters: &self.scene.effect_parameters,
-                            content_effects: &self.scene.content_effects,
-                            backdrop_effects: &self.scene.backdrop_effects,
+                            tree: &self.state.draw_tree,
+                            parameters: &self.state.effect_parameters,
+                            content_effects: &self.state.content_effects,
+                            backdrop_effects: &self.state.backdrop_effects,
                             shape_mask_effects: &self.planner.shape_composites,
-                            scale_factor: self.scene.viewport().scale_factor,
-                            physical_size: self.scene.viewport().physical_size.into(),
+                            scale_factor: self.state.viewport().scale_factor,
+                            physical_size: self.state.viewport().physical_size.into(),
                         },
                         &mut commands,
                         &mut self.texture_ids,

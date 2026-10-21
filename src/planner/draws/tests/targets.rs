@@ -1,7 +1,7 @@
 use super::*;
 use crate::core::effect::ContentEffectConfig;
 use crate::planner::tests::RecordedCommands;
-use crate::scene::effects::parameters::{EffectParameterRange, EffectParametersHandle};
+use crate::scene_state::effects::parameters::{EffectParameterRange, EffectParametersHandle};
 
 #[test]
 fn nested_targets_reset_clips_and_restore_each_parent_before_compositing() {

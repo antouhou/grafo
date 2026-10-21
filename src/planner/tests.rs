@@ -4,8 +4,8 @@ use crate::core::{
     BackdropEffectConfig, Color, ContentEffectConfig, Shape, ShapeDrawCommandOptions,
     ShapeMaskEffectConfig, Viewport,
 };
-use crate::scene::types::{CachedShapeDrawData, DrawTreeNode};
-use crate::scene::{Scene, SceneContext};
+use crate::scene_state::types::{CachedShapeDrawData, DrawTreeNode};
+use crate::scene_state::{SceneState, SceneStateContext};
 
 #[derive(Default)]
 pub(super) struct RecordedCommands<'scene> {
@@ -53,7 +53,7 @@ fn effect_snapshots(commands: &[RenderCommand<'_>]) -> Vec<EffectSnapshot> {
         .collect()
 }
 
-fn add_shape(scene: &mut Scene, parent: Option<usize>) -> usize {
+fn add_shape(scene: &mut SceneState, parent: Option<usize>) -> usize {
     let shape = scene.tessellate(&Shape::rect([(0.0, 0.0), (32.0, 32.0)]), Some(1));
     scene.validate_parent(parent).unwrap();
     scene.insert_node(
@@ -65,9 +65,9 @@ fn add_shape(scene: &mut Scene, parent: Option<usize>) -> usize {
     )
 }
 
-fn scene() -> Scene {
-    Scene::new(
-        SceneContext::default(),
+fn scene() -> SceneState {
+    SceneState::new(
+        SceneStateContext::default(),
         Viewport {
             physical_size: (32, 32),
             scale_factor: 1.0,
@@ -76,7 +76,7 @@ fn scene() -> Scene {
     )
 }
 
-fn attach_effects(scene: &mut Scene, node: usize, parameters: &[u8]) {
+fn attach_effects(scene: &mut SceneState, node: usize, parameters: &[u8]) {
     scene
         .set_shape_mask_effect(node, 17, parameters, ShapeMaskEffectConfig::default(), 4096)
         .unwrap();

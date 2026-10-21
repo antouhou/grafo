@@ -1,21 +1,17 @@
 use grafo::wgpu::SurfaceError;
-use grafo::{Renderer, Surface, WgpuBackendError};
+use grafo::{Scene, Surface, WgpuBackendError};
 use tracing::{error, warn};
 use winit::event_loop::ActiveEventLoop;
 
 /// Keeps the queued scene intact so reconfiguring a lost surface can retry the same draw.
-pub fn render(
-    renderer: &mut Renderer,
-    surface: &mut Surface,
-    event_loop: &ActiveEventLoop,
-) -> bool {
+pub fn render(scene: &mut Scene, surface: &mut Surface, event_loop: &ActiveEventLoop) -> bool {
     if surface.size().0 == 0 || surface.size().1 == 0 {
         return false;
     }
-    let result = match renderer.render(&mut *surface) {
+    let result = match scene.render(&mut *surface) {
         Err(WgpuBackendError::Surface(SurfaceError::Lost | SurfaceError::Outdated)) => {
             surface.invalidate();
-            renderer.render(&mut *surface)
+            scene.render(&mut *surface)
         }
         result => result,
     };

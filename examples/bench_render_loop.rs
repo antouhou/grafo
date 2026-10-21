@@ -10,8 +10,8 @@
 //! cargo run --example bench_render_loop --features render_metrics --release
 //! ```
 use futures::executor::block_on;
-use grafo::{Color, Renderer, Shape, ShapeDrawCommandOptions, TextureManager, TransformInstance};
-use grafo::{RendererContext, Surface};
+use grafo::{Color, Scene, Shape, ShapeDrawCommandOptions, TextureManager, TransformInstance};
+use grafo::{SceneContext, Surface};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
@@ -51,7 +51,7 @@ const CACHE_KEY_TEXTURED: u64 = 6;
 const TEXTURE_ID_BASE: u64 = 100;
 
 /// Create procedural textures and load the textured shape geometry.
-fn load_textures_and_shapes(renderer: &mut grafo::Renderer) {
+fn load_textures_and_shapes(scene: &mut Scene) {
     // Generate a checkerboard RGBA texture.
     let tex_w = TEXTURE_SIZE;
     let tex_h = TEXTURE_SIZE;
@@ -71,10 +71,10 @@ fn load_textures_and_shapes(renderer: &mut grafo::Renderer) {
     // Each texture has its own ID and allocation but uses the same pixels.
     for i in 0..TEXTURED_ELEMENTS {
         let tex_id = TEXTURE_ID_BASE + i as u64;
-        renderer
+        scene
             .texture_manager()
             .allocate_texture(tex_id, (tex_w, tex_h));
-        renderer
+        scene
             .texture_manager()
             .load_data_into_texture(tex_id, (tex_w, tex_h), &rgba)
             .unwrap();
@@ -82,27 +82,27 @@ fn load_textures_and_shapes(renderer: &mut grafo::Renderer) {
 
     // A 250x250 textured rectangle.
     let textured_rect = Shape::rect([(0.0, 0.0), (TEXTURE_SIZE as f32, TEXTURE_SIZE as f32)]);
-    renderer.load_shape(textured_rect, CACHE_KEY_TEXTURED, Some(CACHE_KEY_TEXTURED));
+    scene.load_shape(textured_rect, CACHE_KEY_TEXTURED, Some(CACHE_KEY_TEXTURED));
 }
 
-fn load_shape_geometries(renderer: &mut grafo::Renderer) {
+fn load_shape_geometries(scene: &mut Scene) {
     let container = Shape::rect([(0.0, 0.0), (240.0, 500.0)]);
-    renderer.load_shape(container, CACHE_KEY_CONTAINER, Some(CACHE_KEY_CONTAINER));
+    scene.load_shape(container, CACHE_KEY_CONTAINER, Some(CACHE_KEY_CONTAINER));
 
     let row = Shape::rect([(0.0, 0.0), (220.0, 110.0)]);
-    renderer.load_shape(row, CACHE_KEY_ROW, Some(CACHE_KEY_ROW));
+    scene.load_shape(row, CACHE_KEY_ROW, Some(CACHE_KEY_ROW));
 
     let cell = Shape::rect([(0.0, 0.0), (36.0, 90.0)]);
-    renderer.load_shape(cell, CACHE_KEY_CELL, Some(CACHE_KEY_CELL));
+    scene.load_shape(cell, CACHE_KEY_CELL, Some(CACHE_KEY_CELL));
 
     let sidebar = Shape::rect([(0.0, 0.0), (100.0, 500.0)]);
-    renderer.load_shape(sidebar, CACHE_KEY_SIDEBAR, Some(CACHE_KEY_SIDEBAR));
+    scene.load_shape(sidebar, CACHE_KEY_SIDEBAR, Some(CACHE_KEY_SIDEBAR));
 
     let circle = Shape::rounded_rect([(0.0, 0.0), (40.0, 40.0)], grafo::BorderRadii::new(20.0));
-    renderer.load_shape(circle, CACHE_KEY_CIRCLE, Some(CACHE_KEY_CIRCLE));
+    scene.load_shape(circle, CACHE_KEY_CIRCLE, Some(CACHE_KEY_CIRCLE));
 }
 
-fn build_scene(renderer: &mut grafo::Renderer) -> usize {
+fn build_scene(scene: &mut Scene) -> usize {
     let container_colors = [
         Color::rgb(30, 60, 120),
         Color::rgb(120, 30, 60),
@@ -115,7 +115,7 @@ fn build_scene(renderer: &mut grafo::Renderer) -> usize {
 
     for c in 0..CONTAINERS {
         let cx = 10.0 + c as f32 * 250.0;
-        let container_id = renderer
+        let container_id = scene
             .add_cached_shape(
                 CACHE_KEY_CONTAINER,
                 None,
@@ -128,7 +128,7 @@ fn build_scene(renderer: &mut grafo::Renderer) -> usize {
 
         for r in 0..ROWS_PER_CONTAINER {
             let ry = 10.0 + r as f32 * 120.0;
-            let row_id = renderer
+            let row_id = scene
                 .add_cached_shape(
                     CACHE_KEY_ROW,
                     Some(container_id),
@@ -143,7 +143,7 @@ fn build_scene(renderer: &mut grafo::Renderer) -> usize {
                 let brightness = (100u8).saturating_add((cell * 30) as u8);
                 let cellx = cx + 20.0 + cell as f32 * 42.0;
                 let celly = 20.0 + ry + 10.0;
-                renderer
+                scene
                     .add_cached_shape(
                         CACHE_KEY_CELL,
                         Some(row_id),
@@ -159,7 +159,7 @@ fn build_scene(renderer: &mut grafo::Renderer) -> usize {
 
     // Sidebar with circles
     let sidebar_x = 10.0 + CONTAINERS as f32 * 250.0;
-    let sidebar_id = renderer
+    let sidebar_id = scene
         .add_cached_shape(
             CACHE_KEY_SIDEBAR,
             None,
@@ -171,7 +171,7 @@ fn build_scene(renderer: &mut grafo::Renderer) -> usize {
     total_shapes += 1;
 
     for i in 0..CIRCLES_IN_SIDEBAR {
-        renderer
+        scene
             .add_cached_shape(
                 CACHE_KEY_CIRCLE,
                 Some(sidebar_id),
@@ -192,7 +192,7 @@ fn build_scene(renderer: &mut grafo::Renderer) -> usize {
         let row = i / 5;
         let tx = 10.0 + col as f32 * 220.0;
         let ty = 520.0 + row as f32 * 220.0;
-        renderer
+        scene
             .add_cached_shape(
                 CACHE_KEY_TEXTURED,
                 None,
@@ -208,11 +208,11 @@ fn build_scene(renderer: &mut grafo::Renderer) -> usize {
 }
 
 fn render_benchmark_frame(
-    renderer: &mut Renderer,
+    scene: &mut Scene,
     surface: &mut Surface,
     event_loop: &ActiveEventLoop,
 ) -> bool {
-    if window_rendering::render(renderer, surface, event_loop) {
+    if window_rendering::render(scene, surface, event_loop) {
         return true;
     }
 
@@ -277,24 +277,18 @@ fn print_phase_breakdown(
 }
 
 #[cfg(feature = "render_metrics")]
-fn print_metrics(renderer: &mut grafo::Renderer) {
+fn print_metrics(scene: &mut Scene) {
     println!("--- render_metrics ---");
-    println!(
-        "Rolling 1s FPS:  {:.1}",
-        renderer.rolling_frames_per_second()
-    );
+    println!("Rolling 1s FPS:  {:.1}", scene.rolling_frames_per_second());
     println!(
         "Rolling 1s avg:  {:.3}ms",
-        renderer
-            .rolling_average_render_loop_duration()
-            .as_secs_f64()
-            * 1000.0
+        scene.rolling_average_render_loop_duration().as_secs_f64() * 1000.0
     );
     println!(
         "Cumulative avg:  {:.3}ms",
-        renderer.average_render_loop_duration().as_secs_f64() * 1000.0
+        scene.average_render_loop_duration().as_secs_f64() * 1000.0
     );
-    let pc = renderer.backend().last_pipeline_switch_counts();
+    let pc = scene.backend().last_pipeline_switch_counts();
     println!("--- pipeline switches (last frame) ---");
     println!("  Total switches:   {}", pc.total_switches);
 }
@@ -310,7 +304,7 @@ enum Phase {
 
 struct BenchApp {
     window: Option<Arc<Window>>,
-    renderer: Option<grafo::Renderer>,
+    scene: Option<Scene>,
     surface: Option<Surface>,
     phase: Phase,
     frame_counter: u64,
@@ -344,7 +338,7 @@ impl Default for BenchApp {
     fn default() -> Self {
         Self {
             window: None,
-            renderer: None,
+            scene: None,
             surface: None,
             phase: Phase::WarmupStatic,
             frame_counter: 0,
@@ -384,14 +378,14 @@ impl BenchApp {
         );
         #[cfg(feature = "render_metrics")]
         {
-            let renderer = self.renderer.as_mut().unwrap();
+            let scene = self.scene.as_mut().unwrap();
             print_phase_breakdown(
                 std::mem::take(&mut self.static_phase_prepare),
                 std::mem::take(&mut self.static_phase_encode_submit),
                 std::mem::take(&mut self.static_phase_present),
                 std::mem::take(&mut self.static_phase_gpu_wait),
             );
-            print_metrics(renderer);
+            print_metrics(scene);
         }
         println!();
     }
@@ -417,14 +411,14 @@ impl BenchApp {
 
         #[cfg(feature = "render_metrics")]
         {
-            let renderer = self.renderer.as_mut().unwrap();
+            let scene = self.scene.as_mut().unwrap();
             print_phase_breakdown(
                 std::mem::take(&mut self.dynamic_phase_prepare),
                 std::mem::take(&mut self.dynamic_phase_encode_submit),
                 std::mem::take(&mut self.dynamic_phase_present),
                 std::mem::take(&mut self.dynamic_phase_gpu_wait),
             );
-            print_metrics(renderer);
+            print_metrics(scene);
         }
         println!();
     }
@@ -433,7 +427,7 @@ impl BenchApp {
 impl ApplicationHandler for BenchApp {
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         // Release the GPU surface before the event loop closes the display connection.
-        self.renderer = None;
+        self.scene = None;
         self.surface = None;
         self.window = None;
     }
@@ -449,21 +443,20 @@ impl ApplicationHandler for BenchApp {
         let physical_size = (BENCH_WIDTH, BENCH_HEIGHT);
         let scale_factor = window.scale_factor();
 
-        let context = block_on(RendererContext::new());
+        let context = block_on(SceneContext::new());
         let surface = Surface::new(&context, window.clone(), physical_size, false, false)
             .expect("Failed to create surface");
-        let mut renderer =
-            grafo::Renderer::new_with_context(context, physical_size, scale_factor, 1);
+        let mut scene = Scene::new_with_context(context, physical_size, scale_factor, 1);
 
-        load_shape_geometries(&mut renderer);
-        load_textures_and_shapes(&mut renderer);
-        self.total_shapes = build_scene(&mut renderer);
+        load_shape_geometries(&mut scene);
+        load_textures_and_shapes(&mut scene);
+        self.total_shapes = build_scene(&mut scene);
         eprintln!(
             "Benchmark: {} shapes, {}x{}, {} warmup + {} measured frames per test",
             self.total_shapes, BENCH_WIDTH, BENCH_HEIGHT, WARMUP_FRAMES, BENCH_FRAMES,
         );
 
-        self.renderer = Some(renderer);
+        self.scene = Some(scene);
         self.surface = Some(surface);
         self.window = Some(window.clone());
         self.phase = Phase::WarmupStatic;
@@ -485,9 +478,9 @@ impl ApplicationHandler for BenchApp {
 
                 match self.phase {
                     Phase::WarmupStatic => {
-                        let renderer = self.renderer.as_mut().unwrap();
+                        let scene = self.scene.as_mut().unwrap();
                         if !render_benchmark_frame(
-                            renderer,
+                            scene,
                             self.surface.as_mut().expect("surface initialized"),
                             event_loop,
                         ) {
@@ -496,7 +489,7 @@ impl ApplicationHandler for BenchApp {
                         self.frame_counter += 1;
                         if self.frame_counter >= WARMUP_FRAMES {
                             #[cfg(feature = "render_metrics")]
-                            renderer.reset_render_loop_metrics();
+                            scene.reset_render_loop_metrics();
                             self.frame_counter = 0;
                             self.static_bench_start = Some(Instant::now());
                             self.phase = Phase::MeasureStatic;
@@ -506,10 +499,10 @@ impl ApplicationHandler for BenchApp {
                     }
                     Phase::MeasureStatic => {
                         {
-                            let renderer = self.renderer.as_mut().unwrap();
+                            let scene = self.scene.as_mut().unwrap();
                             let frame_start = Instant::now();
                             if !render_benchmark_frame(
-                                renderer,
+                                scene,
                                 self.surface.as_mut().expect("surface initialized"),
                                 event_loop,
                             ) {
@@ -519,7 +512,7 @@ impl ApplicationHandler for BenchApp {
 
                             #[cfg(feature = "render_metrics")]
                             {
-                                let pt = renderer.backend().last_phase_timings();
+                                let pt = scene.backend().last_phase_timings();
                                 self.static_phase_prepare.push(pt.prepare);
                                 self.static_phase_encode_submit.push(pt.encode_and_submit);
                                 self.static_phase_present.push(pt.present_or_readback);
@@ -530,8 +523,8 @@ impl ApplicationHandler for BenchApp {
                         self.frame_counter += 1;
                         if self.frame_counter >= BENCH_FRAMES {
                             self.print_static_results();
-                            let renderer = self.renderer.as_mut().unwrap();
-                            renderer.clear_draw_queue();
+                            let scene = self.scene.as_mut().unwrap();
+                            scene.clear();
                             self.frame_counter = 0;
                             self.phase = Phase::WarmupDynamic;
                             eprintln!("  Dynamic: starting warmup...");
@@ -539,21 +532,21 @@ impl ApplicationHandler for BenchApp {
                         window.request_redraw();
                     }
                     Phase::WarmupDynamic => {
-                        let renderer = self.renderer.as_mut().unwrap();
-                        build_scene(renderer);
+                        let scene = self.scene.as_mut().unwrap();
+                        build_scene(scene);
                         if !render_benchmark_frame(
-                            renderer,
+                            scene,
                             self.surface.as_mut().expect("surface initialized"),
                             event_loop,
                         ) {
-                            renderer.clear_draw_queue();
+                            scene.clear();
                             return;
                         }
-                        renderer.clear_draw_queue();
+                        scene.clear();
                         self.frame_counter += 1;
                         if self.frame_counter >= WARMUP_FRAMES {
                             #[cfg(feature = "render_metrics")]
-                            renderer.reset_render_loop_metrics();
+                            scene.reset_render_loop_metrics();
                             self.frame_counter = 0;
                             self.dynamic_bench_start = Some(Instant::now());
                             self.phase = Phase::MeasureDynamic;
@@ -563,18 +556,18 @@ impl ApplicationHandler for BenchApp {
                     }
                     Phase::MeasureDynamic => {
                         {
-                            let renderer = self.renderer.as_mut().unwrap();
+                            let scene = self.scene.as_mut().unwrap();
                             let rebuild_start = Instant::now();
-                            build_scene(renderer);
+                            build_scene(scene);
                             let rebuild_duration = rebuild_start.elapsed();
 
                             let frame_start = Instant::now();
                             if !render_benchmark_frame(
-                                renderer,
+                                scene,
                                 self.surface.as_mut().expect("surface initialized"),
                                 event_loop,
                             ) {
-                                renderer.clear_draw_queue();
+                                scene.clear();
                                 return;
                             }
                             self.dynamic_rebuild_times.push(rebuild_duration);
@@ -582,14 +575,14 @@ impl ApplicationHandler for BenchApp {
 
                             #[cfg(feature = "render_metrics")]
                             {
-                                let pt = renderer.backend().last_phase_timings();
+                                let pt = scene.backend().last_phase_timings();
                                 self.dynamic_phase_prepare.push(pt.prepare);
                                 self.dynamic_phase_encode_submit.push(pt.encode_and_submit);
                                 self.dynamic_phase_present.push(pt.present_or_readback);
                                 self.dynamic_phase_gpu_wait.push(pt.gpu_wait);
                             }
 
-                            renderer.clear_draw_queue();
+                            scene.clear();
                         }
 
                         self.frame_counter += 1;

@@ -9,10 +9,10 @@ use crate::core::gradient::types::{
 };
 use crate::core::util::ShapeResources;
 use crate::planner::draws::shape_material;
-use crate::scene::effects::parameters::{EffectParameterRange, EffectParametersHandle};
-use crate::scene::effects::{ContentEffectInstance, EffectInstance};
-use crate::scene::types::CachedShapeDrawData;
-use crate::scene::types::DrawTreeNode;
+use crate::scene_state::effects::parameters::{EffectParameterRange, EffectParametersHandle};
+use crate::scene_state::effects::{ContentEffectInstance, EffectInstance};
+use crate::scene_state::types::CachedShapeDrawData;
+use crate::scene_state::types::DrawTreeNode;
 use crate::{
     CachedShapeHandle, Color, Shape, ShapeDrawCommandOptions, Size, TransformInstance, Viewport,
 };

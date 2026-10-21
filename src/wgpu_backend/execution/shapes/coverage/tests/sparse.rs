@@ -1,11 +1,11 @@
 use super::{coverage_at, triangle_pixel_area, CoverageTestMesh};
 use crate::core::{BorderRadii, Shape, Viewport};
-use crate::scene::{Scene, SceneContext};
+use crate::scene_state::{SceneState, SceneStateContext};
 
 #[test]
 fn finished_coverage_combines_many_edges_inside_a_single_pixel() {
-    let mut scene = Scene::new(
-        SceneContext::default(),
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
         Viewport {
             physical_size: (40, 40),
             scale_factor: 1.0,
@@ -57,8 +57,8 @@ fn finished_coverage_combines_many_edges_inside_a_single_pixel() {
 
 #[test]
 fn sparse_sweeps_preserve_empty_regions_and_reused_storage() {
-    let mut scene = Scene::new(
-        SceneContext::default(),
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
         Viewport {
             physical_size: (128, 128),
             scale_factor: 1.0,

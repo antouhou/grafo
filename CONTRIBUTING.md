@@ -7,12 +7,12 @@ conversion function, CPU representation of a tesellated vertex - look into core 
 math/geometry structure, add it to the core. But first, make sure that the structure or helper are not yet present in
 some shape or form in the core module.
 - [`src/commands`]: the flat render stream and its operands, including shape and intermediate texture IDs.
-- [`src/scene`]: CPU draw tree, tessellation and loaded-shape caches, and effect attachments.
-- [`src/planner`]: borrows the scene and yields commands via an iterator. Planning must not access backend resources.
+- [`src/scene_state`]: CPU draw tree, tessellation and loaded-shape caches, and effect attachments.
+- [`src/planner`]: borrows `SceneState` and yields commands via an iterator. Planning must not access backend resources.
 - [`src/render_backend`]: backend and texture manager traits, shared by the coordinator and backend implementations. Owns the shared surface and pixmap render targets and depends only on core types and commands.
 - [`src/wgpu_backend`]: WGPU resource uploads, GPU caches, command execution, surfaces, and readback. Backends borrow core data for resource preparation and never access the scene or planner.
-- [`src/renderer`]: generic coordinator. Scene mutations go through `Scene`; backend operations go through `RenderBackend`. Must not depend on a concrete backend.
-- [`src/lib.rs`] and [`src/wgpu_renderer.rs`]: public defaults and WGPU construction, assembling the coordinator, scene context and backend.
+- [`src/scene`]: public scene API and generic coordinator. Scene mutations go through `SceneState`; backend operations go through `RenderBackend`. Must not depend on a concrete backend.
+- [`src/lib.rs`] and [`src/wgpu_scene.rs`]: public defaults and WGPU construction, assembling the coordinator, scene context and backend.
 
 ## Basic rules
 
