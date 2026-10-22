@@ -16,6 +16,7 @@ use thiserror::Error;
 mod damage;
 mod removal;
 mod replacement;
+mod text;
 
 #[derive(Default)]
 struct TestSurface {
@@ -108,7 +109,8 @@ impl RenderBackend for TestBackend {
         if self.should_fail || self.registration_failure == Some(id.0) {
             return Err(TestBackendError);
         }
-        assert!(!shape.cached_shape.vertex_buffers().vertices.is_empty());
+        let geometry = shape.cached_shape.vertex_buffers();
+        assert_eq!(geometry.vertices.is_empty(), geometry.indices.is_empty());
         if !self.registered_shapes.contains(&id.0) {
             self.registered_shapes.push(id.0);
         }

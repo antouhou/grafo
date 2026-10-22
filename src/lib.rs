@@ -43,6 +43,7 @@
 //! hierarchical clipping, texture layers, transforms, and shader effects.
 
 pub use crate::core::*;
+pub use cosmic_text;
 pub use lyon;
 pub use render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError,

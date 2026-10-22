@@ -12,6 +12,7 @@ use crate::render_backend::RenderBackend;
 use crate::scene_state::effects::EffectAttachmentKind;
 use crate::scene_state::types::DrawTreeNode;
 use crate::scene_state::{SceneError, SceneState, SceneStateContext};
+use cosmic_text::{Buffer, FontSystem};
 use damage::{mark_dirty, mark_physical_dirty, mark_shape_mask_effect_dirty, PendingDamage};
 use draw_commands::{DrawCommand, NodeTarget};
 #[cfg(feature = "render_metrics")]
@@ -24,6 +25,7 @@ mod damage;
 mod draw_commands;
 #[cfg(feature = "render_metrics")]
 mod metrics;
+mod text;
 
 /// Scene mutation or backend resource preparation failed.
 #[derive(Debug, Error)]
@@ -154,6 +156,30 @@ impl<B: RenderBackend> Scene<B> {
         )
     }
 
+    /// Adds the visible glyph outlines of an already shaped text buffer.
+    ///
+    /// Call `buffer.shape_until_scroll(font_system, false)` first, using the same font system.
+    /// Buffer coordinates are logical units. The options supply the fill and transform for
+    /// the whole text. Span colors, decorations, and glyphs without outlines are ignored.
+    /// The buffer is borrowed only for this call; later edits require `replace_with_text`.
+    /// Parent clipping applies, but the buffer's dimensions do not add a clip.
+    ///
+    /// Intended for short text. Like paths, text must fit in a single shape's vertex limit.
+    pub fn add_text(
+        &mut self,
+        buffer: &Buffer,
+        font_system: &mut FontSystem,
+        parent_shape_id: Option<usize>,
+        options: ShapeDrawCommandOptions,
+    ) -> Result<usize, DrawCommandError<B::Error>> {
+        self.add_shape(
+            text::buffer_shape(buffer, font_system),
+            parent_shape_id,
+            None,
+            options,
+        )
+    }
+
     /// Queues a loaded shape and prepares backend resources for this instance.
     pub fn add_cached_shape(
         &mut self,
@@ -205,6 +231,24 @@ impl<B: RenderBackend> Scene<B> {
                 geometry_id,
                 options,
             },
+        )
+    }
+
+    /// Replaces one command with text and returns its unchanged ID.
+    /// Parent, children and attached effects are preserved.
+    /// The buffer and rendering requirements are the same as for [`Self::add_text`].
+    pub fn replace_with_text(
+        &mut self,
+        node_id: usize,
+        buffer: &Buffer,
+        font_system: &mut FontSystem,
+        options: ShapeDrawCommandOptions,
+    ) -> Result<usize, DrawCommandError<B::Error>> {
+        self.replace_with_shape(
+            node_id,
+            text::buffer_shape(buffer, font_system),
+            None,
+            options,
         )
     }
 

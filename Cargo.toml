@@ -28,6 +28,7 @@ thiserror = "2.0.18"
 smallvec = "1.13"
 half = "2.4"
 rstar = "0.13.0"
+cosmic-text = { version = "0.19", default-features = false, features = ["std", "swash"] }
 
 [dev-dependencies]
 criterion = "0.8"
