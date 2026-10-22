@@ -16,6 +16,7 @@ use thiserror::Error;
 mod damage;
 mod removal;
 mod replacement;
+#[cfg(feature = "cosmic-text")]
 mod text;
 
 #[derive(Default)]

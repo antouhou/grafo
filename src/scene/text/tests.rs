@@ -1,7 +1,12 @@
-use super::buffer_shape;
+use super::source_shape;
 use crate::core::util::ShapeResources;
+use crate::{CosmicText, Shape};
 use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Scroll, Shaping};
 use lyon::tessellation::FillTessellator;
+
+fn buffer_shape(buffer: &Buffer, fonts: &mut FontSystem) -> Shape {
+    source_shape(&mut CosmicText::new(buffer, fonts))
+}
 
 fn text(text: &str) -> (FontSystem, Buffer) {
     let mut fonts = FontSystem::new();

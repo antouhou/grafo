@@ -5,14 +5,13 @@ use crate::core::effect::{
 };
 use crate::core::shape::{Shape, ShapeDrawCommandOptions};
 use crate::core::vertex::InstanceTransform;
-use crate::core::UnsignedPhysicalRect;
+use crate::core::{TextSource, UnsignedPhysicalRect};
 use crate::planner::Planner;
 use crate::render_backend::render_target::RenderTarget;
 use crate::render_backend::RenderBackend;
 use crate::scene_state::effects::EffectAttachmentKind;
 use crate::scene_state::types::DrawTreeNode;
 use crate::scene_state::{SceneError, SceneState, SceneStateContext};
-use cosmic_text::{Buffer, FontSystem};
 use damage::{mark_dirty, mark_physical_dirty, mark_shape_mask_effect_dirty, PendingDamage};
 use draw_commands::{DrawCommand, NodeTarget};
 #[cfg(feature = "render_metrics")]
@@ -156,26 +155,21 @@ impl<B: RenderBackend> Scene<B> {
         )
     }
 
-    /// Adds the visible glyph outlines of an already shaped text buffer.
-    ///
-    /// Call `buffer.shape_until_scroll(font_system, false)` first, using the same font system.
-    /// Buffer coordinates are logical units. The options supply the fill and transform for
-    /// the whole text. Span colors, decorations, and glyphs without outlines are ignored.
-    /// The buffer is borrowed only for this call; later edits require `replace_with_text`.
-    /// Parent clipping applies, but the buffer's dimensions do not add a clip.
-    ///
-    /// Intended for short text. Like paths, text must fit in a single shape's vertex limit.
+    /// Adds a text from a source to the scene. Text node can do everything a shape or a rect can -
+    /// you apply to it a gradient fill, backdrop filters, mask effects, etc. This method supplies
+    /// the current visible bounds to the text source. If you want to change the size of the parent
+    /// node, call `Scene::replace_with_text` to update the bounds.
     pub fn add_text(
         &mut self,
-        buffer: &Buffer,
-        font_system: &mut FontSystem,
+        source: impl TextSource,
         parent_shape_id: Option<usize>,
         options: ShapeDrawCommandOptions,
     ) -> Result<usize, DrawCommandError<B::Error>> {
-        self.add_shape(
-            text::buffer_shape(buffer, font_system),
-            parent_shape_id,
-            None,
+        self.queue_text(
+            NodeTarget::Insert {
+                parent: parent_shape_id,
+            },
+            source,
             options,
         )
     }
@@ -234,22 +228,17 @@ impl<B: RenderBackend> Scene<B> {
         )
     }
 
-    /// Replaces one command with text and returns its unchanged ID.
-    /// Parent, children and attached effects are preserved.
-    /// The buffer and rendering requirements are the same as for [`Self::add_text`].
+    /// Replaces a node with text, preserving its ID, parent, children, and effects. If the node is
+    /// a text node already, updates the text and visible bounds. Supplies the current visible
+    /// bounds. Call after changing the source or after resizing a parent node.
+    /// Resize the scene first when the target dimensions change.
     pub fn replace_with_text(
         &mut self,
         node_id: usize,
-        buffer: &Buffer,
-        font_system: &mut FontSystem,
+        source: impl TextSource,
         options: ShapeDrawCommandOptions,
     ) -> Result<usize, DrawCommandError<B::Error>> {
-        self.replace_with_shape(
-            node_id,
-            text::buffer_shape(buffer, font_system),
-            None,
-            options,
-        )
+        self.queue_text(NodeTarget::Replace { node_id }, source, options)
     }
 
     /// Replaces one command with a loaded shape and returns its unchanged ID.

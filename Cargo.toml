@@ -28,7 +28,8 @@ thiserror = "2.0.18"
 smallvec = "1.13"
 half = "2.4"
 rstar = "0.13.0"
-cosmic-text = { version = "0.19", default-features = false, features = ["std", "swash"] }
+cosmic-text = { version = "0.19", optional = true, default-features = false, features = ["std", "swash"] }
+swash = { version = "0.2.10", optional = true }
 
 [dev-dependencies]
 criterion = "0.8"
@@ -38,11 +39,17 @@ futures = "0.3"
 image = "0.25"
 transformator = "0.1.1"
 euclid = "0.22.11"
-grafo-test-scenes = { path = "grafo-test-scenes" }
+grafo-test-scenes = { path = "grafo-test-scenes", default-features = false }
 
 [features]
+default = ["cosmic-text"]
+cosmic-text = ["dep:cosmic-text", "dep:swash", "grafo-test-scenes/cosmic-text"]
 performance_measurement = []
 render_metrics = []
+
+[[example]]
+name = "text"
+required-features = ["cosmic-text"]
 
 [[bench]]
 name = "visual_regression"
