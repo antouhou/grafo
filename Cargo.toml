@@ -43,7 +43,7 @@ grafo-test-scenes = { path = "grafo-test-scenes", default-features = false }
 
 [features]
 default = ["cosmic-text"]
-cosmic-text = ["dep:cosmic-text", "dep:swash", "grafo-test-scenes/cosmic-text"]
+cosmic-text = ["dep:cosmic-text", "dep:swash"]
 performance_measurement = []
 render_metrics = []
 
