@@ -1,4 +1,3 @@
-use super::backdrops;
 use super::draws::DrawPass;
 use super::effects::instructions::{execute_effect, EffectContext};
 use super::effects::EffectExecutionResources;
@@ -6,15 +5,16 @@ use super::leaf_batches::LeafBatch;
 use super::render_pass::RenderPass;
 use super::shape_mask_effects::ShapeMaskEffectExecutionResources;
 use super::shapes::ShapeExecutionResources;
+use super::target_uniforms;
 use super::targets::{ActiveTarget, SurfaceTarget};
 use super::textures::{IntermediateTextureResources, PlannedTexture};
 use crate::commands::{
-    CaptureSource, IntermediateTextureId, RenderCommand, RenderOperation, Target, TexturePlacement,
+    IntermediateTextureId, RenderCommand, RenderOperation, Target, TexturePlacement,
 };
 #[cfg(feature = "render_metrics")]
 use crate::wgpu_backend::metrics::{PipelineSwitchCounts, ShapeMaskEffectCacheMetrics};
 use crate::wgpu_backend::resources::{Buffers, RendererPipelineResources};
-use crate::wgpu_backend::types::{BackdropContext, BackdropSource};
+use crate::wgpu_backend::types::BackdropContext;
 use wgpu::{CommandEncoder, Device, Queue, TextureFormat};
 
 pub(in crate::wgpu_backend) struct ExecutionContext<'a> {
@@ -72,7 +72,12 @@ impl ExecutionResources<'_> {
         }
     }
 
-    fn begin_target(&mut self, target: Target, surface: &SurfaceTarget<'_>) {
+    fn begin_target(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        target: Target,
+        surface: &SurfaceTarget<'_>,
+    ) {
         let texture = match target {
             Target::Surface => {
                 assert!(
@@ -81,8 +86,9 @@ impl ExecutionResources<'_> {
                 );
                 None
             }
-            Target::Texture { texture, size } => {
+            Target::Texture { texture, region } => {
                 self.textures.reserve_planned(texture);
+                let size = region.bounds.size().to_u32();
                 Some(self.textures.pool.acquire_with_depth(
                     self.context.device,
                     size.width,
@@ -96,9 +102,39 @@ impl ExecutionResources<'_> {
                 None
             }
         };
+        let uniform_index = if matches!(target, Target::Mask(_)) {
+            None
+        } else {
+            let pipelines = &self.context.pipelines.shapes;
+            let mut uniforms = pipelines.and_uniforms;
+            if let Target::Texture { region, .. } = target {
+                uniforms.canvas_size = region
+                    .bounds
+                    .size()
+                    .to_f32()
+                    .to_array()
+                    .map(|value| value / uniforms.scale_factor);
+                uniforms.target_origin = region.bounds.min.to_f32().to_array();
+            }
+            let index = self.textures.target_uniforms.prepare(
+                self.context.device,
+                self.context.queue,
+                uniforms,
+            );
+            // Surface uniforms are initialized on resize and restored after child targets.
+            if matches!(target, Target::Texture { .. }) {
+                target_uniforms::activate(
+                    encoder,
+                    self.textures.target_uniforms.buffer(index),
+                    pipelines,
+                );
+            }
+            Some(index)
+        };
         self.textures.active_targets.push(ActiveTarget {
             target,
             texture,
+            uniform_index,
             needs_clear: if matches!(target, Target::Surface) {
                 surface.output.needs_clear
             } else {
@@ -123,6 +159,18 @@ impl ExecutionResources<'_> {
             let context = &self.context.effects;
             output.composite_bind_group(context.device, context.composite_layout, context.sampler);
             self.textures.insert_planned(texture, output);
+        }
+        if let Some(index) = self
+            .textures
+            .active_targets
+            .last()
+            .and_then(|target| target.uniform_index)
+        {
+            target_uniforms::activate(
+                encoder,
+                self.textures.target_uniforms.buffer(index),
+                &self.context.pipelines.shapes,
+            );
         }
     }
 }
@@ -212,10 +260,15 @@ fn execute_draw_pass<'scene>(
         .expect("draw requires an open target");
     let mut attachments = target.attachments(surface);
     let root_scissor = matches!(target.target, Target::Surface).then_some(surface.root_scissor);
+    let target_region = match target.target {
+        Target::Texture { region, .. } => Some(region),
+        _ => None,
+    };
     let mut render_pass = RenderPass::new(attachments.begin_pass(encoder, "command_draws"));
     target.needs_clear = false;
     let mut pass = DrawPass {
         root_scissor,
+        target_region,
         render_pass: &mut render_pass,
         pipelines: resources.context.pipelines,
         buffers: resources.buffers,
@@ -256,10 +309,13 @@ pub(in crate::wgpu_backend) fn execute_commands<'scene>(
 ) -> ExecutionMetrics {
     let mut metrics = ExecutionMetrics::default();
     resources.shapes.composites.begin_render();
+    resources.textures.target_uniforms.begin_render();
     let mut pending_command = commands.next();
     while let Some(command) = pending_command {
         match &command.operation {
-            RenderOperation::BeginTarget(target) => resources.begin_target(*target, &surface),
+            RenderOperation::BeginTarget(target) => {
+                resources.begin_target(encoder, *target, &surface)
+            }
             RenderOperation::EndTarget => resources.end_target(encoder, &surface),
             RenderOperation::DrawShapeMask(draw) => {
                 let target = resources
@@ -304,45 +360,7 @@ pub(in crate::wgpu_backend) fn execute_commands<'scene>(
                     );
                 }
             }
-            RenderOperation::Capture(capture) => {
-                let target = resources
-                    .textures
-                    .active_targets
-                    .last_mut()
-                    .expect("capture requires an open target");
-                target.attachments(&surface).clear_if_needed(encoder);
-                target.needs_clear = false;
-                let foreground = target.attachments(&surface).resolved_view().clone();
-                let base = match capture.source {
-                    CaptureSource::Target => match &target.texture {
-                        Some(texture) => texture
-                            .resolve_texture
-                            .as_ref()
-                            .unwrap_or(&texture.color_texture)
-                            .clone(),
-                        None => surface
-                            .capture_texture
-                            .expect("surface has a capture texture")
-                            .clone(),
-                    },
-                    CaptureSource::Layered { base } => resources.textures.texture(base).clone(),
-                };
-                let source = match capture.source {
-                    CaptureSource::Target => BackdropSource::Flattened { texture: &base },
-                    CaptureSource::Layered { .. } => BackdropSource::Layered {
-                        base_texture: &base,
-                        foreground_view: &foreground,
-                    },
-                };
-                backdrops::execute_capture(
-                    encoder,
-                    &resources.context.backdrops,
-                    source,
-                    *capture,
-                    resources.effects,
-                    resources.textures,
-                );
-            }
+            RenderOperation::Capture(capture) => resources.capture(encoder, *capture, &surface),
             RenderOperation::DrawShape(_)
             | RenderOperation::DrawShapeAndIncrementStencil(_)
             | RenderOperation::DecrementStencil(_)

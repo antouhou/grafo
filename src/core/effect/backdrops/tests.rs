@@ -1,7 +1,7 @@
 use super::compute_backdrop_capture_region;
 use crate::core::effect::{BackdropCaptureArea, BackdropEffectConfig, CaptureRegion};
 use crate::core::geometry::compute_downsampled_dimensions;
-use crate::{MathRect, PhysicalRect, Size, UnsignedPhysicalPoint, UnsignedPhysicalRect};
+use crate::{MathRect, PhysicalRect, Size, UnsignedPhysicalRect};
 use lyon::geom::Point;
 
 #[test]
@@ -38,7 +38,6 @@ fn node_capture_applies_padding_and_scale_before_viewport_overlap() {
                 Point::new(0, 0),
                 Point::new(24, 16)
             )),
-            copy_destination_origin: UnsignedPhysicalPoint::new(5, 8),
         }
     );
 }
@@ -69,7 +68,6 @@ fn screen_capture_keeps_physical_mapping_when_downsampled() {
                 Point::new(0, 0),
                 Point::new(9, 8)
             )),
-            copy_destination_origin: UnsignedPhysicalPoint::new(6, 5),
         }
     );
     for (downsample, expected_texture_size) in [(0.5, Size::new(8, 7)), (0.01, Size::new(1, 1))] {
@@ -104,7 +102,6 @@ fn full_scene_capture_preserves_viewport_mapping_across_scales_and_padding() {
                     Point::new(0, 0),
                     Point::new(101, 79),
                 )),
-                copy_destination_origin: UnsignedPhysicalPoint::new(3, 3),
             },
         ),
         (
@@ -116,7 +113,6 @@ fn full_scene_capture_preserves_viewport_mapping_across_scales_and_padding() {
                     Point::new(0, 0),
                     Point::new(101, 79),
                 )),
-                copy_destination_origin: UnsignedPhysicalPoint::new(0, 0),
             },
         ),
     ] {

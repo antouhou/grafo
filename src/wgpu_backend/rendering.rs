@@ -82,17 +82,6 @@ impl WgpuBackend {
 
         let is_full_redraw =
             root_scissor == UnsignedPhysicalRect::from_size(self.viewport.physical_size.into());
-        if !is_full_redraw {
-            retained.clear_region(
-                &mut encoder,
-                self.msaa_color_texture_view.as_ref(),
-                self.depth_stencil_view
-                    .as_ref()
-                    .expect("depth stencil target was initialized"),
-                root_scissor,
-            );
-        }
-
         let pipeline_resources = &self.pipeline_resources;
         let effects = EffectContext {
             device: &self.device,
@@ -132,7 +121,7 @@ impl WgpuBackend {
                     self.depth_stencil_view
                         .as_ref()
                         .expect("depth stencil target was initialized"),
-                    is_full_redraw,
+                    (!is_full_redraw).then(|| retained.region_clear(root_scissor)),
                 ),
                 capture_texture: Some(&retained.texture),
             },

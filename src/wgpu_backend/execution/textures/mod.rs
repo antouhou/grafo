@@ -1,5 +1,6 @@
 use super::effects::{OffscreenTexturePool, PooledTexture};
 use super::shape_mask_effects::CompletedMask;
+use super::target_uniforms::TargetUniformPool;
 use super::targets::ActiveTarget;
 use crate::commands::IntermediateTextureId;
 use crate::core::cache::FrameCache;
@@ -29,6 +30,7 @@ pub(super) enum PlannedTexture {
 /// Persistent cached textures and transient resources retained through submission.
 pub(crate) struct IntermediateTextureResources {
     pub(super) active_targets: Vec<ActiveTarget>,
+    pub(super) target_uniforms: TargetUniformPool,
     pub(super) masks: Vec<CompletedMask>,
     sampled_textures: HashMap<IntermediateTextureId, IntermediateTexture>,
     /// Resolves command-local IDs without copying their textures.
@@ -44,6 +46,7 @@ impl IntermediateTextureResources {
     pub(crate) fn new() -> Self {
         Self {
             active_targets: Vec::new(),
+            target_uniforms: TargetUniformPool::default(),
             masks: Vec::new(),
             sampled_textures: HashMap::new(),
             planned: Vec::new(),
@@ -165,6 +168,7 @@ impl IntermediateTextureResources {
     pub(in crate::wgpu_backend::execution) fn finish_plan(&mut self) {
         self.planned.clear();
         self.masks.clear();
+        self.target_uniforms.finish_render();
         debug_assert!(self.active_targets.is_empty());
     }
 

@@ -21,11 +21,12 @@ pub(crate) const SHAPE_SHADER: &str = concat!(
     include_str!("../shaders/solid.wgsl"),
 );
 
-/// Logical viewport dimensions and physical pixels per logical pixel.
+/// Target dimensions in logical pixels, its physical origin, and the scene scale.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Uniforms {
     pub canvas_size: [f32; 2],
+    pub target_origin: [f32; 2],
     pub scale_factor: f32,
     padding: f32,
 }
@@ -34,6 +35,7 @@ impl Uniforms {
     pub fn new(width: f32, height: f32, scale_factor: f32) -> Self {
         Self {
             canvas_size: [width, height],
+            target_origin: [0.0; 2],
             scale_factor,
             padding: 0.0,
         }
@@ -87,14 +89,14 @@ fn storage_binding(binding: u32, visibility: ShaderStages) -> BindGroupLayoutEnt
     }
 }
 
-/// Binds viewport uniforms at vertex shader group 0, binding 0.
+/// Binds target uniforms and path coverage at group 0.
 pub fn create_uniform_bind_group_layout(device: &Device) -> BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
         entries: &[
             BindGroupLayoutEntry {
                 binding: 0,
-                visibility: ShaderStages::VERTEX,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,

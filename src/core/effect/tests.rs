@@ -9,7 +9,10 @@ fn capture_region_offsets_visible_copy_into_transparent_texture() {
 
     assert_eq!(region.bounds.min, Point::new(-10, 5));
     assert_eq!(
-        region.copy_destination_origin,
+        region
+            .copy_from(PhysicalRect::from_size((100, 100).into()))
+            .unwrap()
+            .1,
         UnsignedPhysicalPoint::new(10, 0)
     );
     assert_eq!(region.bounds.size(), Size::new(40, 20).to_i32());
@@ -36,6 +39,52 @@ fn capture_region_skips_copy_when_fully_offscreen() {
 
     assert_eq!(offscreen_right.source_rect, None);
     assert_eq!(offscreen_bottom.source_rect, None);
+}
+
+#[test]
+fn bounded_captures_translate_source_pixels_and_keep_missing_input_transparent() {
+    let bounds = PhysicalRect::new((-10, 5).into(), (50, 45).into());
+    let capture = effect::resolve_capture_region_to_viewport(bounds, bounds, Size::new(100, 100));
+    let source = PhysicalRect::new((12, 10).into(), (36, 30).into());
+    assert_eq!(
+        capture.copy_from(source),
+        Some((
+            UnsignedPhysicalRect::from_size(Size::new(24, 20)),
+            (22, 5).into()
+        ))
+    );
+    assert_eq!(
+        capture.copy_from(PhysicalRect::new((60, 10).into(), (80, 30).into())),
+        None
+    );
+
+    let padded_source = PhysicalRect::new((-20, -10).into(), (60, 60).into());
+    assert_eq!(
+        capture.copy_from(padded_source),
+        Some((
+            UnsignedPhysicalRect::new((20, 15).into(), (70, 55).into()),
+            (10, 0).into(),
+        ))
+    );
+}
+
+#[test]
+fn target_scissors_clip_input_and_preserve_transparent_outsets() {
+    let input = PhysicalRect::new((-5, 20).into(), (40, 60).into());
+    let output = PhysicalRect::new((-15, 10).into(), (50, 70).into());
+    let region = effect::resolve_capture_region_to_viewport(input, output, Size::new(100, 100));
+    assert_eq!(
+        region.scissor(UnsignedPhysicalRect::from_size(Size::new(100, 100))),
+        UnsignedPhysicalRect::new((15, 10).into(), (55, 50).into()),
+    );
+    assert_eq!(
+        region.scissor(UnsignedPhysicalRect::new((10, 30).into(), (80, 80).into())),
+        UnsignedPhysicalRect::new((25, 20).into(), (55, 50).into()),
+    );
+    assert_eq!(
+        region.scissor(UnsignedPhysicalRect::new((60, 30).into(), (80, 80).into())),
+        UnsignedPhysicalRect::zero(),
+    );
 }
 
 #[test]

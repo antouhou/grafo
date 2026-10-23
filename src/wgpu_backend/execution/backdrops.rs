@@ -1,9 +1,11 @@
 use super::effects::{self, EffectExecutionResources, OffscreenTexturePool, PooledTexture};
+use super::instructions::ExecutionResources;
+use super::targets::SurfaceTarget;
 use super::textures::IntermediateTextureResources;
-use crate::commands::CaptureConfig;
+use crate::commands::{CaptureConfig, CaptureSource, Target};
 use crate::core::effect::CaptureRegion;
+use crate::core::{PhysicalRect, Size};
 use crate::wgpu_backend::types::{BackdropContext, BackdropSource};
-use crate::Size;
 use wgpu::{
     BindGroup, Color, CommandEncoder, Extent3d, LoadOp, Operations, Origin3d,
     RenderPassColorAttachment, RenderPassDescriptor, StoreOp, TexelCopyTextureInfo, TextureAspect,
@@ -69,11 +71,12 @@ fn capture_backdrop(
         context.effects.format,
         1,
     );
-    if region.source_rect.map(|rect| rect.size()) != Some(capture_size) {
+    let (base_texture, base_bounds) = source.base();
+    let copy = region.copy_from(base_bounds);
+    if copy.map(|(rect, _)| rect.size()) != Some(capture_size) {
         clear_capture(encoder, &capture_texture.color_view);
     }
-    let base_texture = source.base_texture();
-    if let Some(source_rect) = region.source_rect {
+    if let Some((source_rect, destination)) = copy {
         encoder.copy_texture_to_texture(
             TexelCopyTextureInfo {
                 texture: base_texture,
@@ -89,8 +92,8 @@ fn capture_backdrop(
                 texture: &capture_texture.color_texture,
                 mip_level: 0,
                 origin: Origin3d {
-                    x: region.copy_destination_origin.x,
-                    y: region.copy_destination_origin.y,
+                    x: destination.x,
+                    y: destination.y,
                     z: 0,
                 },
                 aspect: TextureAspect::All,
@@ -103,10 +106,10 @@ fn capture_backdrop(
         );
     }
 
-    if let Some(foreground_view) = source.foreground_view() {
+    if let Some((foreground_view, foreground_bounds)) = source.foreground() {
         let layer_params = effects::backdrop_layer_params(
-            region.bounds.min.to_tuple(),
-            (base_texture.width(), base_texture.height()),
+            (region.bounds.min - foreground_bounds.min).to_tuple(),
+            foreground_bounds.size().to_u32().to_tuple(),
         );
         let bind_group = resources.backdrop_composites.prepare(
             context.effects.device,
@@ -161,7 +164,7 @@ fn downsample_capture(
 }
 
 /// Captures and resamples source pixels into the command's logical output.
-pub(in crate::wgpu_backend) fn execute_capture(
+fn execute_capture(
     encoder: &mut CommandEncoder,
     context: &BackdropContext<'_>,
     source: BackdropSource<'_>,
@@ -194,4 +197,83 @@ pub(in crate::wgpu_backend) fn execute_capture(
         context.effects.sampler,
     );
     textures.insert_planned(command.output, texture);
+}
+
+impl ExecutionResources<'_> {
+    pub(super) fn capture(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        capture: CaptureConfig,
+        surface: &SurfaceTarget<'_>,
+    ) {
+        let target = self
+            .textures
+            .active_targets
+            .last_mut()
+            .expect("capture requires an open target");
+        target.attachments(surface).clear_if_needed(encoder);
+        target.needs_clear = false;
+        if matches!(capture.source, CaptureSource::Target)
+            && matches!(target.target, Target::Texture { region, .. } if region == capture.region)
+        {
+            let mut output = downsample_capture(
+                encoder,
+                &self.context.backdrops,
+                target
+                    .texture
+                    .as_mut()
+                    .expect("texture target owns its input"),
+                capture.sampling_size,
+                &mut self.textures.pool,
+            );
+            let context = &self.context.effects;
+            output.composite_bind_group(context.device, context.composite_layout, context.sampler);
+            self.textures.insert_planned(capture.output, output);
+            return;
+        }
+        let foreground = target.attachments(surface).resolved_view().clone();
+        let target_bounds = match target.target {
+            Target::Texture { region, .. } => region.bounds,
+            _ => {
+                let texture = surface
+                    .capture_texture
+                    .expect("surface has a capture texture");
+                PhysicalRect::from_size((texture.width() as i32, texture.height() as i32).into())
+            }
+        };
+        let base = match capture.source {
+            CaptureSource::Target => match &target.texture {
+                Some(texture) => texture
+                    .resolve_texture
+                    .as_ref()
+                    .unwrap_or(&texture.color_texture)
+                    .clone(),
+                None => surface
+                    .capture_texture
+                    .expect("surface has a capture texture")
+                    .clone(),
+            },
+            CaptureSource::Layered { base, .. } => self.textures.texture(base).clone(),
+        };
+        let source = match capture.source {
+            CaptureSource::Target => BackdropSource::Flattened {
+                texture: &base,
+                origin: target_bounds.min.to_array(),
+            },
+            CaptureSource::Layered { origin, .. } => BackdropSource::Layered {
+                base_texture: &base,
+                base_origin: origin,
+                foreground_view: &foreground,
+                foreground_bounds: target_bounds,
+            },
+        };
+        execute_capture(
+            encoder,
+            &self.context.backdrops,
+            source,
+            capture,
+            self.effects,
+            self.textures,
+        );
+    }
 }

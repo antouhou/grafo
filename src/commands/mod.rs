@@ -15,7 +15,7 @@ mod textures;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ShapeDrawId(pub usize);
 
-/// Physical scissor bounds and stencil reference for one draw.
+/// Scissor bounds in physical screen coordinates and a stencil reference for one draw.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DrawClip {
     pub scissor: UnsignedPhysicalRect,
@@ -51,8 +51,11 @@ pub struct RenderCommand<'scene> {
 pub enum CaptureSource {
     /// Pixels already rendered into the active target
     Target,
-    /// The active target composited over a separate base texture
-    Layered { base: IntermediateTextureId },
+    /// The active target composited over a base texture at its physical screen origin.
+    Layered {
+        base: IntermediateTextureId,
+        origin: [i32; 2],
+    },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -107,7 +110,9 @@ pub enum Target {
     Surface,
     Texture {
         texture: IntermediateTextureId,
-        size: Size,
+        /// Full-resolution physical screen bounds and the input region allowed to draw into them.
+        /// Pixels outside the input stay transparent, including output padding.
+        region: CaptureRegion,
     },
     Mask(MaskTarget),
 }
