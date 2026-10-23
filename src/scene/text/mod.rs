@@ -35,9 +35,6 @@ impl<B: RenderBackend> Scene<B> {
         if !scale.is_finite() || scale <= 0.0 {
             return None;
         }
-        if !self.state.backdrop_effects.is_empty() {
-            return None;
-        }
         let mut bounds = MathRect::from_size(Size::from(viewport.physical_size).to_f32()) / scale;
         let replaced = match *target {
             NodeTarget::Insert { .. } => None,
@@ -48,12 +45,6 @@ impl<B: RenderBackend> Scene<B> {
             NodeTarget::Replace { node_id } => Some(node_id),
         };
         while let Some(node_id) = ancestor {
-            // Shader effects can sample geometry outside the visible rectangle.
-            if self.state.content_effects.contains_key(&node_id)
-                || self.state.shape_mask_effects.contains_key(&node_id)
-            {
-                return None;
-            }
             let node = self.state.draw_tree.get(node_id)?;
             if Some(node_id) != replaced
                 && has_child_clip(node)
@@ -88,14 +79,7 @@ impl<B: RenderBackend> Scene<B> {
                     .ok_or(SceneError::NodeNotFound(node_id))?;
             }
         }
-        let bounds = if options.background_texture.texture_id.is_some()
-            || options.foreground_texture.texture_id.is_some()
-        {
-            // Texture coordinates depend on the complete shape's bounds.
-            None
-        } else {
-            self.text_visible_bounds(&target, options.transform)
-        };
+        let bounds = self.text_visible_bounds(&target, options.transform);
         source.set_visible_bounds(bounds);
         let shape = build_text_shape(&mut source);
         self.queue_draw_command(
