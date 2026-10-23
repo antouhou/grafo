@@ -44,6 +44,7 @@ impl<B: RenderBackend> Scene<B> {
             NodeTarget::Insert { parent } => parent,
             NodeTarget::Replace { node_id } => Some(node_id),
         };
+        // TODO: cache that, this is not good
         while let Some(node_id) = ancestor {
             let node = self.state.draw_tree.get(node_id)?;
             if Some(node_id) != replaced
