@@ -47,10 +47,6 @@ cosmic-text = ["dep:cosmic-text", "dep:swash", "grafo-test-scenes/cosmic-text"]
 performance_measurement = []
 render_metrics = []
 
-[[example]]
-name = "text"
-required-features = ["cosmic-text"]
-
 [[bench]]
 name = "visual_regression"
 harness = false
