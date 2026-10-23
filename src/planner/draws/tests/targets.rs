@@ -47,14 +47,14 @@ fn nested_targets_reset_clips_and_restore_each_parent_before_compositing() {
             (Operation::DrawAndIncrement(ShapeDrawId(outer)), 0, viewport),
             (Operation::Draw(ShapeDrawId(inner)), 0, viewport),
             (
-                Operation::Composite(IntermediateTextureId::Planned(3)),
+                Operation::Composite(IntermediateTextureId::Planned(2)),
                 1,
                 viewport
             ),
             (Operation::Draw(ShapeDrawId(inner_sibling)), 1, viewport),
             (Operation::Decrement(ShapeDrawId(outer)), 1, viewport),
             (
-                Operation::Composite(IntermediateTextureId::Planned(5)),
+                Operation::Composite(IntermediateTextureId::Planned(3)),
                 1,
                 parent_scissor
             ),

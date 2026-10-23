@@ -7,6 +7,7 @@ pub(in crate::wgpu_backend) mod leaf_batches;
 pub(in crate::wgpu_backend) mod render_pass;
 pub(in crate::wgpu_backend) mod shape_mask_effects;
 pub(in crate::wgpu_backend) mod shapes;
+mod target_uniforms;
 pub(in crate::wgpu_backend) mod targets;
 pub(in crate::wgpu_backend) mod textures;
 mod uniforms;

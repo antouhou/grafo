@@ -1,13 +1,12 @@
-use super::execution::targets;
+use super::execution::targets::{self, RegionClear};
 use crate::core::UnsignedPhysicalRect;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindingResource, BlendState, Color,
     ColorTargetState, ColorWrites, CommandEncoder, CompareFunction, DepthStencilState, Device,
     Extent3d, FragmentState, LoadOp, MultisampleState, Operations, RenderPassColorAttachment,
-    RenderPassDepthStencilAttachment, RenderPassDescriptor, RenderPipeline,
-    RenderPipelineDescriptor, ShaderModule, ShaderModuleDescriptor, ShaderSource, StoreOp, Texture,
-    TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
-    TextureViewDescriptor, VertexState,
+    RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderModule,
+    ShaderModuleDescriptor, ShaderSource, StoreOp, Texture, TextureDescriptor, TextureDimension,
+    TextureFormat, TextureUsages, TextureView, TextureViewDescriptor, VertexState,
 };
 
 fn create_output_pipeline(
@@ -126,41 +125,12 @@ impl RetainedOutput {
         }
     }
 
-    /// Clears changed color pixels and resets stencil before replaying the scene.
-    pub fn clear_region(
-        &self,
-        encoder: &mut CommandEncoder,
-        multisample_view: Option<&TextureView>,
-        depth_stencil_view: &TextureView,
-        scissor: UnsignedPhysicalRect,
-    ) {
-        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("clear_dirty_output"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: multisample_view.unwrap_or(&self.view),
-                resolve_target: multisample_view.map(|_| &self.view),
-                ops: Operations {
-                    load: LoadOp::Load,
-                    store: StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                view: depth_stencil_view,
-                depth_ops: Some(Operations {
-                    load: LoadOp::Clear(1.0),
-                    store: StoreOp::Store,
-                }),
-                stencil_ops: Some(Operations {
-                    load: LoadOp::Clear(0),
-                    store: StoreOp::Store,
-                }),
-            }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-        targets::set_scissor(&mut pass, scissor);
-        pass.set_pipeline(&self.clear_pipeline);
-        pass.draw(0..3, 0..1);
+    /// Clears changed pixels at the start of the scene's first render pass.
+    pub fn region_clear(&self, scissor: UnsignedPhysicalRect) -> RegionClear<'_> {
+        RegionClear {
+            pipeline: &self.clear_pipeline,
+            scissor,
+        }
     }
 
     /// Copies the clean scene to the disposable output.

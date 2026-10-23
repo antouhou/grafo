@@ -65,6 +65,14 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// Reads the left capture margin at a distance independent of the physical scale.
+pub const LEFT_CAPTURE_MARGIN_WGSL: &str = r#"
+@fragment
+fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    return textureSample(t_input, s_input, uv - vec2<f32>(0.25, 0.0));
+}
+"#;
+
 /// Warps the backdrop with sharp waves that a later capture can blur.
 pub const WAVE_DISTORTION_WGSL: &str = r#"
 @fragment

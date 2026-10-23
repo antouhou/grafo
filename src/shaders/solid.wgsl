@@ -37,7 +37,7 @@ fn vs_coverage_solid(input: SolidCoverageVertexInput, @builtin(vertex_index) ver
     output.position = coverage_clip_position(vertex.position + input.coverage_translation);
     output.color = input.color;
     output.coverage_start = vertex.coverage_start;
-    output.coverage_origin = input.coverage_translation + vec2<f32>(vertex.tile_origin);
+    output.coverage_origin = input.coverage_translation + vec2<f32>(vertex.tile_origin) - uniforms.target_origin;
     return output;
 }
 

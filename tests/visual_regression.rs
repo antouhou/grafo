@@ -12,9 +12,12 @@ use grafo::{
 };
 use grafo_test_scenes::shaders::{PASSTHROUGH_WGSL, SHAPE_DROP_WGSL};
 use grafo_test_scenes::{
-    build_main_scene, build_nested_targets_scene, check_pixels, PixelExpectation, CANVAS_HEIGHT,
-    CANVAS_WIDTH,
+    build_bounded_targets_scene, build_main_scene, build_nested_targets_scene, check_pixels,
+    PixelExpectation, CANVAS_HEIGHT, CANVAS_WIDTH,
 };
+
+#[path = "visual_regression/bounded_targets.rs"]
+mod bounded_targets;
 
 const CONSTANT_BLUE_SHAPE_MASK_EFFECT: &str = r#"
 @fragment
@@ -625,6 +628,27 @@ fn main_scene_pixel_expectations() {
             render_bgra(&mut scene, &mut pixel_buffer).unwrap();
             assert_pixels_match(&pixel_buffer, &expectations);
         }
+        for scale_factor in [1.25, 2.0] {
+            scene.clear();
+            let width = (f64::from(CANVAS_WIDTH) * scale_factor) as u32;
+            let height = (f64::from(CANVAS_HEIGHT) * scale_factor) as u32;
+            scene.resize((width, height));
+            scene.change_scale_factor(scale_factor).unwrap();
+            let mut expectations = build_bounded_targets_scene(&mut scene);
+            for expectation in &mut expectations {
+                expectation.x = ((f64::from(expectation.x) + 0.5) * scale_factor) as u32;
+                expectation.y = ((f64::from(expectation.y) + 0.5) * scale_factor) as u32;
+            }
+            render_bgra(&mut scene, &mut pixel_buffer).unwrap();
+            let failures = check_pixels(&pixel_buffer, width, height, &expectations);
+            assert!(
+                failures.is_empty(),
+                "scale {scale_factor}: {}",
+                failures.join("\n")
+            );
+        }
+        scene.resize((CANVAS_WIDTH, CANVAS_HEIGHT));
+        scene.change_scale_factor(1.0).unwrap();
     }
 }
 

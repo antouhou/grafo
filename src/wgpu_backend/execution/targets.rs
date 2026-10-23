@@ -2,8 +2,9 @@ use super::effects::PooledTexture;
 use crate::commands::Target;
 use crate::UnsignedPhysicalRect;
 use wgpu::{
-    Color, CommandEncoder, LoadOp, Operations, RenderPass, RenderPassColorAttachment,
-    RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp, Texture, TextureView,
+    Buffer, Color, CommandEncoder, LoadOp, Operations, RenderPass, RenderPassColorAttachment,
+    RenderPassDepthStencilAttachment, RenderPassDescriptor, RenderPipeline, StoreOp, Texture,
+    TextureView,
 };
 
 pub(in crate::wgpu_backend) fn set_scissor(
@@ -18,11 +19,18 @@ pub(in crate::wgpu_backend) fn set_scissor(
     );
 }
 
+#[derive(Clone, Copy)]
+pub(in crate::wgpu_backend) struct RegionClear<'a> {
+    pub pipeline: &'a RenderPipeline,
+    pub scissor: UnsignedPhysicalRect,
+}
+
 /// Borrows one target's attachments across passes split by backdrop captures.
 pub(in crate::wgpu_backend) struct RenderTarget<'a> {
     color_view: &'a TextureView,
     resolve_target: Option<&'a TextureView>,
     depth_stencil_view: &'a TextureView,
+    region_clear: Option<RegionClear<'a>>,
     pub(super) needs_clear: bool,
 }
 
@@ -35,13 +43,14 @@ impl<'a> RenderTarget<'a> {
         output_view: &'a TextureView,
         multisample_view: Option<&'a TextureView>,
         depth_stencil_view: &'a TextureView,
-        needs_clear: bool,
+        region_clear: Option<RegionClear<'a>>,
     ) -> Self {
         Self {
             color_view: multisample_view.unwrap_or(output_view),
             resolve_target: multisample_view.map(|_| output_view),
             depth_stencil_view,
-            needs_clear,
+            region_clear,
+            needs_clear: true,
         }
     }
 
@@ -53,6 +62,7 @@ impl<'a> RenderTarget<'a> {
                 .depth_stencil_view
                 .as_ref()
                 .expect("scene targets include depth/stencil"),
+            region_clear: None,
             needs_clear: true,
         }
     }
@@ -70,13 +80,13 @@ impl<'a> RenderTarget<'a> {
         encoder: &'pass mut CommandEncoder,
         label: &'pass str,
     ) -> RenderPass<'pass> {
-        let render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+        let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some(label),
             color_attachments: &[Some(RenderPassColorAttachment {
                 view: self.color_view,
                 resolve_target: self.resolve_target,
                 ops: Operations {
-                    load: if self.needs_clear {
+                    load: if self.needs_clear && self.region_clear.is_none() {
                         LoadOp::Clear(Color::TRANSPARENT)
                     } else {
                         LoadOp::Load
@@ -107,6 +117,12 @@ impl<'a> RenderTarget<'a> {
             timestamp_writes: None,
             occlusion_query_set: None,
         });
+        // Keep the damage clear and the first scene draws in the same pass.
+        if let Some(clear) = self.region_clear.filter(|_| self.needs_clear) {
+            set_scissor(&mut render_pass, clear.scissor);
+            render_pass.set_pipeline(clear.pipeline);
+            render_pass.draw(0..3, 0..1);
+        }
         self.needs_clear = false;
         render_pass
     }
@@ -117,6 +133,7 @@ pub(super) struct ActiveTarget {
     pub(super) target: Target,
     pub(super) texture: Option<PooledTexture>,
     pub(super) needs_clear: bool,
+    pub(super) uniforms: Option<Buffer>,
 }
 
 pub(in crate::wgpu_backend) struct SurfaceTarget<'a> {
@@ -132,6 +149,7 @@ impl ActiveTarget {
                 color_view: surface.output.color_view,
                 resolve_target: surface.output.resolve_target,
                 depth_stencil_view: surface.output.depth_stencil_view,
+                region_clear: surface.output.region_clear,
                 needs_clear: self.needs_clear,
             },
             Target::Texture { .. } => {

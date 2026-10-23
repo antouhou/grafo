@@ -201,12 +201,21 @@ fn layered_capture_references_registered_resources_and_disabling_capture_removes
     let panel = scene.add(None, shape(true));
     scene.attach_backdrop(panel);
     let base = IntermediateTextureId::Registered(0);
-    scene.backdrop_source = Some(CaptureSource::Layered { base });
+    scene.backdrop_source = Some(CaptureSource::Layered {
+        base,
+        origin: [12, 24],
+    });
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let RenderOperation::Capture(capture) = output.instructions[0].operation else {
         panic!("capture precedes the first draw")
     };
-    assert_eq!(capture.source, CaptureSource::Layered { base });
+    assert_eq!(
+        capture.source,
+        CaptureSource::Layered {
+            base,
+            origin: [12, 24]
+        }
+    );
     assert_ne!(capture.output, base);
 
     drop(output);

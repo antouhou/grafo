@@ -44,9 +44,10 @@ struct GradientVertexOutput {
     @location(9) @interpolate(flat) coverage_origin: vec2<f32>,
 };
 
-// Logical viewport dimensions and physical pixels per logical pixel.
+// Target dimensions in logical pixels, its physical origin, and the scene scale.
 struct Uniforms {
     canvas_size: vec2<f32>,
+    target_origin: vec2<f32>,
     scale_factor: f32,
     _padding: f32,
 };
@@ -231,8 +232,9 @@ fn compute_vertex_position(position: vec2<f32>, model: mat4x4<f32>) -> VertexPos
     let py = p.y * invw;
 
     // Map screen coordinates to [-1, 1], with Y increasing upward.
-    let ndc_x = 2.0 * px / uniforms.canvas_size.x - 1.0;
-    let ndc_y = 1.0 - 2.0 * py / uniforms.canvas_size.y;
+    let target_position = vec2<f32>(px, py) - uniforms.target_origin / uniforms.scale_factor;
+    let ndc_x = 2.0 * target_position.x / uniforms.canvas_size.x - 1.0;
+    let ndc_y = 1.0 - 2.0 * target_position.y / uniforms.canvas_size.y;
 
     // Shapes composite in command order. Intersecting geometry is not depth-sorted yet
     return VertexPosition(
@@ -358,7 +360,7 @@ fn composite_under_fill_texture(
 ) -> vec4<f32> {
     let mapping = material_params.texture_sampling;
     let uses_target_coordinates = mapping.uses_target_coordinates != 0u;
-    let position = select(shape_tex_coords.xy / shape_tex_coords.z, fragment_position.xy, uses_target_coordinates);
+    let position = select(shape_tex_coords.xy / shape_tex_coords.z, fragment_position.xy + uniforms.target_origin, uses_target_coordinates);
     let texture_coordinates = (position - mapping.origin) * mapping.inverse_size;
     let footprint = select(texture_footprint_coverage(texture_coordinates), 1.0, uses_target_coordinates);
     let texture_pma = textureSampleLevel(t_under_fill, s_under_fill, texture_coordinates, 0.0) * footprint;
@@ -409,7 +411,7 @@ fn fs_main_gradient(
         texture_flags,
         model_pos,
         screen_pos,
-        fragment_position.xy,
+        fragment_position.xy + uniforms.target_origin,
     );
 }
 
@@ -457,7 +459,7 @@ fn fs_texture_material_gradient(
     @location(9) @interpolate(flat) coverage_origin: vec2<f32>,
 ) -> @location(0) vec4<f32> {
     let pixel_coverage = resolve_path_coverage(coverage_start, coverage_origin, fragment_position);
-    let fill_pma = apply_gradient_bayer_dither(evaluate_gradient(model_pos.xy / model_pos.z, screen_pos), fragment_position.xy);
+    let fill_pma = apply_gradient_bayer_dither(evaluate_gradient(model_pos.xy / model_pos.z, screen_pos), fragment_position.xy + uniforms.target_origin);
     let base_pma = composite_under_fill_texture(fill_pma, fragment_position, shape_tex_coords);
     return composite_texture_layers(base_pma, shape_tex_coords, layer0_uv_transform, layer1_uv_transform, pixel_coverage, texture_flags);
 }

@@ -1,10 +1,11 @@
 use crate::commands::{
     CaptureConfig, CaptureSource, EffectApplication, IntermediateTextureId, RenderOperation,
-    TextureComposite, TexturePlacement,
+    Target, TextureComposite, TexturePlacement,
 };
-use crate::core::effect::ContentEffectBounds;
+use crate::core::effect::{CaptureRegion, ContentEffectBounds};
 use crate::core::geometry;
 use crate::core::vertex::TextureUvTransform;
+use crate::core::UnsignedPhysicalRect;
 use crate::planner::commands::TraversalCommands;
 use crate::planner::TextureIdAllocator;
 use crate::scene_state::effects::parameters::EffectParameterStorage;
@@ -14,32 +15,70 @@ use crate::scene_state::effects::{ContentEffectInstance, EffectInstance};
 pub(crate) struct ContentCapture {
     effect: EffectInstance,
     bounds: ContentEffectBounds,
+    texture: IntermediateTextureId,
+    region: CaptureRegion,
 }
 
 impl ContentCapture {
-    pub(crate) fn new(effect: ContentEffectInstance) -> Option<Self> {
+    pub(crate) fn new(
+        effect: ContentEffectInstance,
+        backdrop_region: Option<UnsignedPhysicalRect>,
+        texture_ids: &mut TextureIdAllocator,
+    ) -> Option<Self> {
+        let bounds = effect.bounds?;
+        let mut region = bounds.capture_region;
+        if let Some(backdrop) = backdrop_region.filter(|backdrop| {
+            region
+                .source_rect
+                .and_then(|input| input.intersection(backdrop))
+                != Some(*backdrop)
+        }) {
+            let input = region
+                .source_rect
+                .map_or(backdrop, |input| input.union(&backdrop));
+            // Keep all pixels needed by internal captures until the content is cropped.
+            region = CaptureRegion {
+                bounds: input.to_i32(),
+                source_rect: Some(input),
+            };
+        }
         Some(Self {
             effect: EffectInstance {
                 effect_id: effect.effect_id,
                 parameters: effect.parameters,
             },
-            bounds: effect.bounds?,
+            bounds,
+            texture: texture_ids.allocate(),
+            region,
         })
     }
 
-    pub(crate) fn append_capture(
+    pub(crate) fn append_begin(self, output: &mut TraversalCommands<'_>) {
+        output.push(RenderOperation::BeginTarget(Target::Texture {
+            texture: self.texture,
+            region: self.region,
+        }));
+    }
+
+    pub(crate) fn append_end(
         self,
         output: &mut TraversalCommands<'_>,
         texture_ids: &mut TextureIdAllocator,
     ) -> IntermediateTextureId {
-        let capture_texture = texture_ids.allocate();
-        output.push(RenderOperation::Capture(CaptureConfig {
-            source: CaptureSource::Target,
-            region: self.bounds.capture_region,
-            output: capture_texture,
-            sampling_size: self.bounds.sampling_size,
-        }));
-        capture_texture
+        let mut texture = self.texture;
+        if self.region != self.bounds.capture_region
+            || self.bounds.sampling_size != self.region.bounds.size().to_u32()
+        {
+            texture = texture_ids.allocate();
+            output.push(RenderOperation::Capture(CaptureConfig {
+                source: CaptureSource::Target,
+                region: self.bounds.capture_region,
+                output: texture,
+                sampling_size: self.bounds.sampling_size,
+            }));
+        }
+        output.push(RenderOperation::EndTarget);
+        texture
     }
 
     pub(crate) fn append_effect<'scene>(
