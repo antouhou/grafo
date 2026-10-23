@@ -2,7 +2,7 @@ use super::effects::PooledTexture;
 use crate::commands::Target;
 use crate::UnsignedPhysicalRect;
 use wgpu::{
-    Buffer, Color, CommandEncoder, LoadOp, Operations, RenderPass, RenderPassColorAttachment,
+    Color, CommandEncoder, LoadOp, Operations, RenderPass, RenderPassColorAttachment,
     RenderPassDepthStencilAttachment, RenderPassDescriptor, RenderPipeline, StoreOp, Texture,
     TextureView,
 };
@@ -133,7 +133,7 @@ pub(super) struct ActiveTarget {
     pub(super) target: Target,
     pub(super) texture: Option<PooledTexture>,
     pub(super) needs_clear: bool,
-    pub(super) uniforms: Option<Buffer>,
+    pub(super) uniform_index: Option<usize>,
 }
 
 pub(in crate::wgpu_backend) struct SurfaceTarget<'a> {

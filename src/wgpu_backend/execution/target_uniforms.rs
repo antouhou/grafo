@@ -20,21 +20,27 @@ impl TargetUniformPool {
         self.buffers.truncate_unused();
     }
 
-    pub(super) fn prepare(&mut self, device: &Device, queue: &Queue, uniforms: Uniforms) -> Buffer {
-        let slot = self.buffers.acquire(|| None);
+    pub(super) fn prepare(&mut self, device: &Device, queue: &Queue, uniforms: Uniforms) -> usize {
+        let (index, slot) = self.buffers.acquire_indexed(|| None);
         let contents = bytemuck::bytes_of(&uniforms);
-        let buffer = match slot {
-            Some(buffer) => {
-                queue.write_buffer(buffer, 0, contents);
-                buffer
+        match slot {
+            Some(buffer) => queue.write_buffer(buffer, 0, contents),
+            None => {
+                *slot = Some(device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("target_uniform_snapshot"),
+                    contents,
+                    usage: BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+                }));
             }
-            None => slot.insert(device.create_buffer_init(&BufferInitDescriptor {
-                label: Some("target_uniform_snapshot"),
-                contents,
-                usage: BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-            })),
-        };
-        buffer.clone()
+        }
+        index
+    }
+
+    pub(super) fn buffer(&self, index: usize) -> &Buffer {
+        self.buffers
+            .slot(index)
+            .as_ref()
+            .expect("prepared target uniforms have a buffer")
     }
 }
 

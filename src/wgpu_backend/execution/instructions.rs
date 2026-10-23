@@ -102,7 +102,7 @@ impl ExecutionResources<'_> {
                 None
             }
         };
-        let uniforms = if matches!(target, Target::Mask(_)) {
+        let uniform_index = if matches!(target, Target::Mask(_)) {
             None
         } else {
             let pipelines = &self.context.pipelines.shapes;
@@ -116,21 +116,25 @@ impl ExecutionResources<'_> {
                     .map(|value| value / uniforms.scale_factor);
                 uniforms.target_origin = region.bounds.min.to_f32().to_array();
             }
-            let buffer = self.textures.target_uniforms.prepare(
+            let index = self.textures.target_uniforms.prepare(
                 self.context.device,
                 self.context.queue,
                 uniforms,
             );
             // Surface uniforms are initialized on resize and restored after child targets.
             if matches!(target, Target::Texture { .. }) {
-                target_uniforms::activate(encoder, &buffer, pipelines);
+                target_uniforms::activate(
+                    encoder,
+                    self.textures.target_uniforms.buffer(index),
+                    pipelines,
+                );
             }
-            Some(buffer)
+            Some(index)
         };
         self.textures.active_targets.push(ActiveTarget {
             target,
             texture,
-            uniforms,
+            uniform_index,
             needs_clear: if matches!(target, Target::Surface) {
                 surface.output.needs_clear
             } else {
@@ -156,13 +160,17 @@ impl ExecutionResources<'_> {
             output.composite_bind_group(context.device, context.composite_layout, context.sampler);
             self.textures.insert_planned(texture, output);
         }
-        if let Some(uniforms) = self
+        if let Some(index) = self
             .textures
             .active_targets
             .last()
-            .and_then(|target| target.uniforms.as_ref())
+            .and_then(|target| target.uniform_index)
         {
-            target_uniforms::activate(encoder, uniforms, &self.context.pipelines.shapes);
+            target_uniforms::activate(
+                encoder,
+                self.textures.target_uniforms.buffer(index),
+                &self.context.pipelines.shapes,
+            );
         }
     }
 }

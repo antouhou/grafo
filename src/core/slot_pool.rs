@@ -23,6 +23,15 @@ impl<T> SlotPool<T> {
         slot
     }
 
+    pub(crate) fn acquire_indexed(&mut self, create: impl FnOnce() -> T) -> (usize, &mut T) {
+        let index = self.used;
+        (index, self.acquire(create))
+    }
+
+    pub(crate) fn slot(&self, index: usize) -> &T {
+        &self.slots[index]
+    }
+
     pub(crate) fn reset(&mut self) {
         self.used = 0;
     }
