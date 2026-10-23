@@ -31,7 +31,7 @@ pub(super) enum NodeTarget {
     Replace { node_id: usize },
 }
 
-fn has_child_clip(node: &DrawTreeNode) -> bool {
+pub(super) fn has_child_clip(node: &DrawTreeNode) -> bool {
     node.clips_children()
         && match node {
             DrawTreeNode::CachedShape(shape) => shape.has_geometry() || node.is_axis_aligned_rect(),

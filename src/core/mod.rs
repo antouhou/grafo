@@ -18,6 +18,7 @@ pub use gradient::types::{
     RadialGradientDesc, RadialGradientSize, SpreadMode,
 };
 pub use shape::*;
+pub use text::*;
 pub use vertex::InstanceTransform as TransformInstance;
 pub use vertex::{CustomVertex, TextureUvTransform};
 
@@ -28,5 +29,6 @@ pub(crate) mod geometry;
 pub mod gradient;
 pub(crate) mod shape;
 pub(crate) mod slot_pool;
+mod text;
 pub(crate) mod util;
 pub(crate) mod vertex;

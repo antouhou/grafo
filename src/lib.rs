@@ -43,6 +43,8 @@
 //! hierarchical clipping, texture layers, transforms, and shader effects.
 
 pub use crate::core::*;
+#[cfg(feature = "cosmic-text")]
+pub use cosmic_text;
 pub use lyon;
 pub use render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError,
@@ -51,6 +53,8 @@ pub use render_backend::texture_manager::TextureManager;
 pub use render_backend::RenderBackend;
 pub use scene_state::SceneError;
 use std::sync::Arc;
+#[cfg(feature = "cosmic-text")]
+pub use text::CosmicText;
 pub use wgpu;
 #[cfg(feature = "render_metrics")]
 #[doc(hidden)]
@@ -68,6 +72,8 @@ pub(crate) mod planner;
 pub mod render_backend;
 pub mod scene;
 mod scene_state;
+#[cfg(feature = "cosmic-text")]
+mod text;
 pub mod wgpu_backend;
 mod wgpu_scene;
 

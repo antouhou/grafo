@@ -5,7 +5,7 @@ use crate::core::effect::{
 };
 use crate::core::shape::{Shape, ShapeDrawCommandOptions};
 use crate::core::vertex::InstanceTransform;
-use crate::core::UnsignedPhysicalRect;
+use crate::core::{TextSource, UnsignedPhysicalRect};
 use crate::planner::Planner;
 use crate::render_backend::render_target::RenderTarget;
 use crate::render_backend::RenderBackend;
@@ -24,6 +24,7 @@ mod damage;
 mod draw_commands;
 #[cfg(feature = "render_metrics")]
 mod metrics;
+mod text;
 
 /// Scene mutation or backend resource preparation failed.
 #[derive(Debug, Error)]
@@ -154,6 +155,25 @@ impl<B: RenderBackend> Scene<B> {
         )
     }
 
+    /// Adds a text from a source to the scene. Text node can do everything a shape or a rect can -
+    /// you apply to it a gradient fill, backdrop filters, mask effects, etc. This method supplies
+    /// the current visible bounds to the text source. If you want to change the size of the parent
+    /// node, call `Scene::replace_with_text` to update the bounds.
+    pub fn add_text(
+        &mut self,
+        source: impl TextSource,
+        parent_shape_id: Option<usize>,
+        options: ShapeDrawCommandOptions,
+    ) -> Result<usize, DrawCommandError<B::Error>> {
+        self.queue_text(
+            NodeTarget::Insert {
+                parent: parent_shape_id,
+            },
+            source,
+            options,
+        )
+    }
+
     /// Queues a loaded shape and prepares backend resources for this instance.
     pub fn add_cached_shape(
         &mut self,
@@ -206,6 +226,19 @@ impl<B: RenderBackend> Scene<B> {
                 options,
             },
         )
+    }
+
+    /// Replaces a node with text, preserving its ID, parent, children, and effects. If the node is
+    /// a text node already, updates the text and visible bounds. Supplies the current visible
+    /// bounds. Call after changing the source or after resizing a parent node.
+    /// Resize the scene first when the target dimensions change.
+    pub fn replace_with_text(
+        &mut self,
+        node_id: usize,
+        source: impl TextSource,
+        options: ShapeDrawCommandOptions,
+    ) -> Result<usize, DrawCommandError<B::Error>> {
+        self.queue_text(NodeTarget::Replace { node_id }, source, options)
     }
 
     /// Replaces one command with a loaded shape and returns its unchanged ID.

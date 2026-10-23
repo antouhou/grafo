@@ -1,7 +1,7 @@
 //! Geometry types and coordinate conversions backed by Lyon and Euclid.
 
 use crate::core::vertex::InstanceTransform;
-use lyon::geom::euclid::default::Transform3D;
+use lyon::geom::euclid::default::{Transform2D, Transform3D};
 use lyon::geom::{self, Box2D, Point};
 use lyon::math;
 
@@ -149,6 +149,28 @@ pub(crate) fn transformed_bounds_to_logical_screen_rect(
         return UNBOUNDED_LOGICAL_SCREEN_RECT;
     }
     outward_logical_bounds(Box2D::from_points(projected_corners))
+}
+
+/// Returns conservative local bounds, or no restriction for uncertain projections.
+pub(crate) fn logical_screen_rect_to_local_bounds(
+    bounds: MathRect,
+    transform: Option<InstanceTransform>,
+) -> Option<MathRect> {
+    let transform = transform.unwrap_or_else(InstanceTransform::identity);
+    if transform.col0[3] != 0.0 || transform.col1[3] != 0.0 || transform.col3[3] != 1.0 {
+        return None;
+    }
+    let affine = Transform2D::new(
+        f64::from(transform.col0[0]),
+        f64::from(transform.col0[1]),
+        f64::from(transform.col1[0]),
+        f64::from(transform.col1[1]),
+        f64::from(transform.col3[0]),
+        f64::from(transform.col3[1]),
+    );
+    let inverse = affine.inverse()?;
+    let local_bounds = outward_logical_bounds(inverse.outer_transformed_box(&bounds.to_f64()));
+    local_bounds.is_finite().then_some(local_bounds)
 }
 
 /// Keeps signed offscreen coordinates and rejects bounds or extents that exceed i32.
