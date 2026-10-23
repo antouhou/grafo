@@ -10,7 +10,7 @@ use crate::render_backend::RenderBackend;
 use crate::scene_state::SceneError;
 use lyon::{math::Transform, path::Path};
 
-pub(crate) fn source_shape(source: &mut impl TextSource) -> Shape {
+pub(crate) fn build_text_shape(source: &mut impl TextSource) -> Shape {
     let mut builder = Path::builder();
     while let Some(glyph) = source.next_glyph() {
         let Some(GlyphContent::Outline(events)) = source.glyph_content(&glyph.key) else {
@@ -97,7 +97,7 @@ impl<B: RenderBackend> Scene<B> {
             self.text_visible_bounds(&target, options.transform)
         };
         source.set_visible_bounds(bounds);
-        let shape = source_shape(&mut source);
+        let shape = build_text_shape(&mut source);
         self.queue_draw_command(
             target,
             DrawCommand::Shape {

@@ -9,57 +9,12 @@ pub struct PositionedGlyph<Key> {
     pub position: (f32, f32),
 }
 
-/// Borrowed glyph data in logical, y-down coordinates relative to the glyph origin.
-/// Font size and variations have already been applied
-/// TODO: implement bitmap and color-vector drawing
-pub enum GlyphContent<'a> {
-    /// Complete contours
-    Outline(&'a [PathEvent]),
-    ColorVector(ColorGlyph<'a>),
-    Bitmap(GlyphBitmap<'a>),
-}
-
-pub struct ColorGlyph<'a> {
-    /// Contiguous paths referenced by ranges in `commands`.
-    pub path_events: &'a [PathEvent],
-    /// Ordered drawing operations. Transform, clip, and layer pushes must be balanced
-    pub commands: &'a [GlyphPaintCommand],
-}
-
-pub struct GlyphBitmap<'a> {
-    /// Tightly packed RGBA8, premultiplied in linear space and then encoded as sRGB.
-    pub pixels: &'a [u8],
-    pub pixel_size: (u32, u32),
-    /// Logical bounds relative to the glyph origin, independent of pixel dimensions.
-    pub bounds: [(f32, f32); 2],
-}
-
 // Keep paints inline to avoid a heap allocation per drawing operation.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum GlyphPaint {
     TextFill { opacity: f32 },
     Intrinsic(Fill),
-}
-
-// Keep paints inline to avoid a heap allocation per drawing operation.
-#[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone)]
-pub enum GlyphPaintCommand {
-    PushTransform(TransformInstance),
-    PopTransform,
-    PushClip {
-        /// A range in `ColorGlyph::path_events`, containing complete Begin/End contours.
-        /// Several commands can reference the same range.
-        path_events: Range<usize>,
-        fill_rule: FillRule,
-    },
-    PopClip,
-    /// Paints the current clip using the current transform.
-    Fill(GlyphPaint),
-    /// Starts a transparent layer, composited onto its parent on `PopLayer`.
-    PushLayer(CompositeMode),
-    PopLayer,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +47,51 @@ pub enum CompositeMode {
     HslSaturation,
     HslColor,
     HslLuminosity,
+}
+
+// Keep paints inline to avoid a heap allocation per drawing operation.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone)]
+pub enum GlyphPaintCommand {
+    PushTransform(TransformInstance),
+    PopTransform,
+    PushClip {
+        /// A range in `ColorGlyph::path_events`, containing complete Begin/End contours.
+        /// Several commands can reference the same range.
+        path_events: Range<usize>,
+        fill_rule: FillRule,
+    },
+    PopClip,
+    /// Paints the current clip using the current transform.
+    Fill(GlyphPaint),
+    /// Starts a transparent layer, composited onto its parent on `PopLayer`.
+    PushLayer(CompositeMode),
+    PopLayer,
+}
+
+pub struct ColorGlyph<'a> {
+    /// Contiguous paths referenced by ranges in `commands`.
+    pub path_events: &'a [PathEvent],
+    /// Ordered drawing operations. Transform, clip, and layer pushes must be balanced
+    pub commands: &'a [GlyphPaintCommand],
+}
+
+pub struct GlyphBitmap<'a> {
+    /// Tightly packed RGBA8, premultiplied in linear space and then encoded as sRGB.
+    pub pixels: &'a [u8],
+    pub pixel_size: (u32, u32),
+    /// Logical bounds relative to the glyph origin, independent of pixel dimensions.
+    pub bounds: [(f32, f32); 2],
+}
+
+/// Borrowed glyph data in logical, y-down coordinates relative to the glyph origin.
+/// Font size and variations have already been applied
+/// TODO: implement bitmap and color-vector drawing
+pub enum GlyphContent<'a> {
+    /// Complete contours
+    Outline(&'a [PathEvent]),
+    ColorVector(ColorGlyph<'a>),
+    Bitmap(GlyphBitmap<'a>),
 }
 
 /// A cursor over already positioned glyphs. Grafo never does anything related to layout; That's

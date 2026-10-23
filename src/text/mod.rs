@@ -13,7 +13,7 @@ mod outline;
 
 #[derive(Default)]
 struct GlyphExtraction {
-    scaler: ScaleContext,
+    scale_context: ScaleContext,
     outline: Outline,
     events: Vec<PathEvent>,
 }
@@ -41,6 +41,21 @@ impl<'a> CosmicText<'a> {
             visible_bounds: None,
         }
     }
+
+    fn is_glyph_outside_visible_bounds(
+        &mut self,
+        glyph: &LayoutGlyph,
+        position: (f32, f32),
+    ) -> bool {
+        let Some(visible_bounds) = self.visible_bounds else {
+            return false;
+        };
+        let Some(font) = self.font_system.get_font(glyph.font_id, glyph.font_weight) else {
+            return false;
+        };
+        bounds::glyph_bounds(&font, glyph, position)
+            .is_some_and(|bounds| !visible_bounds.intersects(&bounds))
+    }
 }
 
 impl TextSource for CosmicText<'_> {
@@ -65,14 +80,8 @@ impl TextSource for CosmicText<'_> {
                 glyph.x + glyph.font_size * glyph.x_offset,
                 self.baseline + glyph.y - glyph.font_size * glyph.y_offset,
             );
-            if let Some(visible_bounds) = self.visible_bounds {
-                if let Some(font) = self.font_system.get_font(glyph.font_id, glyph.font_weight) {
-                    if bounds::glyph_bounds(&font, glyph, position)
-                        .is_some_and(|bounds| !visible_bounds.intersects(&bounds))
-                    {
-                        continue;
-                    }
-                }
+            if self.is_glyph_outside_visible_bounds(glyph, position) {
+                continue;
             }
             let (key, _, _) = CacheKey::new(
                 glyph.font_id,
@@ -91,7 +100,7 @@ impl TextSource for CosmicText<'_> {
         let font = font.as_swash();
         let mut scaler = self
             .extraction
-            .scaler
+            .scale_context
             .builder(font)
             .size(f32::from_bits(key.font_size_bits))
             .hint(false);
