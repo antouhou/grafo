@@ -256,8 +256,8 @@ impl SceneState {
             .ok_or(SceneError::NodeNotFound(node_id))?
         {
             DrawTreeNode::CachedShape(shape) => Ok(&shape.instance),
-            DrawTreeNode::ClipRect(_) => {
-                Err(SceneError::UnsupportedClipRectOperation(node_id, "effects"))
+            DrawTreeNode::Group | DrawTreeNode::ClipRect(_) => {
+                Err(SceneError::UnsupportedNodeOperation(node_id, "effects"))
             }
         }
     }

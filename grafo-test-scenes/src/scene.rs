@@ -71,10 +71,11 @@ fn tile_90_bounded_effect_targets(scene: &mut Scene) -> Vec<PixelExpectation> {
             options.clone().clips_children(false),
         )
         .unwrap();
+    let children = scene.add_group(Some(group)).unwrap();
     scene
         .add_shape(
             Shape::rect([(20.0, 8.0), (32.0, 32.0)]),
-            Some(group),
+            Some(children),
             None,
             options.clone().color(Color::rgb(255, 0, 0)),
         )
@@ -82,7 +83,7 @@ fn tile_90_bounded_effect_targets(scene: &mut Scene) -> Vec<PixelExpectation> {
     let panel = scene
         .add_shape(
             Shape::rect([(32.0, 8.0), (64.0, 32.0)]),
-            Some(group),
+            Some(children),
             None,
             options.clone(),
         )
@@ -115,10 +116,11 @@ fn tile_90_bounded_effect_targets(scene: &mut Scene) -> Vec<PixelExpectation> {
         },
     })
     .unwrap();
+    let children = scene.add_group(Some(parent)).unwrap();
     let inner = scene
         .add_shape(
             Shape::rounded_rect([(12.0, 48.0), (68.0, 70.0)], BorderRadii::new(4.0)),
-            Some(parent),
+            Some(children),
             None,
             options.fill(Fill::Gradient(gradient)),
         )
@@ -7238,8 +7240,7 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
 pub fn build_main_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
     let mut expectations: Vec<PixelExpectation> = Vec::new();
 
-    // The draw tree requires a single root node. All tile shapes are added as
-    // children of this full-canvas root so they are not clipped to each other.
+    scene.add_group(None).unwrap();
     let canvas_root = Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]);
     scene
         .add_shape(

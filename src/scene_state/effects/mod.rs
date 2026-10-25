@@ -253,7 +253,7 @@ impl SceneState {
             .get(node_id)
             .ok_or(SceneError::NodeNotFound(node_id))?;
         let DrawTreeNode::CachedShape(_) = node else {
-            return Err(SceneError::UnsupportedClipRectOperation(node_id, "effects"));
+            return Err(SceneError::UnsupportedNodeOperation(node_id, "effects"));
         };
         validate_backdrop_config(&config)?;
         let parameters = self.effect_parameters.store(parameters);
@@ -354,7 +354,7 @@ impl SceneState {
                 .get(node_id)
                 .ok_or(SceneError::NodeNotFound(node_id))?;
             let DrawTreeNode::CachedShape(shape) = node else {
-                return Err(SceneError::UnsupportedClipRectOperation(node_id, "effects"));
+                return Err(SceneError::UnsupportedNodeOperation(node_id, "effects"));
             };
             effect.bounds = ShapeMaskEffectBounds::new(
                 shape.instance.cached_shape.tessellation.local_bounds,
