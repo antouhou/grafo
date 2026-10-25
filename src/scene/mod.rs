@@ -51,7 +51,7 @@ pub struct SceneContext<B> {
     pub(crate) state: SceneStateContext,
 }
 
-/// A retained scene of shapes, clipping rectangles, and effects that can render to a target.
+/// A retained scene of groups, shapes, clipping rectangles, and effects.
 pub struct Scene<B: RenderBackend> {
     state: SceneState,
     planner: Planner,
@@ -132,6 +132,12 @@ impl<B: RenderBackend> Scene<B> {
 
     pub fn remove_shape(&mut self, cache_key: u64) {
         self.state.remove_shape(cache_key);
+    }
+
+    /// Adds a structural group. Doesn't draw or clips anything by itself.
+    pub fn add_group(&mut self, parent_node_id: Option<usize>) -> Result<usize, SceneError> {
+        self.state.validate_parent(parent_node_id)?;
+        Ok(self.state.insert_node(DrawTreeNode::Group, parent_node_id))
     }
 
     /// Queues a shape without retaining it in the loaded-shape cache.
@@ -319,7 +325,7 @@ impl<B: RenderBackend> Scene<B> {
         self.removed_shape_ids.clear();
     }
 
-    /// Removes all shapes, clipping rectangles, and attached effects from the scene.
+    /// Removes all groups, shapes, clipping rectangles, and attached effects from the scene.
     /// Loaded shapes, textures, and effect definitions remain available.
     pub fn clear(&mut self) {
         self.remove_subtrees([0], |_| {});

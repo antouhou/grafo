@@ -34,6 +34,7 @@ impl CachedShapeDrawData {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub(crate) enum DrawTreeNode {
+    Group,
     CachedShape(CachedShapeDrawData),
     ClipRect(ClipRectDrawData),
 }
@@ -61,9 +62,10 @@ impl ClipRectDrawData {
 }
 
 impl DrawTreeNode {
-    /// Unpadded bounds cached for the node's fixed geometry and transform.
+    /// Unpadded bounds of the node itself, empty for structural groups.
     pub(crate) fn logical_screen_bounds(&self) -> MathRect {
         match self {
+            DrawTreeNode::Group => MathRect::zero(),
             DrawTreeNode::CachedShape(cached_shape) => cached_shape.logical_screen_bounds,
             DrawTreeNode::ClipRect(clip_rect) => clip_rect.logical_screen_bounds,
         }
@@ -72,12 +74,13 @@ impl DrawTreeNode {
     pub(crate) fn instance_color_override(&self) -> Option<[f32; 4]> {
         match self {
             DrawTreeNode::CachedShape(cached_shape) => cached_shape.instance.color_override,
-            DrawTreeNode::ClipRect(_) => None,
+            DrawTreeNode::Group | DrawTreeNode::ClipRect(_) => None,
         }
     }
 
     pub(crate) fn clips_children(&self) -> bool {
         match self {
+            DrawTreeNode::Group => false,
             DrawTreeNode::CachedShape(cached_shape) => cached_shape.clips_children,
             DrawTreeNode::ClipRect(clip_rect) => clip_rect.clips_children,
         }
@@ -85,6 +88,7 @@ impl DrawTreeNode {
 
     pub(crate) fn is_axis_aligned_rect(&self) -> bool {
         match self {
+            DrawTreeNode::Group => false,
             DrawTreeNode::CachedShape(cached_shape) => {
                 cached_shape.instance.cached_shape.tessellation.is_rect
                     && geometry::is_axis_aligned_rect_transform(cached_shape.instance.transform)

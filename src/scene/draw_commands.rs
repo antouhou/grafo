@@ -34,6 +34,7 @@ pub(super) enum NodeTarget {
 pub(super) fn has_child_clip(node: &DrawTreeNode) -> bool {
     node.clips_children()
         && match node {
+            DrawTreeNode::Group => false,
             DrawTreeNode::CachedShape(shape) => shape.has_geometry() || node.is_axis_aligned_rect(),
             DrawTreeNode::ClipRect(_) => true,
         }
@@ -153,7 +154,7 @@ impl<B: RenderBackend> Scene<B> {
             NodeTarget::Insert { parent } => {
                 let shape_bounds = match &node {
                     DrawTreeNode::CachedShape(shape) => Some(shape.logical_screen_bounds),
-                    DrawTreeNode::ClipRect(_) => None,
+                    DrawTreeNode::Group | DrawTreeNode::ClipRect(_) => None,
                 };
                 let inserted_id = self.state.insert_node(node, parent);
                 debug_assert_eq!(inserted_id, node_id);
