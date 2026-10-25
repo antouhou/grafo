@@ -1,6 +1,6 @@
 use crate::commands::{
     CaptureSource, DrawClip, RenderCommand, RenderOperation, ShapeDraw, ShapeDrawId,
-    ShapeDrawMaterial, ShapeTextureBinding, Target, TextureComposite,
+    ShapeDrawMaterial, ShapeTextureBinding, TextureComposite,
 };
 use crate::core::shape::ShapeInstance;
 use crate::planner::commands::TraversalCommands;
@@ -75,14 +75,18 @@ pub(crate) struct DrawPlanningInput<'scene, 'planning> {
 }
 
 impl DrawPlanningInput<'_, '_> {
-    fn resolve_group_capture(&self, node_id: usize) -> Option<ContentCapture> {
+    fn resolve_group_capture(
+        &self,
+        node_id: usize,
+        texture_ids: &mut TextureIdAllocator,
+    ) -> Option<ContentCapture> {
         let can_capture_inline =
             self.backdrop_effects.is_empty() && self.selection.subtree_root != Some(node_id);
         if !can_capture_inline {
             return None;
         }
         let effect = self.content_effects.get(&node_id)?;
-        ContentCapture::new(*effect)
+        ContentCapture::new(*effect, None, texture_ids)
     }
 }
 
@@ -142,13 +146,9 @@ impl DrawPlanner {
             return;
         }
         let parent_clip = self.current;
-        let group_capture = input.resolve_group_capture(node_id);
-        if group_capture.is_some() {
-            let texture = texture_ids.allocate();
-            output.push(RenderOperation::BeginTarget(Target::Texture {
-                texture,
-                size: input.physical_size,
-            }));
+        let group_capture = input.resolve_group_capture(node_id, texture_ids);
+        if let Some(capture) = group_capture {
+            capture.append_begin(output);
             self.current = ClipState::for_viewport(input.physical_size);
         }
         if let Some(&composite) = input.shape_mask_effects.get(&node_id) {
@@ -206,8 +206,7 @@ impl DrawPlanner {
             let parent = self.parents.pop().expect("parent clip is balanced");
             self.current = parent.clip_state;
             if let Some(capture) = parent.group_capture {
-                let input_texture = capture.append_capture(output, texture_ids);
-                output.push(RenderOperation::EndTarget);
+                let input_texture = capture.append_end(output, texture_ids);
                 let composite =
                     capture.append_effect(input_texture, input.parameters, output, texture_ids);
                 output.push_composite(composite, self.current.clip);

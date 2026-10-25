@@ -1,6 +1,6 @@
 use super::TextureSamplingUniform;
 use crate::wgpu_backend::gradient::GpuMaterialParams;
-use crate::wgpu_backend::pipeline::SHAPE_SHADER;
+use crate::wgpu_backend::pipeline::{Uniforms, SHAPE_SHADER};
 use naga::front::wgsl;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 use naga::{Module, TypeInner};
@@ -31,6 +31,16 @@ fn shape_material_uniforms_match_shader_layout() {
     Validator::new(ValidationFlags::all(), Capabilities::all())
         .validate(&shader)
         .unwrap();
+    assert_uniform_layout(
+        &shader,
+        "Uniforms",
+        mem::size_of::<Uniforms>(),
+        &[
+            ("canvas_size", mem::offset_of!(Uniforms, canvas_size)),
+            ("scale_factor", mem::offset_of!(Uniforms, scale_factor)),
+            ("target_origin", mem::offset_of!(Uniforms, target_origin)),
+        ],
+    );
     assert_uniform_layout(
         &shader,
         "TextureSamplingParams",

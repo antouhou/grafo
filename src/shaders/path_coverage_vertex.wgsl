@@ -23,7 +23,8 @@ fn coverage_coordinates(vertex: CoverageGeometryVertex) -> CoverageCoordinates {
 
 fn coverage_clip_position(position: vec2<f32>) -> vec4<f32> {
     let size = uniforms.canvas_size * uniforms.scale_factor;
-    return vec4<f32>(2.0 * position.x / size.x - 1.0, 1.0 - 2.0 * position.y / size.y, 0.0, 1.0);
+    let target_position = position - uniforms.target_origin;
+    return vec4<f32>(2.0 * target_position.x / size.x - 1.0, 1.0 - 2.0 * target_position.y / size.y, 0.0, 1.0);
 }
 
 fn coverage_vertex(input: CoverageInstanceInput, vertex: CoverageGeometryVertex, coordinates: CoverageCoordinates) -> VertexOutput {
@@ -36,7 +37,7 @@ fn coverage_vertex(input: CoverageInstanceInput, vertex: CoverageGeometryVertex,
     output.texture_flags = input.texture_flags;
     output.shape_tex_coords = texture_position;
     output.coverage_start = vertex.coverage_start;
-    output.coverage_origin = input.coverage_translation + vec2<f32>(vertex.tile_origin);
+    output.coverage_origin = input.coverage_translation + vec2<f32>(vertex.tile_origin) - uniforms.target_origin;
     return output;
 }
 

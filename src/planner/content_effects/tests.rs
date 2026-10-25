@@ -65,7 +65,7 @@ fn validate_dependencies(plan: &RecordedCommands) {
             }
             RenderOperation::Capture(capture) => {
                 assert!(!targets.is_empty());
-                if let CaptureSource::Layered { base } = capture.source {
+                if let CaptureSource::Layered { base, .. } = capture.source {
                     assert!(produced[planned_index(base)]);
                 }
                 assert_eq!(planned_index(capture.output), produced.len());
@@ -153,6 +153,11 @@ impl Scene {
 
     fn group(&mut self, parent: Option<usize>, effect_id: u64) -> usize {
         let node = self.add(parent);
+        self.attach_content(node, effect_id, ContentEffectConfig::default());
+        node
+    }
+
+    fn attach_content(&mut self, node: usize, effect_id: u64, config: ContentEffectConfig) {
         self.groups.insert(
             node,
             ContentEffectInstance::new(
@@ -160,7 +165,7 @@ impl Scene {
                     effect_id,
                     parameters: self.parameters.store(&effect_id.to_le_bytes()),
                 },
-                ContentEffectConfig::default(),
+                config,
                 self.tree.get(node).unwrap(),
                 None,
                 Viewport {
@@ -170,10 +175,9 @@ impl Scene {
                 4096,
             ),
         );
-        node
     }
 
-    fn backdrop(&mut self, parent: usize) {
+    fn backdrop(&mut self, parent: usize) -> usize {
         let shape = CachedShapeHandle::new(
             &Shape::rect([(10.0, 10.0), (40.0, 40.0)]),
             &mut FillTessellator::new(),
@@ -203,6 +207,7 @@ impl Scene {
                 1024,
             ),
         );
+        node
     }
 
     fn plan<'scene>(
@@ -247,18 +252,15 @@ fn nested_groups_close_into_their_parent_targets() {
             Command::Begin(Some(0)),
             Command::Begin(Some(1)),
             Command::Begin(Some(2)),
-            Command::Capture(3),
             Command::End,
-            Command::Effect(3, 3, 4),
+            Command::Effect(3, 2, 3),
+            Command::Composite(3),
+            Command::End,
+            Command::Effect(2, 1, 4),
             Command::Composite(4),
-            Command::Capture(5),
             Command::End,
-            Command::Effect(2, 5, 6),
-            Command::Composite(6),
-            Command::Capture(7),
-            Command::End,
-            Command::Effect(1, 7, 8),
-            Command::Composite(8),
+            Command::Effect(1, 0, 5),
+            Command::Composite(5),
             Command::End,
         ]
     );
@@ -296,23 +298,19 @@ fn uneven_groups_resume_the_parent_between_siblings() {
             Command::Begin(Some(0)),
             Command::Begin(Some(1)),
             Command::Begin(Some(2)),
-            Command::Capture(3),
             Command::End,
-            Command::Effect(3, 3, 4),
+            Command::Effect(3, 2, 3),
+            Command::Composite(3),
+            Command::End,
+            Command::Effect(2, 1, 4),
             Command::Composite(4),
-            Command::Capture(5),
             Command::End,
-            Command::Effect(2, 5, 6),
-            Command::Composite(6),
-            Command::Capture(7),
+            Command::Effect(1, 0, 5),
+            Command::Composite(5),
+            Command::Begin(Some(6)),
             Command::End,
-            Command::Effect(1, 7, 8),
-            Command::Composite(8),
-            Command::Begin(Some(9)),
-            Command::Capture(10),
-            Command::End,
-            Command::Effect(4, 10, 11),
-            Command::Composite(11),
+            Command::Effect(4, 6, 7),
+            Command::Composite(7),
             Command::End,
         ]
     );
@@ -348,13 +346,15 @@ fn layered_backdrop_sources_finish_before_captures_and_skip_their_group() {
     assert_eq!(
         captures[0].source,
         CaptureSource::Layered {
-            base: IntermediateTextureId::Planned(0)
+            base: IntermediateTextureId::Planned(0),
+            origin: [6, 6],
         }
     );
     assert_eq!(
         captures[1].source,
         CaptureSource::Layered {
-            base: IntermediateTextureId::Planned(6)
+            base: IntermediateTextureId::Planned(5),
+            origin: [6, 6],
         }
     );
     assert_eq!(captures[2].source, CaptureSource::Target);
@@ -369,7 +369,7 @@ fn layered_backdrop_sources_finish_before_captures_and_skip_their_group() {
             RenderOperation::BeginTarget(Target::Texture { texture, .. }) => target = Some(texture),
             RenderOperation::EndTarget => target = None,
             RenderOperation::CompositeTexture(composite)
-                if target == Some(IntermediateTextureId::Planned(6)) =>
+                if target == Some(IntermediateTextureId::Planned(5)) =>
             {
                 composites.push(composite)
             }
@@ -390,7 +390,7 @@ fn queue_rebuilds_reuse_scheduling_storage_and_empty_scenes_clear_the_surface() 
     let capacities = (
         planner.groups.capacity(),
         planner.results.capacity(),
-        planner.backdrop_ancestors.capacity(),
+        planner.backdrop_regions.capacity(),
         planner.tasks.capacity(),
     );
     for _ in 0..3 {
@@ -405,7 +405,7 @@ fn queue_rebuilds_reuse_scheduling_storage_and_empty_scenes_clear_the_surface() 
             (
                 planner.groups.capacity(),
                 planner.results.capacity(),
-                planner.backdrop_ancestors.capacity(),
+                planner.backdrop_regions.capacity(),
                 planner.tasks.capacity()
             )
         );
@@ -416,5 +416,7 @@ fn queue_rebuilds_reuse_scheduling_storage_and_empty_scenes_clear_the_surface() 
     validate_dependencies(&output);
     assert_eq!(snapshot(&output), [Command::Begin(None), Command::End]);
     assert!(planner.results.is_empty());
-    assert!(planner.backdrop_ancestors.is_empty());
+    assert!(planner.backdrop_regions.is_empty());
 }
+
+mod bounds;

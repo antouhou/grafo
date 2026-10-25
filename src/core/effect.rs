@@ -178,9 +178,38 @@ impl ShapeMaskEffectConfig {
 pub struct CaptureRegion {
     /// Destination bounds in full-resolution physical pixels, including padding.
     pub bounds: PhysicalRect,
-    /// Source pixels to copy, or None when the input is fully offscreen.
+    /// Input bounds in physical screen coordinates, or None when fully offscreen.
     pub source_rect: Option<UnsignedPhysicalRect>,
-    pub copy_destination_origin: UnsignedPhysicalPoint,
+}
+
+impl CaptureRegion {
+    /// Intersects the input with a source texture and resolves both copy origins.
+    pub(crate) fn copy_from(
+        self,
+        source_bounds: PhysicalRect,
+    ) -> Option<(UnsignedPhysicalRect, UnsignedPhysicalPoint)> {
+        let overlap = self
+            .source_rect?
+            .to_i64()
+            .intersection(&source_bounds.to_i64())?;
+        let source = overlap
+            .translate(-source_bounds.min.to_i64().to_vector())
+            .to_u32();
+        let destination = (overlap.min - self.bounds.min.to_i64()).to_u32().to_point();
+        Some((source, destination))
+    }
+
+    pub(crate) fn scissor(self, screen_scissor: UnsignedPhysicalRect) -> UnsignedPhysicalRect {
+        let clipped = self
+            .source_rect
+            .and_then(|input| input.intersection(&screen_scissor));
+        clipped.map_or_else(UnsignedPhysicalRect::zero, |clipped| {
+            clipped
+                .to_i64()
+                .translate(-self.bounds.min.to_i64().to_vector())
+                .to_u32()
+        })
+    }
 }
 
 pub(crate) fn resolve_capture_region_to_viewport(
@@ -193,17 +222,9 @@ pub(crate) fn resolve_capture_region_to_viewport(
         .to_i64()
         .intersection(&viewport)
         .map(|overlap| overlap.to_u32());
-    let copy_destination_origin = source_rect
-        .map(|source_rect| {
-            (source_rect.min.to_i32() - output_bounds.min)
-                .to_u32()
-                .to_point()
-        })
-        .unwrap_or_else(UnsignedPhysicalPoint::zero);
     CaptureRegion {
         bounds: output_bounds,
         source_rect,
-        copy_destination_origin,
     }
 }
 

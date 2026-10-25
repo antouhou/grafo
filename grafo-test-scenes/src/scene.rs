@@ -2,9 +2,9 @@
 //  visual regression tiles that way
 use crate::expectations::PixelExpectation;
 use crate::shaders::{
-    BlurParams, DropShadowParams, HORIZONTAL_BLUR_WGSL, PADDED_BACKDROP_SAMPLING_WGSL,
-    PASSTHROUGH_WGSL, ROTATE_COLOR_CHANNELS_WGSL, SHADOW_TINT_WGSL, SHAPE_DROP_WGSL,
-    VERTICAL_BLUR_WGSL, WAVE_DISTORTION_WGSL,
+    BlurParams, DropShadowParams, HORIZONTAL_BLUR_WGSL, LEFT_CAPTURE_MARGIN_WGSL,
+    PADDED_BACKDROP_SAMPLING_WGSL, PASSTHROUGH_WGSL, ROTATE_COLOR_CHANNELS_WGSL, SHADOW_TINT_WGSL,
+    SHAPE_DROP_WGSL, VERTICAL_BLUR_WGSL, WAVE_DISTORTION_WGSL,
 };
 use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
@@ -20,7 +20,7 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 const TILE_SIZE: u32 = 80;
 const COLUMNS: u32 = 10;
-const ROWS: u32 = 9;
+const ROWS: u32 = 10;
 
 pub const CANVAS_WIDTH: u32 = TILE_SIZE * COLUMNS;
 pub const CANVAS_HEIGHT: u32 = TILE_SIZE * ROWS;
@@ -45,6 +45,140 @@ fn tile_origin(tile_number: u32) -> (f32, f32) {
     let column = index % COLUMNS;
     let row = index / COLUMNS;
     ((column * TILE_SIZE) as f32, (row * TILE_SIZE) as f32)
+}
+
+/// Captures sample overflowing content before the final crop; nested filters keep canvas gradients.
+fn tile_90_bounded_effect_targets(scene: &mut Scene) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(90);
+    let options = ShapeDrawCommandOptions::new()
+        .transform(TransformInstance::translation(origin_x, origin_y));
+    scene
+        .load_effect(90_001, &[LEFT_CAPTURE_MARGIN_WGSL])
+        .unwrap();
+    scene
+        .add_shape(
+            Shape::rect([(4.0, 4.0), (76.0, 36.0)]),
+            None,
+            None,
+            options.clone().color(Color::BLACK),
+        )
+        .unwrap();
+    let group = scene
+        .add_shape(
+            Shape::rect([(32.0, 8.0), (64.0, 32.0)]),
+            None,
+            None,
+            options.clone().clips_children(false),
+        )
+        .unwrap();
+    scene
+        .add_shape(
+            Shape::rect([(20.0, 8.0), (32.0, 32.0)]),
+            Some(group),
+            None,
+            options.clone().color(Color::rgb(255, 0, 0)),
+        )
+        .unwrap();
+    let panel = scene
+        .add_shape(
+            Shape::rect([(32.0, 8.0), (64.0, 32.0)]),
+            Some(group),
+            None,
+            options.clone(),
+        )
+        .unwrap();
+    scene
+        .set_backdrop_effect(panel, 90_001, &[], BackdropEffectConfig::new().padding(8.0))
+        .unwrap();
+    scene
+        .set_content_effect(
+            group,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            ContentEffectConfig::new().outset(4.0).downsample(0.5),
+        )
+        .unwrap();
+
+    let parent = scene
+        .add_shape(
+            Shape::rounded_rect([(4.0, 42.0), (76.0, 76.0)], BorderRadii::new(6.0)),
+            None,
+            None,
+            options.clone().color(Color::rgb(30, 180, 60)),
+        )
+        .unwrap();
+    let gradient = Gradient::linear(LinearGradientDesc {
+        common: two_stop_common_canvas((255, 0, 0), (0, 0, 255), SpreadMode::Pad),
+        line: LinearGradientLine {
+            start: [origin_x + 12.0, origin_y],
+            end: [origin_x + 68.0, origin_y],
+        },
+    })
+    .unwrap();
+    let inner = scene
+        .add_shape(
+            Shape::rounded_rect([(12.0, 48.0), (68.0, 70.0)], BorderRadii::new(4.0)),
+            Some(parent),
+            None,
+            options.fill(Fill::Gradient(gradient)),
+        )
+        .unwrap();
+    for node in [parent, inner] {
+        scene
+            .set_content_effect(
+                node,
+                PASSTHROUGH_EFFECT_ID,
+                &[],
+                ContentEffectConfig::new().outset(2.0).downsample(0.5),
+            )
+            .unwrap();
+    }
+    [
+        (
+            34,
+            20,
+            [255, 0, 0],
+            2,
+            "t90_capture_reads_overflow_before_crop",
+        ),
+        (25, 20, [0, 0, 0], 2, "t90_final_content_crops_overflow"),
+        (46, 20, [0, 0, 0], 2, "t90_capture_keeps_base_origin"),
+        (
+            16,
+            60,
+            [234, 0, 21],
+            8,
+            "t90_nested_downsample_canvas_gradient_left",
+        ),
+        (
+            63,
+            60,
+            [21, 0, 234],
+            8,
+            "t90_nested_downsample_canvas_gradient_right",
+        ),
+        (
+            8,
+            60,
+            [30, 180, 60],
+            2,
+            "t90_parent_resumes_after_nested_target",
+        ),
+        (40, 40, [255; 3], 2, "t90_content_padding_stays_transparent"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], tolerance, label)| {
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            tolerance,
+            label,
+        )
+    })
+    .collect()
 }
 
 fn tile_87_rectangle_pixel_coverage(scene: &mut Scene) -> Vec<PixelExpectation> {
@@ -6831,6 +6965,20 @@ pub fn build_nested_targets_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
     tile_83_nested_target_restoration(scene)
 }
 
+/// Tile 90 can be rendered at different physical scales without the other grid tiles.
+pub fn build_bounded_targets_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
+    scene
+        .add_shape(
+            Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]),
+            None,
+            None,
+            ShapeDrawCommandOptions::new().color(Color::WHITE),
+        )
+        .unwrap();
+    load_shared_resources(scene);
+    tile_90_bounded_effect_targets(scene)
+}
+
 /// A wavy striped panel contains a blurred badge; sharp stripes resume after its targets close.
 fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(83);
@@ -7206,6 +7354,7 @@ pub fn build_main_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
     expectations.extend(tile_87_rectangle_pixel_coverage(scene));
     expectations.extend(tile_88_rectangle_coverage_materials(scene));
     expectations.extend(tile_89_rectangle_coverage_effects(scene));
+    expectations.extend(tile_90_bounded_effect_targets(scene));
 
     expectations
 }
