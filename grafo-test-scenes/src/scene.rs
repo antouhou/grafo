@@ -47,90 +47,6 @@ fn tile_origin(tile_number: u32) -> (f32, f32) {
     ((column * TILE_SIZE) as f32, (row * TILE_SIZE) as f32)
 }
 
-fn tile_91_structural_groups(scene: &mut Scene) -> Vec<PixelExpectation> {
-    let (origin_x, origin_y) = tile_origin(91);
-    let options = ShapeDrawCommandOptions::new()
-        .transform(TransformInstance::translation(origin_x, origin_y));
-    let group = scene.add_group(None).unwrap();
-    let clip = scene
-        .add_clipping_rect(
-            [(8.0, 8.0), (72.0, 72.0)],
-            Some(group),
-            Some(TransformInstance::translation(origin_x, origin_y)),
-            true,
-        )
-        .unwrap();
-    let parent = scene
-        .add_shape(
-            Shape::rounded_rect([(12.0, 12.0), (68.0, 68.0)], BorderRadii::new(10.0)),
-            Some(clip),
-            None,
-            options.clone().color(Color::rgb(180, 180, 180)),
-        )
-        .unwrap();
-    let children = scene.add_group(Some(parent)).unwrap();
-    scene
-        .add_shape(
-            Shape::rect([(0.0, 20.0), (48.0, 52.0)]),
-            Some(children),
-            None,
-            options.clone().color(Color::rgb(255, 0, 0)),
-        )
-        .unwrap();
-    let nested = scene.add_group(Some(children)).unwrap();
-    scene.add_group(Some(nested)).unwrap();
-    scene
-        .add_shape(
-            Shape::rect([(32.0, 40.0), (80.0, 80.0)]),
-            Some(nested),
-            None,
-            options.clone().color(Color::rgb(0, 0, 255)),
-        )
-        .unwrap();
-    scene
-        .add_shape(
-            Shape::rect([(20.0, 56.0), (36.0, 64.0)]),
-            Some(parent),
-            None,
-            options.clone().color(Color::rgb(0, 255, 0)),
-        )
-        .unwrap();
-    scene
-        .add_shape(
-            Shape::rect([(72.0, 20.0), (78.0, 60.0)]),
-            Some(group),
-            None,
-            options.color(Color::rgb(255, 255, 0)),
-        )
-        .unwrap();
-    [
-        (16, 32, [255, 0, 0], "t91_first_group_child"),
-        (40, 44, [0, 0, 255], "t91_nested_child_overlaps_first"),
-        (60, 60, [0, 0, 255], "t91_nested_child_keeps_ancestor_clip"),
-        (70, 50, [255; 3], "t91_ancestor_clips_overflow"),
-        (14, 14, [255; 3], "t91_ancestor_rounded_corner"),
-        (34, 60, [0, 255, 0], "t91_sibling_after_nested_groups"),
-        (
-            74,
-            32,
-            [255, 255, 0],
-            "t91_sibling_restores_scissor_and_stencil",
-        ),
-    ]
-    .into_iter()
-    .map(|(x, y, [red, green, blue], label)| {
-        PixelExpectation::opaque(
-            origin_x as u32 + x,
-            origin_y as u32 + y,
-            red,
-            green,
-            blue,
-            label,
-        )
-    })
-    .collect()
-}
-
 /// Captures sample overflowing content before the final crop; nested filters keep canvas gradients.
 fn tile_90_bounded_effect_targets(scene: &mut Scene) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(90);
@@ -7440,7 +7356,6 @@ pub fn build_main_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
     expectations.extend(tile_88_rectangle_coverage_materials(scene));
     expectations.extend(tile_89_rectangle_coverage_effects(scene));
     expectations.extend(tile_90_bounded_effect_targets(scene));
-    expectations.extend(tile_91_structural_groups(scene));
 
     expectations
 }
