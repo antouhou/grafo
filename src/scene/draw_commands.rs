@@ -5,6 +5,7 @@ use crate::core::effect::ShapeMaskEffectBounds;
 use crate::core::shape::{Shape, ShapeDrawCommandOptions};
 use crate::core::vertex::InstanceTransform;
 use crate::render_backend::RenderBackend;
+use crate::scene_state::effects::EffectConfig;
 use crate::scene_state::types::{CachedShapeDrawData, DrawTreeNode};
 use crate::scene_state::{SceneError, SceneState};
 
@@ -34,7 +35,7 @@ pub(super) enum NodeTarget {
 pub(super) fn has_child_clip(node: &DrawTreeNode) -> bool {
     node.clips_children()
         && match node {
-            DrawTreeNode::Group => false,
+            DrawTreeNode::Group(_) => false,
             DrawTreeNode::CachedShape(shape) => shape.has_geometry() || node.is_axis_aligned_rect(),
             DrawTreeNode::ClipRect(_) => true,
         }
@@ -65,7 +66,7 @@ impl<B: RenderBackend> Scene<B> {
         })
     }
 
-    fn replace_node(
+    pub(super) fn replace_node(
         &mut self,
         node_id: usize,
         node: DrawTreeNode,
@@ -124,7 +125,43 @@ impl<B: RenderBackend> Scene<B> {
                 node_id
             }
         };
+        let previous_dirty = self.dirty_bounds;
         let node = self.prepare_draw_command(command)?;
+        let replacement_effects = match (&target, &node) {
+            (NodeTarget::Replace { node_id }, DrawTreeNode::CachedShape(_))
+                if !matches!(
+                    self.state.draw_tree.get_unchecked(*node_id),
+                    DrawTreeNode::CachedShape(_)
+                ) =>
+            {
+                let mut effects = self.state.node_effects(*node_id);
+                effects.inherit_from(self.state.inherited_effects(*node_id));
+                Some(effects)
+            }
+            _ => None,
+        };
+        if let (Some(effects), DrawTreeNode::CachedShape(shape)) = (replacement_effects, &node) {
+            for effect in effects.iter() {
+                self.backend
+                    .validate_effect_params(
+                        effect.instance.effect_id,
+                        self.state
+                            .effect_parameters
+                            .get(effect.instance.parameters)
+                            .bytes,
+                    )
+                    .map_err(DrawCommandError::Backend)?;
+                if let EffectConfig::ShapeMask(config) = effect.config {
+                    ShapeMaskEffectBounds::new(
+                        shape.instance.cached_shape.local_bounds(),
+                        config,
+                        shape.instance.transform,
+                        self.state.viewport().scale_factor,
+                    )
+                    .ok_or(SceneError::InvalidShapeMaskEffectBounds(node_id))?;
+                }
+            }
+        }
         let shape_mask_effect_bounds = match (&node, self.state.shape_mask_effects.get(&node_id)) {
             (DrawTreeNode::CachedShape(shape), Some(effect)) => Some(
                 ShapeMaskEffectBounds::new(
@@ -154,16 +191,27 @@ impl<B: RenderBackend> Scene<B> {
             NodeTarget::Insert { parent } => {
                 let shape_bounds = match &node {
                     DrawTreeNode::CachedShape(shape) => Some(shape.logical_screen_bounds),
-                    DrawTreeNode::Group | DrawTreeNode::ClipRect(_) => None,
+                    DrawTreeNode::Group(_) | DrawTreeNode::ClipRect(_) => None,
                 };
                 let inserted_id = self.state.insert_node(node, parent);
                 debug_assert_eq!(inserted_id, node_id);
                 if let Some(bounds) = shape_bounds {
                     mark_dirty(&mut self.dirty_bounds, bounds, self.state.viewport());
                 }
+                if shape_bounds.is_some() {
+                    let effects = self.state.inherited_effects(node_id);
+                    if let Err(error) = self.apply_effects(node_id, effects) {
+                        self.remove_subtrees([node_id], |_| {});
+                        self.dirty_bounds = previous_dirty;
+                        return Err(error);
+                    }
+                }
             }
             NodeTarget::Replace { node_id } => {
                 self.replace_node(node_id, node, shape_mask_effect_bounds);
+                if let Some(effects) = replacement_effects {
+                    self.apply_effects(node_id, effects)?;
+                }
             }
         }
         Ok(node_id)

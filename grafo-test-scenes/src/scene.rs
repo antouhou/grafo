@@ -6,15 +6,19 @@ use crate::shaders::{
     PADDED_BACKDROP_SAMPLING_WGSL, PASSTHROUGH_WGSL, ROTATE_COLOR_CHANNELS_WGSL, SHADOW_TINT_WGSL,
     SHAPE_DROP_WGSL, VERTICAL_BLUR_WGSL, WAVE_DISTORTION_WGSL,
 };
+use grafo::lyon::math::Box2D;
+use grafo::lyon::path::{Path, PathEvent, Winding};
 use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
-    ColorInterpolation, ConicGradientDesc, ContentEffectConfig, Fill, Gradient, GradientColor,
-    GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions, GradientUnits,
-    LinearGradientDesc, LinearGradientLine, RadialGradientDesc, RadialGradientSize, Scene, Shape,
-    ShapeDrawCommandOptions, ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
-    SpreadMode, TextureManager, TransformInstance,
+    ColorInterpolation, ConicGradientDesc, ContentEffectConfig, Fill, GlyphContent, Gradient,
+    GradientColor, GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions,
+    GradientUnits, LinearGradientDesc, LinearGradientLine, PositionedGlyph, RadialGradientDesc,
+    RadialGradientSize, Scene, Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig,
+    ShapeTextureFitMode, ShapeTextureOptions, SpreadMode, TextSource, TextureManager,
+    TransformInstance,
 };
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
+use std::slice;
 
 // Grid layout
 
@@ -45,6 +49,143 @@ fn tile_origin(tile_number: u32) -> (f32, f32) {
     let column = index % COLUMNS;
     let row = index / COLUMNS;
     ((column * TILE_SIZE) as f32, (row * TILE_SIZE) as f32)
+}
+
+struct RepeatedOutline<'a> {
+    events: &'a [PathEvent],
+    positions: slice::Iter<'a, (f32, f32)>,
+}
+
+impl TextSource for RepeatedOutline<'_> {
+    type GlyphKey = &'static str;
+
+    fn next_glyph(&mut self) -> Option<PositionedGlyph<Self::GlyphKey>> {
+        Some(PositionedGlyph {
+            key: "visual-regression-ring",
+            position: *self.positions.next()?,
+        })
+    }
+
+    fn glyph_content(&mut self, _: &Self::GlyphKey) -> Option<GlyphContent<'_>> {
+        Some(GlyphContent::Outline(self.events))
+    }
+}
+
+fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(91);
+    let mut path = Path::builder();
+    path.add_rectangle(
+        &Box2D::new((0.0, 0.0).into(), (12.0, 16.0).into()),
+        Winding::Positive,
+    );
+    path.add_rectangle(
+        &Box2D::new((4.0, 4.0).into(), (8.0, 12.0).into()),
+        Winding::Negative,
+    );
+    let events: Vec<_> = path.build().iter().collect();
+    let transform = TransformInstance::translation(origin_x, origin_y);
+    let parent = scene
+        .add_clipping_rect([(6.0, 6.0), (65.0, 71.0)], None, Some(transform), true)
+        .unwrap();
+    let first_positions = [(10.0, 10.0), (30.0, 10.0), (58.0, 10.0)];
+    let text = scene
+        .add_text(
+            RepeatedOutline {
+                events: &events,
+                positions: first_positions.iter(),
+            },
+            Some(parent),
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgb(255, 0, 0))
+                .transform(transform),
+        )
+        .unwrap();
+    scene
+        .set_shape_mask_effect(
+            text,
+            DROP_SHADOW_EFFECT_ID,
+            bytemuck::bytes_of(&DropShadowParams {
+                radius: 4.0,
+                sigma: 1.5,
+                offset: [2.0, 3.0],
+                color: [0.0, 0.0, 0.0, 0.6],
+            }),
+            ShapeMaskEffectConfig::new().outset(8.0),
+        )
+        .unwrap();
+    scene
+        .set_content_effect(
+            text,
+            COLOR_CHANNEL_EFFECT_ID,
+            &[],
+            ContentEffectConfig::new(),
+        )
+        .unwrap();
+    scene
+        .replace_with_text(
+            text,
+            RepeatedOutline {
+                events: &events,
+                positions: first_positions.iter(),
+            },
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgb(255, 0, 0))
+                .transform(transform),
+        )
+        .unwrap();
+    scene
+        .add_shape(
+            Shape::rect([(6.0, 42.0), (65.0, 71.0)]),
+            Some(parent),
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgb(255, 0, 0))
+                .transform(transform),
+        )
+        .unwrap();
+    let second_positions = [(10.0, 46.0), (30.0, 46.0), (58.0, 46.0)];
+    let text = scene
+        .add_text(
+            RepeatedOutline {
+                events: &events,
+                positions: second_positions.iter(),
+            },
+            Some(parent),
+            ShapeDrawCommandOptions::new().transform(transform),
+        )
+        .unwrap();
+    scene
+        .set_backdrop_effect(
+            text,
+            COLOR_CHANNEL_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::default(),
+        )
+        .unwrap();
+    [
+        (12, 12, [0, 255, 0], "t91_first_glyph_content_effect"),
+        (32, 12, [0, 255, 0], "t91_repeated_glyph_content_effect"),
+        (16, 18, [220, 220, 220], "t91_glyph_counter_shadow"),
+        (23, 24, [207, 207, 207], "t91_glyph_blurred_shadow"),
+        (43, 24, [207, 207, 207], "t91_repeated_glyph_blurred_shadow"),
+        (12, 48, [0, 255, 0], "t91_first_glyph_backdrop"),
+        (32, 48, [0, 255, 0], "t91_repeated_glyph_backdrop"),
+        (16, 54, [255, 0, 0], "t91_backdrop_preserves_counter"),
+        (63, 48, [0, 255, 0], "t91_glyph_inside_clip"),
+        (68, 48, [255, 255, 255], "t91_glyph_outside_clip"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+    })
+    .collect()
 }
 
 /// Captures sample overflowing content before the final crop; nested filters keep canvas gradients.
@@ -7356,6 +7497,7 @@ pub fn build_main_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
     expectations.extend(tile_88_rectangle_coverage_materials(scene));
     expectations.extend(tile_89_rectangle_coverage_effects(scene));
     expectations.extend(tile_90_bounded_effect_targets(scene));
+    expectations.extend(tile_91_cached_glyphs(scene));
 
     expectations
 }

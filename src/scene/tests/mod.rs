@@ -17,7 +17,6 @@ mod damage;
 mod groups;
 mod removal;
 mod replacement;
-#[cfg(feature = "cosmic-text")]
 mod text;
 
 #[derive(Default)]

@@ -12,7 +12,7 @@ use lyon::lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, VertexBuffers,
 };
 pub use lyon::path::FillRule;
-use lyon::path::{Builder, Path, Winding};
+use lyon::path::{Builder, Path, PathEvent, Winding};
 use lyon::tessellation::FillVertexConstructor;
 use std::sync::Arc;
 
@@ -348,6 +348,24 @@ impl PathShape {
         shape_resources: &mut ShapeResources,
         tesselation_cache_key: Option<u64>,
     ) -> Arc<CachedTessellation> {
+        Self::tessellate_events(
+            self.path.iter(),
+            self.fill_rule,
+            self.is_rounded_rect,
+            tessellator,
+            shape_resources,
+            tesselation_cache_key,
+        )
+    }
+
+    pub(crate) fn tessellate_events(
+        events: impl IntoIterator<Item = PathEvent>,
+        fill_rule: FillRule,
+        is_rounded_rect: bool,
+        tessellator: &mut FillTessellator,
+        shape_resources: &mut ShapeResources,
+        tesselation_cache_key: Option<u64>,
+    ) -> Arc<CachedTessellation> {
         if let Some(cache_key) = tesselation_cache_key {
             if let Some(cached_tessellation) = shape_resources
                 .tessellation_cache
@@ -358,7 +376,8 @@ impl PathShape {
         }
 
         let mut buffers = VertexBuffers::new();
-        let local_bounds = self.tessellate_into_buffers(&mut buffers, tessellator);
+        let local_bounds =
+            Self::tessellate_into_buffers(events, fill_rule, &mut buffers, tessellator);
 
         #[allow(clippy::manual_is_multiple_of)]
         let needs_index_padding = buffers.indices.len() % 2 != 0;
@@ -370,8 +389,7 @@ impl PathShape {
             .path_boundary_builder
             .build(&buffers.vertices, &buffers.indices, |position| position)
             .collect();
-        let rounded_rect_boundary = self
-            .is_rounded_rect
+        let rounded_rect_boundary = is_rounded_rect
             .then(|| RoundedRectBoundary::new(&mut boundary_edges))
             .flatten();
         let tessellation = Arc::new(CachedTessellation {
@@ -393,15 +411,16 @@ impl PathShape {
     }
 
     fn tessellate_into_buffers(
-        &self,
+        events: impl IntoIterator<Item = PathEvent>,
+        fill_rule: FillRule,
         buffers: &mut VertexBuffers<CustomVertex, u16>,
         tessellator: &mut FillTessellator,
     ) -> [(f32, f32); 2] {
-        let options = FillOptions::default().with_fill_rule(self.fill_rule);
+        let options = FillOptions::default().with_fill_rule(fill_rule);
 
         tessellator
-            .tessellate_path(
-                &self.path,
+            .tessellate(
+                events,
                 &options,
                 &mut BuffersBuilder::new(buffers, VertexConverter),
             )

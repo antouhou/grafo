@@ -9,19 +9,25 @@ use crate::core::{TextSource, UnsignedPhysicalRect};
 use crate::planner::Planner;
 use crate::render_backend::render_target::RenderTarget;
 use crate::render_backend::RenderBackend;
-use crate::scene_state::effects::EffectAttachmentKind;
+use crate::scene_state::effects::{
+    EffectAttachment, EffectAttachmentKind, EffectAttachments, EffectConfig,
+};
 use crate::scene_state::types::DrawTreeNode;
 use crate::scene_state::{SceneError, SceneState, SceneStateContext};
 use damage::{mark_dirty, mark_physical_dirty, mark_shape_mask_effect_dirty, PendingDamage};
 use draw_commands::{DrawCommand, NodeTarget};
+use groups::GroupEffectScratch;
 #[cfg(feature = "render_metrics")]
 use metrics::RenderLoopMetricsTracker;
+use std::mem;
 #[cfg(feature = "render_metrics")]
 use std::time::Instant;
+use text::TextScratch;
 use thiserror::Error;
 
 mod damage;
 mod draw_commands;
+mod groups;
 #[cfg(feature = "render_metrics")]
 mod metrics;
 mod text;
@@ -57,6 +63,8 @@ pub struct Scene<B: RenderBackend> {
     planner: Planner,
     backend: B,
     removed_shape_ids: Vec<ShapeDrawId>,
+    text_scratch: TextScratch,
+    group_effect_scratch: GroupEffectScratch,
     dirty_bounds: Option<UnsignedPhysicalRect>,
     pending_damage: PendingDamage,
     #[cfg(feature = "render_metrics")]
@@ -72,6 +80,8 @@ impl<B: RenderBackend> Scene<B> {
             state: SceneState::new(context, viewport),
             planner: Planner::default(),
             removed_shape_ids: Vec::new(),
+            text_scratch: TextScratch::default(),
+            group_effect_scratch: GroupEffectScratch::default(),
             pending_damage: PendingDamage::default(),
             dirty_bounds: Some(UnsignedPhysicalRect::from_size(
                 viewport.physical_size.into(),
@@ -137,7 +147,9 @@ impl<B: RenderBackend> Scene<B> {
     /// Adds a structural group. Doesn't draw or clips anything by itself.
     pub fn add_group(&mut self, parent_node_id: Option<usize>) -> Result<usize, SceneError> {
         self.state.validate_parent(parent_node_id)?;
-        Ok(self.state.insert_node(DrawTreeNode::Group, parent_node_id))
+        Ok(self
+            .state
+            .insert_node(DrawTreeNode::Group(Default::default()), parent_node_id))
     }
 
     /// Queues a shape without retaining it in the loaded-shape cache.
@@ -365,6 +377,17 @@ impl<B: RenderBackend> Scene<B> {
         params: &[u8],
         config: ContentEffectConfig,
     ) -> Result<(), EffectError<B::Error>> {
+        if matches!(
+            self.state.draw_tree.get(node_id),
+            Some(DrawTreeNode::Group(_))
+        ) {
+            return self.set_group_effect(
+                node_id,
+                effect_id,
+                params,
+                EffectConfig::Content(config),
+            );
+        }
         self.state.shape(node_id)?;
         self.backend
             .validate_effect_params(effect_id, params)
@@ -388,6 +411,13 @@ impl<B: RenderBackend> Scene<B> {
 
     /// Removes the content effect, restoring the node's ordinary rendering.
     pub fn remove_content_effect(&mut self, node_id: usize) {
+        if matches!(
+            self.state.draw_tree.get(node_id),
+            Some(DrawTreeNode::Group(_))
+        ) {
+            self.remove_group_effect(node_id, EffectAttachmentKind::Content);
+            return;
+        }
         let previous_output = self.state.content_effect_output(node_id);
         if self.state.remove_content_effect(node_id) {
             mark_physical_dirty(&mut self.dirty_bounds, previous_output);
@@ -407,6 +437,17 @@ impl<B: RenderBackend> Scene<B> {
         params: &[u8],
         config: BackdropEffectConfig,
     ) -> Result<(), EffectError<B::Error>> {
+        if matches!(
+            self.state.draw_tree.get(node_id),
+            Some(DrawTreeNode::Group(_))
+        ) {
+            return self.set_group_effect(
+                node_id,
+                effect_id,
+                params,
+                EffectConfig::Backdrop(config),
+            );
+        }
         self.state.shape(node_id)?;
         self.backend
             .validate_effect_params(effect_id, params)
@@ -425,6 +466,13 @@ impl<B: RenderBackend> Scene<B> {
 
     /// Removes the node's backdrop effect.
     pub fn remove_backdrop_effect(&mut self, node_id: usize) {
+        if matches!(
+            self.state.draw_tree.get(node_id),
+            Some(DrawTreeNode::Group(_))
+        ) {
+            self.remove_group_effect(node_id, EffectAttachmentKind::Backdrop);
+            return;
+        }
         if self.state.remove_backdrop_effect(node_id) {
             self.mark_shape_dirty(node_id);
         }
@@ -443,6 +491,17 @@ impl<B: RenderBackend> Scene<B> {
         params: &[u8],
         config: ShapeMaskEffectConfig,
     ) -> Result<(), EffectError<B::Error>> {
+        if matches!(
+            self.state.draw_tree.get(node_id),
+            Some(DrawTreeNode::Group(_))
+        ) {
+            return self.set_group_effect(
+                node_id,
+                effect_id,
+                params,
+                EffectConfig::ShapeMask(config),
+            );
+        }
         self.state.shape(node_id)?;
         self.backend
             .validate_effect_params(effect_id, params)
@@ -478,6 +537,13 @@ impl<B: RenderBackend> Scene<B> {
 
     /// Removes the shape's mask effect while keeping its fill and children.
     pub fn remove_shape_mask_effect(&mut self, node_id: usize) {
+        if matches!(
+            self.state.draw_tree.get(node_id),
+            Some(DrawTreeNode::Group(_))
+        ) {
+            self.remove_group_effect(node_id, EffectAttachmentKind::ShapeMask);
+            return;
+        }
         let previous_content_output = self.state.content_effect_output(node_id);
         let bounds = self
             .state
@@ -567,11 +633,75 @@ impl<B: RenderBackend> Scene<B> {
         self.backend.resize(viewport);
     }
 
+    fn set_effect(
+        &mut self,
+        node_id: usize,
+        effect_id: u64,
+        params: &[u8],
+        config: EffectConfig,
+    ) -> Result<(), EffectError<B::Error>> {
+        match config {
+            EffectConfig::Content(config) => {
+                self.set_content_effect(node_id, effect_id, params, config)
+            }
+            EffectConfig::Backdrop(config) => {
+                self.set_backdrop_effect(node_id, effect_id, params, config)
+            }
+            EffectConfig::ShapeMask(config) => {
+                self.set_shape_mask_effect(node_id, effect_id, params, config)
+            }
+        }
+    }
+
+    fn apply_stored_effect(
+        &mut self,
+        node_id: usize,
+        attachment: EffectAttachment,
+        parameters: &mut Vec<u8>,
+    ) -> Result<(), EffectError<B::Error>> {
+        parameters.clear();
+        parameters.extend_from_slice(
+            self.state
+                .effect_parameters
+                .get(attachment.instance.parameters)
+                .bytes,
+        );
+        self.set_effect(
+            node_id,
+            attachment.instance.effect_id,
+            parameters,
+            attachment.config,
+        )
+    }
+
+    fn apply_effects(
+        &mut self,
+        node_id: usize,
+        effects: EffectAttachments,
+    ) -> Result<(), DrawCommandError<B::Error>> {
+        if effects.iter().next().is_none() {
+            return Ok(());
+        }
+        let mut scratch = mem::take(&mut self.group_effect_scratch);
+        let result = effects.iter().copied().try_for_each(|effect| {
+            self.apply_stored_effect(node_id, effect, &mut scratch.parameters)
+        });
+        scratch.parameters.clear();
+        self.group_effect_scratch = scratch;
+        result.map_err(|error| match error {
+            EffectError::Scene(error) => DrawCommandError::Scene(error),
+            EffectError::Backend(error) => DrawCommandError::Backend(error),
+        })
+    }
+
     fn remove_effect_attachments(&mut self, effect_id: u64) {
         self.state.remove_effect_attachments(
             effect_id,
             self.backend.maximum_texture_dimension(),
             |attachment| {
+                self.group_effect_scratch
+                    .removed_effects
+                    .push((attachment.node_id, attachment.kind));
                 mark_physical_dirty(&mut self.dirty_bounds, attachment.damage_bounds);
                 match attachment.kind {
                     EffectAttachmentKind::Content => {}
@@ -586,6 +716,7 @@ impl<B: RenderBackend> Scene<B> {
                 }
             },
         );
+        self.restore_removed_group_effects();
         self.backend.invalidate_effect(effect_id);
     }
 

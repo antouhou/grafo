@@ -6,7 +6,7 @@ use crate::core::effect::{
     ShapeMaskEffectConfig,
 };
 use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
-use backdrops::validate_backdrop_config;
+pub(crate) use backdrops::validate_backdrop_config;
 pub(crate) use backdrops::BackdropEffectInstance;
 use parameters::EffectParametersHandle;
 
@@ -23,11 +23,101 @@ pub(crate) struct ShapeMaskEffectInstance {
 }
 
 /// Parameters shared by content and backdrop effect attachments.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct EffectInstance {
     /// The loaded effect's ID.
     pub effect_id: u64,
     pub parameters: EffectParametersHandle,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum EffectConfig {
+    Content(ContentEffectConfig),
+    Backdrop(BackdropEffectConfig),
+    ShapeMask(ShapeMaskEffectConfig),
+}
+
+impl EffectConfig {
+    pub(crate) fn kind(self) -> EffectAttachmentKind {
+        match self {
+            Self::Content(_) => EffectAttachmentKind::Content,
+            Self::Backdrop(_) => EffectAttachmentKind::Backdrop,
+            Self::ShapeMask(_) => EffectAttachmentKind::ShapeMask,
+        }
+    }
+
+    pub(crate) fn validate(self) -> Result<(), SceneError> {
+        match self {
+            Self::Content(config) if !config.is_valid() => Err(SceneError::InvalidParams(
+                "invalid content effect config".to_string(),
+            )),
+            Self::Backdrop(config) => validate_backdrop_config(&config),
+            Self::ShapeMask(config) => validate_shape_mask_effect_config(&config),
+            _ => Ok(()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct EffectAttachment {
+    pub instance: EffectInstance,
+    pub config: EffectConfig,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct EffectAttachments {
+    pub content: Option<EffectAttachment>,
+    pub backdrop: Option<EffectAttachment>,
+    pub shape_mask: Option<EffectAttachment>,
+}
+
+impl EffectAttachments {
+    pub(crate) fn get(&self, kind: EffectAttachmentKind) -> Option<EffectAttachment> {
+        match kind {
+            EffectAttachmentKind::Content => self.content,
+            EffectAttachmentKind::Backdrop => self.backdrop,
+            EffectAttachmentKind::ShapeMask => self.shape_mask,
+        }
+    }
+
+    pub(crate) fn get_mut(&mut self, kind: EffectAttachmentKind) -> &mut Option<EffectAttachment> {
+        match kind {
+            EffectAttachmentKind::Content => &mut self.content,
+            EffectAttachmentKind::Backdrop => &mut self.backdrop,
+            EffectAttachmentKind::ShapeMask => &mut self.shape_mask,
+        }
+    }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &EffectAttachment> {
+        self.content
+            .iter()
+            .chain(self.backdrop.iter())
+            .chain(self.shape_mask.iter())
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut EffectAttachment> {
+        self.content
+            .iter_mut()
+            .chain(self.backdrop.iter_mut())
+            .chain(self.shape_mask.iter_mut())
+    }
+
+    pub(crate) fn inherit_from(&mut self, parent: Self) {
+        self.content = self.content.or(parent.content);
+        self.backdrop = self.backdrop.or(parent.backdrop);
+        self.shape_mask = self.shape_mask.or(parent.shape_mask);
+    }
+
+    fn remove_effect(&mut self, effect_id: u64) -> bool {
+        let mut removed = false;
+        for effect in [&mut self.content, &mut self.backdrop, &mut self.shape_mask] {
+            if effect.is_some_and(|effect| effect.instance.effect_id == effect_id) {
+                *effect = None;
+                removed = true;
+            }
+        }
+        removed
+    }
 }
 
 /// A content attachment with its resolved input and output bounds.
@@ -106,7 +196,9 @@ pub(super) fn resolve_backdrop_effect(
     (instance, entry)
 }
 
-fn validate_shape_mask_effect_config(config: &ShapeMaskEffectConfig) -> Result<(), SceneError> {
+pub(crate) fn validate_shape_mask_effect_config(
+    config: &ShapeMaskEffectConfig,
+) -> Result<(), SceneError> {
     if !(config.downsample > 0.0 && config.downsample <= 1.0) {
         return Err(SceneError::InvalidParams(format!(
             "shape mask effect downsample must be in the range (0.0, 1.0], got {}",
@@ -147,6 +239,85 @@ pub(crate) struct RemovedEffectAttachment {
 }
 
 impl SceneState {
+    pub(crate) fn node_effects(&self, node_id: usize) -> EffectAttachments {
+        if let Some(DrawTreeNode::Group(group)) = self.draw_tree.get(node_id) {
+            return group.effects;
+        }
+        EffectAttachments {
+            content: self
+                .content_effects
+                .get(&node_id)
+                .map(|effect| EffectAttachment {
+                    instance: EffectInstance {
+                        effect_id: effect.effect_id,
+                        parameters: effect.parameters,
+                    },
+                    config: EffectConfig::Content(effect.config),
+                }),
+            backdrop: self
+                .backdrop_effects
+                .get(&node_id)
+                .map(|effect| EffectAttachment {
+                    instance: effect.effect,
+                    config: EffectConfig::Backdrop(effect.config),
+                }),
+            shape_mask: self
+                .shape_mask_effects
+                .get(&node_id)
+                .map(|effect| EffectAttachment {
+                    instance: EffectInstance {
+                        effect_id: effect.effect_id,
+                        parameters: effect.parameters,
+                    },
+                    config: EffectConfig::ShapeMask(effect.config),
+                }),
+        }
+    }
+
+    pub(crate) fn inherited_effects(&self, node_id: usize) -> EffectAttachments {
+        let mut effects = EffectAttachments::default();
+        let mut parent = self.draw_tree.parent_index_unchecked(node_id);
+        while let Some(parent_id) = parent {
+            match self.draw_tree.get_unchecked(parent_id) {
+                DrawTreeNode::Group(group) => {
+                    effects.inherit_from(group.effects);
+                }
+                DrawTreeNode::CachedShape(_) => break,
+                DrawTreeNode::ClipRect(_) => {}
+            }
+            parent = self.draw_tree.parent_index_unchecked(parent_id);
+        }
+        effects
+    }
+
+    pub(crate) fn collect_group_members(
+        &self,
+        node_id: usize,
+        kind: EffectAttachmentKind,
+        members: &mut Vec<usize>,
+    ) {
+        members.clear();
+        members.extend_from_slice(self.draw_tree.children(node_id));
+        let mut index = 0;
+        while let Some(&member_id) = members.get(index) {
+            let should_visit_children = match self.draw_tree.get_unchecked(member_id) {
+                DrawTreeNode::Group(group) => group.effects.get(kind).is_none(),
+                DrawTreeNode::ClipRect(_) => true,
+                DrawTreeNode::CachedShape(_) => false,
+            };
+            if should_visit_children {
+                members.extend_from_slice(self.draw_tree.children(member_id));
+            }
+            index += 1;
+        }
+        members.retain(|&id| {
+            matches!(
+                self.draw_tree.get_unchecked(id),
+                DrawTreeNode::CachedShape(_)
+            )
+        });
+    }
+
     pub(crate) fn compact_effect_parameters(&mut self) {
         let parameters = self
             .content_effects
@@ -161,6 +332,19 @@ impl SceneState {
                 self.shape_mask_effects
                     .values_mut()
                     .map(|effect| &mut effect.parameters),
+            )
+            .chain(
+                self.draw_tree
+                    .iter_mut()
+                    .filter_map(|(_, node)| match node {
+                        DrawTreeNode::Group(group) => Some(&mut group.effects),
+                        _ => None,
+                    })
+                    .flat_map(|effects| {
+                        effects
+                            .iter_mut()
+                            .map(|effect| &mut effect.instance.parameters)
+                    }),
             );
         self.effect_parameters.compact(parameters);
     }
@@ -384,6 +568,14 @@ impl SceneState {
         maximum_texture_dimension: u32,
         mut removed: impl FnMut(RemovedEffectAttachment),
     ) {
+        for (_, node) in self.draw_tree.iter_mut() {
+            let DrawTreeNode::Group(group) = node else {
+                continue;
+            };
+            if group.effects.remove_effect(effect_id) {
+                self.effect_parameters.request_compaction();
+            }
+        }
         self.content_effects.retain(|node_id, instance| {
             if instance.effect_id != effect_id {
                 return true;

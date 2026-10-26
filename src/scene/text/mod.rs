@@ -1,27 +1,21 @@
 use super::{
-    draw_commands::{has_child_clip, DrawCommand, NodeTarget},
+    draw_commands::{has_child_clip, NodeTarget},
     DrawCommandError, Scene,
 };
+use crate::commands::ShapeDrawId;
 use crate::core::{
-    geometry, GlyphContent, MathRect, PathShape, Shape, ShapeDrawCommandOptions, Size, TextSource,
-    TransformInstance,
+    geometry, MathRect, ShapeDrawCommandOptions, Size, TextSource, TransformInstance,
 };
 use crate::render_backend::RenderBackend;
+use crate::scene_state::effects::EffectAttachments;
+use crate::scene_state::types::{DrawTreeNode, GroupDrawData};
 use crate::scene_state::SceneError;
-use lyon::{math::Transform, path::Path};
+use std::mem;
 
-pub(crate) fn build_text_shape(source: &mut impl TextSource) -> Shape {
-    let mut builder = Path::builder();
-    while let Some(glyph) = source.next_glyph() {
-        let Some(GlyphContent::Outline(events)) = source.glyph_content(&glyph.key) else {
-            continue;
-        };
-        let offset = Transform::translation(glyph.position.0, glyph.position.1);
-        for event in events {
-            builder.path_event(event.transformed(&offset));
-        }
-    }
-    Shape::Path(PathShape::new(builder.build()))
+#[derive(Default)]
+pub(super) struct TextScratch {
+    glyph_ids: Vec<usize>,
+    removed_glyph_ids: Vec<usize>,
 }
 
 impl<B: RenderBackend> Scene<B> {
@@ -80,17 +74,84 @@ impl<B: RenderBackend> Scene<B> {
                     .ok_or(SceneError::NodeNotFound(node_id))?;
             }
         }
-        let bounds = self.text_visible_bounds(&target, options.transform);
-        source.set_visible_bounds(bounds);
-        let shape = build_text_shape(&mut source);
-        self.queue_draw_command(
-            target,
-            DrawCommand::Shape {
-                shape: &shape,
-                geometry_id: None,
-                options,
-            },
-        )
+        source.set_visible_bounds(self.text_visible_bounds(&target, options.transform));
+        let previous_dirty = self.dirty_bounds;
+        let group_id = match target {
+            NodeTarget::Insert { parent } => self.add_group(parent)?,
+            NodeTarget::Replace { node_id } => node_id,
+        };
+        let effects = self.state.node_effects(group_id);
+        let glyph_effects = if matches!(
+            self.state.draw_tree.get(group_id),
+            Some(DrawTreeNode::Group(_))
+        ) {
+            EffectAttachments::default()
+        } else {
+            effects
+        };
+        let mut scratch = mem::take(&mut self.text_scratch);
+        scratch.removed_glyph_ids.extend(
+            self.state
+                .draw_tree
+                .children(group_id)
+                .iter()
+                .copied()
+                .filter(|id| self.state.text_glyphs.contains(id)),
+        );
+        let result = self.queue_glyphs(group_id, &mut source, options, glyph_effects, &mut scratch);
+        if result.is_ok() {
+            self.remove_subtrees(scratch.removed_glyph_ids.iter().copied(), |_| {});
+            if matches!(target, NodeTarget::Replace { .. }) {
+                self.backend.unregister_shapes(&[ShapeDrawId(group_id)]);
+                self.replace_node(
+                    group_id,
+                    DrawTreeNode::Group(GroupDrawData { effects }),
+                    None,
+                );
+            }
+            self.state
+                .text_glyphs
+                .extend(scratch.glyph_ids.iter().copied());
+        } else {
+            match target {
+                NodeTarget::Insert { .. } => self.remove_subtrees([group_id], |_| {}),
+                NodeTarget::Replace { .. } => {
+                    self.remove_subtrees(scratch.glyph_ids.iter().copied(), |_| {})
+                }
+            }
+            self.dirty_bounds = previous_dirty;
+        }
+        scratch.glyph_ids.clear();
+        scratch.removed_glyph_ids.clear();
+        self.text_scratch = scratch;
+        result.map(|()| group_id)
+    }
+
+    fn queue_glyphs(
+        &mut self,
+        group_id: usize,
+        source: &mut impl TextSource,
+        options: ShapeDrawCommandOptions,
+        effects: EffectAttachments,
+        scratch: &mut TextScratch,
+    ) -> Result<(), DrawCommandError<B::Error>> {
+        while let Some(glyph) = source.next_glyph() {
+            let Some(cache_key) = self.state.load_glyph(source, &glyph.key) else {
+                continue;
+            };
+            let offset = TransformInstance::translation(glyph.position.0, glyph.position.1);
+            let transform = options
+                .transform
+                .map_or(offset, |transform| offset.then(&transform));
+            let glyph_id = self.add_cached_shape(
+                cache_key,
+                Some(group_id),
+                options.clone().transform(transform),
+            )?;
+            scratch.glyph_ids.push(glyph_id);
+            self.apply_effects(glyph_id, effects)?;
+        }
+        Ok(())
     }
 }
 

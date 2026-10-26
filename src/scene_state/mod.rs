@@ -5,7 +5,7 @@ use crate::core::util::ShapeResources;
 use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
 use crate::render_backend::texture_manager::{TextureUpdatePublisher, TextureUpdateSubscription};
-use ahash::{HashMap, HashMapExt, HashSet};
+use ahash::{HashMap, HashMapExt, HashSet, RandomState};
 use easy_tree::Tree;
 use effect_damage::{EffectDamage, EffectDamageKind};
 use effects::parameters::EffectParameterStorage;
@@ -21,6 +21,7 @@ use types::{CachedShapeDrawData, ClipRectDrawData, DrawTreeNode};
 mod effect_damage;
 pub(crate) mod effects;
 mod errors;
+pub(crate) mod text;
 mod texture_index;
 pub(crate) mod types;
 
@@ -28,14 +29,15 @@ pub(crate) mod types;
 #[derive(Clone, Default)]
 pub(crate) struct SceneStateContext {
     loaded_shapes: Arc<RwLock<HashMap<u64, CachedShapeHandle>>>,
+    glyph_hasher: RandomState,
     texture_updates: TextureUpdatePublisher,
 }
 
 impl SceneStateContext {
     pub(crate) fn new(texture_updates: TextureUpdatePublisher) -> Self {
         Self {
-            loaded_shapes: Arc::new(RwLock::new(HashMap::new())),
             texture_updates,
+            ..Self::default()
         }
     }
 }
@@ -56,6 +58,7 @@ pub(crate) struct SceneState {
     pub(crate) backdrop_effects: HashMap<usize, BackdropEffectInstance>,
     effect_damage: EffectDamage,
     pub(crate) shape_mask_effects: HashMap<usize, ShapeMaskEffectInstance>,
+    pub(crate) text_glyphs: HashSet<usize>,
 }
 
 impl SceneState {
@@ -76,6 +79,7 @@ impl SceneState {
             backdrop_effects: HashMap::new(),
             effect_damage: EffectDamage::default(),
             shape_mask_effects: HashMap::new(),
+            text_glyphs: HashSet::default(),
         }
     }
 
@@ -202,6 +206,9 @@ impl SceneState {
         shape_mask_effect_bounds: Option<ShapeMaskEffectBounds>,
         maximum_texture_dimension: u32,
     ) -> DrawTreeNode {
+        if matches!(self.draw_tree.get(node_id), Some(DrawTreeNode::Group(_))) {
+            self.effect_parameters.request_compaction();
+        }
         self.refresh_tessellation_cache(&node);
         self.texture_index.replace(node_id, &node);
         if matches!(node, DrawTreeNode::CachedShape(_)) {
@@ -256,7 +263,7 @@ impl SceneState {
             .ok_or(SceneError::NodeNotFound(node_id))?
         {
             DrawTreeNode::CachedShape(shape) => Ok(&shape.instance),
-            DrawTreeNode::Group | DrawTreeNode::ClipRect(_) => {
+            DrawTreeNode::Group(_) | DrawTreeNode::ClipRect(_) => {
                 Err(SceneError::UnsupportedNodeOperation(node_id, "effects"))
             }
         }
@@ -275,6 +282,10 @@ impl SceneState {
         ),
     ) {
         self.draw_tree.remove_subtrees_with(node_ids, |id, node| {
+            if matches!(node, DrawTreeNode::Group(_)) {
+                self.effect_parameters.request_compaction();
+            }
+            self.text_glyphs.remove(&id);
             self.texture_index.remove(id);
             let group_output = self
                 .effect_damage
