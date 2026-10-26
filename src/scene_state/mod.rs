@@ -10,7 +10,8 @@ use easy_tree::Tree;
 use effect_damage::{EffectDamage, EffectDamageKind};
 use effects::parameters::EffectParameterStorage;
 use effects::{
-    resolve_backdrop_effect, BackdropEffectInstance, ContentEffectInstance, ShapeMaskEffectInstance,
+    resolve_backdrop_effect, BackdropEffectInstance, ContentEffectInstance, EffectAttachments,
+    GroupEffectIndex, ShapeMaskEffectInstance,
 };
 pub use errors::SceneError;
 use lyon::tessellation::FillTessellator;
@@ -59,6 +60,8 @@ pub(crate) struct SceneState {
     effect_damage: EffectDamage,
     pub(crate) shape_mask_effects: HashMap<usize, ShapeMaskEffectInstance>,
     pub(crate) text_glyphs: HashSet<usize>,
+    group_effect_source_scratch: Vec<usize>,
+    group_effect_index: GroupEffectIndex,
 }
 
 impl SceneState {
@@ -80,6 +83,8 @@ impl SceneState {
             effect_damage: EffectDamage::default(),
             shape_mask_effects: HashMap::new(),
             text_glyphs: HashSet::default(),
+            group_effect_source_scratch: Vec::new(),
+            group_effect_index: GroupEffectIndex::default(),
         }
     }
 
@@ -193,10 +198,18 @@ impl SceneState {
     pub(crate) fn insert_node(&mut self, node: DrawTreeNode, parent: Option<usize>) -> usize {
         self.refresh_tessellation_cache(&node);
         self.texture_index.replace(self.next_node_id(), &node);
-        if self.draw_tree.is_empty() {
-            return self.draw_tree.add_node(node);
-        }
-        self.draw_tree.add_child(parent.unwrap_or(0), node)
+        self.group_effect_index.replace(
+            self.next_node_id(),
+            EffectAttachments::default(),
+            node.group_effects(),
+        );
+        let node_id = if self.draw_tree.is_empty() {
+            self.draw_tree.add_node(node)
+        } else {
+            self.draw_tree.add_child(parent.unwrap_or(0), node)
+        };
+        self.refresh_node_group_effect_sources(node_id);
+        node_id
     }
 
     pub(crate) fn replace_node(
@@ -211,6 +224,11 @@ impl SceneState {
         }
         self.refresh_tessellation_cache(&node);
         self.texture_index.replace(node_id, &node);
+        self.group_effect_index.replace(
+            node_id,
+            self.draw_tree.get_unchecked(node_id).group_effects(),
+            node.group_effects(),
+        );
         if matches!(node, DrawTreeNode::CachedShape(_)) {
             if let Some(bounds) = shape_mask_effect_bounds {
                 self.shape_mask_effects
@@ -239,6 +257,14 @@ impl SceneState {
             .draw_tree
             .replace(node_id, node)
             .expect("replacement node was validated before resource preparation");
+        if !matches!(previous, DrawTreeNode::CachedShape(_))
+            || !matches!(
+                self.draw_tree.get_unchecked(node_id),
+                DrawTreeNode::CachedShape(_)
+            )
+        {
+            self.refresh_group_effect_sources(node_id);
+        }
         if let Some((instance, entry)) = refreshed_backdrop {
             self.replace_backdrop_effect(node_id, instance, entry);
         }
@@ -282,6 +308,8 @@ impl SceneState {
         ),
     ) {
         self.draw_tree.remove_subtrees_with(node_ids, |id, node| {
+            self.group_effect_index
+                .replace(id, node.group_effects(), EffectAttachments::default());
             if matches!(node, DrawTreeNode::Group(_)) {
                 self.effect_parameters.request_compaction();
             }

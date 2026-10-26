@@ -3,6 +3,7 @@ use crate::core::{
     BackdropEffectConfig, Color, ContentEffectConfig, GlyphContent, MathRect, PositionedGlyph,
     Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig, TextSource, TransformInstance,
 };
+use crate::scene::draw_commands::{DrawCommand, NodeTarget};
 use crate::scene_state::types::DrawTreeNode;
 use crate::scene_state::SceneStateContext;
 use lyon::path::PathEvent;
@@ -215,6 +216,110 @@ fn text_replacement_preserves_other_children_and_rolls_back_failed_uploads() {
     assert!(scene.state.text_glyphs.is_empty());
     assert!(scene.state.content_effects.is_empty());
     assert!(scene.state.shape_mask_effects.is_empty());
+}
+
+#[test]
+fn ordinary_replacement_removes_only_text_owned_glyphs() {
+    let shape = Shape::rect([(0.0, 0.0), (24.0, 24.0)]);
+    for command in [
+        DrawCommand::Shape {
+            shape: &shape,
+            geometry_id: None,
+            options: options().clips_children(false),
+        },
+        DrawCommand::CachedShape {
+            cache_key: 1,
+            options: options().clips_children(false),
+        },
+        DrawCommand::ClippingRect {
+            rect_bounds: [(0.0, 0.0), (24.0, 24.0)],
+            transform: None,
+            clips_children: false,
+        },
+    ] {
+        let mut scene = scene();
+        scene.load_shape(&shape, 1, None);
+        let root = scene.add_group(None).unwrap();
+        let text = scene
+            .add_text(Glyphs::new(&[10, 11]), Some(root), options())
+            .unwrap();
+        let glyphs = glyph_ids(&scene, text);
+        let child = scene
+            .add_shape(&shape, Some(text), None, options())
+            .unwrap();
+        let nested_text = scene
+            .add_text(Glyphs::new(&[12]), Some(text), options())
+            .unwrap();
+        let nested_glyphs = glyph_ids(&scene, nested_text);
+        scene
+            .set_content_effect(text, 8, &[1, 2, 3, 4], ContentEffectConfig::default())
+            .unwrap();
+        scene
+            .set_shape_mask_effect(text, 7, &[1, 2, 3, 4], ShapeMaskEffectConfig::default())
+            .unwrap();
+        scene
+            .set_backdrop_effect(text, 9, &[1, 2, 3, 4], BackdropEffectConfig::default())
+            .unwrap();
+        let mut surface = surface();
+        scene.render(&mut surface).unwrap();
+
+        assert_eq!(
+            scene
+                .queue_draw_command(NodeTarget::Replace { node_id: text }, command)
+                .unwrap(),
+            text
+        );
+
+        assert_eq!(scene.state.draw_tree.children(root), &[text]);
+        assert_eq!(scene.state.draw_tree.children(text), &[child, nested_text]);
+        assert_eq!(glyph_ids(&scene, nested_text), nested_glyphs);
+        for &glyph in &glyphs {
+            assert!(scene.state.draw_tree.get(glyph).is_none());
+            assert!(!scene.state.text_glyphs.contains(&glyph));
+            assert!(!scene.state.content_effects.contains_key(&glyph));
+            assert!(!scene.state.shape_mask_effects.contains_key(&glyph));
+            assert!(!scene.state.backdrop_effects.contains_key(&glyph));
+            assert!(!scene.backend.registered_shapes.contains(&glyph));
+        }
+        scene.render(&mut surface).unwrap();
+        assert!(surface.resource().draws.contains(&child));
+        assert!(nested_glyphs
+            .iter()
+            .all(|id| surface.resource().draws.contains(id)));
+        assert!(glyphs
+            .iter()
+            .all(|id| !surface.resource().draws.contains(id)));
+    }
+}
+
+#[test]
+fn failed_shape_replacement_preserves_text_glyphs_and_other_children() {
+    let mut scene = scene();
+    let text = scene
+        .add_text(Glyphs::new(&[10, 11]), None, options())
+        .unwrap();
+    let shape = Shape::rect([(0.0, 0.0), (24.0, 24.0)]);
+    let child = scene
+        .add_shape(&shape, Some(text), None, options())
+        .unwrap();
+    let glyphs = glyph_ids(&scene, text);
+    let mut surface = surface();
+    scene.render(&mut surface).unwrap();
+    let registered_shapes = scene.backend.registered_shapes.clone();
+    scene.backend.registration_failure = Some(text);
+
+    assert!(scene
+        .replace_with_shape(text, shape, None, options())
+        .is_err());
+
+    assert!(matches!(
+        scene.state.draw_tree.get(text),
+        Some(DrawTreeNode::Group(_))
+    ));
+    assert_eq!(glyph_ids(&scene, text), glyphs);
+    assert_eq!(scene.state.draw_tree.children(text).last(), Some(&child));
+    assert_eq!(scene.backend.registered_shapes, registered_shapes);
+    assert!(scene.dirty_bounds.is_none());
 }
 
 #[test]

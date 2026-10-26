@@ -19,6 +19,21 @@ pub(super) struct TextScratch {
 }
 
 impl<B: RenderBackend> Scene<B> {
+    pub(super) fn remove_text_glyphs(&mut self, node_id: usize) {
+        let mut glyph_ids = mem::take(&mut self.text_scratch.removed_glyph_ids);
+        glyph_ids.extend(
+            self.state
+                .draw_tree
+                .children(node_id)
+                .iter()
+                .copied()
+                .filter(|id| self.state.text_glyphs.contains(id)),
+        );
+        self.remove_subtrees(glyph_ids.iter().copied(), |_| {});
+        glyph_ids.clear();
+        self.text_scratch.removed_glyph_ids = glyph_ids;
+    }
+
     fn text_visible_bounds(
         &self,
         target: &NodeTarget,
@@ -105,7 +120,10 @@ impl<B: RenderBackend> Scene<B> {
                 self.backend.unregister_shapes(&[ShapeDrawId(group_id)]);
                 self.replace_node(
                     group_id,
-                    DrawTreeNode::Group(GroupDrawData { effects }),
+                    DrawTreeNode::Group(GroupDrawData {
+                        effects,
+                        ..Default::default()
+                    }),
                     None,
                 );
             }

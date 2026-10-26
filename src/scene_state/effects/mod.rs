@@ -1,5 +1,5 @@
 use super::effect_damage::{EffectDamageEntry, EffectDamageKind};
-use super::types::DrawTreeNode;
+use super::types::{DrawTreeNode, GroupEffectSources};
 use super::{SceneError, SceneState};
 use crate::core::effect::{
     BackdropEffectConfig, ContentEffectBounds, ContentEffectConfig, ShapeMaskEffectBounds,
@@ -8,9 +8,12 @@ use crate::core::effect::{
 use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
 pub(crate) use backdrops::validate_backdrop_config;
 pub(crate) use backdrops::BackdropEffectInstance;
+pub(super) use group_index::GroupEffectIndex;
 use parameters::EffectParametersHandle;
+use std::mem;
 
 mod backdrops;
+mod group_index;
 pub(crate) mod parameters;
 
 /// A cached shape mask effect attachment. GPU parameter resources are created only on cache misses.
@@ -108,15 +111,12 @@ impl EffectAttachments {
         self.shape_mask = self.shape_mask.or(parent.shape_mask);
     }
 
-    fn remove_effect(&mut self, effect_id: u64) -> bool {
-        let mut removed = false;
+    fn remove_effect(&mut self, effect_id: u64) {
         for effect in [&mut self.content, &mut self.backdrop, &mut self.shape_mask] {
             if effect.is_some_and(|effect| effect.instance.effect_id == effect_id) {
                 *effect = None;
-                removed = true;
             }
         }
-        removed
     }
 }
 
@@ -274,20 +274,136 @@ impl SceneState {
         }
     }
 
+    fn parent_group_effect_sources(&self, node_id: usize) -> GroupEffectSources {
+        self.draw_tree
+            .parent_index_unchecked(node_id)
+            .map(|parent_id| {
+                self.draw_tree
+                    .get_unchecked(parent_id)
+                    .group_effect_sources()
+            })
+            .unwrap_or_default()
+    }
+
     pub(crate) fn inherited_effects(&self, node_id: usize) -> EffectAttachments {
-        let mut effects = EffectAttachments::default();
-        let mut parent = self.draw_tree.parent_index_unchecked(node_id);
-        while let Some(parent_id) = parent {
-            match self.draw_tree.get_unchecked(parent_id) {
-                DrawTreeNode::Group(group) => {
-                    effects.inherit_from(group.effects);
-                }
-                DrawTreeNode::CachedShape(_) => break,
-                DrawTreeNode::ClipRect(_) => {}
-            }
-            parent = self.draw_tree.parent_index_unchecked(parent_id);
+        let sources = self.parent_group_effect_sources(node_id);
+        EffectAttachments {
+            content: sources.content.and_then(|id| self.node_effects(id).content),
+            backdrop: sources
+                .backdrop
+                .and_then(|id| self.node_effects(id).backdrop),
+            shape_mask: sources
+                .shape_mask
+                .and_then(|id| self.node_effects(id).shape_mask),
         }
-        effects
+    }
+
+    pub(super) fn refresh_node_group_effect_sources(&mut self, node_id: usize) -> bool {
+        let mut sources = self.parent_group_effect_sources(node_id);
+        let stored = match self.draw_tree.get_unchecked_mut(node_id) {
+            DrawTreeNode::Group(group) => {
+                if group.effects.content.is_some() {
+                    sources.content = Some(node_id);
+                }
+                if group.effects.backdrop.is_some() {
+                    sources.backdrop = Some(node_id);
+                }
+                if group.effects.shape_mask.is_some() {
+                    sources.shape_mask = Some(node_id);
+                }
+                &mut group.effect_sources
+            }
+            DrawTreeNode::ClipRect(clip) => &mut clip.effect_sources,
+            DrawTreeNode::CachedShape(_) => return false,
+        };
+        let has_changed = *stored != sources;
+        *stored = sources;
+        has_changed
+    }
+
+    pub(crate) fn refresh_group_effect_sources(&mut self, node_id: usize) {
+        self.refresh_node_group_effect_sources(node_id);
+        let mut pending = mem::take(&mut self.group_effect_source_scratch);
+        pending.extend_from_slice(self.draw_tree.children(node_id));
+        while let Some(child_id) = pending.pop() {
+            if self.refresh_node_group_effect_sources(child_id) {
+                pending.extend_from_slice(self.draw_tree.children(child_id));
+            }
+        }
+        self.group_effect_source_scratch = pending;
+    }
+
+    fn remove_group_effect_attachments(&mut self, effect_id: u64) {
+        let Some(mut pending_groups) = self.group_effect_index.take_groups(effect_id) else {
+            return;
+        };
+        let mut pending = mem::take(&mut self.group_effect_source_scratch);
+        pending.extend(pending_groups.iter().copied());
+        while let Some(node_id) = pending.pop() {
+            if pending_groups.contains(&node_id) {
+                let sources = self.parent_group_effect_sources(node_id);
+                // Resolve inherited owners before removing a descendant's override.
+                if let Some(parent_source) = sources.iter().find(|id| pending_groups.contains(id)) {
+                    pending.push(node_id);
+                    pending.push(parent_source);
+                    continue;
+                }
+                pending_groups.remove(&node_id);
+                let DrawTreeNode::Group(group) = self.draw_tree.get_unchecked_mut(node_id) else {
+                    unreachable!("effect index contains only group nodes");
+                };
+                group.effects.remove_effect(effect_id);
+                self.effect_parameters.request_compaction();
+            }
+            if self.refresh_node_group_effect_sources(node_id) {
+                pending.extend_from_slice(self.draw_tree.children(node_id));
+            }
+        }
+        self.group_effect_source_scratch = pending;
+    }
+
+    pub(crate) fn set_group_effect(
+        &mut self,
+        node_id: usize,
+        effect_id: u64,
+        params: &[u8],
+        config: EffectConfig,
+    ) {
+        let parameters = self.effect_parameters.store(params);
+        let DrawTreeNode::Group(group) = self.draw_tree.get_unchecked_mut(node_id) else {
+            unreachable!("effect target was checked before group dispatch");
+        };
+        let previous = group.effects;
+        *group.effects.get_mut(config.kind()) = Some(EffectAttachment {
+            instance: EffectInstance {
+                effect_id,
+                parameters,
+            },
+            config,
+        });
+        self.group_effect_index
+            .replace(node_id, previous, group.effects);
+        self.effect_parameters.request_compaction();
+        self.refresh_group_effect_sources(node_id);
+    }
+
+    pub(crate) fn remove_group_effect(
+        &mut self,
+        node_id: usize,
+        kind: EffectAttachmentKind,
+    ) -> bool {
+        let DrawTreeNode::Group(group) = self.draw_tree.get_unchecked_mut(node_id) else {
+            unreachable!("effect target was checked before group dispatch");
+        };
+        let previous = group.effects;
+        if group.effects.get_mut(kind).take().is_none() {
+            return false;
+        }
+        self.group_effect_index
+            .replace(node_id, previous, group.effects);
+        self.effect_parameters.request_compaction();
+        self.refresh_group_effect_sources(node_id);
+        true
     }
 
     pub(crate) fn collect_group_members(
@@ -568,14 +684,7 @@ impl SceneState {
         maximum_texture_dimension: u32,
         mut removed: impl FnMut(RemovedEffectAttachment),
     ) {
-        for (_, node) in self.draw_tree.iter_mut() {
-            let DrawTreeNode::Group(group) = node else {
-                continue;
-            };
-            if group.effects.remove_effect(effect_id) {
-                self.effect_parameters.request_compaction();
-            }
-        }
+        self.remove_group_effect_attachments(effect_id);
         self.content_effects.retain(|node_id, instance| {
             if instance.effect_id != effect_id {
                 return true;

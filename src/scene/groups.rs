@@ -1,10 +1,7 @@
 use super::{EffectError, Scene};
 use crate::core::effect::ShapeMaskEffectBounds;
 use crate::render_backend::RenderBackend;
-use crate::scene_state::effects::{
-    EffectAttachment, EffectAttachmentKind, EffectConfig, EffectInstance,
-};
-use crate::scene_state::types::DrawTreeNode;
+use crate::scene_state::effects::{EffectAttachmentKind, EffectConfig};
 use crate::scene_state::SceneError;
 use std::mem;
 
@@ -60,29 +57,15 @@ impl<B: RenderBackend> Scene<B> {
         self.group_effect_scratch = scratch;
         result?;
 
-        let parameters = self.state.effect_parameters.store(params);
-        let DrawTreeNode::Group(group) = self.state.draw_tree.get_unchecked_mut(node_id) else {
-            unreachable!("effect target was checked before group dispatch");
-        };
-        *group.effects.get_mut(config.kind()) = Some(EffectAttachment {
-            instance: EffectInstance {
-                effect_id,
-                parameters,
-            },
-            config,
-        });
-        self.state.effect_parameters.request_compaction();
+        self.state
+            .set_group_effect(node_id, effect_id, params, config);
         Ok(())
     }
 
     pub(super) fn remove_group_effect(&mut self, node_id: usize, kind: EffectAttachmentKind) {
-        let DrawTreeNode::Group(group) = self.state.draw_tree.get_unchecked_mut(node_id) else {
-            unreachable!("effect target was checked before group dispatch");
-        };
-        if group.effects.get_mut(kind).take().is_none() {
+        if !self.state.remove_group_effect(node_id, kind) {
             return;
         }
-        self.state.effect_parameters.request_compaction();
         let mut scratch = mem::take(&mut self.group_effect_scratch);
         self.state
             .collect_group_members(node_id, kind, &mut scratch.members);
