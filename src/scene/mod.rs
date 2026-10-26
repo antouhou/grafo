@@ -144,7 +144,7 @@ impl<B: RenderBackend> Scene<B> {
         self.state.remove_shape(cache_key);
     }
 
-    /// Adds a structural group. Doesn't draw or clips anything by itself, but can carry effects.
+    /// Adds a structural group. Doesn't draw or clip anything by itself, but can carry effects.
     /// Use [`Scene::set_backdrop_effect`]/[`Scene::set_shape_mask_effect`]/[`Scene::set_content_effect`]
     /// The effects will be applied to a whole group; Individual group members can override the
     /// effect set that way by calling the same methods on individual nodes.

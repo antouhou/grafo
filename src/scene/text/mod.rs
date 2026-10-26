@@ -74,6 +74,33 @@ impl<B: RenderBackend> Scene<B> {
         geometry::logical_screen_rect_to_local_bounds(bounds.inflate(guard, guard), transform)
     }
 
+    fn queue_glyphs(
+        &mut self,
+        group_id: usize,
+        source: &mut impl TextSource,
+        options: ShapeDrawCommandOptions,
+        effects: EffectAttachments,
+        scratch: &mut TextScratch,
+    ) -> Result<(), DrawCommandError<B::Error>> {
+        while let Some(glyph) = source.next_glyph() {
+            let Some(cache_key) = self.state.load_glyph(source, &glyph.key) else {
+                continue;
+            };
+            let offset = TransformInstance::translation(glyph.position.0, glyph.position.1);
+            let transform = options
+                .transform
+                .map_or(offset, |transform| offset.then(&transform));
+            let glyph_id = self.add_cached_shape(
+                cache_key,
+                Some(group_id),
+                options.clone().transform(transform),
+            )?;
+            scratch.glyph_ids.push(glyph_id);
+            self.apply_effects(glyph_id, effects)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn queue_text(
         &mut self,
         target: NodeTarget,
@@ -143,33 +170,6 @@ impl<B: RenderBackend> Scene<B> {
         scratch.removed_glyph_ids.clear();
         self.text_scratch = scratch;
         result.map(|()| group_id)
-    }
-
-    fn queue_glyphs(
-        &mut self,
-        group_id: usize,
-        source: &mut impl TextSource,
-        options: ShapeDrawCommandOptions,
-        effects: EffectAttachments,
-        scratch: &mut TextScratch,
-    ) -> Result<(), DrawCommandError<B::Error>> {
-        while let Some(glyph) = source.next_glyph() {
-            let Some(cache_key) = self.state.load_glyph(source, &glyph.key) else {
-                continue;
-            };
-            let offset = TransformInstance::translation(glyph.position.0, glyph.position.1);
-            let transform = options
-                .transform
-                .map_or(offset, |transform| offset.then(&transform));
-            let glyph_id = self.add_cached_shape(
-                cache_key,
-                Some(group_id),
-                options.clone().transform(transform),
-            )?;
-            scratch.glyph_ids.push(glyph_id);
-            self.apply_effects(glyph_id, effects)?;
-        }
-        Ok(())
     }
 }
 

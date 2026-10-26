@@ -62,26 +62,6 @@ impl<B: RenderBackend> Scene<B> {
         Ok(())
     }
 
-    pub(super) fn remove_group_effect(&mut self, node_id: usize, kind: EffectAttachmentKind) {
-        if !self.state.remove_group_effect(node_id, kind) {
-            return;
-        }
-        let mut scratch = mem::take(&mut self.group_effect_scratch);
-        self.state
-            .collect_group_members(node_id, kind, &mut scratch.members);
-        for &member_id in &scratch.members {
-            match kind {
-                EffectAttachmentKind::Content => self.remove_content_effect(member_id),
-                EffectAttachmentKind::Backdrop => self.remove_backdrop_effect(member_id),
-                EffectAttachmentKind::ShapeMask => self.remove_shape_mask_effect(member_id),
-            }
-            self.restore_group_effect(member_id, kind, &mut scratch.parameters);
-        }
-        scratch.members.clear();
-        scratch.parameters.clear();
-        self.group_effect_scratch = scratch;
-    }
-
     fn restore_group_effect(
         &mut self,
         node_id: usize,
@@ -100,6 +80,26 @@ impl<B: RenderBackend> Scene<B> {
                 );
             }
         }
+    }
+
+    pub(super) fn remove_group_effect(&mut self, node_id: usize, kind: EffectAttachmentKind) {
+        if !self.state.remove_group_effect(node_id, kind) {
+            return;
+        }
+        let mut scratch = mem::take(&mut self.group_effect_scratch);
+        self.state
+            .collect_group_members(node_id, kind, &mut scratch.members);
+        for &member_id in &scratch.members {
+            match kind {
+                EffectAttachmentKind::Content => self.remove_content_effect(member_id),
+                EffectAttachmentKind::Backdrop => self.remove_backdrop_effect(member_id),
+                EffectAttachmentKind::ShapeMask => self.remove_shape_mask_effect(member_id),
+            }
+            self.restore_group_effect(member_id, kind, &mut scratch.parameters);
+        }
+        scratch.members.clear();
+        scratch.parameters.clear();
+        self.group_effect_scratch = scratch;
     }
 
     pub(super) fn restore_removed_group_effects(&mut self) {

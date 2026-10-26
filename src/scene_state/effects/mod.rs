@@ -33,6 +33,41 @@ pub(crate) struct EffectInstance {
     pub parameters: EffectParametersHandle,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum EffectAttachmentKind {
+    Content,
+    Backdrop,
+    ShapeMask,
+}
+
+pub(crate) fn validate_shape_mask_effect_config(
+    config: &ShapeMaskEffectConfig,
+) -> Result<(), SceneError> {
+    if !(config.downsample > 0.0 && config.downsample <= 1.0) {
+        return Err(SceneError::InvalidParams(format!(
+            "shape mask effect downsample must be in the range (0.0, 1.0], got {}",
+            config.downsample
+        )));
+    }
+
+    let outsets = [
+        config.left_outset,
+        config.top_outset,
+        config.right_outset,
+        config.bottom_outset,
+    ];
+    if outsets
+        .iter()
+        .any(|outset| !outset.is_finite() || *outset < 0.0)
+    {
+        return Err(SceneError::InvalidParams(
+            "shape mask effect outsets must be finite and non-negative".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum EffectConfig {
     Content(ContentEffectConfig),
@@ -194,41 +229,6 @@ pub(super) fn resolve_backdrop_effect(
     );
     let entry = EffectDamageEntry::backdrop(node_id, node, instance.capture_region, viewport);
     (instance, entry)
-}
-
-pub(crate) fn validate_shape_mask_effect_config(
-    config: &ShapeMaskEffectConfig,
-) -> Result<(), SceneError> {
-    if !(config.downsample > 0.0 && config.downsample <= 1.0) {
-        return Err(SceneError::InvalidParams(format!(
-            "shape mask effect downsample must be in the range (0.0, 1.0], got {}",
-            config.downsample
-        )));
-    }
-
-    let outsets = [
-        config.left_outset,
-        config.top_outset,
-        config.right_outset,
-        config.bottom_outset,
-    ];
-    if outsets
-        .iter()
-        .any(|outset| !outset.is_finite() || *outset < 0.0)
-    {
-        return Err(SceneError::InvalidParams(
-            "shape mask effect outsets must be finite and non-negative".to_string(),
-        ));
-    }
-
-    Ok(())
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum EffectAttachmentKind {
-    Content,
-    Backdrop,
-    ShapeMask,
 }
 
 #[derive(Clone, Copy)]
