@@ -89,12 +89,18 @@ fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
         .unwrap();
     let first_positions = [(10.0, 10.0), (30.0, 10.0), (58.0, 10.0)];
     let text = scene
-        .add_text(
-            RepeatedOutline {
-                events: &events,
-                positions: first_positions.iter(),
-            },
+        .add_shape(
+            Shape::rect([(6.0, 6.0), (65.0, 35.0)]),
             Some(parent),
+            None,
+            ShapeDrawCommandOptions::new().transform(transform),
+        )
+        .unwrap();
+    scene
+        .add_shape(
+            Shape::rect([(48.0, 8.0), (54.0, 14.0)]),
+            Some(text),
+            None,
             ShapeDrawCommandOptions::new()
                 .color(Color::rgb(255, 0, 0))
                 .transform(transform),
@@ -144,27 +150,50 @@ fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
         )
         .unwrap();
     let second_positions = [(10.0, 46.0), (30.0, 46.0), (58.0, 46.0)];
-    let text = scene
-        .add_text(
-            RepeatedOutline {
-                events: &events,
-                positions: second_positions.iter(),
-            },
-            Some(parent),
-            ShapeDrawCommandOptions::new().transform(transform),
-        )
-        .unwrap();
+    let group = scene.add_group(Some(parent)).unwrap();
     scene
         .set_backdrop_effect(
-            text,
+            group,
             COLOR_CHANNEL_EFFECT_ID,
             &[],
             BackdropEffectConfig::default(),
         )
         .unwrap();
+    let container = scene
+        .add_shape(
+            Shape::rect([(6.0, 42.0), (65.0, 71.0)]),
+            Some(group),
+            None,
+            ShapeDrawCommandOptions::new().transform(transform),
+        )
+        .unwrap();
+    scene
+        .add_text(
+            RepeatedOutline {
+                events: &events,
+                positions: second_positions.iter(),
+            },
+            Some(container),
+            ShapeDrawCommandOptions::new().transform(transform),
+        )
+        .unwrap();
+    scene
+        .replace_with_clipping_rect(
+            container,
+            [(6.0, 42.0), (65.0, 71.0)],
+            Some(transform),
+            true,
+        )
+        .unwrap();
     [
         (12, 12, [0, 255, 0], "t91_first_glyph_content_effect"),
         (32, 12, [0, 255, 0], "t91_repeated_glyph_content_effect"),
+        (
+            50,
+            12,
+            [255, 255, 255],
+            "t91_text_replacement_removes_child",
+        ),
         (16, 18, [220, 220, 220], "t91_glyph_counter_shadow"),
         (23, 24, [207, 207, 207], "t91_glyph_blurred_shadow"),
         (43, 24, [207, 207, 207], "t91_repeated_glyph_blurred_shadow"),

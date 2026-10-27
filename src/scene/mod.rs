@@ -254,12 +254,12 @@ impl<B: RenderBackend> Scene<B> {
         )
     }
 
-    /// Replaces a node with text, preserving its ID, parent, children, and effects. If the node is
-    /// a text node already, updates the text and visible bounds. Supplies the current visible
-    /// bounds. Call after changing the source or after resizing a parent node.
-    /// Resize the scene first when the target dimensions change. While text is a node like any
-    /// other, don't try to manually add children to it. This can mess up both children and text -
-    /// create a proper container instead.
+    /// Replaces a node and all its descendants with text, preserving its ID, parent, and effects.
+    /// An empty source removes all previous children. Errors preserve the original subtree.
+    /// Supplies the current visible bounds to the source. Call after changing the source or
+    /// resizing a parent node. Resize the scene first when the target dimensions change.
+    /// While text is a node like any other, don't try to manually add children to it. This can mess
+    /// up both children and text - create a proper container instead.
     pub fn replace_with_text(
         &mut self,
         node_id: usize,
@@ -286,8 +286,8 @@ impl<B: RenderBackend> Scene<B> {
 
     /// Replaces one command with a clip rectangle and returns its unchanged ID.
     /// Children are retained.
-    /// Effects attached to this node are removed. Replacing a group restores effects
-    /// from its parent groups for children without their own effect of the same kind.
+    /// Effects attached to this node are removed. Children without their own effect
+    /// of the same kind inherit effects from parent groups after replacement.
     pub fn replace_with_clipping_rect(
         &mut self,
         node_id: usize,

@@ -11,6 +11,8 @@ use crate::scene_state::SceneStateContext;
 use lyon::path::PathEvent;
 use std::sync::Arc;
 
+mod replacement;
+
 struct Glyphs {
     glyphs: Vec<PositionedGlyph<u64>>,
     events: Vec<PathEvent>,
@@ -246,74 +248,6 @@ fn glyph_geometry_is_reused_across_positions_replacements_clears_and_scenes() {
             .cached_shape
             .tessellation
     ));
-}
-
-#[test]
-fn text_replacement_preserves_other_children_and_rolls_back_failed_uploads() {
-    let mut scene = scene();
-    let root = queue_shape(&mut scene, false);
-    let text = queue_shape(&mut scene, true);
-    let child = scene
-        .add_shape(
-            Shape::rect([(0.0, 0.0), (1.0, 1.0)]),
-            Some(text),
-            None,
-            options(),
-        )
-        .unwrap();
-    assert_eq!(
-        scene
-            .replace_with_text(text, Glyphs::new(&[10, 10]), options())
-            .unwrap(),
-        text
-    );
-    let before = glyph_ids(&scene, text);
-    assert_eq!(
-        scene.state.draw_tree.parent_index_unchecked(text),
-        Some(root)
-    );
-    assert_eq!(scene.state.draw_tree.children(text)[0], child);
-    assert!(!scene.state.content_effects.contains_key(&text));
-    assert!(!scene.state.shape_mask_effects.contains_key(&text));
-    for &id in &before {
-        assert!(scene.state.content_effects.contains_key(&id));
-        assert!(scene.state.shape_mask_effects.contains_key(&id));
-    }
-    let mut surface = surface();
-    scene.render(&mut surface).unwrap();
-    let previous_dirty = scene.dirty_bounds;
-    scene.backend.registration_failure = Some(scene.state.next_node_id() + 1);
-    assert!(scene
-        .replace_with_text(text, Glyphs::new(&[10, 11]), options())
-        .is_err());
-    assert_eq!(glyph_ids(&scene, text), before);
-    assert_eq!(scene.dirty_bounds, previous_dirty);
-    assert_eq!(scene.backend.registered_shapes.len(), 4);
-    scene.backend.registration_failure = None;
-    scene
-        .replace_with_text(text, Glyphs::new(&[11]), options())
-        .unwrap();
-    assert_eq!(glyph_ids(&scene, text).len(), 1);
-    assert!(before
-        .iter()
-        .all(|&id| scene.state.draw_tree.get(id).is_none()));
-    scene
-        .replace_with_text(text, Glyphs::new(&[]), options())
-        .unwrap();
-    assert_eq!(scene.state.draw_tree.children(text), &[child]);
-    scene.render(&mut surface).unwrap();
-    assert!(scene.backend.root_scissor.is_some());
-    scene
-        .replace_with_text(text, Glyphs::new(&[10]), options())
-        .unwrap();
-    let glyph = glyph_ids(&scene, text)[0];
-    assert!(scene.state.content_effects.contains_key(&glyph));
-    assert!(scene.state.shape_mask_effects.contains_key(&glyph));
-    scene.remove_subtrees([text], |_| {});
-    assert_eq!(scene.backend.registered_shapes, [root]);
-    assert!(scene.state.text_glyphs.is_empty());
-    assert!(scene.state.content_effects.is_empty());
-    assert!(scene.state.shape_mask_effects.is_empty());
 }
 
 #[test]

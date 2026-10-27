@@ -15,12 +15,12 @@ use std::mem;
 #[derive(Default)]
 pub(super) struct TextScratch {
     glyph_ids: Vec<usize>,
-    removed_glyph_ids: Vec<usize>,
+    child_ids_to_remove: Vec<usize>,
 }
 
 impl<B: RenderBackend> Scene<B> {
     pub(super) fn remove_text_glyphs(&mut self, node_id: usize) {
-        let mut glyph_ids = mem::take(&mut self.text_scratch.removed_glyph_ids);
+        let mut glyph_ids = mem::take(&mut self.text_scratch.child_ids_to_remove);
         glyph_ids.extend(
             self.state
                 .draw_tree
@@ -31,7 +31,7 @@ impl<B: RenderBackend> Scene<B> {
         );
         self.remove_subtrees(glyph_ids.iter().copied(), |_| {});
         glyph_ids.clear();
-        self.text_scratch.removed_glyph_ids = glyph_ids;
+        self.text_scratch.child_ids_to_remove = glyph_ids;
     }
 
     fn text_visible_bounds(
@@ -125,24 +125,21 @@ impl<B: RenderBackend> Scene<B> {
         let mut effects = self.state.node_effects(group_id);
         let glyph_effects = if matches!(
             self.state.draw_tree.get(group_id),
-            Some(DrawTreeNode::Group(_))
+            Some(DrawTreeNode::CachedShape(_))
         ) {
-            EffectAttachments::default()
+            let mut inherited = effects.for_group_members(group_id);
+            inherited.inherit_from(self.state.inherited_effects(group_id));
+            inherited
         } else {
-            effects
+            EffectAttachments::default()
         };
         let mut scratch = mem::take(&mut self.text_scratch);
-        scratch.removed_glyph_ids.extend(
-            self.state
-                .draw_tree
-                .children(group_id)
-                .iter()
-                .copied()
-                .filter(|id| self.state.text_glyphs.contains(id)),
-        );
+        scratch
+            .child_ids_to_remove
+            .extend_from_slice(self.state.draw_tree.children(group_id));
         let result = self.queue_glyphs(group_id, &mut source, options, glyph_effects, &mut scratch);
         if result.is_ok() {
-            self.remove_subtrees(scratch.removed_glyph_ids.iter().copied(), |_| {});
+            self.remove_subtrees(scratch.child_ids_to_remove.iter().copied(), |_| {});
             if matches!(target, NodeTarget::Replace { .. }) {
                 effects.remove_inherited();
                 self.backend.unregister_shapes(&[ShapeDrawId(group_id)]);
@@ -168,7 +165,7 @@ impl<B: RenderBackend> Scene<B> {
             self.dirty_bounds = previous_dirty;
         }
         scratch.glyph_ids.clear();
-        scratch.removed_glyph_ids.clear();
+        scratch.child_ids_to_remove.clear();
         self.text_scratch = scratch;
         result.map(|()| group_id)
     }

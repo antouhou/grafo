@@ -141,6 +141,13 @@ impl EffectAttachments {
             .chain(self.shape_mask.iter_mut())
     }
 
+    pub(crate) fn for_group_members(mut self, group_id: usize) -> Self {
+        for effect in self.iter_mut() {
+            effect.source_group_id.get_or_insert(group_id);
+        }
+        self
+    }
+
     pub(crate) fn inherit_from(&mut self, parent: Self) {
         self.content = self.content.or(parent.content);
         self.backdrop = self.backdrop.or(parent.backdrop);

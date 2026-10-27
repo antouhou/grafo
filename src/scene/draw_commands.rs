@@ -174,6 +174,21 @@ impl<B: RenderBackend> Scene<B> {
             ),
             _ => None,
         };
+        let member_effects = if matches!(target, NodeTarget::Replace { .. })
+            && matches!(node, DrawTreeNode::ClipRect(_))
+            && matches!(
+                self.state.draw_tree.get_unchecked(node_id),
+                DrawTreeNode::CachedShape(_)
+            ) {
+            Some(
+                self.prepare_inherited_member_effects(
+                    node_id,
+                    self.state.inherited_effects(node_id),
+                )?,
+            )
+        } else {
+            None
+        };
         if let DrawTreeNode::CachedShape(shape) = &node {
             self.backend
                 .register_shape(ShapeDrawId(node_id), &shape.instance)
@@ -221,6 +236,9 @@ impl<B: RenderBackend> Scene<B> {
                 if let Some(effects) = replacement_effects {
                     self.remove_inherited_member_effects(node_id);
                     self.apply_effects(node_id, effects)?;
+                }
+                if let Some(effects) = member_effects {
+                    self.apply_member_effects(effects)?;
                 }
             }
         }

@@ -1,18 +1,113 @@
-use super::{EffectError, Scene};
+use super::{DrawCommandError, EffectError, Scene};
 use crate::core::effect::ShapeMaskEffectBounds;
 use crate::render_backend::RenderBackend;
-use crate::scene_state::effects::{EffectAttachmentKind, EffectConfig};
+use crate::scene_state::effects::{
+    EffectAttachment, EffectAttachmentKind, EffectAttachments, EffectConfig,
+};
 use crate::scene_state::SceneError;
 use std::mem;
+
+pub(super) struct PendingMemberEffectAttachment {
+    node_id: usize,
+    attachment: EffectAttachment,
+}
 
 #[derive(Default)]
 pub(super) struct GroupEffectScratch {
     members: Vec<usize>,
+    pending_member_effects: Vec<PendingMemberEffectAttachment>,
     pub(super) parameters: Vec<u8>,
     pub(super) removed_effects: Vec<(usize, EffectAttachmentKind)>,
 }
 
 impl<B: RenderBackend> Scene<B> {
+    fn collect_member_effect_attachments(
+        &self,
+        node_id: usize,
+        effects: EffectAttachments,
+        members: &mut Vec<usize>,
+        pending: &mut Vec<PendingMemberEffectAttachment>,
+    ) -> Result<(), DrawCommandError<B::Error>> {
+        for &attachment in effects.iter() {
+            self.backend
+                .validate_effect_params(
+                    attachment.instance.effect_id,
+                    self.state
+                        .effect_parameters
+                        .get(attachment.instance.parameters)
+                        .bytes,
+                )
+                .map_err(DrawCommandError::Backend)?;
+            let kind = attachment.config.kind();
+            self.state.collect_group_members(node_id, kind, members);
+            for &member_id in members.iter() {
+                if self
+                    .state
+                    .node_effects(member_id)
+                    .get(kind)
+                    .is_some_and(|effect| effect.source_group_id.is_none())
+                {
+                    continue;
+                }
+                if let EffectConfig::ShapeMask(config) = attachment.config {
+                    let shape = self.state.shape(member_id)?;
+                    ShapeMaskEffectBounds::new(
+                        shape.cached_shape.local_bounds(),
+                        config,
+                        shape.transform,
+                        self.state.viewport().scale_factor,
+                    )
+                    .ok_or(SceneError::InvalidShapeMaskEffectBounds(member_id))?;
+                }
+                pending.push(PendingMemberEffectAttachment {
+                    node_id: member_id,
+                    attachment,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn prepare_inherited_member_effects(
+        &mut self,
+        node_id: usize,
+        effects: EffectAttachments,
+    ) -> Result<Vec<PendingMemberEffectAttachment>, DrawCommandError<B::Error>> {
+        let mut scratch = mem::take(&mut self.group_effect_scratch);
+        let mut pending = mem::take(&mut scratch.pending_member_effects);
+        let result = self.collect_member_effect_attachments(
+            node_id,
+            effects,
+            &mut scratch.members,
+            &mut pending,
+        );
+        scratch.members.clear();
+        self.group_effect_scratch = scratch;
+        if let Err(error) = result {
+            self.discard_member_effects(pending);
+            return Err(error);
+        }
+        Ok(pending)
+    }
+
+    fn discard_member_effects(&mut self, mut pending: Vec<PendingMemberEffectAttachment>) {
+        pending.clear();
+        self.group_effect_scratch.pending_member_effects = pending;
+    }
+
+    pub(super) fn apply_member_effects(
+        &mut self,
+        pending: Vec<PendingMemberEffectAttachment>,
+    ) -> Result<(), DrawCommandError<B::Error>> {
+        let result = pending.iter().try_for_each(|member| {
+            let mut effects = EffectAttachments::default();
+            *effects.get_mut(member.attachment.config.kind()) = Some(member.attachment);
+            self.apply_effects(member.node_id, effects)
+        });
+        self.discard_member_effects(pending);
+        result
+    }
+
     fn set_group_member_effects(
         &mut self,
         group_id: usize,

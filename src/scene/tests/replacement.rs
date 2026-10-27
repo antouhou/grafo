@@ -5,6 +5,7 @@ use crate::core::{
     ShapeMaskEffectConfig, UnsignedPhysicalRect,
 };
 use crate::scene_state::effects::EffectConfig;
+use crate::scene_state::types::DrawTreeNode;
 use crate::scene_state::SceneError;
 
 fn shape(scene: &mut Scene<TestBackend>, bounds: [(f32, f32); 2], parent: usize) -> usize {
@@ -31,6 +32,117 @@ fn clip(scene: &mut Scene<TestBackend>, node_id: usize, clips_children: bool) {
 
 fn rect(min: (u32, u32), max: (u32, u32)) -> Option<UnsignedPhysicalRect> {
     Some(UnsignedPhysicalRect::new(min.into(), max.into()))
+}
+
+#[test]
+fn shape_to_clip_replacement_restores_inheritance_and_preserves_overrides() {
+    for config in [
+        EffectConfig::Content(ContentEffectConfig::default()),
+        EffectConfig::Backdrop(BackdropEffectConfig::default()),
+        EffectConfig::ShapeMask(ShapeMaskEffectConfig::default()),
+    ] {
+        for has_own_effect in [false, true] {
+            let mut scene = scene();
+            let ancestor = scene.add_group(None).unwrap();
+            scene
+                .set_effect(ancestor, 8, &[1, 2, 3, 4], config)
+                .unwrap();
+            let bounds = [(2.0, 2.0), (14.0, 14.0)];
+            let parent = shape(&mut scene, bounds, ancestor);
+            if has_own_effect {
+                scene.set_effect(parent, 9, &[1, 2, 3, 4], config).unwrap();
+            }
+            let member = shape(&mut scene, bounds, parent);
+            let descendant = shape(&mut scene, bounds, member);
+            let nested = scene.add_group(Some(parent)).unwrap();
+            let nested_clip = scene
+                .add_clipping_rect(bounds, Some(nested), None::<InstanceTransform>, false)
+                .unwrap();
+            let nested_member = shape(&mut scene, bounds, nested_clip);
+            let explicit_member = shape(&mut scene, bounds, parent);
+            scene
+                .set_effect(explicit_member, 11, &[1, 2, 3, 4], config)
+                .unwrap();
+            let overriding_group = scene.add_group(Some(parent)).unwrap();
+            scene
+                .set_effect(overriding_group, 10, &[1, 2, 3, 4], config)
+                .unwrap();
+            let overridden_member = shape(&mut scene, bounds, overriding_group);
+            let mut surface = surface();
+            scene.render(&mut surface).unwrap();
+
+            clip(&mut scene, parent, false);
+            let new_member = shape(&mut scene, bounds, nested_clip);
+            let inherited_members = [member, nested_member, new_member];
+            for &node_id in &inherited_members {
+                let effect = scene.state.node_effects(node_id).get(config.kind());
+                assert_eq!(
+                    effect.map(|effect| (effect.instance.effect_id, effect.source_group_id)),
+                    Some((8, Some(ancestor))),
+                    "{config:?}, node {node_id}, own effect: {has_own_effect}"
+                );
+            }
+            scene.render(&mut surface).unwrap();
+            scene
+                .set_effect(ancestor, 12, &[1, 2, 3, 4], config)
+                .unwrap();
+            scene.render(&mut surface).unwrap();
+            for (node_id, expected) in inherited_members
+                .into_iter()
+                .map(|node_id| (node_id, Some((12, Some(ancestor)))))
+                .chain([
+                    (descendant, None),
+                    (explicit_member, Some((11, None))),
+                    (overridden_member, Some((10, Some(overriding_group)))),
+                ])
+            {
+                let effect = scene.state.node_effects(node_id).get(config.kind());
+                assert_eq!(
+                    effect.map(|effect| (effect.instance.effect_id, effect.source_group_id)),
+                    expected,
+                    "{config:?}, node {node_id}, own effect: {has_own_effect}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn shape_to_clip_replacement_rejects_invalid_inherited_masks_before_mutation() {
+    let mut scene = scene();
+    let ancestor = scene.add_group(None).unwrap();
+    scene
+        .set_shape_mask_effect(ancestor, 7, &[1, 2, 3, 4], ShapeMaskEffectConfig::default())
+        .unwrap();
+    let parent = shape(&mut scene, [(2.0, 2.0), (14.0, 14.0)], ancestor);
+    let child = shape(&mut scene, [(0.0, 0.0), (f32::MAX, f32::MAX)], parent);
+    let mut surface = surface();
+    scene.render(&mut surface).unwrap();
+    let registered_shapes = scene.backend.registered_shapes.clone();
+    let parameters = scene.state.effect_parameters.bytes.clone();
+
+    let result = scene.replace_with_clipping_rect(
+        parent,
+        [(2.0, 2.0), (14.0, 14.0)],
+        None::<InstanceTransform>,
+        true,
+    );
+
+    assert!(matches!(
+        result,
+        Err(DrawCommandError::Scene(SceneError::InvalidShapeMaskEffectBounds(id))) if id == child
+    ));
+    assert!(matches!(
+        scene.state.draw_tree.get(parent),
+        Some(DrawTreeNode::CachedShape(_))
+    ));
+    assert_eq!(scene.state.draw_tree.children(parent), &[child]);
+    assert_eq!(scene.backend.registered_shapes, registered_shapes);
+    assert_eq!(scene.state.effect_parameters.bytes, parameters);
+    assert!(scene.state.shape_mask_effects.contains_key(&parent));
+    assert!(!scene.state.shape_mask_effects.contains_key(&child));
+    assert!(scene.state.text_glyphs.is_empty());
+    assert!(scene.dirty_bounds.is_none());
 }
 
 #[test]
