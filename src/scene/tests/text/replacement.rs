@@ -2,13 +2,92 @@ use super::{glyph_ids, options, scene, surface, Glyphs};
 use crate::core::{
     BackdropEffectConfig, ContentEffectConfig, Shape, ShapeMaskEffectConfig, TransformInstance,
 };
+use crate::scene::DrawCommandError;
 use crate::scene_state::effects::EffectConfig;
+use crate::scene_state::types::DrawTreeNode;
+use crate::scene_state::SceneError;
 
 #[derive(Clone, Copy)]
 enum ReplacedNodeKind {
     Shape,
     ClipRect,
     Group,
+}
+
+#[test]
+fn clip_replacement_validates_only_surviving_text_glyphs() {
+    for should_preserve_glyphs in [false, true] {
+        let mut scene = scene();
+        let ancestor = scene.add_group(None).unwrap();
+        let node = if should_preserve_glyphs {
+            scene.add_group(Some(ancestor)).unwrap()
+        } else {
+            scene
+                .add_text(Glyphs::new(&[10, 11]), Some(ancestor), options())
+                .unwrap()
+        };
+        scene
+            .set_shape_mask_effect(node, 7, &[1, 2, 3, 4], ShapeMaskEffectConfig::default())
+            .unwrap();
+        let text = if should_preserve_glyphs {
+            scene
+                .add_text(Glyphs::new(&[10, 11]), Some(node), options())
+                .unwrap()
+        } else {
+            node
+        };
+        let glyphs = glyph_ids(&scene, text);
+        scene
+            .set_shape_mask_effect(
+                ancestor,
+                8,
+                &[1, 2, 3, 4],
+                ShapeMaskEffectConfig::new().outset(f32::MAX),
+            )
+            .unwrap();
+        let mut surface = surface();
+        scene.render(&mut surface).unwrap();
+
+        let result = scene.replace_with_clipping_rect(
+            node,
+            [(0.0, 0.0), (24.0, 24.0)],
+            None::<TransformInstance>,
+            true,
+        );
+
+        if should_preserve_glyphs {
+            assert!(
+                matches!(
+                    &result,
+                    Err(DrawCommandError::Scene(SceneError::InvalidShapeMaskEffectBounds(id))) if *id == glyphs[0]
+                ),
+                "{result:?}"
+            );
+            assert!(matches!(
+                scene.state.draw_tree.get(node),
+                Some(DrawTreeNode::Group(_))
+            ));
+            assert_eq!(glyph_ids(&scene, text), glyphs);
+            for glyph_id in glyphs {
+                assert_eq!(scene.state.shape_mask_effects[&glyph_id].effect_id, 7);
+            }
+            assert!(scene.dirty_bounds.is_none());
+        } else {
+            assert_eq!(result.unwrap(), node);
+            assert!(matches!(
+                scene.state.draw_tree.get(node),
+                Some(DrawTreeNode::ClipRect(_))
+            ));
+            assert!(scene.state.draw_tree.children(node).is_empty());
+            assert!(scene.state.text_glyphs.is_empty());
+            assert!(scene.backend.registered_shapes.is_empty());
+        }
+        scene.render(&mut surface).unwrap();
+        assert_eq!(
+            surface.resource().shape_masks,
+            if should_preserve_glyphs { 2 } else { 0 }
+        );
+    }
 }
 
 #[test]

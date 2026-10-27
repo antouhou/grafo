@@ -146,6 +146,85 @@ fn shape_to_clip_replacement_rejects_invalid_inherited_masks_before_mutation() {
 }
 
 #[test]
+fn group_to_clip_replacement_rejects_invalid_inherited_masks_before_mutation() {
+    let mut scene = scene();
+    let ancestor = scene.add_group(None).unwrap();
+    let group = scene.add_group(Some(ancestor)).unwrap();
+    let attachments = [
+        (8, EffectConfig::Content(ContentEffectConfig::default())),
+        (9, EffectConfig::Backdrop(BackdropEffectConfig::default())),
+        (7, EffectConfig::ShapeMask(ShapeMaskEffectConfig::default())),
+    ];
+    for (effect_id, config) in attachments {
+        scene
+            .set_effect(group, effect_id, &[1, 2, 3, 4], config)
+            .unwrap();
+    }
+    let member = shape(&mut scene, [(11.0, 11.0), (12.0, 12.0)], group);
+    scene
+        .set_shape_mask_effect(
+            ancestor,
+            10,
+            &[1, 2, 3, 4],
+            ShapeMaskEffectConfig::new().outset(f32::MAX),
+        )
+        .unwrap();
+    let mut surface = surface();
+    scene.render(&mut surface).unwrap();
+    let registered_shapes = scene.backend.registered_shapes.clone();
+    let parameters = scene.state.effect_parameters.bytes.clone();
+
+    let result = scene.replace_with_clipping_rect(
+        group,
+        [(10.0, 10.0), (18.0, 18.0)],
+        None::<InstanceTransform>,
+        true,
+    );
+
+    assert!(
+        matches!(
+            &result,
+            Err(DrawCommandError::Scene(SceneError::InvalidShapeMaskEffectBounds(id))) if *id == member
+        ),
+        "{result:?}"
+    );
+    assert!(matches!(
+        scene.state.draw_tree.get(group),
+        Some(DrawTreeNode::Group(_))
+    ));
+    assert_eq!(scene.state.draw_tree.children(group), &[member]);
+    assert_eq!(scene.backend.registered_shapes, registered_shapes);
+    assert_eq!(scene.state.effect_parameters.bytes, parameters);
+    assert!(scene.dirty_bounds.is_none());
+    for (effect_id, config) in attachments {
+        for (node_id, source_group_id) in [(group, None), (member, Some(group))] {
+            let effect = scene
+                .state
+                .node_effects(node_id)
+                .get(config.kind())
+                .unwrap();
+            assert_eq!(effect.instance.effect_id, effect_id);
+            assert_eq!(effect.source_group_id, source_group_id);
+        }
+    }
+
+    scene
+        .set_shape_mask_effect(
+            ancestor,
+            10,
+            &[1, 2, 3, 4],
+            ShapeMaskEffectConfig::default(),
+        )
+        .unwrap();
+    clip(&mut scene, group, true);
+    let effect = scene.state.node_effects(member).shape_mask.unwrap();
+    assert_eq!(effect.instance.effect_id, 10);
+    assert_eq!(effect.source_group_id, Some(ancestor));
+    scene.render(&mut surface).unwrap();
+    assert_eq!(surface.resource().effects, [10]);
+}
+
+#[test]
 fn replacing_a_group_with_a_clip_restores_member_effects() {
     for config in [
         EffectConfig::Content(ContentEffectConfig::default()),

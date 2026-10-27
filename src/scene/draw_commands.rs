@@ -178,7 +178,7 @@ impl<B: RenderBackend> Scene<B> {
             && matches!(node, DrawTreeNode::ClipRect(_))
             && matches!(
                 self.state.draw_tree.get_unchecked(node_id),
-                DrawTreeNode::CachedShape(_)
+                DrawTreeNode::CachedShape(_) | DrawTreeNode::Group(_)
             ) {
             Some(
                 self.prepare_inherited_member_effects(
@@ -228,9 +228,7 @@ impl<B: RenderBackend> Scene<B> {
                     (self.state.draw_tree.get_unchecked(node_id), &node),
                     (DrawTreeNode::Group(_), DrawTreeNode::ClipRect(_))
                 ) {
-                    self.remove_content_effect(node_id);
-                    self.remove_backdrop_effect(node_id);
-                    self.remove_shape_mask_effect(node_id);
+                    self.remove_inherited_member_effects(node_id);
                 }
                 self.replace_node(node_id, node, shape_mask_effect_bounds);
                 if let Some(effects) = replacement_effects {
