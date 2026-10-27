@@ -96,5 +96,5 @@ fn nonconstant_gradients_start_with_pending_ramp() {
     )
     .unwrap();
 
-    assert!(matches!(gradient.data.ramp, GradientRamp::Pending(_)));
+    assert!(matches!(gradient.data().ramp, GradientRamp::Pending(_)));
 }

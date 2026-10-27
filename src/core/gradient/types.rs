@@ -141,8 +141,6 @@ impl<'a> IntoIterator for &'a mut GradientStops {
     }
 }
 
-type GradientRampKeyStops = SmallVec<[GradientRampStopKey; 8]>;
-
 #[derive(Debug, Clone)]
 pub struct LinearGradientDesc {
     pub common: GradientCommonDesc,
@@ -462,7 +460,7 @@ pub(crate) struct GradientRampStopKey {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GradientRampCacheKey {
     pub(crate) interpolation: ColorInterpolation,
-    pub(crate) stops: GradientRampKeyStops,
+    pub(crate) stops: Arc<[GradientRampStopKey]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -471,7 +469,6 @@ pub struct LinearGradientLine {
     pub end: [f32; 2],
 }
 
-#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Fill {
     Solid(Color),
@@ -502,11 +499,6 @@ impl From<Gradient> for Fill {
 
 /// The number of texels in a baked gradient ramp texture.
 pub const RAMP_RESOLUTION: usize = 1024;
-
-#[derive(Debug, Clone)]
-pub struct Gradient {
-    pub(crate) data: GradientData,
-}
 
 #[derive(Debug, Clone)]
 pub enum GradientRamp {
@@ -597,6 +589,12 @@ impl GradientData {
     }
 }
 
+/// A validated gradient whose data is shared when cloned.
+#[derive(Debug, Clone)]
+pub struct Gradient {
+    data: Arc<GradientData>,
+}
+
 impl Gradient {
     /// Resolved CPU description borrowed by backend material preparation.
     pub fn data(&self) -> &GradientData {
@@ -626,12 +624,12 @@ impl Gradient {
             axis_len_sq <= RESOLVED_DEGENERATE_EPSILON * RESOLVED_DEGENERATE_EPSILON;
 
         Ok(Gradient {
-            data: GradientData::new(
+            data: Arc::new(GradientData::new(
                 &desc.common,
                 GradientGeometry::Linear(desc.line),
                 normalized,
                 is_degenerate,
-            ),
+            )),
         })
     }
 
@@ -663,7 +661,7 @@ impl Gradient {
             || radius_y.abs() <= RESOLVED_DEGENERATE_EPSILON;
 
         Ok(Gradient {
-            data: GradientData::new(
+            data: Arc::new(GradientData::new(
                 &desc.common,
                 GradientGeometry::Radial {
                     center: desc.center,
@@ -671,7 +669,7 @@ impl Gradient {
                 },
                 normalized,
                 is_degenerate,
-            ),
+            )),
         })
     }
 
@@ -691,7 +689,7 @@ impl Gradient {
             && normalized.period_len <= RESOLVED_DEGENERATE_EPSILON;
 
         Ok(Gradient {
-            data: GradientData::new(
+            data: Arc::new(GradientData::new(
                 &desc.common,
                 GradientGeometry::Conic {
                     center: desc.center,
@@ -699,7 +697,7 @@ impl Gradient {
                 },
                 normalized,
                 is_degenerate,
-            ),
+            )),
         })
     }
 }
@@ -775,14 +773,15 @@ impl GradientRampCacheKey {
         interpolation: &ColorInterpolation,
         normalized: &NormalizedGradient,
     ) -> Self {
-        let mut stops = GradientRampKeyStops::with_capacity(normalized.stops.len());
-        for stop in &normalized.stops {
-            stops.push(GradientRampStopKey {
+        let stops = normalized
+            .stops
+            .iter()
+            .map(|stop| GradientRampStopKey {
                 position_bits: stop.position.to_bits(),
                 color: GradientColorKey::from_gradient_color(stop.color),
                 hint_bits: stop.hint.map(f32::to_bits),
-            });
-        }
+            })
+            .collect();
 
         Self {
             interpolation: *interpolation,

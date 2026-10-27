@@ -27,14 +27,14 @@ fn gradient_ramps_are_reused_within_each_cache() {
     let mut cache = GradientCache::new();
     let mut independent_cache = GradientCache::new();
 
-    let GradientRamp::Sampled(first_ramp) = cache.get_or_create_ramp(&first.data) else {
+    let GradientRamp::Sampled(first_ramp) = cache.get_or_create_ramp(first.data()) else {
         panic!("expected sampled ramp");
     };
-    let GradientRamp::Sampled(second_ramp) = cache.get_or_create_ramp(&second.data) else {
+    let GradientRamp::Sampled(second_ramp) = cache.get_or_create_ramp(second.data()) else {
         panic!("expected sampled ramp");
     };
     let GradientRamp::Sampled(independent_ramp) =
-        independent_cache.get_or_create_ramp(&independent.data)
+        independent_cache.get_or_create_ramp(independent.data())
     else {
         panic!("expected sampled ramp");
     };
@@ -68,11 +68,11 @@ fn degenerate_linear_gradient_uses_the_last_stop_color() {
     ))
     .unwrap();
 
-    let GradientRamp::Constant(color) = gradient.data.ramp else {
+    let GradientRamp::Constant(color) = gradient.data().ramp else {
         panic!("a degenerate gradient must have a constant ramp");
     };
     assert_eq!(color, [0.0, 0.25, 0.0, 0.25]);
-    let params = GpuGradientColorParams::from_gradient_data(&gradient.data);
+    let params = GpuGradientColorParams::from_gradient_data(gradient.data());
     assert_eq!(params.is_constant, 1);
     assert_eq!(params.constant_color, color);
 }
@@ -99,7 +99,7 @@ fn conic_gpu_parameters_use_turns_for_stops_and_radians_for_the_start_angle() {
     )
     .unwrap();
 
-    let params = GpuGradientColorParams::from_gradient_data(&gradient.data);
+    let params = GpuGradientColorParams::from_gradient_data(gradient.data());
     assert_eq!(params.gradient_type, 3);
     assert_eq!(params.units, 1);
     assert_eq!(params.spread_mode, 1);
@@ -139,11 +139,11 @@ fn degenerate_radial_gradient_uses_the_last_stop_color() {
         ))
         .unwrap();
 
-        let GradientRamp::Constant(color) = gradient.data.ramp else {
+        let GradientRamp::Constant(color) = gradient.data().ramp else {
             panic!("a degenerate radial gradient must have a constant ramp");
         };
         assert_eq!(color, [0.0, 0.25, 0.0, 0.25]);
-        let params = GpuGradientColorParams::from_gradient_data(&gradient.data);
+        let params = GpuGradientColorParams::from_gradient_data(gradient.data());
         assert_eq!(params.is_constant, 1);
         assert_eq!(params.constant_color, color);
     }
