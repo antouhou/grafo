@@ -74,6 +74,11 @@ impl<B: RenderBackend> Scene<B> {
         Ok(())
     }
 
+    fn discard_member_effects(&mut self, mut pending: Vec<PendingMemberEffectAttachment>) {
+        pending.clear();
+        self.group_effect_scratch.pending_member_effects = pending;
+    }
+
     pub(super) fn prepare_inherited_member_effects(
         &mut self,
         node_id: usize,
@@ -94,11 +99,6 @@ impl<B: RenderBackend> Scene<B> {
             return Err(error);
         }
         Ok(pending)
-    }
-
-    fn discard_member_effects(&mut self, mut pending: Vec<PendingMemberEffectAttachment>) {
-        pending.clear();
-        self.group_effect_scratch.pending_member_effects = pending;
     }
 
     pub(super) fn apply_member_effects(
