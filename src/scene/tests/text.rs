@@ -4,6 +4,7 @@ use crate::core::{
     Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig, TextSource, TransformInstance,
 };
 use crate::scene::draw_commands::{DrawCommand, NodeTarget};
+use crate::scene_state::effects::EffectConfig;
 use crate::scene_state::types::DrawTreeNode;
 use crate::scene_state::SceneStateContext;
 use lyon::path::PathEvent;
@@ -78,6 +79,68 @@ fn glyph_ids(scene: &Scene<TestBackend>, group: usize) -> Vec<usize> {
         .copied()
         .filter(|id| scene.state.text_glyphs.contains(id))
         .collect()
+}
+
+#[test]
+fn text_replacement_preserves_inherited_and_explicit_effects() {
+    for config in [
+        EffectConfig::Content(ContentEffectConfig::default()),
+        EffectConfig::Backdrop(BackdropEffectConfig::default()),
+        EffectConfig::ShapeMask(ShapeMaskEffectConfig::default()),
+    ] {
+        for (has_explicit_effect, is_initially_empty) in
+            [(false, false), (false, true), (true, false), (true, true)]
+        {
+            let mut scene = scene();
+            let parent = scene.add_group(None).unwrap();
+            scene.set_effect(parent, 8, &[1, 2, 3, 4], config).unwrap();
+            let child = scene
+                .add_shape(
+                    Shape::rect([(0.0, 0.0), (16.0, 16.0)]),
+                    Some(parent),
+                    None,
+                    options(),
+                )
+                .unwrap();
+            if has_explicit_effect {
+                scene.set_effect(child, 9, &[1, 2, 3, 4], config).unwrap();
+            }
+            let glyph_keys: &[u64] = if is_initially_empty { &[] } else { &[10, 11] };
+            scene
+                .replace_with_text(child, Glyphs::new(glyph_keys), options())
+                .unwrap();
+            let mut surface = surface();
+            scene.render(&mut surface).unwrap();
+
+            scene.set_effect(parent, 10, &[1, 2, 3, 4], config).unwrap();
+            if is_initially_empty {
+                scene
+                    .replace_with_text(child, Glyphs::new(&[10, 11]), options())
+                    .unwrap();
+            }
+            scene.render(&mut surface).unwrap();
+            let expected_effect_id = if has_explicit_effect { 9 } else { 10 };
+            assert_eq!(
+                surface.resource().effects,
+                [expected_effect_id; 2],
+                "{config:?}, explicit effect: {has_explicit_effect}, initially empty: {is_initially_empty}"
+            );
+
+            scene
+                .replace_with_text(child, Glyphs::new(&[10, 11]), options())
+                .unwrap();
+            scene.render(&mut surface).unwrap();
+            assert_eq!(surface.resource().effects, [expected_effect_id; 2]);
+            match config {
+                EffectConfig::Content(_) => scene.remove_content_effect(parent),
+                EffectConfig::Backdrop(_) => scene.remove_backdrop_effect(parent),
+                EffectConfig::ShapeMask(_) => scene.remove_shape_mask_effect(parent),
+            }
+            scene.render(&mut surface).unwrap();
+            let expected_effects: &[u64] = if has_explicit_effect { &[9, 9] } else { &[] };
+            assert_eq!(surface.resource().effects, expected_effects);
+        }
+    }
 }
 
 #[test]

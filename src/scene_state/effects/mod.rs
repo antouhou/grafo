@@ -147,6 +147,14 @@ impl EffectAttachments {
         self.shape_mask = self.shape_mask.or(parent.shape_mask);
     }
 
+    pub(crate) fn remove_inherited(&mut self) {
+        for effect in [&mut self.content, &mut self.backdrop, &mut self.shape_mask] {
+            if effect.is_some_and(|effect| effect.source_group_id.is_some()) {
+                *effect = None;
+            }
+        }
+    }
+
     fn remove_effect(&mut self, effect_id: u64) {
         for effect in [&mut self.content, &mut self.backdrop, &mut self.shape_mask] {
             if effect.is_some_and(|effect| effect.instance.effect_id == effect_id) {

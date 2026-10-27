@@ -122,7 +122,7 @@ impl<B: RenderBackend> Scene<B> {
             NodeTarget::Insert { parent } => self.add_group(parent)?,
             NodeTarget::Replace { node_id } => node_id,
         };
-        let effects = self.state.node_effects(group_id);
+        let mut effects = self.state.node_effects(group_id);
         let glyph_effects = if matches!(
             self.state.draw_tree.get(group_id),
             Some(DrawTreeNode::Group(_))
@@ -144,6 +144,7 @@ impl<B: RenderBackend> Scene<B> {
         if result.is_ok() {
             self.remove_subtrees(scratch.removed_glyph_ids.iter().copied(), |_| {});
             if matches!(target, NodeTarget::Replace { .. }) {
+                effects.remove_inherited();
                 self.backend.unregister_shapes(&[ShapeDrawId(group_id)]);
                 self.replace_node(
                     group_id,
