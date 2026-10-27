@@ -180,7 +180,9 @@ impl<B: RenderBackend> Scene<B> {
     /// Adds a text from a source to the scene. Text node can do everything a shape or a rect can -
     /// you apply to it a gradient fill, backdrop filters, mask effects, etc. This method supplies
     /// the current visible bounds to the text source. If you want to change the size of the parent
-    /// node, call `Scene::replace_with_text` to update the bounds.
+    /// node, call `Scene::replace_with_text` to update the bounds. While text is a node like any
+    /// other, don't try to manually add children to it. This can mess up both children and text -
+    /// create a proper container instead.
     pub fn add_text(
         &mut self,
         source: impl TextSource,
@@ -255,7 +257,9 @@ impl<B: RenderBackend> Scene<B> {
     /// Replaces a node with text, preserving its ID, parent, children, and effects. If the node is
     /// a text node already, updates the text and visible bounds. Supplies the current visible
     /// bounds. Call after changing the source or after resizing a parent node.
-    /// Resize the scene first when the target dimensions change.
+    /// Resize the scene first when the target dimensions change. While text is a node like any
+    /// other, don't try to manually add children to it. This can mess up both children and text -
+    /// create a proper container instead.
     pub fn replace_with_text(
         &mut self,
         node_id: usize,
