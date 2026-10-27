@@ -1,13 +1,38 @@
-use super::effects::EffectAttachments;
+use super::effects::{EffectAttachmentKind, EffectAttachments};
 use crate::core::shape::{CachedShapeHandle, ShapeDrawCommandOptions, ShapeInstance};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, MathRect};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct GroupEffectSources {
+    pub(crate) content: Option<usize>,
+    pub(crate) backdrop: Option<usize>,
+    pub(crate) shape_mask: Option<usize>,
+}
+
+impl GroupEffectSources {
+    pub(crate) fn get_mut(&mut self, kind: EffectAttachmentKind) -> &mut Option<usize> {
+        match kind {
+            EffectAttachmentKind::Content => &mut self.content,
+            EffectAttachmentKind::Backdrop => &mut self.backdrop,
+            EffectAttachmentKind::ShapeMask => &mut self.shape_mask,
+        }
+    }
+
+    pub(crate) fn iter(self) -> impl Iterator<Item = usize> {
+        self.content
+            .into_iter()
+            .chain(self.backdrop)
+            .chain(self.shape_mask)
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct CachedShapeDrawData {
     pub(crate) instance: ShapeInstance,
     pub(crate) clips_children: bool,
     pub(crate) logical_screen_bounds: MathRect,
+    pub(crate) inherited_effect_sources: GroupEffectSources,
 }
 
 impl CachedShapeDrawData {
@@ -23,28 +48,13 @@ impl CachedShapeDrawData {
             instance,
             clips_children,
             logical_screen_bounds,
+            inherited_effect_sources: GroupEffectSources::default(),
         }
     }
 
     pub(crate) fn has_geometry(&self) -> bool {
         let geometry = self.instance.cached_shape.vertex_buffers();
         !geometry.vertices.is_empty() && !geometry.indices.is_empty()
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct GroupEffectSources {
-    pub(crate) content: Option<usize>,
-    pub(crate) backdrop: Option<usize>,
-    pub(crate) shape_mask: Option<usize>,
-}
-
-impl GroupEffectSources {
-    pub(crate) fn iter(self) -> impl Iterator<Item = usize> {
-        self.content
-            .into_iter()
-            .chain(self.backdrop)
-            .chain(self.shape_mask)
     }
 }
 

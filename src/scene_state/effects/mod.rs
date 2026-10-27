@@ -100,6 +100,7 @@ impl EffectConfig {
 pub(crate) struct EffectAttachment {
     pub instance: EffectInstance,
     pub config: EffectConfig,
+    pub source_group_id: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -239,10 +240,25 @@ pub(crate) struct RemovedEffectAttachment {
 }
 
 impl SceneState {
+    pub(crate) fn set_shape_effect_source(
+        &mut self,
+        node_id: usize,
+        kind: EffectAttachmentKind,
+        source_group_id: Option<usize>,
+    ) {
+        if let Some(DrawTreeNode::CachedShape(shape)) = self.draw_tree.get_mut(node_id) {
+            *shape.inherited_effect_sources.get_mut(kind) = source_group_id;
+        }
+    }
+
     pub(crate) fn node_effects(&self, node_id: usize) -> EffectAttachments {
         if let Some(DrawTreeNode::Group(group)) = self.draw_tree.get(node_id) {
             return group.effects;
         }
+        let sources = match self.draw_tree.get(node_id) {
+            Some(DrawTreeNode::CachedShape(shape)) => shape.inherited_effect_sources,
+            _ => GroupEffectSources::default(),
+        };
         EffectAttachments {
             content: self
                 .content_effects
@@ -253,6 +269,7 @@ impl SceneState {
                         parameters: effect.parameters,
                     },
                     config: EffectConfig::Content(effect.config),
+                    source_group_id: sources.content,
                 }),
             backdrop: self
                 .backdrop_effects
@@ -260,6 +277,7 @@ impl SceneState {
                 .map(|effect| EffectAttachment {
                     instance: effect.effect,
                     config: EffectConfig::Backdrop(effect.config),
+                    source_group_id: sources.backdrop,
                 }),
             shape_mask: self
                 .shape_mask_effects
@@ -270,6 +288,7 @@ impl SceneState {
                         parameters: effect.parameters,
                     },
                     config: EffectConfig::ShapeMask(effect.config),
+                    source_group_id: sources.shape_mask,
                 }),
         }
     }
@@ -285,16 +304,24 @@ impl SceneState {
             .unwrap_or_default()
     }
 
+    fn inherited(
+        &self,
+        source_group_id: Option<usize>,
+        kind: EffectAttachmentKind,
+    ) -> Option<EffectAttachment> {
+        let group_id = source_group_id?;
+        let mut attachment = self.node_effects(group_id).get(kind)?;
+        attachment.source_group_id = Some(group_id);
+        Some(attachment)
+    }
+
     pub(crate) fn inherited_effects(&self, node_id: usize) -> EffectAttachments {
         let sources = self.parent_group_effect_sources(node_id);
+
         EffectAttachments {
-            content: sources.content.and_then(|id| self.node_effects(id).content),
-            backdrop: sources
-                .backdrop
-                .and_then(|id| self.node_effects(id).backdrop),
-            shape_mask: sources
-                .shape_mask
-                .and_then(|id| self.node_effects(id).shape_mask),
+            content: self.inherited(sources.content, EffectAttachmentKind::Content),
+            backdrop: self.inherited(sources.backdrop, EffectAttachmentKind::Backdrop),
+            shape_mask: self.inherited(sources.shape_mask, EffectAttachmentKind::ShapeMask),
         }
     }
 
@@ -380,6 +407,7 @@ impl SceneState {
                 parameters,
             },
             config,
+            source_group_id: None,
         });
         self.group_effect_index
             .replace(node_id, previous, group.effects);
@@ -505,6 +533,7 @@ impl SceneState {
             maximum_texture_dimension,
         );
         self.replace_content_effect(node_id, instance, entry);
+        self.set_shape_effect_source(node_id, EffectAttachmentKind::Content, None);
         Ok(())
     }
 
@@ -523,6 +552,7 @@ impl SceneState {
         if self.content_effects.remove(&node_id).is_none() {
             return false;
         }
+        self.set_shape_effect_source(node_id, EffectAttachmentKind::Content, None);
         self.effect_parameters.request_compaction();
         self.effect_damage
             .remove(EffectDamageKind::Content, node_id);
@@ -573,6 +603,7 @@ impl SceneState {
             maximum_texture_dimension,
         );
         self.replace_backdrop_effect(node_id, instance, entry);
+        self.set_shape_effect_source(node_id, EffectAttachmentKind::Backdrop, None);
         Ok(())
     }
 
@@ -601,6 +632,7 @@ impl SceneState {
         if self.backdrop_effects.remove(&node_id).is_none() {
             return false;
         }
+        self.set_shape_effect_source(node_id, EffectAttachmentKind::Backdrop, None);
         self.effect_parameters.request_compaction();
         self.effect_damage
             .remove(EffectDamageKind::Backdrop, node_id);
@@ -639,6 +671,7 @@ impl SceneState {
                 bounds,
             },
         );
+        self.set_shape_effect_source(node_id, EffectAttachmentKind::ShapeMask, None);
         self.refresh_content_effect_bounds(node_id, maximum_texture_dimension);
         Ok(())
     }
@@ -673,6 +706,7 @@ impl SceneState {
         maximum_texture_dimension: u32,
     ) {
         if self.shape_mask_effects.remove(&node_id).is_some() {
+            self.set_shape_effect_source(node_id, EffectAttachmentKind::ShapeMask, None);
             self.effect_parameters.request_compaction();
             self.refresh_content_effect_bounds(node_id, maximum_texture_dimension);
         }
@@ -688,6 +722,9 @@ impl SceneState {
         self.content_effects.retain(|node_id, instance| {
             if instance.effect_id != effect_id {
                 return true;
+            }
+            if let Some(DrawTreeNode::CachedShape(shape)) = self.draw_tree.get_mut(*node_id) {
+                shape.inherited_effect_sources.content = None;
             }
             let damage_bounds = self
                 .effect_damage
@@ -705,6 +742,9 @@ impl SceneState {
         self.backdrop_effects.retain(|node_id, instance| {
             if instance.effect.effect_id != effect_id {
                 return true;
+            }
+            if let Some(DrawTreeNode::CachedShape(shape)) = self.draw_tree.get_mut(*node_id) {
+                shape.inherited_effect_sources.backdrop = None;
             }
             self.effect_damage
                 .remove(EffectDamageKind::Backdrop, *node_id);
@@ -725,6 +765,9 @@ impl SceneState {
         self.shape_mask_effects.retain(|node_id, instance| {
             if instance.effect_id != effect_id {
                 return true;
+            }
+            if let Some(DrawTreeNode::CachedShape(shape)) = self.draw_tree.get_mut(*node_id) {
+                shape.inherited_effect_sources.shape_mask = None;
             }
             let mut damage_bounds = geometry::logical_bounds_to_viewport_rect(
                 instance.bounds.logical_screen_bounds,

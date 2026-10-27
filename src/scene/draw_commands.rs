@@ -211,6 +211,7 @@ impl<B: RenderBackend> Scene<B> {
                 self.remove_text_glyphs(node_id);
                 self.replace_node(node_id, node, shape_mask_effect_bounds);
                 if let Some(effects) = replacement_effects {
+                    self.remove_inherited_member_effects(node_id);
                     self.apply_effects(node_id, effects)?;
                 }
             }

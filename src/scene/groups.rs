@@ -15,6 +15,7 @@ pub(super) struct GroupEffectScratch {
 impl<B: RenderBackend> Scene<B> {
     fn set_group_member_effects(
         &mut self,
+        group_id: usize,
         members: &[usize],
         effect_id: u64,
         params: &[u8],
@@ -34,6 +35,8 @@ impl<B: RenderBackend> Scene<B> {
         }
         for &member_id in members {
             self.set_effect(member_id, effect_id, params, config)?;
+            self.state
+                .set_shape_effect_source(member_id, config.kind(), Some(group_id));
         }
         Ok(())
     }
@@ -52,7 +55,8 @@ impl<B: RenderBackend> Scene<B> {
         let mut scratch = mem::take(&mut self.group_effect_scratch);
         self.state
             .collect_group_members(node_id, config.kind(), &mut scratch.members);
-        let result = self.set_group_member_effects(&scratch.members, effect_id, params, config);
+        let result =
+            self.set_group_member_effects(node_id, &scratch.members, effect_id, params, config);
         scratch.members.clear();
         self.group_effect_scratch = scratch;
         result?;
@@ -109,6 +113,34 @@ impl<B: RenderBackend> Scene<B> {
         }
         scratch.removed_effects.clear();
         scratch.parameters.clear();
+        self.group_effect_scratch = scratch;
+    }
+
+    pub(super) fn remove_inherited_member_effects(&mut self, node_id: usize) {
+        let mut scratch = mem::take(&mut self.group_effect_scratch);
+        for kind in [
+            EffectAttachmentKind::Content,
+            EffectAttachmentKind::Backdrop,
+            EffectAttachmentKind::ShapeMask,
+        ] {
+            self.state
+                .collect_group_members(node_id, kind, &mut scratch.members);
+            for &member_id in &scratch.members {
+                let is_inherited = self
+                    .state
+                    .node_effects(member_id)
+                    .get(kind)
+                    .is_some_and(|effect| effect.source_group_id.is_some());
+                if is_inherited {
+                    match kind {
+                        EffectAttachmentKind::Content => self.remove_content_effect(member_id),
+                        EffectAttachmentKind::Backdrop => self.remove_backdrop_effect(member_id),
+                        EffectAttachmentKind::ShapeMask => self.remove_shape_mask_effect(member_id),
+                    }
+                }
+            }
+        }
+        scratch.members.clear();
         self.group_effect_scratch = scratch;
     }
 }

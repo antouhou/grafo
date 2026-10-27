@@ -232,6 +232,8 @@ impl<B: RenderBackend> Scene<B> {
 
     /// Replaces one command with a shape and returns its unchanged ID.
     /// Parent, children and attached effects are preserved.
+    /// Replacing a group moves its effects onto the shape. Descendants keep their own
+    /// effects and those supplied by nested groups.
     pub fn replace_with_shape(
         &mut self,
         node_id: usize,
@@ -264,6 +266,7 @@ impl<B: RenderBackend> Scene<B> {
 
     /// Replaces one command with a loaded shape and returns its unchanged ID.
     /// Children and attached effects are retained.
+    /// Group effects follow the same rules as [`Scene::replace_with_shape`].
     pub fn replace_with_cached_shape(
         &mut self,
         node_id: usize,
@@ -674,7 +677,13 @@ impl<B: RenderBackend> Scene<B> {
             attachment.instance.effect_id,
             parameters,
             attachment.config,
-        )
+        )?;
+        self.state.set_shape_effect_source(
+            node_id,
+            attachment.config.kind(),
+            attachment.source_group_id,
+        );
+        Ok(())
     }
 
     fn apply_effects(

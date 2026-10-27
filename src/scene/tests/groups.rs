@@ -5,8 +5,120 @@ use crate::core::{
     ShapeMaskEffectConfig, UnsignedPhysicalRect,
 };
 use crate::scene::EffectError;
+use crate::scene_state::effects::EffectConfig;
 use crate::scene_state::types::DrawTreeNode;
 use crate::scene_state::SceneError;
+
+#[test]
+fn group_replacement_removes_inherited_effects_and_preserves_overrides() {
+    for config in [
+        EffectConfig::Content(ContentEffectConfig::default()),
+        EffectConfig::Backdrop(BackdropEffectConfig::default()),
+        EffectConfig::ShapeMask(ShapeMaskEffectConfig::default()),
+    ] {
+        for use_cached_shape in [false, true] {
+            let mut scene = scene();
+            let ancestor = scene.add_group(None).unwrap();
+            let group = scene.add_group(Some(ancestor)).unwrap();
+            let geometry = Shape::rect([(2.0, 2.0), (8.0, 8.0)]);
+            let options = ShapeDrawCommandOptions::new().color(Color::WHITE);
+            let first = scene
+                .add_shape(&geometry, Some(group), None, options.clone())
+                .unwrap();
+            let effect_owner = if use_cached_shape { ancestor } else { group };
+            scene
+                .set_effect(effect_owner, 8, &[1, 2, 3, 4], config)
+                .unwrap();
+            let nested = scene.add_group(Some(group)).unwrap();
+            let inherited = scene
+                .add_shape(&geometry, Some(nested), None, options.clone())
+                .unwrap();
+            let explicit = scene
+                .add_shape(&geometry, Some(group), None, options.clone())
+                .unwrap();
+            scene
+                .set_effect(explicit, 8, &[1, 2, 3, 4], config)
+                .unwrap();
+            let overridden_group = scene.add_group(Some(group)).unwrap();
+            scene
+                .set_effect(overridden_group, 9, &[1, 2, 3, 4], config)
+                .unwrap();
+            let overridden = scene
+                .add_shape(&geometry, Some(overridden_group), None, options.clone())
+                .unwrap();
+            let mut surface = surface();
+            scene.render(&mut surface).unwrap();
+            scene
+                .replace_with_shape(first, &geometry, None, options.clone())
+                .unwrap();
+            scene
+                .replace_with_shape(explicit, &geometry, None, options.clone())
+                .unwrap();
+
+            let replacement = Shape::rect([(0.0, 0.0), (16.0, 16.0)]);
+            let previous_dirty = scene.dirty_bounds;
+            scene.backend.registration_failure = Some(group);
+            assert!(scene
+                .replace_with_shape(group, &replacement, None, options.clone())
+                .is_err());
+            assert!(scene.state.node_effects(first).get(config.kind()).is_some());
+            assert_eq!(scene.dirty_bounds, previous_dirty);
+            scene.backend.registration_failure = None;
+            if use_cached_shape {
+                scene.load_shape(replacement, 50, Some(50));
+                scene.replace_with_cached_shape(group, 50, options).unwrap();
+            } else {
+                scene
+                    .replace_with_shape(group, replacement, None, options)
+                    .unwrap();
+            }
+
+            for member in [first, inherited] {
+                assert!(
+                    scene
+                        .state
+                        .node_effects(member)
+                        .get(config.kind())
+                        .is_none(),
+                    "inherited {config:?} remains on {member}"
+                );
+            }
+            for (node_id, effect_id) in [(group, 8), (explicit, 8), (overridden, 9)] {
+                assert_eq!(
+                    scene
+                        .state
+                        .node_effects(node_id)
+                        .get(config.kind())
+                        .unwrap()
+                        .instance
+                        .effect_id,
+                    effect_id
+                );
+            }
+            scene.render(&mut surface).unwrap();
+            if matches!(config, EffectConfig::Content(_)) {
+                assert_eq!(
+                    surface
+                        .resource()
+                        .effects
+                        .iter()
+                        .filter(|&&id| id == 8)
+                        .count(),
+                    2
+                );
+                assert_eq!(
+                    surface
+                        .resource()
+                        .effects
+                        .iter()
+                        .filter(|&&id| id == 9)
+                        .count(),
+                    1
+                );
+            }
+        }
+    }
+}
 
 #[test]
 fn nested_groups_draw_in_order_and_removal_cleans_up_only_their_descendants() {

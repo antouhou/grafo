@@ -215,10 +215,15 @@ impl SceneState {
     pub(crate) fn replace_node(
         &mut self,
         node_id: usize,
-        node: DrawTreeNode,
+        mut node: DrawTreeNode,
         shape_mask_effect_bounds: Option<ShapeMaskEffectBounds>,
         maximum_texture_dimension: u32,
     ) -> DrawTreeNode {
+        if let (DrawTreeNode::CachedShape(previous), DrawTreeNode::CachedShape(replacement)) =
+            (self.draw_tree.get_unchecked(node_id), &mut node)
+        {
+            replacement.inherited_effect_sources = previous.inherited_effect_sources;
+        }
         if matches!(self.draw_tree.get(node_id), Some(DrawTreeNode::Group(_))) {
             self.effect_parameters.request_compaction();
         }
