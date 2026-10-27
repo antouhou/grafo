@@ -286,7 +286,8 @@ impl<B: RenderBackend> Scene<B> {
 
     /// Replaces one command with a clip rectangle and returns its unchanged ID.
     /// Children are retained.
-    /// Effects attached to this node are removed because they require a shape.
+    /// Effects attached to this node are removed. Replacing a group restores effects
+    /// from its parent groups for children without their own effect of the same kind.
     pub fn replace_with_clipping_rect(
         &mut self,
         node_id: usize,

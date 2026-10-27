@@ -209,6 +209,14 @@ impl<B: RenderBackend> Scene<B> {
             }
             NodeTarget::Replace { node_id } => {
                 self.remove_text_glyphs(node_id);
+                if matches!(
+                    (self.state.draw_tree.get_unchecked(node_id), &node),
+                    (DrawTreeNode::Group(_), DrawTreeNode::ClipRect(_))
+                ) {
+                    self.remove_content_effect(node_id);
+                    self.remove_backdrop_effect(node_id);
+                    self.remove_shape_mask_effect(node_id);
+                }
                 self.replace_node(node_id, node, shape_mask_effect_bounds);
                 if let Some(effects) = replacement_effects {
                     self.remove_inherited_member_effects(node_id);

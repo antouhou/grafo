@@ -2,8 +2,9 @@ use super::{queue_shape, scene, surface, DrawCommandError, Scene, TestBackend, T
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
     BackdropCaptureArea, BackdropEffectConfig, ContentEffectConfig, Shape, ShapeDrawCommandOptions,
-    UnsignedPhysicalRect,
+    ShapeMaskEffectConfig, UnsignedPhysicalRect,
 };
+use crate::scene_state::effects::EffectConfig;
 use crate::scene_state::SceneError;
 
 fn shape(scene: &mut Scene<TestBackend>, bounds: [(f32, f32); 2], parent: usize) -> usize {
@@ -30,6 +31,96 @@ fn clip(scene: &mut Scene<TestBackend>, node_id: usize, clips_children: bool) {
 
 fn rect(min: (u32, u32), max: (u32, u32)) -> Option<UnsignedPhysicalRect> {
     Some(UnsignedPhysicalRect::new(min.into(), max.into()))
+}
+
+#[test]
+fn replacing_a_group_with_a_clip_restores_member_effects() {
+    for config in [
+        EffectConfig::Content(ContentEffectConfig::default()),
+        EffectConfig::Backdrop(BackdropEffectConfig::default()),
+        EffectConfig::ShapeMask(ShapeMaskEffectConfig::default()),
+    ] {
+        for has_parent_effect in [false, true] {
+            let mut scene = scene();
+            let parent = scene.add_group(None).unwrap();
+            if has_parent_effect {
+                scene.set_effect(parent, 8, &[1, 2, 3, 4], config).unwrap();
+            }
+            let group = scene.add_group(Some(parent)).unwrap();
+            scene.set_effect(group, 9, &[1, 2, 3, 4], config).unwrap();
+            let bounds = [(11.0, 11.0), (12.0, 12.0)];
+            let member = shape(&mut scene, bounds, group);
+            let nested = scene.add_group(Some(group)).unwrap();
+            let nested_clip = scene
+                .add_clipping_rect(bounds, Some(nested), None::<InstanceTransform>, false)
+                .unwrap();
+            let nested_member = shape(&mut scene, bounds, nested_clip);
+            let explicit_member = shape(&mut scene, bounds, group);
+            scene
+                .set_effect(explicit_member, 9, &[1, 2, 3, 4], config)
+                .unwrap();
+            let overriding_group = scene.add_group(Some(group)).unwrap();
+            scene
+                .set_effect(overriding_group, 10, &[1, 2, 3, 4], config)
+                .unwrap();
+            let overridden_member = shape(&mut scene, bounds, overriding_group);
+            let mut surface = surface();
+            scene.render(&mut surface).unwrap();
+
+            assert!(matches!(
+                scene.replace_with_clipping_rect(
+                    group,
+                    bounds,
+                    Some(InstanceTransform::rotation_z_deg(45.0)),
+                    true,
+                ),
+                Err(DrawCommandError::Scene(
+                    SceneError::UnsupportedClipRectTransform
+                ))
+            ));
+            assert_eq!(
+                scene
+                    .state
+                    .node_effects(member)
+                    .get(config.kind())
+                    .unwrap()
+                    .instance
+                    .effect_id,
+                9
+            );
+            assert!(scene.dirty_bounds.is_none());
+
+            clip(&mut scene, group, true);
+            let new_member = shape(&mut scene, bounds, group);
+            let inherited_effect = has_parent_effect.then_some((8, Some(parent)));
+            for (node_id, expected) in [
+                (member, inherited_effect),
+                (nested_member, inherited_effect),
+                (new_member, inherited_effect),
+                (explicit_member, Some((9, None))),
+                (overridden_member, Some((10, Some(overriding_group)))),
+            ] {
+                let effect = scene.state.node_effects(node_id).get(config.kind());
+                assert_eq!(
+                    effect.map(|effect| (effect.instance.effect_id, effect.source_group_id)),
+                    expected,
+                    "{config:?}, node {node_id}, parent effect: {has_parent_effect}"
+                );
+            }
+            scene.render(&mut surface).unwrap();
+
+            scene.set_effect(parent, 11, &[1, 2, 3, 4], config).unwrap();
+            scene.render(&mut surface).unwrap();
+            let mut effect_ids = surface.resource().effects.clone();
+            effect_ids.sort_unstable();
+            assert_eq!(effect_ids, [9, 10, 11, 11, 11]);
+            scene.unload_effect(9);
+            scene.render(&mut surface).unwrap();
+            let mut effect_ids = surface.resource().effects.clone();
+            effect_ids.sort_unstable();
+            assert_eq!(effect_ids, [10, 11, 11, 11, 11]);
+        }
+    }
 }
 
 #[test]
