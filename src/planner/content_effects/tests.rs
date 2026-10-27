@@ -391,7 +391,6 @@ fn queue_rebuilds_reuse_scheduling_storage_and_empty_scenes_clear_the_surface() 
     let mut output = RecordedCommands::default();
     scene.plan(&mut planner, &mut output);
     let capacities = (
-        planner.content_backdrop_regions.capacity(),
         planner.subtree_backdrop_regions.capacity(),
         planner.node_order.capacity(),
     );
@@ -405,7 +404,6 @@ fn queue_rebuilds_reuse_scheduling_storage_and_empty_scenes_clear_the_surface() 
         assert_eq!(
             capacities,
             (
-                planner.content_backdrop_regions.capacity(),
                 planner.subtree_backdrop_regions.capacity(),
                 planner.node_order.capacity()
             )
@@ -416,7 +414,6 @@ fn queue_rebuilds_reuse_scheduling_storage_and_empty_scenes_clear_the_surface() 
     empty.plan(&mut planner, &mut output);
     validate_dependencies(&output);
     assert_eq!(snapshot(&output), [Command::Begin(None), Command::End]);
-    assert!(planner.content_backdrop_regions.is_empty());
     assert!(planner.subtree_backdrop_regions.is_empty());
 }
 

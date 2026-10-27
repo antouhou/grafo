@@ -159,7 +159,7 @@ fn fully_offscreen_backdrop_inputs_still_run_the_effect() {
 }
 
 #[test]
-fn completed_child_captures_do_not_expand_the_parent_target() {
+fn nested_backdrop_captures_expand_parent_rendering_before_crop() {
     let mut scene = Scene::new();
     let root = scene.add(None);
     let parent = scene.tree.add_child(
@@ -199,5 +199,20 @@ fn completed_child_captures_do_not_expand_the_parent_target() {
             _ => None,
         })
         .collect();
-    assert_eq!(sizes, [Size::new(20, 20), Size::new(100, 100)]);
+    assert_eq!(sizes, [Size::new(100, 100), Size::new(100, 100)]);
+    let parent_crop = output
+        .instructions
+        .iter()
+        .find_map(|command| match command.operation {
+            RenderOperation::Capture(capture)
+                if capture.region.bounds.min.to_tuple() == (30, 20)
+                    && capture.region.bounds.max.to_tuple() == (50, 40) =>
+            {
+                Some(capture)
+            }
+            _ => None,
+        })
+        .expect("expanded parent rendering is cropped to the effect input");
+    assert_eq!(parent_crop.source, CaptureSource::Target);
+    assert_eq!(parent_crop.sampling_size, Size::new(20, 20));
 }

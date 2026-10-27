@@ -26,7 +26,6 @@ pub(crate) struct ContentPlanningInput<'scene, 'planning> {
 /// Reuses backdrop bounds and traversal storage across command iterators.
 #[derive(Default)]
 pub(crate) struct SceneTraversal {
-    content_backdrop_regions: HashMap<usize, UnsignedPhysicalRect>,
     subtree_backdrop_regions: HashMap<usize, UnsignedPhysicalRect>,
     node_order: Vec<usize>,
     draws: DrawPlanner,
@@ -51,7 +50,6 @@ impl SceneTraversal {
                 shape_mask_effects: input.shape_mask_effects,
                 content_effects: input.content_effects,
                 backdrop_effects: input.backdrop_effects,
-                content_backdrop_regions: &self.content_backdrop_regions,
                 subtree_backdrop_regions: &self.subtree_backdrop_regions,
                 scale_factor: input.scale_factor,
                 physical_size: input.physical_size,
@@ -62,7 +60,6 @@ impl SceneTraversal {
     }
 
     fn resolve_backdrop_regions(&mut self, input: &ContentPlanningInput<'_, '_>) {
-        self.content_backdrop_regions.clear();
         self.subtree_backdrop_regions.clear();
         self.node_order.clear();
         if input.content_effects.is_empty()
@@ -79,35 +76,18 @@ impl SceneTraversal {
             next_node += 1;
         }
         for &node_id in self.node_order.iter().rev() {
-            let mut content_region = input
+            let mut region = input
                 .backdrop_effects
                 .get(&node_id)
                 .and_then(|effect| effect.capture_region)
                 .and_then(|capture| capture.source_rect);
-            let mut subtree_region = content_region;
             for child_id in input.tree.children(node_id) {
                 if let Some(child_region) = self.subtree_backdrop_regions.get(child_id) {
-                    subtree_region = Some(
-                        subtree_region.map_or(*child_region, |region| region.union(child_region)),
-                    );
-                }
-                if input
-                    .content_effects
-                    .get(child_id)
-                    .is_some_and(|effect| effect.bounds.is_some())
-                {
-                    continue;
-                }
-                if let Some(child_region) = self.content_backdrop_regions.get(child_id) {
-                    content_region = Some(
-                        content_region.map_or(*child_region, |region| region.union(child_region)),
-                    );
+                    region =
+                        Some(region.map_or(*child_region, |region| region.union(child_region)));
                 }
             }
-            if let Some(region) = content_region {
-                self.content_backdrop_regions.insert(node_id, region);
-            }
-            if let Some(region) = subtree_region {
+            if let Some(region) = region {
                 self.subtree_backdrop_regions.insert(node_id, region);
             }
         }

@@ -18,14 +18,15 @@ impl DrawPlanner {
             .get(&node_id)
             .filter(|effect| effect.bounds.is_some())?;
         let source = self.current.backdrop_source;
-        let backdrop_source = match input.subtree_backdrop_regions.get(&node_id) {
+        let backdrop_region = input.subtree_backdrop_regions.get(&node_id).copied();
+        let backdrop_source = match backdrop_region {
             Some(region) => {
                 let base = texture_ids.allocate();
                 output.push(RenderOperation::Capture(CaptureConfig {
                     source,
                     region: CaptureRegion {
                         bounds: region.to_i32(),
-                        source_rect: Some(*region),
+                        source_rect: Some(region),
                     },
                     output: base,
                     sampling_size: region.size(),
@@ -37,11 +38,7 @@ impl DrawPlanner {
             }
             None => CaptureSource::Target,
         };
-        let capture = ContentCapture::new(
-            *effect,
-            input.content_backdrop_regions.get(&node_id).copied(),
-            texture_ids,
-        )?;
+        let capture = ContentCapture::new(*effect, backdrop_region, texture_ids)?;
         capture.append_begin(output);
         self.current = DrawTargetState::for_viewport(input.physical_size, backdrop_source);
         Some(capture)

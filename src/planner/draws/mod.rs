@@ -72,7 +72,6 @@ pub(crate) struct DrawPlanningInput<'scene, 'planning> {
     pub(crate) shape_mask_effects: &'planning HashMap<usize, TextureComposite>,
     pub(crate) content_effects: &'scene HashMap<usize, ContentEffectInstance>,
     pub(crate) backdrop_effects: &'scene HashMap<usize, BackdropEffectInstance>,
-    pub(crate) content_backdrop_regions: &'planning HashMap<usize, UnsignedPhysicalRect>,
     pub(crate) subtree_backdrop_regions: &'planning HashMap<usize, UnsignedPhysicalRect>,
     pub(crate) scale_factor: f64,
     pub(crate) physical_size: Size,

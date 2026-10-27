@@ -120,7 +120,6 @@ impl Scene {
         output: &mut RecordedCommands<'scene>,
     ) {
         output.clear_commands();
-        let content_backdrop_regions = HashMap::new();
         let subtree_backdrop_regions = HashMap::new();
         let input = DrawPlanningInput {
             tree: &self.tree,
@@ -128,7 +127,6 @@ impl Scene {
             shape_mask_effects: &self.shape_mask_effects,
             content_effects: &self.groups,
             backdrop_effects: &self.backdrops,
-            content_backdrop_regions: &content_backdrop_regions,
             subtree_backdrop_regions: &subtree_backdrop_regions,
             scale_factor: 1.0,
             physical_size: Size::new(100, 100),

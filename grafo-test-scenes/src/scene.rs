@@ -263,6 +263,14 @@ fn tile_90_bounded_effect_targets(scene: &mut Scene) -> Vec<PixelExpectation> {
         .unwrap();
     scene
         .set_content_effect(
+            panel,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            ContentEffectConfig::new(),
+        )
+        .unwrap();
+    scene
+        .set_content_effect(
             group,
             PASSTHROUGH_EFFECT_ID,
             &[],
@@ -311,7 +319,7 @@ fn tile_90_bounded_effect_targets(scene: &mut Scene) -> Vec<PixelExpectation> {
             20,
             [255, 0, 0],
             2,
-            "t90_capture_reads_overflow_before_crop",
+            "t90_nested_capture_reads_overflow_before_crop",
         ),
         (25, 20, [0, 0, 0], 2, "t90_final_content_crops_overflow"),
         (46, 20, [0, 0, 0], 2, "t90_capture_keeps_base_origin"),
