@@ -55,6 +55,12 @@ impl<B: RenderBackend> Scene<B> {
         let mut scratch = mem::take(&mut self.group_effect_scratch);
         self.state
             .collect_group_members(node_id, config.kind(), &mut scratch.members);
+        scratch.members.retain(|&member_id| {
+            self.state
+                .node_effects(member_id)
+                .get(config.kind())
+                .is_none_or(|effect| effect.source_group_id.is_some())
+        });
         let result =
             self.set_group_member_effects(node_id, &scratch.members, effect_id, params, config);
         scratch.members.clear();
@@ -93,6 +99,12 @@ impl<B: RenderBackend> Scene<B> {
         let mut scratch = mem::take(&mut self.group_effect_scratch);
         self.state
             .collect_group_members(node_id, kind, &mut scratch.members);
+        scratch.members.retain(|&member_id| {
+            self.state
+                .node_effects(member_id)
+                .get(kind)
+                .is_some_and(|effect| effect.source_group_id == Some(node_id))
+        });
         for &member_id in &scratch.members {
             match kind {
                 EffectAttachmentKind::Content => self.remove_content_effect(member_id),

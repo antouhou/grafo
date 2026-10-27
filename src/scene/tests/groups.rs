@@ -10,6 +10,99 @@ use crate::scene_state::types::DrawTreeNode;
 use crate::scene_state::SceneError;
 
 #[test]
+fn group_effect_changes_preserve_member_overrides() {
+    for config in [
+        EffectConfig::Content(ContentEffectConfig::default()),
+        EffectConfig::Backdrop(BackdropEffectConfig::default()),
+        EffectConfig::ShapeMask(ShapeMaskEffectConfig::default()),
+    ] {
+        for should_update_group in [false, true] {
+            let mut scene = scene();
+            let ancestor = scene.add_group(None).unwrap();
+            let group = scene.add_group(Some(ancestor)).unwrap();
+            let geometry = Shape::rect([(2.0, 2.0), (8.0, 8.0)]);
+            let options = ShapeDrawCommandOptions::new().color(Color::WHITE);
+            let explicit = scene
+                .add_shape(&geometry, Some(group), None, options.clone())
+                .unwrap();
+            scene
+                .set_effect(ancestor, 8, &[1, 2, 3, 4], config)
+                .unwrap();
+            scene.set_effect(group, 9, &[1, 2, 3, 4], config).unwrap();
+            scene
+                .set_effect(explicit, 9, &[1, 2, 3, 4], config)
+                .unwrap();
+            let nested = scene.add_group(Some(group)).unwrap();
+            let inherited = scene
+                .add_shape(&geometry, Some(nested), None, options)
+                .unwrap();
+            let mut surface = surface();
+            scene.render(&mut surface).unwrap();
+
+            if should_update_group {
+                scene.set_effect(group, 10, &[1, 2, 3, 4], config).unwrap();
+                let effect = scene
+                    .state
+                    .node_effects(inherited)
+                    .get(config.kind())
+                    .unwrap();
+                assert_eq!(effect.instance.effect_id, 10);
+                assert_eq!(effect.source_group_id, Some(group));
+                let effect = scene
+                    .state
+                    .node_effects(explicit)
+                    .get(config.kind())
+                    .unwrap();
+                assert_eq!(effect.instance.effect_id, 9);
+                assert_eq!(effect.source_group_id, None);
+                scene.render(&mut surface).unwrap();
+            }
+
+            for (removed_group, expected_inherited) in
+                [(group, Some((8, Some(ancestor)))), (ancestor, None)]
+            {
+                match config {
+                    EffectConfig::Content(_) => scene.remove_content_effect(removed_group),
+                    EffectConfig::Backdrop(_) => scene.remove_backdrop_effect(removed_group),
+                    EffectConfig::ShapeMask(_) => scene.remove_shape_mask_effect(removed_group),
+                }
+                let effect = scene
+                    .state
+                    .node_effects(explicit)
+                    .get(config.kind())
+                    .unwrap();
+                assert_eq!(effect.instance.effect_id, 9);
+                assert_eq!(effect.source_group_id, None);
+                let inherited_effect = scene
+                    .state
+                    .node_effects(inherited)
+                    .get(config.kind())
+                    .map(|effect| (effect.instance.effect_id, effect.source_group_id));
+                assert_eq!(inherited_effect, expected_inherited);
+                scene.render(&mut surface).unwrap();
+            }
+
+            scene.set_effect(group, 11, &[1, 2, 3, 4], config).unwrap();
+            let effect = scene
+                .state
+                .node_effects(inherited)
+                .get(config.kind())
+                .unwrap();
+            assert_eq!(effect.instance.effect_id, 11);
+            assert_eq!(effect.source_group_id, Some(group));
+            let effect = scene
+                .state
+                .node_effects(explicit)
+                .get(config.kind())
+                .unwrap();
+            assert_eq!(effect.instance.effect_id, 9);
+            assert_eq!(effect.source_group_id, None);
+            scene.render(&mut surface).unwrap();
+        }
+    }
+}
+
+#[test]
 fn group_replacement_removes_inherited_effects_and_preserves_overrides() {
     for config in [
         EffectConfig::Content(ContentEffectConfig::default()),
