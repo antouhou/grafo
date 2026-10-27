@@ -312,7 +312,7 @@ impl SceneState {
             .unwrap_or_default()
     }
 
-    fn inherited(
+    fn inherited_effect(
         &self,
         source_group_id: Option<usize>,
         kind: EffectAttachmentKind,
@@ -327,9 +327,9 @@ impl SceneState {
         let sources = self.parent_group_effect_sources(node_id);
 
         EffectAttachments {
-            content: self.inherited(sources.content, EffectAttachmentKind::Content),
-            backdrop: self.inherited(sources.backdrop, EffectAttachmentKind::Backdrop),
-            shape_mask: self.inherited(sources.shape_mask, EffectAttachmentKind::ShapeMask),
+            content: self.inherited_effect(sources.content, EffectAttachmentKind::Content),
+            backdrop: self.inherited_effect(sources.backdrop, EffectAttachmentKind::Backdrop),
+            shape_mask: self.inherited_effect(sources.shape_mask, EffectAttachmentKind::ShapeMask),
         }
     }
 
