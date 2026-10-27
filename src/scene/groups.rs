@@ -213,7 +213,7 @@ impl<B: RenderBackend> Scene<B> {
         self.group_effect_scratch = scratch;
     }
 
-    pub(super) fn restore_removed_group_effects(&mut self) {
+    pub(super) fn restore_inherited_effects_after_detachment(&mut self) {
         let mut scratch = mem::take(&mut self.group_effect_scratch);
         for &(node_id, kind) in &scratch.removed_effects {
             self.restore_group_effect(node_id, kind, &mut scratch.parameters);

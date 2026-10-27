@@ -734,7 +734,7 @@ impl<B: RenderBackend> Scene<B> {
                 }
             },
         );
-        self.restore_removed_group_effects();
+        self.restore_inherited_effects_after_detachment();
         self.backend.invalidate_effect(effect_id);
     }
 
