@@ -317,7 +317,7 @@ fn uneven_groups_resume_the_parent_between_siblings() {
 }
 
 #[test]
-fn layered_backdrop_sources_finish_before_captures_and_skip_their_group() {
+fn layered_backdrop_sources_capture_preceding_parent_content() {
     let mut output = RecordedCommands::default();
     let mut scene = Scene::new();
     let root = scene.add(None);
@@ -326,6 +326,7 @@ fn layered_backdrop_sources_finish_before_captures_and_skip_their_group() {
     scene.backdrop(outer);
     let inner = scene.group(Some(outer), 2);
     scene.backdrop(inner);
+    scene.backdrop(root);
     scene.plan(&mut SceneTraversal::default(), &mut output);
     validate_dependencies(&output);
     let captures: Vec<_> = output
@@ -342,41 +343,43 @@ fn layered_backdrop_sources_finish_before_captures_and_skip_their_group() {
             },
         )
         .collect();
-    assert_eq!(captures.len(), 3);
-    assert_eq!(
-        captures[0].source,
-        CaptureSource::Layered {
-            base: IntermediateTextureId::Planned(0),
-            origin: [6, 6],
-        }
-    );
+    assert_eq!(captures.len(), 4);
+    assert_eq!(captures[0].source, CaptureSource::Target);
     assert_eq!(
         captures[1].source,
         CaptureSource::Layered {
-            base: IntermediateTextureId::Planned(5),
+            base: IntermediateTextureId::Planned(2),
             origin: [6, 6],
         }
     );
-    assert_eq!(captures[2].source, CaptureSource::Target);
-    for capture in captures {
+    assert_eq!(
+        captures[2].source,
+        CaptureSource::Layered {
+            base: IntermediateTextureId::Planned(6),
+            origin: [6, 6],
+        }
+    );
+    assert_eq!(captures[3].source, CaptureSource::Target);
+    for capture in &captures {
         assert_eq!(capture.sampling_size, Size::new(19, 19));
     }
-    // The outer group's behind scene excludes the completed inner result as well.
-    let mut target = None;
-    let mut composites = Vec::new();
-    for command in &output.instructions {
-        match command.operation {
-            RenderOperation::BeginTarget(Target::Texture { texture, .. }) => target = Some(texture),
-            RenderOperation::EndTarget => target = None,
-            RenderOperation::CompositeTexture(composite)
-                if target == Some(IntermediateTextureId::Planned(5)) =>
+    let background_sources: Vec<_> = output
+        .instructions
+        .iter()
+        .filter_map(|command| match command.operation {
+            RenderOperation::Capture(capture)
+                if capture.output == IntermediateTextureId::Planned(2)
+                    || capture.output == IntermediateTextureId::Planned(6) =>
             {
-                composites.push(composite)
+                Some(capture.source)
             }
-            _ => {}
-        }
-    }
-    assert!(composites.is_empty());
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        background_sources,
+        [CaptureSource::Target, captures[1].source]
+    );
 }
 
 #[test]
@@ -388,10 +391,9 @@ fn queue_rebuilds_reuse_scheduling_storage_and_empty_scenes_clear_the_surface() 
     let mut output = RecordedCommands::default();
     scene.plan(&mut planner, &mut output);
     let capacities = (
-        planner.groups.capacity(),
-        planner.results.capacity(),
-        planner.backdrop_regions.capacity(),
-        planner.tasks.capacity(),
+        planner.content_backdrop_regions.capacity(),
+        planner.subtree_backdrop_regions.capacity(),
+        planner.node_order.capacity(),
     );
     for _ in 0..3 {
         let mut rebuilt = Scene::new();
@@ -403,10 +405,9 @@ fn queue_rebuilds_reuse_scheduling_storage_and_empty_scenes_clear_the_surface() 
         assert_eq!(
             capacities,
             (
-                planner.groups.capacity(),
-                planner.results.capacity(),
-                planner.backdrop_regions.capacity(),
-                planner.tasks.capacity()
+                planner.content_backdrop_regions.capacity(),
+                planner.subtree_backdrop_regions.capacity(),
+                planner.node_order.capacity()
             )
         );
     }
@@ -415,8 +416,8 @@ fn queue_rebuilds_reuse_scheduling_storage_and_empty_scenes_clear_the_surface() 
     empty.plan(&mut planner, &mut output);
     validate_dependencies(&output);
     assert_eq!(snapshot(&output), [Command::Begin(None), Command::End]);
-    assert!(planner.results.is_empty());
-    assert!(planner.backdrop_regions.is_empty());
+    assert!(planner.content_backdrop_regions.is_empty());
+    assert!(planner.subtree_backdrop_regions.is_empty());
 }
 
 mod bounds;

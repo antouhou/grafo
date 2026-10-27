@@ -1,4 +1,5 @@
 use super::{queue_shape, scene, surface, Scene, TestBackend};
+use crate::commands::RenderOperation;
 use crate::core::{
     BackdropEffectConfig, Color, ContentEffectConfig, GlyphContent, MathRect, PositionedGlyph,
     Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig, TextSource, TransformInstance,
@@ -79,6 +80,40 @@ fn glyph_ids(scene: &Scene<TestBackend>, group: usize) -> Vec<usize> {
         .copied()
         .filter(|id| scene.state.text_glyphs.contains(id))
         .collect()
+}
+
+#[test]
+fn combined_text_effects_draw_each_glyph_once() {
+    let glyph_counts = [16, 32, 64, 128];
+    let mut command_counts = Vec::new();
+    let mut draw_counts = Vec::new();
+    for glyph_count in glyph_counts {
+        let mut scene = scene();
+        scene.resize((4096, 32));
+        let keys = vec![10; glyph_count];
+        let text = scene.add_text(Glyphs::new(&keys), None, options()).unwrap();
+        scene
+            .set_content_effect(text, 8, &[1, 2, 3, 4], ContentEffectConfig::default())
+            .unwrap();
+        scene
+            .set_backdrop_effect(text, 9, &[1, 2, 3, 4], BackdropEffectConfig::default())
+            .unwrap();
+        let commands: Vec<_> = scene.planner.plan(&scene.state, 4096).collect();
+        command_counts.push(commands.len());
+        draw_counts.push(
+            commands
+                .iter()
+                .filter(|command| matches!(command.operation, RenderOperation::DrawShape(_)))
+                .count(),
+        );
+    }
+    assert_eq!(draw_counts, glyph_counts, "commands {command_counts:?}");
+    assert!(
+        command_counts
+            .windows(2)
+            .all(|counts| counts[1] <= counts[0] * 2 + 2),
+        "commands {command_counts:?}"
+    );
 }
 
 #[test]

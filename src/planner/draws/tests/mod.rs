@@ -1,4 +1,4 @@
-use super::{DrawPlanner, DrawPlanningInput, DrawTreeSelection};
+use super::{DrawPlanner, DrawPlanningInput};
 use crate::commands::{
     CaptureSource, IntermediateTextureId, RenderCommand, RenderOperation, ShapeDrawId,
     TextureComposite, TexturePlacement,
@@ -87,11 +87,10 @@ fn clip(min: (f32, f32), max: (f32, f32)) -> DrawTreeNode {
 
 struct Scene {
     tree: Tree<DrawTreeNode>,
-    results: HashMap<usize, TextureComposite>,
     shape_mask_effects: HashMap<usize, TextureComposite>,
     groups: HashMap<usize, ContentEffectInstance>,
     backdrops: HashMap<usize, BackdropEffectInstance>,
-    backdrop_source: Option<CaptureSource>,
+    backdrop_source: CaptureSource,
     parameters: EffectParameterStorage,
 }
 
@@ -100,11 +99,10 @@ impl Scene {
         Self {
             parameters: EffectParameterStorage::default(),
             tree: Tree::new(),
-            results: HashMap::new(),
             shape_mask_effects: HashMap::new(),
             groups: HashMap::new(),
             backdrops: HashMap::new(),
-            backdrop_source: Some(CaptureSource::Target),
+            backdrop_source: CaptureSource::Target,
         }
     }
 
@@ -121,31 +119,23 @@ impl Scene {
         planner: &mut DrawPlanner,
         output: &mut RecordedCommands<'scene>,
     ) {
-        self.plan_selection(DrawTreeSelection::default(), planner, output);
-    }
-
-    fn plan_selection<'scene>(
-        &'scene self,
-        selection: DrawTreeSelection,
-        planner: &mut DrawPlanner,
-        output: &mut RecordedCommands<'scene>,
-    ) {
         output.clear_commands();
+        let content_backdrop_regions = HashMap::new();
+        let subtree_backdrop_regions = HashMap::new();
         let input = DrawPlanningInput {
             tree: &self.tree,
             parameters: &self.parameters,
-            selection,
-            effect_results: &self.results,
             shape_mask_effects: &self.shape_mask_effects,
             content_effects: &self.groups,
             backdrop_effects: &self.backdrops,
+            content_backdrop_regions: &content_backdrop_regions,
+            subtree_backdrop_regions: &subtree_backdrop_regions,
             scale_factor: 1.0,
             physical_size: Size::new(100, 100),
-            backdrop_source: self.backdrop_source,
         };
         let mut commands = TraversalCommands::default();
         let mut texture_ids = TextureIdAllocator::default();
-        planner.start(selection, input.physical_size);
+        planner.start(input.physical_size, self.backdrop_source);
         while planner.advance(&input, &mut commands, &mut texture_ids) {
             output.instructions.extend(mem::take(&mut commands));
         }
@@ -250,23 +240,13 @@ fn empty_geometry_and_visible_overflow_keep_the_ancestor_stencil() {
 }
 
 #[test]
-fn effect_composites_carry_only_ids_placements_and_resolved_clips() {
+fn shape_mask_composites_preserve_geometry_and_clips() {
     let mut scene = Scene::new();
     let root = scene.add(None, shape(true));
     let scissor = scene.add(Some(root), clip((10.0, 10.0), (60.0, 60.0)));
-    let group = scene.add(Some(scissor), shape(true));
-    scene.add(Some(group), shape(true));
     let source = scene.add(Some(scissor), shape(true));
     let child = scene.add(Some(source), shape(true));
-    let group_texture = IntermediateTextureId::Registered(5);
     let leaf_texture = IntermediateTextureId::Registered(6);
-    scene.results.insert(
-        group,
-        TextureComposite {
-            texture: group_texture,
-            placement: TexturePlacement::Target,
-        },
-    );
     scene.shape_mask_effects.insert(
         source,
         TextureComposite {
@@ -285,7 +265,6 @@ fn effect_composites_carry_only_ids_placements_and_resolved_clips() {
         snapshot(&output),
         [
             (Operation::DrawAndIncrement(ShapeDrawId(root)), 0, viewport),
-            (Operation::Composite(group_texture), 1, inherited),
             (Operation::Composite(leaf_texture), 1, inherited),
             (
                 Operation::DrawAndIncrement(ShapeDrawId(source)),
@@ -297,7 +276,7 @@ fn effect_composites_carry_only_ids_placements_and_resolved_clips() {
             (Operation::Decrement(ShapeDrawId(root)), 1, viewport),
         ]
     );
-    let RenderOperation::CompositeTexture(composite) = output.instructions[2].operation else {
+    let RenderOperation::CompositeTexture(composite) = output.instructions[1].operation else {
         panic!("expected effect composite")
     };
     assert_eq!(composite.texture, leaf_texture);
@@ -367,8 +346,8 @@ fn empty_backdrop_parent_preserves_ancestor_clips_without_capture() {
 
 mod backdrops;
 mod groups;
-mod selection;
 mod targets;
+mod traversal;
 
 fn operations<'commands, 'scene>(
     plan: &'commands RecordedCommands<'scene>,

@@ -100,16 +100,16 @@ fn internal_backdrops_expand_rendering_then_crop_to_the_content_input() {
             _ => None,
         })
         .collect();
-    assert_eq!(regions.len(), 2);
+    assert_eq!(regions.len(), 1);
     assert_eq!(regions[0].bounds.min.to_tuple(), (6, 6));
-    assert_eq!(regions[0].bounds.max.to_tuple(), (44, 44));
-    assert_eq!(regions[1].bounds.min.to_tuple(), (6, 6));
-    assert_eq!(regions[1].bounds.max.to_tuple(), (50, 44));
+    assert_eq!(regions[0].bounds.max.to_tuple(), (50, 44));
     let capture = output
         .instructions
         .iter()
         .find_map(|command| match command.operation {
-            RenderOperation::Capture(capture) if capture.source == CaptureSource::Target => {
+            RenderOperation::Capture(capture)
+                if capture.region.bounds.min.to_tuple() == (26, 18) =>
+            {
                 Some(capture)
             }
             _ => None,
@@ -199,8 +199,5 @@ fn completed_child_captures_do_not_expand_the_parent_target() {
             _ => None,
         })
         .collect();
-    assert_eq!(
-        sizes,
-        [Size::new(100, 100), Size::new(100, 100), Size::new(20, 20)]
-    );
+    assert_eq!(sizes, [Size::new(20, 20), Size::new(100, 100)]);
 }
