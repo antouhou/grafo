@@ -42,7 +42,7 @@ impl<B: RenderBackend> Scene<B> {
             self.state.collect_group_members(node_id, kind, members);
             for &member_id in members.iter() {
                 // Replacement removes the node's own text glyphs before restoring effects.
-                let should_remove_glyph = self.state.text_glyphs.contains(&member_id)
+                let should_remove_glyph = self.state.is_text_glyph(member_id)
                     && self.state.draw_tree.parent_index_unchecked(member_id) == Some(node_id);
                 if should_remove_glyph {
                     continue;

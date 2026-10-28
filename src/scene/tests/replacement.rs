@@ -141,7 +141,7 @@ fn shape_to_clip_replacement_rejects_invalid_inherited_masks_before_mutation() {
     assert_eq!(scene.state.effect_parameters.bytes, parameters);
     assert!(scene.state.shape_mask_effects.contains_key(&parent));
     assert!(!scene.state.shape_mask_effects.contains_key(&child));
-    assert!(scene.state.text_glyphs.is_empty());
+    assert!(!scene.state.has_text_glyphs());
     assert!(scene.dirty_bounds.is_none());
 }
 

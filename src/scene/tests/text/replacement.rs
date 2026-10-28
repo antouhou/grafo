@@ -79,7 +79,7 @@ fn clip_replacement_validates_only_surviving_text_glyphs() {
                 Some(DrawTreeNode::ClipRect(_))
             ));
             assert!(scene.state.draw_tree.children(node).is_empty());
-            assert!(scene.state.text_glyphs.is_empty());
+            assert!(!scene.state.has_text_glyphs());
             assert!(scene.backend.registered_shapes.is_empty());
         }
         scene.render(&mut surface).unwrap();
@@ -165,7 +165,7 @@ fn text_replacement_removes_previous_subtrees_and_preserves_node_effects() {
             for id in removed_ids {
                 assert!(scene.state.draw_tree.get(id).is_none());
                 assert!(!scene.backend.registered_shapes.contains(&id));
-                assert!(!scene.state.text_glyphs.contains(&id));
+                assert!(!scene.state.is_text_glyph(id));
                 assert!(!scene.state.content_effects.contains_key(&id));
                 assert!(!scene.state.backdrop_effects.contains_key(&id));
                 assert!(!scene.state.shape_mask_effects.contains_key(&id));
@@ -208,7 +208,7 @@ fn text_replacement_removes_previous_subtrees_and_preserves_node_effects() {
                 .unwrap();
             assert!(scene.state.draw_tree.children(node).is_empty());
             assert!(scene.backend.registered_shapes.is_empty());
-            assert!(scene.state.text_glyphs.is_empty());
+            assert!(!scene.state.has_text_glyphs());
             scene.render(&mut surface).unwrap();
             assert!(surface.resource().draws.is_empty());
             assert!(surface.resource().effects.is_empty());

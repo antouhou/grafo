@@ -81,7 +81,7 @@ fn glyph_ids(scene: &Scene<TestBackend>, group: usize) -> Vec<usize> {
         .children(group)
         .iter()
         .copied()
-        .filter(|id| scene.state.text_glyphs.contains(id))
+        .filter(|&id| scene.state.is_text_glyph(id))
         .collect()
 }
 
@@ -308,7 +308,7 @@ fn ordinary_replacement_removes_only_text_owned_glyphs() {
         assert_eq!(glyph_ids(&scene, nested_text), nested_glyphs);
         for &glyph in &glyphs {
             assert!(scene.state.draw_tree.get(glyph).is_none());
-            assert!(!scene.state.text_glyphs.contains(&glyph));
+            assert!(!scene.state.is_text_glyph(glyph));
             assert!(!scene.state.content_effects.contains_key(&glyph));
             assert!(!scene.state.shape_mask_effects.contains_key(&glyph));
             assert!(!scene.state.backdrop_effects.contains_key(&glyph));

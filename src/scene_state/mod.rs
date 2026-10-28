@@ -61,7 +61,7 @@ pub(crate) struct SceneState {
     pub(crate) backdrop_effects: HashMap<usize, BackdropEffectInstance>,
     effect_damage: EffectDamage,
     pub(crate) shape_mask_effects: HashMap<usize, ShapeMaskEffectInstance>,
-    pub(crate) text_glyphs: HashSet<usize>,
+    text_glyphs: HashSet<usize>,
     group_effect_source_scratch: Vec<usize>,
     group_effect_index: GroupEffectIndex,
 }

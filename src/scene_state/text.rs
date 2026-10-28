@@ -42,6 +42,18 @@ impl GlyphUsage {
 }
 
 impl SceneState {
+    pub(crate) fn is_text_glyph(&self, node_id: usize) -> bool {
+        self.text_glyphs.contains(&node_id)
+    }
+
+    pub(crate) fn has_text_glyphs(&self) -> bool {
+        !self.text_glyphs.is_empty()
+    }
+
+    pub(crate) fn register_text_glyph(&mut self, node_id: usize) {
+        self.text_glyphs.insert(node_id);
+    }
+
     pub(crate) fn load_glyph<Source: TextSource>(
         &mut self,
         source: &mut Source,
@@ -134,7 +146,7 @@ impl SceneState {
 
 impl Drop for SceneState {
     fn drop(&mut self) {
-        if self.text_glyphs.is_empty() {
+        if !self.has_text_glyphs() {
             return;
         }
         let mut glyph_usage = self

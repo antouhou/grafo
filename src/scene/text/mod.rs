@@ -27,7 +27,7 @@ impl<B: RenderBackend> Scene<B> {
                 .children(node_id)
                 .iter()
                 .copied()
-                .filter(|id| self.state.text_glyphs.contains(id)),
+                .filter(|&id| self.state.is_text_glyph(id)),
         );
         self.remove_subtrees(glyph_ids.iter().copied(), |_| {});
         glyph_ids.clear();
@@ -101,7 +101,7 @@ impl<B: RenderBackend> Scene<B> {
                     return Err(error);
                 }
             };
-            self.state.text_glyphs.insert(glyph_id);
+            self.state.register_text_glyph(glyph_id);
             scratch.glyph_ids.push(glyph_id);
             self.apply_effects(glyph_id, effects)?;
         }
