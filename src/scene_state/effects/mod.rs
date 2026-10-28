@@ -1,19 +1,24 @@
 use super::effect_damage::{EffectDamageEntry, EffectDamageKind};
-use super::types::{DrawTreeNode, GroupEffectSources};
+use super::types::DrawTreeNode;
 use super::{SceneError, SceneState};
 use crate::core::effect::{
     BackdropEffectConfig, ContentEffectBounds, ContentEffectConfig, ShapeMaskEffectBounds,
     ShapeMaskEffectConfig,
 };
-use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
+use crate::core::{geometry, Viewport};
+pub(crate) use attachments::{
+    EffectAttachment, EffectAttachmentKind, EffectAttachments, EffectConfig, EffectInstance,
+    RemovedEffectAttachment,
+};
 pub(crate) use backdrops::validate_backdrop_config;
 pub(crate) use backdrops::BackdropEffectInstance;
 pub(super) use group_index::GroupEffectIndex;
 use parameters::EffectParametersHandle;
-use std::mem;
 
+mod attachments;
 mod backdrops;
 mod group_index;
+mod groups;
 pub(crate) mod parameters;
 
 /// A cached shape mask effect attachment. GPU parameter resources are created only on cache misses.
@@ -23,21 +28,6 @@ pub(crate) struct ShapeMaskEffectInstance {
     pub parameters: EffectParametersHandle,
     pub config: ShapeMaskEffectConfig,
     pub bounds: ShapeMaskEffectBounds,
-}
-
-/// Parameters shared by content and backdrop effect attachments.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct EffectInstance {
-    /// The loaded effect's ID.
-    pub effect_id: u64,
-    pub parameters: EffectParametersHandle,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum EffectAttachmentKind {
-    Content,
-    Backdrop,
-    ShapeMask,
 }
 
 pub(crate) fn validate_shape_mask_effect_config(
@@ -66,109 +56,6 @@ pub(crate) fn validate_shape_mask_effect_config(
     }
 
     Ok(())
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum EffectConfig {
-    Content(ContentEffectConfig),
-    Backdrop(BackdropEffectConfig),
-    ShapeMask(ShapeMaskEffectConfig),
-}
-
-impl EffectConfig {
-    pub(crate) fn kind(self) -> EffectAttachmentKind {
-        match self {
-            Self::Content(_) => EffectAttachmentKind::Content,
-            Self::Backdrop(_) => EffectAttachmentKind::Backdrop,
-            Self::ShapeMask(_) => EffectAttachmentKind::ShapeMask,
-        }
-    }
-
-    pub(crate) fn validate(self) -> Result<(), SceneError> {
-        match self {
-            Self::Content(config) if !config.is_valid() => Err(SceneError::InvalidParams(
-                "invalid content effect config".to_string(),
-            )),
-            Self::Backdrop(config) => validate_backdrop_config(&config),
-            Self::ShapeMask(config) => validate_shape_mask_effect_config(&config),
-            _ => Ok(()),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct EffectAttachment {
-    pub instance: EffectInstance,
-    pub config: EffectConfig,
-    pub source_group_id: Option<usize>,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct EffectAttachments {
-    pub content: Option<EffectAttachment>,
-    pub backdrop: Option<EffectAttachment>,
-    pub shape_mask: Option<EffectAttachment>,
-}
-
-impl EffectAttachments {
-    pub(crate) fn get(&self, kind: EffectAttachmentKind) -> Option<EffectAttachment> {
-        match kind {
-            EffectAttachmentKind::Content => self.content,
-            EffectAttachmentKind::Backdrop => self.backdrop,
-            EffectAttachmentKind::ShapeMask => self.shape_mask,
-        }
-    }
-
-    pub(crate) fn get_mut(&mut self, kind: EffectAttachmentKind) -> &mut Option<EffectAttachment> {
-        match kind {
-            EffectAttachmentKind::Content => &mut self.content,
-            EffectAttachmentKind::Backdrop => &mut self.backdrop,
-            EffectAttachmentKind::ShapeMask => &mut self.shape_mask,
-        }
-    }
-
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &EffectAttachment> {
-        self.content
-            .iter()
-            .chain(self.backdrop.iter())
-            .chain(self.shape_mask.iter())
-    }
-
-    fn iter_mut(&mut self) -> impl Iterator<Item = &mut EffectAttachment> {
-        self.content
-            .iter_mut()
-            .chain(self.backdrop.iter_mut())
-            .chain(self.shape_mask.iter_mut())
-    }
-
-    pub(crate) fn for_group_members(mut self, group_id: usize) -> Self {
-        for effect in self.iter_mut() {
-            effect.source_group_id.get_or_insert(group_id);
-        }
-        self
-    }
-
-    pub(crate) fn inherit_from(&mut self, parent: Self) {
-        self.content = self.content.or(parent.content);
-        self.backdrop = self.backdrop.or(parent.backdrop);
-        self.shape_mask = self.shape_mask.or(parent.shape_mask);
-    }
-
-    pub(crate) fn remove_inherited(&mut self) {
-        for effect in [&mut self.content, &mut self.backdrop, &mut self.shape_mask] {
-            if effect.is_some_and(|effect| effect.source_group_id.is_some()) {
-                *effect = None;
-            }
-        }
-    }
-
-    fn remove_effect(&mut self, effect_id: u64) {
-        for effect in [&mut self.content, &mut self.backdrop, &mut self.shape_mask] {
-            if effect.is_some_and(|effect| effect.instance.effect_id == effect_id) {
-                *effect = None;
-            }
-        }
-    }
 }
 
 /// A content attachment with its resolved input and output bounds.
@@ -247,236 +134,7 @@ pub(super) fn resolve_backdrop_effect(
     (instance, entry)
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct RemovedEffectAttachment {
-    pub node_id: usize,
-    pub kind: EffectAttachmentKind,
-    pub damage_bounds: Option<UnsignedPhysicalRect>,
-}
-
 impl SceneState {
-    pub(crate) fn set_shape_effect_source(
-        &mut self,
-        node_id: usize,
-        kind: EffectAttachmentKind,
-        source_group_id: Option<usize>,
-    ) {
-        if let Some(DrawTreeNode::CachedShape(shape)) = self.draw_tree.get_mut(node_id) {
-            *shape.inherited_effect_sources.get_mut(kind) = source_group_id;
-        }
-    }
-
-    pub(crate) fn node_effects(&self, node_id: usize) -> EffectAttachments {
-        if let Some(DrawTreeNode::Group(group)) = self.draw_tree.get(node_id) {
-            return group.effects;
-        }
-        let sources = match self.draw_tree.get(node_id) {
-            Some(DrawTreeNode::CachedShape(shape)) => shape.inherited_effect_sources,
-            _ => GroupEffectSources::default(),
-        };
-        EffectAttachments {
-            content: self
-                .content_effects
-                .get(&node_id)
-                .map(|effect| EffectAttachment {
-                    instance: EffectInstance {
-                        effect_id: effect.effect_id,
-                        parameters: effect.parameters,
-                    },
-                    config: EffectConfig::Content(effect.config),
-                    source_group_id: sources.content,
-                }),
-            backdrop: self
-                .backdrop_effects
-                .get(&node_id)
-                .map(|effect| EffectAttachment {
-                    instance: effect.effect,
-                    config: EffectConfig::Backdrop(effect.config),
-                    source_group_id: sources.backdrop,
-                }),
-            shape_mask: self
-                .shape_mask_effects
-                .get(&node_id)
-                .map(|effect| EffectAttachment {
-                    instance: EffectInstance {
-                        effect_id: effect.effect_id,
-                        parameters: effect.parameters,
-                    },
-                    config: EffectConfig::ShapeMask(effect.config),
-                    source_group_id: sources.shape_mask,
-                }),
-        }
-    }
-
-    fn parent_group_effect_sources(&self, node_id: usize) -> GroupEffectSources {
-        self.draw_tree
-            .parent_index_unchecked(node_id)
-            .map(|parent_id| {
-                self.draw_tree
-                    .get_unchecked(parent_id)
-                    .group_effect_sources()
-            })
-            .unwrap_or_default()
-    }
-
-    fn inherited_effect(
-        &self,
-        source_group_id: Option<usize>,
-        kind: EffectAttachmentKind,
-    ) -> Option<EffectAttachment> {
-        let group_id = source_group_id?;
-        let mut attachment = self.node_effects(group_id).get(kind)?;
-        attachment.source_group_id = Some(group_id);
-        Some(attachment)
-    }
-
-    pub(crate) fn inherited_effects(&self, node_id: usize) -> EffectAttachments {
-        let sources = self.parent_group_effect_sources(node_id);
-
-        EffectAttachments {
-            content: self.inherited_effect(sources.content, EffectAttachmentKind::Content),
-            backdrop: self.inherited_effect(sources.backdrop, EffectAttachmentKind::Backdrop),
-            shape_mask: self.inherited_effect(sources.shape_mask, EffectAttachmentKind::ShapeMask),
-        }
-    }
-
-    pub(super) fn refresh_node_group_effect_sources(&mut self, node_id: usize) -> bool {
-        let mut sources = self.parent_group_effect_sources(node_id);
-        let stored = match self.draw_tree.get_unchecked_mut(node_id) {
-            DrawTreeNode::Group(group) => {
-                if group.effects.content.is_some() {
-                    sources.content = Some(node_id);
-                }
-                if group.effects.backdrop.is_some() {
-                    sources.backdrop = Some(node_id);
-                }
-                if group.effects.shape_mask.is_some() {
-                    sources.shape_mask = Some(node_id);
-                }
-                &mut group.effect_sources
-            }
-            DrawTreeNode::ClipRect(clip) => &mut clip.effect_sources,
-            DrawTreeNode::CachedShape(_) => return false,
-        };
-        let has_changed = *stored != sources;
-        *stored = sources;
-        has_changed
-    }
-
-    pub(crate) fn refresh_group_effect_sources(&mut self, node_id: usize) {
-        self.refresh_node_group_effect_sources(node_id);
-        let mut pending = mem::take(&mut self.group_effect_source_scratch);
-        pending.extend_from_slice(self.draw_tree.children(node_id));
-        while let Some(child_id) = pending.pop() {
-            if self.refresh_node_group_effect_sources(child_id) {
-                pending.extend_from_slice(self.draw_tree.children(child_id));
-            }
-        }
-        self.group_effect_source_scratch = pending;
-    }
-
-    fn remove_group_effect_attachments(&mut self, effect_id: u64) {
-        let Some(mut pending_groups) = self.group_effect_index.take_groups(effect_id) else {
-            return;
-        };
-        let mut pending = mem::take(&mut self.group_effect_source_scratch);
-        pending.extend(pending_groups.iter().copied());
-        while let Some(node_id) = pending.pop() {
-            if pending_groups.contains(&node_id) {
-                let sources = self.parent_group_effect_sources(node_id);
-                // Resolve inherited owners before removing a descendant's override.
-                if let Some(parent_source) = sources.iter().find(|id| pending_groups.contains(id)) {
-                    pending.push(node_id);
-                    pending.push(parent_source);
-                    continue;
-                }
-                pending_groups.remove(&node_id);
-                let DrawTreeNode::Group(group) = self.draw_tree.get_unchecked_mut(node_id) else {
-                    unreachable!("effect index contains only group nodes");
-                };
-                group.effects.remove_effect(effect_id);
-                self.effect_parameters.request_compaction();
-            }
-            if self.refresh_node_group_effect_sources(node_id) {
-                pending.extend_from_slice(self.draw_tree.children(node_id));
-            }
-        }
-        self.group_effect_source_scratch = pending;
-    }
-
-    pub(crate) fn set_group_effect(
-        &mut self,
-        node_id: usize,
-        effect_id: u64,
-        params: &[u8],
-        config: EffectConfig,
-    ) {
-        let parameters = self.effect_parameters.store(params);
-        let DrawTreeNode::Group(group) = self.draw_tree.get_unchecked_mut(node_id) else {
-            unreachable!("effect target was checked before group dispatch");
-        };
-        let previous = group.effects;
-        *group.effects.get_mut(config.kind()) = Some(EffectAttachment {
-            instance: EffectInstance {
-                effect_id,
-                parameters,
-            },
-            config,
-            source_group_id: None,
-        });
-        self.group_effect_index
-            .replace(node_id, previous, group.effects);
-        self.effect_parameters.request_compaction();
-        self.refresh_group_effect_sources(node_id);
-    }
-
-    pub(crate) fn remove_group_effect(
-        &mut self,
-        node_id: usize,
-        kind: EffectAttachmentKind,
-    ) -> bool {
-        let DrawTreeNode::Group(group) = self.draw_tree.get_unchecked_mut(node_id) else {
-            unreachable!("effect target was checked before group dispatch");
-        };
-        let previous = group.effects;
-        if group.effects.get_mut(kind).take().is_none() {
-            return false;
-        }
-        self.group_effect_index
-            .replace(node_id, previous, group.effects);
-        self.effect_parameters.request_compaction();
-        self.refresh_group_effect_sources(node_id);
-        true
-    }
-
-    pub(crate) fn collect_group_members(
-        &self,
-        node_id: usize,
-        kind: EffectAttachmentKind,
-        members: &mut Vec<usize>,
-    ) {
-        members.clear();
-        members.extend_from_slice(self.draw_tree.children(node_id));
-        let mut index = 0;
-        while let Some(&member_id) = members.get(index) {
-            let should_visit_children = match self.draw_tree.get_unchecked(member_id) {
-                DrawTreeNode::Group(group) => group.effects.get(kind).is_none(),
-                DrawTreeNode::ClipRect(_) => true,
-                DrawTreeNode::CachedShape(_) => false,
-            };
-            if should_visit_children {
-                members.extend_from_slice(self.draw_tree.children(member_id));
-            }
-            index += 1;
-        }
-        members.retain(|&id| {
-            matches!(
-                self.draw_tree.get_unchecked(id),
-                DrawTreeNode::CachedShape(_)
-            )
-        });
-    }
-
     pub(crate) fn compact_effect_parameters(&mut self) {
         let parameters = self
             .content_effects
