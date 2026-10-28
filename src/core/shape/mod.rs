@@ -18,6 +18,8 @@ use std::sync::Arc;
 
 pub(crate) mod boundary;
 
+/// A shareable handle to underlying geometry. Doesn't contain anything but geometry: no fill,
+/// effects, transforms, etc.
 #[derive(Debug, Clone)]
 pub struct CachedShapeHandle {
     pub tessellation: Arc<CachedTessellation>,
