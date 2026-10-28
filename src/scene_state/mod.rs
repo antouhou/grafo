@@ -16,6 +16,7 @@ use effects::{
 pub use errors::SceneError;
 use lyon::tessellation::FillTessellator;
 use std::sync::{Arc, RwLock};
+use text::GlyphUsage;
 use texture_index::TextureIndex;
 use types::{CachedShapeDrawData, ClipRectDrawData, DrawTreeNode};
 
@@ -30,6 +31,7 @@ pub(crate) mod types;
 #[derive(Clone, Default)]
 pub(crate) struct SceneStateContext {
     loaded_shapes: Arc<RwLock<HashMap<u64, CachedShapeHandle>>>,
+    glyph_usage: Arc<RwLock<GlyphUsage>>,
     glyph_hasher: RandomState,
     texture_updates: TextureUpdatePublisher,
 }
@@ -127,6 +129,12 @@ impl SceneState {
         geometry_id: Option<u64>,
     ) {
         let shape = self.tessellate(shape.as_ref(), geometry_id);
+        let mut glyph_usage = self
+            .context
+            .glyph_usage
+            .write()
+            .expect("shared glyph usage lock poisoned");
+        glyph_usage.forget(cache_key);
         self.context
             .loaded_shapes
             .write()
@@ -135,6 +143,12 @@ impl SceneState {
     }
 
     pub(crate) fn remove_shape(&mut self, cache_key: u64) {
+        let mut glyph_usage = self
+            .context
+            .glyph_usage
+            .write()
+            .expect("shared glyph usage lock poisoned");
+        glyph_usage.forget(cache_key);
         self.context
             .loaded_shapes
             .write()
@@ -262,6 +276,13 @@ impl SceneState {
             .draw_tree
             .replace(node_id, node)
             .expect("replacement node was validated before resource preparation");
+        if self.text_glyphs.remove(&node_id) {
+            self.context
+                .glyph_usage
+                .write()
+                .expect("shared glyph usage lock poisoned")
+                .remove_node(&previous);
+        }
         if !matches!(previous, DrawTreeNode::CachedShape(_))
             || !matches!(
                 self.draw_tree.get_unchecked(node_id),
@@ -318,7 +339,13 @@ impl SceneState {
             if matches!(node, DrawTreeNode::Group(_)) {
                 self.effect_parameters.request_compaction();
             }
-            self.text_glyphs.remove(&id);
+            if self.text_glyphs.remove(&id) {
+                self.context
+                    .glyph_usage
+                    .write()
+                    .expect("shared glyph usage lock poisoned")
+                    .remove_node(&node);
+            }
             self.texture_index.remove(id);
             let group_output = self
                 .effect_damage
@@ -374,5 +401,6 @@ impl SceneState {
 
     pub(crate) fn finish_preparation(&mut self) {
         self.shape_resources.tessellation_cache.end_frame();
+        self.unload_unused_glyphs();
     }
 }

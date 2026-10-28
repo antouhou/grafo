@@ -11,6 +11,7 @@ use crate::scene_state::SceneStateContext;
 use lyon::path::PathEvent;
 use std::sync::Arc;
 
+mod cache;
 mod replacement;
 
 struct Glyphs {

@@ -17,6 +17,7 @@ fn buffer_glyphs(buffer: &Buffer, fonts: &mut FontSystem) -> Vec<(CachedShapeHan
     while let Some(glyph) = source.next_glyph() {
         if let Some(key) = state.load_glyph(&mut source, &glyph.key) {
             glyphs.push((state.loaded_shape(key).unwrap(), glyph.position));
+            state.release_glyph(key);
         }
     }
     glyphs

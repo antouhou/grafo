@@ -90,11 +90,18 @@ impl<B: RenderBackend> Scene<B> {
             let transform = options
                 .transform
                 .map_or(offset, |transform| offset.then(&transform));
-            let glyph_id = self.add_cached_shape(
+            let glyph_id = match self.add_cached_shape(
                 cache_key,
                 Some(group_id),
                 options.clone().transform(transform),
-            )?;
+            ) {
+                Ok(glyph_id) => glyph_id,
+                Err(error) => {
+                    self.state.release_glyph(cache_key);
+                    return Err(error);
+                }
+            };
+            self.state.text_glyphs.insert(glyph_id);
             scratch.glyph_ids.push(glyph_id);
             self.apply_effects(glyph_id, effects)?;
         }
@@ -152,9 +159,6 @@ impl<B: RenderBackend> Scene<B> {
                     None,
                 );
             }
-            self.state
-                .text_glyphs
-                .extend(scratch.glyph_ids.iter().copied());
         } else {
             match target {
                 NodeTarget::Insert { .. } => self.remove_subtrees([group_id], |_| {}),
