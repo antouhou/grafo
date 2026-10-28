@@ -1,4 +1,3 @@
-use super::{ContentPlanningInput, SceneTraversal};
 use crate::commands::{
     CaptureSource, IntermediateTextureId, RenderOperation, ShapeTextureBinding, Target,
     TextureComposite,
@@ -8,6 +7,7 @@ use crate::core::shape::CachedShapeHandle;
 use crate::core::util::ShapeResources;
 use crate::core::Viewport;
 use crate::planner::commands::TraversalCommands;
+use crate::planner::draws::{DrawPlanner, DrawPlanningInput};
 use crate::planner::tests::RecordedCommands;
 use crate::planner::TextureIdAllocator;
 use crate::scene_state::effects::parameters::EffectParameterStorage;
@@ -212,12 +212,12 @@ impl Scene {
 
     fn plan<'scene>(
         &'scene self,
-        planner: &mut SceneTraversal,
+        planner: &mut DrawPlanner,
         output: &mut RecordedCommands<'scene>,
     ) {
         output.clear_commands();
         output.push(RenderOperation::BeginTarget(Target::Surface));
-        let input = ContentPlanningInput {
+        let input = DrawPlanningInput {
             tree: &self.tree,
             parameters: &self.parameters,
             content_effects: &self.groups,
@@ -243,7 +243,7 @@ fn nested_groups_close_into_their_parent_targets() {
     let outer = scene.group(None, 1);
     let inner = scene.group(Some(outer), 2);
     scene.group(Some(inner), 3);
-    scene.plan(&mut SceneTraversal::default(), &mut output);
+    scene.plan(&mut DrawPlanner::default(), &mut output);
     validate_dependencies(&output);
     assert_eq!(
         snapshot(&output),
@@ -289,7 +289,7 @@ fn uneven_groups_resume_the_parent_between_siblings() {
     let inner = scene.group(Some(first), 2);
     scene.group(Some(inner), 3);
     scene.group(Some(root), 4);
-    scene.plan(&mut SceneTraversal::default(), &mut output);
+    scene.plan(&mut DrawPlanner::default(), &mut output);
     validate_dependencies(&output);
     assert_eq!(
         snapshot(&output),
@@ -327,7 +327,7 @@ fn layered_backdrop_sources_capture_preceding_parent_content() {
     let inner = scene.group(Some(outer), 2);
     scene.backdrop(inner);
     scene.backdrop(root);
-    scene.plan(&mut SceneTraversal::default(), &mut output);
+    scene.plan(&mut DrawPlanner::default(), &mut output);
     validate_dependencies(&output);
     let captures: Vec<_> = output
         .instructions
@@ -384,7 +384,7 @@ fn layered_backdrop_sources_capture_preceding_parent_content() {
 
 #[test]
 fn queue_rebuilds_reuse_scheduling_storage_and_empty_scenes_clear_the_surface() {
-    let mut planner = SceneTraversal::default();
+    let mut planner = DrawPlanner::default();
     let mut scene = Scene::new();
     let group = scene.group(None, 1);
     scene.backdrop(group);

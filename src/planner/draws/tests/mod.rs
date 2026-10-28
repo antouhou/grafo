@@ -120,20 +120,19 @@ impl Scene {
         output: &mut RecordedCommands<'scene>,
     ) {
         output.clear_commands();
-        let subtree_backdrop_regions = HashMap::new();
         let input = DrawPlanningInput {
             tree: &self.tree,
             parameters: &self.parameters,
             shape_mask_effects: &self.shape_mask_effects,
             content_effects: &self.groups,
             backdrop_effects: &self.backdrops,
-            subtree_backdrop_regions: &subtree_backdrop_regions,
             scale_factor: 1.0,
             physical_size: Size::new(100, 100),
         };
         let mut commands = TraversalCommands::default();
         let mut texture_ids = TextureIdAllocator::default();
-        planner.start(input.physical_size, self.backdrop_source);
+        planner.start(&input);
+        planner.current.backdrop_source = self.backdrop_source;
         while planner.advance(&input, &mut commands, &mut texture_ids) {
             output.instructions.extend(mem::take(&mut commands));
         }

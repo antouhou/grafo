@@ -18,7 +18,7 @@ impl DrawPlanner {
             .get(&node_id)
             .filter(|effect| effect.bounds.is_some())?;
         let source = self.current.backdrop_source;
-        let backdrop_region = input.subtree_backdrop_regions.get(&node_id).copied();
+        let backdrop_region = self.subtree_backdrop_regions.get(&node_id).copied();
         let backdrop_source = match backdrop_region {
             Some(region) => {
                 let base = texture_ids.allocate();

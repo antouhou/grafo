@@ -72,7 +72,6 @@ pub(crate) struct DrawPlanningInput<'scene, 'planning> {
     pub(crate) shape_mask_effects: &'planning HashMap<usize, TextureComposite>,
     pub(crate) content_effects: &'scene HashMap<usize, ContentEffectInstance>,
     pub(crate) backdrop_effects: &'scene HashMap<usize, BackdropEffectInstance>,
-    pub(crate) subtree_backdrop_regions: &'planning HashMap<usize, UnsignedPhysicalRect>,
     pub(crate) scale_factor: f64,
     pub(crate) physical_size: Size,
 }
@@ -80,15 +79,18 @@ pub(crate) struct DrawPlanningInput<'scene, 'planning> {
 /// Walks the CPU tree to emit draw commands and resolved clip operands.
 #[derive(Default)]
 pub(crate) struct DrawPlanner {
+    pub(super) subtree_backdrop_regions: HashMap<usize, UnsignedPhysicalRect>,
+    pub(super) node_order: Vec<usize>,
     parents: Vec<ParentDrawState>,
     current: DrawTargetState,
     next_node: Option<usize>,
 }
 
 impl DrawPlanner {
-    pub(crate) fn start(&mut self, physical_size: Size, backdrop_source: CaptureSource) {
+    pub(crate) fn start(&mut self, input: &DrawPlanningInput<'_, '_>) {
+        self.resolve_backdrop_regions(input);
         self.parents.clear();
-        self.current = DrawTargetState::for_viewport(physical_size, backdrop_source);
+        self.current = DrawTargetState::for_viewport(input.physical_size, CaptureSource::Target);
         self.next_node = Some(0);
     }
 

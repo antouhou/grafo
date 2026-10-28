@@ -19,7 +19,7 @@ fn content_targets_use_the_padded_effect_bounds() {
         ContentEffectConfig::new().outsets(4.0, 2.0, 6.0, 8.0),
     );
     let mut output = RecordedCommands::default();
-    scene.plan(&mut SceneTraversal::default(), &mut output);
+    scene.plan(&mut DrawPlanner::default(), &mut output);
     let targets: Vec<_> = output
         .instructions
         .iter()
@@ -54,7 +54,7 @@ fn downsampling_keeps_full_resolution_rendering_and_padded_bounds() {
         ContentEffectConfig::new().outset(4.0).downsample(0.5),
     );
     let mut output = RecordedCommands::default();
-    scene.plan(&mut SceneTraversal::default(), &mut output);
+    scene.plan(&mut DrawPlanner::default(), &mut output);
     validate_dependencies(&output);
     let RenderOperation::BeginTarget(Target::Texture { region, .. }) =
         output.instructions[1].operation
@@ -90,7 +90,7 @@ fn internal_backdrops_expand_rendering_then_crop_to_the_content_input() {
     );
     scene.backdrop(node);
     let mut output = RecordedCommands::default();
-    scene.plan(&mut SceneTraversal::default(), &mut output);
+    scene.plan(&mut DrawPlanner::default(), &mut output);
     validate_dependencies(&output);
     let regions: Vec<_> = output
         .instructions
@@ -143,7 +143,7 @@ fn fully_offscreen_backdrop_inputs_still_run_the_effect() {
         ),
     );
     let mut output = RecordedCommands::default();
-    scene.plan(&mut SceneTraversal::default(), &mut output);
+    scene.plan(&mut DrawPlanner::default(), &mut output);
     validate_dependencies(&output);
     let capture = output
         .instructions
@@ -187,7 +187,7 @@ fn nested_backdrop_captures_expand_parent_rendering_before_crop() {
         ),
     );
     let mut output = RecordedCommands::default();
-    scene.plan(&mut SceneTraversal::default(), &mut output);
+    scene.plan(&mut DrawPlanner::default(), &mut output);
     validate_dependencies(&output);
     let sizes: Vec<_> = output
         .instructions
