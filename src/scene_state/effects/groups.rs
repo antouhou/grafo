@@ -114,6 +114,7 @@ impl SceneState {
             }
         }
         self.group_effect_source_scratch = pending;
+        self.group_effect_index.recycle_groups(pending_groups);
     }
 
     pub(crate) fn set_group_effect(

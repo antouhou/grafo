@@ -1,9 +1,11 @@
 use super::EffectAttachments;
 use ahash::{HashMap, HashSet};
+use std::collections::hash_map::Entry;
 
 #[derive(Default)]
 pub(in crate::scene_state) struct GroupEffectIndex {
     groups_by_effect: HashMap<u64, HashSet<usize>>,
+    group_set_pool: Vec<HashSet<usize>>,
 }
 
 impl GroupEffectIndex {
@@ -21,10 +23,11 @@ impl GroupEffectIndex {
             {
                 continue;
             }
-            if let Some(groups) = self.groups_by_effect.get_mut(&effect_id) {
+            if let Entry::Occupied(mut entry) = self.groups_by_effect.entry(effect_id) {
+                let groups = entry.get_mut();
                 groups.remove(&node_id);
                 if groups.is_empty() {
-                    self.groups_by_effect.remove(&effect_id);
+                    self.group_set_pool.push(entry.remove());
                 }
             }
         }
@@ -36,7 +39,7 @@ impl GroupEffectIndex {
             {
                 self.groups_by_effect
                     .entry(effect_id)
-                    .or_default()
+                    .or_insert_with(|| self.group_set_pool.pop().unwrap_or_default())
                     .insert(node_id);
             }
         }
@@ -44,5 +47,10 @@ impl GroupEffectIndex {
 
     pub(in crate::scene_state) fn take_groups(&mut self, effect_id: u64) -> Option<HashSet<usize>> {
         self.groups_by_effect.remove(&effect_id)
+    }
+
+    pub(in crate::scene_state) fn recycle_groups(&mut self, mut groups: HashSet<usize>) {
+        groups.clear();
+        self.group_set_pool.push(groups);
     }
 }
