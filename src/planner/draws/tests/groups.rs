@@ -5,13 +5,13 @@ use crate::scene_state::types::DrawTreeNode;
 #[test]
 fn structural_groups_preserve_draw_order_and_inherited_clips() {
     let mut scene = Scene::new();
-    let root = scene.add(None, DrawTreeNode::Group);
+    let root = scene.add(None, DrawTreeNode::Group(Default::default()));
     let scissor = scene.add(Some(root), clip((10.0, 10.0), (90.0, 80.0)));
     let stencil = scene.add(Some(scissor), shape(true));
-    let group = scene.add(Some(stencil), DrawTreeNode::Group);
-    scene.add(Some(group), DrawTreeNode::Group);
+    let group = scene.add(Some(stencil), DrawTreeNode::Group(Default::default()));
+    scene.add(Some(group), DrawTreeNode::Group(Default::default()));
     let inner = scene.add(Some(group), clip((0.0, 20.0), (40.0, 90.0)));
-    let nested = scene.add(Some(inner), DrawTreeNode::Group);
+    let nested = scene.add(Some(inner), DrawTreeNode::Group(Default::default()));
     let leaf = scene.add(Some(nested), shape(true));
     let group_sibling = scene.add(Some(group), shape(true));
     let root_sibling = scene.add(Some(root), shape(true));

@@ -16,7 +16,7 @@ impl DrawPlanner {
         output: &mut TraversalCommands<'scene>,
         texture_ids: &mut TextureIdAllocator,
     ) -> Option<ShapeTextureLayer> {
-        let source = input.backdrop_source?;
+        let source = self.current.backdrop_source;
         let effect = input.backdrop_effects.get(&node_id)?;
         let region = effect.capture_region?;
         let capture = texture_ids.allocate();

@@ -47,7 +47,11 @@ some shape or form in the core module.
 - Split modules into directories when they should contain tests: mod.rs for the implementation and tests.rs for tests;
 - If the module doesn't need testing, do not create a directory for the module;
 - Do not add tests that simply check setters or trivial functionality;
+- Do not add tests for every tiny thing. Make sure that test is REALLY meaningful and REALLY covers a large piece of 
+functionality.
 - Do not add tests that require a GPU. That's because my CI doesn't have a GPU right now; There's only exception to this
 rule: visual regression test scene. I run it manually to check that everything is fine.
 - Visual test grid and visual tests are only for visual tests. Do not add assertions that can't be visually examined
 into those tests.
+- Do not add a new visual grid tile or a case for every little tiny fix and regression. This is a big regression
+test, and is meant for visual examination that nothing has regressed.

@@ -1,9 +1,9 @@
 use crate::commands::{DrawClip, RenderCommand, RenderOperation, TextureComposite};
 use smallvec::{IntoIter, SmallVec};
 
-// The largest traversal step closes a stencil-clipped content group with five commands:
-// stencil decrement, capture, end target, effect application, and composite.
-const INLINE_COMMAND_CAPACITY: usize = 5;
+// Entering a node can copy its backdrop, begin a target, composite its mask,
+// capture and filter its backdrop, and draw the shape.
+const INLINE_COMMAND_CAPACITY: usize = 6;
 
 pub(super) type PendingCommands<'scene> =
     IntoIter<[RenderCommand<'scene>; INLINE_COMMAND_CAPACITY]>;

@@ -32,7 +32,7 @@ impl BackdropEffectInstance {
     }
 }
 
-pub(super) fn validate_backdrop_config(config: &BackdropEffectConfig) -> Result<(), SceneError> {
+pub(crate) fn validate_backdrop_config(config: &BackdropEffectConfig) -> Result<(), SceneError> {
     if !(config.downsample > 0.0 && config.downsample <= 1.0) {
         return Err(SceneError::InvalidParams(format!(
             "backdrop downsample must be in the range (0.0, 1.0], got {}",

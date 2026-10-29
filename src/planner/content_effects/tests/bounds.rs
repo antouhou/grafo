@@ -19,7 +19,7 @@ fn content_targets_use_the_padded_effect_bounds() {
         ContentEffectConfig::new().outsets(4.0, 2.0, 6.0, 8.0),
     );
     let mut output = RecordedCommands::default();
-    scene.plan(&mut SceneTraversal::default(), &mut output);
+    scene.plan(&mut DrawPlanner::default(), &mut output);
     let targets: Vec<_> = output
         .instructions
         .iter()
@@ -54,7 +54,7 @@ fn downsampling_keeps_full_resolution_rendering_and_padded_bounds() {
         ContentEffectConfig::new().outset(4.0).downsample(0.5),
     );
     let mut output = RecordedCommands::default();
-    scene.plan(&mut SceneTraversal::default(), &mut output);
+    scene.plan(&mut DrawPlanner::default(), &mut output);
     validate_dependencies(&output);
     let RenderOperation::BeginTarget(Target::Texture { region, .. }) =
         output.instructions[1].operation
@@ -90,7 +90,7 @@ fn internal_backdrops_expand_rendering_then_crop_to_the_content_input() {
     );
     scene.backdrop(node);
     let mut output = RecordedCommands::default();
-    scene.plan(&mut SceneTraversal::default(), &mut output);
+    scene.plan(&mut DrawPlanner::default(), &mut output);
     validate_dependencies(&output);
     let regions: Vec<_> = output
         .instructions
@@ -100,16 +100,16 @@ fn internal_backdrops_expand_rendering_then_crop_to_the_content_input() {
             _ => None,
         })
         .collect();
-    assert_eq!(regions.len(), 2);
+    assert_eq!(regions.len(), 1);
     assert_eq!(regions[0].bounds.min.to_tuple(), (6, 6));
-    assert_eq!(regions[0].bounds.max.to_tuple(), (44, 44));
-    assert_eq!(regions[1].bounds.min.to_tuple(), (6, 6));
-    assert_eq!(regions[1].bounds.max.to_tuple(), (50, 44));
+    assert_eq!(regions[0].bounds.max.to_tuple(), (50, 44));
     let capture = output
         .instructions
         .iter()
         .find_map(|command| match command.operation {
-            RenderOperation::Capture(capture) if capture.source == CaptureSource::Target => {
+            RenderOperation::Capture(capture)
+                if capture.region.bounds.min.to_tuple() == (26, 18) =>
+            {
                 Some(capture)
             }
             _ => None,
@@ -143,7 +143,7 @@ fn fully_offscreen_backdrop_inputs_still_run_the_effect() {
         ),
     );
     let mut output = RecordedCommands::default();
-    scene.plan(&mut SceneTraversal::default(), &mut output);
+    scene.plan(&mut DrawPlanner::default(), &mut output);
     validate_dependencies(&output);
     let capture = output
         .instructions
@@ -159,7 +159,7 @@ fn fully_offscreen_backdrop_inputs_still_run_the_effect() {
 }
 
 #[test]
-fn completed_child_captures_do_not_expand_the_parent_target() {
+fn nested_backdrop_captures_expand_parent_rendering_before_crop() {
     let mut scene = Scene::new();
     let root = scene.add(None);
     let parent = scene.tree.add_child(
@@ -187,7 +187,7 @@ fn completed_child_captures_do_not_expand_the_parent_target() {
         ),
     );
     let mut output = RecordedCommands::default();
-    scene.plan(&mut SceneTraversal::default(), &mut output);
+    scene.plan(&mut DrawPlanner::default(), &mut output);
     validate_dependencies(&output);
     let sizes: Vec<_> = output
         .instructions
@@ -199,8 +199,20 @@ fn completed_child_captures_do_not_expand_the_parent_target() {
             _ => None,
         })
         .collect();
-    assert_eq!(
-        sizes,
-        [Size::new(100, 100), Size::new(100, 100), Size::new(20, 20)]
-    );
+    assert_eq!(sizes, [Size::new(100, 100), Size::new(100, 100)]);
+    let parent_crop = output
+        .instructions
+        .iter()
+        .find_map(|command| match command.operation {
+            RenderOperation::Capture(capture)
+                if capture.region.bounds.min.to_tuple() == (30, 20)
+                    && capture.region.bounds.max.to_tuple() == (50, 40) =>
+            {
+                Some(capture)
+            }
+            _ => None,
+        })
+        .expect("expanded parent rendering is cropped to the effect input");
+    assert_eq!(parent_crop.source, CaptureSource::Target);
+    assert_eq!(parent_crop.sampling_size, Size::new(20, 20));
 }

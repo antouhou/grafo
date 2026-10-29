@@ -5,7 +5,7 @@ use crate::scene_state::effects::ShapeMaskEffectInstance;
 use crate::scene_state::SceneState;
 use ahash::HashMap;
 use commands::{PendingCommands, TraversalCommands};
-use content_effects::{ContentPlanningInput, SceneTraversal};
+use draws::{DrawPlanner, DrawPlanningInput};
 use shape_mask_effects::append_shape_mask_effect;
 use std::collections::hash_map;
 use std::iter::FusedIterator;
@@ -40,7 +40,7 @@ enum PlanningPhase {
 #[derive(Default)]
 pub(crate) struct Planner {
     shape_composites: HashMap<usize, TextureComposite>,
-    traversal: SceneTraversal,
+    traversal: DrawPlanner,
 }
 
 pub(crate) struct CommandIterator<'state, 'planner> {
@@ -61,7 +61,7 @@ impl Planner {
         maximum_texture_dimension: u32,
     ) -> CommandIterator<'state, 'planner> {
         self.shape_composites.clear();
-        self.traversal.start(&ContentPlanningInput {
+        self.traversal.start(&DrawPlanningInput {
             tree: &state.draw_tree,
             parameters: &state.effect_parameters,
             content_effects: &state.content_effects,
@@ -119,7 +119,7 @@ impl<'state> Iterator for CommandIterator<'state, '_> {
                 }
                 PlanningPhase::PlanningMainContent => {
                     let progressed = self.planner.traversal.advance(
-                        &ContentPlanningInput {
+                        &DrawPlanningInput {
                             tree: &self.state.draw_tree,
                             parameters: &self.state.effect_parameters,
                             content_effects: &self.state.content_effects,

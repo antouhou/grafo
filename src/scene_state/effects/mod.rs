@@ -5,12 +5,20 @@ use crate::core::effect::{
     BackdropEffectConfig, ContentEffectBounds, ContentEffectConfig, ShapeMaskEffectBounds,
     ShapeMaskEffectConfig,
 };
-use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
-use backdrops::validate_backdrop_config;
+use crate::core::{geometry, Viewport};
+pub(crate) use attachments::{
+    EffectAttachment, EffectAttachmentKind, EffectAttachments, EffectConfig, EffectInstance,
+    RemovedEffectAttachment,
+};
+pub(crate) use backdrops::validate_backdrop_config;
 pub(crate) use backdrops::BackdropEffectInstance;
+pub(super) use group_index::GroupEffectIndex;
 use parameters::EffectParametersHandle;
 
+mod attachments;
 mod backdrops;
+mod group_index;
+mod groups;
 pub(crate) mod parameters;
 
 /// A cached shape mask effect attachment. GPU parameter resources are created only on cache misses.
@@ -22,12 +30,32 @@ pub(crate) struct ShapeMaskEffectInstance {
     pub bounds: ShapeMaskEffectBounds,
 }
 
-/// Parameters shared by content and backdrop effect attachments.
-#[derive(Clone, Copy)]
-pub(crate) struct EffectInstance {
-    /// The loaded effect's ID.
-    pub effect_id: u64,
-    pub parameters: EffectParametersHandle,
+pub(crate) fn validate_shape_mask_effect_config(
+    config: &ShapeMaskEffectConfig,
+) -> Result<(), SceneError> {
+    if !(config.downsample > 0.0 && config.downsample <= 1.0) {
+        return Err(SceneError::InvalidParams(format!(
+            "shape mask effect downsample must be in the range (0.0, 1.0], got {}",
+            config.downsample
+        )));
+    }
+
+    let outsets = [
+        config.left_outset,
+        config.top_outset,
+        config.right_outset,
+        config.bottom_outset,
+    ];
+    if outsets
+        .iter()
+        .any(|outset| !outset.is_finite() || *outset < 0.0)
+    {
+        return Err(SceneError::InvalidParams(
+            "shape mask effect outsets must be finite and non-negative".to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
 /// A content attachment with its resolved input and output bounds.
@@ -106,46 +134,6 @@ pub(super) fn resolve_backdrop_effect(
     (instance, entry)
 }
 
-fn validate_shape_mask_effect_config(config: &ShapeMaskEffectConfig) -> Result<(), SceneError> {
-    if !(config.downsample > 0.0 && config.downsample <= 1.0) {
-        return Err(SceneError::InvalidParams(format!(
-            "shape mask effect downsample must be in the range (0.0, 1.0], got {}",
-            config.downsample
-        )));
-    }
-
-    let outsets = [
-        config.left_outset,
-        config.top_outset,
-        config.right_outset,
-        config.bottom_outset,
-    ];
-    if outsets
-        .iter()
-        .any(|outset| !outset.is_finite() || *outset < 0.0)
-    {
-        return Err(SceneError::InvalidParams(
-            "shape mask effect outsets must be finite and non-negative".to_string(),
-        ));
-    }
-
-    Ok(())
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum EffectAttachmentKind {
-    Content,
-    Backdrop,
-    ShapeMask,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct RemovedEffectAttachment {
-    pub node_id: usize,
-    pub kind: EffectAttachmentKind,
-    pub damage_bounds: Option<UnsignedPhysicalRect>,
-}
-
 impl SceneState {
     pub(crate) fn compact_effect_parameters(&mut self) {
         let parameters = self
@@ -161,6 +149,19 @@ impl SceneState {
                 self.shape_mask_effects
                     .values_mut()
                     .map(|effect| &mut effect.parameters),
+            )
+            .chain(
+                self.draw_tree
+                    .iter_mut()
+                    .filter_map(|(_, node)| match node {
+                        DrawTreeNode::Group(group) => Some(&mut group.effects),
+                        _ => None,
+                    })
+                    .flat_map(|effects| {
+                        effects
+                            .iter_mut()
+                            .map(|effect| &mut effect.instance.parameters)
+                    }),
             );
         self.effect_parameters.compact(parameters);
     }
@@ -205,6 +206,7 @@ impl SceneState {
             maximum_texture_dimension,
         );
         self.replace_content_effect(node_id, instance, entry);
+        self.set_shape_effect_source(node_id, EffectAttachmentKind::Content, None);
         Ok(())
     }
 
@@ -223,6 +225,7 @@ impl SceneState {
         if self.content_effects.remove(&node_id).is_none() {
             return false;
         }
+        self.set_shape_effect_source(node_id, EffectAttachmentKind::Content, None);
         self.effect_parameters.request_compaction();
         self.effect_damage
             .remove(EffectDamageKind::Content, node_id);
@@ -273,6 +276,7 @@ impl SceneState {
             maximum_texture_dimension,
         );
         self.replace_backdrop_effect(node_id, instance, entry);
+        self.set_shape_effect_source(node_id, EffectAttachmentKind::Backdrop, None);
         Ok(())
     }
 
@@ -301,6 +305,7 @@ impl SceneState {
         if self.backdrop_effects.remove(&node_id).is_none() {
             return false;
         }
+        self.set_shape_effect_source(node_id, EffectAttachmentKind::Backdrop, None);
         self.effect_parameters.request_compaction();
         self.effect_damage
             .remove(EffectDamageKind::Backdrop, node_id);
@@ -339,6 +344,7 @@ impl SceneState {
                 bounds,
             },
         );
+        self.set_shape_effect_source(node_id, EffectAttachmentKind::ShapeMask, None);
         self.refresh_content_effect_bounds(node_id, maximum_texture_dimension);
         Ok(())
     }
@@ -373,6 +379,7 @@ impl SceneState {
         maximum_texture_dimension: u32,
     ) {
         if self.shape_mask_effects.remove(&node_id).is_some() {
+            self.set_shape_effect_source(node_id, EffectAttachmentKind::ShapeMask, None);
             self.effect_parameters.request_compaction();
             self.refresh_content_effect_bounds(node_id, maximum_texture_dimension);
         }
@@ -384,9 +391,13 @@ impl SceneState {
         maximum_texture_dimension: u32,
         mut removed: impl FnMut(RemovedEffectAttachment),
     ) {
+        self.remove_group_effect_attachments(effect_id);
         self.content_effects.retain(|node_id, instance| {
             if instance.effect_id != effect_id {
                 return true;
+            }
+            if let Some(DrawTreeNode::CachedShape(shape)) = self.draw_tree.get_mut(*node_id) {
+                shape.inherited_effect_sources.content = None;
             }
             let damage_bounds = self
                 .effect_damage
@@ -404,6 +415,9 @@ impl SceneState {
         self.backdrop_effects.retain(|node_id, instance| {
             if instance.effect.effect_id != effect_id {
                 return true;
+            }
+            if let Some(DrawTreeNode::CachedShape(shape)) = self.draw_tree.get_mut(*node_id) {
+                shape.inherited_effect_sources.backdrop = None;
             }
             self.effect_damage
                 .remove(EffectDamageKind::Backdrop, *node_id);
@@ -424,6 +438,9 @@ impl SceneState {
         self.shape_mask_effects.retain(|node_id, instance| {
             if instance.effect_id != effect_id {
                 return true;
+            }
+            if let Some(DrawTreeNode::CachedShape(shape)) = self.draw_tree.get_mut(*node_id) {
+                shape.inherited_effect_sources.shape_mask = None;
             }
             let mut damage_bounds = geometry::logical_bounds_to_viewport_rect(
                 instance.bounds.logical_screen_bounds,

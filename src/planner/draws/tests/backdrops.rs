@@ -195,16 +195,16 @@ fn consecutive_captures_follow_preceding_draws_and_keep_separate_outputs() {
 }
 
 #[test]
-fn layered_capture_references_registered_resources_and_disabling_capture_removes_all_work() {
+fn layered_capture_references_registered_resources() {
     let mut output = RecordedCommands::default();
     let mut scene = Scene::new();
     let panel = scene.add(None, shape(true));
     scene.attach_backdrop(panel);
     let base = IntermediateTextureId::Registered(0);
-    scene.backdrop_source = Some(CaptureSource::Layered {
+    scene.backdrop_source = CaptureSource::Layered {
         base,
         origin: [12, 24],
-    });
+    };
     scene.plan(&mut DrawPlanner::default(), &mut output);
     let RenderOperation::Capture(capture) = output.instructions[0].operation else {
         panic!("capture precedes the first draw")
@@ -217,19 +217,6 @@ fn layered_capture_references_registered_resources_and_disabling_capture_removes
         }
     );
     assert_ne!(capture.output, base);
-
-    drop(output);
-    let mut output = RecordedCommands::default();
-    scene.backdrop_source = None;
-    scene.plan(&mut DrawPlanner::default(), &mut output);
-    assert_eq!(
-        snapshot(&output),
-        [(
-            Operation::Draw(ShapeDrawId(panel)),
-            0,
-            rect((0, 0), (100, 100)),
-        )]
-    );
 }
 
 #[test]
