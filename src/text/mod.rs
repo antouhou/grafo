@@ -1,22 +1,11 @@
 use crate::core::{GlyphContent, MathRect, PositionedGlyph, TextSource};
 use cosmic_text::{Buffer, CacheKey, CacheKeyFlags, FontSystem, LayoutGlyph, LayoutRunIter};
-use lyon::path::PathEvent;
+pub use glyphs::CosmicGlyphExtractor;
 use std::slice;
-use swash::{
-    scale::{outline::Outline, ScaleContext},
-    zeno::{Angle, Transform},
-    Tag,
-};
 
 mod bounds;
+mod glyphs;
 mod outline;
-
-#[derive(Default)]
-struct GlyphExtraction {
-    scale_context: ScaleContext,
-    outline: Outline,
-    events: Vec<PathEvent>,
-}
 
 /// A cursor over an already shaped cosmic-text buffer. Borrowed only during add or replace.
 /// Span colors, decorations, and glyphs without ordinary outlines are ignored.
@@ -25,7 +14,7 @@ pub struct CosmicText<'a> {
     glyphs: slice::Iter<'a, LayoutGlyph>,
     baseline: f32,
     font_system: &'a mut FontSystem,
-    extraction: GlyphExtraction,
+    extraction: CosmicGlyphExtractor,
     visible_bounds: Option<MathRect>,
 }
 
@@ -37,7 +26,7 @@ impl<'a> CosmicText<'a> {
             glyphs: [].iter(),
             baseline: 0.0,
             font_system,
-            extraction: GlyphExtraction::default(),
+            extraction: CosmicGlyphExtractor::default(),
             visible_bounds: None,
         }
     }
@@ -97,33 +86,6 @@ impl TextSource for CosmicText<'_> {
 
     fn glyph_content(&mut self, key: &CacheKey) -> Option<GlyphContent<'_>> {
         let font = self.font_system.get_font(key.font_id, key.font_weight)?;
-        let font = font.as_swash();
-        let mut scaler = self
-            .extraction
-            .scale_context
-            .builder(font)
-            .size(f32::from_bits(key.font_size_bits))
-            .hint(false);
-        let weight_tag = Tag::from_be_bytes(*b"wght");
-        if let Some(variation) = font.variations().find_by_tag(weight_tag) {
-            let weight =
-                f32::from(key.font_weight.0).clamp(variation.min_value(), variation.max_value());
-            scaler = scaler
-                .normalized_coords(font.variations().normalized_coords([(weight_tag, weight)]));
-        }
-        if !scaler
-            .build()
-            .scale_outline_into(key.glyph_id, &mut self.extraction.outline)
-        {
-            return None;
-        }
-        if key.flags.contains(CacheKeyFlags::FAKE_ITALIC) {
-            self.extraction.outline.transform(&Transform::skew(
-                Angle::from_degrees(14.0),
-                Angle::from_degrees(0.0),
-            ));
-        }
-        outline::collect_events(&self.extraction.outline, &mut self.extraction.events);
-        Some(GlyphContent::Outline(&self.extraction.events))
+        self.extraction.glyph_content(&font, key)
     }
 }
