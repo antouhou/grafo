@@ -54,7 +54,7 @@ pub use render_backend::RenderBackend;
 pub use scene_state::SceneError;
 use std::sync::Arc;
 #[cfg(feature = "cosmic-text")]
-pub use text::CosmicText;
+pub use text::{CosmicGlyphExtractor, CosmicText};
 pub use wgpu;
 #[cfg(feature = "render_metrics")]
 #[doc(hidden)]
