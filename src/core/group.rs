@@ -2,8 +2,6 @@ use super::{MathRect, TransformInstance};
 
 /// Shared paint coordinates for a group's descendants.
 ///
-/// These options currently have no effect on rendering.
-///
 /// ```rust
 /// use grafo::{GroupDrawCommandOptions, MathRect, Scene, SceneError, TransformInstance};
 ///
