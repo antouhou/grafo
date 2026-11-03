@@ -5,7 +5,7 @@ use crate::core::effect::{
 };
 use crate::core::shape::{Shape, ShapeDrawCommandOptions};
 use crate::core::vertex::InstanceTransform;
-use crate::core::{TextSource, UnsignedPhysicalRect};
+use crate::core::{GroupDrawCommandOptions, TextSource, UnsignedPhysicalRect};
 use crate::planner::Planner;
 use crate::render_backend::render_target::RenderTarget;
 use crate::render_backend::RenderBackend;
@@ -149,7 +149,12 @@ impl<B: RenderBackend> Scene<B> {
     /// The effects will be applied to a whole group; Individual group members can override the
     /// effect set that way by calling the same methods on individual nodes.
     /// Individual member overrides survive changes to or removal of the group's effect.
-    pub fn add_group(&mut self, parent_node_id: Option<usize>) -> Result<usize, SceneError> {
+    /// Paint coordinate options currently have no effect on rendering.
+    pub fn add_group(
+        &mut self,
+        parent_node_id: Option<usize>,
+        _options: GroupDrawCommandOptions,
+    ) -> Result<usize, SceneError> {
         self.state.validate_parent(parent_node_id)?;
         Ok(self
             .state

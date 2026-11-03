@@ -43,7 +43,7 @@ fn shape_to_clip_replacement_restores_inheritance_and_preserves_overrides() {
     ] {
         for has_own_effect in [false, true] {
             let mut scene = scene();
-            let ancestor = scene.add_group(None).unwrap();
+            let ancestor = scene.add_group(None, Default::default()).unwrap();
             scene
                 .set_effect(ancestor, 8, &[1, 2, 3, 4], config)
                 .unwrap();
@@ -54,7 +54,7 @@ fn shape_to_clip_replacement_restores_inheritance_and_preserves_overrides() {
             }
             let member = shape(&mut scene, bounds, parent);
             let descendant = shape(&mut scene, bounds, member);
-            let nested = scene.add_group(Some(parent)).unwrap();
+            let nested = scene.add_group(Some(parent), Default::default()).unwrap();
             let nested_clip = scene
                 .add_clipping_rect(bounds, Some(nested), None::<InstanceTransform>, false)
                 .unwrap();
@@ -63,7 +63,7 @@ fn shape_to_clip_replacement_restores_inheritance_and_preserves_overrides() {
             scene
                 .set_effect(explicit_member, 11, &[1, 2, 3, 4], config)
                 .unwrap();
-            let overriding_group = scene.add_group(Some(parent)).unwrap();
+            let overriding_group = scene.add_group(Some(parent), Default::default()).unwrap();
             scene
                 .set_effect(overriding_group, 10, &[1, 2, 3, 4], config)
                 .unwrap();
@@ -110,7 +110,7 @@ fn shape_to_clip_replacement_restores_inheritance_and_preserves_overrides() {
 #[test]
 fn shape_to_clip_replacement_rejects_invalid_inherited_masks_before_mutation() {
     let mut scene = scene();
-    let ancestor = scene.add_group(None).unwrap();
+    let ancestor = scene.add_group(None, Default::default()).unwrap();
     scene
         .set_shape_mask_effect(ancestor, 7, &[1, 2, 3, 4], ShapeMaskEffectConfig::default())
         .unwrap();
@@ -148,8 +148,8 @@ fn shape_to_clip_replacement_rejects_invalid_inherited_masks_before_mutation() {
 #[test]
 fn group_to_clip_replacement_rejects_invalid_inherited_masks_before_mutation() {
     let mut scene = scene();
-    let ancestor = scene.add_group(None).unwrap();
-    let group = scene.add_group(Some(ancestor)).unwrap();
+    let ancestor = scene.add_group(None, Default::default()).unwrap();
+    let group = scene.add_group(Some(ancestor), Default::default()).unwrap();
     let attachments = [
         (8, EffectConfig::Content(ContentEffectConfig::default())),
         (9, EffectConfig::Backdrop(BackdropEffectConfig::default())),
@@ -233,15 +233,15 @@ fn replacing_a_group_with_a_clip_restores_member_effects() {
     ] {
         for has_parent_effect in [false, true] {
             let mut scene = scene();
-            let parent = scene.add_group(None).unwrap();
+            let parent = scene.add_group(None, Default::default()).unwrap();
             if has_parent_effect {
                 scene.set_effect(parent, 8, &[1, 2, 3, 4], config).unwrap();
             }
-            let group = scene.add_group(Some(parent)).unwrap();
+            let group = scene.add_group(Some(parent), Default::default()).unwrap();
             scene.set_effect(group, 9, &[1, 2, 3, 4], config).unwrap();
             let bounds = [(11.0, 11.0), (12.0, 12.0)];
             let member = shape(&mut scene, bounds, group);
-            let nested = scene.add_group(Some(group)).unwrap();
+            let nested = scene.add_group(Some(group), Default::default()).unwrap();
             let nested_clip = scene
                 .add_clipping_rect(bounds, Some(nested), None::<InstanceTransform>, false)
                 .unwrap();
@@ -250,7 +250,7 @@ fn replacing_a_group_with_a_clip_restores_member_effects() {
             scene
                 .set_effect(explicit_member, 9, &[1, 2, 3, 4], config)
                 .unwrap();
-            let overriding_group = scene.add_group(Some(group)).unwrap();
+            let overriding_group = scene.add_group(Some(group), Default::default()).unwrap();
             scene
                 .set_effect(overriding_group, 10, &[1, 2, 3, 4], config)
                 .unwrap();

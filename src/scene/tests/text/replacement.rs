@@ -18,9 +18,9 @@ enum ReplacedNodeKind {
 fn clip_replacement_validates_only_surviving_text_glyphs() {
     for should_preserve_glyphs in [false, true] {
         let mut scene = scene();
-        let ancestor = scene.add_group(None).unwrap();
+        let ancestor = scene.add_group(None, Default::default()).unwrap();
         let node = if should_preserve_glyphs {
-            scene.add_group(Some(ancestor)).unwrap()
+            scene.add_group(Some(ancestor), Default::default()).unwrap()
         } else {
             scene
                 .add_text(Glyphs::new(&[10, 11]), Some(ancestor), options())
@@ -103,7 +103,7 @@ fn text_replacement_removes_previous_subtrees_and_preserves_node_effects() {
             ReplacedNodeKind::Group,
         ] {
             let mut scene = scene();
-            let ancestor = scene.add_group(None).unwrap();
+            let ancestor = scene.add_group(None, Default::default()).unwrap();
             scene
                 .set_effect(ancestor, 8, &[1, 2, 3, 4], config)
                 .unwrap();
@@ -115,13 +115,15 @@ fn text_replacement_removes_previous_subtrees_and_preserves_node_effects() {
                 ReplacedNodeKind::ClipRect => scene
                     .add_clipping_rect(bounds, Some(ancestor), None::<TransformInstance>, true)
                     .unwrap(),
-                ReplacedNodeKind::Group => scene.add_group(Some(ancestor)).unwrap(),
+                ReplacedNodeKind::Group => {
+                    scene.add_group(Some(ancestor), Default::default()).unwrap()
+                }
             };
             let has_own_effect = !matches!(kind, ReplacedNodeKind::ClipRect);
             if has_own_effect {
                 scene.set_effect(node, 9, &[1, 2, 3, 4], config).unwrap();
             }
-            let group = scene.add_group(Some(node)).unwrap();
+            let group = scene.add_group(Some(node), Default::default()).unwrap();
             scene.set_effect(group, 10, &[1, 2, 3, 4], config).unwrap();
             let child = scene
                 .add_shape(Shape::rect(bounds), Some(group), None, options())
@@ -220,7 +222,7 @@ fn text_replacement_removes_previous_subtrees_and_preserves_node_effects() {
 fn discarded_children_do_not_restrict_text_effect_bounds() {
     for is_text_empty in [false, true] {
         let mut scene = scene();
-        let ancestor = scene.add_group(None).unwrap();
+        let ancestor = scene.add_group(None, Default::default()).unwrap();
         scene
             .set_shape_mask_effect(ancestor, 7, &[1, 2, 3, 4], ShapeMaskEffectConfig::default())
             .unwrap();

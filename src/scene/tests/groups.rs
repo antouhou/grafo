@@ -18,8 +18,8 @@ fn group_effect_changes_preserve_member_overrides() {
     ] {
         for should_update_group in [false, true] {
             let mut scene = scene();
-            let ancestor = scene.add_group(None).unwrap();
-            let group = scene.add_group(Some(ancestor)).unwrap();
+            let ancestor = scene.add_group(None, Default::default()).unwrap();
+            let group = scene.add_group(Some(ancestor), Default::default()).unwrap();
             let geometry = Shape::rect([(2.0, 2.0), (8.0, 8.0)]);
             let options = ShapeDrawCommandOptions::new().color(Color::WHITE);
             let explicit = scene
@@ -32,7 +32,7 @@ fn group_effect_changes_preserve_member_overrides() {
             scene
                 .set_effect(explicit, 9, &[1, 2, 3, 4], config)
                 .unwrap();
-            let nested = scene.add_group(Some(group)).unwrap();
+            let nested = scene.add_group(Some(group), Default::default()).unwrap();
             let inherited = scene
                 .add_shape(&geometry, Some(nested), None, options)
                 .unwrap();
@@ -111,8 +111,8 @@ fn group_replacement_removes_inherited_effects_and_preserves_overrides() {
     ] {
         for use_cached_shape in [false, true] {
             let mut scene = scene();
-            let ancestor = scene.add_group(None).unwrap();
-            let group = scene.add_group(Some(ancestor)).unwrap();
+            let ancestor = scene.add_group(None, Default::default()).unwrap();
+            let group = scene.add_group(Some(ancestor), Default::default()).unwrap();
             let geometry = Shape::rect([(2.0, 2.0), (8.0, 8.0)]);
             let options = ShapeDrawCommandOptions::new().color(Color::WHITE);
             let first = scene
@@ -122,7 +122,7 @@ fn group_replacement_removes_inherited_effects_and_preserves_overrides() {
             scene
                 .set_effect(effect_owner, 8, &[1, 2, 3, 4], config)
                 .unwrap();
-            let nested = scene.add_group(Some(group)).unwrap();
+            let nested = scene.add_group(Some(group), Default::default()).unwrap();
             let inherited = scene
                 .add_shape(&geometry, Some(nested), None, options.clone())
                 .unwrap();
@@ -132,7 +132,7 @@ fn group_replacement_removes_inherited_effects_and_preserves_overrides() {
             scene
                 .set_effect(explicit, 8, &[1, 2, 3, 4], config)
                 .unwrap();
-            let overridden_group = scene.add_group(Some(group)).unwrap();
+            let overridden_group = scene.add_group(Some(group), Default::default()).unwrap();
             scene
                 .set_effect(overridden_group, 9, &[1, 2, 3, 4], config)
                 .unwrap();
@@ -216,10 +216,10 @@ fn group_replacement_removes_inherited_effects_and_preserves_overrides() {
 #[test]
 fn nested_groups_draw_in_order_and_removal_cleans_up_only_their_descendants() {
     let mut scene = scene();
-    let root = scene.add_group(None).unwrap();
-    let group = scene.add_group(Some(root)).unwrap();
-    let nested = scene.add_group(Some(group)).unwrap();
-    let empty = scene.add_group(Some(nested)).unwrap();
+    let root = scene.add_group(None, Default::default()).unwrap();
+    let group = scene.add_group(Some(root), Default::default()).unwrap();
+    let nested = scene.add_group(Some(group), Default::default()).unwrap();
+    let empty = scene.add_group(Some(nested), Default::default()).unwrap();
     let mut shapes = Vec::new();
     for (parent, position) in [(group, 4.0), (nested, 16.0), (root, 24.0)] {
         shapes.push(
@@ -282,11 +282,11 @@ fn nested_groups_draw_in_order_and_removal_cleans_up_only_their_descendants() {
 #[test]
 fn groups_validate_parents_and_effect_configs_without_changing_the_scene() {
     let mut scene = scene();
-    let group = scene.add_group(None).unwrap();
+    let group = scene.add_group(None, Default::default()).unwrap();
     let mut surface = surface();
     scene.render(&mut surface).unwrap();
     assert!(matches!(
-        scene.add_group(Some(usize::MAX)),
+        scene.add_group(Some(usize::MAX), Default::default()),
         Err(SceneError::InvalidShapeId(usize::MAX))
     ));
     for result in [
@@ -326,8 +326,8 @@ fn groups_validate_parents_and_effect_configs_without_changing_the_scene() {
 #[test]
 fn group_effects_apply_to_existing_and_new_members() {
     let mut scene = scene();
-    let root = scene.add_group(None).unwrap();
-    let group = scene.add_group(Some(root)).unwrap();
+    let root = scene.add_group(None, Default::default()).unwrap();
+    let group = scene.add_group(Some(root), Default::default()).unwrap();
     let first = scene
         .add_shape(
             Shape::rect([(2.0, 2.0), (8.0, 8.0)]),
@@ -342,7 +342,7 @@ fn group_effects_apply_to_existing_and_new_members() {
     scene
         .set_shape_mask_effect(group, 7, &[1, 2, 3, 4], ShapeMaskEffectConfig::default())
         .unwrap();
-    let nested = scene.add_group(Some(group)).unwrap();
+    let nested = scene.add_group(Some(group), Default::default()).unwrap();
     let second = scene
         .add_shape(
             Shape::rect([(12.0, 12.0), (18.0, 18.0)]),
@@ -371,8 +371,8 @@ fn group_effects_apply_to_existing_and_new_members() {
 #[test]
 fn group_effects_survive_replacement_and_nested_overrides() {
     let mut scene = scene();
-    let root = scene.add_group(None).unwrap();
-    let nested = scene.add_group(Some(root)).unwrap();
+    let root = scene.add_group(None, Default::default()).unwrap();
+    let nested = scene.add_group(Some(root), Default::default()).unwrap();
     scene
         .set_content_effect(root, 8, &[1, 2, 3, 4], ContentEffectConfig::default())
         .unwrap();
@@ -401,7 +401,7 @@ fn group_effects_survive_replacement_and_nested_overrides() {
         .unwrap();
     scene.unload_effect(9);
     assert_eq!(scene.state.content_effects[&shape].effect_id, 10);
-    let replacement = scene.add_group(Some(root)).unwrap();
+    let replacement = scene.add_group(Some(root), Default::default()).unwrap();
     scene
         .replace_with_shape(
             replacement,
@@ -429,7 +429,7 @@ fn group_effects_survive_replacement_and_nested_overrides() {
 #[test]
 fn inherited_mask_failure_preserves_the_group_and_existing_shapes() {
     let mut scene = scene();
-    let group = scene.add_group(None).unwrap();
+    let group = scene.add_group(None, Default::default()).unwrap();
     scene
         .set_shape_mask_effect(group, 7, &[1, 2, 3, 4], ShapeMaskEffectConfig::default())
         .unwrap();

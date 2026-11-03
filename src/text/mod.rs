@@ -15,18 +15,26 @@ pub struct CosmicText<'a> {
     baseline: f32,
     font_system: &'a mut FontSystem,
     extraction: CosmicGlyphExtractor,
+    layout_bounds: Option<MathRect>,
     visible_bounds: Option<MathRect>,
 }
 
 impl<'a> CosmicText<'a> {
     /// Use the font system that shaped `buffer`. This does not perform layout.
-    pub fn new(buffer: &'a Buffer, font_system: &'a mut FontSystem) -> Self {
+    /// `layout_bounds` supplies the full text rectangle for [`TextSource::bounds`],
+    /// independent of visibility
+    pub fn new(
+        buffer: &'a Buffer,
+        font_system: &'a mut FontSystem,
+        layout_bounds: Option<MathRect>,
+    ) -> Self {
         Self {
             runs: buffer.layout_runs(),
             glyphs: [].iter(),
             baseline: 0.0,
             font_system,
             extraction: CosmicGlyphExtractor::default(),
+            layout_bounds,
             visible_bounds: None,
         }
     }
@@ -49,6 +57,10 @@ impl<'a> CosmicText<'a> {
 
 impl TextSource for CosmicText<'_> {
     type GlyphKey = CacheKey;
+
+    fn bounds(&self) -> Option<MathRect> {
+        self.layout_bounds
+    }
 
     fn set_visible_bounds(&mut self, bounds: Option<MathRect>) {
         self.visible_bounds = bounds;

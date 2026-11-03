@@ -17,6 +17,7 @@ pub use gradient::types::{
     HueComponent, HueInterpolationMethod, LinearGradientDesc, LinearGradientLine,
     RadialGradientDesc, RadialGradientSize, SpreadMode,
 };
+pub use group::GroupDrawCommandOptions;
 pub use shape::*;
 pub use text::*;
 pub use vertex::InstanceTransform as TransformInstance;
@@ -27,6 +28,7 @@ mod color;
 pub(crate) mod effect;
 pub(crate) mod geometry;
 pub mod gradient;
+mod group;
 pub(crate) mod shape;
 pub(crate) mod slot_pool;
 mod text;

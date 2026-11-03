@@ -101,6 +101,13 @@ pub trait TextSource {
     /// Placement is excluded. Keys must not alias different content within the source.
     type GlyphKey: Eq + Hash;
 
+    /// Full text rectangle in logical text coordinates, before the scene transform.
+    /// Must be independent of glyph iteration and visibility hints. `None` means unspecified.
+    /// These bounds currently have no effect on rendering.
+    fn bounds(&self) -> Option<MathRect> {
+        None
+    }
+
     /// Called before iteration with bounds of a parent shape, if any. `None` means no bounds - all
     /// glyphs. An empty rectangle has no visible glyphs.
     /// Sources may omit glyphs wholly outside the bounds, or ignore this hint. This is purely for
@@ -117,6 +124,10 @@ pub trait TextSource {
 
 impl<Source: TextSource + ?Sized> TextSource for &mut Source {
     type GlyphKey = Source::GlyphKey;
+
+    fn bounds(&self) -> Option<MathRect> {
+        (**self).bounds()
+    }
 
     fn set_visible_bounds(&mut self, bounds: Option<MathRect>) {
         (**self).set_visible_bounds(bounds);

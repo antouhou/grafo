@@ -130,7 +130,7 @@ fn text_replacement_preserves_inherited_and_explicit_effects() {
             [(false, false), (false, true), (true, false), (true, true)]
         {
             let mut scene = scene();
-            let parent = scene.add_group(None).unwrap();
+            let parent = scene.add_group(None, Default::default()).unwrap();
             scene.set_effect(parent, 8, &[1, 2, 3, 4], config).unwrap();
             let child = scene
                 .add_shape(
@@ -272,7 +272,7 @@ fn ordinary_replacement_removes_only_text_owned_glyphs() {
     ] {
         let mut scene = scene();
         scene.load_shape(&shape, 1, None);
-        let root = scene.add_group(None).unwrap();
+        let root = scene.add_group(None, Default::default()).unwrap();
         let text = scene
             .add_text(Glyphs::new(&[10, 11]), Some(root), options())
             .unwrap();
