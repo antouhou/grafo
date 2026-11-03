@@ -103,7 +103,6 @@ pub trait TextSource {
 
     /// Full text rectangle in logical text coordinates, before the scene transform.
     /// Must be independent of glyph iteration and visibility hints. `None` means unspecified.
-    /// These bounds currently have no effect on rendering.
     fn bounds(&self) -> Option<MathRect> {
         None
     }

@@ -149,7 +149,6 @@ impl<B: RenderBackend> Scene<B> {
     /// The effects will be applied to a whole group; Individual group members can override the
     /// effect set that way by calling the same methods on individual nodes.
     /// Individual member overrides survive changes to or removal of the group's effect.
-    /// Paint coordinate options currently have no effect on rendering.
     pub fn add_group(
         &mut self,
         parent_node_id: Option<usize>,
