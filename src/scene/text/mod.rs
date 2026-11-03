@@ -4,10 +4,12 @@ use super::{
 };
 use crate::commands::ShapeDrawId;
 use crate::core::{
-    geometry, MathRect, ShapeDrawCommandOptions, Size, TextSource, TransformInstance,
+    geometry, GroupDrawCommandOptions, MathRect, ShapeDrawCommandOptions, Size, TextSource,
+    TransformInstance,
 };
 use crate::render_backend::RenderBackend;
 use crate::scene_state::effects::EffectAttachments;
+use crate::scene_state::paint::GroupFill;
 use crate::scene_state::types::{DrawTreeNode, GroupDrawData};
 use crate::scene_state::SceneError;
 use std::mem;
@@ -112,7 +114,7 @@ impl<B: RenderBackend> Scene<B> {
         &mut self,
         target: NodeTarget,
         mut source: impl TextSource,
-        options: ShapeDrawCommandOptions,
+        mut options: ShapeDrawCommandOptions,
     ) -> Result<usize, DrawCommandError<B::Error>> {
         match target {
             NodeTarget::Insert { parent } => self.state.validate_parent(parent)?,
@@ -123,10 +125,21 @@ impl<B: RenderBackend> Scene<B> {
                     .ok_or(SceneError::NodeNotFound(node_id))?;
             }
         }
+        let fill = GroupFill::new(GroupDrawCommandOptions {
+            fill: options.fill.take(),
+            paint_to_scene_transform: options.transform,
+            ..Default::default()
+        })?;
         source.set_visible_bounds(self.text_visible_bounds(&target, options.transform));
         let previous_dirty = self.dirty_bounds;
+        let mut group = GroupDrawData {
+            fill,
+            ..Default::default()
+        };
         let group_id = match target {
-            NodeTarget::Insert { parent } => self.add_group(parent, Default::default())?,
+            NodeTarget::Insert { parent } => self
+                .state
+                .insert_node(DrawTreeNode::Group(mem::take(&mut group)), parent),
             NodeTarget::Replace { node_id } => node_id,
         };
         let mut effects = self.state.node_effects(group_id);
@@ -149,15 +162,9 @@ impl<B: RenderBackend> Scene<B> {
             self.remove_subtrees(scratch.child_ids_to_remove.iter().copied(), |_| {});
             if matches!(target, NodeTarget::Replace { .. }) {
                 effects.remove_inherited();
+                group.effects = effects;
                 self.backend.unregister_shapes(&[ShapeDrawId(group_id)]);
-                self.replace_node(
-                    group_id,
-                    DrawTreeNode::Group(GroupDrawData {
-                        effects,
-                        ..Default::default()
-                    }),
-                    None,
-                );
+                self.replace_node(group_id, DrawTreeNode::Group(group), None);
             }
         } else {
             match target {

@@ -6,6 +6,8 @@ pub enum SceneError {
     ShapeNotLoaded(u64),
     #[error("Clip rect node only supports axis-aligned transforms")]
     UnsupportedClipRectTransform,
+    #[error("Group gradient paint transform must have a finite, invertible projection")]
+    InvalidPaintTransform,
     #[error("Node {0} does not support {1}")]
     UnsupportedNodeOperation(usize, &'static str),
     #[error("Node {0} was not found")]

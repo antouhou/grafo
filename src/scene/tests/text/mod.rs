@@ -12,6 +12,7 @@ use lyon::path::PathEvent;
 use std::sync::Arc;
 
 mod cache;
+mod paint;
 mod replacement;
 
 struct Glyphs {

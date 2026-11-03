@@ -7,7 +7,9 @@ use crate::core::Viewport;
 use crate::wgpu_backend::resources::ShapePipelines;
 use crate::wgpu_backend::texture_manager::WgpuTextureManager;
 use crate::wgpu_backend::types::GeometryBufferError;
-use crate::wgpu_backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMetadata};
+use crate::wgpu_backend::vertex::{
+    encode_paint_transform, GeometryBufferRange, InstanceColor, InstanceMetadata,
+};
 use crate::ShapeTextureFitMode;
 use ahash::HashMap;
 use wgpu::{Device, Queue};
@@ -93,6 +95,7 @@ pub(crate) fn append_instance_data(
         texture_flags: texture_flags as f32,
         texture_uv_transform_layer0: texture_data.texture_uv_transforms[0],
         texture_uv_transform_layer1: texture_data.texture_uv_transforms[1],
+        ..Default::default()
     });
     instance_index
 }
@@ -149,6 +152,35 @@ fn compute_texture_uv_transforms(
 }
 
 impl ShapeExecutionResources {
+    pub(in crate::wgpu_backend) fn refresh_paint(
+        &mut self,
+        id: ShapeDrawId,
+        shape: &ShapeInstance,
+        device: &Device,
+        queue: &Queue,
+        pipelines: &ShapePipelines,
+    ) {
+        let resources = self
+            .draws
+            .get_mut(&id.0)
+            .expect("paint update requires a registered shape");
+        resources.refresh_gradient_material(
+            &shape.fill,
+            &mut self.gradient_cache,
+            device,
+            queue,
+            &pipelines.layouts.gradient,
+            &pipelines.linear_clamp_sampler,
+        );
+        resources.clear_under_fill_binding();
+        if let Some(location) = resources.geometry_buffer_location {
+            self.instance_colors[location.instance_index].color =
+                shape.color_override.unwrap_or([0.0; 4]);
+            self.instance_metadata[location.instance_index].paint_transform =
+                encode_paint_transform(shape.paint_transform);
+        }
+    }
+
     pub(in crate::wgpu_backend) fn refresh_uv(
         &mut self,
         id: ShapeDrawId,
@@ -241,6 +273,8 @@ impl ShapeExecutionResources {
             if let Some(coverage) = &resources.path_coverage {
                 self.instance_metadata[instance_index].coverage_translation = coverage.translation;
             }
+            self.instance_metadata[instance_index].paint_transform =
+                encode_paint_transform(cached_shape_data.paint_transform);
             resources.geometry_buffer_location = Some(ShapeBufferLocation {
                 geometry_range,
                 instance_index,

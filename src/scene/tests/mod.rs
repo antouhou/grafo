@@ -92,6 +92,7 @@ struct TestBackend {
     is_dirty_region_overlay_enabled: bool,
     registered_shapes: Vec<usize>,
     refreshed_uvs: Vec<usize>,
+    refreshed_paints: Vec<usize>,
     should_fail: bool,
     registration_failure: Option<usize>,
     size: Option<(u32, u32)>,
@@ -125,6 +126,11 @@ impl RenderBackend for TestBackend {
             .iter()
             .any(|texture| texture.texture_id.is_some()));
         self.refreshed_uvs.push(id.0);
+    }
+
+    fn refresh_paint(&mut self, id: ShapeDrawId, _: &ShapeInstance) {
+        assert!(self.registered_shapes.contains(&id.0));
+        self.refreshed_paints.push(id.0);
     }
 
     fn unregister_shapes(&mut self, ids: &[ShapeDrawId]) {

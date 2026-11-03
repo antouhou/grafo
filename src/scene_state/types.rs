@@ -1,4 +1,5 @@
 use super::effects::{EffectAttachmentKind, EffectAttachments};
+use super::paint::GroupFill;
 use crate::core::shape::{CachedShapeHandle, ShapeDrawCommandOptions, ShapeInstance};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, MathRect};
@@ -33,11 +34,13 @@ pub(crate) struct CachedShapeDrawData {
     pub(crate) clips_children: bool,
     pub(crate) logical_screen_bounds: MathRect,
     pub(crate) inherited_effect_sources: GroupEffectSources,
+    pub(crate) inherits_fill: bool,
 }
 
 impl CachedShapeDrawData {
     pub(crate) fn new(cached_shape: CachedShapeHandle, options: ShapeDrawCommandOptions) -> Self {
         let clips_children = options.clips_children;
+        let inherits_fill = options.fill.is_none();
         let instance = ShapeInstance::new(cached_shape, options);
         let bounds = instance.cached_shape.local_bounds();
         let logical_screen_bounds = geometry::transformed_bounds_to_logical_screen_rect(
@@ -49,6 +52,7 @@ impl CachedShapeDrawData {
             clips_children,
             logical_screen_bounds,
             inherited_effect_sources: GroupEffectSources::default(),
+            inherits_fill,
         }
     }
 
@@ -60,6 +64,7 @@ impl CachedShapeDrawData {
 
 #[derive(Debug, Default)]
 pub(crate) struct GroupDrawData {
+    pub(crate) fill: Option<GroupFill>,
     pub(crate) effects: EffectAttachments,
     pub(crate) effect_sources: GroupEffectSources,
 }

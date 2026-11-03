@@ -23,6 +23,7 @@ use types::{CachedShapeDrawData, ClipRectDrawData, DrawTreeNode};
 mod effect_damage;
 pub(crate) mod effects;
 mod errors;
+pub(crate) mod paint;
 pub(crate) mod text;
 mod texture_index;
 pub(crate) mod types;
@@ -64,6 +65,8 @@ pub(crate) struct SceneState {
     text_glyphs: HashSet<usize>,
     group_effect_source_scratch: Vec<usize>,
     group_effect_index: GroupEffectIndex,
+    has_pending_fill_changes: bool,
+    fill_source_scratch: Vec<(usize, Option<usize>)>,
 }
 
 impl SceneState {
@@ -87,6 +90,8 @@ impl SceneState {
             text_glyphs: HashSet::default(),
             group_effect_source_scratch: Vec::new(),
             group_effect_index: GroupEffectIndex::default(),
+            has_pending_fill_changes: false,
+            fill_source_scratch: Vec::new(),
         }
     }
 
@@ -210,6 +215,7 @@ impl SceneState {
 
     /// The parent must be validated before insertion.
     pub(crate) fn insert_node(&mut self, node: DrawTreeNode, parent: Option<usize>) -> usize {
+        self.has_pending_fill_changes = true;
         self.refresh_tessellation_cache(&node);
         self.texture_index.replace(self.next_node_id(), &node);
         self.group_effect_index.replace(
@@ -233,6 +239,7 @@ impl SceneState {
         shape_mask_effect_bounds: Option<ShapeMaskEffectBounds>,
         maximum_texture_dimension: u32,
     ) -> DrawTreeNode {
+        self.has_pending_fill_changes = true;
         if let (DrawTreeNode::CachedShape(previous), DrawTreeNode::CachedShape(replacement)) =
             (self.draw_tree.get_unchecked(node_id), &mut node)
         {

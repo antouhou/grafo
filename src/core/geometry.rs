@@ -34,6 +34,22 @@ pub struct Viewport {
     pub scale_factor: f64,
 }
 
+/// Embeds a shape plane's projected x/y/w coordinates in a Euclid transform.
+pub(crate) fn projected_transform(transform: InstanceTransform) -> Transform3D<f64> {
+    let mut columns = [
+        transform.col0,
+        transform.col1,
+        transform.col2,
+        transform.col3,
+    ]
+    .map(|column| column.map(f64::from));
+    columns[0][2] = 0.0;
+    columns[1][2] = 0.0;
+    columns[2] = [0.0, 0.0, 1.0, 0.0];
+    columns[3][2] = 0.0;
+    Transform3D::from_arrays(columns)
+}
+
 fn physical_pixel_bounds(bounds: MathRect, scale: f64) -> Box2D<f64> {
     bounds.to_f64().scale(scale, scale).round_out()
 }

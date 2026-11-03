@@ -12,10 +12,10 @@ use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
     ColorInterpolation, ConicGradientDesc, ContentEffectConfig, Fill, GlyphContent, Gradient,
     GradientColor, GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions,
-    GradientUnits, LinearGradientDesc, LinearGradientLine, PositionedGlyph, RadialGradientDesc,
-    RadialGradientSize, Scene, Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig,
-    ShapeTextureFitMode, ShapeTextureOptions, SpreadMode, TextSource, TextureManager,
-    TransformInstance,
+    GradientUnits, GroupDrawCommandOptions, LinearGradientDesc, LinearGradientLine,
+    PositionedGlyph, RadialGradientDesc, RadialGradientSize, Scene, Shape, ShapeDrawCommandOptions,
+    ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions, SpreadMode, TextSource,
+    TextureManager, TransformInstance,
 };
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use std::slice;
@@ -52,6 +52,7 @@ fn tile_origin(tile_number: u32) -> (f32, f32) {
 }
 
 struct RepeatedOutline<'a> {
+    key: &'static str,
     events: &'a [PathEvent],
     positions: slice::Iter<'a, (f32, f32)>,
 }
@@ -61,7 +62,7 @@ impl TextSource for RepeatedOutline<'_> {
 
     fn next_glyph(&mut self) -> Option<PositionedGlyph<Self::GlyphKey>> {
         Some(PositionedGlyph {
-            key: "visual-regression-ring",
+            key: self.key,
             position: *self.positions.next()?,
         })
     }
@@ -131,6 +132,7 @@ fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
         .replace_with_text(
             text,
             RepeatedOutline {
+                key: "visual-regression-ring",
                 events: &events,
                 positions: first_positions.iter(),
             },
@@ -170,6 +172,7 @@ fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
     scene
         .add_text(
             RepeatedOutline {
+                key: "visual-regression-ring",
                 events: &events,
                 positions: second_positions.iter(),
             },
@@ -211,6 +214,294 @@ fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
             red,
             green,
             blue,
+            label,
+        )
+    })
+    .collect()
+}
+
+fn split_gradient(
+    start: [f32; 2],
+    end: [f32; 2],
+    colors: [Color; 2],
+    units: GradientUnits,
+) -> Gradient {
+    Gradient::linear(
+        LinearGradientDesc::new(
+            LinearGradientLine { start, end },
+            [
+                GradientStop::at_position(GradientStopOffset::LinearRadial(0.0), colors[0]),
+                GradientStop::at_position(GradientStopOffset::LinearRadial(0.5), colors[0]),
+                GradientStop::at_position(GradientStopOffset::LinearRadial(0.5), colors[1]),
+                GradientStop::at_position(GradientStopOffset::LinearRadial(1.0), colors[1]),
+            ],
+        )
+        .with_units(units),
+    )
+    .unwrap()
+}
+
+fn tile_92_shared_gradients(scene: &mut Scene) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(92);
+    let mut path = Path::builder();
+    path.add_rectangle(
+        &Box2D::new((0.0, 0.0).into(), (10.0, 6.0).into()),
+        Winding::Positive,
+    );
+    let events: Vec<_> = path.build().iter().collect();
+    let red_blue = [Color::rgb(255, 0, 0), Color::rgb(0, 0, 255)];
+    let green_yellow = [Color::rgb(0, 255, 0), Color::rgb(255, 255, 0)];
+    let gradient = split_gradient([0.0, 0.0], [60.0, 0.0], red_blue, GradientUnits::Local);
+    let transform = TransformInstance::translation(origin_x, origin_y);
+    let positions = [(8.0, 8.0), (28.0, 8.0), (48.0, 8.0)];
+    let text = scene
+        .add_text(
+            RepeatedOutline {
+                key: "visual-regression-gradient-rect",
+                events: &events,
+                positions: positions.iter(),
+            },
+            None,
+            ShapeDrawCommandOptions::new()
+                .fill(Fill::Gradient(gradient.clone()))
+                .transform(transform),
+        )
+        .unwrap();
+    scene
+        .set_content_effect(text, PASSTHROUGH_EFFECT_ID, &[], ContentEffectConfig::new())
+        .unwrap();
+
+    let group = scene
+        .add_group(
+            None,
+            GroupDrawCommandOptions::new()
+                .fill(Fill::Gradient(gradient.clone()))
+                .paint_transform(transform),
+        )
+        .unwrap();
+    for x in [8.0, 28.0, 48.0, 64.0] {
+        let mut options = ShapeDrawCommandOptions::new()
+            .transform(TransformInstance::translation(x, 18.0).then(&transform));
+        if x == 28.0 {
+            options = options.fill(Fill::Gradient(split_gradient(
+                [0.0, 0.0],
+                [10.0, 0.0],
+                green_yellow,
+                GradientUnits::Local,
+            )));
+        } else if x == 64.0 {
+            options = options.color(Color::TRANSPARENT);
+        }
+        scene
+            .add_shape(
+                Shape::rect([(0.0, 0.0), (10.0, 6.0)]),
+                Some(group),
+                Some(9200),
+                options,
+            )
+            .unwrap();
+    }
+
+    let coordinate_only_group = scene
+        .add_group(
+            Some(group),
+            GroupDrawCommandOptions::new()
+                .paint_transform(TransformInstance::translation(1000.0, 1000.0)),
+        )
+        .unwrap();
+    let positions = [(8.0, 28.0), (28.0, 28.0), (48.0, 28.0)];
+    scene
+        .add_text(
+            RepeatedOutline {
+                key: "visual-regression-gradient-rect",
+                events: &events,
+                positions: positions.iter(),
+            },
+            Some(coordinate_only_group),
+            ShapeDrawCommandOptions::new()
+                .transform(transform)
+                .foreground_texture_id(HALF_GREEN_TEXTURE_ID),
+        )
+        .unwrap();
+
+    let nested = scene
+        .add_group(
+            Some(group),
+            GroupDrawCommandOptions::new()
+                .fill(Fill::Gradient(split_gradient(
+                    [0.0, 0.0],
+                    [60.0, 0.0],
+                    green_yellow,
+                    GradientUnits::Local,
+                )))
+                .paint_transform(transform),
+        )
+        .unwrap();
+    for (y, fill) in [(38.0, None), (48.0, Some(Fill::Gradient(gradient)))] {
+        let positions = [(8.0, y), (28.0, y), (48.0, y)];
+        scene
+            .add_text(
+                RepeatedOutline {
+                    key: "visual-regression-gradient-rect",
+                    events: &events,
+                    positions: positions.iter(),
+                },
+                Some(nested),
+                ShapeDrawCommandOptions {
+                    fill,
+                    ..ShapeDrawCommandOptions::new().transform(transform)
+                },
+            )
+            .unwrap();
+    }
+
+    let canvas_group = scene
+        .add_group(
+            Some(group),
+            GroupDrawCommandOptions::new()
+                .fill(Fill::Gradient(split_gradient(
+                    [origin_x, 0.0],
+                    [origin_x + 60.0, 0.0],
+                    red_blue,
+                    GradientUnits::Canvas,
+                )))
+                .paint_transform(TransformInstance::scale(0.0, 0.0)),
+        )
+        .unwrap();
+    let clip = scene
+        .add_clipping_rect(
+            [(8.0, 58.0), (54.0, 64.0)],
+            Some(canvas_group),
+            Some(transform),
+            true,
+        )
+        .unwrap();
+    let positions = [(8.0, 58.0), (28.0, 58.0), (48.0, 58.0)];
+    let text = scene
+        .add_text(
+            RepeatedOutline {
+                key: "visual-regression-gradient-rect",
+                events: &events,
+                positions: positions.iter(),
+            },
+            Some(clip),
+            ShapeDrawCommandOptions::new().transform(transform),
+        )
+        .unwrap();
+    scene
+        .set_backdrop_effect(
+            text,
+            PASSTHROUGH_EFFECT_ID,
+            &[],
+            BackdropEffectConfig::new(),
+        )
+        .unwrap();
+
+    let mut projected = TransformInstance::translation(origin_x, origin_y + 68.0);
+    projected.col0[3] = 0.2;
+    projected.col3[3] = -2.6;
+    let clip = scene
+        .add_clipping_rect([(8.0, 67.0), (19.0, 75.0)], None, Some(transform), true)
+        .unwrap();
+    let positions = [(8.0, 0.0)];
+    scene
+        .add_text(
+            RepeatedOutline {
+                key: "visual-regression-gradient-rect",
+                events: &events,
+                positions: positions.iter(),
+            },
+            Some(clip),
+            ShapeDrawCommandOptions::new()
+                .transform(projected)
+                .fill(Fill::Gradient(split_gradient(
+                    [8.0, 0.0],
+                    [18.0, 0.0],
+                    red_blue,
+                    GradientUnits::Local,
+                ))),
+        )
+        .unwrap();
+    let radial = Gradient::radial(RadialGradientDesc::new(
+        [8.0, 3.0],
+        RadialGradientSize::ExplicitCircleRadius(10.0),
+        [
+            GradientStop::at_position(GradientStopOffset::LinearRadial(0.0), red_blue[0]),
+            GradientStop::at_position(GradientStopOffset::LinearRadial(0.5), red_blue[0]),
+            GradientStop::at_position(GradientStopOffset::LinearRadial(0.5), red_blue[1]),
+            GradientStop::at_position(GradientStopOffset::LinearRadial(1.0), red_blue[1]),
+        ],
+    ))
+    .unwrap();
+    let conic = Gradient::conic(ConicGradientDesc::new(
+        [13.0, 3.0],
+        0.0,
+        [
+            GradientStop::at_position(GradientStopOffset::ConicRadians(0.0), red_blue[0]),
+            GradientStop::at_position(GradientStopOffset::ConicRadians(PI), red_blue[0]),
+            GradientStop::at_position(GradientStopOffset::ConicRadians(PI), red_blue[1]),
+            GradientStop::at_position(GradientStopOffset::ConicRadians(TAU), red_blue[1]),
+        ],
+    ))
+    .unwrap();
+    for (x, gradient) in [(20.0, radial), (40.0, conic)] {
+        let transform = TransformInstance::translation(origin_x + x, origin_y + 68.0);
+        let group = scene
+            .add_group(
+                None,
+                GroupDrawCommandOptions::new()
+                    .fill(Fill::Gradient(gradient))
+                    .paint_transform(transform),
+            )
+            .unwrap();
+        scene
+            .add_text(
+                RepeatedOutline {
+                    key: "visual-regression-gradient-rect",
+                    events: &events,
+                    positions: positions.iter(),
+                },
+                Some(group),
+                ShapeDrawCommandOptions::new().transform(transform),
+            )
+            .unwrap();
+    }
+    [
+        (10, 11, [255, 0, 0], "t92_text_start"),
+        (35, 11, [0, 0, 255], "t92_text_middle"),
+        (50, 11, [0, 0, 255], "t92_text_end"),
+        (10, 21, [255, 0, 0], "t92_group_start"),
+        (30, 21, [0, 255, 0], "t92_child_own_gradient_start"),
+        (35, 21, [255, 255, 0], "t92_child_own_gradient_end"),
+        (50, 21, [0, 0, 255], "t92_group_end"),
+        (68, 21, [255, 255, 255], "t92_explicit_transparent"),
+        (9, 31, [255, 0, 0], "t92_transform_only_group_start"),
+        (50, 31, [0, 0, 255], "t92_transform_only_group_end"),
+        (16, 31, [187, 188, 0], "t92_glyph_texture_over_red"),
+        (56, 31, [0, 188, 187], "t92_glyph_texture_over_blue"),
+        (10, 41, [0, 255, 0], "t92_nested_fill_start"),
+        (50, 41, [255, 255, 0], "t92_nested_fill_end"),
+        (10, 51, [255, 0, 0], "t92_text_own_fill_start"),
+        (50, 51, [0, 0, 255], "t92_text_own_fill_end"),
+        (10, 61, [255, 0, 0], "t92_canvas_start"),
+        (50, 61, [0, 0, 255], "t92_canvas_end"),
+        (56, 61, [255, 255, 255], "t92_canvas_clipped"),
+        (10, 71, [255, 0, 0], "t92_tessellated_start"),
+        (16, 71, [0, 0, 255], "t92_tessellated_end"),
+        (29, 71, [255, 0, 0], "t92_shared_radial_center"),
+        (36, 71, [0, 0, 255], "t92_shared_radial_edge"),
+        (50, 69, [0, 0, 255], "t92_shared_conic_top"),
+        (50, 72, [255, 0, 0], "t92_shared_conic_bottom"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque_approx(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            8,
             label,
         )
     })
@@ -7535,6 +7826,7 @@ pub fn build_main_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
     expectations.extend(tile_89_rectangle_coverage_effects(scene));
     expectations.extend(tile_90_bounded_effect_targets(scene));
     expectations.extend(tile_91_cached_glyphs(scene));
+    expectations.extend(tile_92_shared_gradients(scene));
 
     expectations
 }

@@ -8,6 +8,7 @@ use crate::core::shape::boundary::RoundedRectBoundary;
 use crate::core::util::ShapeResources;
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
 use crate::core::Color;
+use lyon::geom::euclid::default::Transform3D;
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, VertexBuffers,
 };
@@ -68,8 +69,10 @@ pub struct ShapeInstance {
     pub textures: [ShapeTextureOptions; 2],
     /// Linear RGBA color for a solid fill. Other fills leave this unset.
     pub color_override: Option<[f32; 4]>,
-    /// A solid or gradient fill. `None` leaves the shape transparent
+    /// Resolved solid or gradient fill. `None` leaves the shape transparent.
     pub fill: Option<Fill>,
+    /// Maps shape-local positions to the local gradient's paint coordinates.
+    pub paint_transform: Transform3D<f32>,
 }
 
 impl ShapeInstance {
@@ -83,6 +86,7 @@ impl ShapeInstance {
                 _ => None,
             },
             fill: options.fill,
+            paint_transform: Transform3D::identity(),
         }
     }
 
@@ -544,6 +548,8 @@ pub struct ShapeDrawCommandOptions {
     pub clips_children: bool,
     pub background_texture: ShapeTextureOptions,
     pub foreground_texture: ShapeTextureOptions,
+    /// `None` inherits the nearest group fill, or is transparent if no group supplies one.
+    /// An explicit fill, including transparent, overrides the group and uses shape coordinates.
     pub fill: Option<Fill>,
 }
 
@@ -630,7 +636,7 @@ impl ShapeDrawCommandOptions {
 /// Builds a shape's path through method chaining.
 ///
 /// Assign a fill through [`ShapeDrawCommandOptions`] when queueing the shape.
-/// An unset fill renders as transparent. [`Shape::builder`] also creates this builder.
+/// An unset fill inherits the group fill. [`Shape::builder`] also creates this builder.
 ///
 /// # Examples
 ///

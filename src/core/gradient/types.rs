@@ -287,7 +287,10 @@ impl GradientStop {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GradientUnits {
+    /// Coordinates of the shape, text, or group that owns this fill.
+    /// Inherited fills keep the owning group's coordinates.
     Local,
+    /// Logical scene coordinates, independent of shape and group paint transforms.
     Canvas,
 }
 
