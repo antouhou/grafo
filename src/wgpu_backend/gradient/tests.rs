@@ -9,7 +9,7 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use std::sync::Arc;
 
 #[test]
-fn gradient_ramps_are_reused_within_each_cache() {
+fn gradient_ramp_caches_reuse_equal_stops_and_preserve_distinct_stops() {
     let descriptor = LinearGradientDesc::new(
         LinearGradientLine {
             start: [0.0, 0.0],
@@ -23,6 +23,17 @@ fn gradient_ramps_are_reused_within_each_cache() {
     .with_interpolation(ColorInterpolation::SrgbLinear);
     let first = Gradient::linear(descriptor.clone()).unwrap();
     let second = Gradient::linear(descriptor.clone()).unwrap();
+    let distinct = Gradient::linear(
+        LinearGradientDesc::new(
+            descriptor.line,
+            [
+                GradientStop::auto(Color::rgb(255, 0, 0)),
+                GradientStop::auto(Color::rgb(0, 255, 0)),
+            ],
+        )
+        .with_interpolation(ColorInterpolation::SrgbLinear),
+    )
+    .unwrap();
     let independent = Gradient::linear(descriptor).unwrap();
     let mut cache = GradientCache::new();
     let mut independent_cache = GradientCache::new();
@@ -42,6 +53,12 @@ fn gradient_ramps_are_reused_within_each_cache() {
     assert!(Arc::ptr_eq(&first_ramp, &second_ramp));
     assert!(!Arc::ptr_eq(&first_ramp, &independent_ramp));
     assert_eq!(first_ramp, independent_ramp);
+    let distinct_ramp = cache.get_or_create_ramp(distinct.data());
+    assert_eq!(distinct_ramp.as_slice().last(), Some(&[0.0, 1.0, 0.0, 1.0]));
+    assert_eq!(
+        cache.get_or_create_ramp(first.data()).as_slice().last(),
+        Some(&[0.0, 0.0, 1.0, 1.0])
+    );
 }
 
 #[test]

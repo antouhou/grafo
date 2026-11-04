@@ -2,7 +2,9 @@ use super::errors::GradientError;
 use super::normalize::NormalizedGradient;
 use super::sampling;
 use crate::core::Color;
+use ahash::RandomState;
 use smallvec::SmallVec;
+use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 use std::slice::{Iter, IterMut};
 use std::sync::Arc;
@@ -460,10 +462,17 @@ pub(crate) struct GradientRampStopKey {
     pub(crate) hint_bits: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GradientRampCacheKey {
+    content_hash: u64,
     pub(crate) interpolation: ColorInterpolation,
     pub(crate) stops: Arc<[GradientRampStopKey]>,
+}
+
+impl Hash for GradientRampCacheKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.content_hash.hash(state);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -787,6 +796,7 @@ impl GradientRampCacheKey {
             .collect();
 
         Self {
+            content_hash: RandomState::with_seeds(0, 0, 0, 0).hash_one((interpolation, &stops)),
             interpolation: *interpolation,
             stops,
         }
