@@ -52,6 +52,7 @@ fn tile_origin(tile_number: u32) -> (f32, f32) {
 }
 
 struct RepeatedOutline<'a> {
+    key: &'static str,
     events: &'a [PathEvent],
     positions: slice::Iter<'a, (f32, f32)>,
 }
@@ -61,7 +62,7 @@ impl TextSource for RepeatedOutline<'_> {
 
     fn next_glyph(&mut self) -> Option<PositionedGlyph<Self::GlyphKey>> {
         Some(PositionedGlyph {
-            key: "visual-regression-ring",
+            key: self.key,
             position: *self.positions.next()?,
         })
     }
@@ -131,6 +132,7 @@ fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
         .replace_with_text(
             text,
             RepeatedOutline {
+                key: "visual-regression-ring",
                 events: &events,
                 positions: first_positions.iter(),
             },
@@ -170,6 +172,7 @@ fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
     scene
         .add_text(
             RepeatedOutline {
+                key: "visual-regression-ring",
                 events: &events,
                 positions: second_positions.iter(),
             },

@@ -12,7 +12,8 @@ use crate::render_backend::RenderBackend;
 use crate::scene_state::effects::{
     EffectAttachment, EffectAttachmentKind, EffectAttachments, EffectConfig,
 };
-use crate::scene_state::types::DrawTreeNode;
+use crate::scene_state::paint::GroupFill;
+use crate::scene_state::types::{DrawTreeNode, GroupDrawData};
 use crate::scene_state::{SceneError, SceneState, SceneStateContext};
 use damage::{mark_dirty, mark_physical_dirty, mark_shape_mask_effect_dirty, PendingDamage};
 use draw_commands::{DrawCommand, NodeTarget};
@@ -149,15 +150,21 @@ impl<B: RenderBackend> Scene<B> {
     /// The effects will be applied to a whole group; Individual group members can override the
     /// effect set that way by calling the same methods on individual nodes.
     /// Individual member overrides survive changes to or removal of the group's effect.
+    /// The group fill is inherited by descendants without an explicit fill. Its paint transform
+    /// applies only to that inherited fill. Invalid local-gradient paint transforms are rejected.
     pub fn add_group(
         &mut self,
         parent_node_id: Option<usize>,
-        _options: GroupDrawCommandOptions,
+        options: GroupDrawCommandOptions,
     ) -> Result<usize, SceneError> {
         self.state.validate_parent(parent_node_id)?;
+        let group = GroupDrawData {
+            fill: GroupFill::new(options)?,
+            ..Default::default()
+        };
         Ok(self
             .state
-            .insert_node(DrawTreeNode::Group(Default::default()), parent_node_id))
+            .insert_node(DrawTreeNode::Group(group), parent_node_id))
     }
 
     /// Queues a shape without retaining it in the loaded-shape cache.
@@ -187,6 +194,8 @@ impl<B: RenderBackend> Scene<B> {
     /// node, call `Scene::replace_with_text` to update the bounds. While text is a node like any
     /// other, don't try to manually add children to it. This can mess up both children and text -
     /// create a proper container instead.
+    /// Local gradients use text-source coordinates across the whole run. An unset fill inherits
+    /// the enclosing group's fill and paint coordinates.
     pub fn add_text(
         &mut self,
         source: impl TextSource,
@@ -618,6 +627,14 @@ impl<B: RenderBackend> Scene<B> {
         self.pending_damage
             .apply(&self.state, &mut self.dirty_bounds);
         let viewport = self.state.viewport();
+        self.state.prepare_inherited_fills(|id, shape| {
+            self.backend.refresh_paint(ShapeDrawId(id), &shape.instance);
+            mark_dirty(
+                &mut self.dirty_bounds,
+                shape.logical_screen_bounds,
+                viewport,
+            );
+        });
         for (id, shape) in self.state.shapes_with_updated_textures() {
             self.backend.refresh_uv(ShapeDrawId(id), &shape.instance);
             mark_dirty(

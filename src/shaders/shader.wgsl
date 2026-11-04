@@ -10,6 +10,9 @@ struct VertexInput {
     @location(4) t_col1: vec4<f32>,
     @location(5) t_col2: vec4<f32>,
     @location(6) t_col3: vec4<f32>,
+    @location(7) paint_col0: vec3<f32>,
+    @location(8) paint_col1: vec3<f32>,
+    @location(12) paint_col2: vec3<f32>,
     // Bits 0 and 1 activate texture layers 0 and 1, respectively
     // Zero skips texture sampling and uses only the solid fill
     @location(9) texture_flags: f32,
@@ -35,8 +38,8 @@ struct GradientVertexOutput {
     @location(1) @interpolate(flat) layer0_uv_transform: vec4<f32>,
     @location(2) @interpolate(flat) layer1_uv_transform: vec4<f32>,
     @location(4) @interpolate(flat) texture_flags: f32,
-    // Model-space position before the transform, used to evaluate gradients
-    @location(5) model_pos: vec3<f32>,
+    // Homogeneous position in the fill owner's paint coordinates
+    @location(5) paint_position: vec3<f32>,
     // Screen position in pixels after the transform
     @location(6) screen_pos: vec2<f32>,
     @location(7) shape_tex_coords: vec3<f32>,
@@ -64,7 +67,7 @@ struct Uniforms {
 struct GradientColorParams {
     gradient_type: u32,   // 0=none, 1=linear, 2=radial, 3=conic
     spread_mode: u32,     // 0=pad, 1=repeat
-    units: u32,           // 0=model space, 1=screen space
+    units: u32,           // 0=paint coordinates, 1=screen coordinates
     is_constant: u32,
     constant_color: vec4<f32>,
     linear_start: vec2<f32>,
@@ -197,9 +200,9 @@ fn gradient_apply_spread(raw_t: f32) -> f32 {
     return (t - ramp_start) / (ramp_end - ramp_start);
 }
 
-/// Evaluates the gradient at the given model and screen positions.
+/// Evaluates the gradient at the given paint and screen positions.
 /// Returns a premultiplied linear RGBA color from the pre-baked ramp.
-fn evaluate_gradient(model_pos: vec2<f32>, screen_pos: vec2<f32>) -> vec4<f32> {
+fn evaluate_gradient(paint_position: vec2<f32>, screen_pos: vec2<f32>) -> vec4<f32> {
     let gtype = material_params.gradient.gradient_type;
     if gtype == 0u {
         // Transparent if no gradient
@@ -210,7 +213,7 @@ fn evaluate_gradient(model_pos: vec2<f32>, screen_pos: vec2<f32>) -> vec4<f32> {
         return material_params.gradient.constant_color;
     }
 
-    let pos = select(screen_pos, model_pos, material_params.gradient.units == 0u);
+    let pos = select(screen_pos, paint_position, material_params.gradient.units == 0u);
     let raw_t = gradient_raw_t(pos);
     let uv = gradient_apply_spread(raw_t);
 
@@ -269,7 +272,7 @@ fn vs_main_gradient(input: VertexInput) -> GradientVertexOutput {
     output.shape_tex_coords = vec3<f32>(input.tex_coords, 1.0);
     output.coverage_start = 0xffffffffu;
     output.coverage_origin = vec2<f32>(0.0);
-    output.model_pos = vec3<f32>(input.position, 1.0);
+    output.paint_position = mat3x3<f32>(input.paint_col0, input.paint_col1, input.paint_col2) * vec3<f32>(input.position, 1.0);
 
     output.screen_pos = position.screen_position;
     return output;
@@ -339,12 +342,12 @@ fn compute_gradient_fragment_color(
     layer1_uv_transform: vec4<f32>,
     coverage: f32,
     texture_flags: f32,
-    model_pos: vec3<f32>,
+    paint_position: vec3<f32>,
     screen_pos: vec2<f32>,
     dither_coords: vec2<f32>,
 ) -> vec4<f32> {
     let fill_pma = apply_gradient_bayer_dither(
-        evaluate_gradient(model_pos.xy / model_pos.z, screen_pos),
+        evaluate_gradient(paint_position.xy / paint_position.z, screen_pos),
         dither_coords,
     );
 
@@ -396,7 +399,7 @@ fn fs_main_gradient(
     @location(1) @interpolate(flat) layer0_uv_transform: vec4<f32>,
     @location(2) @interpolate(flat) layer1_uv_transform: vec4<f32>,
     @location(4) @interpolate(flat) texture_flags: f32,
-    @location(5) model_pos: vec3<f32>,
+    @location(5) paint_position: vec3<f32>,
     @location(6) screen_pos: vec2<f32>,
     @location(7) shape_tex_coords: vec3<f32>,
     @location(8) @interpolate(flat) coverage_start: u32,
@@ -409,7 +412,7 @@ fn fs_main_gradient(
         layer1_uv_transform,
         pixel_coverage,
         texture_flags,
-        model_pos,
+        paint_position,
         screen_pos,
         fragment_position.xy + uniforms.target_origin,
     );
@@ -452,14 +455,14 @@ fn fs_texture_material_gradient(
     @location(1) @interpolate(flat) layer0_uv_transform: vec4<f32>,
     @location(2) @interpolate(flat) layer1_uv_transform: vec4<f32>,
     @location(4) @interpolate(flat) texture_flags: f32,
-    @location(5) model_pos: vec3<f32>,
+    @location(5) paint_position: vec3<f32>,
     @location(6) screen_pos: vec2<f32>,
     @location(7) shape_tex_coords: vec3<f32>,
     @location(8) @interpolate(flat) coverage_start: u32,
     @location(9) @interpolate(flat) coverage_origin: vec2<f32>,
 ) -> @location(0) vec4<f32> {
     let pixel_coverage = resolve_path_coverage(coverage_start, coverage_origin, fragment_position);
-    let fill_pma = apply_gradient_bayer_dither(evaluate_gradient(model_pos.xy / model_pos.z, screen_pos), fragment_position.xy + uniforms.target_origin);
+    let fill_pma = apply_gradient_bayer_dither(evaluate_gradient(paint_position.xy / paint_position.z, screen_pos), fragment_position.xy + uniforms.target_origin);
     let base_pma = composite_under_fill_texture(fill_pma, fragment_position, shape_tex_coords);
     return composite_texture_layers(base_pma, shape_tex_coords, layer0_uv_transform, layer1_uv_transform, pixel_coverage, texture_flags);
 }

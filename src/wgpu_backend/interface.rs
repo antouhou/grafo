@@ -40,6 +40,16 @@ impl RenderBackend for WgpuBackend {
         );
     }
 
+    fn refresh_paint(&mut self, id: ShapeDrawId, shape: &ShapeInstance) {
+        self.resources.shape_execution.refresh_paint(
+            id,
+            shape,
+            &self.device,
+            &self.queue,
+            &self.pipeline_resources.shapes,
+        );
+    }
+
     fn unregister_shapes(&mut self, ids: &[ShapeDrawId]) {
         self.resources.shape_execution.remove_draws(ids);
     }

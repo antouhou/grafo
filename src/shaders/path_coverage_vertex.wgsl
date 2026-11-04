@@ -1,5 +1,8 @@
 struct CoverageInstanceInput {
     @location(1) color: vec4<f32>,
+    @location(7) paint_col0: vec3<f32>,
+    @location(8) paint_col1: vec3<f32>,
+    @location(12) paint_col2: vec3<f32>,
     @location(9) texture_flags: f32,
     @location(10) texture_uv_transform_layer0: vec4<f32>,
     @location(11) texture_uv_transform_layer1: vec4<f32>,
@@ -52,7 +55,7 @@ fn vs_coverage_gradient(input: CoverageInstanceInput, @builtin(vertex_index) ver
     output.layer0_uv_transform = base.layer0_uv_transform;
     output.layer1_uv_transform = base.layer1_uv_transform;
     output.texture_flags = base.texture_flags;
-    output.model_pos = coordinates.model_position;
+    output.paint_position = mat3x3<f32>(input.paint_col0, input.paint_col1, input.paint_col2) * coordinates.model_position;
     output.screen_pos = (vertex.position + input.coverage_translation) / uniforms.scale_factor;
     output.shape_tex_coords = base.shape_tex_coords;
     output.coverage_start = base.coverage_start;

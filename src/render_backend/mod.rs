@@ -25,6 +25,8 @@ pub trait RenderBackend {
     /// Updates texture coordinates using current texture dimensions and viewport scale.
     /// `shape` must describe the registered instance. Preserves geometry and attached effects.
     fn refresh_uv(&mut self, id: ShapeDrawId, shape: &ShapeInstance);
+    /// Updates the resolved fill and its coordinates, preserving geometry and attached effects.
+    fn refresh_paint(&mut self, id: ShapeDrawId, shape: &ShapeInstance);
     /// Releases the given instances and their effect bindings.
     /// Preserve other instances and resource caches.
     fn unregister_shapes(&mut self, ids: &[ShapeDrawId]);

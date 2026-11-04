@@ -1,7 +1,13 @@
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
 use bytemuck::{Pod, Zeroable};
+use lyon::geom::euclid::default::Transform3D;
 use std::{mem, ops::Range};
 use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode};
+
+pub(crate) fn encode_paint_transform(transform: Transform3D<f32>) -> [[f32; 3]; 3] {
+    let columns = transform.to_arrays();
+    [0, 1, 3].map(|column| [columns[column][0], columns[column][1], columns[column][3]])
+}
 
 /// Locations of one geometry's vertices and local indices in the shared buffers.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
@@ -119,6 +125,7 @@ pub struct InstanceMetadata {
     pub texture_flags: f32,
     pub texture_uv_transform_layer0: TextureUvTransform,
     pub texture_uv_transform_layer1: TextureUvTransform,
+    pub paint_transform: [[f32; 3]; 3],
 }
 
 impl Default for InstanceMetadata {
@@ -128,6 +135,7 @@ impl Default for InstanceMetadata {
             texture_flags: 0.0,
             texture_uv_transform_layer0: TextureUvTransform::IDENTITY,
             texture_uv_transform_layer1: TextureUvTransform::IDENTITY,
+            paint_transform: encode_paint_transform(Transform3D::identity()),
         }
     }
 }
@@ -135,7 +143,7 @@ impl Default for InstanceMetadata {
 impl InstanceMetadata {
     pub(crate) const STRIDE: BufferAddress = mem::size_of::<Self>() as BufferAddress;
 
-    const ATTRIBUTES: [VertexAttribute; 4] = [
+    const ATTRIBUTES: [VertexAttribute; 7] = [
         VertexAttribute {
             format: VertexFormat::Float32x2,
             offset: mem::offset_of!(Self, coverage_translation) as BufferAddress,
@@ -155,6 +163,21 @@ impl InstanceMetadata {
             format: VertexFormat::Float32x4,
             offset: mem::offset_of!(Self, texture_uv_transform_layer1) as BufferAddress,
             shader_location: 11,
+        },
+        VertexAttribute {
+            format: VertexFormat::Float32x3,
+            offset: mem::offset_of!(Self, paint_transform) as BufferAddress,
+            shader_location: 7,
+        },
+        VertexAttribute {
+            format: VertexFormat::Float32x3,
+            offset: mem::offset_of!(Self, paint_transform) as BufferAddress + 12,
+            shader_location: 8,
+        },
+        VertexAttribute {
+            format: VertexFormat::Float32x3,
+            offset: mem::offset_of!(Self, paint_transform) as BufferAddress + 24,
+            shader_location: 12,
         },
     ];
 
