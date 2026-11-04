@@ -150,7 +150,7 @@ fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
         )
         .unwrap();
     let second_positions = [(10.0, 46.0), (30.0, 46.0), (58.0, 46.0)];
-    let group = scene.add_group(Some(parent)).unwrap();
+    let group = scene.add_group(Some(parent), Default::default()).unwrap();
     scene
         .set_backdrop_effect(
             group,
@@ -241,7 +241,7 @@ fn tile_90_bounded_effect_targets(scene: &mut Scene) -> Vec<PixelExpectation> {
             options.clone().clips_children(false),
         )
         .unwrap();
-    let children = scene.add_group(Some(group)).unwrap();
+    let children = scene.add_group(Some(group), Default::default()).unwrap();
     scene
         .add_shape(
             Shape::rect([(20.0, 8.0), (32.0, 32.0)]),
@@ -294,7 +294,7 @@ fn tile_90_bounded_effect_targets(scene: &mut Scene) -> Vec<PixelExpectation> {
         },
     })
     .unwrap();
-    let children = scene.add_group(Some(parent)).unwrap();
+    let children = scene.add_group(Some(parent), Default::default()).unwrap();
     let inner = scene
         .add_shape(
             Shape::rounded_rect([(12.0, 48.0), (68.0, 70.0)], BorderRadii::new(4.0)),
@@ -7418,7 +7418,7 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
 pub fn build_main_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
     let mut expectations: Vec<PixelExpectation> = Vec::new();
 
-    scene.add_group(None).unwrap();
+    scene.add_group(None, Default::default()).unwrap();
     let canvas_root = Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]);
     scene
         .add_shape(

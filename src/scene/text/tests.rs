@@ -12,7 +12,7 @@ fn buffer_glyphs(buffer: &Buffer, fonts: &mut FontSystem) -> Vec<(CachedShapeHan
             scale_factor: 1.0,
         },
     );
-    let mut source = CosmicText::new(buffer, fonts);
+    let mut source = CosmicText::new(buffer, fonts, None);
     let mut glyphs = Vec::new();
     while let Some(glyph) = source.next_glyph() {
         if let Some(key) = state.load_glyph(&mut source, &glyph.key) {

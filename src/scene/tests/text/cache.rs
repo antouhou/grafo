@@ -110,7 +110,7 @@ fn reinserting_a_glyph_before_frame_end_cancels_its_unload() {
 fn failed_text_insertion_releases_partial_glyphs() {
     for failed_glyph in 0..2 {
         let mut scene = scene();
-        let root = scene.add_group(None).unwrap();
+        let root = scene.add_group(None, Default::default()).unwrap();
         scene.backend.registration_failure = Some(scene.state.next_node_id() + 1 + failed_glyph);
         assert!(scene
             .add_text(Glyphs::new(&[10, 11]), Some(root), options())

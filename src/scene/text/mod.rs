@@ -126,7 +126,7 @@ impl<B: RenderBackend> Scene<B> {
         source.set_visible_bounds(self.text_visible_bounds(&target, options.transform));
         let previous_dirty = self.dirty_bounds;
         let group_id = match target {
-            NodeTarget::Insert { parent } => self.add_group(parent)?,
+            NodeTarget::Insert { parent } => self.add_group(parent, Default::default())?,
             NodeTarget::Replace { node_id } => node_id,
         };
         let mut effects = self.state.node_effects(group_id);
