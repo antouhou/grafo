@@ -47,6 +47,10 @@ pub(crate) fn project_transform(transform: InstanceTransform) -> Transform3D<f64
     columns[1][2] = 0.0;
     columns[2] = [0.0, 0.0, 1.0, 0.0];
     columns[3][2] = 0.0;
+    // Constant divisors follow the renderer's absolute-value clamp.
+    if columns[0][3] == 0.0 && columns[1][3] == 0.0 && columns[3][3].is_finite() {
+        columns[3][3] = columns[3][3].abs().max(HOMOGENEOUS_W_CLAMP);
+    }
     Transform3D::from_arrays(columns)
 }
 

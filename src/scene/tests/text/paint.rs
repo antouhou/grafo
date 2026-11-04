@@ -262,6 +262,62 @@ fn text_gradients_share_coordinates_and_cached_geometry_across_replacements() {
 }
 
 #[test]
+fn constant_divisors_preserve_inherited_group_and_text_paint_coordinates() {
+    let mut scene = scene();
+    let mut target = surface();
+    for divisor in [1.0_f32, -1.0, -2.0, -0.5e-6, 0.5e-6] {
+        for has_negative_paint_divisor in [false, true] {
+            scene.clear();
+            let fill = gradient(GradientUnits::Local);
+            let mut paint_transform = TransformInstance::translation(2.0, 3.0);
+            if has_negative_paint_divisor {
+                paint_transform.col3[3] = -1.0;
+            }
+            let group = scene
+                .add_group(
+                    None,
+                    GroupDrawCommandOptions::new()
+                        .fill(fill.clone())
+                        .paint_transform(paint_transform),
+                )
+                .unwrap();
+            let denominator = divisor.abs().max(1e-6);
+            let mut shape_transform = TransformInstance::scale(denominator, denominator)
+                .then(&TransformInstance::translation(8.0, 9.0));
+            shape_transform.col3[0] *= denominator;
+            shape_transform.col3[1] *= denominator;
+            shape_transform.col3[3] = divisor;
+            let shape = scene
+                .add_shape(
+                    Shape::rect([(0.0, 0.0), (8.0, 8.0)]),
+                    Some(group),
+                    None,
+                    ShapeDrawCommandOptions::new().transform(shape_transform),
+                )
+                .unwrap();
+            let text = scene
+                .add_text(
+                    Glyphs::new(&[10, 10]),
+                    None,
+                    ShapeDrawCommandOptions::new()
+                        .fill(fill)
+                        .transform(shape_transform),
+                )
+                .unwrap();
+            scene.render(&mut target).unwrap();
+            assert_paint_position(instance(&scene, shape), (1.0, 1.0), (7.0, 7.0));
+            for (index, id) in glyph_ids(&scene, text).into_iter().enumerate() {
+                assert_paint_position(
+                    instance(&scene, id),
+                    (1.0, 1.0),
+                    (index as f32 * 6.0 + 1.0, 3.0),
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn invalid_text_paint_transform_preserves_existing_scene() {
     let mut scene = scene();
     let mut target = surface();

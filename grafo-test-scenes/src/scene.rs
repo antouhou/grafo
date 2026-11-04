@@ -280,8 +280,11 @@ fn tile_92_shared_gradients(scene: &mut Scene) -> Vec<PixelExpectation> {
         )
         .unwrap();
     for x in [8.0, 28.0, 48.0, 64.0] {
-        let mut options = ShapeDrawCommandOptions::new()
-            .transform(TransformInstance::translation(x, 18.0).then(&transform));
+        let mut shape_transform = TransformInstance::translation(x, 18.0).then(&transform);
+        if x == 48.0 {
+            shape_transform.col3[3] = -1.0;
+        }
+        let mut options = ShapeDrawCommandOptions::new().transform(shape_transform);
         if x == 28.0 {
             options = options.fill(Fill::Gradient(split_gradient(
                 [0.0, 0.0],
@@ -466,6 +469,30 @@ fn tile_92_shared_gradients(scene: &mut Scene) -> Vec<PixelExpectation> {
             )
             .unwrap();
     }
+    let shape_transform = TransformInstance::translation(origin_x + 60.0, origin_y + 68.0);
+    let mut paint_transform = shape_transform;
+    paint_transform.col3[3] = -1.0;
+    let group = scene
+        .add_group(
+            None,
+            GroupDrawCommandOptions::new()
+                .fill(Fill::Gradient(split_gradient(
+                    [0.0, 0.0],
+                    [10.0, 0.0],
+                    red_blue,
+                    GradientUnits::Local,
+                )))
+                .paint_transform(paint_transform),
+        )
+        .unwrap();
+    scene
+        .add_shape(
+            Shape::rect([(0.0, 0.0), (10.0, 6.0)]),
+            Some(group),
+            Some(9200),
+            ShapeDrawCommandOptions::new().transform(shape_transform),
+        )
+        .unwrap();
     [
         (10, 11, [255, 0, 0], "t92_text_start"),
         (35, 11, [0, 0, 255], "t92_text_middle"),
@@ -492,6 +519,8 @@ fn tile_92_shared_gradients(scene: &mut Scene) -> Vec<PixelExpectation> {
         (36, 71, [0, 0, 255], "t92_shared_radial_edge"),
         (50, 69, [0, 0, 255], "t92_shared_conic_top"),
         (50, 72, [255, 0, 0], "t92_shared_conic_bottom"),
+        (62, 71, [255, 0, 0], "t92_negative_paint_start"),
+        (68, 71, [0, 0, 255], "t92_negative_paint_end"),
     ]
     .into_iter()
     .map(|(x, y, [red, green, blue], label)| {
