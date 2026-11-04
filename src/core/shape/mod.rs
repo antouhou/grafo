@@ -636,7 +636,8 @@ impl ShapeDrawCommandOptions {
 /// Builds a shape's path through method chaining.
 ///
 /// Assign a fill through [`ShapeDrawCommandOptions`] when queueing the shape.
-/// An unset fill inherits the group fill. [`Shape::builder`] also creates this builder.
+/// An unset fill inherits the group fill or draws transparent. [`Shape::builder`] also creates this
+/// builder.
 ///
 /// # Examples
 ///
