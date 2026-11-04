@@ -1,6 +1,5 @@
 //! Geometry types and coordinate conversions backed by Lyon and Euclid.
 
-use crate::core::geometry;
 use crate::core::vertex::InstanceTransform;
 use lyon::geom::euclid::default::{Transform2D, Transform3D};
 use lyon::geom::{self, Box2D, Point};
