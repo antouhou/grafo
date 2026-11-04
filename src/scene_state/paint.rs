@@ -47,7 +47,7 @@ impl GroupFill {
     fn shape_transform(&self, transform: Option<TransformInstance>) -> Transform3D<f32> {
         self.scene_to_paint_transform
             .map_or_else(Transform3D::identity, |inverse| {
-                geometry::projected_transform(transform.unwrap_or_else(TransformInstance::identity))
+                geometry::project_transform(transform.unwrap_or_else(TransformInstance::identity))
                     .then(&inverse)
                     .cast()
             })

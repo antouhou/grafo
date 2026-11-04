@@ -36,7 +36,7 @@ pub struct Viewport {
 }
 
 /// Embeds a shape plane's projected x/y/w coordinates in a Euclid transform.
-pub(crate) fn projected_transform(transform: InstanceTransform) -> Transform3D<f64> {
+pub(crate) fn project_transform(transform: InstanceTransform) -> Transform3D<f64> {
     let mut columns = [
         transform.col0,
         transform.col1,
@@ -54,7 +54,7 @@ pub(crate) fn projected_transform(transform: InstanceTransform) -> Transform3D<f
 pub(crate) fn project_and_inverse_transform(
     transform: InstanceTransform,
 ) -> Option<Transform3D<f64>> {
-    let inverse_projection = geometry::projected_transform(transform).inverse()?;
+    let inverse_projection = project_transform(transform).inverse()?;
 
     if !inverse_projection
         .to_arrays()
