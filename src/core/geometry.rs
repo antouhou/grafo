@@ -1,5 +1,6 @@
 //! Geometry types and coordinate conversions backed by Lyon and Euclid.
 
+use crate::core::geometry;
 use crate::core::vertex::InstanceTransform;
 use lyon::geom::euclid::default::{Transform2D, Transform3D};
 use lyon::geom::{self, Box2D, Point};
@@ -48,6 +49,23 @@ pub(crate) fn projected_transform(transform: InstanceTransform) -> Transform3D<f
     columns[2] = [0.0, 0.0, 1.0, 0.0];
     columns[3][2] = 0.0;
     Transform3D::from_arrays(columns)
+}
+
+pub(crate) fn project_and_inverse_transform(
+    transform: InstanceTransform,
+) -> Option<Transform3D<f64>> {
+    let inverse_projection = geometry::projected_transform(transform).inverse()?;
+
+    if !inverse_projection
+        .to_arrays()
+        .iter()
+        .flatten()
+        .all(|value| value.is_finite())
+    {
+        return None;
+    }
+
+    Some(inverse_projection)
 }
 
 fn physical_pixel_bounds(bounds: MathRect, scale: f64) -> Box2D<f64> {

@@ -28,25 +28,14 @@ impl GroupFill {
             return Ok(None);
         };
         let scene_to_paint_transform = match &fill {
-            Fill::Gradient(gradient) if gradient.data().units == GradientUnits::Local => {
-                let projection = geometry::projected_transform(
+            Fill::Gradient(gradient) if gradient.data().units == GradientUnits::Local => Some(
+                geometry::project_and_inverse_transform(
                     options
                         .paint_to_scene_transform
                         .unwrap_or_else(TransformInstance::identity),
-                );
-                let inverse = projection
-                    .inverse()
-                    .ok_or(SceneError::InvalidPaintTransform)?;
-                if !inverse
-                    .to_arrays()
-                    .iter()
-                    .flatten()
-                    .all(|value| value.is_finite())
-                {
-                    return Err(SceneError::InvalidPaintTransform);
-                }
-                Some(inverse)
-            }
+                )
+                .ok_or(SceneError::InvalidPaintTransform)?,
+            ),
             _ => None,
         };
         Ok(Some(Self {
