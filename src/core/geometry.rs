@@ -54,7 +54,7 @@ pub(crate) fn project_transform(transform: InstanceTransform) -> Transform3D<f64
     Transform3D::from_arrays(columns)
 }
 
-pub(crate) fn project_and_inverse_transform(
+pub(crate) fn inverse_projected_transform(
     transform: InstanceTransform,
 ) -> Option<Transform3D<f64>> {
     let inverse_projection = project_transform(transform).inverse()?;

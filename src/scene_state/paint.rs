@@ -29,7 +29,7 @@ impl GroupFill {
         };
         let scene_to_paint_transform = match &fill {
             Fill::Gradient(gradient) if gradient.data().units == GradientUnits::Local => Some(
-                geometry::project_and_inverse_transform(
+                geometry::inverse_projected_transform(
                     options
                         .paint_to_scene_transform
                         .unwrap_or_else(TransformInstance::identity),
@@ -44,7 +44,7 @@ impl GroupFill {
         }))
     }
 
-    fn shape_transform(&self, transform: Option<TransformInstance>) -> Transform3D<f32> {
+    fn shape_to_paint_transform(&self, transform: Option<TransformInstance>) -> Transform3D<f32> {
         self.scene_to_paint_transform
             .map_or_else(Transform3D::identity, |inverse| {
                 geometry::project_transform(transform.unwrap_or_else(TransformInstance::identity))
@@ -71,7 +71,7 @@ fn resolve_inherited_fill(
     });
     let fill = group_fill.map(|paint| &paint.fill);
     let transform = group_fill.map_or_else(Transform3D::identity, |paint| {
-        paint.shape_transform(shape.instance.transform)
+        paint.shape_to_paint_transform(shape.instance.transform)
     });
     if fills_match(shape.instance.fill.as_ref(), fill)
         && shape.instance.paint_transform == transform
