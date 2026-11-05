@@ -5,8 +5,8 @@ use crate::commands::{
 use crate::core::shape::ShapeInstance;
 use crate::core::MathRect;
 use crate::planner::commands::TraversalCommands;
-use crate::planner::content_effects::ContentCapture;
-use crate::planner::{content_intersects_damage, TextureIdAllocator};
+use crate::planner::content_effects::{content_intersects_damage, ContentCapture};
+use crate::planner::TextureIdAllocator;
 use crate::scene_state::effects::parameters::EffectParameterStorage;
 use crate::scene_state::effects::{BackdropEffectInstance, ContentEffectInstance};
 use crate::scene_state::types::DrawTreeNode;

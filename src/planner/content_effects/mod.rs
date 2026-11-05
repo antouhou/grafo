@@ -1,7 +1,24 @@
 use super::draws::{DrawPlanner, DrawPlanningInput};
+use crate::core::MathRect;
+use crate::scene_state::effects::ContentEffectInstance;
 pub(crate) use capture::ContentCapture;
 
 mod capture;
+
+pub(super) fn content_intersects_damage(
+    effect: Option<&ContentEffectInstance>,
+    damage: MathRect,
+) -> bool {
+    effect
+        .and_then(|effect| effect.bounds)
+        .is_some_and(|bounds| {
+            MathRect::new(
+                bounds.logical_output_bounds[0].into(),
+                bounds.logical_output_bounds[1].into(),
+            )
+            .intersects(&damage)
+        })
+}
 
 impl DrawPlanner {
     pub(super) fn resolve_backdrop_regions(&mut self, input: &DrawPlanningInput<'_, '_>) {

@@ -2,7 +2,7 @@ use crate::commands::{
     IntermediateTextureId, RenderCommand, RenderOperation, Target, TextureComposite,
 };
 use crate::core::{geometry, MathRect, UnsignedPhysicalRect};
-use crate::scene_state::effects::{ContentEffectInstance, ShapeMaskEffectInstance};
+use crate::scene_state::effects::ShapeMaskEffectInstance;
 use crate::scene_state::SceneState;
 use ahash::HashMap;
 use commands::{PendingCommands, TraversalCommands};
@@ -15,18 +15,6 @@ mod commands;
 pub(super) mod content_effects;
 pub(super) mod draws;
 pub(super) mod shape_mask_effects;
-
-fn content_intersects_damage(effect: Option<&ContentEffectInstance>, damage: MathRect) -> bool {
-    effect
-        .and_then(|effect| effect.bounds)
-        .is_some_and(|bounds| {
-            MathRect::new(
-                bounds.logical_output_bounds[0].into(),
-                bounds.logical_output_bounds[1].into(),
-            )
-            .intersects(&damage)
-        })
-}
 
 #[derive(Default)]
 pub(super) struct TextureIdAllocator {
@@ -134,7 +122,7 @@ impl<'state> Iterator for CommandIterator<'state, '_> {
                 PlanningPhase::PlanningShapeMaskEffects => {
                     if let Some((&node_id, effect)) = self.shape_effects.next() {
                         if self.damaged_region.is_some_and(|damage| {
-                            self.mask_intersects_damage(node_id, effect, damage)
+                            effect.bounds.logical_screen_bounds.intersects(&damage)
                         }) {
                             self.append_shape_mask_effect(node_id, effect, &mut commands);
                         } else {
@@ -181,16 +169,6 @@ impl<'state> Iterator for CommandIterator<'state, '_> {
 }
 
 impl<'state> CommandIterator<'state, '_> {
-    fn mask_intersects_damage(
-        &self,
-        node_id: usize,
-        effect: &ShapeMaskEffectInstance,
-        damage: MathRect,
-    ) -> bool {
-        effect.bounds.logical_screen_bounds.intersects(&damage)
-            || content_intersects_damage(self.state.content_effects.get(&node_id), damage)
-    }
-
     fn plan_deferred_shape_mask_effect(
         &mut self,
         commands: &mut TraversalCommands<'state>,
@@ -204,7 +182,7 @@ impl<'state> CommandIterator<'state, '_> {
         let Some(effect) = self.state.shape_mask_effects.get(&node_id) else {
             return false;
         };
-        if !self.mask_intersects_damage(node_id, effect, damage) {
+        if !effect.bounds.logical_screen_bounds.intersects(&damage) {
             return false;
         }
         // A selected content capture can need masks outside the surface damage.
