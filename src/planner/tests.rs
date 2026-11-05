@@ -304,6 +304,9 @@ fn damage_in_effect_padding_retains_mask_and_content_outputs() {
         let node = add_rectangle(&mut scene, None, [(12.0, 12.0), (16.0, 16.0)], true);
         let child = if is_content_effect {
             scene
+                .set_shape_mask_effect(node, 22, &[], ShapeMaskEffectConfig::default(), 4096)
+                .unwrap();
+            scene
                 .set_content_effect(node, 17, &[], ContentEffectConfig::new().outset(4.0), 4096)
                 .unwrap();
             let child = add_rectangle(&mut scene, Some(node), [(13.0, 13.0), (15.0, 15.0)], true);
@@ -331,16 +334,32 @@ fn damage_in_effect_padding_retains_mask_and_content_outputs() {
         };
         let outside = add_rectangle(&mut scene, None, [(24.0, 24.0), (28.0, 28.0)], true);
         attach_effects(&mut scene, outside, &[1; 4]);
-        let damage = Some(UnsignedPhysicalRect::new((8, 13).into(), (10, 15).into()));
+        let damage = UnsignedPhysicalRect::new((8, 13).into(), (10, 15).into());
+        if is_content_effect {
+            assert!(!scene
+                .shape_mask_effect(node)
+                .unwrap()
+                .bounds
+                .logical_screen_bounds
+                .intersects(&damage.to_f32()));
+        }
         let mut planner = Planner::default();
-        let commands: Vec<_> = planner.plan(&scene, 4096, damage).collect();
+        let commands: Vec<_> = planner.plan(&scene, 4096, Some(damage)).collect();
         let effect_ids: Vec<_> = effect_snapshots(&commands)
             .into_iter()
             .map(|effect| effect.effect_id)
             .collect();
-        let expected_effect_ids: &[u64] = if is_content_effect { &[23, 17] } else { &[17] };
+        let expected_effect_ids: &[u64] = if is_content_effect {
+            &[22, 23, 17]
+        } else {
+            &[17]
+        };
         assert_eq!(effect_ids, expected_effect_ids);
         if let Some(child) = child {
+            assert!(commands.iter().any(|command| matches!(
+                command.operation,
+                RenderOperation::DrawShapeMask(mask) if mask.shape == ShapeDrawId(node)
+            )));
             assert!(commands.iter().any(|command| matches!(
                 command.operation,
                 RenderOperation::DrawShape(draw) if draw.id == ShapeDrawId(child)

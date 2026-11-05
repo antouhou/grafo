@@ -7,7 +7,7 @@ use crate::scene_state::SceneState;
 use ahash::HashMap;
 use commands::{PendingCommands, TraversalCommands};
 use draws::{DrawPlanner, DrawPlanningInput};
-use shape_mask_effects::append_shape_mask_effect;
+use shape_mask_effects::{append_shape_mask_effect, should_prepare_shape_mask_effect};
 use std::collections::hash_map;
 use std::iter::FusedIterator;
 
@@ -122,7 +122,12 @@ impl<'state> Iterator for CommandIterator<'state, '_> {
                 PlanningPhase::PlanningShapeMaskEffects => {
                     if let Some((&node_id, effect)) = self.shape_effects.next() {
                         if self.damaged_region.is_some_and(|damage| {
-                            effect.bounds.logical_screen_bounds.intersects(&damage)
+                            should_prepare_shape_mask_effect(
+                                node_id,
+                                effect,
+                                &self.state.content_effects,
+                                damage,
+                            )
                         }) {
                             self.append_shape_mask_effect(node_id, effect, &mut commands);
                         } else {
@@ -182,7 +187,7 @@ impl<'state> CommandIterator<'state, '_> {
         let Some(effect) = self.state.shape_mask_effects.get(&node_id) else {
             return false;
         };
-        if !effect.bounds.logical_screen_bounds.intersects(&damage) {
+        if !should_prepare_shape_mask_effect(node_id, effect, &self.state.content_effects, damage) {
             return false;
         }
         // A selected content capture can need masks outside the surface damage.

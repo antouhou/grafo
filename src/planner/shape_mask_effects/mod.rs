@@ -4,14 +4,31 @@ use crate::commands::{
 };
 use crate::core::vertex::TextureUvTransform;
 use crate::core::{effect, geometry};
-use crate::core::{Size, UnsignedPhysicalRect, Viewport};
+use crate::core::{MathRect, Size, UnsignedPhysicalRect, Viewport};
 use crate::planner::commands::TraversalCommands;
+use crate::planner::content_effects::content_intersects_damage;
 use crate::planner::TextureIdAllocator;
 use crate::scene_state::effects::parameters::EffectParameterStorage;
-use crate::scene_state::effects::ShapeMaskEffectInstance;
+use crate::scene_state::effects::{ContentEffectInstance, ShapeMaskEffectInstance};
 use crate::scene_state::types::DrawTreeNode;
 use ahash::HashMap;
 use easy_tree::Tree;
+
+/// There's a nuance here. Let's say a square has a shadow and a blur content effect. Since the outer
+/// part of the blur effect intersect with the damage, we need to redraw there. But to do so, we first
+/// need to reconstruct effect's output. Since the mask is not really in the damage area,
+/// it's going to be excluded from the draw commands. But the blur might spread the mask's output
+/// outwards. Hence, to fully reconstruct the blur effects' output, we need to emit the draw
+/// command for the mask, even though the mask itself is not in the region that's going to be redrawn.
+pub(super) fn should_prepare_shape_mask_effect(
+    node_id: usize,
+    effect: &ShapeMaskEffectInstance,
+    content_effects: &HashMap<usize, ContentEffectInstance>,
+    damage: MathRect,
+) -> bool {
+    effect.bounds.logical_screen_bounds.intersects(&damage)
+        || content_intersects_damage(content_effects.get(&node_id), damage)
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn append_shape_mask_effect<'scene>(
