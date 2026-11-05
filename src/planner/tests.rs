@@ -391,3 +391,66 @@ fn absent_damage_yields_nothing_and_does_not_affect_the_next_plan() {
         .collect();
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn visible_masks_are_prepared_before_main_draws() {
+    let mut scene = scene();
+    let root = add_rectangle(&mut scene, None, [(0.0, 0.0), (32.0, 32.0)], false);
+    for offset in [2.0, 10.0, 18.0] {
+        let node = add_rectangle(
+            &mut scene,
+            Some(root),
+            [(offset, offset), (offset + 4.0, offset + 4.0)],
+            true,
+        );
+        scene
+            .set_shape_mask_effect(node, 17, &[], ShapeMaskEffectConfig::default(), 4096)
+            .unwrap();
+    }
+    let mut planner = Planner::default();
+    let commands: Vec<_> = planner.plan(&scene, 4096, full_damage(&scene)).collect();
+    let first_draw = commands
+        .iter()
+        .position(|command| {
+            matches!(
+                command.operation,
+                RenderOperation::DrawShape(_)
+                    | RenderOperation::DrawShapeAndIncrementStencil(_)
+                    | RenderOperation::CompositeTexture(_)
+            )
+        })
+        .unwrap();
+    let mask_positions: Vec<_> = commands
+        .iter()
+        .enumerate()
+        .filter_map(|(index, command)| {
+            matches!(command.operation, RenderOperation::DrawShapeMask(_)).then_some(index)
+        })
+        .collect();
+    assert_eq!(mask_positions.len(), 3);
+    assert!(mask_positions.iter().all(|&index| index < first_draw));
+}
+
+#[test]
+fn scaled_damage_keeps_fractional_edge_pixels_and_excludes_touching_bounds() {
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
+        Viewport {
+            physical_size: (32, 32),
+            scale_factor: 1.25,
+        },
+    );
+    scene.insert_node(DrawTreeNode::Group(Default::default()), None);
+    let fractional = add_rectangle(&mut scene, None, [(8.1, 6.5), (9.7, 7.1)], true);
+    add_rectangle(&mut scene, None, [(6.0, 6.5), (8.0, 7.1)], true);
+    let mut planner = Planner::default();
+    let damage = Some(UnsignedPhysicalRect::new((10, 8).into(), (11, 9).into()));
+    let draws: Vec<_> = planner
+        .plan(&scene, 4096, damage)
+        .filter_map(|command| match command.operation {
+            RenderOperation::DrawShape(draw) => Some(draw.id.0),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(draws, [fractional]);
+}

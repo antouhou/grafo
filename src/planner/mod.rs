@@ -1,18 +1,32 @@
 use crate::commands::{
     IntermediateTextureId, RenderCommand, RenderOperation, Target, TextureComposite,
 };
-use crate::core::{geometry, UnsignedPhysicalRect};
+use crate::core::{geometry, MathRect, UnsignedPhysicalRect};
+use crate::scene_state::effects::{ContentEffectInstance, ShapeMaskEffectInstance};
 use crate::scene_state::SceneState;
 use ahash::HashMap;
 use commands::{PendingCommands, TraversalCommands};
 use draws::{DrawPlanner, DrawPlanningInput};
 use shape_mask_effects::append_shape_mask_effect;
+use std::collections::hash_map;
 use std::iter::FusedIterator;
 
 mod commands;
 pub(super) mod content_effects;
 pub(super) mod draws;
 pub(super) mod shape_mask_effects;
+
+fn content_intersects_damage(effect: Option<&ContentEffectInstance>, damage: MathRect) -> bool {
+    effect
+        .and_then(|effect| effect.bounds)
+        .is_some_and(|bounds| {
+            MathRect::new(
+                bounds.logical_output_bounds[0].into(),
+                bounds.logical_output_bounds[1].into(),
+            )
+            .intersects(&damage)
+        })
+}
 
 #[derive(Default)]
 pub(super) struct TextureIdAllocator {
@@ -29,6 +43,7 @@ impl TextureIdAllocator {
 
 enum PlanningPhase {
     Beginning,
+    PlanningShapeMaskEffects,
     PlanningMainContent,
     Ending,
     Finished,
@@ -44,11 +59,13 @@ pub(crate) struct Planner {
 pub(crate) struct CommandIterator<'state, 'planner> {
     state: &'state SceneState,
     planner: &'planner mut Planner,
+    shape_effects: hash_map::Iter<'state, usize, ShapeMaskEffectInstance>,
     pending_commands: PendingCommands<'state>,
     texture_ids: TextureIdAllocator,
     phase: PlanningPhase,
     maximum_texture_dimension: u32,
-    damaged_region: Option<UnsignedPhysicalRect>,
+    damaged_region: Option<MathRect>,
+    has_deferred_shape_masks: bool,
 }
 
 impl Planner {
@@ -59,6 +76,14 @@ impl Planner {
         maximum_texture_dimension: u32,
         damaged_region: Option<UnsignedPhysicalRect>,
     ) -> CommandIterator<'state, 'planner> {
+        let damaged_region = damaged_region
+            .filter(|region| !region.is_empty())
+            .map(|region| {
+                geometry::physical_bounds_to_logical_screen_rect(
+                    region,
+                    state.viewport().scale_factor,
+                )
+            });
         self.shape_composites.clear();
         self.traversal.start(&DrawPlanningInput {
             tree: &state.draw_tree,
@@ -73,15 +98,17 @@ impl Planner {
         CommandIterator {
             state,
             planner: self,
+            shape_effects: state.shape_mask_effects.iter(),
             pending_commands: TraversalCommands::default().into_iter(),
             texture_ids: TextureIdAllocator::default(),
-            phase: if damaged_region.is_some_and(|region| !region.is_empty()) {
+            phase: if damaged_region.is_some() {
                 PlanningPhase::Beginning
             } else {
                 PlanningPhase::Finished
             },
             maximum_texture_dimension,
             damaged_region,
+            has_deferred_shape_masks: false,
         }
     }
 
@@ -102,10 +129,28 @@ impl<'state> Iterator for CommandIterator<'state, '_> {
             match self.phase {
                 PlanningPhase::Beginning => {
                     commands.push(RenderOperation::BeginTarget(Target::Surface));
-                    self.phase = PlanningPhase::PlanningMainContent;
+                    self.phase = PlanningPhase::PlanningShapeMaskEffects;
+                }
+                PlanningPhase::PlanningShapeMaskEffects => {
+                    if let Some((&node_id, effect)) = self.shape_effects.next() {
+                        if self.damaged_region.is_some_and(|damage| {
+                            self.mask_intersects_damage(node_id, effect, damage)
+                        }) {
+                            self.append_shape_mask_effect(node_id, effect, &mut commands);
+                        } else {
+                            self.has_deferred_shape_masks = !self.state.content_effects.is_empty();
+                        }
+                    } else {
+                        self.phase = PlanningPhase::PlanningMainContent;
+                    }
                 }
                 PlanningPhase::PlanningMainContent => {
-                    self.plan_shape_mask_effect(&mut commands);
+                    if self.has_deferred_shape_masks
+                        && self.plan_deferred_shape_mask_effect(&mut commands)
+                    {
+                        self.pending_commands = commands.into_iter();
+                        continue;
+                    }
                     let progressed = self.planner.traversal.advance(
                         &DrawPlanningInput {
                             tree: &self.state.draw_tree,
@@ -136,25 +181,43 @@ impl<'state> Iterator for CommandIterator<'state, '_> {
 }
 
 impl<'state> CommandIterator<'state, '_> {
-    fn plan_shape_mask_effect(&mut self, commands: &mut TraversalCommands<'state>) {
-        let Some((node_id, damage)) = self.planner.traversal.next_node_damage() else {
-            return;
+    fn mask_intersects_damage(
+        &self,
+        node_id: usize,
+        effect: &ShapeMaskEffectInstance,
+        damage: MathRect,
+    ) -> bool {
+        effect.bounds.logical_screen_bounds.intersects(&damage)
+            || content_intersects_damage(self.state.content_effects.get(&node_id), damage)
+    }
+
+    fn plan_deferred_shape_mask_effect(
+        &mut self,
+        commands: &mut TraversalCommands<'state>,
+    ) -> bool {
+        let Some((node_id, damage)) = self.planner.traversal.next_capture_node_damage() else {
+            return false;
         };
-        let Some(effect) = self.state.shape_mask_effects.get(&node_id) else {
-            return;
-        };
-        let mask_intersects_damage = geometry::logical_bounds_to_viewport_rect(
-            effect.bounds.logical_screen_bounds,
-            self.state.viewport(),
-        )
-        .is_some_and(|bounds| bounds.intersects(&damage));
-        let content_intersects_damage = self
-            .state
-            .content_effect_output(node_id)
-            .is_some_and(|bounds| bounds.intersects(&damage));
-        if !mask_intersects_damage && !content_intersects_damage {
-            return;
+        if self.planner.shape_composites.contains_key(&node_id) {
+            return false;
         }
+        let Some(effect) = self.state.shape_mask_effects.get(&node_id) else {
+            return false;
+        };
+        if !self.mask_intersects_damage(node_id, effect, damage) {
+            return false;
+        }
+        // A selected content capture can need masks outside the surface damage.
+        self.append_shape_mask_effect(node_id, effect, commands);
+        self.planner.shape_composites.contains_key(&node_id)
+    }
+
+    fn append_shape_mask_effect(
+        &mut self,
+        node_id: usize,
+        effect: &ShapeMaskEffectInstance,
+        commands: &mut TraversalCommands<'state>,
+    ) {
         append_shape_mask_effect(
             commands,
             &mut self.texture_ids,

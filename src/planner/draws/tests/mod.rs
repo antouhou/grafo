@@ -128,7 +128,7 @@ impl Scene {
             backdrop_effects: &self.backdrops,
             scale_factor: 1.0,
             physical_size: Size::new(100, 100),
-            damaged_region: Some(UnsignedPhysicalRect::from_size(Size::new(100, 100))),
+            damaged_region: Some(UnsignedPhysicalRect::from_size(Size::new(100, 100)).to_f32()),
         };
         let mut commands = TraversalCommands::default();
         let mut texture_ids = TextureIdAllocator::default();

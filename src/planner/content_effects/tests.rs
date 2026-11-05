@@ -225,7 +225,7 @@ impl Scene {
             shape_mask_effects: &self.shapes,
             scale_factor: 1.0,
             physical_size: Size::new(100, 100),
-            damaged_region: Some(UnsignedPhysicalRect::from_size(Size::new(100, 100))),
+            damaged_region: Some(UnsignedPhysicalRect::from_size(Size::new(100, 100)).to_f32()),
         };
         planner.start(&input);
         let mut commands = TraversalCommands::default();

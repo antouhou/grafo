@@ -98,6 +98,13 @@ fn outward_logical_bounds(bounds: Box2D<f64>) -> MathRect {
     MathRect::new(minimum.into(), maximum.into())
 }
 
+pub(crate) fn physical_bounds_to_logical_screen_rect(
+    bounds: UnsignedPhysicalRect,
+    scale_factor: f64,
+) -> MathRect {
+    outward_logical_bounds(bounds.to_f64() / scale_factor)
+}
+
 /// Includes antialiasing coverage and clips logical bounds to the viewport.
 pub(crate) fn logical_bounds_to_viewport_rect(
     logical_screen_bounds: MathRect,
