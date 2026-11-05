@@ -3,6 +3,7 @@ use crate::commands::{
     ShapeDrawMaterial, ShapeTextureBinding, TextureComposite,
 };
 use crate::core::shape::ShapeInstance;
+use crate::core::{geometry, Viewport};
 use crate::planner::commands::TraversalCommands;
 use crate::planner::content_effects::ContentCapture;
 use crate::planner::TextureIdAllocator;
@@ -34,6 +35,7 @@ struct DrawTargetState {
     clip: DrawClip,
     decrements_stencil: bool,
     backdrop_source: CaptureSource,
+    damaged_region: Option<UnsignedPhysicalRect>,
 }
 
 impl Default for DrawTargetState {
@@ -42,6 +44,7 @@ impl Default for DrawTargetState {
             clip: DrawClip::default(),
             decrements_stencil: false,
             backdrop_source: CaptureSource::Target,
+            damaged_region: None,
         }
     }
 }
@@ -55,6 +58,7 @@ impl DrawTargetState {
             },
             decrements_stencil: false,
             backdrop_source,
+            damaged_region: Some(UnsignedPhysicalRect::from_size(size)),
         }
     }
 }
@@ -74,6 +78,7 @@ pub(crate) struct DrawPlanningInput<'scene, 'planning> {
     pub(crate) backdrop_effects: &'scene HashMap<usize, BackdropEffectInstance>,
     pub(crate) scale_factor: f64,
     pub(crate) physical_size: Size,
+    pub(crate) damaged_region: Option<UnsignedPhysicalRect>,
 }
 
 /// Walks the CPU tree to emit draw commands and resolved clip operands.
@@ -91,7 +96,12 @@ impl DrawPlanner {
         self.resolve_backdrop_regions(input);
         self.parents.clear();
         self.current = DrawTargetState::for_viewport(input.physical_size, CaptureSource::Target);
+        self.current.damaged_region = input.damaged_region;
         self.next_node = Some(0);
+    }
+
+    pub(super) fn next_node_damage(&self) -> Option<(usize, UnsignedPhysicalRect)> {
+        Some((self.next_node?, self.current.damaged_region?))
     }
 
     /// Advances one node or closes one parent, keeping each command group bounded.
@@ -127,6 +137,42 @@ impl DrawPlanner {
         let Some(node) = input.tree.get(node_id) else {
             return;
         };
+        let intersects_damage = geometry::logical_bounds_to_viewport_rect(
+            node.logical_screen_bounds(),
+            Viewport {
+                physical_size: input.physical_size.into(),
+                scale_factor: input.scale_factor,
+            },
+        )
+        .zip(self.current.damaged_region)
+        .is_some_and(|(bounds, damage)| bounds.intersects(&damage));
+        let content_intersects_damage = input
+            .content_effects
+            .get(&node_id)
+            .and_then(|effect| effect.bounds)
+            .zip(self.current.damaged_region)
+            .is_some_and(|(bounds, damage)| {
+                bounds
+                    .capture_region
+                    .bounds
+                    .to_i64()
+                    .intersects(&damage.to_i64())
+            });
+        if !intersects_damage
+            && !content_intersects_damage
+            && !input.shape_mask_effects.contains_key(&node_id)
+        {
+            if !node.clips_children() && !input.tree.children(node_id).is_empty() {
+                self.parents.push(ParentDrawState {
+                    node_id,
+                    next_child: 0,
+                    target_state: self.current,
+                    group_capture: None,
+                });
+                self.current.decrements_stencil = false;
+            }
+            return;
+        }
         let parent_state = self.current;
         let group_capture = self.begin_content_capture(node_id, input, output, texture_ids);
         if let Some(&composite) = input.shape_mask_effects.get(&node_id) {

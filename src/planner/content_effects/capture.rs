@@ -20,6 +20,10 @@ pub(crate) struct ContentCapture {
 }
 
 impl ContentCapture {
+    pub(crate) fn source_region(self) -> Option<UnsignedPhysicalRect> {
+        self.region.source_rect
+    }
+
     pub(crate) fn new(
         effect: ContentEffectInstance,
         backdrop_region: Option<UnsignedPhysicalRect>,

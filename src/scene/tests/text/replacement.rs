@@ -1,6 +1,8 @@
 use super::{glyph_ids, options, scene, surface, Glyphs};
+use crate::commands::RenderOperation;
 use crate::core::{
     BackdropEffectConfig, ContentEffectConfig, Shape, ShapeMaskEffectConfig, TransformInstance,
+    UnsignedPhysicalRect,
 };
 use crate::scene::DrawCommandError;
 use crate::scene_state::effects::EffectConfig;
@@ -83,10 +85,16 @@ fn clip_replacement_validates_only_surviving_text_glyphs() {
             assert!(scene.backend.registered_shapes.is_empty());
         }
         scene.render(&mut surface).unwrap();
-        assert_eq!(
-            surface.resource().shape_masks,
-            if should_preserve_glyphs { 2 } else { 0 }
-        );
+        assert_eq!(surface.resource().shape_masks, 0);
+        let damage = Some(UnsignedPhysicalRect::from_size(
+            scene.state.viewport().physical_size.into(),
+        ));
+        let planned_masks = scene
+            .planner
+            .plan(&scene.state, 4096, damage)
+            .filter(|command| matches!(command.operation, RenderOperation::DrawShapeMask(_)))
+            .count();
+        assert_eq!(planned_masks, if should_preserve_glyphs { 2 } else { 0 });
     }
 }
 

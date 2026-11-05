@@ -645,9 +645,13 @@ impl<B: RenderBackend> Scene<B> {
         }
         self.dirty_bounds = self.state.expand_effect_damage(self.dirty_bounds);
         self.state.finish_preparation();
-        let commands = self
-            .planner
-            .plan(&self.state, self.backend.maximum_texture_dimension());
+        // The command planning should be the last step: it needs expanded damage region to plan
+        //  properly
+        let commands = self.planner.plan(
+            &self.state,
+            self.backend.maximum_texture_dimension(),
+            self.dirty_bounds,
+        );
         self.backend.render(self.dirty_bounds, commands, target)?;
         self.dirty_bounds = None;
         #[cfg(feature = "render_metrics")]

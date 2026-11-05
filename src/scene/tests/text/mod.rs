@@ -1,5 +1,6 @@
 use super::{queue_shape, scene, surface, Scene, TestBackend};
 use crate::commands::RenderOperation;
+use crate::core::UnsignedPhysicalRect;
 use crate::core::{
     BackdropEffectConfig, Color, ContentEffectConfig, GlyphContent, MathRect, PositionedGlyph,
     Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig, TextSource, TransformInstance,
@@ -86,6 +87,20 @@ fn glyph_ids(scene: &Scene<TestBackend>, group: usize) -> Vec<usize> {
         .collect()
 }
 
+fn planned_effect_ids(scene: &mut Scene<TestBackend>) -> Vec<u64> {
+    let damage = Some(UnsignedPhysicalRect::from_size(
+        scene.state.viewport().physical_size.into(),
+    ));
+    scene
+        .planner
+        .plan(&scene.state, 4096, damage)
+        .filter_map(|command| match command.operation {
+            RenderOperation::ApplyEffect(effect) => Some(effect.effect_id),
+            _ => None,
+        })
+        .collect()
+}
+
 #[test]
 fn combined_text_effects_draw_each_glyph_once() {
     let glyph_counts = [16, 32, 64, 128];
@@ -102,7 +117,16 @@ fn combined_text_effects_draw_each_glyph_once() {
         scene
             .set_backdrop_effect(text, 9, &[1, 2, 3, 4], BackdropEffectConfig::default())
             .unwrap();
-        let commands: Vec<_> = scene.planner.plan(&scene.state, 4096).collect();
+        let commands: Vec<_> = scene
+            .planner
+            .plan(
+                &scene.state,
+                4096,
+                Some(UnsignedPhysicalRect::from_size(
+                    scene.state.viewport().physical_size.into(),
+                )),
+            )
+            .collect();
         command_counts.push(commands.len());
         draw_counts.push(
             commands
@@ -159,11 +183,17 @@ fn text_replacement_preserves_inherited_and_explicit_effects() {
             }
             scene.render(&mut surface).unwrap();
             let expected_effect_id = if has_explicit_effect { 9 } else { 10 };
+            let expected_rendered_effects: &[u64] = if has_explicit_effect && !is_initially_empty {
+                &[]
+            } else {
+                &[expected_effect_id; 2]
+            };
             assert_eq!(
                 surface.resource().effects,
-                [expected_effect_id; 2],
+                expected_rendered_effects,
                 "{config:?}, explicit effect: {has_explicit_effect}, initially empty: {is_initially_empty}"
             );
+            assert_eq!(planned_effect_ids(&mut scene), [expected_effect_id; 2]);
 
             scene
                 .replace_with_text(child, Glyphs::new(&[10, 11]), options())
@@ -176,8 +206,9 @@ fn text_replacement_preserves_inherited_and_explicit_effects() {
                 EffectConfig::ShapeMask(_) => scene.remove_shape_mask_effect(parent),
             }
             scene.render(&mut surface).unwrap();
+            assert!(surface.resource().effects.is_empty());
             let expected_effects: &[u64] = if has_explicit_effect { &[9, 9] } else { &[] };
-            assert_eq!(surface.resource().effects, expected_effects);
+            assert_eq!(planned_effect_ids(&mut scene), expected_effects);
         }
     }
 }

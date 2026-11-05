@@ -239,7 +239,13 @@ fn nested_groups_draw_in_order_and_removal_cleans_up_only_their_descendants() {
     assert_eq!(scene.backend.registered_shapes, shapes);
     assert!(scene
         .planner
-        .plan(&scene.state, 4096)
+        .plan(
+            &scene.state,
+            4096,
+            Some(UnsignedPhysicalRect::from_size(
+                scene.state.viewport().physical_size.into()
+            ))
+        )
         .all(|command| matches!(
             command.operation,
             RenderOperation::BeginTarget(Target::Surface)
@@ -253,7 +259,7 @@ fn nested_groups_draw_in_order_and_removal_cleans_up_only_their_descendants() {
     assert_eq!(removed, [group, nested, empty, shapes[0], shapes[1]]);
     assert_eq!(scene.backend.registered_shapes, [shapes[2]]);
     scene.render(&mut surface).unwrap();
-    assert_eq!(surface.resource().draws, [shapes[2]]);
+    assert!(surface.resource().draws.is_empty());
     assert_eq!(
         scene.backend.root_scissor,
         Some(UnsignedPhysicalRect::new((4, 4).into(), (20, 20).into()))

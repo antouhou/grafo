@@ -41,6 +41,7 @@ impl DrawPlanner {
         let capture = ContentCapture::new(*effect, backdrop_region, texture_ids)?;
         capture.append_begin(output);
         self.current = DrawTargetState::for_viewport(input.physical_size, backdrop_source);
+        self.current.damaged_region = capture.source_region();
         Some(capture)
     }
 }

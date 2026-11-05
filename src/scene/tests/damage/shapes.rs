@@ -274,7 +274,13 @@ fn cached_effect_bounds_follow_rasterization_and_keep_offscreen_coverage() {
     );
     let mask = scene
         .planner
-        .plan(&scene.state, 4096)
+        .plan(
+            &scene.state,
+            4096,
+            Some(UnsignedPhysicalRect::from_size(
+                scene.state.viewport().physical_size.into(),
+            )),
+        )
         .find_map(|command| match command.operation {
             RenderOperation::DrawShapeMask(mask) => Some(mask),
             _ => None,

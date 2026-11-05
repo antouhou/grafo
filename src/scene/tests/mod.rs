@@ -345,7 +345,16 @@ fn clearing_queue_removes_planned_draws_and_effects() {
     assert!(surface.resource().draws.is_empty());
     assert!(surface.resource().effects.is_empty());
     assert_eq!(surface.resource().shape_masks, 0);
-    let plan: Vec<_> = scene.planner.plan(&scene.state, 4096).collect();
+    let plan: Vec<_> = scene
+        .planner
+        .plan(
+            &scene.state,
+            4096,
+            Some(UnsignedPhysicalRect::from_size(
+                scene.state.viewport().physical_size.into(),
+            )),
+        )
+        .collect();
     assert!(matches!(
         plan.as_slice(),
         [
@@ -372,12 +381,24 @@ fn rendering_to_one_surface_does_not_change_another() {
         queue_shape(&mut second, false),
         queue_shape(&mut second, false),
     ];
-    let commands = first.planner.plan(&first.state, 4096);
+    let commands = first.planner.plan(
+        &first.state,
+        4096,
+        Some(UnsignedPhysicalRect::from_size(
+            first.state.viewport().physical_size.into(),
+        )),
+    );
     first
         .backend
         .render(first.dirty_bounds, commands, (&mut first_surface).into())
         .unwrap();
-    let commands = second.planner.plan(&second.state, 4096);
+    let commands = second.planner.plan(
+        &second.state,
+        4096,
+        Some(UnsignedPhysicalRect::from_size(
+            second.state.viewport().physical_size.into(),
+        )),
+    );
     second
         .backend
         .render(second.dirty_bounds, commands, (&mut second_surface).into())
