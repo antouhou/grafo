@@ -615,7 +615,7 @@ impl<B: RenderBackend> Scene<B> {
     where
         B::Surface: 'target,
     {
-        let target = target.into();
+        let mut target = target.into();
         let maximum = self.backend.maximum_texture_dimension();
         let size = target.validate_size(maximum)?;
         if self.size() != size {
@@ -623,6 +623,10 @@ impl<B: RenderBackend> Scene<B> {
         }
         #[cfg(feature = "render_metrics")]
         let started_at = Instant::now();
+        let needs_full_redraw = self.backend.prepare_target(&mut target)?;
+        if needs_full_redraw {
+            self.dirty_bounds = Some(UnsignedPhysicalRect::from_size(size.into()));
+        }
         self.state.compact_effect_parameters();
         self.pending_damage
             .apply(&self.state, &mut self.dirty_bounds);

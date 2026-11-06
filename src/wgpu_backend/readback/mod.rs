@@ -288,7 +288,7 @@ impl WgpuBackend {
             Some(resources) if resources.physical_size == physical_size => resources,
             _ => ByteReadbackResources::new(&self.device, physical_size),
         };
-        let _ = self.update_retained_output(root_scissor, commands);
+        self.update_retained_output(root_scissor, commands);
         let retained = self
             .retained_output
             .as_ref()
@@ -361,7 +361,7 @@ impl WgpuBackend {
             .take()
             .unwrap_or_else(|| ArgbReadbackResources::new(&self.device, (width, height)));
         resources.resize(&self.device, (width, height));
-        let _ = self.update_retained_output(root_scissor, commands);
+        self.update_retained_output(root_scissor, commands);
         let retained = self
             .retained_output
             .as_ref()

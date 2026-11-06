@@ -18,12 +18,12 @@ use wgpu::MaintainBase;
 use wgpu::{CommandEncoderDescriptor, Surface, SurfaceError, TextureViewDescriptor};
 
 impl WgpuBackend {
-    /// Updates the clean scene and returns the redrawn bounds.
+    /// Updates the retained image within the planned redraw bounds.
     pub(in crate::wgpu_backend) fn update_retained_output<'scene>(
         &mut self,
         root_scissor: Option<UnsignedPhysicalRect>,
         commands: impl Iterator<Item = RenderCommand<'scene>>,
-    ) -> Option<UnsignedPhysicalRect> {
+    ) {
         #[cfg(feature = "render_metrics")]
         let update_started_at = Instant::now();
         #[cfg(feature = "render_metrics")]
@@ -31,7 +31,6 @@ impl WgpuBackend {
             self.resources.pipeline_switch_counts = Default::default();
             self.resources.shape_mask_effect_cache_metrics = ShapeMaskEffectCacheMetrics::default();
         }
-        let is_new = self.retained_output.is_none();
         let retained = self.retained_output.take().unwrap_or_else(|| {
             RetainedOutput::new(
                 &self.device,
@@ -40,13 +39,6 @@ impl WgpuBackend {
                 self.msaa_sample_count,
             )
         });
-        let root_scissor = if is_new {
-            Some(UnsignedPhysicalRect::from_size(
-                self.viewport.physical_size.into(),
-            ))
-        } else {
-            root_scissor
-        };
         if let Some(scissor) = root_scissor {
             self.render_dirty_region(commands, &retained, scissor);
         }
@@ -55,7 +47,6 @@ impl WgpuBackend {
         {
             self.last_retained_output_update_cpu_time = update_started_at.elapsed();
         }
-        root_scissor
     }
 
     fn render_dirty_region<'scene>(
@@ -192,7 +183,7 @@ impl WgpuBackend {
             .texture
             .create_view(&TextureViewDescriptor::default());
 
-        let root_scissor = self.update_retained_output(root_scissor, commands);
+        self.update_retained_output(root_scissor, commands);
         let retained = self
             .retained_output
             .as_ref()

@@ -68,8 +68,15 @@ pub trait RenderBackend {
         false
     }
 
-    /// Renders `commands` at the target's dimensions. The commands must have been
-    /// planned for those dimensions.
+    /// Configures the target before rendering.
+    /// Return `true` to signal that the target has been reconfigured and a full frame redraw is
+    /// required; Return `false` if configuration hasn't changed and redraw damaged region is enough.
+    fn prepare_target(
+        &mut self,
+        target: &mut RenderTarget<'_, Self::Surface>,
+    ) -> Result<bool, Self::Error>;
+
+    /// Renders `commands` at the target's dimensions.
     /// Preserve the previous image outside `root_scissor`. Clear and redraw
     /// inside it; None leaves the image unchanged. A newly allocated output needs a
     /// full redraw, for which the iterator still yields the entire scene.

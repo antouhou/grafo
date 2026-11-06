@@ -189,6 +189,13 @@ impl RenderBackend for TestBackend {
         self.is_dirty_region_overlay_enabled
     }
 
+    fn prepare_target(
+        &mut self,
+        _: &mut RenderTarget<'_, Self::Surface>,
+    ) -> Result<bool, Self::Error> {
+        Ok(false)
+    }
+
     fn render<'scene>(
         &mut self,
         root_scissor: Option<UnsignedPhysicalRect>,
@@ -381,28 +388,8 @@ fn rendering_to_one_surface_does_not_change_another() {
         queue_shape(&mut second, false),
         queue_shape(&mut second, false),
     ];
-    let commands = first.planner.plan(
-        &first.state,
-        4096,
-        Some(UnsignedPhysicalRect::from_size(
-            first.state.viewport().physical_size.into(),
-        )),
-    );
-    first
-        .backend
-        .render(first.dirty_bounds, commands, (&mut first_surface).into())
-        .unwrap();
-    let commands = second.planner.plan(
-        &second.state,
-        4096,
-        Some(UnsignedPhysicalRect::from_size(
-            second.state.viewport().physical_size.into(),
-        )),
-    );
-    second
-        .backend
-        .render(second.dirty_bounds, commands, (&mut second_surface).into())
-        .unwrap();
+    first.render(&mut first_surface).unwrap();
+    second.render(&mut second_surface).unwrap();
     assert_eq!(first_surface.resource().draws, [first_shape]);
     assert_eq!(second_surface.resource().draws, second_shapes);
 
