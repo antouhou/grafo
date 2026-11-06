@@ -84,7 +84,6 @@ impl SceneState {
                 events.iter().copied(),
                 FillRule::NonZero,
                 false,
-                &mut self.tessellator,
                 &mut self.shape_resources,
                 Some(geometry_id),
             )?,

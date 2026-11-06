@@ -2,7 +2,7 @@ use super::{Cache, CachedTessellation, FrameCache};
 use crate::core::shape::{BorderRadii, LineCap, Shape, StrokeOptions};
 use crate::core::util::ShapeResources;
 use crate::core::vertex::CustomVertex;
-use lyon::tessellation::{FillTessellator, GeometryBuilderError, TessellationError};
+use lyon::tessellation::{GeometryBuilderError, TessellationError};
 use std::mem;
 use std::sync::{Arc, Mutex};
 
@@ -197,16 +197,13 @@ fn cache_refresh_keeps_rendered_geometry_available_next_frame() {
 #[test]
 fn failed_stroke_returns_storage_for_the_next_attempt() {
     let mut resources = ShapeResources::new();
-    let mut tessellator = FillTessellator::new();
     let valid = Shape::builder()
         .begin((0.0, 0.0))
         .line_to((10.0, 0.0))
         .end()
         .build()
         .stroke(StrokeOptions::new(4.0).line_cap(LineCap::Square));
-    let geometry = valid
-        .tessellate(&mut tessellator, &mut resources, None)
-        .unwrap();
+    let geometry = valid.tessellate(&mut resources, None).unwrap();
     let original_addresses = allocation_addresses(&geometry);
     let original_capacities = capacities(&geometry);
     resources.tessellation_cache.release_tessellation(geometry);
@@ -218,14 +215,12 @@ fn failed_stroke_returns_storage_for_the_next_attempt() {
         .build()
         .stroke(StrokeOptions::new(f32::MAX).line_cap(LineCap::Square));
     assert!(matches!(
-        overflowing.tessellate(&mut tessellator, &mut resources, None),
+        overflowing.tessellate(&mut resources, None),
         Err(TessellationError::GeometryBuilder(
             GeometryBuilderError::InvalidVertex
         ))
     ));
-    let reused = valid
-        .tessellate(&mut tessellator, &mut resources, None)
-        .unwrap();
+    let reused = valid.tessellate(&mut resources, None).unwrap();
     assert_eq!(allocation_addresses(&reused), original_addresses);
     assert_eq!(capacities(&reused), original_capacities);
     assert!(!reused.vertex_buffers.indices.is_empty());
@@ -241,16 +236,11 @@ fn failed_stroke_returns_storage_for_the_next_attempt() {
 #[test]
 fn uncached_replacements_reuse_geometry_storage_after_warmup() {
     let mut resources = ShapeResources::new();
-    let mut tessellator = FillTessellator::new();
     let shapes = geometry_variants();
-    let mut current = shapes[0]
-        .tessellate(&mut tessellator, &mut resources, None)
-        .unwrap();
+    let mut current = shapes[0].tessellate(&mut resources, None).unwrap();
     for _ in 0..2 {
         for shape in &shapes {
-            let replacement = shape
-                .tessellate(&mut tessellator, &mut resources, None)
-                .unwrap();
+            let replacement = shape.tessellate(&mut resources, None).unwrap();
             resources
                 .tessellation_cache
                 .release_tessellation(mem::replace(&mut current, replacement));
@@ -268,9 +258,7 @@ fn uncached_replacements_reuse_geometry_storage_after_warmup() {
     for _ in 0..4 {
         for shape in &shapes {
             let previous_vertex = current.vertex_buffers.vertices[0].position;
-            let replacement = shape
-                .tessellate(&mut tessellator, &mut resources, None)
-                .unwrap();
+            let replacement = shape.tessellate(&mut resources, None).unwrap();
             assert_eq!(
                 (allocation_addresses(&replacement), capacities(&replacement)),
                 expected_spare
@@ -312,9 +300,7 @@ fn uncached_replacements_reuse_geometry_storage_after_warmup() {
 fn cache_eviction_preserves_shared_geometry_until_explicit_release() {
     let mut resources = ShapeResources::new();
     let shape = Shape::rect([(0.0, 0.0), (20.0, 10.0)]).stroke(StrokeOptions::new(2.0));
-    let external = shape
-        .tessellate(&mut FillTessellator::new(), &mut resources, Some(91))
-        .unwrap();
+    let external = shape.tessellate(&mut resources, Some(91)).unwrap();
     let original_addresses = allocation_addresses(&external);
     let original_capacities = capacities(&external);
     resources.tessellation_cache.end_frame();

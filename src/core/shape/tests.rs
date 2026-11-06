@@ -3,17 +3,10 @@ use crate::core::cache::CachedTessellation;
 use crate::core::util::ShapeResources;
 use lyon::math::Point;
 use lyon::path::PathEvent;
-use lyon::tessellation::FillTessellator;
 use std::{f32::consts::PI, sync::Arc};
 
 fn tessellate_shape(shape: &Shape) -> Arc<CachedTessellation> {
-    shape
-        .tessellate(
-            &mut FillTessellator::new(),
-            &mut ShapeResources::new(),
-            None,
-        )
-        .unwrap()
+    shape.tessellate(&mut ShapeResources::new(), None).unwrap()
 }
 
 fn mesh_area(tessellation: &CachedTessellation) -> f32 {
@@ -91,11 +84,8 @@ fn open_and_closed_subpaths_keep_their_ends_and_fill_separately() {
         .collect();
     assert_eq!(subpath_closed_flags, [false, true, false]);
 
-    let mut tessellator = FillTessellator::new();
     let mut resources = ShapeResources::new();
-    let tessellation = shape
-        .tessellate(&mut tessellator, &mut resources, None)
-        .unwrap();
+    let tessellation = shape.tessellate(&mut resources, None).unwrap();
     assert!((mesh_area(&tessellation) - 16.0).abs() < 1e-6);
 }
 
@@ -383,14 +373,9 @@ fn stroke_geometry_reuses_its_cache_entry_and_keeps_distinct_widths() {
         .build();
     let thin = path.clone().stroke(StrokeOptions::new(2.0));
     let thick = path.stroke(StrokeOptions::new(4.0));
-    let mut tessellator = FillTessellator::new();
     let mut resources = ShapeResources::new();
-    let thin_geometry = thin
-        .tessellate(&mut tessellator, &mut resources, Some(21))
-        .unwrap();
-    let thick_geometry = thick
-        .tessellate(&mut tessellator, &mut resources, Some(22))
-        .unwrap();
+    let thin_geometry = thin.tessellate(&mut resources, Some(21)).unwrap();
+    let thick_geometry = thick.tessellate(&mut resources, Some(22)).unwrap();
     assert!(!Arc::ptr_eq(&thin_geometry, &thick_geometry));
     assert!(!mesh_contains(&thin_geometry, (5.0, 1.5)));
     assert!(mesh_contains(&thick_geometry, (5.0, 1.5)));
@@ -399,9 +384,7 @@ fn stroke_geometry_reuses_its_cache_entry_and_keeps_distinct_widths() {
         for (shape, cache_key, cached) in
             [(&thin, 21, &thin_geometry), (&thick, 22, &thick_geometry)]
         {
-            let reused = shape
-                .tessellate(&mut tessellator, &mut resources, Some(cache_key))
-                .unwrap();
+            let reused = shape.tessellate(&mut resources, Some(cache_key)).unwrap();
             assert!(Arc::ptr_eq(&reused, cached));
         }
     }
@@ -411,7 +394,6 @@ fn stroke_geometry_reuses_its_cache_entry_and_keeps_distinct_widths() {
 fn tessellation_reuse_survives_queue_rebuilds_in_independent_caches() {
     let mut first = ShapeResources::new();
     let mut second = ShapeResources::new();
-    let mut tessellator = FillTessellator::new();
     let rectangle = Shape::rect([(0.0, 0.0), (20.0, 20.0)]);
     let triangle = Shape::builder()
         .begin((0.0, 0.0))
@@ -419,22 +401,14 @@ fn tessellation_reuse_survives_queue_rebuilds_in_independent_caches() {
         .line_to((0.0, 20.0))
         .close()
         .build();
-    let cached_rect = rectangle
-        .tessellate(&mut tessellator, &mut first, Some(12))
-        .unwrap();
-    let cached_triangle = triangle
-        .tessellate(&mut tessellator, &mut second, Some(12))
-        .unwrap();
+    let cached_rect = rectangle.tessellate(&mut first, Some(12)).unwrap();
+    let cached_triangle = triangle.tessellate(&mut second, Some(12)).unwrap();
     assert!(!Arc::ptr_eq(&cached_rect, &cached_triangle));
     for _ in 0..4 {
         first.tessellation_cache.end_frame();
         second.tessellation_cache.end_frame();
-        let rebuilt_rect = rectangle
-            .tessellate(&mut tessellator, &mut first, Some(12))
-            .unwrap();
-        let rebuilt_triangle = triangle
-            .tessellate(&mut tessellator, &mut second, Some(12))
-            .unwrap();
+        let rebuilt_rect = rectangle.tessellate(&mut first, Some(12)).unwrap();
+        let rebuilt_triangle = triangle.tessellate(&mut second, Some(12)).unwrap();
         assert!(Arc::ptr_eq(&cached_rect, &rebuilt_rect));
         assert!(Arc::ptr_eq(&cached_triangle, &rebuilt_triangle));
     }

@@ -15,7 +15,6 @@ use effects::{
     GroupEffectIndex, ShapeMaskEffectInstance,
 };
 pub use errors::SceneError;
-use lyon::tessellation::FillTessellator;
 use std::sync::{Arc, RwLock};
 use text::GlyphUsage;
 use texture_index::TextureIndex;
@@ -56,7 +55,6 @@ pub(crate) struct SceneState {
     updated_shape_ids: HashSet<usize>,
     context: SceneStateContext,
     viewport: Viewport,
-    tessellator: FillTessellator,
     shape_resources: ShapeResources,
     pub(crate) effect_parameters: EffectParameterStorage,
     pub(crate) content_effects: HashMap<usize, ContentEffectInstance>,
@@ -81,7 +79,6 @@ impl SceneState {
             viewport,
             draw_tree: Tree::new(),
             texture_index: TextureIndex::default(),
-            tessellator: FillTessellator::new(),
             shape_resources: ShapeResources::new(),
             effect_parameters: EffectParameterStorage::default(),
             content_effects: HashMap::new(),
@@ -200,7 +197,6 @@ impl SceneState {
         }
         Ok(CachedShapeHandle::new(
             shape,
-            &mut self.tessellator,
             &mut self.shape_resources,
             geometry_id,
         )?)

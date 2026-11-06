@@ -10,7 +10,7 @@ use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
 use crate::core::Color;
 use lyon::geom::euclid::default::Transform3D;
 use lyon::lyon_tessellation::{
-    BuffersBuilder, FillOptions, FillTessellator, FillVertex, TessellationError, VertexBuffers,
+    BuffersBuilder, FillOptions, FillVertex, TessellationError, VertexBuffers,
 };
 pub use lyon::path::FillRule;
 use lyon::path::{Builder, Path, PathEvent, Winding};
@@ -35,11 +35,10 @@ impl CachedShapeHandle {
     /// to disable reuse when no reliable key is available.
     pub(crate) fn new(
         shape: &Shape,
-        tessellator: &mut FillTessellator,
         shape_resources: &mut ShapeResources,
         geometry_id: Option<u64>,
     ) -> Result<Self, TessellationError> {
-        let tessellation = shape.tessellate(tessellator, shape_resources, geometry_id)?;
+        let tessellation = shape.tessellate(shape_resources, geometry_id)?;
         Ok(Self {
             tessellation,
             geometry_id,
@@ -266,13 +265,12 @@ impl Shape {
 
     pub(crate) fn tessellate(
         &self,
-        tessellator: &mut FillTessellator,
         shape_resources: &mut ShapeResources,
         tessellation_cache_key: Option<u64>,
     ) -> Result<Arc<CachedTessellation>, TessellationError> {
         match &self {
             Shape::Path(path_shape) => {
-                path_shape.tessellate(tessellator, shape_resources, tessellation_cache_key)
+                path_shape.tessellate(shape_resources, tessellation_cache_key)
             }
             Shape::Rect(rect_shape) => {
                 if let Some(options) = rect_shape.stroke_options {
@@ -437,7 +435,6 @@ impl PathShape {
         events: impl IntoIterator<Item = PathEvent>,
         fill_rule: FillRule,
         is_rounded_rect: bool,
-        tessellator: &mut FillTessellator,
         shape_resources: &mut ShapeResources,
         tessellation_cache_key: Option<u64>,
     ) -> Result<Arc<CachedTessellation>, TessellationError> {
@@ -451,7 +448,7 @@ impl PathShape {
         }
 
         let mut tessellation = shape_resources.tessellation_cache.acquire_tessellation();
-        if let Err(error) = tessellator.tessellate(
+        if let Err(error) = shape_resources.fill_tessellator.tessellate(
             events,
             &FillOptions::default().with_fill_rule(fill_rule),
             &mut BuffersBuilder::new(&mut tessellation.vertex_buffers, VertexConverter),
@@ -472,7 +469,6 @@ impl PathShape {
     /// Returns shared geometry and bounds, reusing the tessellation cache when a key is given.
     pub(crate) fn tessellate(
         &self,
-        tessellator: &mut FillTessellator,
         shape_resources: &mut ShapeResources,
         tessellation_cache_key: Option<u64>,
     ) -> Result<Arc<CachedTessellation>, TessellationError> {
@@ -488,7 +484,6 @@ impl PathShape {
             self.path.iter(),
             self.fill_rule,
             self.is_rounded_rect,
-            tessellator,
             shape_resources,
             tessellation_cache_key,
         )

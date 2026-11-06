@@ -17,7 +17,6 @@ use crate::scene_state::types::{ClipRectDrawData, DrawTreeNode};
 use crate::{Shape, ShapeDrawCommandOptions, Size};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
-use lyon::tessellation::FillTessellator;
 use std::mem;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -180,7 +179,6 @@ impl Scene {
     fn backdrop(&mut self, parent: usize) -> usize {
         let shape = CachedShapeHandle::new(
             &Shape::rect([(10.0, 10.0), (40.0, 40.0)]),
-            &mut FillTessellator::new(),
             &mut ShapeResources::new(),
             None,
         )
