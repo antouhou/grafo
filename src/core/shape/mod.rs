@@ -666,6 +666,7 @@ impl ShapeDrawCommandOptions {
 /// Assign a fill through [`ShapeDrawCommandOptions`] when queueing the shape.
 /// An unset fill inherits the group fill or draws transparent. [`Shape::builder`] also creates this
 /// builder.
+/// End each subpath with [`Self::end`] or [`Self::close`] before starting another or building the shape.
 ///
 /// # Examples
 ///
@@ -739,6 +740,27 @@ impl ShapeBuilder {
     pub fn quadratic_bezier_to(mut self, ctrl: (f32, f32), to: (f32, f32)) -> Self {
         self.path_builder
             .quadratic_bezier_to(ctrl.into(), to.into());
+        self
+    }
+
+    /// Ends the current subpath without connecting it to its starting point.
+    /// Call [`Self::begin`] to start another subpath, or [`Self::build`] to finish the shape.
+    /// Filling still treats each subpath as closed.
+    ///
+    /// ```rust
+    /// use grafo::Shape;
+    ///
+    /// let open_path = Shape::builder()
+    ///     .begin((0.0, 0.0))
+    ///     .line_to((50.0, 10.0))
+    ///     .end()
+    ///     .begin((0.0, 20.0))
+    ///     .quadratic_bezier_to((25.0, 40.0), (50.0, 20.0))
+    ///     .end()
+    ///     .build();
+    /// ```
+    pub fn end(mut self) -> Self {
+        self.path_builder.end(false);
         self
     }
 
