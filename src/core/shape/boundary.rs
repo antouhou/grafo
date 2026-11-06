@@ -92,7 +92,7 @@ impl PathBoundaryBuilder {
     pub(crate) fn build(
         &mut self,
         vertices: &[CustomVertex],
-        indices: &[u16],
+        indices: &[u32],
         project: impl Fn([f32; 2]) -> [f32; 2],
     ) -> impl Iterator<Item = PathBoundaryEdge> + '_ {
         self.edges.clear();

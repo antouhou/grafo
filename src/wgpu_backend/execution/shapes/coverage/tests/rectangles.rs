@@ -97,7 +97,7 @@ fn rectangle_tiles_match_pixel_overlap_and_general_coverage() {
             if index % 5 == 0 { 40.625 } else { 0.375 },
         );
         let scale = [0.5, 1.0, 1.25, 2.0][index % 4];
-        let cached = scene.tessellate(&Shape::rect(bounds), None);
+        let cached = scene.tessellate(&Shape::rect(bounds), None).unwrap();
         let generic = CachedTessellation {
             is_rect: false,
             boundary_edges: cached.tessellation.boundary_edges.clone(),
@@ -162,7 +162,9 @@ fn transformed_rectangles_match_independently_clipped_triangles() {
             scale_factor: 1.0,
         },
     );
-    let cached = scene.tessellate(&Shape::rect([(2.25, 3.5), (28.75, 24.25)]), None);
+    let cached = scene
+        .tessellate(&Shape::rect([(2.25, 3.5), (28.75, 24.25)]), None)
+        .unwrap();
     let mut perspective = TransformInstance::translation(10.0, 4.0);
     perspective.col0[3] = 0.0125;
     let mut negative_w = TransformInstance::translation(4.25, 3.5);
@@ -218,10 +220,12 @@ fn rectangle_interior_and_repeated_edge_samples_stay_compact() {
     let mut mesh = CoverageTestMesh::default();
     for extent in [80.0, 1080.0, 4000.0] {
         for phase in [0.0, 0.25] {
-            let cached = scene.tessellate(
-                &Shape::rect([(phase, phase), (extent + phase, extent + phase)]),
-                None,
-            );
+            let cached = scene
+                .tessellate(
+                    &Shape::rect([(phase, phase), (extent + phase, extent + phase)]),
+                    None,
+                )
+                .unwrap();
             mesh.build(&cached.tessellation, None, 1.0, (4096, 4096));
             assert_eq!(mesh.range.solid_tile_count, 1);
             if phase == 0.0 {
@@ -264,7 +268,7 @@ fn rectangle_placement_preserves_coverage_after_large_translations() {
             TransformInstance::translation(0.0, -999_970.0),
         ),
     ] {
-        let cached = scene.tessellate(&Shape::rect(bounds), None);
+        let cached = scene.tessellate(&Shape::rect(bounds), None).unwrap();
         let logical_bounds = geometry::transformed_bounds_to_logical_screen_rect(
             MathRect::new(bounds[0].into(), bounds[1].into()),
             Some(transform),

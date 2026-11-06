@@ -82,24 +82,36 @@ fn load_textures_and_shapes(scene: &mut Scene) {
 
     // A 250x250 textured rectangle.
     let textured_rect = Shape::rect([(0.0, 0.0), (TEXTURE_SIZE as f32, TEXTURE_SIZE as f32)]);
-    scene.load_shape(textured_rect, CACHE_KEY_TEXTURED, Some(CACHE_KEY_TEXTURED));
+    scene
+        .load_shape(textured_rect, CACHE_KEY_TEXTURED, Some(CACHE_KEY_TEXTURED))
+        .expect("load textured rectangle");
 }
 
 fn load_shape_geometries(scene: &mut Scene) {
     let container = Shape::rect([(0.0, 0.0), (240.0, 500.0)]);
-    scene.load_shape(container, CACHE_KEY_CONTAINER, Some(CACHE_KEY_CONTAINER));
+    scene
+        .load_shape(container, CACHE_KEY_CONTAINER, Some(CACHE_KEY_CONTAINER))
+        .expect("load container geometry");
 
     let row = Shape::rect([(0.0, 0.0), (220.0, 110.0)]);
-    scene.load_shape(row, CACHE_KEY_ROW, Some(CACHE_KEY_ROW));
+    scene
+        .load_shape(row, CACHE_KEY_ROW, Some(CACHE_KEY_ROW))
+        .expect("load row geometry");
 
     let cell = Shape::rect([(0.0, 0.0), (36.0, 90.0)]);
-    scene.load_shape(cell, CACHE_KEY_CELL, Some(CACHE_KEY_CELL));
+    scene
+        .load_shape(cell, CACHE_KEY_CELL, Some(CACHE_KEY_CELL))
+        .expect("load cell geometry");
 
     let sidebar = Shape::rect([(0.0, 0.0), (100.0, 500.0)]);
-    scene.load_shape(sidebar, CACHE_KEY_SIDEBAR, Some(CACHE_KEY_SIDEBAR));
+    scene
+        .load_shape(sidebar, CACHE_KEY_SIDEBAR, Some(CACHE_KEY_SIDEBAR))
+        .expect("load sidebar geometry");
 
     let circle = Shape::rounded_rect([(0.0, 0.0), (40.0, 40.0)], grafo::BorderRadii::new(20.0));
-    scene.load_shape(circle, CACHE_KEY_CIRCLE, Some(CACHE_KEY_CIRCLE));
+    scene
+        .load_shape(circle, CACHE_KEY_CIRCLE, Some(CACHE_KEY_CIRCLE))
+        .expect("tessellate benchmark circle");
 }
 
 fn build_scene(scene: &mut Scene) -> usize {

@@ -44,7 +44,7 @@ impl<B: RenderBackend> Scene<B> {
                 geometry_id,
                 options,
             } => DrawTreeNode::CachedShape(CachedShapeDrawData::new(
-                self.state.tessellate(shape, geometry_id),
+                self.state.tessellate(shape, geometry_id)?,
                 options,
             )),
             DrawCommand::CachedShape { cache_key, options } => DrawTreeNode::CachedShape(

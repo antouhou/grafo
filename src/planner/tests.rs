@@ -56,7 +56,9 @@ fn effect_snapshots(commands: &[RenderCommand<'_>]) -> Vec<EffectSnapshot> {
 }
 
 fn add_shape(scene: &mut SceneState, parent: Option<usize>) -> usize {
-    let shape = scene.tessellate(&Shape::rect([(0.0, 0.0), (32.0, 32.0)]), Some(1));
+    let shape = scene
+        .tessellate(&Shape::rect([(0.0, 0.0), (32.0, 32.0)]), Some(1))
+        .unwrap();
     scene.validate_parent(parent).unwrap();
     scene.insert_node(
         DrawTreeNode::CachedShape(CachedShapeDrawData::new(
@@ -89,7 +91,7 @@ fn add_rectangle(
     bounds: [(f32, f32); 2],
     clips_children: bool,
 ) -> usize {
-    let shape = scene.tessellate(&Shape::rect(bounds), None);
+    let shape = scene.tessellate(&Shape::rect(bounds), None).unwrap();
     scene.validate_parent(parent).unwrap();
     scene.insert_node(
         DrawTreeNode::CachedShape(CachedShapeDrawData::new(

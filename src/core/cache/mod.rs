@@ -12,7 +12,7 @@ pub struct CachedTessellation {
     pub(crate) is_rect: bool,
     pub(crate) boundary_edges: Vec<PathBoundaryEdge>,
     pub(crate) rounded_rect_boundary: Option<RoundedRectBoundary>,
-    pub(crate) vertex_buffers: Arc<VertexBuffers<CustomVertex, u16>>,
+    pub(crate) vertex_buffers: Arc<VertexBuffers<CustomVertex, u32>>,
     pub(crate) local_bounds: [(f32, f32); 2],
     pub(crate) texture_mapping_size: [f32; 2],
 }

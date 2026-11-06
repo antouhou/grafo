@@ -45,7 +45,8 @@ fn shape_node(bounds: [(f32, f32); 2]) -> DrawTreeNode {
             scale_factor: 1.0,
         },
     )
-    .tessellate(&Shape::rect(bounds), None);
+    .tessellate(&Shape::rect(bounds), None)
+    .unwrap();
     DrawTreeNode::CachedShape(CachedShapeDrawData::new(
         shape,
         ShapeDrawCommandOptions::new(),

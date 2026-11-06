@@ -100,7 +100,7 @@ fn dropping_partial_eviction_keeps_live_entries_and_reuses_storage() {
 #[test]
 fn cache_returns_shared_arc_without_cloning_vertex_buffers() {
     let mut cache = Cache::new();
-    let mut vertex_buffers = VertexBuffers::<CustomVertex, u16>::new();
+    let mut vertex_buffers = VertexBuffers::<CustomVertex, u32>::new();
     vertex_buffers.vertices.push(CustomVertex {
         position: [0.0, 0.0],
         tex_coords: [0.0, 0.0],
@@ -130,7 +130,7 @@ fn cache_returns_shared_arc_without_cloning_vertex_buffers() {
 #[test]
 fn cache_promotes_previous_frame_hits_into_current_frame() {
     let mut cache = Cache::new();
-    let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u16>::new());
+    let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u32>::new());
     cache.insert_tessellation(
         7,
         Arc::new(CachedTessellation {
@@ -163,7 +163,7 @@ fn cache_promotes_previous_frame_hits_into_current_frame() {
 #[test]
 fn cache_drops_entries_not_used_for_a_frame() {
     let mut cache = Cache::new();
-    let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u16>::new());
+    let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u32>::new());
     cache.insert_tessellation(
         7,
         Arc::new(CachedTessellation {
@@ -185,7 +185,7 @@ fn cache_drops_entries_not_used_for_a_frame() {
 #[test]
 fn cache_refresh_keeps_rendered_geometry_available_next_frame() {
     let mut cache = Cache::new();
-    let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u16>::new());
+    let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u32>::new());
 
     cache.refresh_tessellation(
         7,

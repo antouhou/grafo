@@ -23,7 +23,9 @@ fn geometry(scene: &Scene<TestBackend>, text: usize) -> Vec<(u64, Weak<CachedTes
 fn discarded_glyphs_unload_at_frame_end_without_unloading_explicit_shapes() {
     let mut scene = scene();
     let mut surface = surface();
-    scene.load_shape(Shape::rect([(0.0, 0.0), (8.0, 8.0)]), 1, None);
+    scene
+        .load_shape(Shape::rect([(0.0, 0.0), (8.0, 8.0)]), 1, None)
+        .unwrap();
 
     for batch in 0..3 {
         let keys: Vec<_> = (1..=64).map(|key| key + batch * 64).collect();

@@ -142,7 +142,9 @@ fn removing_clip_subtrees_and_the_root_preserves_loaded_shapes() {
             true,
         )
         .unwrap();
-    scene.load_shape(Shape::rect([(0.0, 0.0), (16.0, 16.0)]), 1, Some(1));
+    scene
+        .load_shape(Shape::rect([(0.0, 0.0), (16.0, 16.0)]), 1, Some(1))
+        .unwrap();
     let child = scene
         .add_cached_shape(
             1,

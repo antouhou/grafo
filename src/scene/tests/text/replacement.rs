@@ -4,6 +4,7 @@ use crate::core::{
     BackdropEffectConfig, ContentEffectConfig, Shape, ShapeMaskEffectConfig, TransformInstance,
     UnsignedPhysicalRect,
 };
+use crate::scene::tests::path_with_nan_positions;
 use crate::scene::DrawCommandError;
 use crate::scene_state::effects::EffectConfig;
 use crate::scene_state::types::DrawTreeNode;
@@ -14,6 +15,27 @@ enum ReplacedNodeKind {
     Shape,
     ClipRect,
     Group,
+}
+
+#[test]
+fn glyph_tessellation_error_preserves_the_previous_text() {
+    let mut scene = scene();
+    let text = scene.add_text(Glyphs::new(&[10]), None, options()).unwrap();
+    let previous_glyphs = glyph_ids(&scene, text);
+    scene.render(&mut surface()).unwrap();
+    let mut replacement = Glyphs::new(&[11, 12]);
+    replacement.outline_override = Some((12, path_with_nan_positions().iter().collect()));
+
+    let result = scene.replace_with_text(text, &mut replacement, options());
+
+    assert!(matches!(
+        result,
+        Err(DrawCommandError::Scene(SceneError::Tessellation(_)))
+    ));
+    assert_eq!(replacement.extractions, [11, 12]);
+    assert_eq!(glyph_ids(&scene, text), previous_glyphs);
+    assert_eq!(scene.backend.registered_shapes, previous_glyphs);
+    assert!(scene.dirty_bounds.is_none());
 }
 
 #[test]

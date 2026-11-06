@@ -50,7 +50,8 @@ fn rect_draw_tree_node_with_options(options: ShapeDrawCommandOptions) -> DrawTre
         &mut tessellator,
         &mut shape_resources,
         None,
-    );
+    )
+    .unwrap();
     DrawTreeNode::CachedShape(CachedShapeDrawData::new(shape_handle, options))
 }
 

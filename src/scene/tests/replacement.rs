@@ -1,12 +1,16 @@
-use super::{queue_shape, scene, surface, DrawCommandError, Scene, TestBackend, TestBackendError};
+use super::{
+    path_with_nan_positions, queue_shape, scene, surface, DrawCommandError, Scene, TestBackend,
+    TestBackendError,
+};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
-    BackdropCaptureArea, BackdropEffectConfig, ContentEffectConfig, Shape, ShapeDrawCommandOptions,
-    ShapeMaskEffectConfig, UnsignedPhysicalRect,
+    BackdropCaptureArea, BackdropEffectConfig, ContentEffectConfig, PathShape, Shape,
+    ShapeDrawCommandOptions, ShapeMaskEffectConfig, UnsignedPhysicalRect,
 };
 use crate::scene_state::effects::EffectConfig;
 use crate::scene_state::types::DrawTreeNode;
 use crate::scene_state::SceneError;
+use lyon::tessellation::{TessellationError, UnsupportedParamater};
 
 fn shape(scene: &mut Scene<TestBackend>, bounds: [(f32, f32); 2], parent: usize) -> usize {
     scene
@@ -32,6 +36,43 @@ fn clip(scene: &mut Scene<TestBackend>, node_id: usize, clips_children: bool) {
 
 fn rect(min: (u32, u32), max: (u32, u32)) -> Option<UnsignedPhysicalRect> {
     Some(UnsignedPhysicalRect::new(min.into(), max.into()))
+}
+
+#[test]
+fn tessellation_error_preserves_the_loaded_shape_and_queued_draw() {
+    let invalid_shape = Shape::from(PathShape::new(path_with_nan_positions()));
+    let mut scene = scene();
+    let bounds = [(0.0, 0.0), (12.0, 10.0)];
+    let cache_key = 1;
+    let options = ShapeDrawCommandOptions::new();
+    scene
+        .load_shape(Shape::rect(bounds), cache_key, None)
+        .unwrap();
+    let expected_error =
+        TessellationError::UnsupportedParamater(UnsupportedParamater::PositionIsNaN);
+    assert!(matches!(
+        scene.load_shape(&invalid_shape, cache_key, None),
+        Err(SceneError::Tessellation(error)) if error == expected_error
+    ));
+    let node = scene
+        .add_cached_shape(cache_key, None, options.clone())
+        .unwrap();
+    assert!(matches!(
+        scene.add_shape(&invalid_shape, None, None, options.clone()),
+        Err(DrawCommandError::Scene(SceneError::Tessellation(error))) if error == expected_error
+    ));
+
+    let result = scene.replace_with_shape(node, &invalid_shape, None, options);
+
+    assert!(matches!(
+        result,
+        Err(DrawCommandError::Scene(SceneError::Tessellation(error))) if error == expected_error
+    ));
+    assert_eq!(
+        scene.state.shape(node).unwrap().cached_shape.local_bounds(),
+        bounds
+    );
+    assert_eq!(scene.backend.registered_shapes, [node]);
 }
 
 #[test]
@@ -382,7 +423,9 @@ fn replacement_errors_preserve_the_failing_node_and_prior_replacements() {
     let first = queue_shape(&mut scene, false);
     let second = queue_shape(&mut scene, true);
     let last = queue_shape(&mut scene, false);
-    scene.load_shape(Shape::rect([(2.0, 3.0), (6.0, 7.0)]), 2, Some(2));
+    scene
+        .load_shape(Shape::rect([(2.0, 3.0), (6.0, 7.0)]), 2, Some(2))
+        .unwrap();
     let old_effect = *scene.state.shape_mask_effect(second).unwrap();
     scene.backend.registration_failure = Some(second);
     scene

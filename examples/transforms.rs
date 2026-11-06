@@ -193,36 +193,48 @@ impl ApplicationHandler for App {
         self.heart_path = build_heart_path();
         self.perspective_path = build_perspective_demo_path();
 
-        scene.load_shape(
-            Shape::Path(PathShape::new(self.red_path.clone())),
-            RED_SHAPE_CACHE_KEY,
-            Some(RED_SHAPE_CACHE_KEY),
-        );
-        scene.load_shape(
-            Shape::Path(PathShape::new(self.green_path.clone())),
-            GREEN_SHAPE_CACHE_KEY,
-            Some(GREEN_SHAPE_CACHE_KEY),
-        );
-        scene.load_shape(
-            Shape::Path(PathShape::new(self.blue_path.clone())),
-            BLUE_SHAPE_CACHE_KEY,
-            Some(BLUE_SHAPE_CACHE_KEY),
-        );
-        scene.load_shape(
-            Shape::Path(PathShape::new(self.jelly_path.clone())),
-            JELLY_SHAPE_CACHE_KEY,
-            Some(JELLY_SHAPE_CACHE_KEY),
-        );
-        scene.load_shape(
-            Shape::Path(PathShape::new(self.heart_path.clone())),
-            HEART_SHAPE_CACHE_KEY,
-            Some(HEART_SHAPE_CACHE_KEY),
-        );
-        scene.load_shape(
-            Shape::Path(PathShape::new(self.perspective_path.clone())),
-            PERSPECTIVE_SHAPE_CACHE_KEY,
-            Some(PERSPECTIVE_SHAPE_CACHE_KEY),
-        );
+        scene
+            .load_shape(
+                Shape::Path(PathShape::new(self.red_path.clone())),
+                RED_SHAPE_CACHE_KEY,
+                Some(RED_SHAPE_CACHE_KEY),
+            )
+            .expect("tessellate red path");
+        scene
+            .load_shape(
+                Shape::Path(PathShape::new(self.green_path.clone())),
+                GREEN_SHAPE_CACHE_KEY,
+                Some(GREEN_SHAPE_CACHE_KEY),
+            )
+            .expect("tessellate green path");
+        scene
+            .load_shape(
+                Shape::Path(PathShape::new(self.blue_path.clone())),
+                BLUE_SHAPE_CACHE_KEY,
+                Some(BLUE_SHAPE_CACHE_KEY),
+            )
+            .expect("tessellate blue path");
+        scene
+            .load_shape(
+                Shape::Path(PathShape::new(self.jelly_path.clone())),
+                JELLY_SHAPE_CACHE_KEY,
+                Some(JELLY_SHAPE_CACHE_KEY),
+            )
+            .expect("tessellate jelly path");
+        scene
+            .load_shape(
+                Shape::Path(PathShape::new(self.heart_path.clone())),
+                HEART_SHAPE_CACHE_KEY,
+                Some(HEART_SHAPE_CACHE_KEY),
+            )
+            .expect("tessellate heart path");
+        scene
+            .load_shape(
+                Shape::Path(PathShape::new(self.perspective_path.clone())),
+                PERSPECTIVE_SHAPE_CACHE_KEY,
+                Some(PERSPECTIVE_SHAPE_CACHE_KEY),
+            )
+            .expect("tessellate perspective path");
 
         self.red_color = (Color::rgb(200, 60, 60), Color::rgb(255, 120, 120));
         self.green_color = (Color::rgb(60, 200, 60), Color::rgb(120, 255, 120));

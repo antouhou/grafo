@@ -10,7 +10,7 @@ fn tessellation() -> Arc<CachedTessellation> {
         is_rect: false,
         boundary_edges: Vec::new(),
         rounded_rect_boundary: None,
-        vertex_buffers: Arc::new(VertexBuffers::<CustomVertex, u16>::new()),
+        vertex_buffers: Arc::new(VertexBuffers::<CustomVertex, u32>::new()),
         local_bounds: [(0.0, 0.0), (10.0, 10.0)],
         texture_mapping_size: [10.0, 10.0],
     })
