@@ -151,4 +151,13 @@ impl DrawTreeNode {
             DrawTreeNode::ClipRect(_) => true,
         }
     }
+
+    pub(crate) fn has_child_clip(&self) -> bool {
+        self.clips_children()
+            && match self {
+                Self::Group(_) => false,
+                Self::CachedShape(shape) => shape.has_geometry() || self.is_axis_aligned_rect(),
+                Self::ClipRect(_) => true,
+            }
+    }
 }

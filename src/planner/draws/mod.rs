@@ -145,13 +145,18 @@ impl DrawPlanner {
         let Some(node) = input.tree.get(node_id) else {
             return;
         };
+        let content_effect = input.content_effects.get(&node_id);
         let intersects_damage = self.current.damaged_region.is_some_and(|damage| {
             node.logical_screen_bounds().intersects(&damage)
                 || input.shape_mask_effects.contains_key(&node_id)
-                || content_intersects_damage(input.content_effects.get(&node_id), damage)
+                || content_intersects_damage(content_effect, damage)
         });
         if !intersects_damage {
-            if !node.clips_children() && !input.tree.children(node_id).is_empty() {
+            let has_content_capture = content_effect.is_some_and(|effect| effect.bounds.is_some());
+            if !node.has_child_clip()
+                && !has_content_capture
+                && !input.tree.children(node_id).is_empty()
+            {
                 self.parents.push(ParentDrawState {
                     node_id,
                     next_child: 0,
