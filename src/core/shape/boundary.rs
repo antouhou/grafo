@@ -1,5 +1,6 @@
 use crate::core::vertex::CustomVertex;
 use ahash::HashMap;
+use lyon::path::PathEvent;
 use std::{mem, ops::Range};
 
 #[derive(Clone, Copy, Debug)]
@@ -76,16 +77,134 @@ impl RoundedRectBoundary {
     }
 }
 
-type EdgeKey = ([u32; 2], [u32; 2]);
+type PositionKey = [u32; 2];
+type EdgeKey = (PositionKey, PositionKey);
 
-fn position_key(position: [f32; 2]) -> [u32; 2] {
+fn position_key(position: [f32; 2]) -> PositionKey {
     position.map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+}
+
+fn accumulate_triangle_edges(
+    edges: &mut HashMap<EdgeKey, PathBoundaryEdge>,
+    indices: &[u32],
+    position: impl Fn(u32) -> [f32; 2],
+) {
+    for triangle in indices.as_chunks::<3>().0 {
+        let [a, mut b, mut c] = triangle.map(&position);
+        let area = (b[0] as f64 - a[0] as f64) * (c[1] as f64 - a[1] as f64)
+            - (b[1] as f64 - a[1] as f64) * (c[0] as f64 - a[0] as f64);
+        if !area.is_finite() || area == 0.0 {
+            continue;
+        }
+        if area < 0.0 {
+            mem::swap(&mut b, &mut c);
+        }
+        for (start, end) in [(a, b), (b, c), (c, a)] {
+            let start_key = position_key(start);
+            let end_key = position_key(end);
+            let (key, edge) = if start_key < end_key {
+                (
+                    (start_key, end_key),
+                    PathBoundaryEdge {
+                        start,
+                        end,
+                        winding: 1,
+                    },
+                )
+            } else {
+                (
+                    (end_key, start_key),
+                    PathBoundaryEdge {
+                        start: end,
+                        end: start,
+                        winding: -1,
+                    },
+                )
+            };
+            edges
+                .entry(key)
+                .and_modify(|entry| entry.winding += edge.winding)
+                .or_insert(edge);
+        }
+    }
+}
+
+struct DirectedBoundaryEdge {
+    start: [f32; 2],
+    end: [f32; 2],
+    remaining: u32,
+    next_outgoing: Option<usize>,
+}
+
+struct BoundaryPathEvents<'a> {
+    edges: &'a mut [DirectedBoundaryEdge],
+    outgoing: &'a mut HashMap<PositionKey, usize>,
+    next_loop_edge: usize,
+    first: Option<[f32; 2]>,
+    current: [f32; 2],
+}
+
+impl BoundaryPathEvents<'_> {
+    fn take_outgoing_edge(&mut self, position: [f32; 2]) -> usize {
+        let head = self
+            .outgoing
+            .get_mut(&position_key(position))
+            .expect("triangle boundary vertices have outgoing edges");
+        while self.edges[*head].remaining == 0 {
+            // Closed triangles form a balanced graph, so every unfinished walk can continue.
+            *head = self.edges[*head]
+                .next_outgoing
+                .expect("triangle boundary walks cannot end before closing");
+        }
+        self.edges[*head].remaining -= 1;
+        *head
+    }
+}
+
+impl Iterator for BoundaryPathEvents<'_> {
+    type Item = PathEvent;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let Some(first) = self.first else {
+            while self
+                .edges
+                .get(self.next_loop_edge)
+                .is_some_and(|edge| edge.remaining == 0)
+            {
+                self.next_loop_edge += 1;
+            }
+            let start = self.edges.get(self.next_loop_edge)?.start;
+            self.first = Some(start);
+            self.current = start;
+            return Some(PathEvent::Begin { at: start.into() });
+        };
+
+        let from = self.current;
+        let edge_index = self.take_outgoing_edge(from);
+        let to = self.edges[edge_index].end;
+        if position_key(to) == position_key(first) {
+            self.first = None;
+            Some(PathEvent::End {
+                last: from.into(),
+                first: first.into(),
+                close: true,
+            })
+        } else {
+            self.current = to;
+            Some(PathEvent::Line {
+                from: from.into(),
+                to: to.into(),
+            })
+        }
+    }
 }
 
 #[derive(Default)]
 pub(crate) struct PathBoundaryBuilder {
     edges: HashMap<EdgeKey, PathBoundaryEdge>,
     positions: Vec<[f32; 2]>,
+    directed_edges: Vec<DirectedBoundaryEdge>,
+    outgoing: HashMap<PositionKey, usize>,
 }
 
 impl PathBoundaryBuilder {
@@ -99,47 +218,48 @@ impl PathBoundaryBuilder {
         self.positions.clear();
         self.positions
             .extend(vertices.iter().map(|vertex| project(vertex.position)));
-        for triangle in indices.as_chunks::<3>().0 {
-            let [a, mut b, mut c] = triangle.map(|index| self.positions[index as usize]);
-            let area = (b[0] as f64 - a[0] as f64) * (c[1] as f64 - a[1] as f64)
-                - (b[1] as f64 - a[1] as f64) * (c[0] as f64 - a[0] as f64);
-            if !area.is_finite() || area == 0.0 {
-                continue;
-            }
-            if area < 0.0 {
-                mem::swap(&mut b, &mut c);
-            }
-            for (start, end) in [(a, b), (b, c), (c, a)] {
-                let start_key = position_key(start);
-                let end_key = position_key(end);
-                let (key, edge) = if start_key < end_key {
-                    (
-                        (start_key, end_key),
-                        PathBoundaryEdge {
-                            start,
-                            end,
-                            winding: 1,
-                        },
-                    )
-                } else {
-                    (
-                        (end_key, start_key),
-                        PathBoundaryEdge {
-                            start: end,
-                            end: start,
-                            winding: -1,
-                        },
-                    )
-                };
-                self.edges
-                    .entry(key)
-                    .and_modify(|entry| entry.winding += edge.winding)
-                    .or_insert(edge);
-            }
-        }
+        accumulate_triangle_edges(&mut self.edges, indices, |index| {
+            self.positions[index as usize]
+        });
         self.edges
             .values()
             .copied()
             .filter(|edge| edge.winding != 0)
+    }
+
+    pub(crate) fn path_events(
+        &mut self,
+        vertices: &[CustomVertex],
+        indices: &[u32],
+    ) -> impl Iterator<Item = PathEvent> + '_ {
+        self.edges.clear();
+        accumulate_triangle_edges(&mut self.edges, indices, |index| {
+            vertices[index as usize].position
+        });
+        self.directed_edges.clear();
+        self.outgoing.clear();
+        for edge in self.edges.values().filter(|edge| edge.winding != 0) {
+            let (start, end) = if edge.winding > 0 {
+                (edge.start, edge.end)
+            } else {
+                (edge.end, edge.start)
+            };
+            let next_outgoing = self
+                .outgoing
+                .insert(position_key(start), self.directed_edges.len());
+            self.directed_edges.push(DirectedBoundaryEdge {
+                start,
+                end,
+                remaining: edge.winding.unsigned_abs(),
+                next_outgoing,
+            });
+        }
+        BoundaryPathEvents {
+            edges: &mut self.directed_edges,
+            outgoing: &mut self.outgoing,
+            next_loop_edge: 0,
+            first: None,
+            current: [0.0; 2],
+        }
     }
 }

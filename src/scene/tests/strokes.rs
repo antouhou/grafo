@@ -115,6 +115,74 @@ fn invalid_stroke_points_preserve_existing_geometry_and_allow_later_strokes() {
 }
 
 #[test]
+fn stroke_complexity_errors_preserve_geometry_and_allow_later_strokes() {
+    let mut scene = scene();
+    let stroke = Shape::rect([(4.0, 4.0), (20.0, 20.0)]).stroke(StrokeOptions::new(2.0));
+    scene.load_shape(&stroke, 1, None).unwrap();
+    let node = scene
+        .add_cached_shape(1, None, ShapeDrawCommandOptions::new())
+        .unwrap();
+    let original = scene.state.loaded_shape(1).unwrap().tessellation;
+    scene.render(&mut surface()).unwrap();
+
+    let mut builder = Shape::builder();
+    for _ in 0..16_384 {
+        builder = builder.begin((0.0, 0.0)).line_to((10.0, 0.0)).end();
+    }
+    let complex = builder.build().stroke(StrokeOptions::new(2.0));
+    assert!(matches!(
+        scene.load_shape(&complex, 1, None),
+        Err(SceneError::StrokeTooComplex {
+            triangle_count: 32_768,
+            maximum_triangles: 32_767,
+        })
+    ));
+    assert!(matches!(
+        scene.add_shape(&complex, None, None, ShapeDrawCommandOptions::new()),
+        Err(DrawCommandError::Scene(SceneError::StrokeTooComplex {
+            triangle_count: 32_768,
+            maximum_triangles: 32_767,
+        }))
+    ));
+    assert!(matches!(
+        scene.replace_with_shape(node, &complex, None, ShapeDrawCommandOptions::new()),
+        Err(DrawCommandError::Scene(SceneError::StrokeTooComplex {
+            triangle_count: 32_768,
+            maximum_triangles: 32_767,
+        }))
+    ));
+    assert!(Arc::ptr_eq(
+        &original,
+        &scene.state.loaded_shape(1).unwrap().tessellation,
+    ));
+    assert!(Arc::ptr_eq(
+        &original,
+        &scene.state.shape(node).unwrap().cached_shape.tessellation,
+    ));
+    assert_eq!(scene.backend.registered_shapes, [node]);
+    assert!(scene.dirty_bounds.is_none());
+
+    let wider = stroke.stroke(StrokeOptions::new(4.0));
+    scene.load_shape(&wider, 1, None).unwrap();
+    scene
+        .replace_with_shape(node, &wider, None, ShapeDrawCommandOptions::new())
+        .unwrap();
+    let added = scene
+        .add_shape(&wider, None, None, ShapeDrawCommandOptions::new())
+        .unwrap();
+    for node in [node, added] {
+        assert_eq!(
+            scene.state.shape(node).unwrap().cached_shape.local_bounds(),
+            [(2.0, 2.0), (22.0, 22.0)],
+        );
+    }
+    assert_eq!(
+        scene.state.loaded_shape(1).unwrap().local_bounds(),
+        [(2.0, 2.0), (22.0, 22.0)],
+    );
+}
+
+#[test]
 fn shared_strokes_reuse_buffers_after_scene_removal_and_failed_replacement() {
     let context = SceneStateContext::default();
     let mut first = Scene::from_parts(TestBackend::default(), context.clone());

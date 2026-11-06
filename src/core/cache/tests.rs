@@ -1,5 +1,5 @@
 use super::{Cache, CachedTessellation, FrameCache};
-use crate::core::shape::{BorderRadii, LineCap, Shape, StrokeOptions};
+use crate::core::shape::{BorderRadii, LineCap, Shape, ShapeTessellationError, StrokeOptions};
 use crate::core::util::ShapeResources;
 use crate::core::vertex::CustomVertex;
 use lyon::tessellation::{GeometryBuilderError, TessellationError};
@@ -216,8 +216,8 @@ fn failed_stroke_returns_storage_for_the_next_attempt() {
         .stroke(StrokeOptions::new(f32::MAX).line_cap(LineCap::Square));
     assert!(matches!(
         overflowing.tessellate(&mut resources, None),
-        Err(TessellationError::GeometryBuilder(
-            GeometryBuilderError::InvalidVertex
+        Err(ShapeTessellationError::Tessellation(
+            TessellationError::GeometryBuilder(GeometryBuilderError::InvalidVertex)
         ))
     ));
     let reused = valid.tessellate(&mut resources, None).unwrap();

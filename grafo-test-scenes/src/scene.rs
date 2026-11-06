@@ -115,11 +115,30 @@ fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
     }
     scene
         .add_shape(
-            Shape::rect([(12.0, 48.0), (68.0, 68.0)]).stroke(StrokeOptions::new(6.0)),
+            Shape::rect([(12.0, 48.0), (36.0, 68.0)]).stroke(StrokeOptions::new(6.0)),
             None,
             None,
             ShapeDrawCommandOptions::new()
                 .color(Color::rgb(220, 160, 30))
+                .transform(transform),
+        )
+        .unwrap();
+    let crossing = Shape::builder()
+        .begin((42.0, 58.25))
+        .line_to((70.0, 58.25))
+        .line_to((70.0, 46.25))
+        .line_to((58.25, 46.25))
+        .line_to((58.25, 72.0))
+        .end()
+        .build()
+        .stroke(StrokeOptions::new(4.0));
+    scene
+        .add_shape(
+            crossing,
+            None,
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgba(0, 0, 0, 192))
                 .transform(transform),
         )
         .unwrap();
@@ -137,8 +156,14 @@ fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
             "t92_round_cap_has_no_square_corner",
         ),
         (16, 21, [255, 255, 255], "t92_open_path_has_no_closing_edge"),
-        (40, 48, [220, 160, 30], "t92_rectangle_stroke"),
-        (40, 58, [255, 255, 255], "t92_rectangle_interior_is_empty"),
+        (24, 48, [220, 160, 30], "t92_rectangle_stroke"),
+        (24, 58, [255, 255, 255], "t92_rectangle_interior_is_empty"),
+        (50, 58, [136; 3], "t92_translucent_stroke_arm"),
+        (58, 58, [136; 3], "t92_self_crossing_composites_once"),
+        (60, 65, [233; 3], "t92_quarter_covered_stroke_edge"),
+        // Two quarter-pixel strips cover 7/16 of this pixel after their overlap is removed.
+        (60, 60, [214; 3], "t92_crossing_uses_union_pixel_area"),
+        (64, 52, [255; 3], "t92_self_crossing_preserves_loop_hole"),
     ]
     .into_iter()
     .map(|(x, y, [red, green, blue], label)| {
@@ -150,6 +175,7 @@ fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
             blue,
             label,
         )
+        .with_tolerance(2)
     })
     .collect()
 }

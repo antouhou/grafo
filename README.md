@@ -133,8 +133,7 @@ the `SceneContext`, so another scene can reuse that shape through
 `add_cached_shape`. Use a content-derived key when the same geometry should
 be shared; loading a different shape with the same key replaces the shared entry, and
 `remove_shape` removes it for every scene using the context.
-If tessellation fails, `load_shape` returns `SceneError::Tessellation` and preserves the
-previous entry.
+If load fails, `load_shape` returns an error and preserves the previous entry.
 
 ### Shape hierarchy and overflow
 
