@@ -99,7 +99,7 @@ impl DrawPlanner {
         self.parents.clear();
         self.current = DrawTargetState::for_viewport(input.physical_size, CaptureSource::Target);
         self.current.damaged_region = input.damaged_region;
-        self.next_node = input.damaged_region.map(|_| 0);
+        self.next_node = input.damaged_region.is_some().then_some(0);
         if self.next_node.is_some() {
             self.resolve_backdrop_regions(input);
         }
