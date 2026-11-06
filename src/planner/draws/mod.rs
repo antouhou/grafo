@@ -3,8 +3,9 @@ use crate::commands::{
     ShapeDrawMaterial, ShapeTextureBinding, TextureComposite,
 };
 use crate::core::shape::ShapeInstance;
+use crate::core::MathRect;
 use crate::planner::commands::TraversalCommands;
-use crate::planner::content_effects::ContentCapture;
+use crate::planner::content_effects::{content_intersects_damage, ContentCapture};
 use crate::planner::TextureIdAllocator;
 use crate::scene_state::effects::parameters::EffectParameterStorage;
 use crate::scene_state::effects::{BackdropEffectInstance, ContentEffectInstance};
@@ -34,6 +35,8 @@ struct DrawTargetState {
     clip: DrawClip,
     decrements_stencil: bool,
     backdrop_source: CaptureSource,
+    damaged_region: Option<MathRect>,
+    is_content_capture: bool,
 }
 
 impl Default for DrawTargetState {
@@ -42,6 +45,8 @@ impl Default for DrawTargetState {
             clip: DrawClip::default(),
             decrements_stencil: false,
             backdrop_source: CaptureSource::Target,
+            damaged_region: None,
+            is_content_capture: false,
         }
     }
 }
@@ -55,6 +60,8 @@ impl DrawTargetState {
             },
             decrements_stencil: false,
             backdrop_source,
+            damaged_region: None,
+            is_content_capture: false,
         }
     }
 }
@@ -74,6 +81,7 @@ pub(crate) struct DrawPlanningInput<'scene, 'planning> {
     pub(crate) backdrop_effects: &'scene HashMap<usize, BackdropEffectInstance>,
     pub(crate) scale_factor: f64,
     pub(crate) physical_size: Size,
+    pub(crate) damaged_region: Option<MathRect>,
 }
 
 /// Walks the CPU tree to emit draw commands and resolved clip operands.
@@ -88,10 +96,20 @@ pub(crate) struct DrawPlanner {
 
 impl DrawPlanner {
     pub(crate) fn start(&mut self, input: &DrawPlanningInput<'_, '_>) {
-        self.resolve_backdrop_regions(input);
         self.parents.clear();
         self.current = DrawTargetState::for_viewport(input.physical_size, CaptureSource::Target);
-        self.next_node = Some(0);
+        self.current.damaged_region = input.damaged_region;
+        self.next_node = input.damaged_region.is_some().then_some(0);
+        if self.next_node.is_some() {
+            self.resolve_backdrop_regions(input);
+        }
+    }
+
+    pub(super) fn next_capture_node_damage(&self) -> Option<(usize, MathRect)> {
+        if !self.current.is_content_capture {
+            return None;
+        }
+        Some((self.next_node?, self.current.damaged_region?))
     }
 
     /// Advances one node or closes one parent, keeping each command group bounded.
@@ -127,6 +145,28 @@ impl DrawPlanner {
         let Some(node) = input.tree.get(node_id) else {
             return;
         };
+        let content_effect = input.content_effects.get(&node_id);
+        let intersects_damage = self.current.damaged_region.is_some_and(|damage| {
+            node.logical_screen_bounds().intersects(&damage)
+                || input.shape_mask_effects.contains_key(&node_id)
+                || content_intersects_damage(content_effect, damage)
+        });
+        if !intersects_damage {
+            let has_content_capture = content_effect.is_some_and(|effect| effect.bounds.is_some());
+            if !node.has_child_clip()
+                && !has_content_capture
+                && !input.tree.children(node_id).is_empty()
+            {
+                self.parents.push(ParentDrawState {
+                    node_id,
+                    next_child: 0,
+                    target_state: self.current,
+                    group_capture: None,
+                });
+                self.current.decrements_stencil = false;
+            }
+            return;
+        }
         let parent_state = self.current;
         let group_capture = self.begin_content_capture(node_id, input, output, texture_ids);
         if let Some(&composite) = input.shape_mask_effects.get(&node_id) {

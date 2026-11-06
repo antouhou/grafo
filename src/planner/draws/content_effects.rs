@@ -1,6 +1,7 @@
 use super::{DrawPlanner, DrawPlanningInput, DrawTargetState};
 use crate::commands::{CaptureConfig, CaptureSource, RenderOperation};
 use crate::core::effect::CaptureRegion;
+use crate::core::geometry;
 use crate::planner::commands::TraversalCommands;
 use crate::planner::content_effects::ContentCapture;
 use crate::planner::TextureIdAllocator;
@@ -41,6 +42,10 @@ impl DrawPlanner {
         let capture = ContentCapture::new(*effect, backdrop_region, texture_ids)?;
         capture.append_begin(output);
         self.current = DrawTargetState::for_viewport(input.physical_size, backdrop_source);
+        self.current.damaged_region = capture.source_region().map(|region| {
+            geometry::physical_bounds_to_logical_screen_rect(region, input.scale_factor)
+        });
+        self.current.is_content_capture = true;
         Some(capture)
     }
 }

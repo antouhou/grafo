@@ -273,7 +273,16 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
                 .logical_screen_bounds(),
             MathRect::new((16.25, 11.0).into(), (21.0, 16.0).into())
         );
-        let commands: Vec<_> = scene.planner.plan(&scene.state, 4096).collect();
+        let commands: Vec<_> = scene
+            .planner
+            .plan(
+                &scene.state,
+                4096,
+                Some(UnsignedPhysicalRect::from_size(
+                    scene.state.viewport().physical_size.into(),
+                )),
+            )
+            .collect();
         let capture = commands.iter().find_map(|command| match command.operation {
             RenderOperation::Capture(capture) => Some(capture.region.bounds),
             _ => None,

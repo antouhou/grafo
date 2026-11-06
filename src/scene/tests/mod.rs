@@ -189,6 +189,13 @@ impl RenderBackend for TestBackend {
         self.is_dirty_region_overlay_enabled
     }
 
+    fn prepare_target(
+        &mut self,
+        _: &mut RenderTarget<'_, Self::Surface>,
+    ) -> Result<bool, Self::Error> {
+        Ok(false)
+    }
+
     fn render<'scene>(
         &mut self,
         root_scissor: Option<UnsignedPhysicalRect>,
@@ -345,7 +352,16 @@ fn clearing_queue_removes_planned_draws_and_effects() {
     assert!(surface.resource().draws.is_empty());
     assert!(surface.resource().effects.is_empty());
     assert_eq!(surface.resource().shape_masks, 0);
-    let plan: Vec<_> = scene.planner.plan(&scene.state, 4096).collect();
+    let plan: Vec<_> = scene
+        .planner
+        .plan(
+            &scene.state,
+            4096,
+            Some(UnsignedPhysicalRect::from_size(
+                scene.state.viewport().physical_size.into(),
+            )),
+        )
+        .collect();
     assert!(matches!(
         plan.as_slice(),
         [
@@ -372,16 +388,8 @@ fn rendering_to_one_surface_does_not_change_another() {
         queue_shape(&mut second, false),
         queue_shape(&mut second, false),
     ];
-    let commands = first.planner.plan(&first.state, 4096);
-    first
-        .backend
-        .render(first.dirty_bounds, commands, (&mut first_surface).into())
-        .unwrap();
-    let commands = second.planner.plan(&second.state, 4096);
-    second
-        .backend
-        .render(second.dirty_bounds, commands, (&mut second_surface).into())
-        .unwrap();
+    first.render(&mut first_surface).unwrap();
+    second.render(&mut second_surface).unwrap();
     assert_eq!(first_surface.resource().draws, [first_shape]);
     assert_eq!(second_surface.resource().draws, second_shapes);
 

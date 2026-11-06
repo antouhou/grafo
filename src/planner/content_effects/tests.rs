@@ -5,7 +5,7 @@ use crate::commands::{
 use crate::core::effect::{BackdropEffectConfig, ContentEffectConfig};
 use crate::core::shape::CachedShapeHandle;
 use crate::core::util::ShapeResources;
-use crate::core::Viewport;
+use crate::core::{UnsignedPhysicalRect, Viewport};
 use crate::planner::commands::TraversalCommands;
 use crate::planner::draws::{DrawPlanner, DrawPlanningInput};
 use crate::planner::tests::RecordedCommands;
@@ -225,6 +225,7 @@ impl Scene {
             shape_mask_effects: &self.shapes,
             scale_factor: 1.0,
             physical_size: Size::new(100, 100),
+            damaged_region: Some(UnsignedPhysicalRect::from_size(Size::new(100, 100)).to_f32()),
         };
         planner.start(&input);
         let mut commands = TraversalCommands::default();

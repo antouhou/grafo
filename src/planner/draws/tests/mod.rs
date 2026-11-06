@@ -128,6 +128,7 @@ impl Scene {
             backdrop_effects: &self.backdrops,
             scale_factor: 1.0,
             physical_size: Size::new(100, 100),
+            damaged_region: Some(UnsignedPhysicalRect::from_size(Size::new(100, 100)).to_f32()),
         };
         let mut commands = TraversalCommands::default();
         let mut texture_ids = TextureIdAllocator::default();
@@ -293,24 +294,17 @@ fn offscreen_scissor_and_transparent_parent_restore_the_visible_sibling() {
     let mut scene = Scene::new();
     let root = scene.add(None, clip((10.0, 10.0), (60.0, 60.0)));
     let offscreen = scene.add(Some(root), clip((150.0, 150.0), (200.0, 200.0)));
-    let clipped = scene.add(Some(offscreen), shape(true));
+    scene.add(Some(offscreen), shape(true));
     let sibling = scene.add(Some(root), shape(true));
     let mut output = RecordedCommands::default();
     scene.plan(&mut DrawPlanner::default(), &mut output);
     assert_eq!(
         snapshot(&output),
-        [
-            (
-                Operation::Draw(ShapeDrawId(clipped)),
-                0,
-                UnsignedPhysicalRect::zero()
-            ),
-            (
-                Operation::Draw(ShapeDrawId(sibling)),
-                0,
-                rect((10, 10), (60, 60))
-            ),
-        ]
+        [(
+            Operation::Draw(ShapeDrawId(sibling)),
+            0,
+            rect((10, 10), (60, 60))
+        )]
     );
 }
 

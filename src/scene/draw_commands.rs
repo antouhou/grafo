@@ -33,15 +33,6 @@ pub(super) enum NodeTarget {
     Replace { node_id: usize },
 }
 
-pub(super) fn has_child_clip(node: &DrawTreeNode) -> bool {
-    node.clips_children()
-        && match node {
-            DrawTreeNode::Group(_) => false,
-            DrawTreeNode::CachedShape(shape) => shape.has_geometry() || node.is_axis_aligned_rect(),
-            DrawTreeNode::ClipRect(_) => true,
-        }
-}
-
 impl<B: RenderBackend> Scene<B> {
     fn prepare_draw_command(
         &mut self,
@@ -158,7 +149,7 @@ impl<B: RenderBackend> Scene<B> {
             .get(&node_id)
             .map(|effect| effect.bounds);
         let new_bounds = node.logical_screen_bounds();
-        let clips_children = has_child_clip(&node);
+        let has_child_clip = node.has_child_clip();
         let previous = self.state.replace_node(
             node_id,
             node,
@@ -179,7 +170,7 @@ impl<B: RenderBackend> Scene<B> {
             &mut self.dirty_bounds,
             self.state.content_effect_output(node_id),
         );
-        if has_child_clip(&previous) != clips_children
+        if previous.has_child_clip() != has_child_clip
             && !self.state.draw_tree.children(node_id).is_empty()
         {
             self.pending_damage.insert(node_id);

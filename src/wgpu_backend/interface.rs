@@ -130,14 +130,11 @@ impl RenderBackend for WgpuBackend {
         self.is_dirty_region_overlay_enabled
     }
 
-    fn render<'scene>(
+    fn prepare_target(
         &mut self,
-        root_scissor: Option<UnsignedPhysicalRect>,
-        commands: impl Iterator<Item = RenderCommand<'scene>>,
-        target: RenderTarget<'_, Self::Surface>,
-    ) -> Result<(), Self::Error> {
+        target: &mut RenderTarget<'_, Self::Surface>,
+    ) -> Result<bool, Self::Error> {
         let size = target.validate_size(self.maximum_texture_dimension())?;
-        self.resources.shape_execution.compact_draw_buffers();
         if self.viewport.physical_size != size {
             self.resize(Viewport {
                 physical_size: size,
@@ -145,17 +142,30 @@ impl RenderBackend for WgpuBackend {
             });
         }
         match target {
-            RenderTarget::Surface(surface) => {
-                self.prepare_surface(surface)?;
-                self.render_surface(root_scissor, commands, &surface.resource().surface)
-                    .map_err(WgpuBackendError::Surface)
-            }
-            RenderTarget::Pixmap(mut pixels) => {
+            RenderTarget::Surface(surface) => self.prepare_surface(surface)?,
+            RenderTarget::Pixmap(pixels) => {
                 let format = match pixels.layout().format() {
                     PixelFormat::Bgra8 | PixelFormat::Argb32 => TextureFormat::Bgra8UnormSrgb,
                     PixelFormat::Rgba8 => TextureFormat::Rgba8UnormSrgb,
                 };
                 self.set_format(format);
+            }
+        }
+        Ok(self.retained_output.is_none())
+    }
+
+    fn render<'scene>(
+        &mut self,
+        root_scissor: Option<UnsignedPhysicalRect>,
+        commands: impl Iterator<Item = RenderCommand<'scene>>,
+        target: RenderTarget<'_, Self::Surface>,
+    ) -> Result<(), Self::Error> {
+        self.resources.shape_execution.compact_draw_buffers();
+        match target {
+            RenderTarget::Surface(surface) => self
+                .render_surface(root_scissor, commands, &surface.resource().surface)
+                .map_err(WgpuBackendError::Surface),
+            RenderTarget::Pixmap(mut pixels) => {
                 if pixels.layout().format() == PixelFormat::Argb32 {
                     self.render_argb_pixels(root_scissor, commands, &mut pixels)?;
                 } else {

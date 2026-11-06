@@ -1,7 +1,5 @@
-use super::{
-    draw_commands::{has_child_clip, NodeTarget},
-    DrawCommandError, Scene,
-};
+use super::draw_commands::NodeTarget;
+use super::{DrawCommandError, Scene};
 use crate::commands::ShapeDrawId;
 use crate::core::{
     geometry, GroupDrawCommandOptions, MathRect, ShapeDrawCommandOptions, Size, TextSource,
@@ -59,7 +57,7 @@ impl<B: RenderBackend> Scene<B> {
         while let Some(node_id) = ancestor {
             let node = self.state.draw_tree.get(node_id)?;
             if Some(node_id) != replaced
-                && has_child_clip(node)
+                && node.has_child_clip()
                 && node.logical_screen_bounds().is_finite()
             {
                 bounds = bounds

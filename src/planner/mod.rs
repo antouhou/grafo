@@ -1,12 +1,13 @@
 use crate::commands::{
     IntermediateTextureId, RenderCommand, RenderOperation, Target, TextureComposite,
 };
+use crate::core::{geometry, MathRect, UnsignedPhysicalRect};
 use crate::scene_state::effects::ShapeMaskEffectInstance;
 use crate::scene_state::SceneState;
 use ahash::HashMap;
 use commands::{PendingCommands, TraversalCommands};
 use draws::{DrawPlanner, DrawPlanningInput};
-use shape_mask_effects::append_shape_mask_effect;
+use shape_mask_effects::should_prepare_shape_mask_effect;
 use std::collections::hash_map;
 use std::iter::FusedIterator;
 
@@ -51,6 +52,8 @@ pub(crate) struct CommandIterator<'state, 'planner> {
     texture_ids: TextureIdAllocator,
     phase: PlanningPhase,
     maximum_texture_dimension: u32,
+    damaged_region: Option<MathRect>,
+    has_deferred_shape_masks: bool,
 }
 
 impl Planner {
@@ -59,7 +62,16 @@ impl Planner {
         &'planner mut self,
         state: &'state SceneState,
         maximum_texture_dimension: u32,
+        damaged_region: Option<UnsignedPhysicalRect>,
     ) -> CommandIterator<'state, 'planner> {
+        let damaged_region = damaged_region
+            .filter(|region| !region.is_empty())
+            .map(|region| {
+                geometry::physical_bounds_to_logical_screen_rect(
+                    region,
+                    state.viewport().scale_factor,
+                )
+            });
         self.shape_composites.clear();
         self.traversal.start(&DrawPlanningInput {
             tree: &state.draw_tree,
@@ -69,6 +81,7 @@ impl Planner {
             shape_mask_effects: &self.shape_composites,
             scale_factor: state.viewport().scale_factor,
             physical_size: state.viewport().physical_size.into(),
+            damaged_region,
         });
         CommandIterator {
             state,
@@ -76,13 +89,66 @@ impl Planner {
             shape_effects: state.shape_mask_effects.iter(),
             pending_commands: TraversalCommands::default().into_iter(),
             texture_ids: TextureIdAllocator::default(),
-            phase: PlanningPhase::Beginning,
+            phase: if damaged_region.is_some() {
+                PlanningPhase::Beginning
+            } else {
+                PlanningPhase::Finished
+            },
             maximum_texture_dimension,
+            damaged_region,
+            has_deferred_shape_masks: false,
         }
     }
 
     pub(crate) fn clear(&mut self) {
         self.shape_composites.clear();
+    }
+}
+
+impl<'state> CommandIterator<'state, '_> {
+    fn append_shape_mask_effect(
+        &mut self,
+        node_id: usize,
+        effect: &ShapeMaskEffectInstance,
+        commands: &mut TraversalCommands<'state>,
+    ) {
+        shape_mask_effects::append_shape_mask_effect(
+            commands,
+            &mut self.texture_ids,
+            &mut self.planner.shape_composites,
+            &self.state.draw_tree,
+            node_id,
+            effect,
+            &self.state.effect_parameters,
+            self.state.viewport(),
+            self.maximum_texture_dimension,
+        );
+    }
+
+    fn plan_deferred_shape_mask_effect(
+        &mut self,
+        commands: &mut TraversalCommands<'state>,
+    ) -> bool {
+        let Some((node_id, damage)) = self.planner.traversal.next_capture_node_damage() else {
+            return false;
+        };
+        if self.planner.shape_composites.contains_key(&node_id) {
+            return false;
+        }
+        let Some(effect) = self.state.shape_mask_effects.get(&node_id) else {
+            return false;
+        };
+        if !shape_mask_effects::should_prepare_shape_mask_effect(
+            node_id,
+            effect,
+            &self.state.content_effects,
+            damage,
+        ) {
+            return false;
+        }
+        // A selected content capture can need masks outside the surface damage.
+        self.append_shape_mask_effect(node_id, effect, commands);
+        self.planner.shape_composites.contains_key(&node_id)
     }
 }
 
@@ -102,22 +168,29 @@ impl<'state> Iterator for CommandIterator<'state, '_> {
                 }
                 PlanningPhase::PlanningShapeMaskEffects => {
                     if let Some((&node_id, effect)) = self.shape_effects.next() {
-                        append_shape_mask_effect(
-                            &mut commands,
-                            &mut self.texture_ids,
-                            &mut self.planner.shape_composites,
-                            &self.state.draw_tree,
-                            node_id,
-                            effect,
-                            &self.state.effect_parameters,
-                            self.state.viewport(),
-                            self.maximum_texture_dimension,
-                        );
+                        if self.damaged_region.is_some_and(|damage| {
+                            should_prepare_shape_mask_effect(
+                                node_id,
+                                effect,
+                                &self.state.content_effects,
+                                damage,
+                            )
+                        }) {
+                            self.append_shape_mask_effect(node_id, effect, &mut commands);
+                        } else {
+                            self.has_deferred_shape_masks = !self.state.content_effects.is_empty();
+                        }
                     } else {
                         self.phase = PlanningPhase::PlanningMainContent;
                     }
                 }
                 PlanningPhase::PlanningMainContent => {
+                    if self.has_deferred_shape_masks
+                        && self.plan_deferred_shape_mask_effect(&mut commands)
+                    {
+                        self.pending_commands = commands.into_iter();
+                        continue;
+                    }
                     let progressed = self.planner.traversal.advance(
                         &DrawPlanningInput {
                             tree: &self.state.draw_tree,
@@ -127,6 +200,7 @@ impl<'state> Iterator for CommandIterator<'state, '_> {
                             shape_mask_effects: &self.planner.shape_composites,
                             scale_factor: self.state.viewport().scale_factor,
                             physical_size: self.state.viewport().physical_size.into(),
+                            damaged_region: self.damaged_region,
                         },
                         &mut commands,
                         &mut self.texture_ids,
