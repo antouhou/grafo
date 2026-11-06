@@ -1,15 +1,15 @@
 use super::{DrawCommandError, RenderBackend, Scene};
 use crate::commands::{RenderCommand, RenderOperation, ShapeDrawId, Target};
 use crate::core::{
-    CachedShapeHandle, Color, ContentEffectConfig, Shape, ShapeDrawCommandOptions, ShapeInstance,
-    ShapeMaskEffectConfig, UnsignedPhysicalRect, Viewport,
+    CachedShapeHandle, CachedTessellation, Color, ContentEffectConfig, Shape,
+    ShapeDrawCommandOptions, ShapeInstance, ShapeMaskEffectConfig, UnsignedPhysicalRect, Viewport,
 };
 use crate::render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError, Surface,
 };
 use crate::render_backend::texture_manager::{TextureManager, TextureUpdatePublisher};
 use crate::scene_state::SceneStateContext;
-use ahash::HashSet;
+use ahash::{HashMap, HashSet};
 use lyon::math::{point, Transform};
 use lyon::path::Path;
 use std::sync::{Arc, Mutex};
@@ -19,6 +19,7 @@ mod damage;
 mod groups;
 mod removal;
 mod replacement;
+mod strokes;
 mod text;
 
 #[derive(Default)]
@@ -93,6 +94,7 @@ struct TestBackend {
     root_scissor: Option<UnsignedPhysicalRect>,
     is_dirty_region_overlay_enabled: bool,
     registered_shapes: Vec<usize>,
+    registered_geometry: HashMap<usize, Arc<CachedTessellation>>,
     refreshed_uvs: Vec<usize>,
     refreshed_paints: Vec<usize>,
     should_fail: bool,
@@ -118,6 +120,8 @@ impl RenderBackend for TestBackend {
         if !self.registered_shapes.contains(&id.0) {
             self.registered_shapes.push(id.0);
         }
+        self.registered_geometry
+            .insert(id.0, Arc::clone(&shape.cached_shape.tessellation));
         Ok(())
     }
 
@@ -138,10 +142,14 @@ impl RenderBackend for TestBackend {
     fn unregister_shapes(&mut self, ids: &[ShapeDrawId]) {
         self.registered_shapes
             .retain(|&registered| !ids.contains(&ShapeDrawId(registered)));
+        for id in ids {
+            self.registered_geometry.remove(&id.0);
+        }
     }
 
     fn clear(&mut self) {
         self.registered_shapes.clear();
+        self.registered_geometry.clear();
     }
 
     fn texture_manager(&self) -> &TestTextureManager {

@@ -66,7 +66,7 @@ impl ShapeMaskEffectExecutionResources<'_> {
     ) -> CompletedMask {
         let shape = self.shapes.draw_resources(command.shape);
         let key = ShapeMaskCacheKey {
-            tessellation: Arc::clone(
+            tessellation: Arc::downgrade(
                 shape
                     .mask_tessellation
                     .as_ref()

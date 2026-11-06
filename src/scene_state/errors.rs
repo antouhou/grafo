@@ -1,3 +1,4 @@
+use crate::core::StrokeOptionsError;
 use lyon::tessellation::TessellationError;
 use thiserror::Error;
 
@@ -5,6 +6,8 @@ use thiserror::Error;
 pub enum SceneError {
     #[error("Path tessellation failed: {0}")]
     Tessellation(#[from] TessellationError),
+    #[error("Invalid stroke options: {0}")]
+    InvalidStrokeOptions(#[from] StrokeOptionsError),
     #[error("Invalid shape ID: {0}")]
     InvalidShapeId(usize),
     #[error("Shape {0} is not loaded")]

@@ -12,10 +12,10 @@ use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
     ColorInterpolation, ConicGradientDesc, ContentEffectConfig, Fill, GlyphContent, Gradient,
     GradientColor, GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions,
-    GradientUnits, LinearGradientDesc, LinearGradientLine, PositionedGlyph, RadialGradientDesc,
-    RadialGradientSize, Scene, Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig,
-    ShapeTextureFitMode, ShapeTextureOptions, SpreadMode, TextSource, TextureManager,
-    TransformInstance,
+    GradientUnits, LineCap, LineJoin, LinearGradientDesc, LinearGradientLine, PositionedGlyph,
+    RadialGradientDesc, RadialGradientSize, Scene, Shape, ShapeDrawCommandOptions,
+    ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions, SpreadMode, StrokeOptions,
+    TextSource, TextureManager, TransformInstance,
 };
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use std::slice;
@@ -70,6 +70,88 @@ impl TextSource for RepeatedOutline<'_> {
     fn glyph_content(&mut self, _: &Self::GlyphKey) -> Option<GlyphContent<'_>> {
         Some(GlyphContent::Outline(self.events))
     }
+}
+
+fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(92);
+    let transform = TransformInstance::translation(origin_x, origin_y);
+    for (left, cap, join, color) in [
+        (
+            10.0,
+            LineCap::Butt,
+            LineJoin::Miter,
+            Color::rgb(220, 50, 50),
+        ),
+        (
+            34.0,
+            LineCap::Square,
+            LineJoin::Bevel,
+            Color::rgb(50, 180, 50),
+        ),
+        (
+            58.0,
+            LineCap::Round,
+            LineJoin::Round,
+            Color::rgb(50, 90, 220),
+        ),
+    ] {
+        let corner = Shape::builder()
+            .begin((left, 28.0))
+            .line_to((left + 12.0, 28.0))
+            .line_to((left + 12.0, 10.0))
+            .end()
+            .build()
+            .stroke(StrokeOptions::new(8.0).line_cap(cap).line_join(join));
+        scene
+            .add_shape(
+                corner,
+                None,
+                None,
+                ShapeDrawCommandOptions::new()
+                    .color(color)
+                    .transform(transform),
+            )
+            .unwrap();
+    }
+    scene
+        .add_shape(
+            Shape::rect([(12.0, 48.0), (68.0, 68.0)]).stroke(StrokeOptions::new(6.0)),
+            None,
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgb(220, 160, 30))
+                .transform(transform),
+        )
+        .unwrap();
+    [
+        (8, 28, [255, 255, 255], "t92_butt_cap_stops_at_endpoint"),
+        (25, 31, [220, 50, 50], "t92_miter_corner"),
+        (31, 28, [50, 180, 50], "t92_square_cap_extends_endpoint"),
+        (49, 31, [255, 255, 255], "t92_bevel_corner_is_cut"),
+        (55, 28, [50, 90, 220], "t92_round_cap_extends_endpoint"),
+        (71, 30, [50, 90, 220], "t92_round_join"),
+        (
+            54,
+            24,
+            [255, 255, 255],
+            "t92_round_cap_has_no_square_corner",
+        ),
+        (16, 21, [255, 255, 255], "t92_open_path_has_no_closing_edge"),
+        (40, 48, [220, 160, 30], "t92_rectangle_stroke"),
+        (40, 58, [255, 255, 255], "t92_rectangle_interior_is_empty"),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+    })
+    .collect()
 }
 
 fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
@@ -7544,6 +7626,7 @@ pub fn build_main_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
     expectations.extend(tile_89_rectangle_coverage_effects(scene));
     expectations.extend(tile_90_bounded_effect_targets(scene));
     expectations.extend(tile_91_cached_glyphs(scene));
+    expectations.extend(tile_92_path_strokes(scene));
 
     expectations
 }

@@ -11,10 +11,35 @@ use std::sync::Arc;
 pub struct CachedTessellation {
     pub(crate) is_rect: bool,
     pub(crate) boundary_edges: Vec<PathBoundaryEdge>,
+    pub(crate) vertex_buffers: VertexBuffers<CustomVertex, u32>,
     pub(crate) rounded_rect_boundary: Option<RoundedRectBoundary>,
-    pub(crate) vertex_buffers: Arc<VertexBuffers<CustomVertex, u32>>,
     pub(crate) local_bounds: [(f32, f32); 2],
     pub(crate) texture_mapping_size: [f32; 2],
+}
+
+impl CachedTessellation {
+    pub(crate) fn empty() -> Self {
+        Self {
+            is_rect: false,
+            boundary_edges: Vec::new(),
+            vertex_buffers: VertexBuffers {
+                vertices: Vec::new(),
+                indices: Vec::new(),
+            },
+            rounded_rect_boundary: None,
+            local_bounds: [(0.0, 0.0), (1.0, 1.0)],
+            texture_mapping_size: [1.0, 1.0],
+        }
+    }
+
+    fn clear(&mut self) {
+        self.vertex_buffers.clear();
+        self.boundary_edges.clear();
+        self.is_rect = false;
+        self.rounded_rect_boundary = None;
+        self.local_bounds = [(0.0, 0.0), (1.0, 1.0)];
+        self.texture_mapping_size = [1.0, 1.0];
+    }
 }
 
 pub(crate) struct FrameCache<K, V> {
@@ -91,12 +116,31 @@ where
 
 pub(crate) struct Cache {
     entries: FrameCache<u64, Arc<CachedTessellation>>,
+    available_tessellations: Vec<CachedTessellation>,
 }
 
 impl Cache {
     pub(crate) fn new() -> Self {
         Self {
             entries: FrameCache::new(),
+            available_tessellations: Vec::new(),
+        }
+    }
+
+    pub(crate) fn acquire_tessellation(&mut self) -> CachedTessellation {
+        self.available_tessellations
+            .pop()
+            .unwrap_or_else(CachedTessellation::empty)
+    }
+
+    pub(crate) fn recycle_tessellation(&mut self, mut tessellation: CachedTessellation) {
+        tessellation.clear();
+        self.available_tessellations.push(tessellation);
+    }
+
+    pub(crate) fn release_tessellation(&mut self, tessellation: Arc<CachedTessellation>) {
+        if let Some(tessellation) = Arc::into_inner(tessellation) {
+            self.recycle_tessellation(tessellation);
         }
     }
 
@@ -123,7 +167,12 @@ impl Cache {
     }
 
     pub(crate) fn end_frame(&mut self) {
-        drop(self.entries.end_frame());
+        for (_, tessellation) in self.entries.end_frame() {
+            if let Some(mut tessellation) = Arc::into_inner(tessellation) {
+                tessellation.clear();
+                self.available_tessellations.push(tessellation);
+            }
+        }
     }
 }
 

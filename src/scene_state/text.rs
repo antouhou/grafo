@@ -139,7 +139,11 @@ impl SceneState {
         } = &mut *glyph_usage;
         for glyph_key in glyphs_to_remove.drain() {
             counts.remove(&glyph_key);
-            loaded_shapes.remove(&glyph_key);
+            if let Some(shape) = loaded_shapes.remove(&glyph_key) {
+                self.shape_resources
+                    .tessellation_cache
+                    .release_tessellation(shape.tessellation);
+            }
         }
     }
 }

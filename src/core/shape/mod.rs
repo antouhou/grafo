@@ -16,7 +16,7 @@ pub use lyon::path::FillRule;
 use lyon::path::{Builder, Path, PathEvent, Winding};
 use lyon::tessellation::FillVertexConstructor;
 use std::sync::Arc;
-pub use stroke::{LineCap, LineJoin, StrokeOptions};
+pub use stroke::{LineCap, LineJoin, StrokeOptions, StrokeOptionsError};
 
 pub(crate) mod boundary;
 mod stroke;
@@ -47,7 +47,8 @@ impl CachedShapeHandle {
     }
 
     #[inline]
-    pub fn vertex_buffers(&self) -> &Arc<VertexBuffers<CustomVertex, u32>> {
+    /// Borrows the vertices and indices. Clone this handle to retain shared geometry.
+    pub fn vertex_buffers(&self) -> &VertexBuffers<CustomVertex, u32> {
         &self.tessellation.vertex_buffers
     }
 
@@ -134,6 +135,50 @@ fn compute_vertex_bounds(vertices: &[CustomVertex]) -> [(f32, f32); 2] {
     [(min_x, min_y), (max_x, max_y)]
 }
 
+fn finish_path_tessellation(
+    mut tessellation: CachedTessellation,
+    is_rounded_rect: bool,
+    shape_resources: &mut ShapeResources,
+    tessellation_cache_key: Option<u64>,
+) -> Arc<CachedTessellation> {
+    let buffers = &mut tessellation.vertex_buffers;
+    let local_bounds = compute_vertex_bounds(&buffers.vertices);
+
+    // Map the local bounds to the full texture.
+    if !buffers.vertices.is_empty() {
+        let width = (local_bounds[1].0 - local_bounds[0].0).max(1e-6);
+        let height = (local_bounds[1].1 - local_bounds[0].1).max(1e-6);
+        for vertex in buffers.vertices.iter_mut() {
+            vertex.tex_coords = [
+                (vertex.position[0] - local_bounds[0].0) / width,
+                (vertex.position[1] - local_bounds[0].1) / height,
+            ];
+        }
+    }
+
+    tessellation
+        .boundary_edges
+        .extend(shape_resources.path_boundary_builder.build(
+            &buffers.vertices,
+            &buffers.indices,
+            |position| position,
+        ));
+    tessellation.rounded_rect_boundary = is_rounded_rect
+        .then(|| RoundedRectBoundary::new(&mut tessellation.boundary_edges))
+        .flatten();
+    tessellation.local_bounds = local_bounds;
+    tessellation.texture_mapping_size = rect_size(local_bounds);
+    let tessellation = Arc::new(tessellation);
+
+    if let Some(cache_key) = tessellation_cache_key {
+        shape_resources
+            .tessellation_cache
+            .insert_tessellation(cache_key, Arc::clone(&tessellation));
+    }
+
+    tessellation
+}
+
 /// A rectangle or a path made of lines and Bezier curves.
 ///
 /// Use [`Self::rect`] or [`Self::rounded_rect`] for rectangles, or [`Self::builder`]
@@ -194,6 +239,7 @@ impl Shape {
     /// Selects a centered stroke instead of the shape's filled interior.
     /// Replaces any previously selected stroke options.
     /// Set its color, gradient, or textures through [`ShapeDrawCommandOptions`].
+    /// Invalid widths and miter limits are rejected when the shape is added or loaded.
     ///
     /// ```rust
     /// use grafo::{LineJoin, Shape, StrokeOptions};
@@ -222,14 +268,22 @@ impl Shape {
         &self,
         tessellator: &mut FillTessellator,
         shape_resources: &mut ShapeResources,
-        tesselation_cache_key: Option<u64>,
+        tessellation_cache_key: Option<u64>,
     ) -> Result<Arc<CachedTessellation>, TessellationError> {
         match &self {
             Shape::Path(path_shape) => {
-                path_shape.tessellate(tessellator, shape_resources, tesselation_cache_key)
+                path_shape.tessellate(tessellator, shape_resources, tessellation_cache_key)
             }
             Shape::Rect(rect_shape) => {
-                if let Some(cache_key) = tesselation_cache_key {
+                if let Some(options) = rect_shape.stroke_options {
+                    return stroke::tessellate_rect(
+                        rect_shape.rect,
+                        options,
+                        shape_resources,
+                        tessellation_cache_key,
+                    );
+                }
+                if let Some(cache_key) = tessellation_cache_key {
                     if let Some(cached_tessellation) = shape_resources
                         .tessellation_cache
                         .get_tessellation(&cache_key)
@@ -269,33 +323,29 @@ impl Shape {
                 let indices = [0u32, 1, 2, 0, 2, 3];
                 let local_bounds = rect_shape.rect;
 
-                let mut vertex_buffers = VertexBuffers::new();
+                let mut tessellation = shape_resources.tessellation_cache.acquire_tessellation();
+                let vertex_buffers = &mut tessellation.vertex_buffers;
 
                 vertex_buffers.vertices.extend(quad);
                 vertex_buffers.indices.extend(indices);
 
-                let boundary_edges = shape_resources
-                    .path_boundary_builder
-                    .build(
+                tessellation
+                    .boundary_edges
+                    .extend(shape_resources.path_boundary_builder.build(
                         &vertex_buffers.vertices,
                         &vertex_buffers.indices,
                         |position| position,
-                    )
-                    .collect();
+                    ));
 
-                let tessellation = Arc::new(CachedTessellation {
-                    is_rect: true,
-                    boundary_edges,
-                    rounded_rect_boundary: None,
-                    vertex_buffers: Arc::new(vertex_buffers),
-                    local_bounds,
-                    texture_mapping_size: rect_size(local_bounds),
-                });
+                tessellation.is_rect = true;
+                tessellation.local_bounds = local_bounds;
+                tessellation.texture_mapping_size = rect_size(local_bounds);
+                let tessellation = Arc::new(tessellation);
 
-                if let Some(tesselation_cache_key) = tesselation_cache_key {
+                if let Some(tessellation_cache_key) = tessellation_cache_key {
                     shape_resources
                         .tessellation_cache
-                        .insert_tessellation(tesselation_cache_key, Arc::clone(&tessellation));
+                        .insert_tessellation(tessellation_cache_key, Arc::clone(&tessellation));
                 }
 
                 Ok(tessellation)
@@ -383,45 +433,15 @@ impl PathShape {
         self
     }
 
-    fn tessellate_into_buffers(
-        events: impl IntoIterator<Item = PathEvent>,
-        fill_rule: FillRule,
-        buffers: &mut VertexBuffers<CustomVertex, u32>,
-        tessellator: &mut FillTessellator,
-    ) -> Result<[(f32, f32); 2], TessellationError> {
-        let options = FillOptions::default().with_fill_rule(fill_rule);
-
-        tessellator.tessellate(
-            events,
-            &options,
-            &mut BuffersBuilder::new(buffers, VertexConverter),
-        )?;
-
-        let local_bounds = compute_vertex_bounds(&buffers.vertices);
-
-        // Generate UVs for the tessellated path using its axis-aligned bounding box in local space
-        if !buffers.vertices.is_empty() {
-            let w = (local_bounds[1].0 - local_bounds[0].0).max(1e-6);
-            let h = (local_bounds[1].1 - local_bounds[0].1).max(1e-6);
-            for v in buffers.vertices.iter_mut() {
-                let u = (v.position[0] - local_bounds[0].0) / w;
-                let vcoord = (v.position[1] - local_bounds[0].1) / h;
-                v.tex_coords = [u, vcoord];
-            }
-        }
-
-        Ok(local_bounds)
-    }
-
     pub(crate) fn tessellate_events(
         events: impl IntoIterator<Item = PathEvent>,
         fill_rule: FillRule,
         is_rounded_rect: bool,
         tessellator: &mut FillTessellator,
         shape_resources: &mut ShapeResources,
-        tesselation_cache_key: Option<u64>,
+        tessellation_cache_key: Option<u64>,
     ) -> Result<Arc<CachedTessellation>, TessellationError> {
-        if let Some(cache_key) = tesselation_cache_key {
+        if let Some(cache_key) = tessellation_cache_key {
             if let Some(cached_tessellation) = shape_resources
                 .tessellation_cache
                 .get_tessellation(&cache_key)
@@ -430,33 +450,23 @@ impl PathShape {
             }
         }
 
-        let mut buffers = VertexBuffers::new();
-        let local_bounds =
-            Self::tessellate_into_buffers(events, fill_rule, &mut buffers, tessellator)?;
-
-        let mut boundary_edges: Vec<_> = shape_resources
-            .path_boundary_builder
-            .build(&buffers.vertices, &buffers.indices, |position| position)
-            .collect();
-        let rounded_rect_boundary = is_rounded_rect
-            .then(|| RoundedRectBoundary::new(&mut boundary_edges))
-            .flatten();
-        let tessellation = Arc::new(CachedTessellation {
-            is_rect: false,
-            boundary_edges,
-            rounded_rect_boundary,
-            vertex_buffers: Arc::new(buffers),
-            local_bounds,
-            texture_mapping_size: rect_size(local_bounds),
-        });
-
-        if let Some(cache_key) = tesselation_cache_key {
+        let mut tessellation = shape_resources.tessellation_cache.acquire_tessellation();
+        if let Err(error) = tessellator.tessellate(
+            events,
+            &FillOptions::default().with_fill_rule(fill_rule),
+            &mut BuffersBuilder::new(&mut tessellation.vertex_buffers, VertexConverter),
+        ) {
             shape_resources
                 .tessellation_cache
-                .insert_tessellation(cache_key, Arc::clone(&tessellation));
+                .recycle_tessellation(tessellation);
+            return Err(error);
         }
-
-        Ok(tessellation)
+        Ok(finish_path_tessellation(
+            tessellation,
+            is_rounded_rect,
+            shape_resources,
+            tessellation_cache_key,
+        ))
     }
 
     /// Returns shared geometry and bounds, reusing the tessellation cache when a key is given.
@@ -464,15 +474,23 @@ impl PathShape {
         &self,
         tessellator: &mut FillTessellator,
         shape_resources: &mut ShapeResources,
-        tesselation_cache_key: Option<u64>,
+        tessellation_cache_key: Option<u64>,
     ) -> Result<Arc<CachedTessellation>, TessellationError> {
+        if let Some(options) = self.stroke_options {
+            return stroke::tessellate(
+                self.path.iter(),
+                options,
+                shape_resources,
+                tessellation_cache_key,
+            );
+        }
         Self::tessellate_events(
             self.path.iter(),
             self.fill_rule,
             self.is_rounded_rect,
             tessellator,
             shape_resources,
-            tesselation_cache_key,
+            tessellation_cache_key,
         )
     }
 }
