@@ -76,7 +76,7 @@ pub(crate) struct ShapeExecutionResources {
     pub(crate) draws: HashMap<usize, ShapeDrawResources>,
     pub(crate) gradient_cache: GradientCache,
     pub(crate) vertices: Vec<CustomVertex>,
-    pub(crate) indices: Vec<u16>,
+    pub(crate) indices: Vec<u32>,
     pub(crate) geometry_ranges: HashMap<u64, GeometryBufferRange>,
     pub(crate) instance_transforms: Vec<InstanceTransform>,
     pub(crate) instance_colors: Vec<InstanceColor>,

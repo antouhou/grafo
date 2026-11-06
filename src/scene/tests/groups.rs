@@ -158,7 +158,7 @@ fn group_replacement_removes_inherited_effects_and_preserves_overrides() {
             assert_eq!(scene.dirty_bounds, previous_dirty);
             scene.backend.registration_failure = None;
             if use_cached_shape {
-                scene.load_shape(replacement, 50, Some(50));
+                scene.load_shape(replacement, 50, Some(50)).unwrap();
                 scene.replace_with_cached_shape(group, 50, options).unwrap();
             } else {
                 scene

@@ -19,6 +19,7 @@ mod replacement;
 struct Glyphs {
     glyphs: Vec<PositionedGlyph<u64>>,
     events: Vec<PathEvent>,
+    outline_override: Option<(u64, Vec<PathEvent>)>,
     cursor: usize,
     extractions: Vec<u64>,
     visible_bounds: Option<MathRect>,
@@ -46,6 +47,7 @@ impl Glyphs {
                 })
                 .collect(),
             events: path.path.iter().collect(),
+            outline_override: None,
             cursor: 0,
             extractions: Vec::new(),
             visible_bounds: None,
@@ -68,7 +70,11 @@ impl TextSource for Glyphs {
 
     fn glyph_content(&mut self, key: &u64) -> Option<GlyphContent<'_>> {
         self.extractions.push(*key);
-        (*key != 0).then_some(GlyphContent::Outline(&self.events))
+        let events = match &self.outline_override {
+            Some((override_key, events)) if key == override_key => events,
+            _ => &self.events,
+        };
+        (*key != 0).then_some(GlyphContent::Outline(events))
     }
 }
 
@@ -303,7 +309,7 @@ fn ordinary_replacement_removes_only_text_owned_glyphs() {
         },
     ] {
         let mut scene = scene();
-        scene.load_shape(&shape, 1, None);
+        scene.load_shape(&shape, 1, None).unwrap();
         let root = scene.add_group(None, Default::default()).unwrap();
         let text = scene
             .add_text(Glyphs::new(&[10, 11]), Some(root), options())

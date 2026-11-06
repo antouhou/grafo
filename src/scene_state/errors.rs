@@ -1,5 +1,10 @@
-#[derive(Debug, thiserror::Error)]
+use lyon::tessellation::TessellationError;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
 pub enum SceneError {
+    #[error("Path tessellation failed: {0}")]
+    Tessellation(#[from] TessellationError),
     #[error("Invalid shape ID: {0}")]
     InvalidShapeId(usize),
     #[error("Shape {0} is not loaded")]

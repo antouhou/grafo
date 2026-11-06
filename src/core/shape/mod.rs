@@ -10,7 +10,7 @@ use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
 use crate::core::Color;
 use lyon::geom::euclid::default::Transform3D;
 use lyon::lyon_tessellation::{
-    BuffersBuilder, FillOptions, FillTessellator, FillVertex, VertexBuffers,
+    BuffersBuilder, FillOptions, FillTessellator, FillVertex, TessellationError, VertexBuffers,
 };
 pub use lyon::path::FillRule;
 use lyon::path::{Builder, Path, PathEvent, Winding};
@@ -36,16 +36,16 @@ impl CachedShapeHandle {
         tessellator: &mut FillTessellator,
         shape_resources: &mut ShapeResources,
         geometry_id: Option<u64>,
-    ) -> Self {
-        let tessellation = shape.tessellate(tessellator, shape_resources, geometry_id);
-        Self {
+    ) -> Result<Self, TessellationError> {
+        let tessellation = shape.tessellate(tessellator, shape_resources, geometry_id)?;
+        Ok(Self {
             tessellation,
             geometry_id,
-        }
+        })
     }
 
     #[inline]
-    pub fn vertex_buffers(&self) -> &Arc<VertexBuffers<CustomVertex, u16>> {
+    pub fn vertex_buffers(&self) -> &Arc<VertexBuffers<CustomVertex, u32>> {
         &self.tessellation.vertex_buffers
     }
 
@@ -194,7 +194,7 @@ impl Shape {
         tessellator: &mut FillTessellator,
         shape_resources: &mut ShapeResources,
         tesselation_cache_key: Option<u64>,
-    ) -> Arc<CachedTessellation> {
+    ) -> Result<Arc<CachedTessellation>, TessellationError> {
         match &self {
             Shape::Path(path_shape) => {
                 path_shape.tessellate(tessellator, shape_resources, tesselation_cache_key)
@@ -205,7 +205,7 @@ impl Shape {
                         .tessellation_cache
                         .get_tessellation(&cache_key)
                     {
-                        return cached_tessellation;
+                        return Ok(cached_tessellation);
                     }
                 }
 
@@ -237,7 +237,7 @@ impl Shape {
                         tex_coords: uv(min_x, max_y),
                     },
                 ];
-                let indices = [0u16, 1, 2, 0, 2, 3];
+                let indices = [0u32, 1, 2, 0, 2, 3];
                 let local_bounds = rect_shape.rect;
 
                 let mut vertex_buffers = VertexBuffers::new();
@@ -269,7 +269,7 @@ impl Shape {
                         .insert_tessellation(tesselation_cache_key, Arc::clone(&tessellation));
                 }
 
-                tessellation
+                Ok(tessellation)
             }
         }
     }
@@ -350,18 +350,16 @@ impl PathShape {
     fn tessellate_into_buffers(
         events: impl IntoIterator<Item = PathEvent>,
         fill_rule: FillRule,
-        buffers: &mut VertexBuffers<CustomVertex, u16>,
+        buffers: &mut VertexBuffers<CustomVertex, u32>,
         tessellator: &mut FillTessellator,
-    ) -> [(f32, f32); 2] {
+    ) -> Result<[(f32, f32); 2], TessellationError> {
         let options = FillOptions::default().with_fill_rule(fill_rule);
 
-        tessellator
-            .tessellate(
-                events,
-                &options,
-                &mut BuffersBuilder::new(buffers, VertexConverter),
-            )
-            .unwrap();
+        tessellator.tessellate(
+            events,
+            &options,
+            &mut BuffersBuilder::new(buffers, VertexConverter),
+        )?;
 
         let local_bounds = compute_vertex_bounds(&buffers.vertices);
 
@@ -376,7 +374,7 @@ impl PathShape {
             }
         }
 
-        local_bounds
+        Ok(local_bounds)
     }
 
     pub(crate) fn tessellate_events(
@@ -386,25 +384,19 @@ impl PathShape {
         tessellator: &mut FillTessellator,
         shape_resources: &mut ShapeResources,
         tesselation_cache_key: Option<u64>,
-    ) -> Arc<CachedTessellation> {
+    ) -> Result<Arc<CachedTessellation>, TessellationError> {
         if let Some(cache_key) = tesselation_cache_key {
             if let Some(cached_tessellation) = shape_resources
                 .tessellation_cache
                 .get_tessellation(&cache_key)
             {
-                return cached_tessellation;
+                return Ok(cached_tessellation);
             }
         }
 
         let mut buffers = VertexBuffers::new();
         let local_bounds =
-            Self::tessellate_into_buffers(events, fill_rule, &mut buffers, tessellator);
-
-        #[allow(clippy::manual_is_multiple_of)]
-        let needs_index_padding = buffers.indices.len() % 2 != 0;
-        if needs_index_padding {
-            buffers.indices.push(0);
-        }
+            Self::tessellate_into_buffers(events, fill_rule, &mut buffers, tessellator)?;
 
         let mut boundary_edges: Vec<_> = shape_resources
             .path_boundary_builder
@@ -428,7 +420,7 @@ impl PathShape {
                 .insert_tessellation(cache_key, Arc::clone(&tessellation));
         }
 
-        tessellation
+        Ok(tessellation)
     }
 
     /// Returns shared geometry and bounds, reusing the tessellation cache when a key is given.
@@ -437,7 +429,7 @@ impl PathShape {
         tessellator: &mut FillTessellator,
         shape_resources: &mut ShapeResources,
         tesselation_cache_key: Option<u64>,
-    ) -> Arc<CachedTessellation> {
+    ) -> Result<Arc<CachedTessellation>, TessellationError> {
         Self::tessellate_events(
             self.path.iter(),
             self.fill_rule,

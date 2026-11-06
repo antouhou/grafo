@@ -15,7 +15,7 @@ fn buffer_glyphs(buffer: &Buffer, fonts: &mut FontSystem) -> Vec<(CachedShapeHan
     let mut source = CosmicText::new(buffer, fonts, None);
     let mut glyphs = Vec::new();
     while let Some(glyph) = source.next_glyph() {
-        if let Some(key) = state.load_glyph(&mut source, &glyph.key) {
+        if let Some(key) = state.load_glyph(&mut source, &glyph.key).unwrap() {
             glyphs.push((state.loaded_shape(key).unwrap(), glyph.position));
             state.release_glyph(key);
         }

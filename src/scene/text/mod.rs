@@ -83,7 +83,7 @@ impl<B: RenderBackend> Scene<B> {
         scratch: &mut TextScratch,
     ) -> Result<(), DrawCommandError<B::Error>> {
         while let Some(glyph) = source.next_glyph() {
-            let Some(cache_key) = self.state.load_glyph(source, &glyph.key) else {
+            let Some(cache_key) = self.state.load_glyph(source, &glyph.key)? else {
                 continue;
             };
             let offset = TransformInstance::translation(glyph.position.0, glyph.position.1);

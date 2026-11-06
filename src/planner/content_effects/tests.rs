@@ -183,7 +183,8 @@ impl Scene {
             &mut FillTessellator::new(),
             &mut ShapeResources::new(),
             None,
-        );
+        )
+        .unwrap();
         let node = self.tree.add_child(
             parent,
             DrawTreeNode::CachedShape(CachedShapeDrawData::new(

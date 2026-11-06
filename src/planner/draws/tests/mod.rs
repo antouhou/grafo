@@ -61,7 +61,8 @@ fn shape_description(shape: Shape, clips_children: bool) -> CachedShapeDrawData 
         &mut FillTessellator::new(),
         &mut ShapeResources::new(),
         None,
-    );
+    )
+    .unwrap();
     CachedShapeDrawData::new(
         handle,
         ShapeDrawCommandOptions::new()

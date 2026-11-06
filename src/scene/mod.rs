@@ -132,13 +132,15 @@ impl<B: RenderBackend> Scene<B> {
     }
 
     /// Tessellates into the shared CPU cache. Geometry IDs let identical shapes share uploads.
+    /// Returns [`SceneError::Tessellation`] if the path could not be tessellated, leaving any
+    /// existing cache entry intact.
     pub fn load_shape(
         &mut self,
         shape: impl AsRef<Shape>,
         cache_key: u64,
         geometry_id: Option<u64>,
-    ) {
-        self.state.load_shape(shape, cache_key, geometry_id);
+    ) -> Result<(), SceneError> {
+        self.state.load_shape(shape, cache_key, geometry_id)
     }
 
     pub fn remove_shape(&mut self, cache_key: u64) {

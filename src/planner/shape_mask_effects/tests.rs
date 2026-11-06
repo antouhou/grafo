@@ -77,7 +77,8 @@ fn scene_with_effects(
         &mut FillTessellator::new(),
         &mut resources,
         Some(17),
-    );
+    )
+    .unwrap();
     for translation in [5.0, 45.0] {
         let transform = InstanceTransform::translation(translation, 8.0);
         let config = ShapeMaskEffectConfig::new().outset(3.0).downsample(0.5);
@@ -183,7 +184,8 @@ fn empty_or_oversized_masks_never_produce_texture_references() {
         &mut FillTessellator::new(),
         &mut ShapeResources::new(),
         None,
-    );
+    )
+    .unwrap();
     let config = ShapeMaskEffectConfig::default();
     let bounds =
         ShapeMaskEffectBounds::new(empty_shape.tessellation.local_bounds, config, None, 1.0)

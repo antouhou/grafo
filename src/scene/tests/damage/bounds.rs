@@ -119,7 +119,9 @@ fn subtree_replacement_accumulates_bounds_until_a_successful_render() {
             false,
         )
         .unwrap();
-    scene.load_shape(Shape::rect([(0.0, 0.0), (2.0, 2.0)]), 17, None);
+    scene
+        .load_shape(Shape::rect([(0.0, 0.0), (2.0, 2.0)]), 17, None)
+        .unwrap();
     let first = scene
         .add_cached_shape(
             17,
@@ -190,7 +192,9 @@ fn retained_node_bounds_follow_viewport_changes_and_removal() {
             true,
         )
         .unwrap();
-    scene.load_shape(Shape::rect([(0.0, 0.0), (4.0, 3.0)]), 17, None);
+    scene
+        .load_shape(Shape::rect([(0.0, 0.0), (4.0, 3.0)]), 17, None)
+        .unwrap();
     let cached = scene
         .add_cached_shape(
             17,

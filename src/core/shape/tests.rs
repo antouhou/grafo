@@ -15,14 +15,22 @@ fn tessellation_reuse_survives_queue_rebuilds_in_independent_caches() {
         .line_to((0.0, 20.0))
         .close()
         .build();
-    let cached_rect = rectangle.tessellate(&mut tessellator, &mut first, Some(12));
-    let cached_triangle = triangle.tessellate(&mut tessellator, &mut second, Some(12));
+    let cached_rect = rectangle
+        .tessellate(&mut tessellator, &mut first, Some(12))
+        .unwrap();
+    let cached_triangle = triangle
+        .tessellate(&mut tessellator, &mut second, Some(12))
+        .unwrap();
     assert!(!Arc::ptr_eq(&cached_rect, &cached_triangle));
     for _ in 0..4 {
         first.tessellation_cache.end_frame();
         second.tessellation_cache.end_frame();
-        let rebuilt_rect = rectangle.tessellate(&mut tessellator, &mut first, Some(12));
-        let rebuilt_triangle = triangle.tessellate(&mut tessellator, &mut second, Some(12));
+        let rebuilt_rect = rectangle
+            .tessellate(&mut tessellator, &mut first, Some(12))
+            .unwrap();
+        let rebuilt_triangle = triangle
+            .tessellate(&mut tessellator, &mut second, Some(12))
+            .unwrap();
         assert!(Arc::ptr_eq(&cached_rect, &rebuilt_rect));
         assert!(Arc::ptr_eq(
             &cached_rect.vertex_buffers,

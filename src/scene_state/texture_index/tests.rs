@@ -23,7 +23,9 @@ fn scene() -> SceneState {
 }
 
 fn shape(scene: &mut SceneState, options: ShapeDrawCommandOptions) -> DrawTreeNode {
-    let cached_shape = scene.tessellate(&Shape::rect([(0.0, 0.0), (16.0, 16.0)]), Some(1));
+    let cached_shape = scene
+        .tessellate(&Shape::rect([(0.0, 0.0), (16.0, 16.0)]), Some(1))
+        .unwrap();
     DrawTreeNode::CachedShape(CachedShapeDrawData::new(cached_shape, options))
 }
 
@@ -35,7 +37,7 @@ fn textured_scene(context: SceneStateContext, bounds: [(f32, f32); 2]) -> SceneS
             scale_factor: 1.0,
         },
     );
-    let shape = scene.tessellate(&Shape::rect(bounds), None);
+    let shape = scene.tessellate(&Shape::rect(bounds), None).unwrap();
     scene.insert_node(
         DrawTreeNode::CachedShape(CachedShapeDrawData::new(
             shape,

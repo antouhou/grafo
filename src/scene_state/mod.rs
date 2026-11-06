@@ -132,8 +132,8 @@ impl SceneState {
         shape: impl AsRef<Shape>,
         cache_key: u64,
         geometry_id: Option<u64>,
-    ) {
-        let shape = self.tessellate(shape.as_ref(), geometry_id);
+    ) -> Result<(), SceneError> {
+        let shape = self.tessellate(shape.as_ref(), geometry_id)?;
         let mut glyph_usage = self
             .context
             .glyph_usage
@@ -145,6 +145,7 @@ impl SceneState {
             .write()
             .expect("shared shape cache lock poisoned")
             .insert(cache_key, shape);
+        Ok(())
     }
 
     pub(crate) fn remove_shape(&mut self, cache_key: u64) {
@@ -165,13 +166,13 @@ impl SceneState {
         &mut self,
         shape: &Shape,
         geometry_id: Option<u64>,
-    ) -> CachedShapeHandle {
-        CachedShapeHandle::new(
+    ) -> Result<CachedShapeHandle, SceneError> {
+        Ok(CachedShapeHandle::new(
             shape,
             &mut self.tessellator,
             &mut self.shape_resources,
             geometry_id,
-        )
+        )?)
     }
 
     pub(crate) fn loaded_shape(&self, cache_key: u64) -> Result<CachedShapeHandle, SceneError> {

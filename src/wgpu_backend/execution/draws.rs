@@ -52,7 +52,7 @@ pub(super) fn bind_aggregated_geometry_buffers(
     if buffers.supports_base_vertex {
         render_pass.set_vertex_buffer(0, buffers.vertex_buffer().slice(..));
     }
-    render_pass.set_index_buffer(buffers.index_buffer().slice(..), IndexFormat::Uint16);
+    render_pass.set_index_buffer(buffers.index_buffer().slice(..), IndexFormat::Uint32);
 }
 
 fn bind_decrement_pipeline(render_pass: &mut RenderPass<'_>, pipelines: &ShapePipelines) {

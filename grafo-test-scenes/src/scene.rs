@@ -690,11 +690,13 @@ fn tile_84_mixed_command_replacement(scene: &mut Scene) -> Vec<PixelExpectation>
     let lower = scene
         .add_shape(&initial, None, None, options.clone())
         .unwrap();
-    scene.load_shape(
-        Shape::rect([(5.0, 5.0), (55.0, 30.0)]),
-        84_001,
-        Some(84_002),
-    );
+    scene
+        .load_shape(
+            Shape::rect([(5.0, 5.0), (55.0, 30.0)]),
+            84_001,
+            Some(84_002),
+        )
+        .unwrap();
     let replacement = Shape::rounded_rect([(10.0, 45.0), (70.0, 70.0)], BorderRadii::new(4.0));
     let gradient = Gradient::linear(LinearGradientDesc {
         common: two_stop_common_canvas((220, 30, 30), (30, 30, 220), SpreadMode::Pad),
@@ -3298,7 +3300,7 @@ fn tile_34_cached_shape(scene: &mut Scene) -> Vec<PixelExpectation> {
     let shape = Shape::rect([(ox + 10.0, oy + 10.0), (ox + 70.0, oy + 70.0)]);
 
     let cache_key = 9999;
-    scene.load_shape(shape, cache_key, None);
+    scene.load_shape(shape, cache_key, None).unwrap();
     scene
         .add_cached_shape(
             cache_key,
@@ -5786,11 +5788,13 @@ fn tile_71_shared_geometry_material_batches(scene: &mut Scene) -> Vec<PixelExpec
     // Leave the left viewport edge for the padded backdrop capture.
     let (origin_x, origin_y) = tile_origin(73);
     let shape_key = 71_001;
-    scene.load_shape(
-        Shape::rect([(0.0, 0.0), (18.0, 18.0)]),
-        shape_key,
-        Some(shape_key),
-    );
+    scene
+        .load_shape(
+            Shape::rect([(0.0, 0.0), (18.0, 18.0)]),
+            shape_key,
+            Some(shape_key),
+        )
+        .unwrap();
     let gradient = Gradient::linear(LinearGradientDesc {
         common: two_stop_common((255, 0, 0), (0, 0, 255), SpreadMode::Pad),
         line: LinearGradientLine {
@@ -6803,11 +6807,13 @@ fn tile_80_group_composite_under_mixed_clips(scene: &mut Scene) -> Vec<PixelExpe
 fn tile_81_shared_shape_mask_effect_composites(scene: &mut Scene) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(81);
     add_backdrop_checkerboard(scene, (origin_x, origin_y));
-    scene.load_shape(
-        Shape::rounded_rect([(0.0, 0.0), (42.0, 36.0)], BorderRadii::new(4.0)),
-        81_001,
-        Some(81_002),
-    );
+    scene
+        .load_shape(
+            Shape::rounded_rect([(0.0, 0.0), (42.0, 36.0)], BorderRadii::new(4.0)),
+            81_001,
+            Some(81_002),
+        )
+        .unwrap();
     let outer = scene
         .add_shape(
             Shape::rounded_rect(

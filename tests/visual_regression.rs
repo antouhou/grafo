@@ -405,17 +405,21 @@ fn shape_mask_effects_follow_geometry_and_placement_across_queue_rebuilds() {
     scene
         .load_effect(8_101, &[CACHED_SHAPE_MASK_EFFECT_RED_MASK])
         .unwrap();
-    scene.load_shape(Shape::rect([(0.0, 0.0), (24.0, 24.0)]), 8_102, Some(8_103));
-    scene.load_shape(
-        Shape::builder()
-            .begin((0.0, 0.0))
-            .line_to((24.0, 0.0))
-            .line_to((0.0, 24.0))
-            .close()
-            .build(),
-        8_104,
-        Some(8_105),
-    );
+    scene
+        .load_shape(Shape::rect([(0.0, 0.0), (24.0, 24.0)]), 8_102, Some(8_103))
+        .unwrap();
+    scene
+        .load_shape(
+            Shape::builder()
+                .begin((0.0, 0.0))
+                .line_to((24.0, 0.0))
+                .line_to((0.0, 24.0))
+                .close()
+                .build(),
+            8_104,
+            Some(8_105),
+        )
+        .unwrap();
 
     let mut pixels = Vec::new();
     // Reorder and move distinct shapes with identical mask bounds after each queue clear.
@@ -472,7 +476,9 @@ fn cached_shape_mask_effects_composite_with_solid_shapes() {
         return;
     };
     scene.load_effect(8_151, &[PASSTHROUGH_WGSL]).unwrap();
-    scene.load_shape(Shape::rect([(0.0, 0.0), (24.0, 24.0)]), 8_152, Some(8_153));
+    scene
+        .load_shape(Shape::rect([(0.0, 0.0), (24.0, 24.0)]), 8_152, Some(8_153))
+        .unwrap();
     let root_id = scene
         .add_shape(
             Shape::rect([(0.0, 0.0), (96.0, 48.0)]),
@@ -1108,16 +1114,18 @@ fn command_replacements_update_retained_geometry_effects_and_child_clips() {
         return;
     };
     scene.load_effect(9_401, &[SHAPE_DROP_WGSL]).unwrap();
-    scene.load_shape(
-        Shape::builder()
-            .begin((20.25, 42.25))
-            .line_to((40.75, 42.25))
-            .line_to((20.25, 62.75))
-            .close()
-            .build(),
-        9_402,
-        None,
-    );
+    scene
+        .load_shape(
+            Shape::builder()
+                .begin((20.25, 42.25))
+                .line_to((40.75, 42.25))
+                .line_to((20.25, 62.75))
+                .close()
+                .build(),
+            9_402,
+            None,
+        )
+        .unwrap();
     let background = [190, 50, 20, 255];
     let blue = [0, 0, 255, 255];
     let mut pixels = Vec::new();

@@ -3,7 +3,7 @@ use crate::core::vertex::{CustomVertex, InstanceTransform};
 use crate::wgpu_backend::vertex::{InstanceColor, InstanceMetadata};
 use std::mem;
 
-const INDEX_ELEMENT_SIZE: usize = mem::size_of::<u16>();
+const INDEX_ELEMENT_SIZE: usize = mem::size_of::<u32>();
 
 #[doc(hidden)]
 impl WgpuBackend {

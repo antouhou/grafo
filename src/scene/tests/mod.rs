@@ -10,6 +10,8 @@ use crate::render_backend::render_target::{
 use crate::render_backend::texture_manager::{TextureManager, TextureUpdatePublisher};
 use crate::scene_state::SceneStateContext;
 use ahash::HashSet;
+use lyon::math::{point, Transform};
+use lyon::path::Path;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
@@ -261,8 +263,20 @@ impl RenderBackend for TestBackend {
     }
 }
 
+fn path_with_nan_positions() -> Path {
+    let mut path = Path::builder();
+    path.begin(point(0.0, 0.0));
+    path.line_to(point(4.0, 0.0));
+    path.line_to(point(0.0, 4.0));
+    path.close();
+    path.build()
+        .transformed(&Transform::translation(f32::NAN, f32::NAN))
+}
+
 fn queue_shape(scene: &mut Scene<TestBackend>, with_effects: bool) -> usize {
-    scene.load_shape(Shape::rect([(0.0, 0.0), (16.0, 16.0)]), 1, Some(1));
+    scene
+        .load_shape(Shape::rect([(0.0, 0.0), (16.0, 16.0)]), 1, Some(1))
+        .unwrap();
     let id = scene
         .add_cached_shape(
             1,

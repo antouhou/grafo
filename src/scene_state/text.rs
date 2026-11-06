@@ -1,5 +1,5 @@
 use super::types::DrawTreeNode;
-use super::SceneState;
+use super::{SceneError, SceneState};
 use crate::core::{CachedShapeHandle, GlyphContent, PathShape, TextSource};
 use ahash::{HashMap, HashSet};
 use lyon::path::FillRule;
@@ -58,7 +58,7 @@ impl SceneState {
         &mut self,
         source: &mut Source,
         key: &Source::GlyphKey,
-    ) -> Option<u64> {
+    ) -> Result<Option<u64>, SceneError> {
         let geometry_id = self
             .context
             .glyph_hasher
@@ -70,14 +70,14 @@ impl SceneState {
             .expect("shared glyph usage lock poisoned");
         if let Ok(shape) = self.loaded_shape(geometry_id) {
             if shape.vertex_buffers().vertices.is_empty() {
-                return None;
+                return Ok(None);
             }
             glyph_usage.insert(geometry_id);
-            return Some(geometry_id);
+            return Ok(Some(geometry_id));
         }
         drop(glyph_usage);
         let Some(GlyphContent::Outline(events)) = source.glyph_content(key) else {
-            return None;
+            return Ok(None);
         };
         let shape = CachedShapeHandle {
             tessellation: PathShape::tessellate_events(
@@ -87,7 +87,7 @@ impl SceneState {
                 &mut self.tessellator,
                 &mut self.shape_resources,
                 Some(geometry_id),
-            ),
+            )?,
             geometry_id: Some(geometry_id),
         };
         let has_geometry = !shape.vertex_buffers().vertices.is_empty();
@@ -108,7 +108,7 @@ impl SceneState {
             glyph_usage.counts.entry(geometry_id).or_default();
             glyph_usage.glyphs_to_remove.insert(geometry_id);
         }
-        has_geometry.then_some(geometry_id)
+        Ok(has_geometry.then_some(geometry_id))
     }
 
     pub(crate) fn release_glyph(&mut self, glyph_key: u64) {

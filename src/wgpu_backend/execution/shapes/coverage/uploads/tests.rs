@@ -32,11 +32,15 @@ fn retained_small_path_does_not_keep_oversized_upload_alive() {
         scale_factor: 1.0,
     };
     let mut scene = SceneState::new(SceneStateContext::default(), viewport);
-    let small = scene.tessellate(
-        &Shape::rounded_rect([(0.375, 0.625), (12.875, 12.25)], BorderRadii::new(3.0)),
-        None,
-    );
-    let large = scene.tessellate(&striped_path_with_solid_span(64, 2047.75), None);
+    let small = scene
+        .tessellate(
+            &Shape::rounded_rect([(0.375, 0.625), (12.875, 12.25)], BorderRadii::new(3.0)),
+            None,
+        )
+        .unwrap();
+    let large = scene
+        .tessellate(&striped_path_with_solid_span(64, 2047.75), None)
+        .unwrap();
     let mut builder = CoverageBuilder::default();
     for transform in [None, Some(TransformInstance::translation(4096.0, 0.0))] {
         let mut uploads = CoverageUploads::default();
@@ -62,11 +66,15 @@ fn incoming_path_size_limits_groups_and_preserves_coverage_offsets() {
         scale_factor: 1.0,
     };
     let mut scene = SceneState::new(SceneStateContext::default(), viewport);
-    let small = scene.tessellate(
-        &Shape::rounded_rect([(0.375, 0.625), (12.875, 12.25)], BorderRadii::new(3.0)),
-        None,
-    );
-    let medium = scene.tessellate(&striped_path_with_solid_span(32, 127.75), None);
+    let small = scene
+        .tessellate(
+            &Shape::rounded_rect([(0.375, 0.625), (12.875, 12.25)], BorderRadii::new(3.0)),
+            None,
+        )
+        .unwrap();
+    let medium = scene
+        .tessellate(&striped_path_with_solid_span(32, 127.75), None)
+        .unwrap();
     let mut builder = CoverageBuilder::default();
     let mut expected = CoverageGeometry::default();
     let medium_coverage_draw = builder.build(

@@ -146,7 +146,7 @@ fn path_tiles_match_independently_clipped_triangles() {
     );
     let mut mesh = CoverageTestMesh::default();
     for shape in shapes {
-        let cached = scene.tessellate(&shape, None);
+        let cached = scene.tessellate(&shape, None).unwrap();
         let geometry = cached.vertex_buffers();
         mesh.build(&cached.tessellation, None, 1.0, (64, 64));
         for y in 0..64 {
@@ -181,16 +181,18 @@ fn transformed_tiles_preserve_thin_features_and_rebuild_for_viewport_changes() {
             scale_factor: 1.0,
         },
     );
-    let cached = scene.tessellate(
-        &Shape::builder()
-            .begin((0.0, 0.0))
-            .line_to((0.25, 0.0))
-            .line_to((0.25, 24.0))
-            .line_to((0.0, 24.0))
-            .close()
-            .build(),
-        None,
-    );
+    let cached = scene
+        .tessellate(
+            &Shape::builder()
+                .begin((0.0, 0.0))
+                .line_to((0.25, 0.0))
+                .line_to((0.25, 24.0))
+                .line_to((0.0, 24.0))
+                .close()
+                .build(),
+            None,
+        )
+        .unwrap();
     let mut mesh = CoverageTestMesh::default();
     mesh.build(
         &cached.tessellation,
@@ -225,15 +227,17 @@ fn projected_path_tiles_match_the_projected_triangle_areas() {
             scale_factor: 1.0,
         },
     );
-    let cached = scene.tessellate(
-        &Shape::builder()
-            .begin((0.25, 0.375))
-            .line_to((25.75, 3.125))
-            .line_to((7.625, 27.25))
-            .close()
-            .build(),
-        None,
-    );
+    let cached = scene
+        .tessellate(
+            &Shape::builder()
+                .begin((0.25, 0.375))
+                .line_to((25.75, 3.125))
+                .line_to((7.625, 27.25))
+                .close()
+                .build(),
+            None,
+        )
+        .unwrap();
     let geometry = cached.vertex_buffers();
     let mut perspective = TransformInstance::translation(3.25, 5.5);
     perspective.col0[3] = 0.0125;
@@ -290,14 +294,18 @@ fn coverage_reuse_distinguishes_placement_and_replaced_geometry() {
             scale_factor: 1.0,
         },
     );
-    let first = scene.tessellate(
-        &Shape::rounded_rect([(0.0, 0.0), (32.0, 32.0)], BorderRadii::new(8.0)),
-        None,
-    );
-    let replacement = scene.tessellate(
-        &Shape::rounded_rect([(0.0, 0.0), (48.0, 48.0)], BorderRadii::new(8.0)),
-        None,
-    );
+    let first = scene
+        .tessellate(
+            &Shape::rounded_rect([(0.0, 0.0), (32.0, 32.0)], BorderRadii::new(8.0)),
+            None,
+        )
+        .unwrap();
+    let replacement = scene
+        .tessellate(
+            &Shape::rounded_rect([(0.0, 0.0), (48.0, 48.0)], BorderRadii::new(8.0)),
+            None,
+        )
+        .unwrap();
     let shared = Arc::clone(&first.tessellation);
     let mut cache = FrameCache::new();
     cache.insert(CoverageKey::new(&first.tessellation, None), "prepared");
@@ -344,7 +352,7 @@ fn sparse_spans_preserve_holes_partial_rows_and_separate_draw_ranges() {
             scale_factor: 1.0,
         },
     );
-    let cached = scene.tessellate(&shape, None);
+    let cached = scene.tessellate(&shape, None).unwrap();
     let geometry = cached.vertex_buffers();
     let mut mesh = CoverageTestMesh::default();
     mesh.build(&cached.tessellation, None, 1.0, (128, 64));
@@ -386,10 +394,12 @@ fn translated_coverage_preserves_pixel_phase_and_viewport_clipping() {
         scale_factor: 1.0,
     };
     let mut scene = SceneState::new(SceneStateContext::default(), viewport);
-    let cached = scene.tessellate(
-        &Shape::rounded_rect([(0.375, 0.625), (60.875, 40.75)], BorderRadii::new(12.0)),
-        None,
-    );
+    let cached = scene
+        .tessellate(
+            &Shape::rounded_rect([(0.375, 0.625), (60.875, 40.75)], BorderRadii::new(12.0)),
+            None,
+        )
+        .unwrap();
     let mut original = CoverageTestMesh::default();
     let mut translated = CoverageTestMesh::default();
     for scale_factor in [1.0, 1.5, 2.0] {
@@ -458,15 +468,17 @@ fn non_finite_projected_triangles_do_not_produce_coverage() {
             scale_factor: 1.0,
         },
     );
-    let cached = scene.tessellate(
-        &Shape::builder()
-            .begin((0.0, 0.0))
-            .line_to((2.0, 0.0))
-            .line_to((0.0, 16.0))
-            .close()
-            .build(),
-        None,
-    );
+    let cached = scene
+        .tessellate(
+            &Shape::builder()
+                .begin((0.0, 0.0))
+                .line_to((2.0, 0.0))
+                .line_to((0.0, 16.0))
+                .close()
+                .build(),
+            None,
+        )
+        .unwrap();
     let mut mesh = CoverageTestMesh::default();
     mesh.build(
         &cached.tessellation,

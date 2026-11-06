@@ -22,9 +22,9 @@ pub(crate) struct InstanceTextureData {
 
 fn append_aggregated_geometry(
     temp_vertices: &mut Vec<CustomVertex>,
-    temp_indices: &mut Vec<u16>,
+    temp_indices: &mut Vec<u32>,
     vertices: &[CustomVertex],
-    indices: &[u16],
+    indices: &[u32],
 ) -> Result<Option<GeometryBufferRange>, GeometryBufferError> {
     if vertices.is_empty() || indices.is_empty() {
         return Ok(None);
@@ -52,7 +52,7 @@ fn append_aggregated_geometry(
 pub(crate) fn append_aggregated_geometry_for_shape(
     cached_shape_data: &ShapeInstance,
     temp_vertices: &mut Vec<CustomVertex>,
-    temp_indices: &mut Vec<u16>,
+    temp_indices: &mut Vec<u32>,
     geometry_dedup_map: &mut HashMap<u64, GeometryBufferRange>,
 ) -> Result<Option<GeometryBufferRange>, GeometryBufferError> {
     let geometry_id = cached_shape_data.cached_shape.geometry_id;

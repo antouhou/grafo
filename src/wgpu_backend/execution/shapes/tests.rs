@@ -79,6 +79,47 @@ fn assert_draw_data(resources: &ShapeExecutionResources, id: usize, shape: &Shap
 }
 
 #[test]
+fn tessellation_preserves_large_path_indices_in_boundaries_and_draw_buffers() {
+    // Three indices per triangle produce an odd count beyond the 16-bit range.
+    let triangle_count = 21_847;
+    let mut path = Shape::builder();
+    for triangle in 0..triangle_count {
+        let top = triangle as f32 * 2.0;
+        path = path
+            .begin((0.0, top))
+            .line_to((1.0, top))
+            .line_to((0.0, top + 1.0))
+            .close();
+    }
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
+        Viewport {
+            physical_size: (32, 32),
+            scale_factor: 1.0,
+        },
+    );
+    let shape = ShapeInstance::new(
+        scene.tessellate(&path.build(), None).unwrap(),
+        ShapeDrawCommandOptions::new(),
+    );
+    let vertex_count = triangle_count * 3;
+    assert_eq!(
+        shape.cached_shape.tessellation.boundary_edges.len(),
+        vertex_count
+    );
+
+    let mut resources = ShapeExecutionResources::new();
+    insert_draw(&mut resources, 0, &shape);
+    assert_draw_data(&resources, 0, &shape);
+    assert_eq!(resources.vertices.len(), vertex_count);
+    assert_eq!(resources.indices.len(), vertex_count);
+    assert_eq!(
+        *resources.indices.iter().max().unwrap() as usize,
+        vertex_count - 1
+    );
+}
+
+#[test]
 fn removal_compacts_buffers_and_keeps_shared_geometry_until_its_last_draw() {
     let mut scene = SceneState::new(
         SceneStateContext::default(),
@@ -88,15 +129,21 @@ fn removal_compacts_buffers_and_keeps_shared_geometry_until_its_last_draw() {
         },
     );
     let shared = ShapeInstance::new(
-        scene.tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1)),
+        scene
+            .tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1))
+            .unwrap(),
         ShapeDrawCommandOptions::new(),
     );
     let unique = ShapeInstance::new(
-        scene.tessellate(&Shape::rect([(20.0, 3.0), (27.0, 9.0)]), Some(2)),
+        scene
+            .tessellate(&Shape::rect([(20.0, 3.0), (27.0, 9.0)]), Some(2))
+            .unwrap(),
         ShapeDrawCommandOptions::new(),
     );
     let uncached = ShapeInstance::new(
-        scene.tessellate(&Shape::rect([(3.0, 5.0), (18.0, 21.0)]), None),
+        scene
+            .tessellate(&Shape::rect([(3.0, 5.0), (18.0, 21.0)]), None)
+            .unwrap(),
         ShapeDrawCommandOptions::new(),
     );
     let mut resources = ShapeExecutionResources::new();
@@ -157,22 +204,28 @@ fn batch_removal_keeps_surviving_geometry_and_instances() {
         },
     );
     let shared = ShapeInstance::new(
-        scene.tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1)),
+        scene
+            .tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1))
+            .unwrap(),
         ShapeDrawCommandOptions::new(),
     );
     let removed_shape = ShapeInstance::new(
-        scene.tessellate(&Shape::rect([(20.0, 3.0), (27.0, 9.0)]), Some(2)),
+        scene
+            .tessellate(&Shape::rect([(20.0, 3.0), (27.0, 9.0)]), Some(2))
+            .unwrap(),
         ShapeDrawCommandOptions::new(),
     );
     let uncached = ShapeInstance::new(
-        scene.tessellate(
-            &Shape::rounded_rect([(3.0, 5.0), (18.0, 21.0)], BorderRadii::new(3.0)),
-            None,
-        ),
+        scene
+            .tessellate(
+                &Shape::rounded_rect([(3.0, 5.0), (18.0, 21.0)], BorderRadii::new(3.0)),
+                None,
+            )
+            .unwrap(),
         ShapeDrawCommandOptions::new(),
     );
     let empty = ShapeInstance::new(
-        scene.tessellate(&Shape::builder().build(), None),
+        scene.tessellate(&Shape::builder().build(), None).unwrap(),
         ShapeDrawCommandOptions::new(),
     );
     let mut resources = ShapeExecutionResources::new();
@@ -268,22 +321,28 @@ fn batch_replacement_compacts_overwritten_instances_and_preserves_shared_geometr
         },
     );
     let shared = ShapeInstance::new(
-        scene.tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1)),
+        scene
+            .tessellate(&Shape::rect([(1.0, 2.0), (10.0, 12.0)]), Some(1))
+            .unwrap(),
         ShapeDrawCommandOptions::new(),
     );
     let replacement = ShapeInstance::new(
-        scene.tessellate(
-            &Shape::rounded_rect([(20.0, 20.0), (40.0, 40.0)], BorderRadii::new(3.0)),
-            Some(2),
-        ),
+        scene
+            .tessellate(
+                &Shape::rounded_rect([(20.0, 20.0), (40.0, 40.0)], BorderRadii::new(3.0)),
+                Some(2),
+            )
+            .unwrap(),
         ShapeDrawCommandOptions::new(),
     );
     let uncached = ShapeInstance::new(
-        scene.tessellate(&Shape::rect([(3.0, 5.0), (18.0, 21.0)]), None),
+        scene
+            .tessellate(&Shape::rect([(3.0, 5.0), (18.0, 21.0)]), None)
+            .unwrap(),
         ShapeDrawCommandOptions::new(),
     );
     let empty = ShapeInstance::new(
-        scene.tessellate(&Shape::builder().build(), None),
+        scene.tessellate(&Shape::builder().build(), None).unwrap(),
         ShapeDrawCommandOptions::new(),
     );
     let mut resources = ShapeExecutionResources::new();

@@ -124,14 +124,16 @@ fn benchmark_paths(criterion: &mut Criterion) {
         };
         for index in 0..geometry_count {
             let key = index as u64 + 1;
-            scene.load_shape(
-                Shape::rounded_rect(
-                    [(0.375, 0.625), (workload.side, workload.side)],
-                    BorderRadii::new(workload.radius + index as f32 * 0.05),
-                ),
-                key,
-                Some(key),
-            );
+            scene
+                .load_shape(
+                    Shape::rounded_rect(
+                        [(0.375, 0.625), (workload.side, workload.side)],
+                        BorderRadii::new(workload.radius + index as f32 * 0.05),
+                    ),
+                    key,
+                    Some(key),
+                )
+                .expect("shape tessellation");
         }
         let mut pixels = Pixmap::new(workload.size, PixelFormat::Bgra8).expect("valid size");
         let root = populate(
@@ -173,21 +175,23 @@ fn benchmark_paths(criterion: &mut Criterion) {
                     scene.clear();
                     if matches!(mode, BenchmarkMode::Resizing) {
                         for index in 0..geometry_count {
-                            scene.load_shape(
-                                Shape::rounded_rect(
-                                    [
-                                        (0.375, 0.625),
-                                        (workload.side + translation_x, workload.side),
-                                    ],
-                                    BorderRadii::new(
-                                        workload.radius
-                                            + index as f32 * 0.05
-                                            + translation_x * 0.25,
+                            scene
+                                .load_shape(
+                                    Shape::rounded_rect(
+                                        [
+                                            (0.375, 0.625),
+                                            (workload.side + translation_x, workload.side),
+                                        ],
+                                        BorderRadii::new(
+                                            workload.radius
+                                                + index as f32 * 0.05
+                                                + translation_x * 0.25,
+                                        ),
                                     ),
-                                ),
-                                index as u64 + 1,
-                                None,
-                            );
+                                    index as u64 + 1,
+                                    None,
+                                )
+                                .expect("shape tessellation");
                         }
                     }
                     populate(
