@@ -7,7 +7,7 @@ use crate::scene_state::SceneState;
 use ahash::HashMap;
 use commands::{PendingCommands, TraversalCommands};
 use draws::{DrawPlanner, DrawPlanningInput};
-use shape_mask_effects::{append_shape_mask_effect, should_prepare_shape_mask_effect};
+use shape_mask_effects::should_prepare_shape_mask_effect;
 use std::collections::hash_map;
 use std::iter::FusedIterator;
 
@@ -105,6 +105,53 @@ impl Planner {
     }
 }
 
+impl<'state> CommandIterator<'state, '_> {
+    fn append_shape_mask_effect(
+        &mut self,
+        node_id: usize,
+        effect: &ShapeMaskEffectInstance,
+        commands: &mut TraversalCommands<'state>,
+    ) {
+        shape_mask_effects::append_shape_mask_effect(
+            commands,
+            &mut self.texture_ids,
+            &mut self.planner.shape_composites,
+            &self.state.draw_tree,
+            node_id,
+            effect,
+            &self.state.effect_parameters,
+            self.state.viewport(),
+            self.maximum_texture_dimension,
+        );
+    }
+
+    fn plan_deferred_shape_mask_effect(
+        &mut self,
+        commands: &mut TraversalCommands<'state>,
+    ) -> bool {
+        let Some((node_id, damage)) = self.planner.traversal.next_capture_node_damage() else {
+            return false;
+        };
+        if self.planner.shape_composites.contains_key(&node_id) {
+            return false;
+        }
+        let Some(effect) = self.state.shape_mask_effects.get(&node_id) else {
+            return false;
+        };
+        if !shape_mask_effects::should_prepare_shape_mask_effect(
+            node_id,
+            effect,
+            &self.state.content_effects,
+            damage,
+        ) {
+            return false;
+        }
+        // A selected content capture can need masks outside the surface damage.
+        self.append_shape_mask_effect(node_id, effect, commands);
+        self.planner.shape_composites.contains_key(&node_id)
+    }
+}
+
 impl<'state> Iterator for CommandIterator<'state, '_> {
     type Item = RenderCommand<'state>;
 
@@ -170,48 +217,6 @@ impl<'state> Iterator for CommandIterator<'state, '_> {
             }
             self.pending_commands = commands.into_iter();
         }
-    }
-}
-
-impl<'state> CommandIterator<'state, '_> {
-    fn plan_deferred_shape_mask_effect(
-        &mut self,
-        commands: &mut TraversalCommands<'state>,
-    ) -> bool {
-        let Some((node_id, damage)) = self.planner.traversal.next_capture_node_damage() else {
-            return false;
-        };
-        if self.planner.shape_composites.contains_key(&node_id) {
-            return false;
-        }
-        let Some(effect) = self.state.shape_mask_effects.get(&node_id) else {
-            return false;
-        };
-        if !should_prepare_shape_mask_effect(node_id, effect, &self.state.content_effects, damage) {
-            return false;
-        }
-        // A selected content capture can need masks outside the surface damage.
-        self.append_shape_mask_effect(node_id, effect, commands);
-        self.planner.shape_composites.contains_key(&node_id)
-    }
-
-    fn append_shape_mask_effect(
-        &mut self,
-        node_id: usize,
-        effect: &ShapeMaskEffectInstance,
-        commands: &mut TraversalCommands<'state>,
-    ) {
-        append_shape_mask_effect(
-            commands,
-            &mut self.texture_ids,
-            &mut self.planner.shape_composites,
-            &self.state.draw_tree,
-            node_id,
-            effect,
-            &self.state.effect_parameters,
-            self.state.viewport(),
-            self.maximum_texture_dimension,
-        );
     }
 }
 
