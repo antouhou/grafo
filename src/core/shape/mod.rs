@@ -16,8 +16,10 @@ pub use lyon::path::FillRule;
 use lyon::path::{Builder, Path, PathEvent, Winding};
 use lyon::tessellation::FillVertexConstructor;
 use std::sync::Arc;
+pub use stroke::{LineCap, LineJoin, StrokeOptions};
 
 pub(crate) mod boundary;
+mod stroke;
 
 /// A shareable handle to underlying geometry. Doesn't contain anything but geometry: no fill,
 /// effects, transforms, etc.
@@ -189,6 +191,33 @@ impl Shape {
         Shape::Path(path_shape)
     }
 
+    /// Selects a centered stroke instead of the shape's filled interior.
+    /// Replaces any previously selected stroke options.
+    /// Set its color, gradient, or textures through [`ShapeDrawCommandOptions`].
+    ///
+    /// ```rust
+    /// use grafo::{LineJoin, Shape, StrokeOptions};
+    ///
+    /// let outline = Shape::rect([(0.0, 0.0), (100.0, 50.0)]).stroke(
+    ///     StrokeOptions::new(3.0).line_join(LineJoin::Round),
+    /// );
+    /// ```
+    pub fn stroke(mut self, options: StrokeOptions) -> Self {
+        match &mut self {
+            Self::Path(shape) => shape.stroke_options = Some(options),
+            Self::Rect(shape) => shape.stroke_options = Some(options),
+        }
+        self
+    }
+
+    /// Returns the selected stroke options, or `None` for a filled shape.
+    pub fn stroke_options(&self) -> Option<&StrokeOptions> {
+        match self {
+            Self::Path(shape) => shape.stroke_options.as_ref(),
+            Self::Rect(shape) => shape.stroke_options.as_ref(),
+        }
+    }
+
     pub(crate) fn tessellate(
         &self,
         tessellator: &mut FillTessellator,
@@ -300,12 +329,16 @@ impl AsRef<Shape> for Shape {
 pub struct RectShape {
     /// Top-left and bottom-right coordinates.
     pub(crate) rect: [(f32, f32); 2],
+    stroke_options: Option<StrokeOptions>,
 }
 
 impl RectShape {
     /// Creates a rectangle from its top-left and bottom-right coordinates.
     pub fn new(rect: [(f32, f32); 2]) -> Self {
-        Self { rect }
+        Self {
+            rect,
+            stroke_options: None,
+        }
     }
 }
 
@@ -317,6 +350,7 @@ pub struct PathShape {
     pub(crate) path: Path,
     fill_rule: FillRule,
     is_rounded_rect: bool,
+    stroke_options: Option<StrokeOptions>,
 }
 
 struct VertexConverter;
@@ -337,11 +371,13 @@ impl PathShape {
             path,
             fill_rule: FillRule::NonZero,
             is_rounded_rect: false,
+            stroke_options: None,
         }
     }
 
     /// Selects which regions inside the path are filled. Defaults to [`FillRule::NonZero`].
     /// Use [`FillRule::EvenOdd`] for holes that do not depend on contour direction.
+    /// Does not affect shapes with a stroke selected.
     pub fn fill_rule(mut self, fill_rule: FillRule) -> Self {
         self.fill_rule = fill_rule;
         self
@@ -719,6 +755,7 @@ impl ShapeBuilder {
             path,
             fill_rule: self.fill_rule,
             is_rounded_rect: false,
+            stroke_options: None,
         })
     }
 }
