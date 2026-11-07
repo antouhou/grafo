@@ -102,7 +102,7 @@ fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
             .end()
             .build()
             .stroke(StrokeOptions::new(8.0).line_cap(cap).line_join(join));
-        scene
+        let corner_id = scene
             .add_shape(
                 corner,
                 None,
@@ -112,7 +112,44 @@ fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
                     .transform(transform),
             )
             .unwrap();
+        if join == LineJoin::Miter {
+            scene
+                .set_shape_mask_effect(
+                    corner_id,
+                    SHAPE_DROP_EFFECT_ID,
+                    &[],
+                    ShapeMaskEffectConfig::new().outset(8.0),
+                )
+                .unwrap();
+        }
+        scene
+            .set_content_effect(
+                corner_id,
+                PASSTHROUGH_EFFECT_ID,
+                &[],
+                ContentEffectConfig::default(),
+            )
+            .unwrap();
     }
+    // Only the cap reaches this clip; the path's centerline stays outside it.
+    let cap_clip = scene
+        .add_clipping_rect([(3.0, 34.0), (8.0, 42.0)], None, Some(transform), true)
+        .unwrap();
+    scene
+        .add_shape(
+            Shape::builder()
+                .begin((10.0, 38.0))
+                .line_to((16.0, 38.0))
+                .end()
+                .build()
+                .stroke(StrokeOptions::new(12.0).line_cap(LineCap::Square)),
+            Some(cap_clip),
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgb(30, 160, 180))
+                .transform(transform),
+        )
+        .unwrap();
     scene
         .add_shape(
             Shape::rect([(12.0, 48.0), (36.0, 68.0)]).stroke(StrokeOptions::new(6.0)),
@@ -206,6 +243,7 @@ fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
         (8, 28, [255, 255, 255], "t92_butt_cap_stops_at_endpoint"),
         (25, 31, [220, 50, 50], "t92_miter_corner"),
         (31, 28, [50, 180, 50], "t92_square_cap_extends_endpoint"),
+        (46, 8, [50, 180, 50], "t92_content_effect_keeps_square_cap"),
         (49, 31, [255, 255, 255], "t92_bevel_corner_is_cut"),
         (55, 28, [50, 90, 220], "t92_round_cap_extends_endpoint"),
         (71, 30, [50, 90, 220], "t92_round_join"),
@@ -216,6 +254,16 @@ fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
             "t92_round_cap_has_no_square_corner",
         ),
         (16, 21, [255, 255, 255], "t92_open_path_has_no_closing_edge"),
+        (33, 39, [0, 0, 255], "t92_content_effect_keeps_miter_shadow"),
+        (35, 39, [255; 3], "t92_miter_shadow_ends_after_outset"),
+        (
+            5,
+            38,
+            [30, 160, 180],
+            "t92_cap_reaches_clip_without_centerline",
+        ),
+        (10, 38, [255; 3], "t92_clip_excludes_stroke_centerline"),
+        (5, 33, [255; 3], "t92_scissor_clips_cap_vertically"),
         (24, 48, [220, 160, 30], "t92_rectangle_stroke"),
         (24, 58, [255, 255, 255], "t92_rectangle_interior_is_empty"),
         (50, 58, [136; 3], "t92_translucent_stroke_arm"),

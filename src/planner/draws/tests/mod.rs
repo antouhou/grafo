@@ -331,6 +331,7 @@ fn empty_backdrop_parent_preserves_ancestor_clips_without_capture() {
 
 mod backdrops;
 mod groups;
+mod strokes;
 mod targets;
 mod traversal;
 
