@@ -1,9 +1,6 @@
 use super::scanline::RowEdge;
 use super::winding::RowSegment;
-use rand_xoshiro::{
-    rand_core::{Rng, SeedableRng},
-    SplitMix64,
-};
+use ahash::RandomState;
 
 mod crossings;
 
@@ -29,9 +26,9 @@ struct ActiveEdge {
 /// number that is lower than the numbers of the edges directly below it.
 /// Random-looking priorities help avoid a long chain of edges, where finding
 /// or updating one edge could mean walking through most of the tree.
-/// Seeding SplitMix64 with the index gives the same priority every time.
-fn priority(index: usize) -> u64 {
-    SplitMix64::seed_from_u64(index as u64).next_u64()
+/// Fixed seeds give each segment index a consistent priority.
+fn priority(segment_index: usize) -> u64 {
+    RandomState::with_seeds(0, 0, 0, 0).hash_one(segment_index)
 }
 
 /// Retains active x order and one directly removable event per neighboring pair.
