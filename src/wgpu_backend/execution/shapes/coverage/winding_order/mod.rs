@@ -386,11 +386,8 @@ impl WindingOrder {
             return;
         };
         let previous = self.edges[left].previous;
-        self.cancel_crossing(left);
-        self.cancel_crossing(right);
-        if let Some(previous) = previous {
-            self.cancel_crossing(previous);
-        }
+        // The swap only changes the winding between these two segments.
+        let winding = self.winding_before(left, segments);
         let payload = |edge: &ActiveEdge| (edge.segment, edge.visible_since, edge.visible_sign);
         let first = payload(&self.edges[left]);
         let second = payload(&self.edges[right]);
@@ -406,9 +403,6 @@ impl WindingOrder {
         ) = first;
         self.segment_positions[first.0] = right;
         self.segment_positions[second.0] = left;
-        self.update_ancestors(Some(left), segments);
-        self.update_ancestors(Some(right), segments);
-        let winding = self.winding_before(left, segments);
         self.classify(left, winding, y, segments, output);
         self.classify(
             right,
