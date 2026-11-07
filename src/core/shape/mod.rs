@@ -17,21 +17,9 @@ use lyon::path::{Builder, Path, PathEvent, Winding};
 use lyon::tessellation::FillVertexConstructor;
 use std::sync::Arc;
 pub use stroke::{LineCap, LineJoin, StrokeOptions, StrokeOptionsError};
-use thiserror::Error;
 
 pub(crate) mod boundary;
 mod stroke;
-
-#[derive(Debug, Error)]
-pub(crate) enum ShapeTessellationError {
-    #[error(transparent)]
-    Tessellation(#[from] TessellationError),
-    #[error("Stroke produces {triangle_count} triangles; the limit is {maximum_triangles}")]
-    StrokeTooComplex {
-        triangle_count: usize,
-        maximum_triangles: usize,
-    },
-}
 
 /// A shareable handle to underlying geometry. Doesn't contain anything but geometry: no fill,
 /// effects, transforms, etc.
@@ -49,7 +37,7 @@ impl CachedShapeHandle {
         shape: &Shape,
         shape_resources: &mut ShapeResources,
         geometry_id: Option<u64>,
-    ) -> Result<Self, ShapeTessellationError> {
+    ) -> Result<Self, TessellationError> {
         let tessellation = shape.tessellate(shape_resources, geometry_id)?;
         Ok(Self {
             tessellation,
@@ -59,6 +47,8 @@ impl CachedShapeHandle {
 
     #[inline]
     /// Borrows the vertices and indices. Clone this handle to retain shared geometry.
+    /// When [`CachedTessellation::may_have_overlapping_triangles`] is true, a backend must
+    /// combine triangle coverage before applying the material.
     pub fn vertex_buffers(&self) -> &VertexBuffers<CustomVertex, u32> {
         &self.tessellation.vertex_buffers
     }
@@ -252,7 +242,6 @@ impl Shape {
     /// Set its color, gradient, or textures through [`ShapeDrawCommandOptions`].
     /// Invalid widths and miter limits are rejected when the shape is added or loaded.
     /// Overlapping parts of one stroke are drawn once, including crossings and repeated subpaths.
-    /// Strokes requiring more than 32,767 triangles before removing overlaps are rejected.
     ///
     /// ```rust
     /// use grafo::{LineJoin, Shape, StrokeOptions};
@@ -281,7 +270,7 @@ impl Shape {
         &self,
         shape_resources: &mut ShapeResources,
         tessellation_cache_key: Option<u64>,
-    ) -> Result<Arc<CachedTessellation>, ShapeTessellationError> {
+    ) -> Result<Arc<CachedTessellation>, TessellationError> {
         match &self {
             Shape::Path(path_shape) => {
                 path_shape.tessellate(shape_resources, tessellation_cache_key)
@@ -485,7 +474,7 @@ impl PathShape {
         &self,
         shape_resources: &mut ShapeResources,
         tessellation_cache_key: Option<u64>,
-    ) -> Result<Arc<CachedTessellation>, ShapeTessellationError> {
+    ) -> Result<Arc<CachedTessellation>, TessellationError> {
         if let Some(options) = self.stroke_options {
             return stroke::tessellate(
                 self.path.iter(),
@@ -494,13 +483,13 @@ impl PathShape {
                 tessellation_cache_key,
             );
         }
-        Ok(Self::tessellate_events(
+        Self::tessellate_events(
             self.path.iter(),
             self.fill_rule,
             self.is_rounded_rect,
             shape_resources,
             tessellation_cache_key,
-        )?)
+        )
     }
 }
 

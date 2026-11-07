@@ -142,6 +142,66 @@ fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
                 .transform(transform),
         )
         .unwrap();
+    let clipped_crossing = Shape::builder()
+        .begin((40.0, 39.0))
+        .line_to((56.0, 39.0))
+        .end()
+        .begin((48.0, 34.0))
+        .line_to((48.0, 44.0))
+        .end()
+        .begin((-1_000_010.0, -1_000_000.0))
+        .line_to((-999_990.0, -1_000_000.0))
+        .end()
+        .build()
+        .stroke(StrokeOptions::new(4.0));
+    let clip = scene
+        .add_shape(
+            Shape::builder()
+                .begin((42.0, 35.0))
+                .line_to((62.0, 35.0))
+                .line_to((62.0, 43.0))
+                .line_to((42.0, 43.0))
+                .close()
+                .build(),
+            None,
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::TRANSPARENT)
+                .transform(transform),
+        )
+        .unwrap();
+    let mut perspective = TransformInstance::identity();
+    perspective.col0[3] = 0.000001;
+    let translucent_black = Color::rgba(0, 0, 0, 128);
+    let gradient = Gradient::linear(LinearGradientDesc::new(
+        LinearGradientLine {
+            start: [40.0, 39.0],
+            end: [56.0, 39.0],
+        },
+        [
+            GradientStop::at_position(GradientStopOffset::linear_radial(0.0), translucent_black),
+            GradientStop::at_position(GradientStopOffset::linear_radial(1.0), translucent_black),
+        ],
+    ))
+    .unwrap();
+    for (offset_x, fill) in [
+        (0.0, Fill::Solid(translucent_black)),
+        (8.0, Fill::Gradient(gradient)),
+    ] {
+        scene
+            .add_shape(
+                &clipped_crossing,
+                Some(clip),
+                None,
+                ShapeDrawCommandOptions::new()
+                    .fill(fill)
+                    .transform(perspective.then(&TransformInstance::translation(
+                        origin_x + offset_x,
+                        origin_y,
+                    ))),
+            )
+            .unwrap();
+    }
     [
         (8, 28, [255, 255, 255], "t92_butt_cap_stops_at_endpoint"),
         (25, 31, [220, 50, 50], "t92_miter_corner"),
@@ -164,6 +224,32 @@ fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
         // Two quarter-pixel strips cover 7/16 of this pixel after their overlap is removed.
         (60, 60, [214; 3], "t92_crossing_uses_union_pixel_area"),
         (64, 52, [255; 3], "t92_self_crossing_preserves_loop_hole"),
+        (43, 39, [187; 3], "t92_projected_stroke_arm"),
+        (
+            48,
+            39,
+            [137; 3],
+            "t92_projected_crossing_composites_once_per_shape",
+        ),
+        (
+            51,
+            39,
+            [137; 3],
+            "t92_projected_shapes_composite_separately",
+        ),
+        (60, 39, [187; 3], "t92_second_projected_stroke_arm"),
+        (
+            41,
+            39,
+            [255; 3],
+            "t92_projected_stroke_respects_horizontal_clip",
+        ),
+        (
+            48,
+            34,
+            [255; 3],
+            "t92_projected_stroke_respects_vertical_clip",
+        ),
     ]
     .into_iter()
     .map(|(x, y, [red, green, blue], label)| {

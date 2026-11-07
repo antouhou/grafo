@@ -1,9 +1,12 @@
-//! Measures CPU shape loading with reusable tessellation storage. GPU setup and path
-//! construction happen before timing; no rendering or readback occurs.
+//! Measures shape loading and complete stroke replacement, drawing, and readback.
+//! GPU setup and path construction happen before timing.
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use futures::executor;
-use grafo::{LineCap, LineJoin, Scene, Shape, StrokeOptions};
+use grafo::{
+    Color, LineCap, LineJoin, PixelFormat, Pixmap, Scene, Shape, ShapeDrawCommandOptions,
+    StrokeOptions,
+};
 use std::{hint, time::Duration};
 
 struct StrokeWorkload {
@@ -47,6 +50,27 @@ fn dense_crossings() -> Shape {
             .begin((position, 16.0))
             .line_to((position, 272.0))
             .end();
+    }
+    builder
+        .build()
+        .stroke(StrokeOptions::new(3.0).line_cap(LineCap::Round))
+}
+
+fn crossings_within_one_row() -> Shape {
+    let mut builder = Shape::builder();
+    for index in 0..64 {
+        let start_y = 100.125 + index as f32 * 0.75 / 64.0;
+        let end_y = 100.125 + ((index * 37) % 64) as f32 * 0.75 / 64.0;
+        builder = builder.begin((16.0, start_y)).line_to((272.0, end_y)).end();
+    }
+    builder.build().stroke(StrokeOptions::new(0.004))
+}
+
+fn parallel_lines() -> Shape {
+    let mut builder = Shape::builder();
+    for index in 0..64 {
+        let y = 20.0 + index as f32 * 4.0;
+        builder = builder.begin((16.0, y)).line_to((272.0, y)).end();
     }
     builder
         .build()
@@ -105,5 +129,58 @@ fn benchmark_strokes(criterion: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(stroke_tessellation_benches, benchmark_strokes);
+fn benchmark_stroke_drawing(criterion: &mut Criterion) {
+    let workloads = [
+        StrokeWorkload {
+            name: "simple_line",
+            shape: simple_line(),
+        },
+        StrokeWorkload {
+            name: "curved_crossing",
+            shape: curved_crossing(),
+        },
+        StrokeWorkload {
+            name: "dense_crossings_64_lines",
+            shape: dense_crossings(),
+        },
+        StrokeWorkload {
+            name: "crossings_within_one_row",
+            shape: crossings_within_one_row(),
+        },
+        StrokeWorkload {
+            name: "parallel_64_lines",
+            shape: parallel_lines(),
+        },
+    ];
+    let mut scene = executor::block_on(Scene::try_new((320, 320), 1.0, 1))
+        .expect("stroke drawing benchmark requires a GPU adapter");
+    let mut pixels = Pixmap::new((320, 320), PixelFormat::Bgra8).expect("valid size");
+    let mut group = criterion.benchmark_group("stroke_drawing_with_readback");
+    group.sample_size(30);
+    group.warm_up_time(Duration::from_secs(1));
+    group.measurement_time(Duration::from_secs(3));
+    for workload in workloads {
+        scene.clear();
+        let options = ShapeDrawCommandOptions::new().color(Color::rgba(0, 0, 0, 128));
+        let shape_id = scene
+            .add_shape(&workload.shape, None, None, options.clone())
+            .expect("valid stroke");
+        scene.render(&mut pixels).expect("initial draw");
+        group.bench_function(workload.name, |bencher| {
+            bencher.iter(|| {
+                scene
+                    .replace_with_shape(shape_id, &workload.shape, None, options.clone())
+                    .expect("replace stroke");
+                scene.render(&mut pixels).expect("draw stroke");
+            });
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(
+    stroke_tessellation_benches,
+    benchmark_strokes,
+    benchmark_stroke_drawing
+);
 criterion_main!(stroke_tessellation_benches);

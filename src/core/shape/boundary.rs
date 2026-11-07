@@ -1,6 +1,5 @@
 use crate::core::vertex::CustomVertex;
 use ahash::HashMap;
-use lyon::path::PathEvent;
 use std::{mem, ops::Range};
 
 #[derive(Clone, Copy, Debug)]
@@ -129,82 +128,10 @@ fn accumulate_triangle_edges(
     }
 }
 
-struct DirectedBoundaryEdge {
-    start: [f32; 2],
-    end: [f32; 2],
-    remaining: u32,
-    next_outgoing: Option<usize>,
-}
-
-struct BoundaryPathEvents<'a> {
-    edges: &'a mut [DirectedBoundaryEdge],
-    outgoing: &'a mut HashMap<PositionKey, usize>,
-    next_loop_edge: usize,
-    first: Option<[f32; 2]>,
-    current: [f32; 2],
-}
-
-impl BoundaryPathEvents<'_> {
-    fn take_outgoing_edge(&mut self, position: [f32; 2]) -> usize {
-        let head = self
-            .outgoing
-            .get_mut(&position_key(position))
-            .expect("triangle boundary vertices have outgoing edges");
-        while self.edges[*head].remaining == 0 {
-            // Closed triangles form a balanced graph, so every unfinished walk can continue.
-            *head = self.edges[*head]
-                .next_outgoing
-                .expect("triangle boundary walks cannot end before closing");
-        }
-        self.edges[*head].remaining -= 1;
-        *head
-    }
-}
-
-impl Iterator for BoundaryPathEvents<'_> {
-    type Item = PathEvent;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let Some(first) = self.first else {
-            while self
-                .edges
-                .get(self.next_loop_edge)
-                .is_some_and(|edge| edge.remaining == 0)
-            {
-                self.next_loop_edge += 1;
-            }
-            let start = self.edges.get(self.next_loop_edge)?.start;
-            self.first = Some(start);
-            self.current = start;
-            return Some(PathEvent::Begin { at: start.into() });
-        };
-
-        let from = self.current;
-        let edge_index = self.take_outgoing_edge(from);
-        let to = self.edges[edge_index].end;
-        if position_key(to) == position_key(first) {
-            self.first = None;
-            Some(PathEvent::End {
-                last: from.into(),
-                first: first.into(),
-                close: true,
-            })
-        } else {
-            self.current = to;
-            Some(PathEvent::Line {
-                from: from.into(),
-                to: to.into(),
-            })
-        }
-    }
-}
-
 #[derive(Default)]
 pub(crate) struct PathBoundaryBuilder {
     edges: HashMap<EdgeKey, PathBoundaryEdge>,
     positions: Vec<[f32; 2]>,
-    directed_edges: Vec<DirectedBoundaryEdge>,
-    outgoing: HashMap<PositionKey, usize>,
 }
 
 impl PathBoundaryBuilder {
@@ -225,41 +152,5 @@ impl PathBoundaryBuilder {
             .values()
             .copied()
             .filter(|edge| edge.winding != 0)
-    }
-
-    pub(crate) fn path_events(
-        &mut self,
-        vertices: &[CustomVertex],
-        indices: &[u32],
-    ) -> impl Iterator<Item = PathEvent> + '_ {
-        self.edges.clear();
-        accumulate_triangle_edges(&mut self.edges, indices, |index| {
-            vertices[index as usize].position
-        });
-        self.directed_edges.clear();
-        self.outgoing.clear();
-        for edge in self.edges.values().filter(|edge| edge.winding != 0) {
-            let (start, end) = if edge.winding > 0 {
-                (edge.start, edge.end)
-            } else {
-                (edge.end, edge.start)
-            };
-            let next_outgoing = self
-                .outgoing
-                .insert(position_key(start), self.directed_edges.len());
-            self.directed_edges.push(DirectedBoundaryEdge {
-                start,
-                end,
-                remaining: edge.winding.unsigned_abs(),
-                next_outgoing,
-            });
-        }
-        BoundaryPathEvents {
-            edges: &mut self.directed_edges,
-            outgoing: &mut self.outgoing,
-            next_loop_edge: 0,
-            first: None,
-            current: [0.0; 2],
-        }
     }
 }

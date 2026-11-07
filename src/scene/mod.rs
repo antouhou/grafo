@@ -136,7 +136,6 @@ impl<B: RenderBackend> Scene<B> {
 
     /// Tessellates into the shared CPU cache. Geometry IDs let identical shapes share uploads.
     /// Returns [`SceneError::InvalidStrokeOptions`] for an invalid stroke width or miter limit,
-    /// [`SceneError::StrokeTooComplex`] when a stroke exceeds the triangle limit,
     /// or [`SceneError::Tessellation`] if the geometry could not be tessellated.
     /// Errors leave any existing cache entry intact.
     pub fn load_shape(

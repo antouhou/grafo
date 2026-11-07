@@ -1,6 +1,4 @@
-use super::{
-    BorderRadii, FillRule, LineCap, LineJoin, Shape, ShapeTessellationError, StrokeOptions,
-};
+use super::{BorderRadii, FillRule, LineCap, LineJoin, Shape, StrokeOptions};
 use crate::core::cache::CachedTessellation;
 use crate::core::util::ShapeResources;
 use lyon::math::Point;
@@ -125,7 +123,7 @@ fn stroke_caps_cover_the_line_and_extend_its_ends() {
 }
 
 #[test]
-fn overlapping_strokes_tessellate_the_union_and_preserve_holes() {
+fn overlapping_strokes_preserve_path_extent_and_holes() {
     let crossing = Shape::builder()
         .begin((-5.0, 0.0))
         .line_to((5.0, 0.0))
@@ -164,42 +162,34 @@ fn overlapping_strokes_tessellate_the_union_and_preserve_holes() {
         .line_to((10.0, 0.0))
         .close()
         .build();
-    for (name, shape, expected_area, inside, outside) in [
+    for (name, shape, inside, outside) in [
         (
             "crossing",
             crossing,
-            36.0,
             [(0.0, 0.0), (4.0, 0.0), (0.0, 4.0)],
             (2.0, 2.0),
         ),
         (
             "retraced",
             retraced,
-            20.0,
             [(0.0, 0.0), (4.0, 0.0), (-4.0, 0.0)],
             (0.0, 2.0),
         ),
         (
             "self crossing",
             self_crossing,
-            56.0,
             [(0.0, 0.0), (5.0, 3.0), (3.0, 5.0)],
             (2.5, 2.5),
         ),
         (
             "opposite rings",
             opposite_rings,
-            80.0,
             [(0.0, 5.0), (10.0, 5.0), (5.0, 0.0)],
             (5.0, 5.0),
         ),
     ] {
         let tessellation = tessellate_shape(&shape.stroke(StrokeOptions::new(2.0)));
-        let area = mesh_area(&tessellation);
-        assert!(
-            (area - expected_area).abs() < 1e-4,
-            "{name}: expected area {expected_area}, got {area}"
-        );
+        assert!(tessellation.may_have_overlapping_triangles());
         for position in inside {
             assert!(
                 mesh_contains(&tessellation, position),
@@ -214,7 +204,7 @@ fn overlapping_strokes_tessellate_the_union_and_preserve_holes() {
 }
 
 #[test]
-fn thin_diagonal_crossings_preserve_union_area_at_small_scales() {
+fn thin_diagonal_crossings_preserve_geometry_at_small_scales() {
     for (scale, translation) in [
         (1.0, (0.0, 0.0)),
         (0.001, (0.0, 0.0)),
@@ -233,7 +223,7 @@ fn thin_diagonal_crossings_preserve_union_area_at_small_scales() {
             .build()
             .stroke(StrokeOptions::new(width));
         let tessellation = tessellate_shape(&crossing);
-        let expected_area = 4.0 * extent * 2.0_f32.sqrt() * width - width * width;
+        let expected_area = 4.0 * extent * 2.0_f32.sqrt() * width;
         let area = mesh_area(&tessellation);
         let relative_tolerance = if translation == (0.0, 0.0) {
             0.001
@@ -333,11 +323,6 @@ fn many_stroke_subpaths_preserve_a_long_thin_segment() {
         builder = builder.begin(start).line_to(end).end();
     }
     let tessellation = tessellate_shape(&builder.build().stroke(StrokeOptions::new(0.02)));
-    let area = mesh_area(&tessellation);
-    assert!(
-        (area - 20.2).abs() < 0.0001,
-        "expected area 20.2, got {area}"
-    );
     for position in [(0.0, 0.02), (0.0, 500.0), (0.0, 999.98), (15.0, -20.0)] {
         assert!(mesh_contains(&tessellation, position), "{position:?}");
     }
@@ -345,7 +330,7 @@ fn many_stroke_subpaths_preserve_a_long_thin_segment() {
 }
 
 #[test]
-fn stroke_complexity_limit_preserves_valid_subsequent_tessellation() {
+fn strokes_support_more_than_sixteen_bit_winding_counts() {
     let mut resources = ShapeResources::new();
     for subpath_count in [16_383, 32_769, 1] {
         let mut builder = Shape::builder();
@@ -356,18 +341,11 @@ fn stroke_complexity_limit_preserves_valid_subsequent_tessellation() {
             .build()
             .stroke(StrokeOptions::new(2.0))
             .tessellate(&mut resources, None);
-        if subpath_count == 32_769 {
-            assert!(matches!(
-                result,
-                Err(ShapeTessellationError::StrokeTooComplex {
-                    triangle_count: 65_538,
-                    maximum_triangles: 32_767,
-                })
-            ));
-            continue;
-        }
         let tessellation = result.unwrap();
-        assert!((mesh_area(&tessellation) - 20.0).abs() < 0.0001);
+        assert!(tessellation
+            .boundary_edges
+            .iter()
+            .any(|edge| edge.winding.unsigned_abs() as usize == subpath_count));
         for position in [(0.01, 0.0), (5.0, 0.0), (9.99, 0.0)] {
             assert!(mesh_contains(&tessellation, position));
         }

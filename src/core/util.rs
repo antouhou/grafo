@@ -1,7 +1,6 @@
 use crate::core::cache::Cache;
 use crate::core::shape::boundary::PathBoundaryBuilder;
-use crate::core::vertex::CustomVertex;
-use lyon::tessellation::{FillTessellator, StrokeTessellator, VertexBuffers};
+use lyon::tessellation::{FillTessellator, StrokeTessellator};
 
 /// Converts an sRGB byte to a linear channel value between 0.0 and 1.0.
 pub(crate) fn srgb_u8_to_linear(value: u8) -> f32 {
@@ -27,7 +26,6 @@ pub(crate) struct ShapeResources {
     pub tessellation_cache: Cache,
     pub fill_tessellator: FillTessellator,
     pub stroke_tessellator: StrokeTessellator,
-    pub stroke_vertex_buffers: VertexBuffers<CustomVertex, u32>,
 }
 
 impl ShapeResources {
@@ -37,10 +35,6 @@ impl ShapeResources {
             tessellation_cache: Cache::new(),
             fill_tessellator: FillTessellator::new(),
             stroke_tessellator: StrokeTessellator::new(),
-            stroke_vertex_buffers: VertexBuffers {
-                vertices: Vec::new(),
-                indices: Vec::new(),
-            },
         }
     }
 }

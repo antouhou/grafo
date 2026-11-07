@@ -19,6 +19,7 @@ pub trait RenderBackend {
     type TextureManager: TextureManager<Error = Self::Error>;
 
     /// Registers or replaces resources for a borrowed CPU instance.
+    /// A shape's overlapping triangles must contribute coverage once per draw.
     /// An error must preserve the previous registration, if any.
     fn register_shape(&mut self, id: ShapeDrawId, shape: &ShapeInstance)
         -> Result<(), Self::Error>;

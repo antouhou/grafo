@@ -136,11 +136,12 @@ impl DrawPass<'_, '_> {
             );
             return;
         }
-        self.render_pass.set_pipeline(pipelines.get(
-            ShapeGeometryType::Tessellated,
-            shader,
-            stencil,
-        ));
+        let pipeline = if stencil == StencilAction::Keep && resources.needs_overlap_depth_test() {
+            pipelines.get_overlapping(shader)
+        } else {
+            pipelines.get(ShapeGeometryType::Tessellated, shader, stencil)
+        };
+        self.render_pass.set_pipeline(pipeline);
         self.render_pass
             .set_bind_group(0, &pipelines.and_bind_group, &[]);
         bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
@@ -233,6 +234,22 @@ impl DrawPass<'_, '_> {
         resources: &ShapeDrawResources,
     ) {
         self.draw_material(stencil_reference, material, resources, StencilAction::Keep);
+        if resources.needs_overlap_depth_test() {
+            self.reset_shape_depth(resources);
+        }
+    }
+
+    fn reset_shape_depth(&mut self, resources: &ShapeDrawResources) {
+        let Some(location) = resources.geometry_buffer_location else {
+            return;
+        };
+        // Keep the material draw's geometry, transform and scissor. Both pipelines use
+        // the same sample count. Redraw immediately to restore marked depth 0 samples
+        // to 1 without changing color or stencil, so the next shape can reuse the mark.
+        self.render_pass
+            .set_pipeline(self.pipelines.shapes.get_depth_reset());
+        self.buffers
+            .draw_indexed(self.render_pass, location.geometry_range, 0..1);
     }
 
     /// Composites an intermediate texture under the active scissor and stencil reference.

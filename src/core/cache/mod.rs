@@ -10,6 +10,7 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct CachedTessellation {
     pub(crate) is_rect: bool,
+    pub(crate) may_have_overlapping_triangles: bool,
     pub(crate) boundary_edges: Vec<PathBoundaryEdge>,
     pub(crate) vertex_buffers: VertexBuffers<CustomVertex, u32>,
     pub(crate) rounded_rect_boundary: Option<RoundedRectBoundary>,
@@ -18,9 +19,16 @@ pub struct CachedTessellation {
 }
 
 impl CachedTessellation {
+    /// Whether triangles can overlap. Render backends must shade their combined coverage
+    /// once per draw, including when the material is translucent.
+    pub fn may_have_overlapping_triangles(&self) -> bool {
+        self.may_have_overlapping_triangles
+    }
+
     pub(crate) fn empty() -> Self {
         Self {
             is_rect: false,
+            may_have_overlapping_triangles: false,
             boundary_edges: Vec::new(),
             vertex_buffers: VertexBuffers {
                 vertices: Vec::new(),
@@ -36,6 +44,7 @@ impl CachedTessellation {
         self.vertex_buffers.clear();
         self.boundary_edges.clear();
         self.is_rect = false;
+        self.may_have_overlapping_triangles = false;
         self.rounded_rect_boundary = None;
         self.local_bounds = [(0.0, 0.0), (1.0, 1.0)];
         self.texture_mapping_size = [1.0, 1.0];

@@ -1,4 +1,4 @@
-use super::{finish_path_tessellation, ShapeTessellationError, VertexConverter};
+use super::finish_path_tessellation;
 use crate::core::cache::CachedTessellation;
 use crate::core::util::ShapeResources;
 use crate::core::vertex::CustomVertex;
@@ -6,14 +6,11 @@ use lyon::math::Point;
 use lyon::path::polygon::Polygon;
 use lyon::path::{LineCap as LyonLineCap, LineJoin as LyonLineJoin, PathEvent};
 use lyon::tessellation::{
-    BuffersBuilder, FillOptions, GeometryBuilderError, StrokeOptions as LyonStrokeOptions,
-    StrokeVertex, StrokeVertexConstructor, TessellationError,
+    BuffersBuilder, GeometryBuilderError, StrokeOptions as LyonStrokeOptions, StrokeVertex,
+    StrokeVertexConstructor, TessellationError,
 };
 use std::sync::Arc;
 use thiserror::Error;
-
-// Each input triangle can add one to Lyon's i16 winding count.
-const MAX_STROKE_TRIANGLES: usize = i16::MAX as usize;
 
 /// The shape of each end of an open path.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -163,93 +160,32 @@ impl StrokeVertexConstructor<CustomVertex> for StrokeVertexConverter {
     }
 }
 
-fn normalize_stroke_vertices(
-    vertices: &mut [CustomVertex],
-    width: f32,
-) -> Result<f64, TessellationError> {
-    if !vertices
-        .iter()
-        .all(|vertex| vertex.position.into_iter().all(f32::is_finite))
-    {
-        return Err(GeometryBuilderError::InvalidVertex.into());
-    }
-    if width >= 1.0 || vertices.is_empty() {
-        return Ok(1.0);
-    }
-
-    let maximum_coordinate = vertices
-        .iter()
-        .flat_map(|vertex| vertex.position)
-        .map(|position| (position as f64).abs())
-        .fold(0.0, f64::max);
-    // Lyon also snaps nearby intersections using a fixed distance, regardless of tolerance.
-    let requested_exponent = -(width as f64).log2().floor();
-    let maximum_exponent = ((f32::MAX as f64 * 0.25) / maximum_coordinate)
-        .log2()
-        .floor();
-    let scale = 2.0_f64.powf(requested_exponent.min(maximum_exponent).max(0.0));
-    for vertex in vertices {
-        for position in &mut vertex.position {
-            *position = (*position as f64 * scale) as f32;
-        }
-    }
-    Ok(scale)
-}
-
 pub(super) fn tessellate(
     events: impl Iterator<Item = PathEvent> + Clone,
     options: StrokeOptions,
     resources: &mut ShapeResources,
     cache_key: Option<u64>,
-) -> Result<Arc<CachedTessellation>, ShapeTessellationError> {
+) -> Result<Arc<CachedTessellation>, TessellationError> {
     if let Some(cache_key) = cache_key {
         if let Some(tessellation) = resources.tessellation_cache.get_tessellation(&cache_key) {
             return Ok(tessellation);
         }
     }
     if !events.clone().all(has_finite_positions) {
-        return Err(TessellationError::GeometryBuilder(GeometryBuilderError::InvalidVertex).into());
+        return Err(GeometryBuilderError::InvalidVertex.into());
     }
 
-    let stroke_buffers = &mut resources.stroke_vertex_buffers;
-    stroke_buffers.clear();
+    let mut tessellation = resources.tessellation_cache.acquire_tessellation();
     if options.width != 0.0 {
-        resources.stroke_tessellator.tessellate(
+        if let Err(error) = resources.stroke_tessellator.tessellate(
             events,
             &options.lyon_options(),
-            &mut BuffersBuilder::new(stroke_buffers, StrokeVertexConverter),
-        )?;
-    }
-    let triangle_count = stroke_buffers.indices.len() / 3;
-    if triangle_count > MAX_STROKE_TRIANGLES {
-        return Err(ShapeTessellationError::StrokeTooComplex {
-            triangle_count,
-            maximum_triangles: MAX_STROKE_TRIANGLES,
-        });
-    }
-    let fill_scale = normalize_stroke_vertices(&mut stroke_buffers.vertices, options.width)?;
-    let mut tessellation = resources.tessellation_cache.acquire_tessellation();
-    if triangle_count != 0 {
-        // Straight boundaries need no flattening or merging of nearby edges.
-        let fill_options = FillOptions::non_zero().with_tolerance(f32::MIN_POSITIVE);
-        if let Err(error) = resources.fill_tessellator.tessellate(
-            resources
-                .path_boundary_builder
-                .path_events(&stroke_buffers.vertices, &stroke_buffers.indices),
-            &fill_options,
-            &mut BuffersBuilder::new(&mut tessellation.vertex_buffers, VertexConverter),
+            &mut BuffersBuilder::new(&mut tessellation.vertex_buffers, StrokeVertexConverter),
         ) {
             resources
                 .tessellation_cache
                 .recycle_tessellation(tessellation);
-            return Err(error.into());
-        }
-    }
-    if fill_scale != 1.0 {
-        for vertex in &mut tessellation.vertex_buffers.vertices {
-            for position in &mut vertex.position {
-                *position = (*position as f64 / fill_scale) as f32;
-            }
+            return Err(error);
         }
     }
     if !tessellation
@@ -261,8 +197,9 @@ pub(super) fn tessellate(
         resources
             .tessellation_cache
             .recycle_tessellation(tessellation);
-        return Err(TessellationError::GeometryBuilder(GeometryBuilderError::InvalidVertex).into());
+        return Err(GeometryBuilderError::InvalidVertex.into());
     }
+    tessellation.may_have_overlapping_triangles = true;
     Ok(finish_path_tessellation(
         tessellation,
         false,
@@ -276,7 +213,7 @@ pub(super) fn tessellate_rect(
     options: StrokeOptions,
     resources: &mut ShapeResources,
     cache_key: Option<u64>,
-) -> Result<Arc<CachedTessellation>, ShapeTessellationError> {
+) -> Result<Arc<CachedTessellation>, TessellationError> {
     let points: [Point; 4] = [
         bounds[0].into(),
         (bounds[1].0, bounds[0].1).into(),
