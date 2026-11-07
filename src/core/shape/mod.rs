@@ -46,7 +46,6 @@ impl CachedShapeHandle {
     }
 
     #[inline]
-    /// Borrows the vertices and indices. Clone this handle to retain shared geometry.
     /// When [`CachedTessellation::may_have_overlapping_triangles`] is true, a backend must
     /// combine triangle coverage before applying the material.
     pub fn vertex_buffers(&self) -> &VertexBuffers<CustomVertex, u32> {
