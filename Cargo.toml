@@ -55,7 +55,3 @@ harness = false
 [[bench]]
 name = "path_coverage"
 harness = false
-
-[[bench]]
-name = "stroke_tessellation"
-harness = false
