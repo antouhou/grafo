@@ -2,6 +2,10 @@ use crate::core::vertex::CustomVertex;
 use ahash::HashMap;
 use std::{mem, ops::Range};
 
+mod cover;
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PathBoundaryEdge {
     pub start: [f32; 2],
@@ -83,15 +87,24 @@ fn position_key(position: [f32; 2]) -> PositionKey {
     position.map(|value| if value == 0.0 { 0 } else { value.to_bits() })
 }
 
+fn area_products([first, second, third]: [[f32; 2]; 3]) -> [f64; 2] {
+    let [[ax, ay], [bx, by], [cx, cy]] = [first, second, third].map(|point| point.map(f64::from));
+    [(bx - ax) * (cy - ay), (by - ay) * (cx - ax)]
+}
+
+fn signed_double_area(triangle: [[f32; 2]; 3]) -> f64 {
+    let [positive, negative] = area_products(triangle);
+    positive - negative
+}
+
 fn accumulate_triangle_edges(
     edges: &mut HashMap<EdgeKey, PathBoundaryEdge>,
-    indices: &[u32],
+    triangles: impl Iterator<Item = [u32; 3]>,
     position: impl Fn(u32) -> [f32; 2],
 ) {
-    for triangle in indices.as_chunks::<3>().0 {
+    for triangle in triangles {
         let [a, mut b, mut c] = triangle.map(&position);
-        let area = (b[0] as f64 - a[0] as f64) * (c[1] as f64 - a[1] as f64)
-            - (b[1] as f64 - a[1] as f64) * (c[0] as f64 - a[0] as f64);
+        let area = signed_double_area([a, b, c]);
         if !area.is_finite() || area == 0.0 {
             continue;
         }
@@ -135,6 +148,13 @@ pub(crate) struct PathBoundaryBuilder {
 }
 
 impl PathBoundaryBuilder {
+    fn boundary_edges(&self) -> impl Iterator<Item = PathBoundaryEdge> + Clone + '_ {
+        self.edges
+            .values()
+            .copied()
+            .filter(|edge| edge.winding != 0)
+    }
+
     pub(crate) fn build(
         &mut self,
         vertices: &[CustomVertex],
@@ -145,12 +165,11 @@ impl PathBoundaryBuilder {
         self.positions.clear();
         self.positions
             .extend(vertices.iter().map(|vertex| project(vertex.position)));
-        accumulate_triangle_edges(&mut self.edges, indices, |index| {
-            self.positions[index as usize]
-        });
-        self.edges
-            .values()
-            .copied()
-            .filter(|edge| edge.winding != 0)
+        accumulate_triangle_edges(
+            &mut self.edges,
+            indices.as_chunks::<3>().0.iter().copied(),
+            |index| self.positions[index as usize],
+        );
+        self.boundary_edges()
     }
 }

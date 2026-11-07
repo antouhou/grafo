@@ -10,8 +10,26 @@ use crate::core::vertex::InstanceTransform;
 use crate::core::UnsignedPhysicalRect;
 use std::ops::Range;
 
+#[cfg(test)]
+mod tests;
+
 pub(super) const TILE_SIZE: u32 = 8;
 pub(super) const SOLID_COVERAGE: u32 = u32::MAX;
+
+fn needs_clipping_interpolation(edge: PathBoundaryEdge, size: (u32, u32)) -> bool {
+    let [start, end] = [edge.start.map(f64::from), edge.end.map(f64::from)];
+    let [width, height] = [f64::from(size.0), f64::from(size.1)];
+    let low = start[1].min(end[1]);
+    let high = start[1].max(end[1]);
+    if start[0] == end[0] || low == high || high <= 0.0 || low >= height {
+        return false;
+    }
+    let next_row = (low.floor() + 1.0).max(0.0);
+    let left = start[0].min(end[0]);
+    let right = start[0].max(end[0]);
+    (next_row <= height && next_row < high)
+        || [0.0, width].into_iter().any(|x| left < x && x < right)
+}
 
 enum TileCoverage {
     Empty,
@@ -69,7 +87,8 @@ impl CoverageBuilder {
     fn collect_rows(
         &mut self,
         size: (u32, u32),
-        may_have_overlapping_triangles: bool,
+        tessellation: &CachedTessellation,
+        projection: &Projection,
     ) -> Option<[u32; 4]> {
         self.row_edges.resize_with(size.1 as usize, Vec::new);
         let previous_end = self.populated_rows.end.min(self.row_edges.len());
@@ -78,10 +97,40 @@ impl CoverageBuilder {
             row.clear();
         }
         self.populated_rows = self.row_edges.len()..0;
-        if may_have_overlapping_triangles {
-            let bounds = self
-                .winding
-                .build(&self.boundary_edges, size, &mut self.row_edges);
+        if tessellation.may_have_overlapping_triangles() {
+            let mesh = &tessellation.vertex_buffers;
+            let bounds = self.winding.build(
+                &mut self.boundary_edges,
+                size,
+                &mut self.row_edges,
+                |edges, segment_count| {
+                    // Bound the retry by the work already spent on this row.
+                    if mesh.indices.len() / 3 > segment_count.saturating_mul(2)
+                        || mesh.vertices.len() > segment_count.saturating_mul(4)
+                    {
+                        return false;
+                    }
+                    // A rounded intersection can move a sloped edge past another edge.
+                    let needs_interpolation = |edge| needs_clipping_interpolation(edge, size);
+                    if edges.iter().copied().any(needs_interpolation) {
+                        return false;
+                    }
+                    let Some(culled_edges) = self.boundary_builder.cull_covered_triangles(
+                        &mesh.vertices,
+                        &mesh.indices,
+                        |position| projection.project(position),
+                        projection.boundary_orientation,
+                    ) else {
+                        return false;
+                    };
+                    if culled_edges.clone().any(needs_interpolation) {
+                        return false;
+                    }
+                    edges.clear();
+                    edges.extend(culled_edges);
+                    true
+                },
+            );
             self.populated_rows = self.winding.populated_rows();
             return bounds;
         }
@@ -313,7 +362,7 @@ impl CoverageBuilder {
         let rounded_bounds = self.rounded_rect.prepare(tessellation, &projection, size);
         let bounds = rounded_bounds.or_else(|| {
             self.collect_boundary(tessellation, &projection);
-            self.collect_rows(size, tessellation.may_have_overlapping_triangles())
+            self.collect_rows(size, tessellation, &projection)
         });
         let Some([left, top, right, bottom]) = bounds else {
             return coverage_draw;

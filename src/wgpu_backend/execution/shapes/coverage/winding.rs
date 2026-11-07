@@ -225,13 +225,12 @@ impl RowSweep {
         true
     }
 
-    fn build(&mut self, segments: &mut [RowSegment], output: &mut Vec<RowEdge>) {
-        if Self::append_unchanging_row(segments, output) {
-            return;
-        }
-        if self.bounded.build(segments, output) {
-            return;
-        }
+    #[inline(always)]
+    fn try_build(&mut self, segments: &mut [RowSegment], output: &mut Vec<RowEdge>) -> bool {
+        Self::append_unchanging_row(segments, output) || self.bounded.build(segments, output)
+    }
+
+    fn start(&mut self, segments: &[RowSegment], output: &mut Vec<RowEdge>) -> usize {
         self.endpoints.clear();
         self.order.clear(segments.len());
         for (index, segment) in segments.iter().enumerate() {
@@ -268,7 +267,7 @@ impl RowSweep {
                 .then_with(|| first.segment.cmp(&second.segment))
         });
         let first_y = self.endpoints[0].y;
-        let mut cursor = self
+        let cursor = self
             .endpoints
             .partition_point(|endpoint| endpoint.y == first_y);
         self.order.initialize(
@@ -279,10 +278,22 @@ impl RowSweep {
             segments,
             output,
         );
+        cursor
+    }
+
+    fn sweep<const PAUSE_AT_CROSSING: bool>(
+        &mut self,
+        mut cursor: usize,
+        segments: &[RowSegment],
+        output: &mut Vec<RowEdge>,
+    ) -> Option<usize> {
         while cursor < self.endpoints.len() {
             let y = self.endpoints[cursor].y;
             if let Some(crossing_y) = self.order.next_crossing() {
                 if crossing_y <= y {
+                    if PAUSE_AT_CROSSING {
+                        return Some(cursor);
+                    }
                     // Only the crossing pair changes its prefix winding.
                     self.order.cross(crossing_y, segments, output);
                     continue;
@@ -326,6 +337,7 @@ impl RowSweep {
                     .refresh([previous_x, f64::INFINITY], y, segments, output);
             }
         }
+        None
     }
 }
 
@@ -366,15 +378,10 @@ impl WindingCoverage {
         self.populated_rows.clone()
     }
 
-    pub(super) fn build(
-        &mut self,
-        edges: &[PathBoundaryEdge],
-        size: (u32, u32),
-        output: &mut [Vec<RowEdge>],
-    ) -> Option<[u32; 4]> {
+    #[inline(always)]
+    fn collect_edges(&mut self, edges: &[PathBoundaryEdge], size: (u32, u32)) -> Option<[u32; 4]> {
         self.edges.clear();
         self.active_edges.clear();
-        self.segments.clear();
         self.populated_rows = size.1 as usize..0;
         let mut bounds = [
             f32::INFINITY,
@@ -418,29 +425,6 @@ impl WindingCoverage {
             });
         }
         self.edges.sort_unstable_by_key(|edge| edge.first_row);
-        let mut next_edge = 0;
-        for row in self.populated_rows.clone() {
-            self.active_edges
-                .retain(|&index| self.edges[index].last_row > row);
-            while next_edge < self.edges.len() && self.edges[next_edge].first_row <= row {
-                self.active_edges.push(next_edge);
-                next_edge += 1;
-            }
-            self.segments.clear();
-            for &index in &self.active_edges {
-                let edge = &self.edges[index];
-                let low = edge.start[1].max(row as f64);
-                let high = edge.end[1].min(row as f64 + 1.0);
-                append_clipped_segment(
-                    &mut self.segments,
-                    [edge.x_at(low), low - row as f64],
-                    [edge.x_at(high), high - row as f64],
-                    edge.winding,
-                    f64::from(size.0),
-                );
-            }
-            self.sweep.build(&mut self.segments, &mut output[row]);
-        }
         let bounds = [
             bounds[0].floor().clamp(0.0, size.0 as f32) as u32,
             bounds[1].floor().clamp(0.0, size.1 as f32) as u32,
@@ -448,5 +432,83 @@ impl WindingCoverage {
             bounds[3].ceil().clamp(0.0, size.1 as f32) as u32,
         ];
         (bounds[0] < bounds[2] && bounds[1] < bounds[3]).then_some(bounds)
+    }
+
+    #[inline(always)]
+    fn collect_segments(&mut self, row: usize, width: u32, next_edge: &mut usize) {
+        self.active_edges
+            .retain(|&index| self.edges[index].last_row > row);
+        while *next_edge < self.edges.len() && self.edges[*next_edge].first_row <= row {
+            self.active_edges.push(*next_edge);
+            *next_edge += 1;
+        }
+        self.segments.clear();
+        for &index in &self.active_edges {
+            let edge = &self.edges[index];
+            let low = edge.start[1].max(row as f64);
+            let high = edge.end[1].min(row as f64 + 1.0);
+            append_clipped_segment(
+                &mut self.segments,
+                [edge.x_at(low), low - row as f64],
+                [edge.x_at(high), high - row as f64],
+                edge.winding,
+                f64::from(width),
+            );
+        }
+    }
+
+    #[cold]
+    fn restart_row(&mut self, edges: &[PathBoundaryEdge], size: (u32, u32), row: usize) -> usize {
+        let populated_rows = self.populated_rows.clone();
+        self.collect_edges(edges, size);
+        self.populated_rows = populated_rows;
+        let mut next_edge = self.edges.partition_point(|edge| edge.first_row <= row);
+        self.active_edges
+            .extend((0..next_edge).filter(|&index| self.edges[index].last_row > row));
+        self.collect_segments(row, size.0, &mut next_edge);
+        next_edge
+    }
+
+    pub(super) fn build(
+        &mut self,
+        edges: &mut Vec<PathBoundaryEdge>,
+        size: (u32, u32),
+        output: &mut [Vec<RowEdge>],
+        cull_covered_triangles: impl FnOnce(&mut Vec<PathBoundaryEdge>, usize) -> bool,
+    ) -> Option<[u32; 4]> {
+        let bounds = self.collect_edges(edges, size);
+        let mut cull_covered_triangles = Some(cull_covered_triangles);
+        let mut next_edge = 0;
+        for row in self.populated_rows.clone() {
+            self.collect_segments(row, size.0, &mut next_edge);
+            let row_edges = &mut output[row];
+            if self.sweep.try_build(&mut self.segments, row_edges) {
+                continue;
+            }
+            let row_start = row_edges.len();
+            let mut cursor = self.sweep.start(&self.segments, row_edges);
+            if self.segments.len() >= 64 && cull_covered_triangles.is_some() {
+                let Some(crossing_cursor) =
+                    self.sweep.sweep::<true>(cursor, &self.segments, row_edges)
+                else {
+                    continue;
+                };
+                cursor = crossing_cursor;
+                if cull_covered_triangles
+                    .take()
+                    .is_some_and(|cull| cull(edges, self.segments.len()))
+                {
+                    // The proof preserves coverage, including rows already swept.
+                    row_edges.truncate(row_start);
+                    next_edge = self.restart_row(edges, size, row);
+                    if self.sweep.try_build(&mut self.segments, row_edges) {
+                        continue;
+                    }
+                    cursor = self.sweep.start(&self.segments, row_edges);
+                }
+            }
+            self.sweep.sweep::<false>(cursor, &self.segments, row_edges);
+        }
+        bounds
     }
 }
