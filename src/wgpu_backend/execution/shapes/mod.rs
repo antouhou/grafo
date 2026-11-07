@@ -34,6 +34,7 @@ pub(crate) struct ShapeBufferLocation {
 #[derive(Debug, Default)]
 pub(in crate::wgpu_backend) struct ShapeDrawResources {
     pub(in crate::wgpu_backend) path_coverage: Option<PathCoverage>,
+    may_have_overlapping_triangles: bool,
     /// Retained only for draws with a shape mask effect, to identify cached coverage masks.
     pub(crate) mask_tessellation: Option<Arc<CachedTessellation>>,
     pub(crate) geometry_buffer_location: Option<ShapeBufferLocation>,
@@ -42,6 +43,10 @@ pub(in crate::wgpu_backend) struct ShapeDrawResources {
 }
 
 impl ShapeDrawResources {
+    pub(in crate::wgpu_backend) fn needs_overlap_depth_test(&self) -> bool {
+        self.may_have_overlapping_triangles && self.path_coverage.is_none()
+    }
+
     pub(crate) fn clear_under_fill_binding(&mut self) {
         self.texture_material_bind_group = None;
     }

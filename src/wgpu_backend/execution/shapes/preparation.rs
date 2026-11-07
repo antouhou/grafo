@@ -212,7 +212,13 @@ impl ShapeExecutionResources {
         scale_factor: f64,
         physical_size: (u32, u32),
     ) -> Result<ShapeDrawResources, GeometryBufferError> {
-        let mut resources = ShapeDrawResources::default();
+        let mut resources = ShapeDrawResources {
+            may_have_overlapping_triangles: cached_shape_data
+                .cached_shape
+                .tessellation
+                .may_have_overlapping_triangles(),
+            ..Default::default()
+        };
         if supports_projection(
             cached_shape_data.transform,
             cached_shape_data.cached_shape.tessellation.local_bounds,

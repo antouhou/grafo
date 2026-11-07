@@ -13,6 +13,7 @@ use std::sync::Arc;
 mod rectangles;
 mod rounded_rect;
 mod sparse;
+mod winding;
 
 #[derive(Default)]
 struct CoverageTestMesh {
@@ -328,6 +329,32 @@ fn coverage_reuse_distinguishes_placement_and_replaced_geometry() {
         .is_none());
     cache.clear();
     assert!(cache.get(&CoverageKey::new(&shared, None)).is_none());
+}
+
+#[test]
+fn coverage_keys_release_geometry_and_reject_republished_buffers() {
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
+        Viewport {
+            physical_size: (32, 32),
+            scale_factor: 1.0,
+        },
+    );
+    let shape = scene
+        .tessellate(&Shape::rect([(2.0, 2.0), (16.0, 16.0)]), None)
+        .unwrap();
+    let vertex_storage = shape.vertex_buffers().vertices.as_ptr();
+    let stale_key = CoverageKey::new(&shape.tessellation, None);
+    let mut cache = FrameCache::new();
+    cache.insert(stale_key.clone(), "prepared");
+
+    let released =
+        Arc::try_unwrap(shape.tessellation).expect("coverage cache keys must not retain geometry");
+    let republished = Arc::new(released);
+    assert_eq!(republished.vertex_buffers.vertices.as_ptr(), vertex_storage);
+    let replacement_key = CoverageKey::new(&republished, None);
+    assert_ne!(stale_key, replacement_key);
+    assert!(cache.get(&replacement_key).is_none());
 }
 
 #[test]

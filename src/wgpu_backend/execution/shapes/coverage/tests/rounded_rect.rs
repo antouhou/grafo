@@ -2,7 +2,7 @@ use super::{coverage_at, CoverageTestMesh};
 use crate::core::cache::CachedTessellation;
 use crate::core::{BorderRadii, Shape, TransformInstance, Viewport};
 use crate::scene_state::{SceneState, SceneStateContext};
-use std::{fmt, sync::Arc};
+use std::fmt;
 
 fn assert_matching_coverage(
     specialized: &CoverageTestMesh,
@@ -83,14 +83,15 @@ fn rounded_rect_sweep_matches_general_coverage() {
                 tessellation.rounded_rect_boundary.is_some(),
                 "{bounds:?}, {radii:?}"
             );
-            let generic = CachedTessellation {
-                is_rect: false,
-                boundary_edges: tessellation.boundary_edges.clone(),
-                rounded_rect_boundary: None,
-                vertex_buffers: Arc::clone(&tessellation.vertex_buffers),
-                local_bounds: tessellation.local_bounds,
-                texture_mapping_size: tessellation.texture_mapping_size,
-            };
+            let mut generic = CachedTessellation::empty();
+            generic
+                .boundary_edges
+                .clone_from(&tessellation.boundary_edges);
+            generic
+                .vertex_buffers
+                .clone_from(&tessellation.vertex_buffers);
+            generic.local_bounds = tessellation.local_bounds;
+            generic.texture_mapping_size = tessellation.texture_mapping_size;
             for scale in [1.0, 1.5, 2.0] {
                 for transform in transforms {
                     specialized.build(tessellation, Some(transform), scale, size);

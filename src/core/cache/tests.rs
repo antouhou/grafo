@@ -1,6 +1,9 @@
 use super::{Cache, CachedTessellation, FrameCache};
+use crate::core::shape::{BorderRadii, LineCap, Shape, StrokeOptions};
+use crate::core::util::ShapeResources;
 use crate::core::vertex::CustomVertex;
-use lyon::tessellation::VertexBuffers;
+use lyon::tessellation::{GeometryBuilderError, TessellationError};
+use std::mem;
 use std::sync::{Arc, Mutex};
 
 struct DropCounter(Arc<Mutex<usize>>);
@@ -9,6 +12,51 @@ impl Drop for DropCounter {
     fn drop(&mut self) {
         *self.0.lock().unwrap() += 1;
     }
+}
+
+fn tessellation() -> Arc<CachedTessellation> {
+    let mut tessellation = CachedTessellation::empty();
+    tessellation.vertex_buffers.vertices.push(CustomVertex {
+        position: [0.0, 0.0],
+        tex_coords: [0.0, 0.0],
+    });
+    tessellation.vertex_buffers.indices.push(0);
+    Arc::new(tessellation)
+}
+
+fn allocation_addresses(tessellation: &CachedTessellation) -> [usize; 3] {
+    [
+        tessellation.vertex_buffers.vertices.as_ptr() as usize,
+        tessellation.vertex_buffers.indices.as_ptr() as usize,
+        tessellation.boundary_edges.as_ptr() as usize,
+    ]
+}
+
+fn capacities(tessellation: &CachedTessellation) -> [usize; 3] {
+    [
+        tessellation.vertex_buffers.vertices.capacity(),
+        tessellation.vertex_buffers.indices.capacity(),
+        tessellation.boundary_edges.capacity(),
+    ]
+}
+
+fn geometry_variants() -> [Shape; 4] {
+    [
+        Shape::builder()
+            .begin((0.0, 0.0))
+            .line_to((12.0, 0.0))
+            .quadratic_bezier_to((15.0, 12.0), (0.0, 8.0))
+            .close()
+            .build(),
+        Shape::rect([(20.0, 30.0), (50.0, 60.0)]),
+        Shape::rounded_rect([(70.0, 80.0), (120.0, 110.0)], BorderRadii::new(8.0)),
+        Shape::builder()
+            .begin((130.0, 140.0))
+            .cubic_bezier_to((150.0, 110.0), (160.0, 180.0), (180.0, 140.0))
+            .end()
+            .build()
+            .stroke(StrokeOptions::new(4.0).line_cap(LineCap::Round)),
+    ]
 }
 
 #[test]
@@ -100,81 +148,34 @@ fn dropping_partial_eviction_keeps_live_entries_and_reuses_storage() {
 #[test]
 fn cache_returns_shared_arc_without_cloning_vertex_buffers() {
     let mut cache = Cache::new();
-    let mut vertex_buffers = VertexBuffers::<CustomVertex, u32>::new();
-    vertex_buffers.vertices.push(CustomVertex {
-        position: [0.0, 0.0],
-        tex_coords: [0.0, 0.0],
-    });
-    vertex_buffers.indices.push(0);
-
-    let shared_vertex_buffers = Arc::new(vertex_buffers);
-    cache.insert_tessellation(
-        7,
-        Arc::new(CachedTessellation {
-            is_rect: false,
-            boundary_edges: Vec::new(),
-            rounded_rect_boundary: None,
-            vertex_buffers: shared_vertex_buffers.clone(),
-            local_bounds: [(0.0, 0.0), (1.0, 1.0)],
-            texture_mapping_size: [1.0, 1.0],
-        }),
-    );
+    let shared_tessellation = tessellation();
+    cache.insert_tessellation(7, Arc::clone(&shared_tessellation));
 
     let cached_tessellation = cache.get_tessellation(&7).unwrap();
-    assert!(Arc::ptr_eq(
-        &shared_vertex_buffers,
-        &cached_tessellation.vertex_buffers
-    ));
+    assert!(Arc::ptr_eq(&shared_tessellation, &cached_tessellation));
 }
 
 #[test]
 fn cache_promotes_previous_frame_hits_into_current_frame() {
     let mut cache = Cache::new();
-    let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u32>::new());
-    cache.insert_tessellation(
-        7,
-        Arc::new(CachedTessellation {
-            is_rect: false,
-            boundary_edges: Vec::new(),
-            rounded_rect_boundary: None,
-            vertex_buffers: Arc::clone(&shared_vertex_buffers),
-            local_bounds: [(0.0, 0.0), (1.0, 1.0)],
-            texture_mapping_size: [1.0, 1.0],
-        }),
-    );
+    let shared_tessellation = tessellation();
+    cache.insert_tessellation(7, Arc::clone(&shared_tessellation));
 
     cache.end_frame();
 
     let cached_tessellation = cache.get_tessellation(&7).unwrap();
-    assert!(Arc::ptr_eq(
-        &shared_vertex_buffers,
-        &cached_tessellation.vertex_buffers
-    ));
+    assert!(Arc::ptr_eq(&shared_tessellation, &cached_tessellation));
 
     cache.end_frame();
 
     let cached_tessellation = cache.get_tessellation(&7).unwrap();
-    assert!(Arc::ptr_eq(
-        &shared_vertex_buffers,
-        &cached_tessellation.vertex_buffers
-    ));
+    assert!(Arc::ptr_eq(&shared_tessellation, &cached_tessellation));
 }
 
 #[test]
 fn cache_drops_entries_not_used_for_a_frame() {
     let mut cache = Cache::new();
-    let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u32>::new());
-    cache.insert_tessellation(
-        7,
-        Arc::new(CachedTessellation {
-            is_rect: false,
-            boundary_edges: Vec::new(),
-            rounded_rect_boundary: None,
-            vertex_buffers: shared_vertex_buffers,
-            local_bounds: [(0.0, 0.0), (1.0, 1.0)],
-            texture_mapping_size: [1.0, 1.0],
-        }),
-    );
+    cache.insert_tessellation(7, tessellation());
 
     cache.end_frame();
     cache.end_frame();
@@ -185,24 +186,141 @@ fn cache_drops_entries_not_used_for_a_frame() {
 #[test]
 fn cache_refresh_keeps_rendered_geometry_available_next_frame() {
     let mut cache = Cache::new();
-    let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u32>::new());
-
-    cache.refresh_tessellation(
-        7,
-        &Arc::new(CachedTessellation {
-            is_rect: false,
-            boundary_edges: Vec::new(),
-            rounded_rect_boundary: None,
-            vertex_buffers: shared_vertex_buffers.clone(),
-            local_bounds: [(0.0, 0.0), (1.0, 1.0)],
-            texture_mapping_size: [1.0, 1.0],
-        }),
-    );
+    let shared_tessellation = tessellation();
+    cache.refresh_tessellation(7, &shared_tessellation);
     cache.end_frame();
 
     let cached_tessellation = cache.get_tessellation(&7).unwrap();
-    assert!(Arc::ptr_eq(
-        &shared_vertex_buffers,
-        &cached_tessellation.vertex_buffers
+    assert!(Arc::ptr_eq(&shared_tessellation, &cached_tessellation));
+}
+
+#[test]
+fn failed_stroke_returns_storage_for_the_next_attempt() {
+    let mut resources = ShapeResources::new();
+    let valid = Shape::builder()
+        .begin((0.0, 0.0))
+        .line_to((10.0, 0.0))
+        .end()
+        .build()
+        .stroke(StrokeOptions::new(4.0).line_cap(LineCap::Square));
+    let geometry = valid.tessellate(&mut resources, None).unwrap();
+    let original_addresses = allocation_addresses(&geometry);
+    let original_capacities = capacities(&geometry);
+    resources.tessellation_cache.release_tessellation(geometry);
+
+    let overflowing = Shape::builder()
+        .begin((f32::MAX, 0.0))
+        .line_to((f32::MAX, 0.0))
+        .end()
+        .build()
+        .stroke(StrokeOptions::new(f32::MAX).line_cap(LineCap::Square));
+    assert!(matches!(
+        overflowing.tessellate(&mut resources, None),
+        Err(TessellationError::GeometryBuilder(
+            GeometryBuilderError::InvalidVertex
+        ))
     ));
+    let reused = valid.tessellate(&mut resources, None).unwrap();
+    assert_eq!(allocation_addresses(&reused), original_addresses);
+    assert_eq!(capacities(&reused), original_capacities);
+    assert!(!reused.vertex_buffers.indices.is_empty());
+    assert!(reused.vertex_buffers.vertices.iter().all(|vertex| {
+        vertex
+            .position
+            .into_iter()
+            .chain(vertex.tex_coords)
+            .all(f32::is_finite)
+    }));
+}
+
+#[test]
+fn uncached_replacements_reuse_geometry_storage_after_warmup() {
+    let mut resources = ShapeResources::new();
+    let shapes = geometry_variants();
+    let mut current = shapes[0].tessellate(&mut resources, None).unwrap();
+    for _ in 0..2 {
+        for shape in &shapes {
+            let replacement = shape.tessellate(&mut resources, None).unwrap();
+            resources
+                .tessellation_cache
+                .release_tessellation(mem::replace(&mut current, replacement));
+        }
+    }
+    let spare = resources.tessellation_cache.acquire_tessellation();
+    let mut expected_current = (allocation_addresses(&current), capacities(&current));
+    let mut expected_spare = (allocation_addresses(&spare), capacities(&spare));
+    resources.tessellation_cache.recycle_tessellation(spare);
+    let return_capacity = resources
+        .tessellation_cache
+        .available_tessellations
+        .capacity();
+
+    for _ in 0..4 {
+        for shape in &shapes {
+            let previous_vertex = current.vertex_buffers.vertices[0].position;
+            let replacement = shape.tessellate(&mut resources, None).unwrap();
+            assert_eq!(
+                (allocation_addresses(&replacement), capacities(&replacement)),
+                expected_spare
+            );
+            assert_eq!(allocation_addresses(&current), expected_current.0);
+            assert_eq!(current.vertex_buffers.vertices[0].position, previous_vertex);
+            resources
+                .tessellation_cache
+                .release_tessellation(mem::replace(&mut current, replacement));
+            mem::swap(&mut expected_current, &mut expected_spare);
+            assert_eq!(
+                resources.tessellation_cache.available_tessellations.len(),
+                1
+            );
+            assert_eq!(
+                resources
+                    .tessellation_cache
+                    .available_tessellations
+                    .capacity(),
+                return_capacity
+            );
+        }
+    }
+    resources.tessellation_cache.release_tessellation(current);
+    assert_eq!(
+        resources.tessellation_cache.available_tessellations.len(),
+        2
+    );
+    assert_eq!(
+        resources
+            .tessellation_cache
+            .available_tessellations
+            .capacity(),
+        return_capacity
+    );
+}
+
+#[test]
+fn cache_eviction_preserves_shared_geometry_until_explicit_release() {
+    let mut resources = ShapeResources::new();
+    let shape = Shape::rect([(0.0, 0.0), (20.0, 10.0)]).stroke(StrokeOptions::new(2.0));
+    let external = shape.tessellate(&mut resources, Some(91)).unwrap();
+    let original_addresses = allocation_addresses(&external);
+    let original_capacities = capacities(&external);
+    resources.tessellation_cache.end_frame();
+    resources.tessellation_cache.end_frame();
+    assert!(resources.tessellation_cache.get_tessellation(&91).is_none());
+    assert!(resources
+        .tessellation_cache
+        .available_tessellations
+        .is_empty());
+    assert!(!external.vertex_buffers.indices.is_empty());
+    assert_eq!(allocation_addresses(&external), original_addresses);
+    resources.tessellation_cache.release_tessellation(external);
+    assert_eq!(
+        resources.tessellation_cache.available_tessellations.len(),
+        1
+    );
+    let reused = resources.tessellation_cache.acquire_tessellation();
+    assert_eq!(allocation_addresses(&reused), original_addresses);
+    assert_eq!(capacities(&reused), original_capacities);
+    assert!(reused.vertex_buffers.vertices.is_empty());
+    assert!(reused.vertex_buffers.indices.is_empty());
+    assert!(reused.boundary_edges.is_empty());
 }

@@ -233,12 +233,12 @@ fn text_gradients_share_coordinates_and_cached_geometry_across_replacements() {
         .unwrap();
     let original = glyph_ids(&scene, text);
     scene.render(&mut target).unwrap();
-    let geometry = Arc::clone(instance(&scene, original[0]).cached_shape.vertex_buffers());
+    let geometry = Arc::clone(&instance(&scene, original[0]).cached_shape.tessellation);
     for (index, &id) in original.iter().enumerate() {
         let shape = instance(&scene, id);
         assert_fill(shape, &fill);
         assert_paint_position(shape, (1.0, 1.0), (index as f32 * 6.0 + 1.0, 3.0));
-        assert!(Arc::ptr_eq(&geometry, shape.cached_shape.vertex_buffers()));
+        assert!(Arc::ptr_eq(&geometry, &shape.cached_shape.tessellation));
     }
 
     let mut culled = Glyphs::new(&[10, 10, 10, 10]);
@@ -248,7 +248,7 @@ fn text_gradients_share_coordinates_and_cached_geometry_across_replacements() {
     for (index, &id) in glyph_ids(&scene, text).iter().enumerate() {
         let shape = instance(&scene, id);
         assert_paint_position(shape, (1.0, 1.0), ((index + 2) as f32 * 6.0 + 1.0, 3.0));
-        assert!(Arc::ptr_eq(&geometry, shape.cached_shape.vertex_buffers()));
+        assert!(Arc::ptr_eq(&geometry, &shape.cached_shape.tessellation));
     }
 
     scene

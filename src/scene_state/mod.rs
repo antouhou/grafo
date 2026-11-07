@@ -1,9 +1,10 @@
 //! CPU scene descriptions, tessellation caches and effect attachments.
+use crate::core::cache::CachedTessellation;
 use crate::core::effect::ShapeMaskEffectBounds;
 use crate::core::shape::{CachedShapeHandle, Shape, ShapeInstance};
 use crate::core::util::ShapeResources;
 use crate::core::vertex::InstanceTransform;
-use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
+use crate::core::{geometry, StrokeOptionsError, UnsignedPhysicalRect, Viewport};
 use crate::render_backend::texture_manager::{TextureUpdatePublisher, TextureUpdateSubscription};
 use ahash::{HashMap, HashMapExt, HashSet, RandomState};
 use easy_tree::Tree;
@@ -14,7 +15,6 @@ use effects::{
     GroupEffectIndex, ShapeMaskEffectInstance,
 };
 pub use errors::SceneError;
-use lyon::tessellation::FillTessellator;
 use std::sync::{Arc, RwLock};
 use text::GlyphUsage;
 use texture_index::TextureIndex;
@@ -55,7 +55,6 @@ pub(crate) struct SceneState {
     updated_shape_ids: HashSet<usize>,
     context: SceneStateContext,
     viewport: Viewport,
-    tessellator: FillTessellator,
     shape_resources: ShapeResources,
     pub(crate) effect_parameters: EffectParameterStorage,
     pub(crate) content_effects: HashMap<usize, ContentEffectInstance>,
@@ -80,7 +79,6 @@ impl SceneState {
             viewport,
             draw_tree: Tree::new(),
             texture_index: TextureIndex::default(),
-            tessellator: FillTessellator::new(),
             shape_resources: ShapeResources::new(),
             effect_parameters: EffectParameterStorage::default(),
             content_effects: HashMap::new(),
@@ -140,11 +138,16 @@ impl SceneState {
             .write()
             .expect("shared glyph usage lock poisoned");
         glyph_usage.forget(cache_key);
-        self.context
+        let previous = self
+            .context
             .loaded_shapes
             .write()
             .expect("shared shape cache lock poisoned")
             .insert(cache_key, shape);
+        drop(glyph_usage);
+        if let Some(previous) = previous {
+            self.release_tessellation(previous.tessellation);
+        }
         Ok(())
     }
 
@@ -155,11 +158,28 @@ impl SceneState {
             .write()
             .expect("shared glyph usage lock poisoned");
         glyph_usage.forget(cache_key);
-        self.context
+        let previous = self
+            .context
             .loaded_shapes
             .write()
             .expect("shared shape cache lock poisoned")
             .remove(&cache_key);
+        drop(glyph_usage);
+        if let Some(previous) = previous {
+            self.release_tessellation(previous.tessellation);
+        }
+    }
+
+    pub(crate) fn release_tessellation(&mut self, tessellation: Arc<CachedTessellation>) {
+        self.shape_resources
+            .tessellation_cache
+            .release_tessellation(tessellation);
+    }
+
+    pub(crate) fn release_node(&mut self, node: DrawTreeNode) {
+        if let DrawTreeNode::CachedShape(shape) = node {
+            self.release_tessellation(shape.instance.cached_shape.tessellation);
+        }
     }
 
     pub(crate) fn tessellate(
@@ -167,9 +187,16 @@ impl SceneState {
         shape: &Shape,
         geometry_id: Option<u64>,
     ) -> Result<CachedShapeHandle, SceneError> {
+        if let Some(options) = shape.stroke_options() {
+            if !options.width.is_finite() || options.width < 0.0 {
+                return Err(StrokeOptionsError::InvalidWidth.into());
+            }
+            if !options.miter_limit.is_finite() || options.miter_limit < 1.0 {
+                return Err(StrokeOptionsError::InvalidMiterLimit.into());
+            }
+        }
         Ok(CachedShapeHandle::new(
             shape,
-            &mut self.tessellator,
             &mut self.shape_resources,
             geometry_id,
         )?)

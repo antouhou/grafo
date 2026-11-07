@@ -1,14 +1,14 @@
 use super::super::effects::PooledTexture;
 use crate::core::cache::{CachedTessellation, FrameCache};
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use std::sync::Weak;
 use wgpu::TextureFormat;
 
 /// Identifies a mask by geometry and rasterization settings, allowing reuse across
 /// effects and parameter changes.
 #[derive(Clone)]
 pub(crate) struct ShapeMaskCacheKey {
-    pub tessellation: Arc<CachedTessellation>,
+    pub tessellation: Weak<CachedTessellation>,
     /// Shape-local raster origin in physical pixels.
     /// Node transforms do not invalidate this entry.
     pub local_raster_origin: [i32; 2],
@@ -20,7 +20,7 @@ pub(crate) struct ShapeMaskCacheKey {
 
 impl PartialEq for ShapeMaskCacheKey {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.tessellation, &other.tessellation)
+        Weak::ptr_eq(&self.tessellation, &other.tessellation)
             && self.local_raster_origin == other.local_raster_origin
             && self.raster_size == other.raster_size
             && self.scale_factor_bits == other.scale_factor_bits
@@ -33,7 +33,7 @@ impl Eq for ShapeMaskCacheKey {}
 
 impl Hash for ShapeMaskCacheKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        (Arc::as_ptr(&self.tessellation) as usize).hash(state);
+        (Weak::as_ptr(&self.tessellation) as usize).hash(state);
         self.local_raster_origin.hash(state);
         self.raster_size.hash(state);
         self.scale_factor_bits.hash(state);

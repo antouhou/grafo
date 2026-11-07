@@ -76,10 +76,56 @@ impl RoundedRectBoundary {
     }
 }
 
-type EdgeKey = ([u32; 2], [u32; 2]);
+type PositionKey = [u32; 2];
+type EdgeKey = (PositionKey, PositionKey);
 
-fn position_key(position: [f32; 2]) -> [u32; 2] {
+fn position_key(position: [f32; 2]) -> PositionKey {
     position.map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+}
+
+fn accumulate_triangle_edges(
+    edges: &mut HashMap<EdgeKey, PathBoundaryEdge>,
+    indices: &[u32],
+    position: impl Fn(u32) -> [f32; 2],
+) {
+    for triangle in indices.as_chunks::<3>().0 {
+        let [a, mut b, mut c] = triangle.map(&position);
+        let area = (b[0] as f64 - a[0] as f64) * (c[1] as f64 - a[1] as f64)
+            - (b[1] as f64 - a[1] as f64) * (c[0] as f64 - a[0] as f64);
+        if !area.is_finite() || area == 0.0 {
+            continue;
+        }
+        if area < 0.0 {
+            mem::swap(&mut b, &mut c);
+        }
+        for (start, end) in [(a, b), (b, c), (c, a)] {
+            let start_key = position_key(start);
+            let end_key = position_key(end);
+            let (key, edge) = if start_key < end_key {
+                (
+                    (start_key, end_key),
+                    PathBoundaryEdge {
+                        start,
+                        end,
+                        winding: 1,
+                    },
+                )
+            } else {
+                (
+                    (end_key, start_key),
+                    PathBoundaryEdge {
+                        start: end,
+                        end: start,
+                        winding: -1,
+                    },
+                )
+            };
+            edges
+                .entry(key)
+                .and_modify(|entry| entry.winding += edge.winding)
+                .or_insert(edge);
+        }
+    }
 }
 
 #[derive(Default)]
@@ -99,44 +145,9 @@ impl PathBoundaryBuilder {
         self.positions.clear();
         self.positions
             .extend(vertices.iter().map(|vertex| project(vertex.position)));
-        for triangle in indices.as_chunks::<3>().0 {
-            let [a, mut b, mut c] = triangle.map(|index| self.positions[index as usize]);
-            let area = (b[0] as f64 - a[0] as f64) * (c[1] as f64 - a[1] as f64)
-                - (b[1] as f64 - a[1] as f64) * (c[0] as f64 - a[0] as f64);
-            if !area.is_finite() || area == 0.0 {
-                continue;
-            }
-            if area < 0.0 {
-                mem::swap(&mut b, &mut c);
-            }
-            for (start, end) in [(a, b), (b, c), (c, a)] {
-                let start_key = position_key(start);
-                let end_key = position_key(end);
-                let (key, edge) = if start_key < end_key {
-                    (
-                        (start_key, end_key),
-                        PathBoundaryEdge {
-                            start,
-                            end,
-                            winding: 1,
-                        },
-                    )
-                } else {
-                    (
-                        (end_key, start_key),
-                        PathBoundaryEdge {
-                            start: end,
-                            end: start,
-                            winding: -1,
-                        },
-                    )
-                };
-                self.edges
-                    .entry(key)
-                    .and_modify(|entry| entry.winding += edge.winding)
-                    .or_insert(edge);
-            }
-        }
+        accumulate_triangle_edges(&mut self.edges, indices, |index| {
+            self.positions[index as usize]
+        });
         self.edges
             .values()
             .copied()

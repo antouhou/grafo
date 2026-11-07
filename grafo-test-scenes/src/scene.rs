@@ -12,10 +12,10 @@ use grafo::{
     premultiply_rgba8_srgb_inplace, BackdropCaptureArea, BackdropEffectConfig, BorderRadii, Color,
     ColorInterpolation, ConicGradientDesc, ContentEffectConfig, Fill, GlyphContent, Gradient,
     GradientColor, GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions,
-    GradientUnits, LinearGradientDesc, LinearGradientLine, PositionedGlyph, RadialGradientDesc,
-    RadialGradientSize, Scene, Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig,
-    ShapeTextureFitMode, ShapeTextureOptions, SpreadMode, TextSource, TextureManager,
-    TransformInstance,
+    GradientUnits, LineCap, LineJoin, LinearGradientDesc, LinearGradientLine, PositionedGlyph,
+    RadialGradientDesc, RadialGradientSize, Scene, Shape, ShapeDrawCommandOptions,
+    ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions, SpreadMode, StrokeOptions,
+    TextSource, TextureManager, TransformInstance,
 };
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use std::slice;
@@ -70,6 +70,248 @@ impl TextSource for RepeatedOutline<'_> {
     fn glyph_content(&mut self, _: &Self::GlyphKey) -> Option<GlyphContent<'_>> {
         Some(GlyphContent::Outline(self.events))
     }
+}
+
+fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
+    let (origin_x, origin_y) = tile_origin(92);
+    let transform = TransformInstance::translation(origin_x, origin_y);
+    for (left, cap, join, color) in [
+        (
+            10.0,
+            LineCap::Butt,
+            LineJoin::Miter,
+            Color::rgb(220, 50, 50),
+        ),
+        (
+            34.0,
+            LineCap::Square,
+            LineJoin::Bevel,
+            Color::rgb(50, 180, 50),
+        ),
+        (
+            58.0,
+            LineCap::Round,
+            LineJoin::Round,
+            Color::rgb(50, 90, 220),
+        ),
+    ] {
+        let corner = Shape::builder()
+            .begin((left, 28.0))
+            .line_to((left + 12.0, 28.0))
+            .line_to((left + 12.0, 10.0))
+            .end()
+            .build()
+            .stroke(StrokeOptions::new(8.0).line_cap(cap).line_join(join));
+        let corner_id = scene
+            .add_shape(
+                corner,
+                None,
+                None,
+                ShapeDrawCommandOptions::new()
+                    .color(color)
+                    .transform(transform),
+            )
+            .unwrap();
+        if join == LineJoin::Miter {
+            scene
+                .set_shape_mask_effect(
+                    corner_id,
+                    SHAPE_DROP_EFFECT_ID,
+                    &[],
+                    ShapeMaskEffectConfig::new().outset(8.0),
+                )
+                .unwrap();
+        }
+        scene
+            .set_content_effect(
+                corner_id,
+                PASSTHROUGH_EFFECT_ID,
+                &[],
+                ContentEffectConfig::default(),
+            )
+            .unwrap();
+    }
+    // Only the cap reaches this clip; the path's centerline stays outside it.
+    let cap_clip = scene
+        .add_clipping_rect([(3.0, 34.0), (8.0, 42.0)], None, Some(transform), true)
+        .unwrap();
+    scene
+        .add_shape(
+            Shape::builder()
+                .begin((10.0, 38.0))
+                .line_to((16.0, 38.0))
+                .end()
+                .build()
+                .stroke(StrokeOptions::new(12.0).line_cap(LineCap::Square)),
+            Some(cap_clip),
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgb(30, 160, 180))
+                .transform(transform),
+        )
+        .unwrap();
+    scene
+        .add_shape(
+            Shape::rect([(12.0, 48.0), (36.0, 68.0)]).stroke(StrokeOptions::new(6.0)),
+            None,
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgb(220, 160, 30))
+                .transform(transform),
+        )
+        .unwrap();
+    let crossing = Shape::builder()
+        .begin((42.0, 58.25))
+        .line_to((70.0, 58.25))
+        .line_to((70.0, 46.25))
+        .line_to((58.25, 46.25))
+        .line_to((58.25, 72.0))
+        .end()
+        .build()
+        .stroke(StrokeOptions::new(4.0));
+    scene
+        .add_shape(
+            crossing,
+            None,
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgba(0, 0, 0, 192))
+                .transform(transform),
+        )
+        .unwrap();
+    let clipped_crossing = Shape::builder()
+        .begin((40.0, 39.0))
+        .line_to((56.0, 39.0))
+        .end()
+        .begin((48.0, 34.0))
+        .line_to((48.0, 44.0))
+        .end()
+        .begin((-1_000_010.0, -1_000_000.0))
+        .line_to((-999_990.0, -1_000_000.0))
+        .end()
+        .build()
+        .stroke(StrokeOptions::new(4.0));
+    let clip = scene
+        .add_shape(
+            Shape::builder()
+                .begin((42.0, 35.0))
+                .line_to((62.0, 35.0))
+                .line_to((62.0, 43.0))
+                .line_to((42.0, 43.0))
+                .close()
+                .build(),
+            None,
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::TRANSPARENT)
+                .transform(transform),
+        )
+        .unwrap();
+    let mut perspective = TransformInstance::identity();
+    perspective.col0[3] = 0.000001;
+    let translucent_black = Color::rgba(0, 0, 0, 128);
+    let gradient = Gradient::linear(LinearGradientDesc::new(
+        LinearGradientLine {
+            start: [40.0, 39.0],
+            end: [56.0, 39.0],
+        },
+        [
+            GradientStop::at_position(GradientStopOffset::linear_radial(0.0), translucent_black),
+            GradientStop::at_position(GradientStopOffset::linear_radial(1.0), translucent_black),
+        ],
+    ))
+    .unwrap();
+    for (offset_x, fill) in [
+        (0.0, Fill::Solid(translucent_black)),
+        (8.0, Fill::Gradient(gradient)),
+    ] {
+        scene
+            .add_shape(
+                &clipped_crossing,
+                Some(clip),
+                None,
+                ShapeDrawCommandOptions::new()
+                    .fill(fill)
+                    .transform(perspective.then(&TransformInstance::translation(
+                        origin_x + offset_x,
+                        origin_y,
+                    ))),
+            )
+            .unwrap();
+    }
+    [
+        (8, 28, [255, 255, 255], "t92_butt_cap_stops_at_endpoint"),
+        (25, 31, [220, 50, 50], "t92_miter_corner"),
+        (31, 28, [50, 180, 50], "t92_square_cap_extends_endpoint"),
+        (46, 8, [50, 180, 50], "t92_content_effect_keeps_square_cap"),
+        (49, 31, [255, 255, 255], "t92_bevel_corner_is_cut"),
+        (55, 28, [50, 90, 220], "t92_round_cap_extends_endpoint"),
+        (71, 30, [50, 90, 220], "t92_round_join"),
+        (
+            54,
+            24,
+            [255, 255, 255],
+            "t92_round_cap_has_no_square_corner",
+        ),
+        (16, 21, [255, 255, 255], "t92_open_path_has_no_closing_edge"),
+        (33, 39, [0, 0, 255], "t92_content_effect_keeps_miter_shadow"),
+        (35, 39, [255; 3], "t92_miter_shadow_ends_after_outset"),
+        (
+            5,
+            38,
+            [30, 160, 180],
+            "t92_cap_reaches_clip_without_centerline",
+        ),
+        (10, 38, [255; 3], "t92_clip_excludes_stroke_centerline"),
+        (5, 33, [255; 3], "t92_scissor_clips_cap_vertically"),
+        (24, 48, [220, 160, 30], "t92_rectangle_stroke"),
+        (24, 58, [255, 255, 255], "t92_rectangle_interior_is_empty"),
+        (50, 58, [136; 3], "t92_translucent_stroke_arm"),
+        (58, 58, [136; 3], "t92_self_crossing_composites_once"),
+        (60, 65, [233; 3], "t92_quarter_covered_stroke_edge"),
+        // Two quarter-pixel strips cover 7/16 of this pixel after their overlap is removed.
+        (60, 60, [214; 3], "t92_crossing_uses_union_pixel_area"),
+        (64, 52, [255; 3], "t92_self_crossing_preserves_loop_hole"),
+        (43, 39, [187; 3], "t92_projected_stroke_arm"),
+        (
+            48,
+            39,
+            [137; 3],
+            "t92_projected_crossing_composites_once_per_shape",
+        ),
+        (
+            51,
+            39,
+            [137; 3],
+            "t92_projected_shapes_composite_separately",
+        ),
+        (60, 39, [187; 3], "t92_second_projected_stroke_arm"),
+        (
+            41,
+            39,
+            [255; 3],
+            "t92_projected_stroke_respects_horizontal_clip",
+        ),
+        (
+            48,
+            34,
+            [255; 3],
+            "t92_projected_stroke_respects_vertical_clip",
+        ),
+    ]
+    .into_iter()
+    .map(|(x, y, [red, green, blue], label)| {
+        PixelExpectation::opaque(
+            origin_x as u32 + x,
+            origin_y as u32 + y,
+            red,
+            green,
+            blue,
+            label,
+        )
+        .with_tolerance(2)
+    })
+    .collect()
 }
 
 fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
@@ -7544,6 +7786,7 @@ pub fn build_main_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
     expectations.extend(tile_89_rectangle_coverage_effects(scene));
     expectations.extend(tile_90_bounded_effect_targets(scene));
     expectations.extend(tile_91_cached_glyphs(scene));
+    expectations.extend(tile_92_path_strokes(scene));
 
     expectations
 }

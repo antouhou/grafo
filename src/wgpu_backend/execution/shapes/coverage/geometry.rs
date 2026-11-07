@@ -3,6 +3,7 @@ use super::rectangles;
 use super::rounded_rect::RoundedRectSweep;
 use super::scanline::{RowEdge, Scanline};
 use super::tiles::{CoverageDrawMetadata, CoverageDrawRange, CoverageGeometry, CoverageTile};
+use super::winding::WindingCoverage;
 use crate::core::cache::CachedTessellation;
 use crate::core::shape::boundary::{PathBoundaryBuilder, PathBoundaryEdge};
 use crate::core::vertex::InstanceTransform;
@@ -30,6 +31,7 @@ pub(crate) struct CoverageBuilder {
     populated_rows: Range<usize>,
     rounded_rect: RoundedRectSweep,
     has_identical_rows: bool,
+    winding: WindingCoverage,
 }
 
 impl CoverageBuilder {
@@ -64,7 +66,11 @@ impl CoverageBuilder {
         ));
     }
 
-    fn collect_rows(&mut self, size: (u32, u32)) -> Option<[u32; 4]> {
+    fn collect_rows(
+        &mut self,
+        size: (u32, u32),
+        may_have_overlapping_triangles: bool,
+    ) -> Option<[u32; 4]> {
         self.row_edges.resize_with(size.1 as usize, Vec::new);
         let previous_end = self.populated_rows.end.min(self.row_edges.len());
         let previous_start = self.populated_rows.start.min(previous_end);
@@ -72,6 +78,13 @@ impl CoverageBuilder {
             row.clear();
         }
         self.populated_rows = self.row_edges.len()..0;
+        if may_have_overlapping_triangles {
+            let bounds = self
+                .winding
+                .build(&self.boundary_edges, size, &mut self.row_edges);
+            self.populated_rows = self.winding.populated_rows();
+            return bounds;
+        }
         let mut bounds = [
             f32::INFINITY,
             f32::INFINITY,
@@ -300,7 +313,7 @@ impl CoverageBuilder {
         let rounded_bounds = self.rounded_rect.prepare(tessellation, &projection, size);
         let bounds = rounded_bounds.or_else(|| {
             self.collect_boundary(tessellation, &projection);
-            self.collect_rows(size)
+            self.collect_rows(size, tessellation.may_have_overlapping_triangles())
         });
         let Some([left, top, right, bottom]) = bounds else {
             return coverage_draw;

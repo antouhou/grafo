@@ -175,6 +175,7 @@ impl<B: RenderBackend> Scene<B> {
         {
             self.pending_damage.insert(node_id);
         }
+        self.state.release_node(previous);
     }
 
     pub(super) fn queue_draw_command(
@@ -197,13 +198,29 @@ impl<B: RenderBackend> Scene<B> {
         };
         let previous_dirty = self.dirty_bounds;
         let node = self.prepare_draw_command(command)?;
-        let replacement_effects = self.prepare_replacement_effects(&target, &node)?;
-        let shape_mask_effect_bounds = self.validate_replacement_shape_mask(node_id, &node)?;
+        let replacement_effects = match self.prepare_replacement_effects(&target, &node) {
+            Ok(effects) => effects,
+            Err(error) => {
+                self.state.release_node(node);
+                return Err(error);
+            }
+        };
+        let shape_mask_effect_bounds = match self.validate_replacement_shape_mask(node_id, &node) {
+            Ok(bounds) => bounds,
+            Err(error) => {
+                self.state.release_node(node);
+                return Err(error.into());
+            }
+        };
         let member_effects = self.prepare_replacement_member_effects(&target, &node)?;
         if let DrawTreeNode::CachedShape(shape) = &node {
-            self.backend
+            if let Err(error) = self
+                .backend
                 .register_shape(ShapeDrawId(node_id), &shape.instance)
-                .map_err(DrawCommandError::Backend)?;
+            {
+                self.state.release_node(node);
+                return Err(DrawCommandError::Backend(error));
+            }
             if shape_mask_effect_bounds.is_some() {
                 self.backend.set_shape_mask_effect_geometry(
                     ShapeDrawId(node_id),

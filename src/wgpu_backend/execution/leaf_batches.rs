@@ -152,6 +152,12 @@ impl DrawPass<'_, '_> {
             self.flush_leaf_batch(pending_batch);
             return;
         };
+        if resources.needs_overlap_depth_test() {
+            self.flush_leaf_batch(pending_batch);
+            self.set_scissor(clip.scissor);
+            self.draw_shape(clip.stencil_reference, draw.material, resources);
+            return;
+        }
         let Some(mut batch) = LeafBatch::new(draw, clip, location) else {
             self.flush_leaf_batch(pending_batch);
             self.set_scissor(clip.scissor);
