@@ -1,6 +1,6 @@
 //! Rectangles and paths. Set each instance's fill through the scene.
 //!
-//! See [`Shape::rect`], [`Shape::rounded_rect`], and [`ShapeBuilder`] for examples.
+//! See [`Shape::rect`], [`Shape::rounded_rect`], [`Shape::path`], and [`ShapeBuilder`].
 
 use crate::core::cache::CachedTessellation;
 use crate::core::gradient::types::Fill;
@@ -73,6 +73,8 @@ pub struct ShapeInstance {
     pub fill: Option<Fill>,
     /// Maps shape-local positions to the local gradient's paint coordinates.
     pub paint_transform: Transform3D<f32>,
+    /// Stroke paint supplied with the draw command.
+    pub stroke_fill: Option<Fill>,
 }
 
 impl ShapeInstance {
@@ -87,6 +89,7 @@ impl ShapeInstance {
             },
             fill: options.fill,
             paint_transform: Transform3D::identity(),
+            stroke_fill: options.stroke_fill,
         }
     }
 
@@ -132,22 +135,45 @@ fn compute_vertex_bounds(vertices: &[CustomVertex]) -> [(f32, f32); 2] {
     [(min_x, min_y), (max_x, max_y)]
 }
 
-/// A rectangle or a path made of lines and Bezier curves.
-///
-/// Use [`Self::rect`] or [`Self::rounded_rect`] for rectangles, or [`Self::builder`]
-/// for a custom path. Set the fill when queueing the shape with [`ShapeDrawCommandOptions`].
 #[derive(Debug, Clone)]
-pub enum Shape {
-    /// A custom path shape defined using Bezier curves and lines.
+enum ShapeGeometry {
     Path(PathShape),
-    /// An axis-aligned rectangle with square corners.
     Rect(RectShape),
+}
+
+/// A rectangle or a path made of lines and Bezier curves, with optional stroke geometry.
+///
+/// Use [`Self::rect`] or [`Self::rounded_rect`] for rectangles, [`Self::path`] for an existing
+/// Lyon path, or [`Self::builder`] to build a custom path. Set the paint when queueing the shape
+/// with [`ShapeDrawCommandOptions`].
+#[derive(Debug, Clone)]
+pub struct Shape {
+    geometry: ShapeGeometry,
+    stroke: Option<StrokeGeometryOptions>,
 }
 
 impl Shape {
     /// Starts an empty path. See [`ShapeBuilder`] for an example.
     pub fn builder() -> ShapeBuilder {
         ShapeBuilder::new()
+    }
+
+    /// Creates a shape from a Lyon path using [`FillRule::NonZero`].
+    pub fn path(path: Path) -> Self {
+        PathShape::new(path).into()
+    }
+
+    /// Stores the stroke geometry.
+    ///
+    /// Set the stroke paint with [`ShapeDrawCommandOptions::stroke_fill`].
+    pub fn with_stroke(mut self, stroke: StrokeGeometryOptions) -> Self {
+        self.stroke = Some(stroke);
+        self
+    }
+
+    /// Returns the stroke geometry attached to the shape, if present.
+    pub fn stroke(&self) -> Option<&StrokeGeometryOptions> {
+        self.stroke.as_ref()
     }
 
     /// Creates a rectangle from its top-left and bottom-right coordinates.
@@ -160,8 +186,7 @@ impl Shape {
     /// let rect = Shape::rect([(0.0, 0.0), (100.0, 50.0)]);
     /// ```
     pub fn rect(rect: [(f32, f32); 2]) -> Shape {
-        let rect_shape = RectShape::new(rect);
-        Shape::Rect(rect_shape)
+        RectShape::new(rect).into()
     }
 
     /// Creates a rounded rectangle from its top-left and bottom-right coordinates.
@@ -186,7 +211,7 @@ impl Shape {
 
         let mut path_shape = PathShape::new(path);
         path_shape.is_rounded_rect = true;
-        Shape::Path(path_shape)
+        path_shape.into()
     }
 
     pub(crate) fn tessellate(
@@ -195,11 +220,11 @@ impl Shape {
         shape_resources: &mut ShapeResources,
         tesselation_cache_key: Option<u64>,
     ) -> Result<Arc<CachedTessellation>, TessellationError> {
-        match &self {
-            Shape::Path(path_shape) => {
+        match &self.geometry {
+            ShapeGeometry::Path(path_shape) => {
                 path_shape.tessellate(tessellator, shape_resources, tesselation_cache_key)
             }
-            Shape::Rect(rect_shape) => {
+            ShapeGeometry::Rect(rect_shape) => {
                 if let Some(cache_key) = tesselation_cache_key {
                     if let Some(cached_tessellation) = shape_resources
                         .tessellation_cache
@@ -277,13 +302,19 @@ impl Shape {
 
 impl From<PathShape> for Shape {
     fn from(value: PathShape) -> Self {
-        Shape::Path(value)
+        Self {
+            geometry: ShapeGeometry::Path(value),
+            stroke: None,
+        }
     }
 }
 
 impl From<RectShape> for Shape {
     fn from(value: RectShape) -> Self {
-        Shape::Rect(value)
+        Self {
+            geometry: ShapeGeometry::Rect(value),
+            stroke: None,
+        }
     }
 }
 
@@ -295,7 +326,7 @@ impl AsRef<Shape> for Shape {
 
 /// A rectangle's coordinates. Set its fill with [`ShapeDrawCommandOptions`].
 ///
-/// [`Shape::rect`] constructs this and wraps it in [`Shape::Rect`].
+/// Use [`Shape::rect`] to construct a shape directly from rectangle coordinates.
 #[derive(Debug, Clone)]
 pub struct RectShape {
     /// Top-left and bottom-right coordinates.
@@ -311,7 +342,7 @@ impl RectShape {
 
 /// A custom path. Set its fill with [`ShapeDrawCommandOptions`].
 ///
-/// [`Shape::builder`] constructs this and wraps it in [`Shape::Path`].
+/// Use [`Shape::path`] to construct a shape directly from a Lyon path with the default fill rule.
 #[derive(Clone, Debug)]
 pub struct PathShape {
     pub(crate) path: Path,
@@ -534,15 +565,13 @@ impl ShapeTextureOptions {
     }
 }
 
-/// Paint and geometry for a shape's stroke.
+/// Geometry options for a shape's stroke.
 ///
 /// [`Self::new`] uses butt caps, miter joins, and a miter limit of `4.0`.
 #[derive(Clone, Debug)]
-pub struct StrokeOptions {
+pub struct StrokeGeometryOptions {
     /// Width in shape-local units, before the shape transform and viewport scaling.
     pub width: f32,
-    /// Solid color or gradient used to paint the stroke.
-    pub fill: Fill,
     /// Cap at the start of each open subpath.
     pub start_cap: LineCap,
     /// Cap at the end of each open subpath.
@@ -554,11 +583,10 @@ pub struct StrokeOptions {
     pub miter_limit: f32,
 }
 
-impl StrokeOptions {
-    pub fn new(width: f32, fill: impl Into<Fill>) -> Self {
+impl StrokeGeometryOptions {
+    pub fn new(width: f32) -> Self {
         Self {
             width,
-            fill: fill.into(),
             start_cap: LineCap::Butt,
             end_cap: LineCap::Butt,
             line_join: LineJoin::Miter,
@@ -603,8 +631,8 @@ pub struct ShapeDrawCommandOptions {
     /// `None` inherits the nearest group fill, or is transparent if no group supplies one.
     /// An explicit fill, including transparent, overrides the group and uses shape coordinates.
     pub fill: Option<Fill>,
-    /// Optional stroke configuration. Rendering currently ignores this setting.
-    pub stroke: Option<StrokeOptions>,
+    /// Stored stroke paint
+    pub stroke_fill: Option<Fill>,
 }
 
 impl Default for ShapeDrawCommandOptions {
@@ -615,7 +643,7 @@ impl Default for ShapeDrawCommandOptions {
             background_texture: ShapeTextureOptions::default(),
             foreground_texture: ShapeTextureOptions::default(),
             fill: None,
-            stroke: None,
+            stroke_fill: None,
         }
     }
 }
@@ -687,9 +715,9 @@ impl ShapeDrawCommandOptions {
         self
     }
 
-    /// Sets the stroke configuration. Rendering currently ignores this setting.
-    pub fn stroke(mut self, stroke: StrokeOptions) -> Self {
-        self.stroke = Some(stroke);
+    /// Stores a solid color or gradient for the stroke
+    pub fn stroke_fill(mut self, fill: impl Into<Fill>) -> Self {
+        self.stroke_fill = Some(fill.into());
         self
     }
 }
@@ -790,12 +818,9 @@ impl ShapeBuilder {
 
     /// Builds the [`Shape`] from the accumulated path.
     pub fn build(self) -> Shape {
-        let path = self.path_builder.build();
-        Shape::Path(PathShape {
-            path,
-            fill_rule: self.fill_rule,
-            is_rounded_rect: false,
-        })
+        PathShape::new(self.path_builder.build())
+            .fill_rule(self.fill_rule)
+            .into()
     }
 }
 

@@ -9,7 +9,7 @@ use crate::scene::draw_commands::{DrawCommand, NodeTarget};
 use crate::scene_state::effects::EffectConfig;
 use crate::scene_state::types::DrawTreeNode;
 use crate::scene_state::SceneStateContext;
-use lyon::path::PathEvent;
+use lyon::path::{Path, PathEvent};
 use std::sync::Arc;
 
 mod cache;
@@ -27,16 +27,13 @@ struct Glyphs {
 
 impl Glyphs {
     fn new(keys: &[u64]) -> Self {
-        let Shape::Path(path) = Shape::builder()
-            .begin((0.0, 0.0))
-            .line_to((4.0, 0.0))
-            .line_to((4.0, 6.0))
-            .line_to((0.0, 6.0))
-            .close()
-            .build()
-        else {
-            unreachable!()
-        };
+        let mut path_builder = Path::builder();
+        path_builder.begin((0.0, 0.0).into());
+        path_builder.line_to((4.0, 0.0).into());
+        path_builder.line_to((4.0, 6.0).into());
+        path_builder.line_to((0.0, 6.0).into());
+        path_builder.close();
+        let path = path_builder.build();
         Self {
             glyphs: keys
                 .iter()
@@ -46,7 +43,7 @@ impl Glyphs {
                     position: (index as f32 * 6.0, 2.0),
                 })
                 .collect(),
-            events: path.path.iter().collect(),
+            events: path.iter().collect(),
             outline_override: None,
             cursor: 0,
             extractions: Vec::new(),
