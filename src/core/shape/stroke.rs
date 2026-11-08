@@ -12,7 +12,7 @@ use lyon::tessellation::{
 use std::sync::Arc;
 use thiserror::Error;
 
-/// The shape of each end of an open path.
+/// The shape of each end of an open path
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum LineCap {
     /// Ends at the path endpoint without extending beyond it.
@@ -50,7 +50,6 @@ pub enum StrokeOptionsError {
 /// Width, ends, and corners of a centered stroke.
 ///
 /// Width is measured in the shape's local logical coordinates and scales with its transform.
-/// Set the stroke's color, gradient, or textures through [`super::ShapeDrawCommandOptions`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StrokeOptions {
     /// Stroke width. Must be finite and nonnegative. Zero draws nothing. Defaults to `1.0`.
@@ -84,7 +83,7 @@ impl StrokeOptions {
         }
     }
 
-    /// Sets the style for both ends of each open path.
+    /// Sets the stroke's cap style.
     pub fn line_cap(mut self, line_cap: LineCap) -> Self {
         self.line_cap = line_cap;
         self

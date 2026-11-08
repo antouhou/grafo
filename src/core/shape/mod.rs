@@ -236,9 +236,8 @@ impl Shape {
         Shape::Path(path_shape)
     }
 
-    /// Selects a centered stroke instead of the shape's filled interior.
-    /// Replaces any previously selected stroke options.
-    /// Set its color, gradient, or textures through [`ShapeDrawCommandOptions`].
+    /// Sets the shape's stroke options.
+    ///
     /// Invalid widths and miter limits are rejected when the shape is added or loaded.
     /// Overlapping parts of one stroke are drawn once, including crossings and repeated subpaths.
     ///
@@ -257,7 +256,7 @@ impl Shape {
         self
     }
 
-    /// Returns the selected stroke options, or `None` for a filled shape.
+    /// Returns the shape's stroke options, if set.
     pub fn stroke_options(&self) -> Option<&StrokeOptions> {
         match self {
             Self::Path(shape) => shape.stroke_options.as_ref(),
@@ -425,9 +424,8 @@ impl PathShape {
         }
     }
 
-    /// Selects which regions inside the path are filled. Defaults to [`FillRule::NonZero`].
+    /// Sets the rule used to fill the path. Defaults to [`FillRule::NonZero`].
     /// Use [`FillRule::EvenOdd`] for holes that do not depend on contour direction.
-    /// Does not affect shapes with a stroke selected.
     pub fn fill_rule(mut self, fill_rule: FillRule) -> Self {
         self.fill_rule = fill_rule;
         self
@@ -724,7 +722,7 @@ impl ShapeBuilder {
         }
     }
 
-    /// Selects which regions inside the path are filled. Defaults to [`FillRule::NonZero`].
+    /// Sets the rule used to fill the path. Defaults to [`FillRule::NonZero`].
     /// Use [`FillRule::EvenOdd`] for holes that do not depend on contour direction.
     pub fn fill_rule(mut self, fill_rule: FillRule) -> Self {
         self.fill_rule = fill_rule;

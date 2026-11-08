@@ -134,7 +134,9 @@ impl<B: RenderBackend> Scene<B> {
         ));
     }
 
-    /// Tessellates into the shared CPU cache. Geometry IDs let identical shapes share uploads.
+    /// Tessellates and stores a shape in the cache under `cache_key`.
+    /// Pass a `geometry_id` to reuse already cached tesselation with the same geometry key.
+    /// Equal IDs must identify identical geometry.
     /// Returns [`SceneError::InvalidStrokeOptions`] for an invalid stroke width or miter limit,
     /// or [`SceneError::Tessellation`] if the geometry could not be tessellated.
     /// Errors leave any existing cache entry intact.
