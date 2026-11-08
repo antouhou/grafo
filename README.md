@@ -36,9 +36,9 @@ Create a shape, set its fill and transform, then render it. For a complete windo
 `cargo run --example basic`. The same example appears in the [crate documentation](https://docs.rs/grafo/).
 
 ```rust
-use grafo::{Color, Shape, ShapeDrawCommandOptions};
+use grafo::{Color, Shape, ShapeDrawCommandOptions, StrokeOptions};
 
-// Set the fill when queueing the shape.
+// Set the fill and stroke when queueing the shape.
 let rect = Shape::rect([(0.0, 0.0), (200.0, 100.0)]);
 scene
     .add_shape(
@@ -47,6 +47,7 @@ scene
         None,
         ShapeDrawCommandOptions::new()
             .color(Color::rgb(0, 128, 255))
+            .stroke(StrokeOptions::new(2.0), Color::WHITE)
             .transform(grafo::TransformInstance::translation(100.0, 100.0)),
     )
     .unwrap();
@@ -55,6 +56,10 @@ scene
 scene.render(&mut surface).unwrap();
 scene.clear();
 ```
+
+Strokes are centered on the path and have their own solid or gradient paint. Child clips
+and shape mask effects use the original shape. WGPU antialiases strokes when scene MSAA
+is disabled.
 
 `Scene` retains its contents between renders. `clear()` removes those contents while keeping
 loaded shapes, textures, and effect definitions available for reuse.

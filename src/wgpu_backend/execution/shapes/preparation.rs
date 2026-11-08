@@ -1,6 +1,7 @@
 use super::coverage::supports_projection;
 use super::{ShapeBufferLocation, ShapeDrawResources, ShapeExecutionResources};
 use crate::commands::ShapeDrawId;
+use crate::core::gradient::types::{Fill, GradientRamp, GradientUnits};
 use crate::core::shape::ShapeInstance;
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
 use crate::core::Viewport;
@@ -12,6 +13,7 @@ use crate::wgpu_backend::vertex::{
 };
 use crate::ShapeTextureFitMode;
 use ahash::HashMap;
+use lyon::geom::euclid::default::Transform3D;
 use wgpu::{Device, Queue};
 
 #[derive(Copy, Clone)]
@@ -152,6 +154,86 @@ fn compute_texture_uv_transforms(
 }
 
 impl ShapeExecutionResources {
+    pub(in crate::wgpu_backend) fn register_stroke(
+        &mut self,
+        id: ShapeDrawId,
+        shape: &ShapeInstance,
+        device: &Device,
+        queue: &Queue,
+        pipelines: &ShapePipelines,
+        viewport: Viewport,
+    ) {
+        let id = id.stroke();
+        let Some(stroke) = &shape.stroke else {
+            self.remove_draw(id);
+            return;
+        };
+        let mut resources = ShapeDrawResources::default();
+        resources.refresh_gradient_material(
+            &Some(stroke.paint.clone()),
+            &mut self.gradient_cache,
+            device,
+            queue,
+            &pipelines.layouts.gradient,
+            &pipelines.linear_clamp_sampler,
+        );
+        let rasterize_gradient = matches!(&stroke.paint, Fill::Gradient(gradient)
+            if gradient.data().units == GradientUnits::Local
+                && !matches!(gradient.data().ramp, GradientRamp::Constant(_)))
+            && !supports_projection(shape.transform, stroke.local_bounds());
+        let coverage = self.stroke_atlas.prepare(
+            &stroke.tessellation,
+            shape.transform,
+            viewport,
+            resources
+                .gradient_material
+                .as_ref()
+                .filter(|_| rasterize_gradient),
+        );
+        let color = match &stroke.paint {
+            Fill::Solid(color) => Some(color.normalize()),
+            Fill::Gradient(_) => None,
+        };
+        let instance_index = append_instance_data(
+            &mut self.instance_transforms,
+            &mut self.instance_colors,
+            &mut self.instance_metadata,
+            None,
+            color,
+            InstanceTextureData {
+                texture_presence: [false; 2],
+                texture_uv_transforms: [TextureUvTransform::IDENTITY; 2],
+            },
+        );
+        let metadata = &mut self.instance_metadata[instance_index];
+        metadata.coverage_translation = coverage.translation;
+        metadata.paint_transform = encode_paint_transform(Transform3D::identity());
+        resources.stroke_coverage = Some(coverage);
+        resources.geometry_buffer_location = Some(ShapeBufferLocation {
+            geometry_range: GeometryBufferRange::default(),
+            instance_index,
+        });
+        self.register_draw(id, resources);
+    }
+
+    pub(in crate::wgpu_backend) fn rebuild_stroke_coverage(&mut self, viewport: Viewport) {
+        self.stroke_atlas.clear();
+        for resources in self.draws.values_mut() {
+            if let Some(coverage) = &mut resources.stroke_coverage {
+                *coverage = self.stroke_atlas.prepare(
+                    coverage.tessellation(),
+                    coverage.transform,
+                    viewport,
+                    coverage.rasterized_gradient(),
+                );
+                if let Some(location) = resources.geometry_buffer_location {
+                    self.instance_metadata[location.instance_index].coverage_translation =
+                        coverage.translation;
+                }
+            }
+        }
+    }
+
     pub(in crate::wgpu_backend) fn refresh_paint(
         &mut self,
         id: ShapeDrawId,
@@ -212,13 +294,7 @@ impl ShapeExecutionResources {
         scale_factor: f64,
         physical_size: (u32, u32),
     ) -> Result<ShapeDrawResources, GeometryBufferError> {
-        let mut resources = ShapeDrawResources {
-            may_have_overlapping_triangles: cached_shape_data
-                .cached_shape
-                .tessellation
-                .may_have_overlapping_triangles(),
-            ..Default::default()
-        };
+        let mut resources = ShapeDrawResources::default();
         if supports_projection(
             cached_shape_data.transform,
             cached_shape_data.cached_shape.tessellation.local_bounds,

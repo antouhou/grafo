@@ -148,16 +148,17 @@ impl DrawPass<'_, '_> {
         pending_batch: &mut Option<LeafBatch>,
     ) {
         let resources = shapes.draw_resources(draw.id);
+        if resources.stroke_coverage.is_some() {
+            self.flush_leaf_batch(pending_batch);
+            self.set_scissor(clip.scissor);
+            self.draw_stroke(clip.stencil_reference, draw.material, resources);
+            return;
+        }
         let Some(location) = resources.geometry_buffer_location else {
             self.flush_leaf_batch(pending_batch);
             return;
         };
-        let batch = if resources.needs_overlap_depth_test() {
-            None
-        } else {
-            LeafBatch::new(draw, clip, location)
-        };
-        let Some(mut batch) = batch else {
+        let Some(mut batch) = LeafBatch::new(draw, clip, location) else {
             self.flush_leaf_batch(pending_batch);
             self.set_scissor(clip.scissor);
             self.draw_shape(clip.stencil_reference, draw.material, resources);

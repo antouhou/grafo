@@ -19,7 +19,8 @@ pub trait RenderBackend {
     type TextureManager: TextureManager<Error = Self::Error>;
 
     /// Registers or replaces resources for a borrowed CPU instance.
-    /// A shape's overlapping triangles must contribute coverage once per draw.
+    /// Registers optional stroke resources at `id.stroke()` with independent paint.
+    /// A stroke's overlapping triangles must contribute coverage once per draw.
     /// An error must preserve the previous registration, if any.
     fn register_shape(&mut self, id: ShapeDrawId, shape: &ShapeInstance)
         -> Result<(), Self::Error>;
@@ -28,7 +29,7 @@ pub trait RenderBackend {
     fn refresh_uv(&mut self, id: ShapeDrawId, shape: &ShapeInstance);
     /// Updates the resolved fill and its coordinates, preserving geometry and attached effects.
     fn refresh_paint(&mut self, id: ShapeDrawId, shape: &ShapeInstance);
-    /// Releases the given instances and their effect bindings.
+    /// Releases the given instances, their strokes, and their effect bindings.
     /// Preserve other instances and resource caches.
     fn unregister_shapes(&mut self, ids: &[ShapeDrawId]);
     /// Releases queued references, retaining reusable storage and resource caches.

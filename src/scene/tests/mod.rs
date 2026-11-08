@@ -116,12 +116,24 @@ impl RenderBackend for TestBackend {
             return Err(TestBackendError);
         }
         let geometry = shape.cached_shape.vertex_buffers();
-        assert_eq!(geometry.vertices.is_empty(), geometry.indices.is_empty());
+        assert!(geometry.indices.is_empty() || !geometry.vertices.is_empty());
         if !self.registered_shapes.contains(&id.0) {
             self.registered_shapes.push(id.0);
         }
         self.registered_geometry
             .insert(id.0, Arc::clone(&shape.cached_shape.tessellation));
+        let stroke_id = id.stroke().0;
+        if let Some(stroke) = &shape.stroke {
+            if !self.registered_shapes.contains(&stroke_id) {
+                self.registered_shapes.push(stroke_id);
+            }
+            self.registered_geometry
+                .insert(stroke_id, Arc::clone(&stroke.tessellation));
+        } else {
+            self.registered_shapes
+                .retain(|&registered| registered != stroke_id);
+            self.registered_geometry.remove(&stroke_id);
+        }
         Ok(())
     }
 
@@ -140,10 +152,12 @@ impl RenderBackend for TestBackend {
     }
 
     fn unregister_shapes(&mut self, ids: &[ShapeDrawId]) {
-        self.registered_shapes
-            .retain(|&registered| !ids.contains(&ShapeDrawId(registered)));
         for id in ids {
+            let stroke = id.stroke();
+            self.registered_shapes
+                .retain(|&registered| registered != id.0 && registered != stroke.0);
             self.registered_geometry.remove(&id.0);
+            self.registered_geometry.remove(&stroke.0);
         }
     }
 
@@ -256,6 +270,7 @@ impl RenderBackend for TestBackend {
                         RenderOperation::DrawShape(draw)
                         | RenderOperation::DrawShapeAndIncrementStencil(draw)
                         | RenderOperation::DecrementStencil(draw) => draw.id,
+                        RenderOperation::IncrementStencil(id) => *id,
                         RenderOperation::CompositeTexture(_) | RenderOperation::Capture(_) => {
                             continue
                         }

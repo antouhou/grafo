@@ -43,7 +43,7 @@ impl EffectDamageEntry {
             return None;
         }
         let target_region =
-            geometry::logical_bounds_to_viewport_rect(shape.logical_screen_bounds, viewport);
+            geometry::logical_bounds_to_viewport_rect(node.geometry_bounds(), viewport);
         if capture_region.is_none() && target_region.is_none() {
             return None;
         }

@@ -8,6 +8,8 @@ pub enum SceneError {
     Tessellation(#[from] TessellationError),
     #[error("Invalid stroke options: {0}")]
     InvalidStrokeOptions(#[from] StrokeOptionsError),
+    #[error("Strokes require geometry supplied as a Shape")]
+    StrokeRequiresShapeOutline,
     #[error("Invalid shape ID: {0}")]
     InvalidShapeId(usize),
     #[error("Shape {0} is not loaded")]

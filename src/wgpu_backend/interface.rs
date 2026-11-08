@@ -28,6 +28,14 @@ impl RenderBackend for WgpuBackend {
             self.viewport.physical_size,
         )?;
         self.resources.shape_execution.register_draw(id, resources);
+        self.resources.shape_execution.register_stroke(
+            id,
+            shape,
+            &self.device,
+            &self.queue,
+            &self.pipeline_resources.shapes,
+            self.viewport,
+        );
         Ok(())
     }
 

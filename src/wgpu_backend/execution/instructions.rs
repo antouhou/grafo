@@ -4,7 +4,7 @@ use super::effects::EffectExecutionResources;
 use super::leaf_batches::LeafBatch;
 use super::render_pass::RenderPass;
 use super::shape_mask_effects::ShapeMaskEffectExecutionResources;
-use super::shapes::ShapeExecutionResources;
+use super::shapes::{ShapeExecutionResources, StencilAction};
 use super::target_uniforms;
 use super::targets::{ActiveTarget, SurfaceTarget};
 use super::textures::{IntermediateTextureResources, PlannedTexture};
@@ -180,7 +180,9 @@ fn should_end_draw_pass(command: &RenderCommand) -> bool {
         RenderOperation::DrawShape(draw) | RenderOperation::DrawShapeAndIncrementStencil(draw) => {
             draw.material.under_fill_texture.is_some()
         }
-        RenderOperation::DecrementStencil(_) | RenderOperation::CompositeTexture(_) => false,
+        RenderOperation::IncrementStencil(_)
+        | RenderOperation::DecrementStencil(_)
+        | RenderOperation::CompositeTexture(_) => false,
         _ => true,
     }
 }
@@ -206,11 +208,20 @@ fn execute_draw_command(
                 shapes.draw_resources(draw.id),
             );
         }
+        RenderOperation::IncrementStencil(id) => {
+            pass.set_scissor(command.clip.scissor);
+            pass.draw_stencil(
+                command.clip.stencil_reference,
+                shapes.draw_resources(id),
+                StencilAction::IncrementOnly,
+            );
+        }
         RenderOperation::DecrementStencil(draw) => {
             pass.set_scissor(command.clip.scissor);
-            pass.decrement_stencil(
+            pass.draw_stencil(
                 command.clip.stencil_reference,
                 shapes.draw_resources(draw.id),
+                StencilAction::Decrement,
             );
         }
         RenderOperation::CompositeTexture(composite) => match composite.placement {
@@ -363,6 +374,7 @@ pub(in crate::wgpu_backend) fn execute_commands<'scene>(
             RenderOperation::Capture(capture) => resources.capture(encoder, *capture, &surface),
             RenderOperation::DrawShape(_)
             | RenderOperation::DrawShapeAndIncrementStencil(_)
+            | RenderOperation::IncrementStencil(_)
             | RenderOperation::DecrementStencil(_)
             | RenderOperation::CompositeTexture(_) => {
                 pending_command = execute_draw_pass(

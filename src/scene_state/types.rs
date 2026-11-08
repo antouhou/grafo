@@ -1,6 +1,8 @@
 use super::effects::{EffectAttachmentKind, EffectAttachments};
 use super::paint::GroupFill;
-use crate::core::shape::{CachedShapeHandle, ShapeDrawCommandOptions, ShapeInstance};
+use crate::core::shape::{
+    CachedShapeHandle, ShapeDrawCommandOptions, ShapeInstance, StrokeInstance,
+};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, MathRect};
 
@@ -59,6 +61,20 @@ impl CachedShapeDrawData {
     pub(crate) fn has_geometry(&self) -> bool {
         let geometry = self.instance.cached_shape.vertex_buffers();
         !geometry.vertices.is_empty() && !geometry.indices.is_empty()
+    }
+
+    pub(crate) fn set_stroke(&mut self, stroke: StrokeInstance) {
+        let bounds = stroke.tessellation.local_bounds;
+        let screen_bounds = geometry::transformed_bounds_to_logical_screen_rect(
+            MathRect::new(bounds[0].into(), bounds[1].into()),
+            self.instance.transform,
+        );
+        self.logical_screen_bounds = if self.has_geometry() {
+            self.logical_screen_bounds.union(&screen_bounds)
+        } else {
+            screen_bounds
+        };
+        self.instance.stroke = Some(stroke);
     }
 }
 
@@ -139,6 +155,19 @@ impl DrawTreeNode {
             DrawTreeNode::CachedShape(cached_shape) => cached_shape.clips_children,
             DrawTreeNode::ClipRect(clip_rect) => clip_rect.clips_children,
         }
+    }
+
+    pub(crate) fn geometry_bounds(&self) -> MathRect {
+        if let Self::CachedShape(shape) = self {
+            if shape.instance.stroke.is_some() {
+                let bounds = shape.instance.cached_shape.local_bounds();
+                return geometry::transformed_bounds_to_logical_screen_rect(
+                    MathRect::new(bounds[0].into(), bounds[1].into()),
+                    shape.instance.transform,
+                );
+            }
+        }
+        self.logical_screen_bounds()
     }
 
     pub(crate) fn is_axis_aligned_rect(&self) -> bool {

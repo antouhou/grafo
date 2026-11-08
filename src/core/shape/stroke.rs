@@ -1,4 +1,4 @@
-use super::finish_path_tessellation;
+use super::compute_vertex_bounds;
 use crate::core::cache::CachedTessellation;
 use crate::core::util::ShapeResources;
 use crate::core::vertex::CustomVertex;
@@ -101,6 +101,16 @@ impl StrokeOptions {
         self
     }
 
+    pub(crate) fn validate(self) -> Result<(), StrokeOptionsError> {
+        if !self.width.is_finite() || self.width < 0.0 {
+            return Err(StrokeOptionsError::InvalidWidth);
+        }
+        if !self.miter_limit.is_finite() || self.miter_limit < 1.0 {
+            return Err(StrokeOptionsError::InvalidMiterLimit);
+        }
+        Ok(())
+    }
+
     fn lyon_options(self) -> LyonStrokeOptions {
         let line_cap = match self.line_cap {
             LineCap::Butt => LyonLineCap::Butt,
@@ -148,6 +158,16 @@ fn has_finite_positions(event: PathEvent) -> bool {
     }
 }
 
+pub(super) fn validate_positions(
+    mut events: impl Iterator<Item = PathEvent>,
+) -> Result<(), TessellationError> {
+    if events.all(has_finite_positions) {
+        Ok(())
+    } else {
+        Err(GeometryBuilderError::InvalidVertex.into())
+    }
+}
+
 struct StrokeVertexConverter;
 
 impl StrokeVertexConstructor<CustomVertex> for StrokeVertexConverter {
@@ -163,16 +183,8 @@ pub(super) fn tessellate(
     events: impl Iterator<Item = PathEvent> + Clone,
     options: StrokeOptions,
     resources: &mut ShapeResources,
-    cache_key: Option<u64>,
 ) -> Result<Arc<CachedTessellation>, TessellationError> {
-    if let Some(cache_key) = cache_key {
-        if let Some(tessellation) = resources.tessellation_cache.get_tessellation(&cache_key) {
-            return Ok(tessellation);
-        }
-    }
-    if !events.clone().all(has_finite_positions) {
-        return Err(GeometryBuilderError::InvalidVertex.into());
-    }
+    validate_positions(events.clone())?;
 
     let mut tessellation = resources.tessellation_cache.acquire_tessellation();
     if options.width != 0.0 {
@@ -198,20 +210,14 @@ pub(super) fn tessellate(
             .recycle_tessellation(tessellation);
         return Err(GeometryBuilderError::InvalidVertex.into());
     }
-    tessellation.may_have_overlapping_triangles = true;
-    Ok(finish_path_tessellation(
-        tessellation,
-        false,
-        resources,
-        cache_key,
-    ))
+    tessellation.local_bounds = compute_vertex_bounds(&tessellation.vertex_buffers.vertices);
+    Ok(Arc::new(tessellation))
 }
 
 pub(super) fn tessellate_rect(
     bounds: [(f32, f32); 2],
     options: StrokeOptions,
     resources: &mut ShapeResources,
-    cache_key: Option<u64>,
 ) -> Result<Arc<CachedTessellation>, TessellationError> {
     let points: [Point; 4] = [
         bounds[0].into(),
@@ -223,5 +229,5 @@ pub(super) fn tessellate_rect(
         points: &points,
         closed: true,
     };
-    tessellate(rectangle.path_events(), options, resources, cache_key)
+    tessellate(rectangle.path_events(), options, resources)
 }

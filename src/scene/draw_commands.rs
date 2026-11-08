@@ -7,7 +7,7 @@ use crate::core::shape::{Shape, ShapeDrawCommandOptions};
 use crate::core::vertex::InstanceTransform;
 use crate::render_backend::RenderBackend;
 use crate::scene_state::effects::{EffectAttachments, EffectConfig};
-use crate::scene_state::types::{CachedShapeDrawData, DrawTreeNode};
+use crate::scene_state::types::DrawTreeNode;
 use crate::scene_state::{SceneError, SceneState};
 
 #[derive(Debug)]
@@ -43,13 +43,14 @@ impl<B: RenderBackend> Scene<B> {
                 shape,
                 geometry_id,
                 options,
-            } => DrawTreeNode::CachedShape(CachedShapeDrawData::new(
-                self.state.tessellate(shape, geometry_id)?,
+            } => DrawTreeNode::CachedShape(self.state.prepare_shape_draw(
+                shape,
+                geometry_id,
                 options,
-            )),
-            DrawCommand::CachedShape { cache_key, options } => DrawTreeNode::CachedShape(
-                CachedShapeDrawData::new(self.state.loaded_shape(cache_key)?, options),
-            ),
+            )?),
+            DrawCommand::CachedShape { cache_key, options } => {
+                DrawTreeNode::CachedShape(self.state.prepare_cached_shape_draw(cache_key, options)?)
+            }
             DrawCommand::ClippingRect {
                 rect_bounds,
                 transform,

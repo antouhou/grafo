@@ -56,15 +56,6 @@ struct Uniforms {
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-// Set per pipeline as clip-space z. compute_vertex_position fixes clip w at 1.
-// Targets clear depth to 1. Direct overlapping stroke draws that keep stencil use
-// DepthAction::RejectOverlap to write 0 with Less, so the first hit passes 0 < 1
-// and later hits fail 0 < 0.
-// The immediate Reset draw overrides this to 1 with Greater and color writes disabled,
-// restoring marked samples for the next shape without changing stencil values.
-// Other draws leave depth untouched. Shapes composite in command order.
-// See DepthAction in execution/shapes/pipelines.rs and DrawPass::reset_shape_depth.
-override tessellated_depth: f32 = 0.0;
 // Texture/sampler for optional shape texturing. A default white texture can be bound when unused.
 // Background texture at layer 0
 @group(1) @binding(0) var t_shape_layer0: texture_2d<f32>;
@@ -248,8 +239,9 @@ fn compute_vertex_position(position: vec2<f32>, model: mat4x4<f32>) -> VertexPos
     let ndc_x = 2.0 * target_position.x / uniforms.canvas_size.x - 1.0;
     let ndc_y = 1.0 - 2.0 * target_position.y / uniforms.canvas_size.y;
 
+    // Shapes composite in command order. Intersecting geometry is not depth-sorted yet
     return VertexPosition(
-        vec4<f32>(ndc_x, ndc_y, tessellated_depth, 1.0),
+        vec4<f32>(ndc_x, ndc_y, 0.0, 1.0),
         vec2<f32>(px, py),
     );
 }
@@ -426,9 +418,11 @@ fn fs_main_gradient(
     );
 }
 
-// Coverage rejects empty pixels before stencil or depth updates.
+// Used by stencil-only passes that write no color. Color work is skipped entirely;
+// only the fixed-function stencil operation matters for these draws.
+// Coverage rejects empty pixels before the stencil operation.
 @fragment
-fn fs_no_color(
+fn fs_stencil_only(
     @builtin(position) fragment_position: vec4<f32>,
     @location(8) @interpolate(flat) coverage_start: u32,
     @location(9) @interpolate(flat) coverage_origin: vec2<f32>,

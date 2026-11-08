@@ -101,6 +101,12 @@ impl WgpuBackend {
             sample_count: self.msaa_sample_count,
         };
         let resources = &mut self.resources;
+        resources.shape_execution.stroke_atlas.rasterize(
+            &self.device,
+            &self.queue,
+            &pipeline_resources.shapes,
+            &mut encoder,
+        );
         let _metrics = execute_commands(
             &mut encoder,
             commands,
@@ -134,6 +140,7 @@ impl WgpuBackend {
         self.queue.submit(iter::once(encoder.finish()));
         resources.shape_execution.texture_materials.finish_render();
         resources.shape_execution.coverage_cache.finish_render();
+        resources.shape_execution.stroke_atlas.finish_render();
         resources.effect_execution.finish_render();
 
         let (_collected_shape_mask_effect_results, _collected_shape_masks) =

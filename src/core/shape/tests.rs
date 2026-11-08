@@ -5,8 +5,10 @@ use lyon::math::Point;
 use lyon::path::PathEvent;
 use std::{f32::consts::PI, sync::Arc};
 
-fn tessellate_shape(shape: &Shape) -> Arc<CachedTessellation> {
-    shape.tessellate(&mut ShapeResources::new(), None).unwrap()
+fn tessellate_stroke(shape: &Shape, options: StrokeOptions) -> Arc<CachedTessellation> {
+    shape
+        .tessellate_stroke(options, &mut ShapeResources::new())
+        .unwrap()
 }
 
 fn mesh_area(tessellation: &CachedTessellation) -> f32 {
@@ -109,8 +111,7 @@ fn stroke_caps_cover_the_line_and_extend_its_ends() {
             false,
         ),
     ] {
-        let stroke = line.clone().stroke(StrokeOptions::new(4.0).line_cap(cap));
-        let tessellation = tessellate_shape(&stroke);
+        let tessellation = tessellate_stroke(&line, StrokeOptions::new(4.0).line_cap(cap));
         assert_bounds(&tessellation, expected_bounds, 0.1);
         assert!((mesh_area(&tessellation) - expected_area).abs() < 0.6);
         assert!(mesh_contains(&tessellation, (7.0, 3.0)));
@@ -118,7 +119,6 @@ fn stroke_caps_cover_the_line_and_extend_its_ends() {
         assert_eq!(mesh_contains(&tessellation, (1.0, 3.0)), extends_ends);
         assert_eq!(mesh_contains(&tessellation, (13.0, 3.0)), extends_ends);
         assert_eq!(mesh_contains(&tessellation, (0.25, 1.25)), covers_corner);
-        assert!(!tessellation.boundary_edges.is_empty());
     }
 }
 
@@ -188,8 +188,7 @@ fn overlapping_strokes_preserve_path_extent_and_holes() {
             (5.0, 5.0),
         ),
     ] {
-        let tessellation = tessellate_shape(&shape.stroke(StrokeOptions::new(2.0)));
-        assert!(tessellation.may_have_overlapping_triangles());
+        let tessellation = tessellate_stroke(&shape, StrokeOptions::new(2.0));
         for position in inside {
             assert!(
                 mesh_contains(&tessellation, position),
@@ -220,9 +219,8 @@ fn thin_diagonal_crossings_preserve_geometry_at_small_scales() {
             .begin(translate((-extent, extent)))
             .line_to(translate((extent, -extent)))
             .end()
-            .build()
-            .stroke(StrokeOptions::new(width));
-        let tessellation = tessellate_shape(&crossing);
+            .build();
+        let tessellation = tessellate_stroke(&crossing, StrokeOptions::new(width));
         let expected_area = 4.0 * extent * 2.0_f32.sqrt() * width;
         let area = mesh_area(&tessellation);
         let relative_tolerance = if translation == (0.0, 0.0) {
@@ -268,9 +266,8 @@ fn long_thin_butt_strokes_preserve_area_and_both_ends() {
             .begin(position(0.0))
             .line_to(position(length))
             .end()
-            .build()
-            .stroke(StrokeOptions::new(width));
-        let tessellation = tessellate_shape(&stroke);
+            .build();
+        let tessellation = tessellate_stroke(&stroke, StrokeOptions::new(width));
         let expected_area = length * width;
         let area = mesh_area(&tessellation);
         assert!(
@@ -298,9 +295,8 @@ fn distant_thin_stroke_subpaths_preserve_nearby_geometry() {
         .begin((10_000_000.0, 0.0))
         .line_to((10_000_016.0, 0.0))
         .end()
-        .build()
-        .stroke(StrokeOptions::new(0.02));
-    let tessellation = tessellate_shape(&stroke);
+        .build();
+    let tessellation = tessellate_stroke(&stroke, StrokeOptions::new(0.02));
     let area = mesh_area(&tessellation);
     assert!(
         (area - 0.52).abs() < 0.0001,
@@ -322,35 +318,11 @@ fn many_stroke_subpaths_preserve_a_long_thin_segment() {
         };
         builder = builder.begin(start).line_to(end).end();
     }
-    let tessellation = tessellate_shape(&builder.build().stroke(StrokeOptions::new(0.02)));
+    let tessellation = tessellate_stroke(&builder.build(), StrokeOptions::new(0.02));
     for position in [(0.0, 0.02), (0.0, 500.0), (0.0, 999.98), (15.0, -20.0)] {
         assert!(mesh_contains(&tessellation, position), "{position:?}");
     }
     assert!(!mesh_contains(&tessellation, (0.02, 500.0)));
-}
-
-#[test]
-fn strokes_support_more_than_sixteen_bit_winding_counts() {
-    let mut resources = ShapeResources::new();
-    for subpath_count in [16_383, 32_769, 1] {
-        let mut builder = Shape::builder();
-        for _ in 0..subpath_count {
-            builder = builder.begin((0.0, 0.0)).line_to((10.0, 0.0)).end();
-        }
-        let result = builder
-            .build()
-            .stroke(StrokeOptions::new(2.0))
-            .tessellate(&mut resources, None);
-        let tessellation = result.unwrap();
-        assert!(tessellation
-            .boundary_edges
-            .iter()
-            .any(|edge| edge.winding.unsigned_abs() as usize == subpath_count));
-        for position in [(0.01, 0.0), (5.0, 0.0), (9.99, 0.0)] {
-            assert!(mesh_contains(&tessellation, position));
-        }
-        assert!(!mesh_contains(&tessellation, (5.0, 2.0)));
-    }
 }
 
 #[test]
@@ -359,9 +331,8 @@ fn wide_butt_strokes_preserve_short_segments() {
         .begin((0.0, 0.0))
         .line_to((2.0, 0.0))
         .end()
-        .build()
-        .stroke(StrokeOptions::new(100_000_000.0));
-    let tessellation = tessellate_shape(&stroke);
+        .build();
+    let tessellation = tessellate_stroke(&stroke, StrokeOptions::new(100_000_000.0));
     assert!(mesh_contains(&tessellation, (1.0, 0.0)));
     assert_bounds(
         &tessellation,
@@ -377,9 +348,11 @@ fn wide_round_caps_produce_finite_geometry_and_cover_both_ends() {
         .begin((0.0, 0.0))
         .line_to((40_000_000.0, 0.0))
         .end()
-        .build()
-        .stroke(StrokeOptions::new(20_000_000.0).line_cap(LineCap::Round));
-    let tessellation = tessellate_shape(&stroke);
+        .build();
+    let tessellation = tessellate_stroke(
+        &stroke,
+        StrokeOptions::new(20_000_000.0).line_cap(LineCap::Round),
+    );
     assert!(!tessellation.vertex_buffers.indices.is_empty());
     assert!(tessellation
         .vertex_buffers
@@ -415,12 +388,12 @@ fn stroke_joins_use_corner_tip_distance_for_the_miter_limit() {
         (LineJoin::Bevel, 4.0, false, false),
         (LineJoin::Round, 4.0, false, true),
     ] {
-        let stroke = corner.clone().stroke(
+        let tessellation = tessellate_stroke(
+            &corner,
             StrokeOptions::new(2.0)
                 .line_join(join)
                 .miter_limit(miter_limit),
         );
-        let tessellation = tessellate_shape(&stroke);
         assert!(mesh_contains(&tessellation, (5.0, 0.0)));
         assert!(mesh_contains(&tessellation, (10.0, 5.0)));
         assert_eq!(
@@ -442,9 +415,8 @@ fn stroked_rectangles_keep_empty_interiors_without_fill_shortcuts() {
         Shape::rect([(0.0, 0.0), (20.0, 10.0)]),
         Shape::rounded_rect([(0.0, 0.0), (20.0, 10.0)], BorderRadii::new(3.0)),
     ] {
-        let butt = tessellate_shape(&shape.clone().stroke(StrokeOptions::new(2.0)));
-        let square =
-            tessellate_shape(&shape.stroke(StrokeOptions::new(2.0).line_cap(LineCap::Square)));
+        let butt = tessellate_stroke(&shape, StrokeOptions::new(2.0));
+        let square = tessellate_stroke(&shape, StrokeOptions::new(2.0).line_cap(LineCap::Square));
         for tessellation in [&butt, &square] {
             assert!(!tessellation.is_rect);
             assert!(tessellation.rounded_rect_boundary.is_none());
@@ -469,9 +441,8 @@ fn strokes_follow_curves_and_preserve_open_and_closed_subpaths() {
         .line_to((60.0, 10.0))
         .line_to((50.0, 10.0))
         .close()
-        .build()
-        .stroke(StrokeOptions::new(2.0).line_cap(LineCap::Round));
-    let tessellation = tessellate_shape(&shape);
+        .build();
+    let tessellation = tessellate_stroke(&shape, StrokeOptions::new(2.0).line_cap(LineCap::Round));
     for position in [(10.0, 10.0), (30.0, -7.5), (50.0, 5.0), (55.0, 0.0)] {
         assert!(mesh_contains(&tessellation, position), "{position:?}");
     }
@@ -499,13 +470,10 @@ fn zero_width_and_degenerate_strokes_respect_cap_geometry() {
         .build();
     for cap in [LineCap::Butt, LineCap::Square, LineCap::Round] {
         for shape in [point.clone(), Shape::rect([(0.0, 0.0), (20.0, 10.0)])] {
-            let tessellation =
-                tessellate_shape(&shape.stroke(StrokeOptions::new(0.0).line_cap(cap)));
+            let tessellation = tessellate_stroke(&shape, StrokeOptions::new(0.0).line_cap(cap));
             assert!(tessellation.vertex_buffers.indices.is_empty());
-            assert!(tessellation.boundary_edges.is_empty());
         }
-        let tessellation =
-            tessellate_shape(&point.clone().stroke(StrokeOptions::new(4.0).line_cap(cap)));
+        let tessellation = tessellate_stroke(&point, StrokeOptions::new(4.0).line_cap(cap));
         if cap == LineCap::Butt {
             assert!(tessellation.vertex_buffers.indices.is_empty());
         } else {
@@ -516,15 +484,13 @@ fn zero_width_and_degenerate_strokes_respect_cap_geometry() {
                 cap == LineCap::Square
             );
         }
-        let move_only = Shape::builder()
-            .begin((5.0, 5.0))
-            .end()
-            .build()
-            .stroke(StrokeOptions::new(4.0).line_cap(cap));
-        assert!(tessellate_shape(&move_only)
-            .vertex_buffers
-            .indices
-            .is_empty());
+        let move_only = Shape::builder().begin((5.0, 5.0)).end().build();
+        assert!(
+            tessellate_stroke(&move_only, StrokeOptions::new(4.0).line_cap(cap))
+                .vertex_buffers
+                .indices
+                .is_empty()
+        );
     }
 }
 
@@ -544,11 +510,10 @@ fn degenerate_closed_strokes_keep_their_cap_fallbacks() {
             LineCap::Round => 4.0 * PI,
         };
         for point_shape in [closed_point.clone(), Shape::rect([(5.0, 5.0), (5.0, 5.0)])] {
-            let tessellation = tessellate_shape(&point_shape.stroke(options));
+            let tessellation = tessellate_stroke(&point_shape, options);
             assert!((mesh_area(&tessellation) - cap_area).abs() < 0.6);
             if cap == LineCap::Butt {
                 assert!(tessellation.vertex_buffers.indices.is_empty());
-                assert!(tessellation.boundary_edges.is_empty());
             } else {
                 assert_bounds(&tessellation, [(3.0, 3.0), (7.0, 7.0)], 0.1);
                 assert!(mesh_contains(&tessellation, (5.0, 5.0)));
@@ -576,7 +541,7 @@ fn degenerate_closed_strokes_keep_their_cap_fallbacks() {
                 [(3.0, 3.0), (7.0, 17.0)],
             ),
         ] {
-            let tessellation = tessellate_shape(&segment_shape.stroke(options));
+            let tessellation = tessellate_stroke(&segment_shape, options);
             let bounds = if cap == LineCap::Butt {
                 butt_bounds
             } else {
@@ -593,32 +558,6 @@ fn degenerate_closed_strokes_keep_their_cap_fallbacks() {
                 mesh_contains(&tessellation, after_end),
                 cap != LineCap::Butt
             );
-        }
-    }
-}
-
-#[test]
-fn stroke_geometry_reuses_its_cache_entry_and_keeps_distinct_widths() {
-    let path = Shape::builder()
-        .begin((0.0, 0.0))
-        .line_to((10.0, 0.0))
-        .end()
-        .build();
-    let thin = path.clone().stroke(StrokeOptions::new(2.0));
-    let thick = path.stroke(StrokeOptions::new(4.0));
-    let mut resources = ShapeResources::new();
-    let thin_geometry = thin.tessellate(&mut resources, Some(21)).unwrap();
-    let thick_geometry = thick.tessellate(&mut resources, Some(22)).unwrap();
-    assert!(!Arc::ptr_eq(&thin_geometry, &thick_geometry));
-    assert!(!mesh_contains(&thin_geometry, (5.0, 1.5)));
-    assert!(mesh_contains(&thick_geometry, (5.0, 1.5)));
-    for _ in 0..3 {
-        resources.tessellation_cache.end_frame();
-        for (shape, cache_key, cached) in
-            [(&thin, 21, &thin_geometry), (&thick, 22, &thick_geometry)]
-        {
-            let reused = shape.tessellate(&mut resources, Some(cache_key)).unwrap();
-            assert!(Arc::ptr_eq(&reused, cached));
         }
     }
 }

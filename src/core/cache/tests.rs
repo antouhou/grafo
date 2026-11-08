@@ -54,8 +54,7 @@ fn geometry_variants() -> [Shape; 4] {
             .begin((130.0, 140.0))
             .cubic_bezier_to((150.0, 110.0), (160.0, 180.0), (180.0, 140.0))
             .end()
-            .build()
-            .stroke(StrokeOptions::new(4.0).line_cap(LineCap::Round)),
+            .build(),
     ]
 }
 
@@ -201,9 +200,9 @@ fn failed_stroke_returns_storage_for_the_next_attempt() {
         .begin((0.0, 0.0))
         .line_to((10.0, 0.0))
         .end()
-        .build()
-        .stroke(StrokeOptions::new(4.0).line_cap(LineCap::Square));
-    let geometry = valid.tessellate(&mut resources, None).unwrap();
+        .build();
+    let options = StrokeOptions::new(4.0).line_cap(LineCap::Square);
+    let geometry = valid.tessellate_stroke(options, &mut resources).unwrap();
     let original_addresses = allocation_addresses(&geometry);
     let original_capacities = capacities(&geometry);
     resources.tessellation_cache.release_tessellation(geometry);
@@ -212,15 +211,17 @@ fn failed_stroke_returns_storage_for_the_next_attempt() {
         .begin((f32::MAX, 0.0))
         .line_to((f32::MAX, 0.0))
         .end()
-        .build()
-        .stroke(StrokeOptions::new(f32::MAX).line_cap(LineCap::Square));
+        .build();
     assert!(matches!(
-        overflowing.tessellate(&mut resources, None),
+        overflowing.tessellate_stroke(
+            StrokeOptions::new(f32::MAX).line_cap(LineCap::Square),
+            &mut resources
+        ),
         Err(TessellationError::GeometryBuilder(
             GeometryBuilderError::InvalidVertex
         ))
     ));
-    let reused = valid.tessellate(&mut resources, None).unwrap();
+    let reused = valid.tessellate_stroke(options, &mut resources).unwrap();
     assert_eq!(allocation_addresses(&reused), original_addresses);
     assert_eq!(capacities(&reused), original_capacities);
     assert!(!reused.vertex_buffers.indices.is_empty());
@@ -299,7 +300,7 @@ fn uncached_replacements_reuse_geometry_storage_after_warmup() {
 #[test]
 fn cache_eviction_preserves_shared_geometry_until_explicit_release() {
     let mut resources = ShapeResources::new();
-    let shape = Shape::rect([(0.0, 0.0), (20.0, 10.0)]).stroke(StrokeOptions::new(2.0));
+    let shape = Shape::rect([(0.0, 0.0), (20.0, 10.0)]);
     let external = shape.tessellate(&mut resources, Some(91)).unwrap();
     let original_addresses = allocation_addresses(&external);
     let original_capacities = capacities(&external);

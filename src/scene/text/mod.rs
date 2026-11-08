@@ -56,13 +56,11 @@ impl<B: RenderBackend> Scene<B> {
         // TODO: cache that, this is not good
         while let Some(node_id) = ancestor {
             let node = self.state.draw_tree.get(node_id)?;
-            if Some(node_id) != replaced
-                && node.has_child_clip()
-                && node.logical_screen_bounds().is_finite()
-            {
-                bounds = bounds
-                    .intersection(&node.logical_screen_bounds())
-                    .unwrap_or_else(MathRect::zero);
+            if Some(node_id) != replaced && node.has_child_clip() {
+                let clip = node.geometry_bounds();
+                if clip.is_finite() {
+                    bounds = bounds.intersection(&clip).unwrap_or_else(MathRect::zero);
+                }
             }
             ancestor = self.state.draw_tree.parent_index_unchecked(node_id);
         }
@@ -121,6 +119,12 @@ impl<B: RenderBackend> Scene<B> {
                     .draw_tree
                     .get(node_id)
                     .ok_or(SceneError::NodeNotFound(node_id))?;
+            }
+        }
+        if let Some(stroke) = options.stroke.take() {
+            stroke.options.validate().map_err(SceneError::from)?;
+            if stroke.options.width != 0.0 {
+                return Err(SceneError::StrokeRequiresShapeOutline.into());
             }
         }
         let fill = GroupFill::new(GroupDrawCommandOptions {

@@ -2,10 +2,6 @@ use crate::core::vertex::CustomVertex;
 use ahash::HashMap;
 use std::{mem, ops::Range};
 
-mod cover;
-#[cfg(test)]
-mod tests;
-
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PathBoundaryEdge {
     pub start: [f32; 2],
@@ -80,64 +76,38 @@ impl RoundedRectBoundary {
     }
 }
 
-type PositionKey = [u32; 2];
-type EdgeKey = (PositionKey, PositionKey);
+type EdgeKey = ([u32; 2], [u32; 2]);
 
-fn position_key(position: [f32; 2]) -> PositionKey {
+fn position_key(position: [f32; 2]) -> [u32; 2] {
     position.map(|value| if value == 0.0 { 0 } else { value.to_bits() })
 }
 
-fn area_products([first, second, third]: [[f32; 2]; 3]) -> [f64; 2] {
+fn signed_double_area([first, second, third]: [[f32; 2]; 3]) -> f64 {
     let [[ax, ay], [bx, by], [cx, cy]] = [first, second, third].map(|point| point.map(f64::from));
-    [(bx - ax) * (cy - ay), (by - ay) * (cx - ax)]
+    (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
 }
 
-fn signed_double_area(triangle: [[f32; 2]; 3]) -> f64 {
-    let [positive, negative] = area_products(triangle);
-    positive - negative
-}
-
-fn accumulate_triangle_edges(
-    edges: &mut HashMap<EdgeKey, PathBoundaryEdge>,
-    triangles: impl Iterator<Item = [u32; 3]>,
-    position: impl Fn(u32) -> [f32; 2],
-) {
-    for triangle in triangles {
-        let [a, mut b, mut c] = triangle.map(&position);
-        let area = signed_double_area([a, b, c]);
-        if !area.is_finite() || area == 0.0 {
-            continue;
-        }
-        if area < 0.0 {
-            mem::swap(&mut b, &mut c);
-        }
-        for (start, end) in [(a, b), (b, c), (c, a)] {
-            let start_key = position_key(start);
-            let end_key = position_key(end);
-            let (key, edge) = if start_key < end_key {
-                (
-                    (start_key, end_key),
-                    PathBoundaryEdge {
-                        start,
-                        end,
-                        winding: 1,
-                    },
-                )
-            } else {
-                (
-                    (end_key, start_key),
-                    PathBoundaryEdge {
-                        start: end,
-                        end: start,
-                        winding: -1,
-                    },
-                )
-            };
-            edges
-                .entry(key)
-                .and_modify(|entry| entry.winding += edge.winding)
-                .or_insert(edge);
-        }
+fn canonical_edge(start: [f32; 2], end: [f32; 2]) -> (EdgeKey, PathBoundaryEdge) {
+    let start_key = position_key(start);
+    let end_key = position_key(end);
+    if start_key < end_key {
+        (
+            (start_key, end_key),
+            PathBoundaryEdge {
+                start,
+                end,
+                winding: 1,
+            },
+        )
+    } else {
+        (
+            (end_key, start_key),
+            PathBoundaryEdge {
+                start: end,
+                end: start,
+                winding: -1,
+            },
+        )
     }
 }
 
@@ -148,13 +118,6 @@ pub(crate) struct PathBoundaryBuilder {
 }
 
 impl PathBoundaryBuilder {
-    fn boundary_edges(&self) -> impl Iterator<Item = PathBoundaryEdge> + Clone + '_ {
-        self.edges
-            .values()
-            .copied()
-            .filter(|edge| edge.winding != 0)
-    }
-
     pub(crate) fn build(
         &mut self,
         vertices: &[CustomVertex],
@@ -165,11 +128,26 @@ impl PathBoundaryBuilder {
         self.positions.clear();
         self.positions
             .extend(vertices.iter().map(|vertex| project(vertex.position)));
-        accumulate_triangle_edges(
-            &mut self.edges,
-            indices.as_chunks::<3>().0.iter().copied(),
-            |index| self.positions[index as usize],
-        );
-        self.boundary_edges()
+        for triangle in indices.as_chunks::<3>().0 {
+            let [a, mut b, mut c] = triangle.map(|index| self.positions[index as usize]);
+            let area = signed_double_area([a, b, c]);
+            if !area.is_finite() || area == 0.0 {
+                continue;
+            }
+            if area < 0.0 {
+                mem::swap(&mut b, &mut c);
+            }
+            for (start, end) in [(a, b), (b, c), (c, a)] {
+                let (key, edge) = canonical_edge(start, end);
+                self.edges
+                    .entry(key)
+                    .and_modify(|entry| entry.winding += edge.winding)
+                    .or_insert(edge);
+            }
+        }
+        self.edges
+            .values()
+            .copied()
+            .filter(|edge| edge.winding != 0)
     }
 }

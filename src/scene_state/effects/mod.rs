@@ -126,7 +126,7 @@ pub(super) fn resolve_backdrop_effect(
     let instance = BackdropEffectInstance::new(
         effect,
         config,
-        node.logical_screen_bounds(),
+        node.geometry_bounds(),
         viewport,
         maximum_texture_dimension,
     );

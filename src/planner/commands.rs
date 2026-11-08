@@ -2,8 +2,8 @@ use crate::commands::{DrawClip, RenderCommand, RenderOperation, TextureComposite
 use smallvec::{IntoIter, SmallVec};
 
 // Entering a node can copy its backdrop, begin a target, composite its mask,
-// capture and filter its backdrop, and draw the shape.
-const INLINE_COMMAND_CAPACITY: usize = 6;
+// capture and filter its backdrop, draw fill and stroke, and install a stencil clip.
+const INLINE_COMMAND_CAPACITY: usize = 8;
 
 pub(super) type PendingCommands<'scene> =
     IntoIter<[RenderCommand<'scene>; INLINE_COMMAND_CAPACITY]>;

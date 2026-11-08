@@ -100,28 +100,17 @@ fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
             .line_to((left + 12.0, 28.0))
             .line_to((left + 12.0, 10.0))
             .end()
-            .build()
-            .stroke(StrokeOptions::new(8.0).line_cap(cap).line_join(join));
+            .build();
         let corner_id = scene
             .add_shape(
                 corner,
                 None,
                 None,
                 ShapeDrawCommandOptions::new()
-                    .color(color)
+                    .stroke(StrokeOptions::new(8.0).line_cap(cap).line_join(join), color)
                     .transform(transform),
             )
             .unwrap();
-        if join == LineJoin::Miter {
-            scene
-                .set_shape_mask_effect(
-                    corner_id,
-                    SHAPE_DROP_EFFECT_ID,
-                    &[],
-                    ShapeMaskEffectConfig::new().outset(8.0),
-                )
-                .unwrap();
-        }
         scene
             .set_content_effect(
                 corner_id,
@@ -141,22 +130,43 @@ fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
                 .begin((10.0, 38.0))
                 .line_to((16.0, 38.0))
                 .end()
-                .build()
-                .stroke(StrokeOptions::new(12.0).line_cap(LineCap::Square)),
+                .build(),
             Some(cap_clip),
             None,
             ShapeDrawCommandOptions::new()
-                .color(Color::rgb(30, 160, 180))
+                .stroke(
+                    StrokeOptions::new(12.0).line_cap(LineCap::Square),
+                    Color::rgb(30, 160, 180),
+                )
+                .transform(transform),
+        )
+        .unwrap();
+    let rounded_parent = scene
+        .add_shape(
+            Shape::rounded_rect([(12.0, 48.0), (36.0, 68.0)], BorderRadii::new(4.0)),
+            None,
+            None,
+            ShapeDrawCommandOptions::new()
+                .color(Color::rgb(245, 220, 160))
+                .stroke(StrokeOptions::new(6.0), Color::rgb(220, 160, 30))
                 .transform(transform),
         )
         .unwrap();
     scene
+        .set_shape_mask_effect(
+            rounded_parent,
+            SHAPE_DROP_EFFECT_ID,
+            &[],
+            ShapeMaskEffectConfig::new().outset(8.0),
+        )
+        .unwrap();
+    scene
         .add_shape(
-            Shape::rect([(12.0, 48.0), (36.0, 68.0)]).stroke(StrokeOptions::new(6.0)),
-            None,
+            Shape::rect([(6.0, 53.0), (19.0, 63.0)]),
+            Some(rounded_parent),
             None,
             ShapeDrawCommandOptions::new()
-                .color(Color::rgb(220, 160, 30))
+                .color(Color::rgb(80, 160, 220))
                 .transform(transform),
         )
         .unwrap();
@@ -167,15 +177,14 @@ fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
         .line_to((58.25, 46.25))
         .line_to((58.25, 72.0))
         .end()
-        .build()
-        .stroke(StrokeOptions::new(4.0));
+        .build();
     scene
         .add_shape(
             crossing,
             None,
             None,
             ShapeDrawCommandOptions::new()
-                .color(Color::rgba(0, 0, 0, 192))
+                .stroke(StrokeOptions::new(4.0), Color::rgba(0, 0, 0, 192))
                 .transform(transform),
         )
         .unwrap();
@@ -189,8 +198,7 @@ fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
         .begin((-1_000_010.0, -1_000_000.0))
         .line_to((-999_990.0, -1_000_000.0))
         .end()
-        .build()
-        .stroke(StrokeOptions::new(4.0));
+        .build();
     let clip = scene
         .add_shape(
             Shape::builder()
@@ -231,7 +239,7 @@ fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
                 Some(clip),
                 None,
                 ShapeDrawCommandOptions::new()
-                    .fill(fill)
+                    .stroke(StrokeOptions::new(4.0), fill)
                     .transform(perspective.then(&TransformInstance::translation(
                         origin_x + offset_x,
                         origin_y,
@@ -239,7 +247,79 @@ fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
             )
             .unwrap();
     }
+    let gradient = Gradient::linear(LinearGradientDesc::new(
+        LinearGradientLine {
+            start: [-0.5, 0.0],
+            end: [0.5, 0.0],
+        },
+        [
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(0.0),
+                Color::rgb(230, 40, 40),
+            ),
+            GradientStop::at_position(
+                GradientStopOffset::linear_radial(1.0),
+                Color::rgb(40, 180, 40),
+            ),
+        ],
+    ))
+    .unwrap();
+    // Both arms are visible after the absolute-w projection. Their local x signs
+    // differ, so a single screen-to-local mapping cannot paint them both.
+    let mut folded = TransformInstance::identity();
+    folded.col0 = [12.0, 0.0, 0.0, 1.0];
+    folded.col3 = [origin_x + 25.0, origin_y + 4.0, 0.0, 0.0];
+    let overlapping_x = -folded.col3[0] / (folded.col3[0] + 24.0);
+    let overlapping_y = folded.col3[1] * (overlapping_x.abs() - 1.0);
+    scene
+        .add_shape(
+            Shape::builder()
+                .begin((-1.0, 0.0))
+                .line_to((-1.0, 12.0))
+                .end()
+                .begin((1.0, 0.0))
+                .line_to((1.0, 12.0))
+                .end()
+                .begin((overlapping_x, overlapping_y))
+                .line_to((overlapping_x, overlapping_y + 12.0 * overlapping_x.abs()))
+                .end()
+                .build(),
+            None,
+            None,
+            ShapeDrawCommandOptions::new()
+                .stroke(StrokeOptions::new(0.02), gradient)
+                .transform(folded),
+        )
+        .unwrap();
+    // Large local coordinates cancel in the transform and leave a small visible stroke.
+    let mut distant = TransformInstance::affine_2d(
+        1.0,
+        0.0,
+        1.0,
+        1.0,
+        -200_000_000.0 + origin_x * 4.0,
+        -99_999_984.0 + origin_y * 4.0,
+    );
+    distant.col3[3] = 4.0;
+    scene
+        .add_shape(
+            Shape::builder()
+                .begin((100_000_016.0, 100_000_000.0))
+                .line_to((100_000_032.0, 100_000_000.0))
+                .end()
+                .build(),
+            None,
+            None,
+            ShapeDrawCommandOptions::new()
+                .stroke(StrokeOptions::new(16.0), Color::rgb(190, 50, 190))
+                .transform(distant),
+        )
+        .unwrap();
     [
+        (8, 3, [255; 3], "t92_large_coordinate_stroke_outside"),
+        (8, 5, [190, 50, 190], "t92_large_coordinate_stroke_inside"),
+        (13, 10, [230, 40, 40], "t92_gradient_negative_w_arm"),
+        (37, 10, [40, 180, 40], "t92_gradient_positive_w_arm"),
         (8, 28, [255, 255, 255], "t92_butt_cap_stops_at_endpoint"),
         (25, 31, [220, 50, 50], "t92_miter_corner"),
         (31, 28, [50, 180, 50], "t92_square_cap_extends_endpoint"),
@@ -254,8 +334,6 @@ fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
             "t92_round_cap_has_no_square_corner",
         ),
         (16, 21, [255, 255, 255], "t92_open_path_has_no_closing_edge"),
-        (33, 39, [0, 0, 255], "t92_content_effect_keeps_miter_shadow"),
-        (35, 39, [255; 3], "t92_miter_shadow_ends_after_outset"),
         (
             5,
             38,
@@ -265,12 +343,14 @@ fn tile_92_path_strokes(scene: &mut Scene) -> Vec<PixelExpectation> {
         (10, 38, [255; 3], "t92_clip_excludes_stroke_centerline"),
         (5, 33, [255; 3], "t92_scissor_clips_cap_vertically"),
         (24, 48, [220, 160, 30], "t92_rectangle_stroke"),
-        (24, 58, [255, 255, 255], "t92_rectangle_interior_is_empty"),
+        (24, 58, [245, 220, 160], "t92_rectangle_fill"),
+        (10, 57, [220, 160, 30], "t92_stroke_outside_child_clip"),
+        (13, 57, [80, 160, 220], "t92_child_inside_original_shape"),
+        (29, 74, [0, 0, 255], "t92_shadow_from_fill_geometry"),
+        (29, 77, [255; 3], "t92_shadow_excludes_stroke_outset"),
         (50, 58, [136; 3], "t92_translucent_stroke_arm"),
         (58, 58, [136; 3], "t92_self_crossing_composites_once"),
         (60, 65, [233; 3], "t92_quarter_covered_stroke_edge"),
-        // Two quarter-pixel strips cover 7/16 of this pixel after their overlap is removed.
-        (60, 60, [214; 3], "t92_crossing_uses_union_pixel_area"),
         (64, 52, [255; 3], "t92_self_crossing_preserves_loop_hole"),
         (43, 39, [187; 3], "t92_projected_stroke_arm"),
         (

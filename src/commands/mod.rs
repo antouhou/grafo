@@ -11,9 +11,17 @@ pub use textures::IntermediateTextureId;
 mod material;
 mod textures;
 
-/// Identifies an uploaded shape instance.
+/// Identifies an uploaded shape instance. The high bit identifies its stroke resources.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ShapeDrawId(pub usize);
+
+impl ShapeDrawId {
+    /// Identifies the independent stroke resources registered for this scene shape.
+    pub fn stroke(self) -> Self {
+        const STROKE_BIT: usize = 1 << (usize::BITS - 1);
+        Self(self.0 | STROKE_BIT)
+    }
+}
 
 /// Scissor bounds in physical screen coordinates and a stencil reference for one draw.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -32,6 +40,7 @@ pub struct ShapeDraw {
 pub enum RenderOperation<'scene> {
     DrawShape(ShapeDraw),
     DrawShapeAndIncrementStencil(ShapeDraw),
+    IncrementStencil(ShapeDrawId),
     DecrementStencil(ShapeDraw),
     CompositeTexture(TextureComposite),
     BeginTarget(Target),

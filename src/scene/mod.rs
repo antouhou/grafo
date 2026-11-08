@@ -137,8 +137,7 @@ impl<B: RenderBackend> Scene<B> {
     /// Tessellates and stores a shape in the cache under `cache_key`.
     /// Pass a `geometry_id` to reuse already cached tesselation with the same geometry key.
     /// Equal IDs must identify identical geometry.
-    /// Returns [`SceneError::InvalidStrokeOptions`] for an invalid stroke width or miter limit,
-    /// or [`SceneError::Tessellation`] if the geometry could not be tessellated.
+    /// Returns [`SceneError::Tessellation`] if the geometry could not be tessellated.
     /// Errors leave any existing cache entry intact.
     pub fn load_shape(
         &mut self,
@@ -196,9 +195,9 @@ impl<B: RenderBackend> Scene<B> {
         )
     }
 
-    /// Adds a text from a source to the scene. Text node can do everything a shape or a rect can -
-    /// you apply to it a gradient fill, backdrop filters, mask effects, etc. This method supplies
-    /// the current visible bounds to the text source. If you want to change the size of the parent
+    /// Adds text with an optional fill. Text supports backdrop filters and mask effects.
+    /// Strokes are supported by shape draws. This method supplies the current visible bounds
+    /// to the text source. If you want to change the size of the parent
     /// node, call `Scene::replace_with_text` to update the bounds. While text is a node like any
     /// other, don't try to manually add children to it. This can mess up both children and text -
     /// create a proper container instead.
@@ -350,6 +349,9 @@ impl<B: RenderBackend> Scene<B> {
                     self.removed_shape_ids.push(ShapeDrawId(id));
                     self.removed_tessellations
                         .push(shape.instance.cached_shape.tessellation);
+                    if let Some(stroke) = shape.instance.stroke {
+                        self.removed_tessellations.push(stroke.tessellation);
+                    }
                 }
                 if let Some(effect) = effect {
                     mark_shape_mask_effect_dirty(&mut self.dirty_bounds, effect.bounds, viewport);

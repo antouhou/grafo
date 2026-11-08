@@ -50,7 +50,7 @@ pub(super) fn try_scissor_for_rect(
         return None;
     }
     geometry::logical_rect_to_scissor_rect(
-        draw_tree_node.logical_screen_bounds(),
+        draw_tree_node.geometry_bounds(),
         scale_factor,
         physical_size,
     )

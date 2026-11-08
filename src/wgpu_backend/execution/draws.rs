@@ -5,7 +5,7 @@ use crate::commands::{IntermediateTextureId, ShapeDrawMaterial};
 use crate::core::effect::CaptureRegion;
 use crate::core::vertex::InstanceTransform;
 use crate::core::UnsignedPhysicalRect;
-use crate::wgpu_backend::resources::{Buffers, RendererPipelineResources, ShapePipelines};
+use crate::wgpu_backend::resources::{Buffers, RendererPipelineResources};
 use crate::wgpu_backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMetadata};
 use wgpu::{BindGroup, IndexFormat, RenderPipeline};
 
@@ -53,15 +53,6 @@ pub(super) fn bind_aggregated_geometry_buffers(
         render_pass.set_vertex_buffer(0, buffers.vertex_buffer().slice(..));
     }
     render_pass.set_index_buffer(buffers.index_buffer().slice(..), IndexFormat::Uint32);
-}
-
-fn bind_decrement_pipeline(render_pass: &mut RenderPass<'_>, pipelines: &ShapePipelines) {
-    render_pass.set_pipeline(pipelines.get(
-        ShapeGeometryType::Tessellated,
-        ShapeShaderType::Solid,
-        StencilAction::Decrement,
-    ));
-    render_pass.set_bind_group(0, &pipelines.decrementing_bind_group, &[]);
 }
 
 pub(super) struct DrawPass<'pass, 'encoder> {
@@ -136,12 +127,11 @@ impl DrawPass<'_, '_> {
             );
             return;
         }
-        let pipeline = if stencil == StencilAction::Keep && resources.needs_overlap_depth_test() {
-            pipelines.get_overlapping(shader)
-        } else {
-            pipelines.get(ShapeGeometryType::Tessellated, shader, stencil)
-        };
-        self.render_pass.set_pipeline(pipeline);
+        self.render_pass.set_pipeline(pipelines.get(
+            ShapeGeometryType::Tessellated,
+            shader,
+            stencil,
+        ));
         self.render_pass
             .set_bind_group(0, &pipelines.and_bind_group, &[]);
         bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
@@ -176,11 +166,12 @@ impl DrawPass<'_, '_> {
         );
     }
 
-    /// Decrements stencil samples matching the supplied reference without drawing color.
-    pub(super) fn decrement_stencil(
+    /// Updates stencil samples matching the supplied reference without drawing color.
+    pub(super) fn draw_stencil(
         &mut self,
         stencil_reference: u32,
         resources: &ShapeDrawResources,
+        stencil: StencilAction,
     ) {
         let Some(location) = resources.geometry_buffer_location else {
             return;
@@ -188,8 +179,12 @@ impl DrawPass<'_, '_> {
         if let Some(coverage) = &resources.path_coverage {
             let allocation = &coverage.allocation;
             let buffers = allocation.buffers();
-            self.render_pass
-                .set_bind_group(0, &buffers.decrement_bind_group, &[]);
+            let binding = if stencil == StencilAction::Decrement {
+                &buffers.decrement_bind_group
+            } else {
+                &buffers.bind_group
+            };
+            self.render_pass.set_bind_group(0, binding, &[]);
             bind_instance_buffers(
                 self.render_pass,
                 location.instance_index,
@@ -205,14 +200,25 @@ impl DrawPass<'_, '_> {
                     self.pipelines.shapes.get(
                         ShapeGeometryType::coverage(boundary),
                         ShapeShaderType::Solid,
-                        StencilAction::Decrement,
+                        stencil,
                     )
                 },
                 0..1,
             );
             return;
         }
-        bind_decrement_pipeline(self.render_pass, &self.pipelines.shapes);
+        let pipelines = &self.pipelines.shapes;
+        let binding = if stencil == StencilAction::Decrement {
+            &pipelines.decrementing_bind_group
+        } else {
+            &pipelines.and_bind_group
+        };
+        self.render_pass.set_pipeline(pipelines.get(
+            ShapeGeometryType::Tessellated,
+            ShapeShaderType::Solid,
+            stencil,
+        ));
+        self.render_pass.set_bind_group(0, binding, &[]);
         bind_aggregated_geometry_buffers(self.render_pass, self.buffers);
         bind_instance_buffers(
             self.render_pass,
@@ -234,22 +240,50 @@ impl DrawPass<'_, '_> {
         resources: &ShapeDrawResources,
     ) {
         self.draw_material(stencil_reference, material, resources, StencilAction::Keep);
-        if resources.needs_overlap_depth_test() {
-            self.reset_shape_depth(resources);
-        }
     }
 
-    fn reset_shape_depth(&mut self, resources: &ShapeDrawResources) {
-        let Some(location) = resources.geometry_buffer_location else {
+    pub(super) fn draw_stroke(
+        &mut self,
+        stencil_reference: u32,
+        material: ShapeDrawMaterial,
+        resources: &ShapeDrawResources,
+    ) {
+        let coverage = resources
+            .stroke_coverage
+            .as_ref()
+            .expect("registered stroke");
+        if coverage.regions().is_empty() {
             return;
-        };
-        // Keep the material draw's geometry, transform and scissor. Both pipelines use
-        // the same sample count. Redraw immediately to restore marked depth 0 samples
-        // to 1 without changing color or stencil, so the next shape can reuse the mark.
-        self.render_pass
-            .set_pipeline(self.pipelines.shapes.get_depth_reset());
-        self.buffers
-            .draw_indexed(self.render_pass, location.geometry_range, 0..1);
+        }
+        let location = resources.geometry_buffer_location.expect("stroke instance");
+        let shader = ShapeShaderType::from(material);
+        let uses_rasterized_color = coverage.rasterized_gradient().is_some();
+        self.render_pass.set_pipeline(
+            self.pipelines
+                .shapes
+                .stroke_pipeline(shader, uses_rasterized_color),
+        );
+        if !uses_rasterized_color {
+            self.bind_material_textures(material);
+            if let Some(binding) = resources.material_bind_group(material) {
+                self.render_pass.set_bind_group(3, binding, &[]);
+            }
+        }
+        bind_instance_buffers(
+            self.render_pass,
+            location.instance_index,
+            self.buffers,
+            true,
+            !uses_rasterized_color && shader.uses_texture_bindings(),
+        );
+        self.render_pass.set_stencil_reference(stencil_reference);
+        for region in coverage.regions() {
+            self.render_pass.set_bind_group(0, &region.binding, &[]);
+            self.render_pass
+                .set_index_buffer(region.indices.slice(..), IndexFormat::Uint32);
+            self.render_pass
+                .draw_indexed(region.index_range.clone(), 0, 0..1);
+        }
     }
 
     /// Composites an intermediate texture under the active scissor and stencil reference.

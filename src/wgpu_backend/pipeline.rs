@@ -21,6 +21,18 @@ pub(crate) const SHAPE_SHADER: &str = concat!(
     include_str!("../shaders/solid.wgsl"),
 );
 
+pub(in crate::wgpu_backend) const STROKE_SHADER: &str = concat!(
+    include_str!("../shaders/stroke_coverage.wgsl"),
+    "\n",
+    include_str!("../shaders/path_coverage_tiles.wgsl"),
+    "\n",
+    include_str!("../shaders/shader.wgsl"),
+    "\n",
+    include_str!("../shaders/path_coverage_vertex.wgsl"),
+    "\n",
+    include_str!("../shaders/solid.wgsl"),
+);
+
 /// Target dimensions in logical pixels, its physical origin, and the scene scale.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -76,7 +88,10 @@ fn create_equal_decrement_stencil_state() -> wgpu::StencilState {
     }
 }
 
-fn storage_binding(binding: u32, visibility: ShaderStages) -> BindGroupLayoutEntry {
+pub(in crate::wgpu_backend) fn storage_binding(
+    binding: u32,
+    visibility: ShaderStages,
+) -> BindGroupLayoutEntry {
     BindGroupLayoutEntry {
         binding,
         visibility,

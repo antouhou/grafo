@@ -1,5 +1,5 @@
 use super::types::DrawTreeNode;
-use super::{SceneError, SceneState};
+use super::{LoadedShape, SceneError, SceneState};
 use crate::core::{CachedShapeHandle, GlyphContent, PathShape, TextSource};
 use ahash::{HashMap, HashSet};
 use lyon::path::FillRule;
@@ -100,7 +100,10 @@ impl SceneState {
             .write()
             .expect("shared shape cache lock poisoned")
             .entry(geometry_id)
-            .or_insert(shape);
+            .or_insert(LoadedShape {
+                geometry: shape,
+                source: None,
+            });
         if has_geometry {
             glyph_usage.insert(geometry_id);
         } else {
@@ -141,7 +144,7 @@ impl SceneState {
             if let Some(shape) = loaded_shapes.remove(&glyph_key) {
                 self.shape_resources
                     .tessellation_cache
-                    .release_tessellation(shape.tessellation);
+                    .release_tessellation(shape.geometry.tessellation);
             }
         }
     }

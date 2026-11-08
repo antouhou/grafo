@@ -2,7 +2,7 @@
 //!
 //! See [`Shape::rect`], [`Shape::rounded_rect`], and [`ShapeBuilder`] for examples.
 
-use crate::core::cache::CachedTessellation;
+use crate::core::cache::{CachedTessellation, StrokeTessellationKey};
 use crate::core::gradient::types::Fill;
 use crate::core::shape::boundary::RoundedRectBoundary;
 use crate::core::util::ShapeResources;
@@ -14,7 +14,7 @@ use lyon::lyon_tessellation::{
 };
 pub use lyon::path::FillRule;
 use lyon::path::{Builder, Path, PathEvent, Winding};
-use lyon::tessellation::FillVertexConstructor;
+use lyon::tessellation::{FillVertexConstructor, GeometryBuilderError};
 use std::sync::Arc;
 pub use stroke::{LineCap, LineJoin, StrokeOptions, StrokeOptionsError};
 
@@ -46,8 +46,6 @@ impl CachedShapeHandle {
     }
 
     #[inline]
-    /// When [`CachedTessellation::may_have_overlapping_triangles`] is true, a backend must
-    /// combine triangle coverage before applying the material.
     pub fn vertex_buffers(&self) -> &VertexBuffers<CustomVertex, u32> {
         &self.tessellation.vertex_buffers
     }
@@ -64,6 +62,24 @@ impl CachedShapeHandle {
 }
 
 #[derive(Debug)]
+pub struct StrokeInstance {
+    pub tessellation: Arc<CachedTessellation>,
+    pub paint: Fill,
+    pub(crate) cache_key: Option<StrokeTessellationKey>,
+}
+
+impl StrokeInstance {
+    /// Stroke triangles in shape-local coordinates. Triangle coverage may overlap.
+    pub fn vertex_buffers(&self) -> &VertexBuffers<CustomVertex, u32> {
+        &self.tessellation.vertex_buffers
+    }
+
+    pub fn local_bounds(&self) -> [(f32, f32); 2] {
+        self.tessellation.local_bounds
+    }
+}
+
+#[derive(Debug)]
 pub struct ShapeInstance {
     pub cached_shape: CachedShapeHandle,
     /// Optional per-shape transform applied in pixel space before clip-space normalization.
@@ -76,9 +92,13 @@ pub struct ShapeInstance {
     pub fill: Option<Fill>,
     /// Maps shape-local positions to the local gradient's paint coordinates.
     pub paint_transform: Transform3D<f32>,
+    /// Stroke geometry and its independent paint.
+    pub stroke: Option<StrokeInstance>,
 }
 
 impl ShapeInstance {
+    /// Constructs a fill instance from prepared geometry. The scene resolves
+    /// strokes from the original shape outline before registering an instance.
     pub fn new(cached_shape: CachedShapeHandle, options: ShapeDrawCommandOptions) -> Self {
         Self {
             cached_shape,
@@ -90,6 +110,7 @@ impl ShapeInstance {
             },
             fill: options.fill,
             paint_transform: Transform3D::identity(),
+            stroke: None,
         }
     }
 
@@ -236,31 +257,31 @@ impl Shape {
         Shape::Path(path_shape)
     }
 
-    /// Sets the shape's stroke options.
-    ///
-    /// Invalid widths and miter limits are rejected when the shape is added or loaded.
-    /// Overlapping parts of one stroke are drawn once, including crossings and repeated subpaths.
-    ///
-    /// ```rust
-    /// use grafo::{LineJoin, Shape, StrokeOptions};
-    ///
-    /// let outline = Shape::rect([(0.0, 0.0), (100.0, 50.0)]).stroke(
-    ///     StrokeOptions::new(3.0).line_join(LineJoin::Round),
-    /// );
-    /// ```
-    pub fn stroke(mut self, options: StrokeOptions) -> Self {
-        match &mut self {
-            Self::Path(shape) => shape.stroke_options = Some(options),
-            Self::Rect(shape) => shape.stroke_options = Some(options),
+    pub(crate) fn tessellate_stroke(
+        &self,
+        options: StrokeOptions,
+        resources: &mut ShapeResources,
+    ) -> Result<Arc<CachedTessellation>, TessellationError> {
+        match self {
+            Self::Path(shape) => stroke::tessellate(shape.path.iter(), options, resources),
+            Self::Rect(shape) => stroke::tessellate_rect(shape.rect, options, resources),
         }
-        self
     }
 
-    /// Returns the shape's stroke options, if set.
-    pub fn stroke_options(&self) -> Option<&StrokeOptions> {
+    pub(crate) fn validate_outline(&self) -> Result<(), TessellationError> {
         match self {
-            Self::Path(shape) => shape.stroke_options.as_ref(),
-            Self::Rect(shape) => shape.stroke_options.as_ref(),
+            Self::Path(shape) => stroke::validate_positions(shape.path.iter()),
+            Self::Rect(shape) => {
+                if shape
+                    .rect
+                    .into_iter()
+                    .all(|(x, y)| x.is_finite() && y.is_finite())
+                {
+                    Ok(())
+                } else {
+                    Err(GeometryBuilderError::InvalidVertex.into())
+                }
+            }
         }
     }
 
@@ -274,14 +295,6 @@ impl Shape {
                 path_shape.tessellate(shape_resources, tessellation_cache_key)
             }
             Shape::Rect(rect_shape) => {
-                if let Some(options) = rect_shape.stroke_options {
-                    return stroke::tessellate_rect(
-                        rect_shape.rect,
-                        options,
-                        shape_resources,
-                        tessellation_cache_key,
-                    );
-                }
                 if let Some(cache_key) = tessellation_cache_key {
                     if let Some(cached_tessellation) = shape_resources
                         .tessellation_cache
@@ -378,16 +391,12 @@ impl AsRef<Shape> for Shape {
 pub struct RectShape {
     /// Top-left and bottom-right coordinates.
     pub(crate) rect: [(f32, f32); 2],
-    stroke_options: Option<StrokeOptions>,
 }
 
 impl RectShape {
     /// Creates a rectangle from its top-left and bottom-right coordinates.
     pub fn new(rect: [(f32, f32); 2]) -> Self {
-        Self {
-            rect,
-            stroke_options: None,
-        }
+        Self { rect }
     }
 }
 
@@ -399,7 +408,6 @@ pub struct PathShape {
     pub(crate) path: Path,
     fill_rule: FillRule,
     is_rounded_rect: bool,
-    stroke_options: Option<StrokeOptions>,
 }
 
 struct VertexConverter;
@@ -420,7 +428,6 @@ impl PathShape {
             path,
             fill_rule: FillRule::NonZero,
             is_rounded_rect: false,
-            stroke_options: None,
         }
     }
 
@@ -472,14 +479,6 @@ impl PathShape {
         shape_resources: &mut ShapeResources,
         tessellation_cache_key: Option<u64>,
     ) -> Result<Arc<CachedTessellation>, TessellationError> {
-        if let Some(options) = self.stroke_options {
-            return stroke::tessellate(
-                self.path.iter(),
-                options,
-                shape_resources,
-                tessellation_cache_key,
-            );
-        }
         Self::tessellate_events(
             self.path.iter(),
             self.fill_rule,
@@ -583,6 +582,13 @@ impl ShapeTextureOptions {
     }
 }
 
+/// Geometry settings and paint for a centered stroke.
+#[derive(Clone, Debug)]
+pub struct ShapeStroke {
+    pub options: StrokeOptions,
+    pub paint: Fill,
+}
+
 #[derive(Clone, Debug)]
 pub struct ShapeDrawCommandOptions {
     pub transform: Option<InstanceTransform>,
@@ -592,6 +598,8 @@ pub struct ShapeDrawCommandOptions {
     /// `None` inherits the nearest group fill, or is transparent if no group supplies one.
     /// An explicit fill, including transparent, overrides the group and uses shape coordinates.
     pub fill: Option<Fill>,
+    /// A stroke drawn over the fill. The original shape still defines child clipping.
+    pub stroke: Option<ShapeStroke>,
 }
 
 impl Default for ShapeDrawCommandOptions {
@@ -602,6 +610,7 @@ impl Default for ShapeDrawCommandOptions {
             background_texture: ShapeTextureOptions::default(),
             foreground_texture: ShapeTextureOptions::default(),
             fill: None,
+            stroke: None,
         }
     }
 }
@@ -670,6 +679,16 @@ impl ShapeDrawCommandOptions {
 
     pub fn color(mut self, color: Color) -> Self {
         self.fill = Some(Fill::Solid(color));
+        self
+    }
+
+    /// Draws a centered stroke over the shape using its own paint.
+    /// Invalid stroke settings are rejected when the draw is added or replaced.
+    pub fn stroke(mut self, options: StrokeOptions, paint: impl Into<Fill>) -> Self {
+        self.stroke = Some(ShapeStroke {
+            options,
+            paint: paint.into(),
+        });
         self
     }
 }
@@ -790,7 +809,6 @@ impl ShapeBuilder {
             path,
             fill_rule: self.fill_rule,
             is_rounded_rect: false,
-            stroke_options: None,
         })
     }
 }

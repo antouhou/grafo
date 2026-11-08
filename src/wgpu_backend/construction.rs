@@ -124,6 +124,7 @@ impl WgpuBackend {
 
         // Gradient layouts and their uploaded resources remain valid across MSAA changes.
         let shapes = &mut self.resources.shape_execution;
+        shapes.rebuild_stroke_coverage(self.viewport);
         for resources in shapes.draws.values_mut() {
             resources.clear_under_fill_binding();
         }

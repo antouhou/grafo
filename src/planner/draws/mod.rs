@@ -3,6 +3,7 @@ use crate::commands::{
     ShapeDrawMaterial, ShapeTextureBinding, TextureComposite,
 };
 use crate::core::shape::ShapeInstance;
+use crate::core::Fill;
 use crate::core::MathRect;
 use crate::planner::commands::TraversalCommands;
 use crate::planner::content_effects::{content_intersects_damage, ContentCapture};
@@ -196,8 +197,45 @@ impl DrawPlanner {
             }
             _ => None,
         };
-        if let Some(instruction) = self.enter_node(node_id, node, draw, input) {
-            output.push_command(instruction);
+        let inherited_clip = self.current.clip;
+        let stroke = match node {
+            DrawTreeNode::CachedShape(shape) => shape.instance.stroke.as_ref(),
+            _ => None,
+        };
+        let fill = self.enter_node(node_id, node, draw, input);
+        let Some(stroke) = stroke else {
+            if let Some(fill) = fill {
+                output.push_command(fill);
+            }
+            return;
+        };
+        let stencil = fill.and_then(|mut fill| {
+            let stencil = match fill.operation {
+                RenderOperation::DrawShapeAndIncrementStencil(draw) => {
+                    fill.operation = RenderOperation::DrawShape(draw);
+                    Some(RenderCommand {
+                        operation: RenderOperation::IncrementStencil(draw.id),
+                        clip: fill.clip,
+                    })
+                }
+                _ => None,
+            };
+            output.push_command(fill);
+            stencil
+        });
+        output.push_command(RenderCommand {
+            operation: RenderOperation::DrawShape(ShapeDraw {
+                id: ShapeDrawId(node_id).stroke(),
+                material: ShapeDrawMaterial {
+                    has_gradient_fill: matches!(stroke.paint, Fill::Gradient(_)),
+                    texture_bindings: [ShapeTextureBinding::None; 2],
+                    under_fill_texture: None,
+                },
+            }),
+            clip: inherited_clip,
+        });
+        if let Some(stencil) = stencil {
+            output.push_command(stencil);
         }
     }
 

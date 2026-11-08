@@ -23,10 +23,9 @@ mod projection;
 mod rectangles;
 mod rounded_rect;
 mod scanline;
+pub(in crate::wgpu_backend) mod strokes;
 mod tiles;
 mod uploads;
-mod winding;
-mod winding_order;
 
 pub(in crate::wgpu_backend) fn supports_projection(
     transform: Option<InstanceTransform>,

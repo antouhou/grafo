@@ -7,6 +7,7 @@ use crate::wgpu_backend::gradient::{GradientCache, GradientMaterial};
 use crate::wgpu_backend::vertex::{GeometryBufferRange, InstanceColor, InstanceMetadata};
 use ahash::{HashMap, HashMapExt};
 use compaction::DrawBufferCompactionStorage;
+use coverage::strokes::{StrokeAtlas, StrokeCoverage};
 use coverage::{CoverageCache, PathCoverage};
 use materials::TextureMaterialPool;
 pub(in crate::wgpu_backend) use pipelines::{
@@ -34,7 +35,7 @@ pub(crate) struct ShapeBufferLocation {
 #[derive(Debug, Default)]
 pub(in crate::wgpu_backend) struct ShapeDrawResources {
     pub(in crate::wgpu_backend) path_coverage: Option<PathCoverage>,
-    may_have_overlapping_triangles: bool,
+    pub(in crate::wgpu_backend) stroke_coverage: Option<StrokeCoverage>,
     /// Retained only for draws with a shape mask effect, to identify cached coverage masks.
     pub(crate) mask_tessellation: Option<Arc<CachedTessellation>>,
     pub(crate) geometry_buffer_location: Option<ShapeBufferLocation>,
@@ -43,10 +44,6 @@ pub(in crate::wgpu_backend) struct ShapeDrawResources {
 }
 
 impl ShapeDrawResources {
-    pub(in crate::wgpu_backend) fn needs_overlap_depth_test(&self) -> bool {
-        self.may_have_overlapping_triangles && self.path_coverage.is_none()
-    }
-
     pub(crate) fn clear_under_fill_binding(&mut self) {
         self.texture_material_bind_group = None;
     }
@@ -76,6 +73,7 @@ impl ShapeDrawResources {
 /// Reusable execution storage, separate from draw descriptions and their tree.
 pub(crate) struct ShapeExecutionResources {
     pub(in crate::wgpu_backend) coverage_cache: CoverageCache,
+    pub(in crate::wgpu_backend) stroke_atlas: StrokeAtlas,
     pub(in crate::wgpu_backend) composites: CompositeExecutionResources,
     pub(in crate::wgpu_backend) texture_materials: TextureMaterialPool,
     pub(crate) draws: HashMap<usize, ShapeDrawResources>,
@@ -106,12 +104,17 @@ impl ShapeExecutionResources {
 
     pub(in crate::wgpu_backend) fn remove_draws(&mut self, ids: &[ShapeDrawId]) {
         for id in ids {
-            if let Some(removed) = self.draws.remove(&id.0) {
-                if let Some(coverage) = removed.path_coverage {
-                    self.coverage_cache.retain(coverage);
-                }
-                self.has_unused_draw_buffers |= removed.geometry_buffer_location.is_some();
+            self.remove_draw(*id);
+            self.remove_draw(id.stroke());
+        }
+    }
+
+    fn remove_draw(&mut self, id: ShapeDrawId) {
+        if let Some(removed) = self.draws.remove(&id.0) {
+            if let Some(coverage) = removed.path_coverage {
+                self.coverage_cache.retain(coverage);
             }
+            self.has_unused_draw_buffers |= removed.geometry_buffer_location.is_some();
         }
     }
 
@@ -122,6 +125,7 @@ impl ShapeExecutionResources {
     pub(crate) fn new() -> Self {
         Self {
             coverage_cache: CoverageCache::new(),
+            stroke_atlas: StrokeAtlas::default(),
             texture_materials: TextureMaterialPool::default(),
             composites: CompositeExecutionResources::default(),
             draws: HashMap::new(),

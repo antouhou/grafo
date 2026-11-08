@@ -5,10 +5,11 @@ use crate::wgpu_backend::vertex::{InstanceColor, InstanceMetadata};
 use smallvec::{smallvec, SmallVec};
 use std::sync::{Arc, OnceLock};
 use wgpu::{
-    BindGroupLayout, BlendState, ColorTargetState, ColorWrites, CompareFunction, DepthStencilState,
-    Device, FragmentState, MultisampleState, PipelineCompilationOptions, PipelineLayout,
-    PipelineLayoutDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderModule,
-    ShaderModuleDescriptor, ShaderSource, StencilState, TextureFormat, VertexBufferLayout,
+    BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BlendState,
+    BufferBindingType, ColorTargetState, ColorWrites, DepthStencilState, Device, FragmentState,
+    MultisampleState, PipelineCompilationOptions, PipelineLayout, PipelineLayoutDescriptor,
+    RenderPipeline, RenderPipelineDescriptor, ShaderModule, ShaderModuleDescriptor, ShaderSource,
+    ShaderStages, TextureFormat, TextureSampleType, TextureViewDimension, VertexBufferLayout,
     VertexState,
 };
 
@@ -33,42 +34,17 @@ impl ShapeGeometryType {
 pub(in crate::wgpu_backend) enum StencilAction {
     Keep,
     Increment,
+    IncrementOnly,
     Decrement,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum DepthAction {
-    /// Leaves the target's depth unchanged. Shapes composite in command order.
-    Ignore,
-    /// For direct stroke draws that keep stencil, writes depth 0 with Less against
-    /// clear depth 1, shading each sample once.
-    RejectOverlap,
-    /// Immediately redraws at depth 1 with Greater to clear those marks, without color
-    /// or stencil writes. Must cover the same samples before another shape is drawn.
-    Reset,
-}
-
-impl DepthAction {
-    fn state(self, stencil: StencilAction) -> DepthStencilState {
-        let mut state = match stencil {
-            StencilAction::Keep => pipeline::create_equal_keep_depth_state(),
-            StencilAction::Increment => pipeline::create_equal_increment_depth_state(),
-            StencilAction::Decrement => pipeline::create_equal_decrement_depth_state(),
-        };
+impl StencilAction {
+    fn depth_state(self) -> DepthStencilState {
         match self {
-            Self::Ignore => {}
-            Self::RejectOverlap => {
-                state.depth_write_enabled = true;
-                state.depth_compare = CompareFunction::Less;
-            }
-            Self::Reset => {
-                state.depth_write_enabled = true;
-                state.depth_compare = CompareFunction::Greater;
-                // Marks pass 1 > 0. Clear samples fail 1 > 1, so stencil can be ignored.
-                state.stencil = StencilState::default();
-            }
+            Self::Keep => pipeline::create_equal_keep_depth_state(),
+            Self::Increment | Self::IncrementOnly => pipeline::create_equal_increment_depth_state(),
+            Self::Decrement => pipeline::create_equal_decrement_depth_state(),
         }
-        state
     }
 }
 
@@ -104,7 +80,7 @@ impl ShapeShaderType {
 
     fn fragment_entry_point(self, writes_color: bool) -> &'static str {
         if !writes_color {
-            "fs_no_color"
+            "fs_stencil_only"
         } else {
             match self {
                 Self::Solid => "fs_solid",
@@ -152,6 +128,7 @@ impl ShapePipelineLayouts {
         device: &Device,
         shader: ShapeShaderType,
         is_solid: bool,
+        coverage_layout: &BindGroupLayout,
     ) -> PipelineLayout {
         let material_layout = match shader {
             ShapeShaderType::Gradient => Some(&self.gradient),
@@ -160,7 +137,7 @@ impl ShapePipelineLayouts {
             _ => None,
         };
         let bind_group_layouts = [
-            &self.uniform,
+            coverage_layout,
             &self.background_texture,
             &self.foreground_texture,
             material_layout.unwrap_or(&self.uniform),
@@ -214,6 +191,7 @@ struct ShapePipelineCompiler {
     shader: ShaderModule,
     format: TextureFormat,
     sample_count: u32,
+    coverage_layout: Option<BindGroupLayout>,
 }
 
 impl ShapePipelineCompiler {
@@ -223,13 +201,19 @@ impl ShapePipelineCompiler {
         geometry_type: ShapeGeometryType,
         shader: ShapeShaderType,
         stencil: StencilAction,
-        depth: DepthAction,
+        fragment_override: Option<&'static str>,
     ) -> RenderPipeline {
         let is_solid = shader == ShapeShaderType::Solid;
-        let layout = layouts.create_pipeline_layout(&self.device, shader, is_solid);
+        let layout = layouts.create_pipeline_layout(
+            &self.device,
+            shader,
+            is_solid,
+            self.coverage_layout.as_ref().unwrap_or(&layouts.uniform),
+        );
         let vertex_entry_point = shader.vertex_entry_point(geometry_type, is_solid);
-        let writes_color = stencil != StencilAction::Decrement && depth != DepthAction::Reset;
-        let fragment_entry_point = shader.fragment_entry_point(writes_color);
+        let writes_color = matches!(stencil, StencilAction::Keep | StencilAction::Increment);
+        let fragment_entry_point =
+            fragment_override.unwrap_or_else(|| shader.fragment_entry_point(writes_color));
         let vertex_buffer_layouts = vertex_buffer_layouts(geometry_type, is_solid);
         self.device
             .create_render_pipeline(&RenderPipelineDescriptor {
@@ -238,15 +222,7 @@ impl ShapePipelineCompiler {
                 vertex: VertexState {
                     module: &self.shader,
                     entry_point: Some(vertex_entry_point),
-                    compilation_options: PipelineCompilationOptions {
-                        // Pair Greater with the clear depth. The material draw uses default 0.
-                        constants: if depth == DepthAction::Reset {
-                            &[("tessellated_depth", 1.0)]
-                        } else {
-                            &[]
-                        },
-                        ..Default::default()
-                    },
+                    compilation_options: Default::default(),
                     buffers: &vertex_buffer_layouts,
                 },
                 fragment: Some(FragmentState {
@@ -270,7 +246,7 @@ impl ShapePipelineCompiler {
                     })],
                 }),
                 primitive: Default::default(),
-                depth_stencil: Some(depth.state(stencil)),
+                depth_stencil: Some(stencil.depth_state()),
                 multisample: MultisampleState {
                     count: self.sample_count,
                     ..Default::default()
@@ -306,6 +282,7 @@ impl MaterialPipelines {
 struct GeometryPipelines {
     keep: MaterialPipelines,
     increment: MaterialPipelines,
+    increment_only: OnceLock<RenderPipeline>,
     decrement: OnceLock<RenderPipeline>,
 }
 
@@ -314,8 +291,10 @@ pub(in crate::wgpu_backend) struct ShapePipelineVariants {
     tessellated: GeometryPipelines,
     coverage_interior: GeometryPipelines,
     coverage_boundary: GeometryPipelines,
-    overlapping: MaterialPipelines,
-    depth_reset: OnceLock<RenderPipeline>,
+    stroke_compiler: OnceLock<ShapePipelineCompiler>,
+    stroke_solid: OnceLock<RenderPipeline>,
+    stroke_gradient: OnceLock<RenderPipeline>,
+    stroke_color: OnceLock<RenderPipeline>,
 }
 
 impl ShapePipelineVariants {
@@ -328,19 +307,104 @@ impl ShapePipelineVariants {
             }),
             format,
             sample_count,
+            coverage_layout: None,
         };
         Self {
             compiler,
             tessellated: GeometryPipelines::default(),
             coverage_interior: GeometryPipelines::default(),
             coverage_boundary: GeometryPipelines::default(),
-            overlapping: Default::default(),
-            depth_reset: OnceLock::new(),
+            stroke_compiler: OnceLock::new(),
+            stroke_solid: OnceLock::new(),
+            stroke_gradient: OnceLock::new(),
+            stroke_color: OnceLock::new(),
         }
     }
 }
 
 impl ShapePipelines {
+    fn stroke_compiler(&self) -> &ShapePipelineCompiler {
+        self.variants.stroke_compiler.get_or_init(|| {
+            let source = &self.variants.compiler;
+            let layout = source
+                .device
+                .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                    label: Some("stroke_coverage"),
+                    entries: &[
+                        BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: ShaderStages::VERTEX_FRAGMENT,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                        BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: ShaderStages::FRAGMENT,
+                            ty: BindingType::Texture {
+                                sample_type: TextureSampleType::Float { filterable: false },
+                                view_dimension: TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        pipeline::storage_binding(2, ShaderStages::VERTEX),
+                        pipeline::storage_binding(3, ShaderStages::VERTEX),
+                    ],
+                });
+            ShapePipelineCompiler {
+                device: source.device.clone(),
+                shader: source.device.create_shader_module(ShaderModuleDescriptor {
+                    label: Some("stroke_coverage"),
+                    source: ShaderSource::Wgsl(pipeline::STROKE_SHADER.into()),
+                }),
+                format: source.format,
+                sample_count: source.sample_count,
+                coverage_layout: Some(layout),
+            }
+        })
+    }
+
+    pub(in crate::wgpu_backend) fn stroke_layout(&self) -> &BindGroupLayout {
+        self.stroke_compiler()
+            .coverage_layout
+            .as_ref()
+            .expect("stroke atlas layout")
+    }
+
+    pub(in crate::wgpu_backend) fn stroke_pipeline(
+        &self,
+        shader: ShapeShaderType,
+        rasterizes_color: bool,
+    ) -> &RenderPipeline {
+        let (slot, shader, fragment) = if rasterizes_color {
+            (
+                &self.variants.stroke_color,
+                ShapeShaderType::Solid,
+                Some("fs_stroke_color"),
+            )
+        } else {
+            let slot = match shader {
+                ShapeShaderType::Solid => &self.variants.stroke_solid,
+                ShapeShaderType::Gradient => &self.variants.stroke_gradient,
+                _ => unreachable!("strokes use solid or gradient paint"),
+            };
+            (slot, shader, None)
+        };
+        slot.get_or_init(|| {
+            self.stroke_compiler().create(
+                &self.layouts,
+                ShapeGeometryType::CoverageBoundary,
+                shader,
+                StencilAction::Keep,
+                fragment,
+            )
+        })
+    }
+
     /// Creates a variant on first use and reuses it until format or MSAA changes.
     pub(in crate::wgpu_backend) fn get(
         &self,
@@ -356,43 +420,13 @@ impl ShapePipelines {
         let (slot, shader) = match stencil {
             StencilAction::Keep => (pipelines.keep.slot(shader), shader),
             StencilAction::Increment => (pipelines.increment.slot(shader), shader),
+            StencilAction::IncrementOnly => (&pipelines.increment_only, ShapeShaderType::Solid),
             StencilAction::Decrement => (&pipelines.decrement, ShapeShaderType::Solid),
         };
         slot.get_or_init(|| {
-            self.variants.compiler.create(
-                &self.layouts,
-                geometry_type,
-                shader,
-                stencil,
-                DepthAction::Ignore,
-            )
-        })
-    }
-
-    pub(in crate::wgpu_backend) fn get_overlapping(
-        &self,
-        shader: ShapeShaderType,
-    ) -> &RenderPipeline {
-        self.variants.overlapping.slot(shader).get_or_init(|| {
-            self.variants.compiler.create(
-                &self.layouts,
-                ShapeGeometryType::Tessellated,
-                shader,
-                StencilAction::Keep,
-                DepthAction::RejectOverlap,
-            )
-        })
-    }
-
-    pub(in crate::wgpu_backend) fn get_depth_reset(&self) -> &RenderPipeline {
-        self.variants.depth_reset.get_or_init(|| {
-            self.variants.compiler.create(
-                &self.layouts,
-                ShapeGeometryType::Tessellated,
-                ShapeShaderType::Solid,
-                StencilAction::Keep,
-                DepthAction::Reset,
-            )
+            self.variants
+                .compiler
+                .create(&self.layouts, geometry_type, shader, stencil, None)
         })
     }
 }

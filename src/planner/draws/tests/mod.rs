@@ -24,6 +24,7 @@ use std::mem;
 enum Operation {
     Draw(ShapeDrawId),
     DrawAndIncrement(ShapeDrawId),
+    Increment(ShapeDrawId),
     Decrement(ShapeDrawId),
     Composite(IntermediateTextureId),
 }
@@ -37,6 +38,7 @@ fn snapshot(plan: &RecordedCommands) -> Vec<(Operation, u32, UnsignedPhysicalRec
                 RenderOperation::DrawShapeAndIncrementStencil(draw) => {
                     Operation::DrawAndIncrement(draw.id)
                 }
+                RenderOperation::IncrementStencil(id) => Operation::Increment(id),
                 RenderOperation::DecrementStencil(draw) => Operation::Decrement(draw.id),
                 RenderOperation::CompositeTexture(texture) => Operation::Composite(texture.texture),
                 _ => return None,
