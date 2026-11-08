@@ -84,6 +84,7 @@ impl SceneState {
                 events.iter().copied(),
                 FillRule::NonZero,
                 false,
+                &mut self.tessellator,
                 &mut self.shape_resources,
                 Some(geometry_id),
             )?,
@@ -141,11 +142,7 @@ impl SceneState {
         } = &mut *glyph_usage;
         for glyph_key in glyphs_to_remove.drain() {
             counts.remove(&glyph_key);
-            if let Some(shape) = loaded_shapes.remove(&glyph_key) {
-                self.shape_resources
-                    .tessellation_cache
-                    .release_tessellation(shape.geometry.tessellation);
-            }
+            loaded_shapes.remove(&glyph_key);
         }
     }
 }

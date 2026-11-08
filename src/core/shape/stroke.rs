@@ -7,7 +7,7 @@ use lyon::path::polygon::Polygon;
 use lyon::path::{LineCap as LyonLineCap, LineJoin as LyonLineJoin, PathEvent};
 use lyon::tessellation::{
     BuffersBuilder, GeometryBuilderError, StrokeOptions as LyonStrokeOptions, StrokeVertex,
-    StrokeVertexConstructor, TessellationError,
+    StrokeVertexConstructor, TessellationError, VertexBuffers,
 };
 use std::sync::Arc;
 use thiserror::Error;
@@ -186,32 +186,28 @@ pub(super) fn tessellate(
 ) -> Result<Arc<CachedTessellation>, TessellationError> {
     validate_positions(events.clone())?;
 
-    let mut tessellation = resources.tessellation_cache.acquire_tessellation();
-    if options.width != 0.0 {
-        if let Err(error) = resources.stroke_tessellator.tessellate(
-            events,
-            &options.lyon_options(),
-            &mut BuffersBuilder::new(&mut tessellation.vertex_buffers, StrokeVertexConverter),
-        ) {
-            resources
-                .tessellation_cache
-                .recycle_tessellation(tessellation);
-            return Err(error);
-        }
-    }
-    if !tessellation
-        .vertex_buffers
+    let mut vertex_buffers = VertexBuffers::new();
+    resources.stroke_tessellator.tessellate(
+        events,
+        &options.lyon_options(),
+        &mut BuffersBuilder::new(&mut vertex_buffers, StrokeVertexConverter),
+    )?;
+    if !vertex_buffers
         .vertices
         .iter()
         .all(|vertex| vertex.position.into_iter().all(f32::is_finite))
     {
-        resources
-            .tessellation_cache
-            .recycle_tessellation(tessellation);
         return Err(GeometryBuilderError::InvalidVertex.into());
     }
-    tessellation.local_bounds = compute_vertex_bounds(&tessellation.vertex_buffers.vertices);
-    Ok(Arc::new(tessellation))
+    let local_bounds = compute_vertex_bounds(&vertex_buffers.vertices);
+    Ok(Arc::new(CachedTessellation {
+        is_rect: false,
+        boundary_edges: Vec::new(),
+        rounded_rect_boundary: None,
+        vertex_buffers: Arc::new(vertex_buffers),
+        local_bounds,
+        texture_mapping_size: [1.0, 1.0],
+    }))
 }
 
 pub(super) fn tessellate_rect(

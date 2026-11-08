@@ -10,6 +10,7 @@ use crate::wgpu_backend::execution::shapes::coverage::projection::Projection;
 use crate::wgpu_backend::execution::shapes::coverage::tiles::{
     CoverageDrawMetadata, CoverageGeometry,
 };
+use std::sync::Arc;
 
 fn rasterize(
     geometry: &CoverageGeometry,
@@ -97,13 +98,14 @@ fn rectangle_tiles_match_pixel_overlap_and_general_coverage() {
         );
         let scale = [0.5, 1.0, 1.25, 2.0][index % 4];
         let cached = scene.tessellate(&Shape::rect(bounds), None).unwrap();
-        let mut generic = CachedTessellation::empty();
-        generic
-            .boundary_edges
-            .clone_from(&cached.tessellation.boundary_edges);
-        generic.vertex_buffers.clone_from(cached.vertex_buffers());
-        generic.local_bounds = bounds;
-        generic.texture_mapping_size = cached.texture_mapping_size();
+        let generic = CachedTessellation {
+            is_rect: false,
+            boundary_edges: cached.tessellation.boundary_edges.clone(),
+            rounded_rect_boundary: None,
+            vertex_buffers: Arc::clone(cached.vertex_buffers()),
+            local_bounds: bounds,
+            texture_mapping_size: cached.texture_mapping_size(),
+        };
         // Append several draws before clearing to exercise shared sample offsets.
         if index % 7 == 0 {
             geometry.clear();

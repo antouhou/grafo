@@ -18,6 +18,7 @@ use crate::scene_state::types::DrawTreeNode;
 use crate::{Shape, ShapeDrawCommandOptions, Size};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
+use lyon::tessellation::FillTessellator;
 use std::mem;
 
 #[derive(Default)]
@@ -73,6 +74,7 @@ fn scene_with_effects(
     let mut resources = ShapeResources::new();
     let handle = CachedShapeHandle::new(
         &Shape::rect([(0.0, 0.0), (20.0, 10.0)]),
+        &mut FillTessellator::new(),
         &mut resources,
         Some(17),
     )
@@ -177,9 +179,13 @@ fn empty_or_oversized_masks_never_produce_texture_references() {
     let mut parameters = EffectParameterStorage::default();
     let mut plan = MaskCommands::new();
     let (mut tree, mut effects) = scene_with_effects(&mut parameters, 1.0);
-    let empty_shape =
-        CachedShapeHandle::new(&Shape::builder().build(), &mut ShapeResources::new(), None)
-            .unwrap();
+    let empty_shape = CachedShapeHandle::new(
+        &Shape::builder().build(),
+        &mut FillTessellator::new(),
+        &mut ShapeResources::new(),
+        None,
+    )
+    .unwrap();
     let config = ShapeMaskEffectConfig::default();
     let bounds =
         ShapeMaskEffectBounds::new(empty_shape.tessellation.local_bounds, config, None, 1.0)

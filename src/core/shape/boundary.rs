@@ -82,35 +82,6 @@ fn position_key(position: [f32; 2]) -> [u32; 2] {
     position.map(|value| if value == 0.0 { 0 } else { value.to_bits() })
 }
 
-fn signed_double_area([first, second, third]: [[f32; 2]; 3]) -> f64 {
-    let [[ax, ay], [bx, by], [cx, cy]] = [first, second, third].map(|point| point.map(f64::from));
-    (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
-}
-
-fn canonical_edge(start: [f32; 2], end: [f32; 2]) -> (EdgeKey, PathBoundaryEdge) {
-    let start_key = position_key(start);
-    let end_key = position_key(end);
-    if start_key < end_key {
-        (
-            (start_key, end_key),
-            PathBoundaryEdge {
-                start,
-                end,
-                winding: 1,
-            },
-        )
-    } else {
-        (
-            (end_key, start_key),
-            PathBoundaryEdge {
-                start: end,
-                end: start,
-                winding: -1,
-            },
-        )
-    }
-}
-
 #[derive(Default)]
 pub(crate) struct PathBoundaryBuilder {
     edges: HashMap<EdgeKey, PathBoundaryEdge>,
@@ -130,7 +101,8 @@ impl PathBoundaryBuilder {
             .extend(vertices.iter().map(|vertex| project(vertex.position)));
         for triangle in indices.as_chunks::<3>().0 {
             let [a, mut b, mut c] = triangle.map(|index| self.positions[index as usize]);
-            let area = signed_double_area([a, b, c]);
+            let area = (b[0] as f64 - a[0] as f64) * (c[1] as f64 - a[1] as f64)
+                - (b[1] as f64 - a[1] as f64) * (c[0] as f64 - a[0] as f64);
             if !area.is_finite() || area == 0.0 {
                 continue;
             }
@@ -138,7 +110,27 @@ impl PathBoundaryBuilder {
                 mem::swap(&mut b, &mut c);
             }
             for (start, end) in [(a, b), (b, c), (c, a)] {
-                let (key, edge) = canonical_edge(start, end);
+                let start_key = position_key(start);
+                let end_key = position_key(end);
+                let (key, edge) = if start_key < end_key {
+                    (
+                        (start_key, end_key),
+                        PathBoundaryEdge {
+                            start,
+                            end,
+                            winding: 1,
+                        },
+                    )
+                } else {
+                    (
+                        (end_key, start_key),
+                        PathBoundaryEdge {
+                            start: end,
+                            end: start,
+                            winding: -1,
+                        },
+                    )
+                };
                 self.edges
                     .entry(key)
                     .and_modify(|entry| entry.winding += edge.winding)

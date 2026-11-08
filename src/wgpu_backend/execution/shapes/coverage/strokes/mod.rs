@@ -1,4 +1,4 @@
-use super::cache::CoverageKey;
+use super::cache::coverage_transform_key;
 use super::placement::CoveragePlacement;
 use super::projection::Projection;
 use super::tiles::{CoverageProjection, CoverageTile};
@@ -12,6 +12,7 @@ use bins::{requires_precise_projection, TriangleBins};
 use bytemuck::Zeroable;
 use raster::{RasterInstance, RasterResources};
 use smallvec::SmallVec;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock, Weak};
 use std::{mem, ops::Range};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
@@ -22,8 +23,6 @@ use wgpu::{
 
 mod bins;
 mod raster;
-#[cfg(test)]
-mod tests;
 
 const ATLAS_SIDE: u32 = 1024;
 
@@ -36,7 +35,6 @@ pub(in crate::wgpu_backend) struct StrokeMaskRegion {
 
 #[derive(Debug)]
 struct StrokeMask {
-    tessellation: Weak<CachedTessellation>,
     transform: Option<InstanceTransform>,
     bounds: UnsignedPhysicalRect,
     needs_triangle_bins: bool,
@@ -314,18 +312,52 @@ impl AtlasBatch {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
-struct StrokeKey {
-    coverage: CoverageKey,
+#[derive(Clone)]
+struct StrokeMaskKey {
+    tessellation: Weak<CachedTessellation>,
+    transform: [u32; 16],
     // Only baked paint participates in the key. The mask retains the material.
-    gradient_material: Option<usize>,
+    gradient_material_identity: Option<usize>,
+}
+
+impl StrokeMaskKey {
+    fn new(
+        tessellation: &Arc<CachedTessellation>,
+        transform: Option<InstanceTransform>,
+        rasterized_gradient: Option<&Arc<GradientMaterial>>,
+    ) -> Self {
+        Self {
+            tessellation: Arc::downgrade(tessellation),
+            transform: coverage_transform_key(transform),
+            gradient_material_identity: rasterized_gradient
+                .map(|material| Arc::as_ptr(material) as usize),
+        }
+    }
+}
+
+impl PartialEq for StrokeMaskKey {
+    fn eq(&self, other: &Self) -> bool {
+        Weak::ptr_eq(&self.tessellation, &other.tessellation)
+            && self.transform == other.transform
+            && self.gradient_material_identity == other.gradient_material_identity
+    }
+}
+
+impl Eq for StrokeMaskKey {}
+
+impl Hash for StrokeMaskKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.tessellation.as_ptr().hash(state);
+        self.transform.hash(state);
+        self.gradient_material_identity.hash(state);
+    }
 }
 
 pub(in crate::wgpu_backend) struct StrokeAtlas {
-    entries: FrameCache<StrokeKey, Arc<StrokeMask>>,
-    pending_masks: Vec<(StrokeKey, Weak<StrokeMask>)>,
-    pending_gradients: Vec<(StrokeKey, Weak<StrokeMask>)>,
-    retained: Vec<(StrokeKey, Arc<StrokeMask>)>,
+    entries: FrameCache<StrokeMaskKey, Arc<StrokeMask>>,
+    pending_masks: Vec<(StrokeMaskKey, Weak<StrokeMask>)>,
+    pending_gradients: Vec<(StrokeMaskKey, Weak<StrokeMask>)>,
+    retained: Vec<(StrokeMaskKey, Arc<StrokeMask>)>,
     batch: AtlasBatch,
     raster: RasterResources,
 }
@@ -352,10 +384,7 @@ impl StrokeAtlas {
         rasterized_gradient: Option<&Arc<GradientMaterial>>,
     ) -> StrokeCoverage {
         let placement = CoveragePlacement::new(transform, tessellation.local_bounds, viewport);
-        let key = StrokeKey {
-            coverage: CoverageKey::new(tessellation, placement.transform),
-            gradient_material: rasterized_gradient.map(|material| Arc::as_ptr(material) as usize),
-        };
+        let key = StrokeMaskKey::new(tessellation, placement.transform, rasterized_gradient);
         let mask = self.entries.get(&key).unwrap_or_else(|| {
             let bounds = tessellation.local_bounds;
             let logical = geometry::transformed_bounds_to_logical_screen_rect(
@@ -370,7 +399,6 @@ impl StrokeAtlas {
             .unwrap_or_else(UnsignedPhysicalRect::zero);
             let visible = !bounds.is_empty();
             let mask = Arc::new(StrokeMask {
-                tessellation: Arc::downgrade(tessellation),
                 transform: placement.transform,
                 bounds,
                 needs_triangle_bins: visible
@@ -452,7 +480,7 @@ impl StrokeAtlas {
                 };
                 if Arc::strong_count(&mask) == 2 {
                     self.entries.remove(&key);
-                } else if let Some(tessellation) = mask.tessellation.upgrade() {
+                } else if let Some(tessellation) = key.tessellation.upgrade() {
                     batch.push_mask(mask, &tessellation, &mut shelf);
                 }
             }

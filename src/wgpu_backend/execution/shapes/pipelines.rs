@@ -6,11 +6,10 @@ use smallvec::{smallvec, SmallVec};
 use std::sync::{Arc, OnceLock};
 use wgpu::{
     BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BlendState,
-    BufferBindingType, ColorTargetState, ColorWrites, DepthStencilState, Device, FragmentState,
-    MultisampleState, PipelineCompilationOptions, PipelineLayout, PipelineLayoutDescriptor,
-    RenderPipeline, RenderPipelineDescriptor, ShaderModule, ShaderModuleDescriptor, ShaderSource,
-    ShaderStages, TextureFormat, TextureSampleType, TextureViewDimension, VertexBufferLayout,
-    VertexState,
+    BufferBindingType, ColorTargetState, ColorWrites, Device, FragmentState, MultisampleState,
+    PipelineCompilationOptions, PipelineLayout, PipelineLayoutDescriptor, RenderPipeline,
+    RenderPipelineDescriptor, ShaderModule, ShaderModuleDescriptor, ShaderSource, ShaderStages,
+    TextureFormat, TextureSampleType, TextureViewDimension, VertexBufferLayout, VertexState,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -34,18 +33,8 @@ impl ShapeGeometryType {
 pub(in crate::wgpu_backend) enum StencilAction {
     Keep,
     Increment,
-    IncrementOnly,
     Decrement,
-}
-
-impl StencilAction {
-    fn depth_state(self) -> DepthStencilState {
-        match self {
-            Self::Keep => pipeline::create_equal_keep_depth_state(),
-            Self::Increment | Self::IncrementOnly => pipeline::create_equal_increment_depth_state(),
-            Self::Decrement => pipeline::create_equal_decrement_depth_state(),
-        }
-    }
+    IncrementOnly,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -246,7 +235,13 @@ impl ShapePipelineCompiler {
                     })],
                 }),
                 primitive: Default::default(),
-                depth_stencil: Some(stencil.depth_state()),
+                depth_stencil: Some(match stencil {
+                    StencilAction::Keep => pipeline::create_equal_keep_depth_state(),
+                    StencilAction::Increment | StencilAction::IncrementOnly => {
+                        pipeline::create_equal_increment_depth_state()
+                    }
+                    StencilAction::Decrement => pipeline::create_equal_decrement_depth_state(),
+                }),
                 multisample: MultisampleState {
                     count: self.sample_count,
                     ..Default::default()
@@ -258,39 +253,15 @@ impl ShapePipelineCompiler {
 }
 
 #[derive(Default)]
-struct MaterialPipelines {
-    solid: OnceLock<RenderPipeline>,
-    textured: OnceLock<RenderPipeline>,
-    gradient: OnceLock<RenderPipeline>,
-    under_fill_texture: OnceLock<RenderPipeline>,
-    gradient_under_fill_texture: OnceLock<RenderPipeline>,
-}
-
-impl MaterialPipelines {
-    fn slot(&self, shader: ShapeShaderType) -> &OnceLock<RenderPipeline> {
-        match shader {
-            ShapeShaderType::Solid => &self.solid,
-            ShapeShaderType::Textured => &self.textured,
-            ShapeShaderType::Gradient => &self.gradient,
-            ShapeShaderType::UnderFillTexture => &self.under_fill_texture,
-            ShapeShaderType::GradientUnderFillTexture => &self.gradient_under_fill_texture,
-        }
-    }
-}
-
-#[derive(Default)]
 struct GeometryPipelines {
-    keep: MaterialPipelines,
-    increment: MaterialPipelines,
-    increment_only: OnceLock<RenderPipeline>,
+    material_pipelines: [[OnceLock<RenderPipeline>; 2]; 5],
     decrement: OnceLock<RenderPipeline>,
+    increment_only: OnceLock<RenderPipeline>,
 }
 
 pub(in crate::wgpu_backend) struct ShapePipelineVariants {
     compiler: ShapePipelineCompiler,
-    tessellated: GeometryPipelines,
-    coverage_interior: GeometryPipelines,
-    coverage_boundary: GeometryPipelines,
+    geometry: [GeometryPipelines; 3],
     stroke_compiler: OnceLock<ShapePipelineCompiler>,
     stroke_solid: OnceLock<RenderPipeline>,
     stroke_gradient: OnceLock<RenderPipeline>,
@@ -311,9 +282,7 @@ impl ShapePipelineVariants {
         };
         Self {
             compiler,
-            tessellated: GeometryPipelines::default(),
-            coverage_interior: GeometryPipelines::default(),
-            coverage_boundary: GeometryPipelines::default(),
+            geometry: Default::default(),
             stroke_compiler: OnceLock::new(),
             stroke_solid: OnceLock::new(),
             stroke_gradient: OnceLock::new(),
@@ -412,16 +381,14 @@ impl ShapePipelines {
         shader: ShapeShaderType,
         stencil: StencilAction,
     ) -> &RenderPipeline {
-        let pipelines = match geometry_type {
-            ShapeGeometryType::Tessellated => &self.variants.tessellated,
-            ShapeGeometryType::CoverageInterior => &self.variants.coverage_interior,
-            ShapeGeometryType::CoverageBoundary => &self.variants.coverage_boundary,
-        };
+        let pipelines = &self.variants.geometry[geometry_type as usize];
         let (slot, shader) = match stencil {
-            StencilAction::Keep => (pipelines.keep.slot(shader), shader),
-            StencilAction::Increment => (pipelines.increment.slot(shader), shader),
-            StencilAction::IncrementOnly => (&pipelines.increment_only, ShapeShaderType::Solid),
             StencilAction::Decrement => (&pipelines.decrement, ShapeShaderType::Solid),
+            StencilAction::IncrementOnly => (&pipelines.increment_only, ShapeShaderType::Solid),
+            _ => (
+                &pipelines.material_pipelines[shader as usize][stencil as usize],
+                shader,
+            ),
         };
         slot.get_or_init(|| {
             self.variants

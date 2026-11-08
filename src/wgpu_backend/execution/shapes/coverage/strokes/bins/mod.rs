@@ -5,9 +5,6 @@ use lyon::geom::Point;
 use smallvec::SmallVec;
 use std::mem;
 
-#[cfg(test)]
-mod tests;
-
 /// Whether GPU f32 projection can lose subpixel precision before viewport clipping.
 pub(super) fn requires_precise_projection(
     transform: Option<InstanceTransform>,

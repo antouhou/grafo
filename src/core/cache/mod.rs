@@ -12,35 +12,10 @@ use std::sync::{Arc, Weak};
 pub struct CachedTessellation {
     pub(crate) is_rect: bool,
     pub(crate) boundary_edges: Vec<PathBoundaryEdge>,
-    pub(crate) vertex_buffers: VertexBuffers<CustomVertex, u32>,
     pub(crate) rounded_rect_boundary: Option<RoundedRectBoundary>,
+    pub(crate) vertex_buffers: Arc<VertexBuffers<CustomVertex, u32>>,
     pub(crate) local_bounds: [(f32, f32); 2],
     pub(crate) texture_mapping_size: [f32; 2],
-}
-
-impl CachedTessellation {
-    pub(crate) fn empty() -> Self {
-        Self {
-            is_rect: false,
-            boundary_edges: Vec::new(),
-            vertex_buffers: VertexBuffers {
-                vertices: Vec::new(),
-                indices: Vec::new(),
-            },
-            rounded_rect_boundary: None,
-            local_bounds: [(0.0, 0.0), (1.0, 1.0)],
-            texture_mapping_size: [1.0, 1.0],
-        }
-    }
-
-    fn clear(&mut self) {
-        self.vertex_buffers.clear();
-        self.boundary_edges.clear();
-        self.is_rect = false;
-        self.rounded_rect_boundary = None;
-        self.local_bounds = [(0.0, 0.0), (1.0, 1.0)];
-        self.texture_mapping_size = [1.0, 1.0];
-    }
 }
 
 pub(crate) struct FrameCache<K, V> {
@@ -123,20 +98,20 @@ where
 #[derive(Clone, Debug)]
 pub(crate) struct StrokeTessellationKey {
     shape: Weak<CachedTessellation>,
-    width: u32,
+    width_bits: u32,
     line_cap: LineCap,
     line_join: LineJoin,
-    miter_limit: u32,
+    miter_limit_bits: u32,
 }
 
 impl StrokeTessellationKey {
     pub(crate) fn new(shape: &Arc<CachedTessellation>, options: StrokeOptions) -> Self {
         Self {
             shape: Arc::downgrade(shape),
-            width: options.width.to_bits(),
+            width_bits: options.width.to_bits(),
             line_cap: options.line_cap,
             line_join: options.line_join,
-            miter_limit: options.miter_limit.to_bits(),
+            miter_limit_bits: options.miter_limit.to_bits(),
         }
     }
 }
@@ -144,10 +119,10 @@ impl StrokeTessellationKey {
 impl PartialEq for StrokeTessellationKey {
     fn eq(&self, other: &Self) -> bool {
         Weak::ptr_eq(&self.shape, &other.shape)
-            && self.width == other.width
+            && self.width_bits == other.width_bits
             && self.line_cap == other.line_cap
             && self.line_join == other.line_join
-            && self.miter_limit == other.miter_limit
+            && self.miter_limit_bits == other.miter_limit_bits
     }
 }
 
@@ -156,17 +131,16 @@ impl Eq for StrokeTessellationKey {}
 impl Hash for StrokeTessellationKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.shape.as_ptr().hash(state);
-        self.width.hash(state);
+        self.width_bits.hash(state);
         self.line_cap.hash(state);
         self.line_join.hash(state);
-        self.miter_limit.hash(state);
+        self.miter_limit_bits.hash(state);
     }
 }
 
 pub(crate) struct Cache {
     entries: FrameCache<u64, Arc<CachedTessellation>>,
     strokes: FrameCache<StrokeTessellationKey, Arc<CachedTessellation>>,
-    available_tessellations: Vec<CachedTessellation>,
 }
 
 impl Cache {
@@ -174,24 +148,6 @@ impl Cache {
         Self {
             entries: FrameCache::new(),
             strokes: FrameCache::new(),
-            available_tessellations: Vec::new(),
-        }
-    }
-
-    pub(crate) fn acquire_tessellation(&mut self) -> CachedTessellation {
-        self.available_tessellations
-            .pop()
-            .unwrap_or_else(CachedTessellation::empty)
-    }
-
-    pub(crate) fn recycle_tessellation(&mut self, mut tessellation: CachedTessellation) {
-        tessellation.clear();
-        self.available_tessellations.push(tessellation);
-    }
-
-    pub(crate) fn release_tessellation(&mut self, tessellation: Arc<CachedTessellation>) {
-        if let Some(tessellation) = Arc::into_inner(tessellation) {
-            self.recycle_tessellation(tessellation);
         }
     }
 
@@ -233,20 +189,8 @@ impl Cache {
     }
 
     pub(crate) fn end_frame(&mut self) {
-        let fills = self
-            .entries
-            .end_frame()
-            .map(|(_, tessellation)| tessellation);
-        let strokes = self
-            .strokes
-            .end_frame()
-            .map(|(_, tessellation)| tessellation);
-        for tessellation in fills.chain(strokes) {
-            if let Some(mut tessellation) = Arc::into_inner(tessellation) {
-                tessellation.clear();
-                self.available_tessellations.push(tessellation);
-            }
-        }
+        drop(self.entries.end_frame());
+        drop(self.strokes.end_frame());
     }
 }
 

@@ -1,14 +1,19 @@
 use super::{ShapeMaskCacheKey, ShapeMaskEffectCacheKey};
-use crate::core::cache::{CachedTessellation, FrameCache};
+use crate::core::cache::CachedTessellation;
 use crate::core::vertex::CustomVertex;
+use lyon::tessellation::VertexBuffers;
 use std::sync::Arc;
 use wgpu::TextureFormat;
 
 fn tessellation() -> Arc<CachedTessellation> {
-    let mut tessellation = CachedTessellation::empty();
-    tessellation.local_bounds = [(0.0, 0.0), (10.0, 10.0)];
-    tessellation.texture_mapping_size = [10.0, 10.0];
-    Arc::new(tessellation)
+    Arc::new(CachedTessellation {
+        is_rect: false,
+        boundary_edges: Vec::new(),
+        rounded_rect_boundary: None,
+        vertex_buffers: Arc::new(VertexBuffers::<CustomVertex, u32>::new()),
+        local_bounds: [(0.0, 0.0), (10.0, 10.0)],
+        texture_mapping_size: [10.0, 10.0],
+    })
 }
 
 fn cache_key(
@@ -17,7 +22,7 @@ fn cache_key(
 ) -> ShapeMaskEffectCacheKey {
     ShapeMaskEffectCacheKey {
         mask_key: ShapeMaskCacheKey {
-            tessellation: Arc::downgrade(&tessellation),
+            tessellation,
             local_raster_origin: [-1, -1],
             raster_size: [12, 12],
             scale_factor_bits: 1.0f64.to_bits(),
@@ -40,30 +45,6 @@ fn cache_key_uses_tessellation_identity_and_parameter_hash() {
     assert!(first_key == equal_key);
     assert!(first_key != different_params);
     assert!(first_key != different_tessellation);
-}
-
-#[test]
-fn mask_keys_release_geometry_and_reject_republished_buffers() {
-    let mut geometry = tessellation();
-    Arc::get_mut(&mut geometry)
-        .unwrap()
-        .vertex_buffers
-        .vertices
-        .push(CustomVertex {
-            position: [1.0, 2.0],
-            tex_coords: [0.0; 2],
-        });
-    let vertex_storage = geometry.vertex_buffers.vertices.as_ptr();
-    let stale_key = cache_key(Arc::clone(&geometry), 1);
-    let mut cache = FrameCache::new();
-    cache.insert(stale_key.clone(), "prepared");
-
-    let released = Arc::try_unwrap(geometry).expect("mask cache keys must not retain geometry");
-    let republished = Arc::new(released);
-    assert_eq!(republished.vertex_buffers.vertices.as_ptr(), vertex_storage);
-    let replacement_key = cache_key(republished, 1);
-    assert!(stale_key != replacement_key);
-    assert!(cache.get(&replacement_key).is_none());
 }
 
 #[test]

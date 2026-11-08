@@ -7,12 +7,18 @@ use crate::core::Viewport;
 use crate::wgpu_backend::resources::ShapePipelines;
 use ahash::{HashMap, HashMapExt};
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, OnceLock, Weak};
+use std::sync::{Arc, OnceLock};
 use wgpu::{Device, Queue};
+
+pub(super) fn coverage_transform_key(transform: Option<InstanceTransform>) -> [u32; 16] {
+    let transform = transform.unwrap_or_else(InstanceTransform::identity);
+    bytemuck::cast::<_, [f32; 16]>(transform)
+        .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+}
 
 #[derive(Clone, Debug)]
 pub(super) struct CoverageKey {
-    tessellation: Weak<CachedTessellation>,
+    tessellation: Arc<CachedTessellation>,
     transform: [u32; 16],
 }
 
@@ -21,23 +27,16 @@ impl CoverageKey {
         tessellation: &Arc<CachedTessellation>,
         transform: Option<InstanceTransform>,
     ) -> Self {
-        let transform = transform.unwrap_or_else(InstanceTransform::identity);
         Self {
-            tessellation: Arc::downgrade(tessellation),
-            transform: bytemuck::cast::<_, [f32; 16]>(transform).map(|value| {
-                if value == 0.0 {
-                    0
-                } else {
-                    value.to_bits()
-                }
-            }),
+            tessellation: Arc::clone(tessellation),
+            transform: coverage_transform_key(transform),
         }
     }
 }
 
 impl PartialEq for CoverageKey {
     fn eq(&self, other: &Self) -> bool {
-        Weak::ptr_eq(&self.tessellation, &other.tessellation) && self.transform == other.transform
+        Arc::ptr_eq(&self.tessellation, &other.tessellation) && self.transform == other.transform
     }
 }
 
@@ -45,7 +44,7 @@ impl Eq for CoverageKey {}
 
 impl Hash for CoverageKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        Weak::as_ptr(&self.tessellation).hash(state);
+        Arc::as_ptr(&self.tessellation).hash(state);
         self.transform.hash(state);
     }
 }

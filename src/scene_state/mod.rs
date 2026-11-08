@@ -1,5 +1,5 @@
 //! CPU scene descriptions, tessellation caches and effect attachments.
-use crate::core::cache::{CachedTessellation, StrokeTessellationKey};
+use crate::core::cache::StrokeTessellationKey;
 use crate::core::effect::ShapeMaskEffectBounds;
 use crate::core::shape::{
     CachedShapeHandle, Shape, ShapeDrawCommandOptions, ShapeInstance, StrokeInstance,
@@ -17,6 +17,7 @@ use effects::{
     GroupEffectIndex, ShapeMaskEffectInstance,
 };
 pub use errors::SceneError;
+use lyon::tessellation::FillTessellator;
 use std::sync::{Arc, RwLock};
 use text::GlyphUsage;
 use texture_index::TextureIndex;
@@ -31,7 +32,6 @@ mod texture_index;
 pub(crate) mod types;
 
 /// Loaded CPU geometry shared by scenes. Keys identify shape content.
-#[derive(Clone)]
 struct LoadedShape {
     geometry: CachedShapeHandle,
     source: Option<Arc<Shape>>,
@@ -63,6 +63,7 @@ pub(crate) struct SceneState {
     updated_shape_ids: HashSet<usize>,
     context: SceneStateContext,
     viewport: Viewport,
+    tessellator: FillTessellator,
     shape_resources: ShapeResources,
     pub(crate) effect_parameters: EffectParameterStorage,
     pub(crate) content_effects: HashMap<usize, ContentEffectInstance>,
@@ -87,6 +88,7 @@ impl SceneState {
             viewport,
             draw_tree: Tree::new(),
             texture_index: TextureIndex::default(),
+            tessellator: FillTessellator::new(),
             shape_resources: ShapeResources::new(),
             effect_parameters: EffectParameterStorage::default(),
             content_effects: HashMap::new(),
@@ -150,16 +152,11 @@ impl SceneState {
             .write()
             .expect("shared glyph usage lock poisoned");
         glyph_usage.forget(cache_key);
-        let previous = self
-            .context
+        self.context
             .loaded_shapes
             .write()
             .expect("shared shape cache lock poisoned")
             .insert(cache_key, shape);
-        drop(glyph_usage);
-        if let Some(previous) = previous {
-            self.release_tessellation(previous.geometry.tessellation);
-        }
         Ok(())
     }
 
@@ -170,31 +167,11 @@ impl SceneState {
             .write()
             .expect("shared glyph usage lock poisoned");
         glyph_usage.forget(cache_key);
-        let previous = self
-            .context
+        self.context
             .loaded_shapes
             .write()
             .expect("shared shape cache lock poisoned")
             .remove(&cache_key);
-        drop(glyph_usage);
-        if let Some(previous) = previous {
-            self.release_tessellation(previous.geometry.tessellation);
-        }
-    }
-
-    pub(crate) fn release_tessellation(&mut self, tessellation: Arc<CachedTessellation>) {
-        self.shape_resources
-            .tessellation_cache
-            .release_tessellation(tessellation);
-    }
-
-    pub(crate) fn release_node(&mut self, node: DrawTreeNode) {
-        if let DrawTreeNode::CachedShape(shape) = node {
-            self.release_tessellation(shape.instance.cached_shape.tessellation);
-            if let Some(stroke) = shape.instance.stroke {
-                self.release_tessellation(stroke.tessellation);
-            }
-        }
     }
 
     pub(crate) fn tessellate(
@@ -204,23 +181,31 @@ impl SceneState {
     ) -> Result<CachedShapeHandle, SceneError> {
         Ok(CachedShapeHandle::new(
             shape,
+            &mut self.tessellator,
             &mut self.shape_resources,
             geometry_id,
         )?)
     }
 
     pub(crate) fn loaded_shape(&self, cache_key: u64) -> Result<CachedShapeHandle, SceneError> {
-        self.loaded_shape_entry(cache_key)
+        self.loaded_shape_entry(cache_key, false)
             .map(|shape| shape.geometry)
     }
 
-    fn loaded_shape_entry(&self, cache_key: u64) -> Result<LoadedShape, SceneError> {
+    fn loaded_shape_entry(
+        &self,
+        cache_key: u64,
+        includes_outline: bool,
+    ) -> Result<LoadedShape, SceneError> {
         self.context
             .loaded_shapes
             .read()
             .expect("shared shape cache lock poisoned")
             .get(&cache_key)
-            .cloned()
+            .map(|shape| LoadedShape {
+                geometry: shape.geometry.clone(),
+                source: shape.source.as_ref().filter(|_| includes_outline).cloned(),
+            })
             .ok_or(SceneError::ShapeNotLoaded(cache_key))
     }
 
@@ -230,8 +215,14 @@ impl SceneState {
         geometry_id: Option<u64>,
         options: ShapeDrawCommandOptions,
     ) -> Result<CachedShapeDrawData, SceneError> {
-        let geometry = if let Some(stroke) = &options.stroke {
+        if let Some(stroke) = &options.stroke {
             stroke.options.validate()?;
+        }
+        let has_stroke = options
+            .stroke
+            .as_ref()
+            .is_some_and(|stroke| stroke.options.width != 0.0);
+        let geometry = if has_stroke {
             let cached = geometry_id.and_then(|key| {
                 self.shape_resources
                     .tessellation_cache
@@ -257,7 +248,11 @@ impl SceneState {
         cache_key: u64,
         options: ShapeDrawCommandOptions,
     ) -> Result<CachedShapeDrawData, SceneError> {
-        let loaded = self.loaded_shape_entry(cache_key)?;
+        let has_stroke = options
+            .stroke
+            .as_ref()
+            .is_some_and(|stroke| stroke.options.width != 0.0);
+        let loaded = self.loaded_shape_entry(cache_key, has_stroke)?;
         if let Some(stroke) = &options.stroke {
             stroke.options.validate()?;
         }
@@ -291,8 +286,6 @@ impl SceneState {
                     self.shape_resources
                         .tessellation_cache
                         .insert_stroke(key, tessellation);
-                } else {
-                    self.release_tessellation(tessellation);
                 }
             } else {
                 draw.set_stroke(StrokeInstance {

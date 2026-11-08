@@ -18,13 +18,13 @@ use crate::scene_state::types::{ClipRectDrawData, DrawTreeNode};
 use crate::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, Size, UnsignedPhysicalRect};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
+use lyon::tessellation::FillTessellator;
 use std::mem;
 
 #[derive(Debug, PartialEq)]
 enum Operation {
     Draw(ShapeDrawId),
     DrawAndIncrement(ShapeDrawId),
-    Increment(ShapeDrawId),
     Decrement(ShapeDrawId),
     Composite(IntermediateTextureId),
 }
@@ -38,7 +38,6 @@ fn snapshot(plan: &RecordedCommands) -> Vec<(Operation, u32, UnsignedPhysicalRec
                 RenderOperation::DrawShapeAndIncrementStencil(draw) => {
                     Operation::DrawAndIncrement(draw.id)
                 }
-                RenderOperation::IncrementStencil(id) => Operation::Increment(id),
                 RenderOperation::DecrementStencil(draw) => Operation::Decrement(draw.id),
                 RenderOperation::CompositeTexture(texture) => Operation::Composite(texture.texture),
                 _ => return None,
@@ -57,7 +56,13 @@ fn rect(min: (u32, u32), max: (u32, u32)) -> UnsignedPhysicalRect {
 }
 
 fn shape_description(shape: Shape, clips_children: bool) -> CachedShapeDrawData {
-    let handle = CachedShapeHandle::new(&shape, &mut ShapeResources::new(), None).unwrap();
+    let handle = CachedShapeHandle::new(
+        &shape,
+        &mut FillTessellator::new(),
+        &mut ShapeResources::new(),
+        None,
+    )
+    .unwrap();
     CachedShapeDrawData::new(
         handle,
         ShapeDrawCommandOptions::new()
@@ -333,7 +338,6 @@ fn empty_backdrop_parent_preserves_ancestor_clips_without_capture() {
 
 mod backdrops;
 mod groups;
-mod strokes;
 mod targets;
 mod traversal;
 

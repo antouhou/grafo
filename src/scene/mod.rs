@@ -5,7 +5,7 @@ use crate::core::effect::{
 };
 use crate::core::shape::{Shape, ShapeDrawCommandOptions};
 use crate::core::vertex::InstanceTransform;
-use crate::core::{CachedTessellation, GroupDrawCommandOptions, TextSource, UnsignedPhysicalRect};
+use crate::core::{GroupDrawCommandOptions, TextSource, UnsignedPhysicalRect};
 use crate::planner::Planner;
 use crate::render_backend::render_target::RenderTarget;
 use crate::render_backend::RenderBackend;
@@ -21,7 +21,6 @@ use groups::GroupEffectScratch;
 #[cfg(feature = "render_metrics")]
 use metrics::RenderLoopMetricsTracker;
 use std::mem;
-use std::sync::Arc;
 #[cfg(feature = "render_metrics")]
 use std::time::Instant;
 use text::TextScratch;
@@ -65,7 +64,6 @@ pub struct Scene<B: RenderBackend> {
     planner: Planner,
     backend: B,
     removed_shape_ids: Vec<ShapeDrawId>,
-    removed_tessellations: Vec<Arc<CachedTessellation>>,
     text_scratch: TextScratch,
     group_effect_scratch: GroupEffectScratch,
     dirty_bounds: Option<UnsignedPhysicalRect>,
@@ -83,7 +81,6 @@ impl<B: RenderBackend> Scene<B> {
             state: SceneState::new(context, viewport),
             planner: Planner::default(),
             removed_shape_ids: Vec::new(),
-            removed_tessellations: Vec::new(),
             text_scratch: TextScratch::default(),
             group_effect_scratch: GroupEffectScratch::default(),
             pending_damage: PendingDamage::default(),
@@ -134,11 +131,9 @@ impl<B: RenderBackend> Scene<B> {
         ));
     }
 
-    /// Tessellates and stores a shape in the cache under `cache_key`.
-    /// Pass a `geometry_id` to reuse already cached tesselation with the same geometry key.
-    /// Equal IDs must identify identical geometry.
-    /// Returns [`SceneError::Tessellation`] if the geometry could not be tessellated.
-    /// Errors leave any existing cache entry intact.
+    /// Tessellates into the shared CPU cache. Geometry IDs let identical shapes share uploads.
+    /// Returns [`SceneError::Tessellation`] if the path could not be tessellated, leaving any
+    /// existing cache entry intact.
     pub fn load_shape(
         &mut self,
         shape: impl AsRef<Shape>,
@@ -340,24 +335,21 @@ impl<B: RenderBackend> Scene<B> {
         let viewport = self.state.viewport();
         self.state
             .remove_subtrees_with(node_ids, |id, node, effect, group_output| {
-                if let DrawTreeNode::CachedShape(shape) = node {
+                if matches!(node, DrawTreeNode::CachedShape(_)) {
                     mark_dirty(
                         &mut self.dirty_bounds,
-                        shape.logical_screen_bounds,
+                        node.logical_screen_bounds(),
                         viewport,
                     );
-                    self.removed_shape_ids.push(ShapeDrawId(id));
-                    self.removed_tessellations
-                        .push(shape.instance.cached_shape.tessellation);
-                    if let Some(stroke) = shape.instance.stroke {
-                        self.removed_tessellations.push(stroke.tessellation);
-                    }
                 }
                 if let Some(effect) = effect {
                     mark_shape_mask_effect_dirty(&mut self.dirty_bounds, effect.bounds, viewport);
                 }
                 mark_physical_dirty(&mut self.dirty_bounds, group_output);
                 has_removed_nodes = true;
+                if matches!(node, DrawTreeNode::CachedShape(_)) {
+                    self.removed_shape_ids.push(ShapeDrawId(id));
+                }
                 removed(id);
             });
         if !has_removed_nodes {
@@ -368,9 +360,6 @@ impl<B: RenderBackend> Scene<B> {
             self.backend.clear();
         } else if !self.removed_shape_ids.is_empty() {
             self.backend.unregister_shapes(&self.removed_shape_ids);
-        }
-        for tessellation in self.removed_tessellations.drain(..) {
-            self.state.release_tessellation(tessellation);
         }
         self.removed_shape_ids.clear();
     }

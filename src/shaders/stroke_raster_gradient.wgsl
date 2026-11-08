@@ -10,11 +10,10 @@ fn vs_stroke_raster_gradient(
     input: StrokeRasterInput,
     @location(2) original_position: vec2<f32>,
 ) -> StrokeGradientVertex {
-    let physical = stroke_screen_position(input);
     return StrokeGradientVertex(
-        stroke_clip_position(physical, input.screen_to_clip),
-        select(input.position, original_position, input.vertices_are_projected != 0u),
-        physical,
+        stroke_clip_position(input.position, input.screen_to_clip),
+        original_position,
+        input.position,
         input.scale,
     );
 }
