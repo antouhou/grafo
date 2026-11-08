@@ -775,6 +775,13 @@ impl ShapeBuilder {
         self
     }
 
+    /// Ends the current subpath and leaves it open.
+    /// Filling the shape treats the subpath as closed.
+    pub fn end(mut self) -> Self {
+        self.path_builder.end(false);
+        self
+    }
+
     /// Closes the current subpath with a line back to its starting point.
     pub fn close(mut self) -> Self {
         self.path_builder.close();
