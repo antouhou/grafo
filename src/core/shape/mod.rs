@@ -12,8 +12,8 @@ use lyon::geom::euclid::default::Transform3D;
 use lyon::lyon_tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, TessellationError, VertexBuffers,
 };
-pub use lyon::path::FillRule;
 use lyon::path::{Builder, Path, PathEvent, Winding};
+pub use lyon::path::{FillRule, LineCap, LineJoin};
 use lyon::tessellation::FillVertexConstructor;
 use std::sync::Arc;
 
@@ -534,6 +534,66 @@ impl ShapeTextureOptions {
     }
 }
 
+/// Paint and geometry for a shape's stroke.
+///
+/// [`Self::new`] uses butt caps, miter joins, and a miter limit of `4.0`.
+#[derive(Clone, Debug)]
+pub struct StrokeOptions {
+    /// Width in shape-local units, before the shape transform and viewport scaling.
+    pub width: f32,
+    /// Solid color or gradient used to paint the stroke.
+    pub fill: Fill,
+    /// Cap at the start of each open subpath.
+    pub start_cap: LineCap,
+    /// Cap at the end of each open subpath.
+    pub end_cap: LineCap,
+    /// Join between consecutive path segments.
+    pub line_join: LineJoin,
+    /// Maximum miter length as a multiple of the stroke width. Applies to
+    /// [`LineJoin::Miter`] and [`LineJoin::MiterClip`]. Use a finite value of at least `1.0`.
+    pub miter_limit: f32,
+}
+
+impl StrokeOptions {
+    pub fn new(width: f32, fill: impl Into<Fill>) -> Self {
+        Self {
+            width,
+            fill: fill.into(),
+            start_cap: LineCap::Butt,
+            end_cap: LineCap::Butt,
+            line_join: LineJoin::Miter,
+            miter_limit: 4.0,
+        }
+    }
+
+    /// Sets both the start and end caps.
+    pub fn line_cap(mut self, line_cap: LineCap) -> Self {
+        self.start_cap = line_cap;
+        self.end_cap = line_cap;
+        self
+    }
+
+    pub fn start_cap(mut self, start_cap: LineCap) -> Self {
+        self.start_cap = start_cap;
+        self
+    }
+
+    pub fn end_cap(mut self, end_cap: LineCap) -> Self {
+        self.end_cap = end_cap;
+        self
+    }
+
+    pub fn line_join(mut self, line_join: LineJoin) -> Self {
+        self.line_join = line_join;
+        self
+    }
+
+    pub fn miter_limit(mut self, miter_limit: f32) -> Self {
+        self.miter_limit = miter_limit;
+        self
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ShapeDrawCommandOptions {
     pub transform: Option<InstanceTransform>,
@@ -543,6 +603,8 @@ pub struct ShapeDrawCommandOptions {
     /// `None` inherits the nearest group fill, or is transparent if no group supplies one.
     /// An explicit fill, including transparent, overrides the group and uses shape coordinates.
     pub fill: Option<Fill>,
+    /// Optional stroke configuration. Rendering currently ignores this setting.
+    pub stroke: Option<StrokeOptions>,
 }
 
 impl Default for ShapeDrawCommandOptions {
@@ -553,6 +615,7 @@ impl Default for ShapeDrawCommandOptions {
             background_texture: ShapeTextureOptions::default(),
             foreground_texture: ShapeTextureOptions::default(),
             fill: None,
+            stroke: None,
         }
     }
 }
@@ -621,6 +684,12 @@ impl ShapeDrawCommandOptions {
 
     pub fn color(mut self, color: Color) -> Self {
         self.fill = Some(Fill::Solid(color));
+        self
+    }
+
+    /// Sets the stroke configuration. Rendering currently ignores this setting.
+    pub fn stroke(mut self, stroke: StrokeOptions) -> Self {
+        self.stroke = Some(stroke);
         self
     }
 }
