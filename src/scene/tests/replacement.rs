@@ -4,8 +4,8 @@ use super::{
 };
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
-    BackdropCaptureArea, BackdropEffectConfig, ContentEffectConfig, PathShape, Shape,
-    ShapeDrawCommandOptions, ShapeMaskEffectConfig, UnsignedPhysicalRect,
+    BackdropCaptureArea, BackdropEffectConfig, ContentEffectConfig, Shape, ShapeDrawCommandOptions,
+    ShapeMaskEffectConfig, UnsignedPhysicalRect,
 };
 use crate::scene_state::effects::EffectConfig;
 use crate::scene_state::types::DrawTreeNode;
@@ -40,7 +40,7 @@ fn rect(min: (u32, u32), max: (u32, u32)) -> Option<UnsignedPhysicalRect> {
 
 #[test]
 fn tessellation_error_preserves_the_loaded_shape_and_queued_draw() {
-    let invalid_shape = Shape::from(PathShape::new(path_with_nan_positions()));
+    let invalid_shape = Shape::path(path_with_nan_positions());
     let mut scene = scene();
     let bounds = [(0.0, 0.0), (12.0, 10.0)];
     let cache_key = 1;
