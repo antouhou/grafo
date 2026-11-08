@@ -73,6 +73,8 @@ pub struct ShapeInstance {
     pub fill: Option<Fill>,
     /// Maps shape-local positions to the local gradient's paint coordinates.
     pub paint_transform: Transform3D<f32>,
+    /// Stroke configuration supplied with the draw command.
+    pub stroke: Option<StrokeOptions>,
 }
 
 impl ShapeInstance {
@@ -87,6 +89,7 @@ impl ShapeInstance {
             },
             fill: options.fill,
             paint_transform: Transform3D::identity(),
+            stroke: options.stroke,
         }
     }
 
@@ -603,7 +606,6 @@ pub struct ShapeDrawCommandOptions {
     /// `None` inherits the nearest group fill, or is transparent if no group supplies one.
     /// An explicit fill, including transparent, overrides the group and uses shape coordinates.
     pub fill: Option<Fill>,
-    /// Optional stroke configuration. Rendering currently ignores this setting.
     pub stroke: Option<StrokeOptions>,
 }
 
@@ -687,7 +689,6 @@ impl ShapeDrawCommandOptions {
         self
     }
 
-    /// Sets the stroke configuration. Rendering currently ignores this setting.
     pub fn stroke(mut self, stroke: StrokeOptions) -> Self {
         self.stroke = Some(stroke);
         self
