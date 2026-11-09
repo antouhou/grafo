@@ -13,6 +13,7 @@ use std::sync::Arc;
 mod rectangles;
 mod rounded_rect;
 mod sparse;
+mod strokes;
 
 #[derive(Default)]
 struct CoverageTestMesh {

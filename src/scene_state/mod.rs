@@ -308,11 +308,9 @@ impl SceneState {
 
     fn refresh_tessellation_cache(&mut self, node: &DrawTreeNode) {
         if let DrawTreeNode::CachedShape(shape) = node {
-            if let Some(geometry_id) = shape.instance.cached_shape.geometry_id {
-                self.shape_resources
-                    .tessellation_cache
-                    .refresh_tessellation(geometry_id, &shape.instance.cached_shape.tessellation);
-            }
+            self.shape_resources
+                .tessellation_cache
+                .refresh_shape(&shape.instance.cached_shape);
         }
     }
 

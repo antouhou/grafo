@@ -131,9 +131,9 @@ impl<B: RenderBackend> Scene<B> {
         ));
     }
 
-    /// Tessellates into the shared CPU cache. Geometry IDs let identical shapes share uploads.
-    /// Returns [`SceneError::Tessellation`] if the path could not be tessellated, leaving any
-    /// existing cache entry intact.
+    /// Tessellates the fill and optional stroke into the shared CPU cache.
+    /// Equal geometry IDs must identify identical fill and stroke geometry.
+    /// A tessellation error or invalid stroke geometry leaves any existing cache entry intact.
     pub fn load_shape(
         &mut self,
         shape: impl AsRef<Shape>,
@@ -170,6 +170,7 @@ impl<B: RenderBackend> Scene<B> {
     }
 
     /// Queues a shape without retaining it in the loaded-shape cache.
+    /// Equal geometry IDs must identify identical fill and stroke geometry.
     /// Children inherit clipping unless their parent uses `clips_children(false)`.
     pub fn add_shape(
         &mut self,
@@ -249,6 +250,7 @@ impl<B: RenderBackend> Scene<B> {
     }
 
     /// Replaces one command with a shape and returns its unchanged ID.
+    /// Equal geometry IDs must identify identical fill and stroke geometry.
     /// Parent, children and attached effects are preserved.
     /// Replacing a group moves its effects onto the shape. Descendants keep their own
     /// effects and those supplied by nested groups.

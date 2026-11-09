@@ -1,5 +1,5 @@
 use super::{Cache, CachedTessellation, FrameCache};
-use crate::core::vertex::CustomVertex;
+use crate::core::shape::CachedShapeHandle;
 use lyon::tessellation::VertexBuffers;
 use std::sync::{Arc, Mutex};
 
@@ -100,109 +100,63 @@ fn dropping_partial_eviction_keeps_live_entries_and_reuses_storage() {
 #[test]
 fn cache_returns_shared_arc_without_cloning_vertex_buffers() {
     let mut cache = Cache::new();
-    let mut vertex_buffers = VertexBuffers::<CustomVertex, u32>::new();
-    vertex_buffers.vertices.push(CustomVertex {
-        position: [0.0, 0.0],
-        tex_coords: [0.0, 0.0],
-    });
-    vertex_buffers.indices.push(0);
+    let shape = cached_shape();
+    cache.insert_shape(&shape);
 
-    let shared_vertex_buffers = Arc::new(vertex_buffers);
-    cache.insert_tessellation(
-        7,
-        Arc::new(CachedTessellation {
-            is_rect: false,
-            boundary_edges: Vec::new(),
-            rounded_rect_boundary: None,
-            vertex_buffers: shared_vertex_buffers.clone(),
-            local_bounds: [(0.0, 0.0), (1.0, 1.0)],
-            texture_mapping_size: [1.0, 1.0],
-        }),
-    );
-
-    let cached_tessellation = cache.get_tessellation(&7).unwrap();
-    assert!(Arc::ptr_eq(
-        &shared_vertex_buffers,
-        &cached_tessellation.vertex_buffers
-    ));
+    let cached = cache.get_shape(&7).unwrap();
+    assert!(Arc::ptr_eq(shape.vertex_buffers(), cached.vertex_buffers()));
 }
 
 #[test]
 fn cache_promotes_previous_frame_hits_into_current_frame() {
     let mut cache = Cache::new();
-    let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u32>::new());
-    cache.insert_tessellation(
-        7,
-        Arc::new(CachedTessellation {
-            is_rect: false,
-            boundary_edges: Vec::new(),
-            rounded_rect_boundary: None,
-            vertex_buffers: Arc::clone(&shared_vertex_buffers),
-            local_bounds: [(0.0, 0.0), (1.0, 1.0)],
-            texture_mapping_size: [1.0, 1.0],
-        }),
-    );
+    let shape = cached_shape();
+    cache.insert_shape(&shape);
 
     cache.end_frame();
 
-    let cached_tessellation = cache.get_tessellation(&7).unwrap();
-    assert!(Arc::ptr_eq(
-        &shared_vertex_buffers,
-        &cached_tessellation.vertex_buffers
-    ));
+    let cached = cache.get_shape(&7).unwrap();
+    assert!(Arc::ptr_eq(&shape.tessellation, &cached.tessellation));
 
     cache.end_frame();
 
-    let cached_tessellation = cache.get_tessellation(&7).unwrap();
-    assert!(Arc::ptr_eq(
-        &shared_vertex_buffers,
-        &cached_tessellation.vertex_buffers
-    ));
+    let cached = cache.get_shape(&7).unwrap();
+    assert!(Arc::ptr_eq(&shape.tessellation, &cached.tessellation));
 }
 
 #[test]
 fn cache_drops_entries_not_used_for_a_frame() {
     let mut cache = Cache::new();
-    let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u32>::new());
-    cache.insert_tessellation(
-        7,
-        Arc::new(CachedTessellation {
-            is_rect: false,
-            boundary_edges: Vec::new(),
-            rounded_rect_boundary: None,
-            vertex_buffers: shared_vertex_buffers,
-            local_bounds: [(0.0, 0.0), (1.0, 1.0)],
-            texture_mapping_size: [1.0, 1.0],
-        }),
-    );
+    cache.insert_shape(&cached_shape());
 
     cache.end_frame();
     cache.end_frame();
 
-    assert!(cache.get_tessellation(&7).is_none());
+    assert!(cache.get_shape(&7).is_none());
 }
 
 #[test]
 fn cache_refresh_keeps_rendered_geometry_available_next_frame() {
     let mut cache = Cache::new();
-    let shared_vertex_buffers = Arc::new(VertexBuffers::<CustomVertex, u32>::new());
+    let shape = cached_shape();
+    cache.refresh_shape(&shape);
+    cache.end_frame();
 
-    cache.refresh_tessellation(
-        7,
-        &Arc::new(CachedTessellation {
+    let cached = cache.get_shape(&7).unwrap();
+    assert!(Arc::ptr_eq(&shape.tessellation, &cached.tessellation));
+}
+
+fn cached_shape() -> CachedShapeHandle {
+    CachedShapeHandle {
+        tessellation: Arc::new(CachedTessellation {
             is_rect: false,
             boundary_edges: Vec::new(),
             rounded_rect_boundary: None,
-            vertex_buffers: shared_vertex_buffers.clone(),
+            vertex_buffers: Arc::new(VertexBuffers::new()),
             local_bounds: [(0.0, 0.0), (1.0, 1.0)],
             texture_mapping_size: [1.0, 1.0],
         }),
-    );
-    cache.end_frame();
-
-    let cached_tessellation = cache.get_tessellation(&7).unwrap();
-    assert!(Arc::ptr_eq(
-        &shared_vertex_buffers,
-        &cached_tessellation.vertex_buffers
-    ));
+        stroke_tessellation: None,
+        geometry_id: Some(7),
+    }
 }
