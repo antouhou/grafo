@@ -64,3 +64,31 @@ fn stroke_tessellation_preserves_bounds_for_wide_strokes() {
         assert_eq!(stroke.local_bounds, expected_bounds);
     }
 }
+
+#[test]
+fn thin_strokes_keep_round_caps() {
+    let shape = Shape::builder()
+        .begin((0.0, 0.0))
+        .line_to((10.0, 0.0))
+        .end()
+        .build()
+        .with_stroke(StrokeGeometryOptions::new(0.1).line_cap(LineCap::Round));
+    let cached_shape = CachedShapeHandle::new(&shape, &mut ShapeResources::new(), None).unwrap();
+    let stroke = cached_shape.stroke_tessellation.unwrap();
+
+    assert_eq!(stroke.local_bounds, [(-0.05, -0.05), (10.05, 0.05)]);
+}
+
+#[test]
+fn short_segments_keep_square_end_caps() {
+    let shape = Shape::builder()
+        .begin((0.0, 0.0))
+        .line_to((0.04, 0.0))
+        .end()
+        .build()
+        .with_stroke(StrokeGeometryOptions::new(1.0).end_cap(LineCap::Square));
+    let cached_shape = CachedShapeHandle::new(&shape, &mut ShapeResources::new(), None).unwrap();
+    let stroke = cached_shape.stroke_tessellation.unwrap();
+
+    assert_eq!(stroke.local_bounds, [(0.0, -0.5), (0.54, 0.5)]);
+}

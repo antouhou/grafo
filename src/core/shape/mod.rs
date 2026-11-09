@@ -10,13 +10,13 @@ use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
 use crate::core::Color;
 use lyon::geom::euclid::default::Transform3D;
 use lyon::path::{Builder, Path, PathEvent, Winding};
-pub use lyon::path::{FillRule, LineCap, LineJoin};
+pub use lyon::path::{FillRule, LineCap};
 use lyon::tessellation::{
     BuffersBuilder, FillOptions, FillVertex, FillVertexConstructor, TessellationError,
     VertexBuffers,
 };
 use std::sync::Arc;
-pub use stroke::StrokeGeometryError;
+pub use stroke::{LineJoin, StrokeGeometryError};
 use thiserror::Error;
 
 pub(crate) mod boundary;
@@ -568,8 +568,8 @@ pub struct StrokeGeometryOptions {
     pub end_cap: LineCap,
     /// Join between consecutive path segments.
     pub line_join: LineJoin,
-    /// Maximum miter length as a multiple of the stroke width. Applies to
-    /// [`LineJoin::Miter`] and [`LineJoin::MiterClip`]. Use a finite value of at least `1.0`.
+    /// Maximum miter length as a multiple of the stroke width. Must be finite and at least `1.0`.
+    /// Applies to [`LineJoin::Miter`].
     pub miter_limit: f32,
 }
 
