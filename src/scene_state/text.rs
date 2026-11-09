@@ -80,7 +80,6 @@ impl SceneState {
         };
         let shape = CachedShapeHandle::from_fill_events(
             events.iter().copied(),
-            &mut self.tessellator,
             &mut self.shape_resources,
             geometry_id,
         )?;

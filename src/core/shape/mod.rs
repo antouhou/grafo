@@ -12,8 +12,8 @@ use lyon::geom::euclid::default::Transform3D;
 use lyon::path::{Builder, Path, PathEvent, Winding};
 pub use lyon::path::{FillRule, LineCap, LineJoin};
 use lyon::tessellation::{
-    BuffersBuilder, FillOptions, FillTessellator, FillVertex, FillVertexConstructor,
-    TessellationError, VertexBuffers,
+    BuffersBuilder, FillOptions, FillVertex, FillVertexConstructor, TessellationError,
+    VertexBuffers,
 };
 use std::sync::Arc;
 pub use stroke::StrokeGeometryError;
@@ -46,7 +46,6 @@ impl CachedShapeHandle {
     /// Equal IDs must identify identical fill and stroke geometry.
     pub(crate) fn new(
         shape: &Shape,
-        tessellator: &mut FillTessellator,
         shape_resources: &mut ShapeResources,
         geometry_id: Option<u64>,
     ) -> Result<Self, ShapeTessellationError> {
@@ -57,7 +56,7 @@ impl CachedShapeHandle {
         }
 
         let cached_shape = Self {
-            tessellation: shape.tessellate_fill(tessellator, shape_resources)?,
+            tessellation: shape.tessellate_fill(shape_resources)?,
             stroke_tessellation: shape.tessellate_stroke(shape_resources)?,
             geometry_id,
         };
@@ -69,7 +68,6 @@ impl CachedShapeHandle {
 
     pub(crate) fn from_fill_events(
         events: impl IntoIterator<Item = PathEvent>,
-        tessellator: &mut FillTessellator,
         shape_resources: &mut ShapeResources,
         geometry_id: u64,
     ) -> Result<Self, TessellationError> {
@@ -82,7 +80,6 @@ impl CachedShapeHandle {
                 events,
                 FillRule::NonZero,
                 false,
-                tessellator,
                 shape_resources,
             )?,
             stroke_tessellation: None,
@@ -266,7 +263,6 @@ impl Shape {
 
     fn tessellate_fill(
         &self,
-        tessellator: &mut FillTessellator,
         shape_resources: &mut ShapeResources,
     ) -> Result<Arc<CachedTessellation>, TessellationError> {
         match &self.geometry {
@@ -274,7 +270,6 @@ impl Shape {
                 path_shape.path.iter(),
                 path_shape.fill_rule,
                 path_shape.is_rounded_rect,
-                tessellator,
                 shape_resources,
             ),
             ShapeGeometry::Rect(rect_shape) => {
@@ -449,12 +444,11 @@ impl PathShape {
         events: impl IntoIterator<Item = PathEvent>,
         fill_rule: FillRule,
         is_rounded_rect: bool,
-        tessellator: &mut FillTessellator,
         shape_resources: &mut ShapeResources,
     ) -> Result<Arc<CachedTessellation>, TessellationError> {
         let mut buffers = VertexBuffers::new();
         let options = FillOptions::default().with_fill_rule(fill_rule);
-        tessellator.tessellate(
+        shape_resources.fill_tessellator.tessellate(
             events,
             &options,
             &mut BuffersBuilder::new(&mut buffers, VertexConverter),
