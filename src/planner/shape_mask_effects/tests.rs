@@ -3,8 +3,7 @@ use crate::commands::{
     IntermediateTextureId, RenderOperation, ShapeDrawId, Target, TextureComposite, TexturePlacement,
 };
 use crate::core::effect::{ShapeMaskEffectBounds, ShapeMaskEffectConfig};
-use crate::core::shape::CachedShapeHandle;
-use crate::core::util::ShapeResources;
+use crate::core::shape::{CachedShapeHandle, ShapeResources};
 use crate::core::vertex::InstanceTransform;
 use crate::core::Viewport;
 use crate::planner::commands::TraversalCommands;

@@ -5,7 +5,6 @@
 use crate::core::cache::CachedTessellation;
 use crate::core::gradient::types::Fill;
 use crate::core::shape::boundary::RoundedRectBoundary;
-use crate::core::util::ShapeResources;
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
 use crate::core::Color;
 use lyon::geom::euclid::default::Transform3D;
@@ -15,11 +14,13 @@ use lyon::tessellation::{
     BuffersBuilder, FillOptions, FillVertex, FillVertexConstructor, TessellationError,
     VertexBuffers,
 };
+pub(crate) use resources::ShapeResources;
 use std::sync::Arc;
 pub use stroke::{LineJoin, StrokeGeometryError};
 use thiserror::Error;
 
 pub(crate) mod boundary;
+mod resources;
 mod stroke;
 
 #[derive(Debug, Error)]

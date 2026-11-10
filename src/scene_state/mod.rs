@@ -1,7 +1,6 @@
 //! CPU scene descriptions, tessellation caches and effect attachments.
 use crate::core::effect::ShapeMaskEffectBounds;
-use crate::core::shape::{CachedShapeHandle, Shape, ShapeInstance};
-use crate::core::util::ShapeResources;
+use crate::core::shape::{CachedShapeHandle, Shape, ShapeInstance, ShapeResources};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
 use crate::render_backend::texture_manager::{TextureUpdatePublisher, TextureUpdateSubscription};

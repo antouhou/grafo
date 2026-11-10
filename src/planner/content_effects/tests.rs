@@ -3,8 +3,7 @@ use crate::commands::{
     TextureComposite,
 };
 use crate::core::effect::{BackdropEffectConfig, ContentEffectConfig};
-use crate::core::shape::CachedShapeHandle;
-use crate::core::util::ShapeResources;
+use crate::core::shape::{CachedShapeHandle, ShapeResources};
 use crate::core::{UnsignedPhysicalRect, Viewport};
 use crate::planner::commands::TraversalCommands;
 use crate::planner::draws::{DrawPlanner, DrawPlanningInput};

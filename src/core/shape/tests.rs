@@ -1,5 +1,4 @@
-use super::{CachedShapeHandle, LineCap, Shape, StrokeGeometryOptions};
-use crate::core::util::ShapeResources;
+use super::{CachedShapeHandle, LineCap, Shape, ShapeResources, StrokeGeometryOptions};
 use std::sync::Arc;
 
 #[test]
@@ -66,7 +65,7 @@ fn stroke_tessellation_preserves_bounds_for_wide_strokes() {
 }
 
 #[test]
-fn thin_strokes_keep_round_caps() {
+fn thin_round_caps_extend_stroke_bounds() {
     let shape = Shape::builder()
         .begin((0.0, 0.0))
         .line_to((10.0, 0.0))
@@ -80,7 +79,7 @@ fn thin_strokes_keep_round_caps() {
 }
 
 #[test]
-fn short_segments_keep_square_end_caps() {
+fn short_segments_preserve_end_cap_extent() {
     let shape = Shape::builder()
         .begin((0.0, 0.0))
         .line_to((0.04, 0.0))

@@ -7,7 +7,7 @@ use crate::core::gradient::types::{
     ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset, LinearGradientDesc,
     LinearGradientLine,
 };
-use crate::core::util::ShapeResources;
+use crate::core::shape::ShapeResources;
 use crate::planner::draws::shape_material;
 use crate::scene_state::effects::parameters::{EffectParameterRange, EffectParametersHandle};
 use crate::scene_state::effects::{ContentEffectInstance, EffectInstance};

@@ -4,8 +4,7 @@ use crate::commands::{
     TextureComposite, TexturePlacement,
 };
 use crate::core::effect::BackdropEffectConfig;
-use crate::core::shape::CachedShapeHandle;
-use crate::core::util::ShapeResources;
+use crate::core::shape::{CachedShapeHandle, ShapeResources};
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
 use crate::core::Viewport;
 use crate::planner::commands::TraversalCommands;

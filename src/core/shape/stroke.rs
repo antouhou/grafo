@@ -1,8 +1,8 @@
 use super::{
-    finalize_path_tessellation, Shape, ShapeGeometry, ShapeTessellationError, StrokeGeometryOptions,
+    finalize_path_tessellation, Shape, ShapeGeometry, ShapeResources, ShapeTessellationError,
+    StrokeGeometryOptions,
 };
 use crate::core::cache::CachedTessellation;
-use crate::core::util::ShapeResources;
 use crate::core::vertex::CustomVertex;
 use lyon::math::{point, Box2D, Point};
 use lyon::path::{LineCap, LineJoin as LyonLineJoin, PathEvent, Polygon};
