@@ -56,7 +56,7 @@ impl CachedShapeDrawData {
         }
     }
 
-    pub(crate) fn has_geometry(&self) -> bool {
+    pub(crate) fn has_fill_geometry(&self) -> bool {
         let geometry = self.instance.cached_shape.fill_vertex_buffers();
         !geometry.vertices.is_empty() && !geometry.indices.is_empty()
     }
@@ -156,7 +156,9 @@ impl DrawTreeNode {
         self.clips_children()
             && match self {
                 Self::Group(_) => false,
-                Self::CachedShape(shape) => shape.has_geometry() || self.is_axis_aligned_rect(),
+                Self::CachedShape(shape) => {
+                    shape.has_fill_geometry() || self.is_axis_aligned_rect()
+                }
                 Self::ClipRect(_) => true,
             }
     }

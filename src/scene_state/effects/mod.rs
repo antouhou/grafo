@@ -77,7 +77,9 @@ impl ContentEffectInstance {
         maximum_texture_dimension: u32,
     ) -> Self {
         let shape_mask_effect_bounds = shape_mask_effect
-            .filter(|_| matches!(node, DrawTreeNode::CachedShape(shape) if shape.has_geometry()))
+            .filter(
+                |_| matches!(node, DrawTreeNode::CachedShape(shape) if shape.has_fill_geometry()),
+            )
             .map(|effect| effect.bounds);
         Self {
             effect_id: effect.effect_id,
