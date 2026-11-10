@@ -1,11 +1,12 @@
-use super::scanline::{ClippedScanEdge, CoverageSum, ScanEdge, Scanline};
+use super::scanline::{ClippedScanEdge, ScanEdge, Scanline};
 use super::tiles::{tile_aligned_columns, TILE_SIZE};
+use crate::core::math::CompensatedSum;
 use crate::core::shape::boundary::PathBoundaryEdge;
 use std::ops::Range;
 
 #[derive(Default)]
 struct ActiveAreaSum {
-    signed_area: CoverageSum,
+    signed_area: CompensatedSum,
     contribution_count: usize,
 }
 
@@ -17,7 +18,7 @@ impl ActiveAreaSum {
         } else {
             self.contribution_count -= 1;
             if self.contribution_count == 0 {
-                self.signed_area = CoverageSum::default();
+                self.signed_area = CompensatedSum::default();
             } else {
                 self.signed_area.add(-signed_area);
             }

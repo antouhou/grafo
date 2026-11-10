@@ -1,4 +1,5 @@
 use super::tiles::TILE_SIZE;
+use crate::core::math::CompensatedSum;
 use std::ops::Range;
 
 const MINIMUM_COLUMNS_FOR_SLOPE_EVENTS: u32 = 16;
@@ -23,31 +24,6 @@ fn fill_coverage_from_column_deltas(
         *coverage = clamp_coverage(area);
     }
     area
-}
-
-/// Retains the low bits when signed contributions nearly cancel.
-#[derive(Clone, Copy, Default)]
-pub(super) struct CoverageSum {
-    sum: f64,
-    error: f64,
-}
-
-impl CoverageSum {
-    pub(super) fn add(&mut self, value: f64) {
-        let sum = self.sum + value;
-        let rounded_value = sum - self.sum;
-        self.error += (self.sum - (sum - rounded_value)) + (value - rounded_value);
-        self.sum = sum;
-    }
-
-    fn add_sum(&mut self, other: Self) {
-        self.add(other.sum);
-        self.add(other.error);
-    }
-
-    pub(super) fn total(&self) -> f64 {
-        self.sum + self.error
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -123,10 +99,10 @@ impl ScanEdge {
 
 #[derive(Default)]
 struct ScanlineSlopeChanges {
-    slope_changes: Vec<CoverageSum>,
+    slope_changes: Vec<CompensatedSum>,
     // A bit per column marks the slope changes to read in each tile.
     slope_event_masks: Vec<u8>,
-    slope: CoverageSum,
+    slope: CompensatedSum,
     has_slope_events: bool,
 }
 
@@ -134,7 +110,7 @@ impl ScanlineSlopeChanges {
     fn prepare(&mut self, left: u32, right: u32, intervals: &[Range<u32>]) {
         let width = (right - left) as usize;
         if self.slope_changes.len() < width {
-            self.slope_changes.resize(width, CoverageSum::default());
+            self.slope_changes.resize(width, CompensatedSum::default());
         }
         let tile_count = width.div_ceil(TILE_SIZE as usize);
         if self.slope_event_masks.len() < tile_count {
@@ -145,7 +121,7 @@ impl ScanlineSlopeChanges {
             let end = ((interval.end - left) as usize).div_ceil(TILE_SIZE as usize);
             self.slope_event_masks[first..end].fill(0);
         }
-        self.slope = CoverageSum::default();
+        self.slope = CompensatedSum::default();
         self.has_slope_events = true;
     }
 
@@ -155,7 +131,7 @@ impl ScanlineSlopeChanges {
         let change = &mut self.slope_changes[offset];
         if *tile & mask == 0 {
             *tile |= mask;
-            *change = CoverageSum::default();
+            *change = CompensatedSum::default();
         }
         change.add(slope);
     }
