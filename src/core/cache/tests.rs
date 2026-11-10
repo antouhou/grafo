@@ -11,6 +11,21 @@ impl Drop for DropCounter {
     }
 }
 
+fn cached_shape() -> CachedShapeHandle {
+    CachedShapeHandle {
+        fill_tessellation: Arc::new(CachedTessellation {
+            is_rect: false,
+            boundary_edges: Vec::new(),
+            rounded_rect_boundary: None,
+            vertex_buffers: Arc::new(VertexBuffers::new()),
+            local_bounds: [(0.0, 0.0), (1.0, 1.0)],
+            texture_mapping_size: [1.0, 1.0],
+        }),
+        stroke_tessellation: None,
+        geometry_id: Some(7),
+    }
+}
+
 #[test]
 fn frame_cache_promotes_live_values_and_collects_unreferenced_values() {
     let drops = Arc::new(Mutex::new(0));
@@ -156,19 +171,4 @@ fn cache_refresh_keeps_rendered_geometry_available_next_frame() {
         &shape.fill_tessellation,
         &cached.fill_tessellation
     ));
-}
-
-fn cached_shape() -> CachedShapeHandle {
-    CachedShapeHandle {
-        fill_tessellation: Arc::new(CachedTessellation {
-            is_rect: false,
-            boundary_edges: Vec::new(),
-            rounded_rect_boundary: None,
-            vertex_buffers: Arc::new(VertexBuffers::new()),
-            local_bounds: [(0.0, 0.0), (1.0, 1.0)],
-            texture_mapping_size: [1.0, 1.0],
-        }),
-        stroke_tessellation: None,
-        geometry_id: Some(7),
-    }
 }

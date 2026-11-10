@@ -183,6 +183,37 @@ fn compute_vertex_bounds(vertices: &[CustomVertex]) -> [(f32, f32); 2] {
     [(min_x, min_y), (max_x, max_y)]
 }
 
+fn finalize_path_tessellation(
+    mut buffers: VertexBuffers<CustomVertex, u32>,
+    is_rounded_rect: bool,
+    shape_resources: &mut ShapeResources,
+) -> Arc<CachedTessellation> {
+    let local_bounds = compute_vertex_bounds(&buffers.vertices);
+    let texture_mapping_size = rect_size(local_bounds);
+    for vertex in &mut buffers.vertices {
+        vertex.tex_coords = [
+            (vertex.position[0] - local_bounds[0].0) / texture_mapping_size[0],
+            (vertex.position[1] - local_bounds[0].1) / texture_mapping_size[1],
+        ];
+    }
+
+    let mut boundary_edges: Vec<_> = shape_resources
+        .path_boundary_builder
+        .build(&buffers.vertices, &buffers.indices, |position| position)
+        .collect();
+    let rounded_rect_boundary = is_rounded_rect
+        .then(|| RoundedRectBoundary::new(&mut boundary_edges))
+        .flatten();
+    Arc::new(CachedTessellation {
+        is_rect: false,
+        boundary_edges,
+        rounded_rect_boundary,
+        vertex_buffers: Arc::new(buffers),
+        local_bounds,
+        texture_mapping_size,
+    })
+}
+
 #[derive(Debug, Clone)]
 enum ShapeGeometry {
     Path(PathShape),
@@ -391,37 +422,6 @@ impl FillVertexConstructor<CustomVertex> for FillVertexConverter {
             tex_coords: [0.0, 0.0],
         }
     }
-}
-
-fn finalize_path_tessellation(
-    mut buffers: VertexBuffers<CustomVertex, u32>,
-    is_rounded_rect: bool,
-    shape_resources: &mut ShapeResources,
-) -> Arc<CachedTessellation> {
-    let local_bounds = compute_vertex_bounds(&buffers.vertices);
-    let texture_mapping_size = rect_size(local_bounds);
-    for vertex in &mut buffers.vertices {
-        vertex.tex_coords = [
-            (vertex.position[0] - local_bounds[0].0) / texture_mapping_size[0],
-            (vertex.position[1] - local_bounds[0].1) / texture_mapping_size[1],
-        ];
-    }
-
-    let mut boundary_edges: Vec<_> = shape_resources
-        .path_boundary_builder
-        .build(&buffers.vertices, &buffers.indices, |position| position)
-        .collect();
-    let rounded_rect_boundary = is_rounded_rect
-        .then(|| RoundedRectBoundary::new(&mut boundary_edges))
-        .flatten();
-    Arc::new(CachedTessellation {
-        is_rect: false,
-        boundary_edges,
-        rounded_rect_boundary,
-        vertex_buffers: Arc::new(buffers),
-        local_bounds,
-        texture_mapping_size,
-    })
 }
 
 impl PathShape {

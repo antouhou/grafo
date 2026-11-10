@@ -131,9 +131,17 @@ impl<B: RenderBackend> Scene<B> {
         ));
     }
 
-    /// Tessellates the fill and optional stroke into the shared CPU cache.
-    /// Equal geometry IDs must identify identical fill and stroke geometry.
-    /// A tessellation error or invalid stroke geometry leaves any existing cache entry intact.
+    /// Tessellates the fill and optional stroke and stores the shape under `cache_key`
+    /// in the shared [`SceneContext`]. A successful load replaces any entry with that key.
+    ///
+    /// An optional `geometry_id` enables tessellation reuse within the scene. Equal IDs
+    /// must identify identical fill and stroke geometry.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SceneError::Tessellation`] for a tessellation failure or
+    /// [`SceneError::InvalidStrokeGeometry`] for invalid stroke geometry.
+    /// Both errors preserve any existing entry under `cache_key`.
     pub fn load_shape(
         &mut self,
         shape: impl AsRef<Shape>,
