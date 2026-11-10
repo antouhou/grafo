@@ -104,7 +104,7 @@ fn rectangle_tiles_match_pixel_overlap_and_general_coverage() {
             rounded_rect_boundary: None,
             vertex_buffers: Arc::clone(cached.fill_vertex_buffers()),
             local_bounds: bounds,
-            texture_mapping_size: cached.texture_mapping_size(),
+            texture_mapping_size: cached.fill_texture_mapping_size(),
         };
         // Append several draws before clearing to exercise shared sample offsets.
         if index % 7 == 0 {

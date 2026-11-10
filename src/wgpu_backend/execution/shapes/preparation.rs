@@ -192,7 +192,7 @@ impl ShapeExecutionResources {
             return;
         };
         let [background, foreground] = compute_texture_uv_transforms(
-            shape.cached_shape.texture_mapping_size(),
+            shape.cached_shape.fill_texture_mapping_size(),
             shape,
             texture_manager,
             scale_factor,
@@ -254,7 +254,7 @@ impl ShapeExecutionResources {
         };
         if let Some(geometry_range) = geometry_range {
             let texture_uv_transforms = compute_texture_uv_transforms(
-                cached_shape_data.cached_shape.texture_mapping_size(),
+                cached_shape_data.cached_shape.fill_texture_mapping_size(),
                 cached_shape_data,
                 &pipelines.texture_manager,
                 scale_factor,

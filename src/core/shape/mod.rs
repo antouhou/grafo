@@ -102,7 +102,7 @@ impl CachedShapeHandle {
     }
 
     #[inline]
-    pub fn texture_mapping_size(&self) -> [f32; 2] {
+    pub fn fill_texture_mapping_size(&self) -> [f32; 2] {
         self.fill_tessellation.texture_mapping_size
     }
 }
