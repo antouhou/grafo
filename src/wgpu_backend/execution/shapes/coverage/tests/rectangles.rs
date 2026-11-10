@@ -2,13 +2,11 @@ use super::{coverage_at, triangle_pixel_area, CoverageTestMesh};
 use crate::core::cache::CachedTessellation;
 use crate::core::{geometry, MathRect, Shape, TransformInstance, Viewport};
 use crate::scene_state::{SceneState, SceneStateContext};
-use crate::wgpu_backend::execution::shapes::coverage::geometry::{
-    CoverageBuilder, SOLID_COVERAGE, TILE_SIZE,
-};
+use crate::wgpu_backend::execution::shapes::coverage::geometry::{CoverageBuilder, SOLID_COVERAGE};
 use crate::wgpu_backend::execution::shapes::coverage::placement::CoveragePlacement;
 use crate::wgpu_backend::execution::shapes::coverage::projection::Projection;
 use crate::wgpu_backend::execution::shapes::coverage::tiles::{
-    CoverageDrawMetadata, CoverageGeometry,
+    CoverageDrawMetadata, CoverageGeometry, TILE_SIZE,
 };
 use std::sync::Arc;
 

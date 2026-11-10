@@ -1,6 +1,8 @@
-use super::geometry::{SOLID_COVERAGE, TILE_SIZE};
+use super::geometry::SOLID_COVERAGE;
 use super::projection::Projection;
-use super::tiles::{CoverageDrawMetadata, CoverageDrawRange, CoverageGeometry, CoverageTile};
+use super::tiles::{
+    CoverageDrawMetadata, CoverageDrawRange, CoverageGeometry, CoverageTile, TILE_SIZE,
+};
 use crate::core::UnsignedPhysicalRect;
 
 #[derive(Clone, Copy, Default)]

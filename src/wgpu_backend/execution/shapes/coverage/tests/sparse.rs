@@ -1,5 +1,5 @@
 use super::{coverage_at, triangle_pixel_area, CoverageTestMesh};
-use crate::core::{BorderRadii, Shape, Viewport};
+use crate::core::{BorderRadii, Shape, TransformInstance, Viewport};
 use crate::scene_state::{SceneState, SceneStateContext};
 
 #[test]
@@ -99,6 +99,131 @@ fn sparse_sweeps_preserve_empty_regions_and_reused_storage() {
                     }
                 }
             }
+        }
+    }
+}
+
+#[test]
+fn repeated_vertical_rows_share_samples_across_bands() {
+    let size = (8, 160);
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
+        Viewport {
+            physical_size: size,
+            scale_factor: 1.0,
+        },
+    );
+    let shape = Shape::builder()
+        .begin((-1.0, -3.5))
+        .line_to((0.25, -3.5))
+        .line_to((0.25, 71.25))
+        .line_to((-1.0, 71.25))
+        .close()
+        .begin((0.5, 9.75))
+        .line_to((1.25, 9.75))
+        .line_to((1.25, 59.5))
+        .line_to((0.5, 59.5))
+        .close()
+        .begin((0.5, 97.25))
+        .line_to((1.25, 97.25))
+        .line_to((1.25, 99.75))
+        .line_to((0.5, 99.75))
+        .close()
+        .begin((0.125, 128.5))
+        .line_to((0.375, 128.5))
+        .line_to((0.375, 176.0))
+        .line_to((0.125, 176.0))
+        .close()
+        .build();
+    let cached = scene.tessellate(&shape, None).unwrap();
+    let mut mesh = CoverageTestMesh::default();
+    for height in [160, 31, 160] {
+        mesh.build(&cached.tessellation, None, 1.0, (size.0, height));
+        for y in 0..height {
+            let first = match y {
+                0..=70 => 0.25,
+                71 => 0.0625,
+                _ => 0.0,
+            };
+            let second = match y {
+                9 => 0.25,
+                10..=58 => 1.0,
+                59 => 0.5,
+                _ => 0.0,
+            };
+            let third = match y {
+                128 => 0.125,
+                129.. => 0.25,
+                _ => 0.0,
+            };
+            let short = match y {
+                97 | 99 => 0.75,
+                98 => 1.0,
+                _ => 0.0,
+            };
+            assert_eq!(
+                coverage_at(&mesh, 0, y),
+                first + (second + short) * 0.5 + third
+            );
+            assert_eq!(coverage_at(&mesh, 1, y), (second + short) * 0.25);
+        }
+        if height == size.1 {
+            assert_eq!(mesh.tiles.len(), 14);
+            assert!(mesh.coverage.len() < 8 * 80);
+        }
+    }
+}
+
+#[test]
+fn shallow_contours_preserve_coverage_at_clipped_range_ends() {
+    let mut builder = Shape::builder();
+    for index in 0..128 {
+        let y = 4.0 * index as f32;
+        builder = builder
+            .begin((-0.25, y))
+            .line_to((153.75, y + 1.0))
+            .line_to((153.75, y + 3.0))
+            .line_to((-0.25, y + 2.0))
+            .close();
+    }
+    let shape = builder
+        .begin((177.125, 0.0))
+        .line_to((185.75, 0.0))
+        .line_to((185.75, 1024.0))
+        .line_to((177.125, 1024.0))
+        .close()
+        .build();
+    let size = (192, 8);
+    let mut scene = SceneState::new(
+        SceneStateContext::default(),
+        Viewport {
+            physical_size: size,
+            scale_factor: 1.0,
+        },
+    );
+    let cached = scene.tessellate(&shape, None).unwrap();
+    let mut mesh = CoverageTestMesh::default();
+    for width in [192, 64, 0, 192] {
+        mesh.build(
+            &cached.tessellation,
+            Some(TransformInstance::scale(1.0, 1.0 / 1024.0)),
+            1.0,
+            (width, size.1),
+        );
+        if width == 0 {
+            assert!(mesh.tiles.is_empty());
+        }
+        for x in 0..width {
+            let expected = match x {
+                0..=152 => 0.25,
+                153 => 0.1875,
+                177 => 0.875,
+                178..=184 => 1.0,
+                185 => 0.75,
+                _ => 0.0,
+            };
+            assert_eq!(coverage_at(&mesh, x, 0), expected, "column {x}");
+            assert_eq!(coverage_at(&mesh, x, 1), 0.0, "column {x}");
         }
     }
 }

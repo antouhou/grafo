@@ -1,6 +1,24 @@
 use crate::core::UnsignedPhysicalRect;
 use bytemuck::{Pod, Zeroable};
 use std::mem;
+use std::ops::Range;
+
+pub(super) const TILE_SIZE: u32 = 8;
+
+pub(super) fn tile_interval(
+    minimum: f32,
+    maximum: f32,
+    left: u32,
+    right: u32,
+) -> Option<Range<u32>> {
+    if maximum <= left as f32 || minimum >= right as f32 {
+        return None;
+    }
+    let first = (minimum.max(left as f32) as u32 - left) / TILE_SIZE * TILE_SIZE;
+    // Include the change after the last crossed pixel.
+    let last = (maximum.ceil().min(right as f32) as u32 - left) / TILE_SIZE * TILE_SIZE;
+    Some(left + first..left + last.saturating_add(TILE_SIZE).min(right - left))
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]

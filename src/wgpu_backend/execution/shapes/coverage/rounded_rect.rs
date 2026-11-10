@@ -1,62 +1,26 @@
-use super::geometry::TILE_SIZE;
 use super::projection::Projection;
-use super::scanline::{RowEdge, Scanline};
+use super::scanline::{RowEdge, ScanEdge, Scanline};
+use super::tiles::tile_interval;
 use crate::core::cache::CachedTessellation;
 use crate::core::shape::boundary::PathBoundaryEdge;
 use std::ops::Range;
 
-struct ChainEdge {
-    start: [f32; 2],
-    top: f32,
-    bottom: f32,
-    slope: f64,
-    winding: f64,
-}
-
-impl ChainEdge {
-    fn new(edge: &PathBoundaryEdge, projection: &Projection) -> Option<Self> {
-        let start = projection.project(edge.start);
-        let end = projection.project(edge.end);
-        let height = end[1] - start[1];
-        if height == 0.0 {
-            return None;
-        }
-        Some(Self {
-            start,
-            top: start[1].min(end[1]),
-            bottom: start[1].max(end[1]),
-            slope: (end[0] as f64 - start[0] as f64) / height as f64,
-            winding: (edge.winding * projection.boundary_orientation?) as f64
-                * (height as f64).signum(),
-        })
-    }
-
-    fn clip(&self, top: f32, bottom: f32) -> RowEdge {
-        let low = self.top.max(top) as f64;
-        let high = self.bottom.min(bottom) as f64;
-        let x = |y| (self.start[0] as f64 + (y - self.start[1] as f64) * self.slope) as f32;
-        RowEdge {
-            x0: x(low),
-            x1: x(high),
-            signed_winding_height: (high - low) * self.winding,
-        }
-    }
-}
-
 #[derive(Default)]
 struct BoundaryChain {
-    edges: Vec<ChainEdge>,
+    edges: Vec<ScanEdge>,
     cursor: usize,
 }
 
 impl BoundaryChain {
     fn prepare(&mut self, edges: &[PathBoundaryEdge], projection: &Projection) {
         self.edges.clear();
-        self.edges.extend(
-            edges
-                .iter()
-                .filter_map(|edge| ChainEdge::new(edge, projection)),
-        );
+        self.edges.extend(edges.iter().filter_map(|edge| {
+            ScanEdge::new(
+                projection.project(edge.start),
+                projection.project(edge.end),
+                edge.winding * projection.boundary_orientation?,
+            )
+        }));
         if let (Some(first), Some(last)) = (self.edges.first(), self.edges.last()) {
             if first.top > last.top {
                 self.edges.reverse();
@@ -71,7 +35,7 @@ impl BoundaryChain {
         }
     }
 
-    fn intersecting(&self, bottom: f32) -> impl Iterator<Item = &ChainEdge> {
+    fn intersecting(&self, bottom: f32) -> impl Iterator<Item = &ScanEdge> {
         self.edges[self.cursor..]
             .iter()
             .take_while(move |edge| edge.top < bottom)
@@ -84,15 +48,10 @@ impl BoundaryChain {
         let mut maximum = f32::NEG_INFINITY;
         for edge in self.intersecting(bottom as f32) {
             let row = edge.clip(top as f32, bottom as f32);
-            minimum = minimum.min(row.x0).min(row.x1);
-            maximum = maximum.max(row.x0).max(row.x1);
+            minimum = minimum.min(row.minimum);
+            maximum = maximum.max(row.maximum);
         }
-        if maximum <= left as f32 || minimum >= right as f32 {
-            return None;
-        }
-        let first = (minimum.max(left as f32) as u32 - left) / TILE_SIZE;
-        let last = (maximum.ceil().min(right as f32) as u32 - left) / TILE_SIZE;
-        Some(left + first * TILE_SIZE..(left + (last + 1) * TILE_SIZE).min(right))
+        tile_interval(minimum, maximum, left, right)
     }
 
     fn row(&mut self, top: u32) -> impl Iterator<Item = RowEdge> + '_ {
@@ -104,7 +63,7 @@ impl BoundaryChain {
 
     fn is_vertical_through(&self, top: u32, bottom: u32) -> bool {
         self.edges.get(self.cursor).is_some_and(|edge| {
-            edge.slope == 0.0 && edge.top <= top as f32 && edge.bottom >= bottom as f32
+            edge.is_vertical() && edge.top <= top as f32 && edge.bottom >= bottom as f32
         })
     }
 }

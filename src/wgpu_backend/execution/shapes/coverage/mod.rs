@@ -18,6 +18,7 @@ use wgpu::{
 
 mod cache;
 mod geometry;
+mod path_sweep;
 mod placement;
 mod projection;
 mod rectangles;
