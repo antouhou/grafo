@@ -271,6 +271,26 @@ impl Scanline {
         }
     }
 
+    #[inline]
+    fn add_boundary_changes(
+        &mut self,
+        edge: RowEdge,
+        inverse_width: f64,
+        columns: Range<u32>,
+        mut previous: f64,
+    ) -> f64 {
+        let first = (columns.start - self.left) as usize;
+        let end = (columns.end - self.left) as usize;
+        let mut pixel = columns.start as f64;
+        for change in &mut self.changes[first..end] {
+            let next = edge.coverage(pixel, inverse_width);
+            *change += next - previous;
+            previous = next;
+            pixel += 1.0;
+        }
+        previous
+    }
+
     fn add_crossed_columns(
         &mut self,
         edge: RowEdge,
@@ -314,26 +334,6 @@ impl Scanline {
             last_full_column + 1..columns.end,
             trailing,
         )
-    }
-
-    #[inline]
-    fn add_boundary_changes(
-        &mut self,
-        edge: RowEdge,
-        inverse_width: f64,
-        columns: Range<u32>,
-        mut previous: f64,
-    ) -> f64 {
-        let first = (columns.start - self.left) as usize;
-        let end = (columns.end - self.left) as usize;
-        let mut pixel = columns.start as f64;
-        for change in &mut self.changes[first..end] {
-            let next = edge.coverage(pixel, inverse_width);
-            *change += next - previous;
-            previous = next;
-            pixel += 1.0;
-        }
-        previous
     }
 
     pub(super) fn add_vertical_changes(

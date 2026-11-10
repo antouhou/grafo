@@ -320,14 +320,15 @@ impl PathSweep {
         };
         for edges in self.short_edges.rows_in(top..bottom) {
             for edge in edges {
-                if let Some(interval) = tile_interval(edge.minimum, edge.maximum, left, right) {
-                    if interval == (left..right) {
-                        intervals.clear();
-                        intervals.push(interval);
-                        return;
-                    }
+                let Some(interval) = tile_interval(edge.minimum, edge.maximum, left, right) else {
+                    continue;
+                };
+                if interval == (left..right) {
+                    intervals.clear();
                     intervals.push(interval);
+                    return;
                 }
+                intervals.push(interval);
             }
         }
         intervals.extend(self.vertical.active_columns.iter().map(|&offset| {
