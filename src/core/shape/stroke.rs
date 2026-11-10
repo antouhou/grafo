@@ -41,13 +41,13 @@ impl StrokeGeometryOptions {
         if !self.width.is_finite() || self.width < 0.0 {
             return Err(StrokeGeometryError::InvalidWidth);
         }
+        if !self.miter_limit.is_finite() || self.miter_limit < StrokeOptions::MINIMUM_MITER_LIMIT {
+            return Err(StrokeGeometryError::InvalidMiterLimit);
+        }
+
         let radius = self.width * 0.5;
         if radius == 0.0 {
             return Ok(None);
-        }
-
-        if !self.miter_limit.is_finite() || self.miter_limit < StrokeOptions::MINIMUM_MITER_LIMIT {
-            return Err(StrokeGeometryError::InvalidMiterLimit);
         }
 
         let line_join = match self.line_join {

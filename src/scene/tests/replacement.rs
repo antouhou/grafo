@@ -92,18 +92,28 @@ fn invalid_stroke_preserves_both_loaded_meshes() {
     scene.load_shape(&stroked, 1, Some(1)).unwrap();
     let original = scene.state.loaded_shape(1).unwrap();
 
-    for line_join in [LineJoin::Miter, LineJoin::Bevel, LineJoin::Round] {
+    for (width, line_join, miter_limit) in [
+        (2.0, LineJoin::Miter, 0.5),
+        (2.0, LineJoin::Bevel, 0.5),
+        (2.0, LineJoin::Round, 0.5),
+        (0.0, LineJoin::Miter, 0.5),
+        (0.0, LineJoin::Miter, f32::NAN),
+    ] {
         let invalid_stroke = rectangle.clone().with_stroke(
-            StrokeGeometryOptions::new(2.0)
+            StrokeGeometryOptions::new(width)
                 .line_join(line_join)
-                .miter_limit(0.5),
+                .miter_limit(miter_limit),
         );
-        assert!(matches!(
-            scene.load_shape(invalid_stroke, 1, Some(2)),
-            Err(SceneError::InvalidStrokeGeometry(
-                StrokeGeometryError::InvalidMiterLimit
-            ))
-        ));
+        let result = scene.load_shape(invalid_stroke, 1, Some(2));
+        assert!(
+            matches!(
+                result,
+                Err(SceneError::InvalidStrokeGeometry(
+                    StrokeGeometryError::InvalidMiterLimit
+                ))
+            ),
+            "unexpected result {result:?} for width {width}, {line_join:?} join, and miter limit {miter_limit}"
+        );
     }
     let overflowing = Shape::builder()
         .begin((0.0, 0.0))
