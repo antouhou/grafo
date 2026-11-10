@@ -327,7 +327,7 @@ impl SceneState {
         let shape = self.shape(node_id)?;
         validate_shape_mask_effect_config(&config)?;
         let bounds = ShapeMaskEffectBounds::new(
-            shape.cached_shape.fill_tessellation.local_bounds,
+            shape.cached_shape.fill_local_bounds(),
             config,
             shape.transform,
             self.viewport.scale_factor,
@@ -365,7 +365,7 @@ impl SceneState {
                 return Err(SceneError::UnsupportedNodeOperation(node_id, "effects"));
             };
             effect.bounds = ShapeMaskEffectBounds::new(
-                shape.instance.cached_shape.fill_tessellation.local_bounds,
+                shape.instance.cached_shape.fill_local_bounds(),
                 effect.config,
                 shape.instance.transform,
                 scale_factor,
