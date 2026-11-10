@@ -3,8 +3,7 @@ use crate::commands::{
     IntermediateTextureId, RenderOperation, ShapeDrawId, Target, TextureComposite, TexturePlacement,
 };
 use crate::core::effect::{ShapeMaskEffectBounds, ShapeMaskEffectConfig};
-use crate::core::shape::CachedShapeHandle;
-use crate::core::util::ShapeResources;
+use crate::core::shape::{CachedShapeHandle, ShapeResources};
 use crate::core::vertex::InstanceTransform;
 use crate::core::Viewport;
 use crate::planner::commands::TraversalCommands;
@@ -18,7 +17,6 @@ use crate::scene_state::types::DrawTreeNode;
 use crate::{Shape, ShapeDrawCommandOptions, Size};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
-use lyon::tessellation::FillTessellator;
 use std::mem;
 
 #[derive(Default)]
@@ -74,7 +72,6 @@ fn scene_with_effects(
     let mut resources = ShapeResources::new();
     let handle = CachedShapeHandle::new(
         &Shape::rect([(0.0, 0.0), (20.0, 10.0)]),
-        &mut FillTessellator::new(),
         &mut resources,
         Some(17),
     )
@@ -93,7 +90,7 @@ fn scene_with_effects(
                 parameters: parameters.store(&[node as u8, 2, 3, 4]),
                 config,
                 bounds: ShapeMaskEffectBounds::new(
-                    handle.tessellation.local_bounds,
+                    handle.fill_tessellation.local_bounds,
                     config,
                     Some(transform),
                     scale,
@@ -179,17 +176,17 @@ fn empty_or_oversized_masks_never_produce_texture_references() {
     let mut parameters = EffectParameterStorage::default();
     let mut plan = MaskCommands::new();
     let (mut tree, mut effects) = scene_with_effects(&mut parameters, 1.0);
-    let empty_shape = CachedShapeHandle::new(
-        &Shape::builder().build(),
-        &mut FillTessellator::new(),
-        &mut ShapeResources::new(),
+    let empty_shape =
+        CachedShapeHandle::new(&Shape::builder().build(), &mut ShapeResources::new(), None)
+            .unwrap();
+    let config = ShapeMaskEffectConfig::default();
+    let bounds = ShapeMaskEffectBounds::new(
+        empty_shape.fill_tessellation.local_bounds,
+        config,
         None,
+        1.0,
     )
     .unwrap();
-    let config = ShapeMaskEffectConfig::default();
-    let bounds =
-        ShapeMaskEffectBounds::new(empty_shape.tessellation.local_bounds, config, None, 1.0)
-            .unwrap();
     let empty = tree.add_node(DrawTreeNode::CachedShape(CachedShapeDrawData::new(
         empty_shape,
         ShapeDrawCommandOptions::new(),

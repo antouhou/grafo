@@ -4,13 +4,15 @@ use super::{
 };
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
-    BackdropCaptureArea, BackdropEffectConfig, ContentEffectConfig, Shape, ShapeDrawCommandOptions,
-    ShapeMaskEffectConfig, UnsignedPhysicalRect,
+    BackdropCaptureArea, BackdropEffectConfig, ContentEffectConfig, LineJoin, Shape,
+    ShapeDrawCommandOptions, ShapeMaskEffectConfig, StrokeGeometryError, StrokeGeometryOptions,
+    UnsignedPhysicalRect,
 };
 use crate::scene_state::effects::EffectConfig;
 use crate::scene_state::types::DrawTreeNode;
 use crate::scene_state::SceneError;
 use lyon::tessellation::{TessellationError, UnsupportedParamater};
+use std::sync::Arc;
 
 fn shape(scene: &mut Scene<TestBackend>, bounds: [(f32, f32); 2], parent: usize) -> usize {
     scene
@@ -69,10 +71,89 @@ fn tessellation_error_preserves_the_loaded_shape_and_queued_draw() {
         Err(DrawCommandError::Scene(SceneError::Tessellation(error))) if error == expected_error
     ));
     assert_eq!(
-        scene.state.shape(node).unwrap().cached_shape.local_bounds(),
+        scene
+            .state
+            .shape(node)
+            .unwrap()
+            .cached_shape
+            .fill_local_bounds(),
         bounds
     );
     assert_eq!(scene.backend.registered_shapes, [node]);
+}
+
+#[test]
+fn invalid_stroke_preserves_both_loaded_meshes() {
+    let mut scene = scene();
+    let rectangle = Shape::rect([(0.0, 0.0), (12.0, 10.0)]);
+    let stroked = rectangle
+        .clone()
+        .with_stroke(StrokeGeometryOptions::new(2.0));
+    scene.load_shape(&stroked, 1, Some(1)).unwrap();
+    let original = scene.state.loaded_shape(1).unwrap();
+
+    for (width, line_join, miter_limit) in [
+        (2.0, LineJoin::Miter, 0.5),
+        (2.0, LineJoin::Bevel, 0.5),
+        (2.0, LineJoin::Round, 0.5),
+        (0.0, LineJoin::Miter, 0.5),
+        (0.0, LineJoin::Miter, f32::NAN),
+    ] {
+        let invalid_stroke = rectangle.clone().with_stroke(
+            StrokeGeometryOptions::new(width)
+                .line_join(line_join)
+                .miter_limit(miter_limit),
+        );
+        let result = scene.load_shape(invalid_stroke, 1, Some(2));
+        assert!(
+            matches!(
+                result,
+                Err(SceneError::InvalidStrokeGeometry(
+                    StrokeGeometryError::InvalidMiterLimit
+                ))
+            ),
+            "unexpected result {result:?} for width {width}, {line_join:?} join, and miter limit {miter_limit}"
+        );
+    }
+    let overflowing = Shape::builder()
+        .begin((0.0, 0.0))
+        .line_to((20.0, 0.0))
+        .line_to((20.0, 20.0))
+        .close()
+        .build()
+        .with_stroke(StrokeGeometryOptions::new(f32::MAX));
+    let excessively_wide_round = stroked
+        .clone()
+        .with_stroke(StrokeGeometryOptions::new(10_000_000.0).line_join(LineJoin::Round));
+    let excessively_long =
+        Shape::rect([(0.0, 0.0), (1e20, 1e20)]).with_stroke(StrokeGeometryOptions::new(1e19));
+    for shape in [overflowing, excessively_wide_round, excessively_long] {
+        assert!(matches!(
+            scene.load_shape(shape, 1, Some(2)),
+            Err(SceneError::InvalidStrokeGeometry(
+                StrokeGeometryError::UnrepresentableMesh
+            ))
+        ));
+    }
+
+    let node = scene
+        .add_cached_shape(1, None, ShapeDrawCommandOptions::new())
+        .unwrap();
+    let queued = &scene.state.shape(node).unwrap().cached_shape;
+    assert!(Arc::ptr_eq(
+        &queued.fill_tessellation,
+        &original.fill_tessellation
+    ));
+    assert!(Arc::ptr_eq(
+        queued.stroke_tessellation.as_ref().unwrap(),
+        original.stroke_tessellation.as_ref().unwrap()
+    ));
+    assert!(scene
+        .state
+        .tessellate(&stroked, Some(2))
+        .unwrap()
+        .stroke_tessellation
+        .is_some());
 }
 
 #[test]

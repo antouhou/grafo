@@ -7,7 +7,7 @@ use crate::core::gradient::types::{
     ColorInterpolation, Fill, Gradient, GradientStop, GradientStopOffset, LinearGradientDesc,
     LinearGradientLine,
 };
-use crate::core::util::ShapeResources;
+use crate::core::shape::ShapeResources;
 use crate::planner::draws::shape_material;
 use crate::scene_state::effects::parameters::{EffectParameterRange, EffectParametersHandle};
 use crate::scene_state::effects::{ContentEffectInstance, EffectInstance};
@@ -17,7 +17,6 @@ use crate::{
     CachedShapeHandle, Color, Shape, ShapeDrawCommandOptions, Size, TransformInstance, Viewport,
 };
 use ahash::{HashMap, HashMapExt};
-use lyon::tessellation::FillTessellator;
 
 fn create_test_gradient() -> Gradient {
     Gradient::linear(
@@ -43,11 +42,9 @@ fn create_test_gradient() -> Gradient {
 }
 
 fn rect_draw_tree_node_with_options(options: ShapeDrawCommandOptions) -> DrawTreeNode {
-    let mut tessellator = FillTessellator::new();
     let mut shape_resources = ShapeResources::new();
     let shape_handle = CachedShapeHandle::new(
         &Shape::rect([(0.0, 0.0), (10.0, 10.0)]),
-        &mut tessellator,
         &mut shape_resources,
         None,
     )

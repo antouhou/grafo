@@ -58,7 +58,7 @@ impl<B: RenderBackend> Scene<B> {
                 if let EffectConfig::ShapeMask(config) = attachment.config {
                     let shape = self.state.shape(member_id)?;
                     ShapeMaskEffectBounds::new(
-                        shape.cached_shape.local_bounds(),
+                        shape.cached_shape.fill_local_bounds(),
                         config,
                         shape.transform,
                         self.state.viewport().scale_factor,
@@ -126,7 +126,7 @@ impl<B: RenderBackend> Scene<B> {
             for &member_id in members {
                 let shape = self.state.shape(member_id)?;
                 ShapeMaskEffectBounds::new(
-                    shape.cached_shape.local_bounds(),
+                    shape.cached_shape.fill_local_bounds(),
                     config,
                     shape.transform,
                     self.state.viewport().scale_factor,

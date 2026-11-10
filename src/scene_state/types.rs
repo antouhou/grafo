@@ -42,7 +42,7 @@ impl CachedShapeDrawData {
         let clips_children = options.clips_children;
         let inherits_fill = options.fill.is_none();
         let instance = ShapeInstance::new(cached_shape, options);
-        let bounds = instance.cached_shape.local_bounds();
+        let bounds = instance.cached_shape.fill_local_bounds();
         let logical_screen_bounds = geometry::transformed_bounds_to_logical_screen_rect(
             MathRect::new(bounds[0].into(), bounds[1].into()),
             instance.transform,
@@ -56,8 +56,8 @@ impl CachedShapeDrawData {
         }
     }
 
-    pub(crate) fn has_geometry(&self) -> bool {
-        let geometry = self.instance.cached_shape.vertex_buffers();
+    pub(crate) fn has_fill_geometry(&self) -> bool {
+        let geometry = self.instance.cached_shape.fill_vertex_buffers();
         !geometry.vertices.is_empty() && !geometry.indices.is_empty()
     }
 }
@@ -145,7 +145,7 @@ impl DrawTreeNode {
         match self {
             DrawTreeNode::Group(_) => false,
             DrawTreeNode::CachedShape(cached_shape) => {
-                cached_shape.instance.cached_shape.tessellation.is_rect
+                cached_shape.instance.cached_shape.fill_tessellation.is_rect
                     && geometry::is_axis_aligned_rect_transform(cached_shape.instance.transform)
             }
             DrawTreeNode::ClipRect(_) => true,
@@ -156,7 +156,9 @@ impl DrawTreeNode {
         self.clips_children()
             && match self {
                 Self::Group(_) => false,
-                Self::CachedShape(shape) => shape.has_geometry() || self.is_axis_aligned_rect(),
+                Self::CachedShape(shape) => {
+                    shape.has_fill_geometry() || self.is_axis_aligned_rect()
+                }
                 Self::ClipRect(_) => true,
             }
     }

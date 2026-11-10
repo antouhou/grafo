@@ -13,7 +13,7 @@ fn geometry(scene: &Scene<TestBackend>, text: usize) -> Vec<(u64, Weak<CachedTes
             let shape = &scene.state.shape(id).unwrap().cached_shape;
             (
                 shape.geometry_id.unwrap(),
-                Arc::downgrade(&shape.tessellation),
+                Arc::downgrade(&shape.fill_tessellation),
             )
         })
         .collect()

@@ -128,13 +128,16 @@ let second_scene = Scene::new_with_context(
 Create a scene when you open a window and drop it when you close the window.
 Draw calls added to one scene never appear in another scene's draw queue.
 
-Loaded shapes are also shared by the context. A `cache_key` passed to `load_shape` is scoped to
-the `SceneContext`, so another scene can reuse that shape through
-`add_cached_shape`. Use a content-derived key when the same geometry should
-be shared; loading a different shape with the same key replaces the shared entry, and
-`remove_shape` removes it for every scene using the context.
-If tessellation fails, `load_shape` returns `SceneError::Tessellation` and preserves the
-previous entry.
+`load_shape` stores a shape under `cache_key` in the shared `SceneContext`. Any scene
+using that context can queue the shape with `add_cached_shape`. A successful load with
+the same `cache_key` replaces the entry, and `remove_shape` removes it from the context.
+
+The optional `geometry_id` lets a scene reuse tessellation. Reuse an ID only when both
+the fill and stroke geometry match. Pass `None` to skip reuse by ID.
+
+`load_shape` returns `SceneError::Tessellation` for a tessellation failure or
+`SceneError::InvalidStrokeGeometry` for invalid stroke geometry. Both errors preserve
+any existing entry under `cache_key`.
 
 ### Shape hierarchy and overflow
 

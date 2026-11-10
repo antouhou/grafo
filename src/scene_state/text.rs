@@ -1,8 +1,7 @@
 use super::types::DrawTreeNode;
 use super::{SceneError, SceneState};
-use crate::core::{CachedShapeHandle, GlyphContent, PathShape, TextSource};
+use crate::core::{CachedShapeHandle, GlyphContent, TextSource};
 use ahash::{HashMap, HashSet};
-use lyon::path::FillRule;
 use std::any;
 
 #[derive(Default)]
@@ -69,7 +68,7 @@ impl SceneState {
             .write()
             .expect("shared glyph usage lock poisoned");
         if let Ok(shape) = self.loaded_shape(geometry_id) {
-            if shape.vertex_buffers().vertices.is_empty() {
+            if shape.fill_vertex_buffers().vertices.is_empty() {
                 return Ok(None);
             }
             glyph_usage.insert(geometry_id);
@@ -79,18 +78,12 @@ impl SceneState {
         let Some(GlyphContent::Outline(events)) = source.glyph_content(key) else {
             return Ok(None);
         };
-        let shape = CachedShapeHandle {
-            tessellation: PathShape::tessellate_events(
-                events.iter().copied(),
-                FillRule::NonZero,
-                false,
-                &mut self.tessellator,
-                &mut self.shape_resources,
-                Some(geometry_id),
-            )?,
-            geometry_id: Some(geometry_id),
-        };
-        let has_geometry = !shape.vertex_buffers().vertices.is_empty();
+        let shape = CachedShapeHandle::from_fill_events(
+            events.iter().copied(),
+            &mut self.shape_resources,
+            geometry_id,
+        )?;
+        let has_geometry = !shape.fill_vertex_buffers().vertices.is_empty();
         let mut glyph_usage = self
             .context
             .glyph_usage

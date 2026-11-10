@@ -39,7 +39,7 @@ impl EffectDamageEntry {
         let DrawTreeNode::CachedShape(shape) = node else {
             return None;
         };
-        if !shape.has_geometry() {
+        if !shape.has_fill_geometry() {
             return None;
         }
         let target_region =

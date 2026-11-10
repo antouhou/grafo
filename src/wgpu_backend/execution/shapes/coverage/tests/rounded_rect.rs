@@ -78,7 +78,7 @@ fn rounded_rect_sweep_matches_general_coverage() {
             let cached = scene
                 .tessellate(&Shape::rounded_rect(bounds, radii), None)
                 .unwrap();
-            let tessellation = &cached.tessellation;
+            let tessellation = &cached.fill_tessellation;
             assert!(
                 tessellation.rounded_rect_boundary.is_some(),
                 "{bounds:?}, {radii:?}"

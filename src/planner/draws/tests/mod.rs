@@ -4,8 +4,7 @@ use crate::commands::{
     TextureComposite, TexturePlacement,
 };
 use crate::core::effect::BackdropEffectConfig;
-use crate::core::shape::CachedShapeHandle;
-use crate::core::util::ShapeResources;
+use crate::core::shape::{CachedShapeHandle, ShapeResources};
 use crate::core::vertex::{InstanceTransform, TextureUvTransform};
 use crate::core::Viewport;
 use crate::planner::commands::TraversalCommands;
@@ -18,7 +17,6 @@ use crate::scene_state::types::{ClipRectDrawData, DrawTreeNode};
 use crate::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, Size, UnsignedPhysicalRect};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
-use lyon::tessellation::FillTessellator;
 use std::mem;
 
 #[derive(Debug, PartialEq)]
@@ -56,13 +54,7 @@ fn rect(min: (u32, u32), max: (u32, u32)) -> UnsignedPhysicalRect {
 }
 
 fn shape_description(shape: Shape, clips_children: bool) -> CachedShapeDrawData {
-    let handle = CachedShapeHandle::new(
-        &shape,
-        &mut FillTessellator::new(),
-        &mut ShapeResources::new(),
-        None,
-    )
-    .unwrap();
+    let handle = CachedShapeHandle::new(&shape, &mut ShapeResources::new(), None).unwrap();
     CachedShapeDrawData::new(
         handle,
         ShapeDrawCommandOptions::new()

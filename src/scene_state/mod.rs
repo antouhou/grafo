@@ -1,7 +1,6 @@
 //! CPU scene descriptions, tessellation caches and effect attachments.
 use crate::core::effect::ShapeMaskEffectBounds;
-use crate::core::shape::{CachedShapeHandle, Shape, ShapeInstance};
-use crate::core::util::ShapeResources;
+use crate::core::shape::{CachedShapeHandle, Shape, ShapeInstance, ShapeResources};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, UnsignedPhysicalRect, Viewport};
 use crate::render_backend::texture_manager::{TextureUpdatePublisher, TextureUpdateSubscription};
@@ -14,7 +13,6 @@ use effects::{
     GroupEffectIndex, ShapeMaskEffectInstance,
 };
 pub use errors::SceneError;
-use lyon::tessellation::FillTessellator;
 use std::sync::{Arc, RwLock};
 use text::GlyphUsage;
 use texture_index::TextureIndex;
@@ -55,7 +53,6 @@ pub(crate) struct SceneState {
     updated_shape_ids: HashSet<usize>,
     context: SceneStateContext,
     viewport: Viewport,
-    tessellator: FillTessellator,
     shape_resources: ShapeResources,
     pub(crate) effect_parameters: EffectParameterStorage,
     pub(crate) content_effects: HashMap<usize, ContentEffectInstance>,
@@ -80,7 +77,6 @@ impl SceneState {
             viewport,
             draw_tree: Tree::new(),
             texture_index: TextureIndex::default(),
-            tessellator: FillTessellator::new(),
             shape_resources: ShapeResources::new(),
             effect_parameters: EffectParameterStorage::default(),
             content_effects: HashMap::new(),
@@ -169,7 +165,6 @@ impl SceneState {
     ) -> Result<CachedShapeHandle, SceneError> {
         Ok(CachedShapeHandle::new(
             shape,
-            &mut self.tessellator,
             &mut self.shape_resources,
             geometry_id,
         )?)
@@ -308,11 +303,9 @@ impl SceneState {
 
     fn refresh_tessellation_cache(&mut self, node: &DrawTreeNode) {
         if let DrawTreeNode::CachedShape(shape) = node {
-            if let Some(geometry_id) = shape.instance.cached_shape.geometry_id {
-                self.shape_resources
-                    .tessellation_cache
-                    .refresh_tessellation(geometry_id, &shape.instance.cached_shape.tessellation);
-            }
+            self.shape_resources
+                .tessellation_cache
+                .refresh_shape(&shape.instance.cached_shape);
         }
     }
 

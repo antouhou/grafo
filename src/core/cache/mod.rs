@@ -1,4 +1,5 @@
 use crate::core::shape::boundary::{PathBoundaryEdge, RoundedRectBoundary};
+use crate::core::shape::CachedShapeHandle;
 use crate::core::vertex::CustomVertex;
 use ahash::{HashMap, HashMapExt};
 use lyon::tessellation::VertexBuffers;
@@ -90,7 +91,7 @@ where
 }
 
 pub(crate) struct Cache {
-    entries: FrameCache<u64, Arc<CachedTessellation>>,
+    entries: FrameCache<u64, CachedShapeHandle>,
 }
 
 impl Cache {
@@ -100,25 +101,20 @@ impl Cache {
         }
     }
 
-    pub(crate) fn get_tessellation(&mut self, cache_key: &u64) -> Option<Arc<CachedTessellation>> {
-        self.entries.get(cache_key)
+    pub(crate) fn get_shape(&mut self, geometry_id: &u64) -> Option<CachedShapeHandle> {
+        self.entries.get(geometry_id)
     }
 
-    pub(crate) fn insert_tessellation(
-        &mut self,
-        cache_key: u64,
-        tessellation: Arc<CachedTessellation>,
-    ) {
-        self.entries.insert(cache_key, tessellation);
+    pub(crate) fn insert_shape(&mut self, shape: &CachedShapeHandle) {
+        if let Some(geometry_id) = shape.geometry_id {
+            self.entries.insert(geometry_id, shape.clone());
+        }
     }
 
-    pub(crate) fn refresh_tessellation(
-        &mut self,
-        cache_key: u64,
-        tessellation: &Arc<CachedTessellation>,
-    ) {
-        if self.entries.get(&cache_key).is_none() {
-            self.entries.insert(cache_key, Arc::clone(tessellation));
+    pub(crate) fn refresh_shape(&mut self, shape: &CachedShapeHandle) {
+        if let Some(geometry_id) = shape.geometry_id {
+            self.entries
+                .get_or_insert_with(geometry_id, || shape.clone());
         }
     }
 

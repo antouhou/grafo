@@ -1,6 +1,3 @@
-use crate::core::cache::Cache;
-use crate::core::shape::boundary::PathBoundaryBuilder;
-
 /// Converts an sRGB byte to a linear channel value between 0.0 and 1.0.
 pub(crate) fn srgb_u8_to_linear(value: u8) -> f32 {
     let normalized = value as f32 / 255.0;
@@ -18,20 +15,6 @@ pub fn normalize_rgba_color(color: &[u8; 4]) -> [f32; 4] {
         srgb_u8_to_linear(color[2]),
         color[3] as f32 / 255.0, // alpha is linear, not gamma-encoded
     ]
-}
-
-pub(crate) struct ShapeResources {
-    pub path_boundary_builder: PathBoundaryBuilder,
-    pub tessellation_cache: Cache,
-}
-
-impl ShapeResources {
-    pub(crate) fn new() -> Self {
-        Self {
-            path_boundary_builder: PathBoundaryBuilder::default(),
-            tessellation_cache: Cache::new(),
-        }
-    }
 }
 
 #[inline(always)]

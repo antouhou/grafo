@@ -35,7 +35,7 @@ fn finished_coverage_combines_many_edges_inside_a_single_pixel() {
                 .close();
         }
         let cached = scene.tessellate(&builder.build(), None).unwrap();
-        mesh.build(&cached.tessellation, None, 1.0, (40, 40));
+        mesh.build(&cached.fill_tessellation, None, 1.0, (40, 40));
         for y in 0..40 {
             for x in 0..40 {
                 let (across, along) = if is_horizontal { (y, x) } else { (x, y) };
@@ -75,8 +75,8 @@ fn sparse_sweeps_preserve_empty_regions_and_reused_storage() {
                 .build(),
         ] {
             let cached = scene.tessellate(&shape, None).unwrap();
-            let geometry = cached.vertex_buffers();
-            mesh.build(&cached.tessellation, None, 1.0, size);
+            let geometry = cached.fill_vertex_buffers();
+            mesh.build(&cached.fill_tessellation, None, 1.0, size);
             for y in 0..size.1 {
                 for x in 0..size.0 {
                     let expected: f32 = geometry
