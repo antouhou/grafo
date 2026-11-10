@@ -1,4 +1,4 @@
-use super::scanline::{CoverageSum, RowEdge, ScanEdge, Scanline};
+use super::scanline::{ClippedScanEdge, CoverageSum, ScanEdge, Scanline};
 use super::tiles::{tile_aligned_columns, TILE_SIZE};
 use crate::core::shape::boundary::PathBoundaryEdge;
 use std::ops::Range;
@@ -99,7 +99,7 @@ impl VerticalEdgeContributions {
 
 #[derive(Default)]
 struct RowEdgeBuckets {
-    rows: Vec<Vec<RowEdge>>,
+    rows: Vec<Vec<ClippedScanEdge>>,
     populated_rows: Range<u32>,
 }
 
@@ -116,7 +116,7 @@ impl RowEdgeBuckets {
         self.populated_rows.start = self.populated_rows.start.min(rows.start);
         self.populated_rows.end = self.populated_rows.end.max(rows.end);
         for row in rows {
-            self.rows[row as usize].push(edge.clip(row as f32, (row + 1) as f32));
+            self.rows[row as usize].push(edge.clip_to_rows(row as f32, (row + 1) as f32));
         }
     }
 
@@ -129,7 +129,7 @@ impl RowEdgeBuckets {
         }
     }
 
-    fn rows_in(&self, rows: Range<u32>) -> &[Vec<RowEdge>] {
+    fn rows_in(&self, rows: Range<u32>) -> &[Vec<ClippedScanEdge>] {
         let end = (rows.end as usize).min(self.rows.len());
         self.rows.get(rows.start as usize..end).unwrap_or_default()
     }
@@ -189,7 +189,7 @@ impl PathSweep {
                 continue;
             }
             let signed_winding_height = edge
-                .clip(span.start as f32, (span.start + 1) as f32)
+                .clip_to_rows(span.start as f32, (span.start + 1) as f32)
                 .signed_winding_height;
             for (row, is_start) in [(span.start, true), (span.end, false)] {
                 self.events.push(RowEvent {
@@ -246,12 +246,18 @@ impl PathSweep {
                 continue;
             }
             // Outside the viewport the visible contribution is constant.
-            let visible = scan_edge.clip(first_row as f32, end_row as f32);
-            if visible.maximum_x <= 0.0 {
+            let edge_in_visible_rows = scan_edge.clip_to_rows(first_row as f32, end_row as f32);
+            if edge_in_visible_rows.maximum_x <= 0.0 {
                 continue;
             }
-            if visible.minimum_x == visible.maximum_x || visible.minimum_x >= size.0 as f32 {
-                self.add_vertical_spans(&scan_edge, visible.minimum_x, first_row..end_row);
+            if edge_in_visible_rows.minimum_x == edge_in_visible_rows.maximum_x
+                || edge_in_visible_rows.minimum_x >= size.0 as f32
+            {
+                self.add_vertical_spans(
+                    &scan_edge,
+                    edge_in_visible_rows.minimum_x,
+                    first_row..end_row,
+                );
                 continue;
             }
             let index = self.sloped_edges.len();
@@ -326,7 +332,7 @@ impl PathSweep {
         let sloped_interval = |index: usize| {
             let edge = self.sloped_edges[index]
                 .edge
-                .clip(top as f32, bottom as f32);
+                .clip_to_rows(top as f32, bottom as f32);
             tile_aligned_columns(edge.minimum_x, edge.maximum_x, left, right)
         };
         for edges in self.row_edge_buckets.rows_in(top..bottom) {
@@ -383,6 +389,8 @@ impl PathSweep {
         intervals.truncate(count);
     }
 
+    /// Returns `Some(end)` if the first scanline can be reused from the band's top
+    /// up to the exclusive row `end`.
     pub(super) fn prepare_band(
         &mut self,
         bounds: [u32; 4],
@@ -398,13 +406,16 @@ impl PathSweep {
         if next_event_row <= top {
             next_event_row = self.advance(top, left, right).unwrap_or(path_bottom);
         }
-        let mut next_row = next_event_row;
-        if self.active_sloped_edges.is_empty() && next_row >= bottom {
-            if let Some(populated_row) = self.row_edge_buckets.first_populated_row(top..next_row) {
-                next_row = populated_row;
+        let mut repeat_limit_row = next_event_row;
+        if self.active_sloped_edges.is_empty() && repeat_limit_row >= bottom {
+            if let Some(populated_row) = self
+                .row_edge_buckets
+                .first_populated_row(top..repeat_limit_row)
+            {
+                repeat_limit_row = populated_row;
             }
         }
-        let has_identical_rows = self.active_sloped_edges.is_empty() && next_row >= bottom;
+        let has_identical_rows = self.active_sloped_edges.is_empty() && repeat_limit_row >= bottom;
         let row_count = if has_identical_rows {
             1
         } else {
@@ -424,7 +435,7 @@ impl PathSweep {
                 let sloped_edges = self.active_sloped_edges.iter().map(|&index| {
                     self.sloped_edges[index]
                         .edge
-                        .clip(row as f32, (row + 1) as f32)
+                        .clip_to_rows(row as f32, (row + 1) as f32)
                 });
                 scanline.prepare(
                     row_edges.iter().copied().chain(sloped_edges),
@@ -442,10 +453,10 @@ impl PathSweep {
         }
         has_identical_rows.then(|| {
             // Keep mixed bands on the tile grid so repeats do not add boundary tiles.
-            if next_row == path_bottom {
-                next_row
+            if repeat_limit_row == path_bottom {
+                repeat_limit_row
             } else {
-                top + (next_row - top) / TILE_SIZE * TILE_SIZE
+                top + (repeat_limit_row - top) / TILE_SIZE * TILE_SIZE
             }
         })
     }

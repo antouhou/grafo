@@ -51,13 +51,13 @@ impl CoverageSum {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct RowEdge {
+pub(super) struct ClippedScanEdge {
     pub minimum_x: f32,
     pub maximum_x: f32,
     pub signed_winding_height: f64,
 }
 
-impl RowEdge {
+impl ClippedScanEdge {
     fn coverage(&self, pixel: f64, inverse_width: f64) -> f64 {
         let minimum_x_offset = self.minimum_x as f64 - pixel;
         let maximum_x_offset = self.maximum_x as f64 - pixel;
@@ -107,13 +107,13 @@ impl ScanEdge {
         self.x_per_y == 0.0
     }
 
-    pub(super) fn clip(&self, top: f32, bottom: f32) -> RowEdge {
+    pub(super) fn clip_to_rows(&self, top: f32, bottom: f32) -> ClippedScanEdge {
         let low = self.top.max(top) as f64;
         let high = self.bottom.min(bottom) as f64;
         let x = |y| (self.start[0] as f64 + (y - self.start[1] as f64) * self.x_per_y) as f32;
         let first = x(low);
         let second = x(high);
-        RowEdge {
+        ClippedScanEdge {
             minimum_x: first.min(second),
             maximum_x: first.max(second),
             signed_winding_height: (high - low) * self.signed_winding,
@@ -127,7 +127,7 @@ struct ScanlineSlopeChanges {
     // A bit per column marks the slope changes to read in each tile.
     slope_event_masks: Vec<u8>,
     slope: CoverageSum,
-    is_active: bool,
+    has_slope_events: bool,
 }
 
 impl ScanlineSlopeChanges {
@@ -146,7 +146,7 @@ impl ScanlineSlopeChanges {
             self.slope_event_masks[first..end].fill(0);
         }
         self.slope = CoverageSum::default();
-        self.is_active = true;
+        self.has_slope_events = true;
     }
 
     fn add_event(&mut self, offset: usize, slope: f64) {
@@ -209,9 +209,74 @@ pub(super) struct Scanline {
 }
 
 impl Scanline {
+    #[inline]
+    fn add_boundary_changes(
+        &mut self,
+        edge: ClippedScanEdge,
+        inverse_width: f64,
+        columns: Range<u32>,
+        mut previous: f64,
+    ) -> f64 {
+        let first = (columns.start - self.left) as usize;
+        let end = (columns.end - self.left) as usize;
+        let mut pixel = columns.start as f64;
+        for change in &mut self.changes[first..end] {
+            let next = edge.coverage(pixel, inverse_width);
+            *change += next - previous;
+            previous = next;
+            pixel += 1.0;
+        }
+        previous
+    }
+
+    fn add_crossed_columns(
+        &mut self,
+        edge: ClippedScanEdge,
+        inverse_width: f64,
+        columns: Range<u32>,
+        right: u32,
+        previous: f64,
+        intervals: &[Range<u32>],
+    ) -> f64 {
+        let first_full_column = (edge.minimum_x.ceil() as u32).max(self.left);
+        let last_full_column = (edge.maximum_x.floor() as u32).min(right) - 1;
+        let leading = self.add_boundary_changes(
+            edge,
+            inverse_width,
+            columns.start..first_full_column + 1,
+            previous,
+        );
+        // Between fully crossed pixels the coverage difference is constant.
+        let slope = -edge.signed_winding_height * inverse_width;
+        let first = (first_full_column - self.left) as usize;
+        let last = (last_full_column - self.left) as usize;
+        if columns.end - columns.start >= MINIMUM_COLUMNS_FOR_SLOPE_EVENTS {
+            if !self.slope_changes.has_slope_events {
+                self.slope_changes.prepare(self.left, right, intervals);
+            }
+            self.slope_changes.add_event(first, slope);
+            self.slope_changes.add_event(last, -slope);
+        } else {
+            // Small runs fit in the point buffer without slope events.
+            for change in &mut self.changes[first + 1..=last] {
+                *change += slope;
+            }
+        }
+
+        let trailing = edge.coverage(last_full_column as f64, inverse_width);
+        // Close the range at the analytic endpoint to keep rounding local.
+        self.changes[last] += (trailing - leading) - (last - first) as f64 * slope;
+        self.add_boundary_changes(
+            edge,
+            inverse_width,
+            last_full_column + 1..columns.end,
+            trailing,
+        )
+    }
+
     pub(super) fn prepare(
         &mut self,
-        edges: impl IntoIterator<Item = RowEdge>,
+        edges: impl IntoIterator<Item = ClippedScanEdge>,
         left: u32,
         right: u32,
         intervals: &[Range<u32>],
@@ -225,7 +290,7 @@ impl Scanline {
                 .fill(0.0);
         }
         self.area = 0.0;
-        self.slope_changes.is_active = false;
+        self.slope_changes.has_slope_events = false;
         for edge in edges {
             let minimum_x = edge.minimum_x;
             let maximum_x = edge.maximum_x;
@@ -275,71 +340,6 @@ impl Scanline {
         }
     }
 
-    #[inline]
-    fn add_boundary_changes(
-        &mut self,
-        edge: RowEdge,
-        inverse_width: f64,
-        columns: Range<u32>,
-        mut previous: f64,
-    ) -> f64 {
-        let first = (columns.start - self.left) as usize;
-        let end = (columns.end - self.left) as usize;
-        let mut pixel = columns.start as f64;
-        for change in &mut self.changes[first..end] {
-            let next = edge.coverage(pixel, inverse_width);
-            *change += next - previous;
-            previous = next;
-            pixel += 1.0;
-        }
-        previous
-    }
-
-    fn add_crossed_columns(
-        &mut self,
-        edge: RowEdge,
-        inverse_width: f64,
-        columns: Range<u32>,
-        right: u32,
-        previous: f64,
-        intervals: &[Range<u32>],
-    ) -> f64 {
-        let first_full_column = (edge.minimum_x.ceil() as u32).max(self.left);
-        let last_full_column = (edge.maximum_x.floor() as u32).min(right) - 1;
-        let leading = self.add_boundary_changes(
-            edge,
-            inverse_width,
-            columns.start..first_full_column + 1,
-            previous,
-        );
-        // Between fully crossed pixels the coverage difference is constant.
-        let slope = -edge.signed_winding_height * inverse_width;
-        let first = (first_full_column - self.left) as usize;
-        let last = (last_full_column - self.left) as usize;
-        if columns.end - columns.start >= MINIMUM_COLUMNS_FOR_SLOPE_EVENTS {
-            if !self.slope_changes.is_active {
-                self.slope_changes.prepare(self.left, right, intervals);
-            }
-            self.slope_changes.add_event(first, slope);
-            self.slope_changes.add_event(last, -slope);
-        } else {
-            // Small runs fit in the point buffer without slope events.
-            for change in &mut self.changes[first + 1..=last] {
-                *change += slope;
-            }
-        }
-
-        let trailing = edge.coverage(last_full_column as f64, inverse_width);
-        // Close the range at the analytic endpoint to keep rounding local.
-        self.changes[last] += (trailing - leading) - (last - first) as f64 * slope;
-        self.add_boundary_changes(
-            edge,
-            inverse_width,
-            last_full_column + 1..columns.end,
-            trailing,
-        )
-    }
-
     pub(super) fn add_vertical_changes(
         &mut self,
         area: f64,
@@ -355,7 +355,7 @@ impl Scanline {
     pub(super) fn fill_coverage(&mut self, left: u32, values: &mut [f32]) {
         let offset = (left - self.left) as usize;
         let changes = &self.changes[offset..offset + values.len()];
-        self.area = if self.slope_changes.is_active {
+        self.area = if self.slope_changes.has_slope_events {
             self.slope_changes
                 .fill_tile(offset, changes, values, self.area)
         } else {

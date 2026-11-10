@@ -1,5 +1,5 @@
 use super::projection::Projection;
-use super::scanline::{RowEdge, ScanEdge, Scanline};
+use super::scanline::{ClippedScanEdge, ScanEdge, Scanline};
 use super::tiles::tile_aligned_columns;
 use crate::core::cache::CachedTessellation;
 use crate::core::shape::boundary::PathBoundaryEdge;
@@ -47,18 +47,18 @@ impl BoundaryChain {
         let mut minimum_x = f32::INFINITY;
         let mut maximum_x = f32::NEG_INFINITY;
         for edge in self.intersecting(bottom as f32) {
-            let row = edge.clip(top as f32, bottom as f32);
-            minimum_x = minimum_x.min(row.minimum_x);
-            maximum_x = maximum_x.max(row.maximum_x);
+            let edge_in_band = edge.clip_to_rows(top as f32, bottom as f32);
+            minimum_x = minimum_x.min(edge_in_band.minimum_x);
+            maximum_x = maximum_x.max(edge_in_band.maximum_x);
         }
         tile_aligned_columns(minimum_x, maximum_x, left, right)
     }
 
-    fn row(&mut self, top: u32) -> impl Iterator<Item = RowEdge> + '_ {
+    fn row(&mut self, top: u32) -> impl Iterator<Item = ClippedScanEdge> + '_ {
         let top = top as f32;
         self.advance(top);
         self.intersecting(top + 1.0)
-            .map(move |edge| edge.clip(top, top + 1.0))
+            .map(move |edge| edge.clip_to_rows(top, top + 1.0))
     }
 
     fn is_vertical_through(&self, top: u32, bottom: u32) -> bool {
