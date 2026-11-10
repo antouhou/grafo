@@ -44,12 +44,12 @@ fn retained_small_path_does_not_keep_oversized_upload_alive() {
     let mut builder = CoverageBuilder::default();
     for transform in [None, Some(TransformInstance::translation(4096.0, 0.0))] {
         let mut uploads = CoverageUploads::default();
-        let retained = uploads.prepare(&mut builder, &small.tessellation, transform, viewport);
-        let temporary = uploads.prepare(&mut builder, &large.tessellation, None, viewport);
+        let retained = uploads.prepare(&mut builder, &small.fill_tessellation, transform, viewport);
+        let temporary = uploads.prepare(&mut builder, &large.fill_tessellation, None, viewport);
         assert!(!Arc::ptr_eq(&retained.buffers, &temporary.buffers));
         assert!(uploads.pending[0].geometry.byte_len() < SHARED_BUFFER_BYTES);
         assert!(uploads.pending[1].geometry.byte_len() > 4 * 1024 * 1024);
-        let following = uploads.prepare(&mut builder, &small.tessellation, None, viewport);
+        let following = uploads.prepare(&mut builder, &small.fill_tessellation, None, viewport);
         assert!(!Arc::ptr_eq(&following.buffers, &temporary.buffers));
         let temporary_buffers = Arc::downgrade(&temporary.buffers);
         uploads.clear();
@@ -78,7 +78,7 @@ fn incoming_path_size_limits_groups_and_preserves_coverage_offsets() {
     let mut builder = CoverageBuilder::default();
     let mut expected = CoverageGeometry::default();
     let medium_coverage_draw = builder.build(
-        &medium.tessellation,
+        &medium.fill_tessellation,
         None,
         1.0,
         viewport.physical_size,
@@ -88,10 +88,10 @@ fn incoming_path_size_limits_groups_and_preserves_coverage_offsets() {
     assert!(expected.byte_len() * 2 > SHARED_BUFFER_BYTES);
     assert!(medium_coverage_draw.range.solid_tile_count > 0);
     let mut uploads = CoverageUploads::default();
-    let first_small = uploads.prepare(&mut builder, &small.tessellation, None, viewport);
-    let first_medium = uploads.prepare(&mut builder, &medium.tessellation, None, viewport);
-    let second_medium = uploads.prepare(&mut builder, &medium.tessellation, None, viewport);
-    let second_small = uploads.prepare(&mut builder, &small.tessellation, None, viewport);
+    let first_small = uploads.prepare(&mut builder, &small.fill_tessellation, None, viewport);
+    let first_medium = uploads.prepare(&mut builder, &medium.fill_tessellation, None, viewport);
+    let second_medium = uploads.prepare(&mut builder, &medium.fill_tessellation, None, viewport);
+    let second_small = uploads.prepare(&mut builder, &small.fill_tessellation, None, viewport);
     assert!(Arc::ptr_eq(&first_small.buffers, &first_medium.buffers));
     assert!(!Arc::ptr_eq(&first_medium.buffers, &second_medium.buffers));
     assert!(Arc::ptr_eq(&second_medium.buffers, &second_small.buffers));

@@ -71,7 +71,12 @@ fn tessellation_error_preserves_the_loaded_shape_and_queued_draw() {
         Err(DrawCommandError::Scene(SceneError::Tessellation(error))) if error == expected_error
     ));
     assert_eq!(
-        scene.state.shape(node).unwrap().cached_shape.local_bounds(),
+        scene
+            .state
+            .shape(node)
+            .unwrap()
+            .cached_shape
+            .fill_local_bounds(),
         bounds
     );
     assert_eq!(scene.backend.registered_shapes, [node]);
@@ -125,7 +130,10 @@ fn invalid_stroke_preserves_both_loaded_meshes() {
         .add_cached_shape(1, None, ShapeDrawCommandOptions::new())
         .unwrap();
     let queued = &scene.state.shape(node).unwrap().cached_shape;
-    assert!(Arc::ptr_eq(&queued.tessellation, &original.tessellation));
+    assert!(Arc::ptr_eq(
+        &queued.fill_tessellation,
+        &original.fill_tessellation
+    ));
     assert!(Arc::ptr_eq(
         queued.stroke_tessellation.as_ref().unwrap(),
         original.stroke_tessellation.as_ref().unwrap()

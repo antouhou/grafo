@@ -99,7 +99,7 @@ impl RenderBackend for WgpuBackend {
             .get_mut(&id.0)
             .expect("shape registered before effects are attached")
             .mask_tessellation
-            .get_or_insert_with(|| Arc::clone(&shape.tessellation));
+            .get_or_insert_with(|| Arc::clone(&shape.fill_tessellation));
     }
 
     fn remove_shape_mask_effect(&mut self, id: ShapeDrawId) {

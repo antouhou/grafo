@@ -100,9 +100,9 @@ fn rectangle_tiles_match_pixel_overlap_and_general_coverage() {
         let cached = scene.tessellate(&Shape::rect(bounds), None).unwrap();
         let generic = CachedTessellation {
             is_rect: false,
-            boundary_edges: cached.tessellation.boundary_edges.clone(),
+            boundary_edges: cached.fill_tessellation.boundary_edges.clone(),
             rounded_rect_boundary: None,
-            vertex_buffers: Arc::clone(cached.vertex_buffers()),
+            vertex_buffers: Arc::clone(cached.fill_vertex_buffers()),
             local_bounds: bounds,
             texture_mapping_size: cached.texture_mapping_size(),
         };
@@ -111,7 +111,7 @@ fn rectangle_tiles_match_pixel_overlap_and_general_coverage() {
             geometry.clear();
         }
         let draw = builder.build(
-            &cached.tessellation,
+            &cached.fill_tessellation,
             Some(transform),
             scale,
             size,
@@ -179,12 +179,12 @@ fn transformed_rectangles_match_independently_clipped_triangles() {
     ] {
         for scale in [1.0, 1.5, 2.0] {
             let projection =
-                Projection::new(Some(transform), scale, cached.local_bounds()).unwrap();
-            mesh.build(&cached.tessellation, Some(transform), scale, size);
+                Projection::new(Some(transform), scale, cached.fill_local_bounds()).unwrap();
+            mesh.build(&cached.fill_tessellation, Some(transform), scale, size);
             for y in 0..size.1 {
                 for x in 0..size.0 {
                     let expected: f32 = cached
-                        .vertex_buffers()
+                        .fill_vertex_buffers()
                         .indices
                         .as_chunks::<3>()
                         .0
@@ -192,7 +192,7 @@ fn transformed_rectangles_match_independently_clipped_triangles() {
                         .map(|indices| {
                             let triangle = indices.map(|index| {
                                 projection.project(
-                                    cached.vertex_buffers().vertices[index as usize].position,
+                                    cached.fill_vertex_buffers().vertices[index as usize].position,
                                 )
                             });
                             triangle_pixel_area(&triangle, x, y)
@@ -226,7 +226,7 @@ fn rectangle_interior_and_repeated_edge_samples_stay_compact() {
                     None,
                 )
                 .unwrap();
-            mesh.build(&cached.tessellation, None, 1.0, (4096, 4096));
+            mesh.build(&cached.fill_tessellation, None, 1.0, (4096, 4096));
             assert_eq!(mesh.range.solid_tile_count, 1);
             if phase == 0.0 {
                 assert_eq!(mesh.tiles.len(), 1);
@@ -281,7 +281,7 @@ fn rectangle_placement_preserves_coverage_after_large_translations() {
             let placement = CoveragePlacement::new(Some(transform), bounds, viewport);
             geometry.clear();
             let draw = builder.build(
-                &cached.tessellation,
+                &cached.fill_tessellation,
                 placement.transform,
                 scale_factor,
                 viewport.physical_size,
@@ -297,7 +297,7 @@ fn rectangle_placement_preserves_coverage_after_large_translations() {
             );
             let placed = rasterize(&geometry, &draw, viewport.physical_size);
             original.build(
-                &cached.tessellation,
+                &cached.fill_tessellation,
                 Some(transform),
                 scale_factor,
                 viewport.physical_size,

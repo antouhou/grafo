@@ -17,11 +17,11 @@ fn tessellation_reuse_survives_queue_rebuilds_in_independent_caches() {
     let cached_rect = CachedShapeHandle::new(&rectangle, &mut first, Some(12)).unwrap();
     let cached_triangle = CachedShapeHandle::new(&triangle, &mut second, Some(12)).unwrap();
     assert!(!Arc::ptr_eq(
-        &cached_rect.tessellation,
-        &cached_triangle.tessellation
+        &cached_rect.fill_tessellation,
+        &cached_triangle.fill_tessellation
     ));
     let cached_stroke = cached_rect.stroke_tessellation.as_ref().unwrap();
-    assert!(!Arc::ptr_eq(&cached_rect.tessellation, cached_stroke));
+    assert!(!Arc::ptr_eq(&cached_rect.fill_tessellation, cached_stroke));
     assert!(cached_triangle.stroke_tessellation.is_none());
     for _ in 0..4 {
         first.tessellation_cache.end_frame();
@@ -29,16 +29,16 @@ fn tessellation_reuse_survives_queue_rebuilds_in_independent_caches() {
         let rebuilt_rect = CachedShapeHandle::new(&rectangle, &mut first, Some(12)).unwrap();
         let rebuilt_triangle = CachedShapeHandle::new(&triangle, &mut second, Some(12)).unwrap();
         assert!(Arc::ptr_eq(
-            &cached_rect.tessellation,
-            &rebuilt_rect.tessellation
+            &cached_rect.fill_tessellation,
+            &rebuilt_rect.fill_tessellation
         ));
         assert!(Arc::ptr_eq(
             cached_stroke,
             rebuilt_rect.stroke_tessellation.as_ref().unwrap()
         ));
         assert!(Arc::ptr_eq(
-            &cached_triangle.tessellation,
-            &rebuilt_triangle.tessellation
+            &cached_triangle.fill_tessellation,
+            &rebuilt_triangle.fill_tessellation
         ));
     }
 }

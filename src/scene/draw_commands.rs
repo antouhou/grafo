@@ -87,7 +87,7 @@ impl<B: RenderBackend> Scene<B> {
                 .map_err(DrawCommandError::Backend)?;
             if let EffectConfig::ShapeMask(config) = effect.config {
                 ShapeMaskEffectBounds::new(
-                    shape.instance.cached_shape.local_bounds(),
+                    shape.instance.cached_shape.fill_local_bounds(),
                     config,
                     shape.instance.transform,
                     self.state.viewport().scale_factor,
@@ -109,7 +109,7 @@ impl<B: RenderBackend> Scene<B> {
             return Ok(None);
         };
         let bounds = ShapeMaskEffectBounds::new(
-            shape.instance.cached_shape.local_bounds(),
+            shape.instance.cached_shape.fill_local_bounds(),
             effect.config,
             shape.instance.transform,
             self.state.viewport().scale_factor,

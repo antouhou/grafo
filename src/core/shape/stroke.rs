@@ -66,7 +66,7 @@ impl StrokeGeometryOptions {
     }
 }
 
-fn validate_segment(positions: &[Point]) -> Result<(), StrokeGeometryError> {
+fn validate_position_span(positions: &[Point]) -> Result<(), StrokeGeometryError> {
     if !positions.iter().all(|position| position.is_finite()) {
         return Err(StrokeGeometryError::NonFinitePosition);
     }
@@ -80,20 +80,20 @@ fn validate_segment(positions: &[Point]) -> Result<(), StrokeGeometryError> {
 
 fn validate_path_event(event: PathEvent) -> Result<(), StrokeGeometryError> {
     match event {
-        PathEvent::Begin { at } => validate_segment(&[at]),
-        PathEvent::Line { from, to } => validate_segment(&[from, to]),
-        PathEvent::Quadratic { from, ctrl, to } => validate_segment(&[from, ctrl, to]),
+        PathEvent::Begin { at } => validate_position_span(&[at]),
+        PathEvent::Line { from, to } => validate_position_span(&[from, to]),
+        PathEvent::Quadratic { from, ctrl, to } => validate_position_span(&[from, ctrl, to]),
         PathEvent::Cubic {
             from,
             ctrl1,
             ctrl2,
             to,
-        } => validate_segment(&[from, ctrl1, ctrl2, to]),
+        } => validate_position_span(&[from, ctrl1, ctrl2, to]),
         PathEvent::End {
             last,
             first,
             close: true,
-        } => validate_segment(&[last, first]),
+        } => validate_position_span(&[last, first]),
         PathEvent::End { close: false, .. } => Ok(()),
     }
 }

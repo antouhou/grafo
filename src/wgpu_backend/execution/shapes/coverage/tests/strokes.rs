@@ -25,7 +25,7 @@ fn cached_stroke_meshes_use_path_coverage() {
 
     let mut mesh = CoverageTestMesh::default();
     let line = scene.loaded_shape(1).unwrap();
-    assert!(line.vertex_buffers().indices.is_empty());
+    assert!(line.fill_vertex_buffers().indices.is_empty());
     mesh.build(line.stroke_tessellation.as_ref().unwrap(), None, 1.0, size);
     assert_eq!(coverage_at(&mesh, 7, 7), 0.375);
     assert_eq!(coverage_at(&mesh, 20, 8), 0.25);

@@ -91,7 +91,7 @@ fn scene_with_effects(
                 parameters: parameters.store(&[node as u8, 2, 3, 4]),
                 config,
                 bounds: ShapeMaskEffectBounds::new(
-                    handle.tessellation.local_bounds,
+                    handle.fill_tessellation.local_bounds,
                     config,
                     Some(transform),
                     scale,
@@ -181,9 +181,13 @@ fn empty_or_oversized_masks_never_produce_texture_references() {
         CachedShapeHandle::new(&Shape::builder().build(), &mut ShapeResources::new(), None)
             .unwrap();
     let config = ShapeMaskEffectConfig::default();
-    let bounds =
-        ShapeMaskEffectBounds::new(empty_shape.tessellation.local_bounds, config, None, 1.0)
-            .unwrap();
+    let bounds = ShapeMaskEffectBounds::new(
+        empty_shape.fill_tessellation.local_bounds,
+        config,
+        None,
+        1.0,
+    )
+    .unwrap();
     let empty = tree.add_node(DrawTreeNode::CachedShape(CachedShapeDrawData::new(
         empty_shape,
         ShapeDrawCommandOptions::new(),

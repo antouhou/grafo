@@ -68,7 +68,7 @@ impl SceneState {
             .write()
             .expect("shared glyph usage lock poisoned");
         if let Ok(shape) = self.loaded_shape(geometry_id) {
-            if shape.vertex_buffers().vertices.is_empty() {
+            if shape.fill_vertex_buffers().vertices.is_empty() {
                 return Ok(None);
             }
             glyph_usage.insert(geometry_id);
@@ -83,7 +83,7 @@ impl SceneState {
             &mut self.shape_resources,
             geometry_id,
         )?;
-        let has_geometry = !shape.vertex_buffers().vertices.is_empty();
+        let has_geometry = !shape.fill_vertex_buffers().vertices.is_empty();
         let mut glyph_usage = self
             .context
             .glyph_usage

@@ -61,7 +61,7 @@ pub(crate) fn append_aggregated_geometry_for_shape(
         Ok(Some(existing_range))
     } else {
         let cached_shape = &cached_shape_data.cached_shape;
-        let vertex_buffers = cached_shape.vertex_buffers();
+        let vertex_buffers = cached_shape.fill_vertex_buffers();
         let range = append_aggregated_geometry(
             temp_vertices,
             temp_indices,
@@ -215,10 +215,13 @@ impl ShapeExecutionResources {
         let mut resources = ShapeDrawResources::default();
         if supports_projection(
             cached_shape_data.transform,
-            cached_shape_data.cached_shape.tessellation.local_bounds,
+            cached_shape_data
+                .cached_shape
+                .fill_tessellation
+                .local_bounds,
         ) {
             resources.path_coverage = Some(self.coverage_cache.prepare(
-                &cached_shape_data.cached_shape.tessellation,
+                &cached_shape_data.cached_shape.fill_tessellation,
                 cached_shape_data.transform,
                 Viewport {
                     physical_size,
@@ -237,7 +240,7 @@ impl ShapeExecutionResources {
         let geometry_range = if resources.path_coverage.is_some() {
             (!cached_shape_data
                 .cached_shape
-                .vertex_buffers()
+                .fill_vertex_buffers()
                 .indices
                 .is_empty())
             .then_some(GeometryBufferRange::default())

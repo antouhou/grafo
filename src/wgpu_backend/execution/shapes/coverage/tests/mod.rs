@@ -148,8 +148,8 @@ fn path_tiles_match_independently_clipped_triangles() {
     let mut mesh = CoverageTestMesh::default();
     for shape in shapes {
         let cached = scene.tessellate(&shape, None).unwrap();
-        let geometry = cached.vertex_buffers();
-        mesh.build(&cached.tessellation, None, 1.0, (64, 64));
+        let geometry = cached.fill_vertex_buffers();
+        mesh.build(&cached.fill_tessellation, None, 1.0, (64, 64));
         for y in 0..64 {
             for x in 0..64 {
                 let expected: f32 = geometry
@@ -196,14 +196,14 @@ fn transformed_tiles_preserve_thin_features_and_rebuild_for_viewport_changes() {
         .unwrap();
     let mut mesh = CoverageTestMesh::default();
     mesh.build(
-        &cached.tessellation,
+        &cached.fill_tessellation,
         Some(TransformInstance::translation(8.375, 4.0)),
         1.0,
         (32, 32),
     );
     assert!((coverage_at(&mesh, 8, 16) - 0.25).abs() < 1e-6);
     mesh.build(
-        &cached.tessellation,
+        &cached.fill_tessellation,
         Some(TransformInstance::translation(8.375, 4.0)),
         2.0,
         (64, 64),
@@ -211,7 +211,7 @@ fn transformed_tiles_preserve_thin_features_and_rebuild_for_viewport_changes() {
     assert!((coverage_at(&mesh, 16, 32) - 0.25).abs() < 1e-6);
     assert!((coverage_at(&mesh, 17, 32) - 0.25).abs() < 1e-6);
     mesh.build(
-        &cached.tessellation,
+        &cached.fill_tessellation,
         Some(TransformInstance::translation(-100.0, 4.0)),
         1.0,
         (32, 32),
@@ -239,7 +239,7 @@ fn projected_path_tiles_match_the_projected_triangle_areas() {
             None,
         )
         .unwrap();
-    let geometry = cached.vertex_buffers();
+    let geometry = cached.fill_vertex_buffers();
     let mut perspective = TransformInstance::translation(3.25, 5.5);
     perspective.col0[3] = 0.0125;
     perspective.col1[3] = 0.0075;
@@ -255,7 +255,7 @@ fn projected_path_tiles_match_the_projected_triangle_areas() {
     ];
     let mut mesh = CoverageTestMesh::default();
     for transform in transforms {
-        mesh.build(&cached.tessellation, Some(transform), 1.5, (64, 64));
+        mesh.build(&cached.fill_tessellation, Some(transform), 1.5, (64, 64));
         let project = |position: [f32; 2]| {
             let [x, y] = position;
             let inverse_w = 1.5
@@ -307,9 +307,9 @@ fn coverage_reuse_distinguishes_placement_and_replaced_geometry() {
             None,
         )
         .unwrap();
-    let shared = Arc::clone(&first.tessellation);
+    let shared = Arc::clone(&first.fill_tessellation);
     let mut cache = FrameCache::new();
-    cache.insert(CoverageKey::new(&first.tessellation, None), "prepared");
+    cache.insert(CoverageKey::new(&first.fill_tessellation, None), "prepared");
     drop(cache.end_frame());
     assert_eq!(
         cache.get(&CoverageKey::new(
@@ -325,7 +325,7 @@ fn coverage_reuse_distinguishes_placement_and_replaced_geometry() {
         ))
         .is_none());
     assert!(cache
-        .get(&CoverageKey::new(&replacement.tessellation, None))
+        .get(&CoverageKey::new(&replacement.fill_tessellation, None))
         .is_none());
     cache.clear();
     assert!(cache.get(&CoverageKey::new(&shared, None)).is_none());
@@ -354,9 +354,9 @@ fn sparse_spans_preserve_holes_partial_rows_and_separate_draw_ranges() {
         },
     );
     let cached = scene.tessellate(&shape, None).unwrap();
-    let geometry = cached.vertex_buffers();
+    let geometry = cached.fill_vertex_buffers();
     let mut mesh = CoverageTestMesh::default();
-    mesh.build(&cached.tessellation, None, 1.0, (128, 64));
+    mesh.build(&cached.fill_tessellation, None, 1.0, (128, 64));
     for y in 0..64 {
         for x in 0..128 {
             let expected: f32 = geometry
@@ -415,15 +415,15 @@ fn translated_coverage_preserves_pixel_phase_and_viewport_clipping() {
             TransformInstance::affine_2d(-1.0, 0.125, 0.25, 1.0, 70.125, 8.25),
         ] {
             let placement =
-                CoveragePlacement::new(Some(transform), cached.local_bounds(), viewport);
+                CoveragePlacement::new(Some(transform), cached.fill_local_bounds(), viewport);
             original.build(
-                &cached.tessellation,
+                &cached.fill_tessellation,
                 Some(transform),
                 scale_factor,
                 viewport.physical_size,
             );
             translated.build(
-                &cached.tessellation,
+                &cached.fill_tessellation,
                 placement.transform,
                 scale_factor,
                 viewport.physical_size,
@@ -446,17 +446,17 @@ fn translated_coverage_preserves_pixel_phase_and_viewport_clipping() {
     }
     let first = CoveragePlacement::new(
         Some(TransformInstance::translation(8.25, 6.5)),
-        cached.local_bounds(),
+        cached.fill_local_bounds(),
         viewport,
     );
     let second = CoveragePlacement::new(
         Some(TransformInstance::translation(80.25, 60.5)),
-        cached.local_bounds(),
+        cached.fill_local_bounds(),
         viewport,
     );
     assert_eq!(
-        CoverageKey::new(&cached.tessellation, first.transform),
-        CoverageKey::new(&cached.tessellation, second.transform)
+        CoverageKey::new(&cached.fill_tessellation, first.transform),
+        CoverageKey::new(&cached.fill_tessellation, second.transform)
     );
 }
 
@@ -482,7 +482,7 @@ fn non_finite_projected_triangles_do_not_produce_coverage() {
         .unwrap();
     let mut mesh = CoverageTestMesh::default();
     mesh.build(
-        &cached.tessellation,
+        &cached.fill_tessellation,
         Some(TransformInstance::affine_2d(3e38, 0.0, 0.0, 1.0, 8.0, 8.0)),
         1.0,
         (64, 64),

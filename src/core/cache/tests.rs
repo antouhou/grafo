@@ -104,7 +104,10 @@ fn cache_returns_shared_arc_without_cloning_vertex_buffers() {
     cache.insert_shape(&shape);
 
     let cached = cache.get_shape(&7).unwrap();
-    assert!(Arc::ptr_eq(shape.vertex_buffers(), cached.vertex_buffers()));
+    assert!(Arc::ptr_eq(
+        shape.fill_vertex_buffers(),
+        cached.fill_vertex_buffers()
+    ));
 }
 
 #[test]
@@ -116,12 +119,18 @@ fn cache_promotes_previous_frame_hits_into_current_frame() {
     cache.end_frame();
 
     let cached = cache.get_shape(&7).unwrap();
-    assert!(Arc::ptr_eq(&shape.tessellation, &cached.tessellation));
+    assert!(Arc::ptr_eq(
+        &shape.fill_tessellation,
+        &cached.fill_tessellation
+    ));
 
     cache.end_frame();
 
     let cached = cache.get_shape(&7).unwrap();
-    assert!(Arc::ptr_eq(&shape.tessellation, &cached.tessellation));
+    assert!(Arc::ptr_eq(
+        &shape.fill_tessellation,
+        &cached.fill_tessellation
+    ));
 }
 
 #[test]
@@ -143,12 +152,15 @@ fn cache_refresh_keeps_rendered_geometry_available_next_frame() {
     cache.end_frame();
 
     let cached = cache.get_shape(&7).unwrap();
-    assert!(Arc::ptr_eq(&shape.tessellation, &cached.tessellation));
+    assert!(Arc::ptr_eq(
+        &shape.fill_tessellation,
+        &cached.fill_tessellation
+    ));
 }
 
 fn cached_shape() -> CachedShapeHandle {
     CachedShapeHandle {
-        tessellation: Arc::new(CachedTessellation {
+        fill_tessellation: Arc::new(CachedTessellation {
             is_rect: false,
             boundary_edges: Vec::new(),
             rounded_rect_boundary: None,

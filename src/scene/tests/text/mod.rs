@@ -234,11 +234,14 @@ fn glyph_geometry_is_reused_across_positions_replacements_clears_and_scenes() {
     let glyphs = glyph_ids(&scene, text);
     assert_eq!(glyphs.len(), 3);
     let first = &scene.state.shape(glyphs[0]).unwrap().cached_shape;
-    let geometry = Arc::clone(&first.tessellation);
+    let geometry = Arc::clone(&first.fill_tessellation);
     let geometry_id = first.geometry_id.unwrap();
     let second = scene.state.shape(glyphs[1]).unwrap();
     assert_eq!(second.cached_shape.geometry_id, Some(geometry_id));
-    assert!(Arc::ptr_eq(&geometry, &second.cached_shape.tessellation));
+    assert!(Arc::ptr_eq(
+        &geometry,
+        &second.cached_shape.fill_tessellation
+    ));
     assert_eq!(second.transform.unwrap().col3, [13.0, 10.0, 0.0, 1.0]);
     assert_ne!(
         scene
@@ -265,7 +268,7 @@ fn glyph_geometry_is_reused_across_positions_replacements_clears_and_scenes() {
             .shape(glyph_ids(&scene, text)[0])
             .unwrap()
             .cached_shape
-            .tessellation
+            .fill_tessellation
     ));
     scene.clear();
     let mut reused = Glyphs::new(&[10]);
@@ -282,7 +285,7 @@ fn glyph_geometry_is_reused_across_positions_replacements_clears_and_scenes() {
             .shape(glyph_ids(&shared, text)[0])
             .unwrap()
             .cached_shape
-            .tessellation
+            .fill_tessellation
     ));
 }
 

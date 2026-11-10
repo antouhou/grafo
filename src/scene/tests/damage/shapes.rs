@@ -69,7 +69,7 @@ fn assert_shape_mask_effect_bounds_match_settings(scene: &Scene<TestBackend>, no
         assert_eq!(
             Some(effect.bounds),
             ShapeMaskEffectBounds::new(
-                shape.cached_shape.tessellation.local_bounds,
+                shape.cached_shape.fill_tessellation.local_bounds,
                 effect.config,
                 shape.transform,
                 scene.scale_factor(),

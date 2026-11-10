@@ -45,7 +45,7 @@ fn insert_draw(resources: &mut ShapeExecutionResources, id: usize, shape: &Shape
 fn assert_draw_data(resources: &ShapeExecutionResources, id: usize, shape: &ShapeInstance) {
     let location = resources.draws[&id].geometry_buffer_location.unwrap();
     let geometry = location.geometry_range;
-    let expected = shape.cached_shape.vertex_buffers();
+    let expected = shape.cached_shape.fill_vertex_buffers();
     let vertices = &resources.vertices
         [geometry.vertex_start as usize..geometry.vertex_start as usize + geometry.vertex_count];
     assert_eq!(
@@ -104,7 +104,7 @@ fn tessellation_preserves_large_path_indices_in_boundaries_and_draw_buffers() {
     );
     let vertex_count = triangle_count * 3;
     assert_eq!(
-        shape.cached_shape.tessellation.boundary_edges.len(),
+        shape.cached_shape.fill_tessellation.boundary_edges.len(),
         vertex_count
     );
 
@@ -276,13 +276,13 @@ fn batch_removal_keeps_surviving_geometry_and_instances() {
     assert!(!resources.geometry_ranges.contains_key(&2));
     assert_eq!(
         resources.vertices.len(),
-        shared.cached_shape.vertex_buffers().vertices.len()
-            + 2 * uncached.cached_shape.vertex_buffers().vertices.len()
+        shared.cached_shape.fill_vertex_buffers().vertices.len()
+            + 2 * uncached.cached_shape.fill_vertex_buffers().vertices.len()
     );
     assert_eq!(
         resources.indices.len(),
-        shared.cached_shape.vertex_buffers().indices.len()
-            + 2 * uncached.cached_shape.vertex_buffers().indices.len()
+        shared.cached_shape.fill_vertex_buffers().indices.len()
+            + 2 * uncached.cached_shape.fill_vertex_buffers().indices.len()
     );
     assert_eq!(
         capacities,
@@ -373,8 +373,12 @@ fn batch_replacement_compacts_overwritten_instances_and_preserves_shared_geometr
         );
         assert_eq!(
             resources.vertices.len(),
-            shared.cached_shape.vertex_buffers().vertices.len()
-                + replacement.cached_shape.vertex_buffers().vertices.len()
+            shared.cached_shape.fill_vertex_buffers().vertices.len()
+                + replacement
+                    .cached_shape
+                    .fill_vertex_buffers()
+                    .vertices
+                    .len()
         );
         insert_draw(&mut resources, 1, &empty);
         resources.compact_draw_buffers();

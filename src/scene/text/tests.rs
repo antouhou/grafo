@@ -27,7 +27,7 @@ fn bounds(glyphs: &[(CachedShapeHandle, (f32, f32))]) -> MathRect {
     glyphs
         .iter()
         .map(|(shape, position)| {
-            let [min, max] = shape.local_bounds();
+            let [min, max] = shape.fill_local_bounds();
             MathRect::new(
                 (min.0 + position.0, min.1 + position.1).into(),
                 (max.0 + position.0, max.1 + position.1).into(),
@@ -56,8 +56,8 @@ fn outlines_preserve_multiline_baselines_and_fractional_scroll() {
     let original = buffer_glyphs(&buffer, &mut fonts);
     assert_eq!(original.len(), 2);
     assert!(Arc::ptr_eq(
-        &original[0].0.tessellation,
-        &original[1].0.tessellation
+        &original[0].0.fill_tessellation,
+        &original[1].0.fill_tessellation
     ));
     buffer.set_scroll(Scroll {
         vertical: 0.375,
@@ -72,11 +72,11 @@ fn outlines_preserve_multiline_baselines_and_fractional_scroll() {
     assert_eq!(bounds(&original).min, bounds(&single).min);
     assert!((bounds(&original).max.y - bounds(&single).max.y - 32.0).abs() < 0.001);
     let single = &single[0].0;
-    let [(left, top), (right, bottom)] = single.local_bounds();
+    let [(left, top), (right, bottom)] = single.fill_local_bounds();
     let center = [(left + right) / 2.0, (top + bottom) / 2.0];
-    for triangle in single.vertex_buffers().indices.as_chunks::<3>().0 {
+    for triangle in single.fill_vertex_buffers().indices.as_chunks::<3>().0 {
         let points =
-            triangle.map(|index| single.vertex_buffers().vertices[index as usize].position);
+            triangle.map(|index| single.fill_vertex_buffers().vertices[index as usize].position);
         let crosses = [0, 1, 2].map(|index| {
             let a = points[index];
             let b = points[(index + 1) % 3];

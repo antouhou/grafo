@@ -34,7 +34,7 @@ pub(crate) enum ShapeTessellationError {
 #[derive(Debug, Clone)]
 pub struct CachedShapeHandle {
     /// Fill geometry.
-    pub tessellation: Arc<CachedTessellation>,
+    pub fill_tessellation: Arc<CachedTessellation>,
     /// Geometry for a nonempty stroke.
     pub stroke_tessellation: Option<Arc<CachedTessellation>>,
     /// Content key for the fill and stroke geometry.
@@ -56,7 +56,7 @@ impl CachedShapeHandle {
         }
 
         let cached_shape = Self {
-            tessellation: shape.tessellate_fill(shape_resources)?,
+            fill_tessellation: shape.tessellate_fill(shape_resources)?,
             stroke_tessellation: shape.tessellate_stroke(shape_resources)?,
             geometry_id,
         };
@@ -76,7 +76,7 @@ impl CachedShapeHandle {
         }
 
         let cached_shape = Self {
-            tessellation: PathShape::tessellate_events(
+            fill_tessellation: PathShape::tessellate_events(
                 events,
                 FillRule::NonZero,
                 false,
@@ -92,18 +92,18 @@ impl CachedShapeHandle {
     }
 
     #[inline]
-    pub fn vertex_buffers(&self) -> &Arc<VertexBuffers<CustomVertex, u32>> {
-        &self.tessellation.vertex_buffers
+    pub fn fill_vertex_buffers(&self) -> &Arc<VertexBuffers<CustomVertex, u32>> {
+        &self.fill_tessellation.vertex_buffers
     }
 
     #[inline]
-    pub fn local_bounds(&self) -> [(f32, f32); 2] {
-        self.tessellation.local_bounds
+    pub fn fill_local_bounds(&self) -> [(f32, f32); 2] {
+        self.fill_tessellation.local_bounds
     }
 
     #[inline]
     pub fn texture_mapping_size(&self) -> [f32; 2] {
-        self.tessellation.texture_mapping_size
+        self.fill_tessellation.texture_mapping_size
     }
 }
 
@@ -381,9 +381,9 @@ pub struct PathShape {
     is_rounded_rect: bool,
 }
 
-struct VertexConverter;
+struct FillVertexConverter;
 
-impl FillVertexConstructor<CustomVertex> for VertexConverter {
+impl FillVertexConstructor<CustomVertex> for FillVertexConverter {
     fn new_vertex(&mut self, vertex: FillVertex) -> CustomVertex {
         CustomVertex {
             position: vertex.position().to_array(),
@@ -451,7 +451,7 @@ impl PathShape {
         shape_resources.fill_tessellator.tessellate(
             events,
             &options,
-            &mut BuffersBuilder::new(&mut buffers, VertexConverter),
+            &mut BuffersBuilder::new(&mut buffers, FillVertexConverter),
         )?;
         Ok(finalize_path_tessellation(
             buffers,
