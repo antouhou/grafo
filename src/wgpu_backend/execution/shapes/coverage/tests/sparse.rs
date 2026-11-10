@@ -138,7 +138,7 @@ fn repeated_vertical_rows_share_samples_across_bands() {
     let cached = scene.tessellate(&shape, None).unwrap();
     let mut mesh = CoverageTestMesh::default();
     for height in [160, 31, 160] {
-        mesh.build(&cached.tessellation, None, 1.0, (size.0, height));
+        mesh.build(&cached.fill_tessellation, None, 1.0, (size.0, height));
         for y in 0..height {
             let first = match y {
                 0..=70 => 0.25,
@@ -205,7 +205,7 @@ fn shallow_contours_preserve_coverage_at_clipped_range_ends() {
     let mut mesh = CoverageTestMesh::default();
     for width in [192, 64, 0, 192] {
         mesh.build(
-            &cached.tessellation,
+            &cached.fill_tessellation,
             Some(TransformInstance::scale(1.0, 1.0 / 1024.0)),
             1.0,
             (width, size.1),
