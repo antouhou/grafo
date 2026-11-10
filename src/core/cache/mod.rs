@@ -101,19 +101,20 @@ impl Cache {
         }
     }
 
-    pub(crate) fn get_shape(&mut self, cache_key: &u64) -> Option<CachedShapeHandle> {
-        self.entries.get(cache_key)
+    pub(crate) fn get_shape(&mut self, geometry_id: &u64) -> Option<CachedShapeHandle> {
+        self.entries.get(geometry_id)
     }
 
     pub(crate) fn insert_shape(&mut self, shape: &CachedShapeHandle) {
-        if let Some(cache_key) = shape.geometry_id {
-            self.entries.insert(cache_key, shape.clone());
+        if let Some(geometry_id) = shape.geometry_id {
+            self.entries.insert(geometry_id, shape.clone());
         }
     }
 
     pub(crate) fn refresh_shape(&mut self, shape: &CachedShapeHandle) {
-        if let Some(cache_key) = shape.geometry_id {
-            self.entries.get_or_insert_with(cache_key, || shape.clone());
+        if let Some(geometry_id) = shape.geometry_id {
+            self.entries
+                .get_or_insert_with(geometry_id, || shape.clone());
         }
     }
 
