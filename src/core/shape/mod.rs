@@ -77,7 +77,7 @@ impl CachedShapeHandle {
         }
 
         let cached_shape = Self {
-            fill_tessellation: PathShape::tessellate_events(
+            fill_tessellation: PathShape::tessellate_fill_events(
                 events,
                 FillRule::NonZero,
                 false,
@@ -298,7 +298,7 @@ impl Shape {
         shape_resources: &mut ShapeResources,
     ) -> Result<Arc<CachedTessellation>, TessellationError> {
         match &self.geometry {
-            ShapeGeometry::Path(path_shape) => PathShape::tessellate_events(
+            ShapeGeometry::Path(path_shape) => PathShape::tessellate_fill_events(
                 path_shape.path.iter(),
                 path_shape.fill_rule,
                 path_shape.is_rounded_rect,
@@ -441,7 +441,7 @@ impl PathShape {
         self
     }
 
-    fn tessellate_events(
+    fn tessellate_fill_events(
         events: impl IntoIterator<Item = PathEvent>,
         fill_rule: FillRule,
         is_rounded_rect: bool,
