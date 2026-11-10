@@ -5,18 +5,18 @@ use std::ops::Range;
 
 pub(super) const TILE_SIZE: u32 = 8;
 
-pub(super) fn tile_interval(
-    minimum: f32,
-    maximum: f32,
+pub(super) fn tile_aligned_columns(
+    minimum_x: f32,
+    maximum_x: f32,
     left: u32,
     right: u32,
 ) -> Option<Range<u32>> {
-    if maximum <= left as f32 || minimum >= right as f32 {
+    if maximum_x <= left as f32 || minimum_x >= right as f32 {
         return None;
     }
-    let first = (minimum.max(left as f32) as u32 - left) / TILE_SIZE * TILE_SIZE;
+    let first = (minimum_x.max(left as f32) as u32 - left) / TILE_SIZE * TILE_SIZE;
     // Include the change after the last crossed pixel.
-    let last = (maximum.ceil().min(right as f32) as u32 - left) / TILE_SIZE * TILE_SIZE;
+    let last = (maximum_x.ceil().min(right as f32) as u32 - left) / TILE_SIZE * TILE_SIZE;
     Some(left + first..left + last.saturating_add(TILE_SIZE).min(right - left))
 }
 

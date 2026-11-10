@@ -1,25 +1,25 @@
 use super::scanline::{CoverageSum, RowEdge, ScanEdge, Scanline};
-use super::tiles::{tile_interval, TILE_SIZE};
+use super::tiles::{tile_aligned_columns, TILE_SIZE};
 use crate::core::shape::boundary::PathBoundaryEdge;
 use std::ops::Range;
 
 #[derive(Default)]
-struct VerticalChange {
-    value: CoverageSum,
+struct ActiveAreaSum {
+    signed_area: CoverageSum,
     contribution_count: usize,
 }
 
-impl VerticalChange {
-    fn update(&mut self, value: f64, is_start: bool) {
+impl ActiveAreaSum {
+    fn update(&mut self, signed_area: f64, is_start: bool) {
         if is_start {
             self.contribution_count += 1;
-            self.value.add(value);
+            self.signed_area.add(signed_area);
         } else {
             self.contribution_count -= 1;
             if self.contribution_count == 0 {
-                self.value = CoverageSum::default();
+                self.signed_area = CoverageSum::default();
             } else {
-                self.value.add(-value);
+                self.signed_area.add(-signed_area);
             }
         }
     }
@@ -27,27 +27,27 @@ impl VerticalChange {
 
 #[derive(Default)]
 struct VerticalColumn {
-    change: VerticalChange,
+    change: ActiveAreaSum,
     active_index: usize,
 }
 
 #[derive(Default)]
-struct VerticalScanline {
-    initial_area: VerticalChange,
+struct VerticalEdgeContributions {
+    initial_area: ActiveAreaSum,
     columns: Vec<VerticalColumn>,
     active_columns: Vec<usize>,
 }
 
-impl VerticalScanline {
-    fn update_column(&mut self, offset: usize, value: f64, is_start: bool) {
+impl VerticalEdgeContributions {
+    fn update_column(&mut self, offset: usize, signed_area: f64, is_start: bool) {
         if offset >= self.columns.len() {
             self.columns
                 .resize_with(offset + 1, VerticalColumn::default);
         }
         let column = &mut self.columns[offset];
-        let was_active = column.change.value.total() != 0.0;
-        column.change.update(value, is_start);
-        match (was_active, column.change.value.total() != 0.0) {
+        let was_active = column.change.signed_area.total() != 0.0;
+        column.change.update(signed_area, is_start);
+        match (was_active, column.change.signed_area.total() != 0.0) {
             (false, true) => {
                 column.active_index = self.active_columns.len();
                 self.active_columns.push(offset);
@@ -63,40 +63,47 @@ impl VerticalScanline {
         }
     }
 
-    fn update(&mut self, x: f32, height: f64, is_start: bool, left: u32, right: u32) {
+    fn update(
+        &mut self,
+        x: f32,
+        signed_winding_height: f64,
+        is_start: bool,
+        left: u32,
+        right: u32,
+    ) {
         if x <= left as f32 {
             return;
         }
-        self.initial_area.update(height, is_start);
+        self.initial_area.update(signed_winding_height, is_start);
         if x >= right as f32 {
             return;
         }
         let column = x as u32;
         let fraction = x as f64 - column as f64;
         let offset = (column - left) as usize;
-        self.update_column(offset, (fraction - 1.0) * height, is_start);
+        self.update_column(offset, (fraction - 1.0) * signed_winding_height, is_start);
         if fraction != 0.0 && column + 1 < right {
-            self.update_column(offset + 1, -fraction * height, is_start);
+            self.update_column(offset + 1, -fraction * signed_winding_height, is_start);
         }
     }
 
     fn add_to(&self, scanline: &mut Scanline) {
         scanline.add_vertical_changes(
-            self.initial_area.value.total(),
+            self.initial_area.signed_area.total(),
             self.active_columns
                 .iter()
-                .map(|&offset| (offset, self.columns[offset].change.value.total())),
+                .map(|&offset| (offset, self.columns[offset].change.signed_area.total())),
         );
     }
 }
 
 #[derive(Default)]
-struct ShortEdges {
+struct RowEdgeBuckets {
     rows: Vec<Vec<RowEdge>>,
     populated_rows: Range<u32>,
 }
 
-impl ShortEdges {
+impl RowEdgeBuckets {
     fn prepare(&mut self, height: u32) {
         // Bands consume their row buckets as they advance.
         self.populated_rows = height..0;
@@ -127,7 +134,7 @@ impl ShortEdges {
         self.rows.get(rows.start as usize..end).unwrap_or_default()
     }
 
-    fn first_row(&self, rows: Range<u32>) -> Option<u32> {
+    fn first_populated_row(&self, rows: Range<u32>) -> Option<u32> {
         let start = rows.start.max(self.populated_rows.start);
         let end = rows.end.min(self.populated_rows.end);
         self.rows_in(start..end)
@@ -141,7 +148,7 @@ impl ShortEdges {
 enum EdgeUpdate {
     Vertical {
         x: f32,
-        signed_height: f64,
+        signed_winding_height: f64,
         is_start: bool,
     },
     StartSlopedEdge(usize),
@@ -160,10 +167,10 @@ struct SlopedEdge {
 
 #[derive(Default)]
 pub(super) struct PathSweep {
-    short_edges: ShortEdges,
+    row_edge_buckets: RowEdgeBuckets,
     events: Vec<RowEvent>,
-    next_event: usize,
-    vertical: VerticalScanline,
+    next_event_index: usize,
+    vertical_contributions: VerticalEdgeContributions,
     sloped_edges: Vec<SlopedEdge>,
     active_sloped_edges: Vec<usize>,
 }
@@ -181,7 +188,7 @@ impl PathSweep {
             if span.is_empty() {
                 continue;
             }
-            let signed_height = edge
+            let signed_winding_height = edge
                 .clip(span.start as f32, (span.start + 1) as f32)
                 .signed_winding_height;
             for (row, is_start) in [(span.start, true), (span.end, false)] {
@@ -189,7 +196,7 @@ impl PathSweep {
                     row,
                     update: EdgeUpdate::Vertical {
                         x,
-                        signed_height,
+                        signed_winding_height,
                         is_start,
                     },
                 });
@@ -204,8 +211,8 @@ impl PathSweep {
     ) -> Option<[u32; 4]> {
         self.events.clear();
         self.sloped_edges.clear();
-        self.short_edges.prepare(size.1);
-        self.next_event = 0;
+        self.row_edge_buckets.prepare(size.1);
+        self.next_event_index = 0;
         let mut minimum = [f32::INFINITY; 2];
         let mut maximum = [f32::NEG_INFINITY; 2];
         for edge in edges {
@@ -222,14 +229,14 @@ impl PathSweep {
                 continue;
             }
             let is_vertical = scan_edge.is_vertical();
-            let direct_limit = if is_vertical {
+            let maximum_bucketed_rows = if is_vertical {
                 TILE_SIZE
             } else {
                 4 * TILE_SIZE
             };
             // Bucketing short spans avoids sorting a pair of events for each edge.
-            if end_row - first_row <= direct_limit {
-                self.short_edges.add(&scan_edge, first_row..end_row);
+            if end_row - first_row <= maximum_bucketed_rows {
+                self.row_edge_buckets.add(&scan_edge, first_row..end_row);
                 continue;
             }
             if is_vertical {
@@ -240,11 +247,11 @@ impl PathSweep {
             }
             // Outside the viewport the visible contribution is constant.
             let visible = scan_edge.clip(first_row as f32, end_row as f32);
-            if visible.maximum <= 0.0 {
+            if visible.maximum_x <= 0.0 {
                 continue;
             }
-            if visible.minimum == visible.maximum || visible.minimum >= size.0 as f32 {
-                self.add_vertical_spans(&scan_edge, visible.minimum, first_row..end_row);
+            if visible.minimum_x == visible.maximum_x || visible.minimum_x >= size.0 as f32 {
+                self.add_vertical_spans(&scan_edge, visible.minimum_x, first_row..end_row);
                 continue;
             }
             let index = self.sloped_edges.len();
@@ -268,7 +275,7 @@ impl PathSweep {
         let right = maximum[0].ceil().clamp(0.0, size.0 as f32) as u32;
         let bottom = maximum[1].ceil().clamp(0.0, size.1 as f32) as u32;
         if left >= right || top >= bottom {
-            self.short_edges.clear();
+            self.row_edge_buckets.clear();
             return None;
         }
         self.events.sort_unstable_by_key(|event| event.row);
@@ -276,18 +283,22 @@ impl PathSweep {
     }
 
     fn advance(&mut self, row: u32, left: u32, right: u32) -> Option<u32> {
-        while let Some(event) = self.events.get(self.next_event) {
+        while let Some(event) = self.events.get(self.next_event_index) {
             if event.row > row {
                 return Some(event.row);
             }
             match event.update {
                 EdgeUpdate::Vertical {
                     x,
-                    signed_height,
+                    signed_winding_height,
                     is_start,
-                } => self
-                    .vertical
-                    .update(x, signed_height, is_start, left, right),
+                } => self.vertical_contributions.update(
+                    x,
+                    signed_winding_height,
+                    is_start,
+                    left,
+                    right,
+                ),
                 EdgeUpdate::StartSlopedEdge(index) => {
                     self.sloped_edges[index].active_index = self.active_sloped_edges.len();
                     self.active_sloped_edges.push(index);
@@ -300,7 +311,7 @@ impl PathSweep {
                     }
                 }
             }
-            self.next_event += 1;
+            self.next_event_index += 1;
         }
         None
     }
@@ -316,11 +327,13 @@ impl PathSweep {
             let edge = self.sloped_edges[index]
                 .edge
                 .clip(top as f32, bottom as f32);
-            tile_interval(edge.minimum, edge.maximum, left, right)
+            tile_aligned_columns(edge.minimum_x, edge.maximum_x, left, right)
         };
-        for edges in self.short_edges.rows_in(top..bottom) {
+        for edges in self.row_edge_buckets.rows_in(top..bottom) {
             for edge in edges {
-                let Some(interval) = tile_interval(edge.minimum, edge.maximum, left, right) else {
+                let Some(interval) =
+                    tile_aligned_columns(edge.minimum_x, edge.maximum_x, left, right)
+                else {
                     continue;
                 };
                 if interval == (left..right) {
@@ -331,22 +344,27 @@ impl PathSweep {
                 intervals.push(interval);
             }
         }
-        intervals.extend(self.vertical.active_columns.iter().map(|&offset| {
-            let start = left + (offset as u32 / TILE_SIZE) * TILE_SIZE;
-            start..start.saturating_add(TILE_SIZE).min(right)
-        }));
+        intervals.extend(
+            self.vertical_contributions
+                .active_columns
+                .iter()
+                .map(|&offset| {
+                    let start = left + (offset as u32 / TILE_SIZE) * TILE_SIZE;
+                    start..start.saturating_add(TILE_SIZE).min(right)
+                }),
+        );
         intervals.extend(
             self.active_sloped_edges
                 .iter()
                 .filter_map(|&index| sloped_interval(index)),
         );
         intervals.extend(
-            self.events[self.next_event..]
+            self.events[self.next_event_index..]
                 .iter()
                 .take_while(|event| event.row < bottom)
                 .filter_map(|event| match event.update {
                     // A later event can uncover a previously cancelled change.
-                    EdgeUpdate::Vertical { x, .. } => tile_interval(x, x, left, right),
+                    EdgeUpdate::Vertical { x, .. } => tile_aligned_columns(x, x, left, right),
                     EdgeUpdate::StartSlopedEdge(index) => sloped_interval(index),
                     EdgeUpdate::EndSlopedEdge(_) => None,
                 }),
@@ -375,15 +393,15 @@ impl PathSweep {
         let [left, top, right, bottom] = bounds;
         let mut next_event_row = self
             .events
-            .get(self.next_event)
+            .get(self.next_event_index)
             .map_or(path_bottom, |event| event.row);
         if next_event_row <= top {
             next_event_row = self.advance(top, left, right).unwrap_or(path_bottom);
         }
         let mut next_row = next_event_row;
         if self.active_sloped_edges.is_empty() && next_row >= bottom {
-            if let Some(short_row) = self.short_edges.first_row(top..next_row) {
-                next_row = short_row;
+            if let Some(populated_row) = self.row_edge_buckets.first_populated_row(top..next_row) {
+                next_row = populated_row;
             }
         }
         let has_identical_rows = self.active_sloped_edges.is_empty() && next_row >= bottom;
@@ -398,8 +416,8 @@ impl PathSweep {
             if row >= next_event_row {
                 next_event_row = self.advance(row, left, right).unwrap_or(path_bottom);
             }
-            let short_edges = self.short_edges.rows.get_mut(row as usize);
-            let row_edges = short_edges.as_deref().map_or(&[][..], Vec::as_slice);
+            let row_bucket = self.row_edge_buckets.rows.get_mut(row as usize);
+            let row_edges = row_bucket.as_deref().map_or(&[][..], Vec::as_slice);
             if self.active_sloped_edges.is_empty() {
                 scanline.prepare(row_edges.iter().copied(), left, right, intervals);
             } else {
@@ -415,11 +433,11 @@ impl PathSweep {
                     intervals,
                 );
             }
-            if let Some(edges) = short_edges {
+            if let Some(edges) = row_bucket {
                 edges.clear();
             }
-            if self.vertical.initial_area.contribution_count != 0 {
-                self.vertical.add_to(scanline);
+            if self.vertical_contributions.initial_area.contribution_count != 0 {
+                self.vertical_contributions.add_to(scanline);
             }
         }
         has_identical_rows.then(|| {

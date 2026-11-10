@@ -1,8 +1,8 @@
 use super::tiles::TILE_SIZE;
 use std::ops::Range;
 
-const MIN_RANGE_UPDATE_COLUMNS: u32 = 16;
-const MIN_CONSTANT_DELTA_COLUMNS: u32 = 6;
+const MINIMUM_COLUMNS_FOR_SLOPE_EVENTS: u32 = 16;
+const MINIMUM_COLUMNS_FOR_CONSTANT_SLOPE: u32 = 6;
 
 fn clamp_coverage(area: f64) -> f32 {
     // NaN and roundoff near zero leave the stencil empty.
@@ -13,10 +13,14 @@ fn clamp_coverage(area: f64) -> f32 {
     }
 }
 
-fn fill_point_changes(changes: &[f64], values: &mut [f32], mut area: f64) -> f64 {
-    for (&change, value) in changes.iter().zip(values) {
-        area += change;
-        *value = clamp_coverage(area);
+fn fill_coverage_from_column_deltas(
+    column_deltas: &[f64],
+    coverage_values: &mut [f32],
+    mut area: f64,
+) -> f64 {
+    for (&delta, coverage) in column_deltas.iter().zip(coverage_values) {
+        area += delta;
+        *coverage = clamp_coverage(area);
     }
     area
 }
@@ -48,29 +52,29 @@ impl CoverageSum {
 
 #[derive(Clone, Copy)]
 pub(super) struct RowEdge {
-    pub minimum: f32,
-    pub maximum: f32,
+    pub minimum_x: f32,
+    pub maximum_x: f32,
     pub signed_winding_height: f64,
 }
 
 impl RowEdge {
     fn coverage(&self, pixel: f64, inverse_width: f64) -> f64 {
-        let a = self.minimum as f64 - pixel;
-        let b = self.maximum as f64 - pixel;
-        let area = if a >= 1.0 {
+        let minimum_x_offset = self.minimum_x as f64 - pixel;
+        let maximum_x_offset = self.maximum_x as f64 - pixel;
+        let area = if minimum_x_offset >= 1.0 {
             1.0
-        } else if b <= 0.0 {
+        } else if maximum_x_offset <= 0.0 {
             0.0
-        } else if a >= 0.0 && b <= 1.0 {
-            (a + b) * 0.5
-        } else if a < 0.0 {
-            if b <= 1.0 {
-                b * b * 0.5 * inverse_width
+        } else if minimum_x_offset >= 0.0 && maximum_x_offset <= 1.0 {
+            (minimum_x_offset + maximum_x_offset) * 0.5
+        } else if minimum_x_offset < 0.0 {
+            if maximum_x_offset <= 1.0 {
+                maximum_x_offset * maximum_x_offset * 0.5 * inverse_width
             } else {
-                (b - 0.5) * inverse_width
+                (maximum_x_offset - 0.5) * inverse_width
             }
         } else {
-            1.0 - (1.0 - a) * (1.0 - a) * 0.5 * inverse_width
+            1.0 - (1.0 - minimum_x_offset) * (1.0 - minimum_x_offset) * 0.5 * inverse_width
         };
         area * self.signed_winding_height
     }
@@ -80,7 +84,7 @@ pub(super) struct ScanEdge {
     start: [f32; 2],
     pub top: f32,
     pub bottom: f32,
-    slope: f64,
+    x_per_y: f64,
     signed_winding: f64,
 }
 
@@ -94,31 +98,31 @@ impl ScanEdge {
             start,
             top: start[1].min(end[1]),
             bottom: start[1].max(end[1]),
-            slope: (end[0] as f64 - start[0] as f64) / height as f64,
+            x_per_y: (end[0] as f64 - start[0] as f64) / height as f64,
             signed_winding: (height as f64).signum() * winding as f64,
         })
     }
 
     pub(super) fn is_vertical(&self) -> bool {
-        self.slope == 0.0
+        self.x_per_y == 0.0
     }
 
     pub(super) fn clip(&self, top: f32, bottom: f32) -> RowEdge {
         let low = self.top.max(top) as f64;
         let high = self.bottom.min(bottom) as f64;
-        let x = |y| (self.start[0] as f64 + (y - self.start[1] as f64) * self.slope) as f32;
+        let x = |y| (self.start[0] as f64 + (y - self.start[1] as f64) * self.x_per_y) as f32;
         let first = x(low);
         let second = x(high);
         RowEdge {
-            minimum: first.min(second),
-            maximum: first.max(second),
+            minimum_x: first.min(second),
+            maximum_x: first.max(second),
             signed_winding_height: (high - low) * self.signed_winding,
         }
     }
 }
 
 #[derive(Default)]
-struct LinearChanges {
+struct ScanlineSlopeChanges {
     slope_changes: Vec<CoverageSum>,
     // A bit per column marks the slope changes to read in each tile.
     slope_event_masks: Vec<u8>,
@@ -126,7 +130,7 @@ struct LinearChanges {
     is_active: bool,
 }
 
-impl LinearChanges {
+impl ScanlineSlopeChanges {
     fn prepare(&mut self, left: u32, right: u32, intervals: &[Range<u32>]) {
         let width = (right - left) as usize;
         if self.slope_changes.len() < width {
@@ -170,7 +174,7 @@ impl LinearChanges {
         let mut position = 0.0;
         if event_mask == 0 {
             if slope == 0.0 {
-                return fill_point_changes(changes, values, area);
+                return fill_coverage_from_column_deltas(changes, values, area);
             }
             for (&change, value) in changes.iter().zip(values) {
                 area += change;
@@ -201,7 +205,7 @@ pub(super) struct Scanline {
     changes: Vec<f64>,
     left: u32,
     area: f64,
-    linear: LinearChanges,
+    slope_changes: ScanlineSlopeChanges,
 }
 
 impl Scanline {
@@ -221,21 +225,21 @@ impl Scanline {
                 .fill(0.0);
         }
         self.area = 0.0;
-        self.linear.is_active = false;
+        self.slope_changes.is_active = false;
         for edge in edges {
-            let minimum = edge.minimum;
-            let maximum = edge.maximum;
-            if maximum <= left as f32 {
+            let minimum_x = edge.minimum_x;
+            let maximum_x = edge.maximum_x;
+            if maximum_x <= left as f32 {
                 continue;
             }
-            if minimum >= right as f32 {
+            if minimum_x >= right as f32 {
                 self.area += edge.signed_winding_height;
                 continue;
             }
-            if minimum == maximum {
-                let column = minimum as u32;
+            if minimum_x == maximum_x {
+                let column = minimum_x as u32;
                 let offset = (column - left) as usize;
-                let partial_area = (minimum as f64 - column as f64) * edge.signed_winding_height;
+                let partial_area = (minimum_x as f64 - column as f64) * edge.signed_winding_height;
                 self.area += edge.signed_winding_height;
                 self.changes[offset] += partial_area - edge.signed_winding_height;
                 if column + 1 < right && partial_area != 0.0 {
@@ -243,17 +247,17 @@ impl Scanline {
                 }
                 continue;
             }
-            let width = maximum as f64 - minimum as f64;
+            let width = maximum_x as f64 - minimum_x as f64;
             let inverse_width = 1.0 / width;
-            let first = minimum.floor().max(left as f32) as u32;
-            let end = maximum.ceil().min(right as f32) as u32;
-            let previous = if minimum >= left as f32 {
+            let first = minimum_x.floor().max(left as f32) as u32;
+            let end = maximum_x.ceil().min(right as f32) as u32;
+            let previous = if minimum_x >= left as f32 {
                 edge.signed_winding_height
             } else {
                 edge.coverage(left as f64 - 1.0, inverse_width)
             };
             self.area += previous;
-            let previous = if end - first >= MIN_CONSTANT_DELTA_COLUMNS {
+            let previous = if end - first >= MINIMUM_COLUMNS_FOR_CONSTANT_SLOPE {
                 self.add_crossed_columns(
                     edge,
                     inverse_width,
@@ -300,8 +304,8 @@ impl Scanline {
         previous: f64,
         intervals: &[Range<u32>],
     ) -> f64 {
-        let first_full_column = (edge.minimum.ceil() as u32).max(self.left);
-        let last_full_column = (edge.maximum.floor() as u32).min(right) - 1;
+        let first_full_column = (edge.minimum_x.ceil() as u32).max(self.left);
+        let last_full_column = (edge.maximum_x.floor() as u32).min(right) - 1;
         let leading = self.add_boundary_changes(
             edge,
             inverse_width,
@@ -312,12 +316,12 @@ impl Scanline {
         let slope = -edge.signed_winding_height * inverse_width;
         let first = (first_full_column - self.left) as usize;
         let last = (last_full_column - self.left) as usize;
-        if columns.end - columns.start >= MIN_RANGE_UPDATE_COLUMNS {
-            if !self.linear.is_active {
-                self.linear.prepare(self.left, right, intervals);
+        if columns.end - columns.start >= MINIMUM_COLUMNS_FOR_SLOPE_EVENTS {
+            if !self.slope_changes.is_active {
+                self.slope_changes.prepare(self.left, right, intervals);
             }
-            self.linear.add_event(first, slope);
-            self.linear.add_event(last, -slope);
+            self.slope_changes.add_event(first, slope);
+            self.slope_changes.add_event(last, -slope);
         } else {
             // Small runs fit in the point buffer without slope events.
             for change in &mut self.changes[first + 1..=last] {
@@ -351,10 +355,11 @@ impl Scanline {
     pub(super) fn fill_coverage(&mut self, left: u32, values: &mut [f32]) {
         let offset = (left - self.left) as usize;
         let changes = &self.changes[offset..offset + values.len()];
-        self.area = if self.linear.is_active {
-            self.linear.fill_tile(offset, changes, values, self.area)
+        self.area = if self.slope_changes.is_active {
+            self.slope_changes
+                .fill_tile(offset, changes, values, self.area)
         } else {
-            fill_point_changes(changes, values, self.area)
+            fill_coverage_from_column_deltas(changes, values, self.area)
         };
     }
 

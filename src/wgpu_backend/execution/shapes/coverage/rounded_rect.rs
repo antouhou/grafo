@@ -1,6 +1,6 @@
 use super::projection::Projection;
 use super::scanline::{RowEdge, ScanEdge, Scanline};
-use super::tiles::tile_interval;
+use super::tiles::tile_aligned_columns;
 use crate::core::cache::CachedTessellation;
 use crate::core::shape::boundary::PathBoundaryEdge;
 use std::ops::Range;
@@ -44,14 +44,14 @@ impl BoundaryChain {
     fn interval(&mut self, bounds: [u32; 4]) -> Option<Range<u32>> {
         let [left, top, right, bottom] = bounds;
         self.advance(top as f32);
-        let mut minimum = f32::INFINITY;
-        let mut maximum = f32::NEG_INFINITY;
+        let mut minimum_x = f32::INFINITY;
+        let mut maximum_x = f32::NEG_INFINITY;
         for edge in self.intersecting(bottom as f32) {
             let row = edge.clip(top as f32, bottom as f32);
-            minimum = minimum.min(row.minimum);
-            maximum = maximum.max(row.maximum);
+            minimum_x = minimum_x.min(row.minimum_x);
+            maximum_x = maximum_x.max(row.maximum_x);
         }
-        tile_interval(minimum, maximum, left, right)
+        tile_aligned_columns(minimum_x, maximum_x, left, right)
     }
 
     fn row(&mut self, top: u32) -> impl Iterator<Item = RowEdge> + '_ {
