@@ -6,6 +6,9 @@ use crate::core::{Size, UnsignedPhysicalRect, Viewport};
 use ahash::{HashMap, HashSet};
 use rstar::{RTree, RTreeObject, AABB};
 use std::ops::ControlFlow;
+use traversal::DamageTraversal;
+
+mod traversal;
 
 fn envelope(bounds: UnsignedPhysicalRect) -> AABB<[f64; 2]> {
     AABB::from_corners(
@@ -28,7 +31,28 @@ pub(super) struct EffectDamageEntry {
     pub target_region: Option<UnsignedPhysicalRect>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct EffectDamageTrigger {
+    entry: EffectDamageEntry,
+    region: UnsignedPhysicalRect,
+}
+
 impl EffectDamageEntry {
+    fn triggers(self) -> impl Iterator<Item = EffectDamageTrigger> {
+        let target = (self.kind == EffectDamageKind::Backdrop
+            && self.target_region != self.capture_region)
+            .then_some(self.target_region)
+            .flatten();
+        [self.capture_region, target]
+            .into_iter()
+            .flatten()
+            .filter(|region| !region.is_empty())
+            .map(move |region| EffectDamageTrigger {
+                entry: self,
+                region,
+            })
+    }
+
     pub(super) fn backdrop(
         node_id: usize,
         node: &DrawTreeNode,
@@ -80,16 +104,11 @@ impl EffectDamageEntry {
     }
 }
 
-impl RTreeObject for EffectDamageEntry {
+impl RTreeObject for EffectDamageTrigger {
     type Envelope = AABB<[f64; 2]>;
 
     fn envelope(&self) -> Self::Envelope {
-        let bounds = match (self.capture_region, self.target_region) {
-            (Some(capture), Some(target)) => capture.union(&target),
-            (Some(region), None) | (None, Some(region)) => region,
-            (None, None) => UnsignedPhysicalRect::zero(),
-        };
-        envelope(bounds)
+        envelope(self.region)
     }
 }
 
@@ -97,8 +116,8 @@ impl RTreeObject for EffectDamageEntry {
 #[derive(Default)]
 pub(super) struct EffectDamage {
     entries: HashMap<(EffectDamageKind, usize), EffectDamageEntry>,
-    tree: RTree<EffectDamageEntry>,
-    query_regions: Vec<UnsignedPhysicalRect>,
+    tree: RTree<EffectDamageTrigger>,
+    traversal: DamageTraversal,
     processed_effects: HashSet<(EffectDamageKind, usize)>,
 }
 
@@ -125,14 +144,18 @@ impl EffectDamage {
         }
         self.remove(kind, node_id);
         if let Some(entry) = entry {
-            self.tree.insert(entry);
+            for trigger in entry.triggers() {
+                self.tree.insert(trigger);
+            }
             self.entries.insert(key, entry);
         }
     }
 
     pub(super) fn remove(&mut self, kind: EffectDamageKind, node_id: usize) {
         if let Some(entry) = self.entries.remove(&(kind, node_id)) {
-            self.tree.remove(&entry);
+            for trigger in entry.triggers() {
+                self.tree.remove(&trigger);
+            }
         }
     }
 
@@ -144,14 +167,16 @@ impl EffectDamage {
                 .map(|entry| ((entry.kind, entry.node_id), entry)),
         );
         for entry in self.entries.values() {
-            self.tree.insert(*entry);
+            for trigger in entry.triggers() {
+                self.tree.insert(trigger);
+            }
         }
     }
 
     pub(super) fn clear(&mut self) {
-        self.query_regions.clear();
+        self.traversal.clear();
         self.processed_effects.clear();
-        if self.entries.is_empty() {
+        if self.is_empty() {
             return;
         }
         self.entries.clear();
@@ -168,70 +193,40 @@ impl EffectDamage {
         physical_size: Size,
         dirty_bounds: Option<UnsignedPhysicalRect>,
     ) -> Option<UnsignedPhysicalRect> {
-        self.query_regions.clear();
         self.processed_effects.clear();
         let viewport = UnsignedPhysicalRect::from_size(physical_size);
-        let mut bounds = dirty_bounds?.intersection(&viewport)?;
-        if self.is_empty() || bounds == viewport {
+        let bounds = dirty_bounds?.intersection(&viewport)?;
+        if self.tree.size() == 0 || bounds == viewport {
             return Some(bounds);
         }
-        self.query_regions.push(bounds);
-        let mut next_region = 0;
-        while let Some(&query) = self.query_regions.get(next_region) {
-            next_region += 1;
-            let previous = bounds;
-            let _ = self
-                .tree
-                .locate_in_envelope_intersecting_int(envelope(query), |entry| {
-                    let target_trigger = (entry.kind == EffectDamageKind::Backdrop)
-                        .then_some(entry.target_region)
-                        .flatten();
-                    let is_affected = [entry.capture_region, target_trigger]
-                        .into_iter()
-                        .flatten()
-                        .any(|region| region.intersects(&bounds));
-                    if is_affected && self.processed_effects.insert((entry.kind, entry.node_id)) {
-                        let capture = (entry.kind == EffectDamageKind::Backdrop)
-                            .then_some(entry.capture_region)
-                            .flatten();
-                        for region in [capture, entry.target_region].into_iter().flatten() {
-                            bounds = bounds.union(&region);
-                        }
+        let has_trigger = self
+            .tree
+            .locate_in_envelope_intersecting_int(envelope(bounds), |trigger| {
+                if trigger.region.intersects(&bounds) {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            })
+            .is_break();
+        if !has_trigger {
+            return Some(bounds);
+        }
+        Some(
+            self.traversal
+                .expand(&self.tree, viewport, bounds, |trigger, bounds| {
+                    let entry = trigger.entry;
+                    if !self.processed_effects.insert((entry.kind, entry.node_id)) {
+                        return;
                     }
-                    ControlFlow::<()>::Continue(())
-                });
-            if bounds == viewport {
-                break;
-            }
-            if bounds != previous {
-                self.enqueue_added_regions(previous, bounds);
-            }
-        }
-        Some(bounds)
-    }
-
-    fn enqueue_added_regions(
-        &mut self,
-        previous: UnsignedPhysicalRect,
-        current: UnsignedPhysicalRect,
-    ) {
-        // Query all newly covered pixels, including gaps filled by the bounding union.
-        for strip in [
-            UnsignedPhysicalRect::new(current.min, (current.max.x, previous.min.y).into()),
-            UnsignedPhysicalRect::new((current.min.x, previous.max.y).into(), current.max),
-            UnsignedPhysicalRect::new(
-                (current.min.x, previous.min.y).into(),
-                (previous.min.x, previous.max.y).into(),
-            ),
-            UnsignedPhysicalRect::new(
-                (previous.max.x, previous.min.y).into(),
-                (current.max.x, previous.max.y).into(),
-            ),
-        ] {
-            if !strip.is_empty() {
-                self.query_regions.push(strip);
-            }
-        }
+                    let capture = (entry.kind == EffectDamageKind::Backdrop)
+                        .then_some(entry.capture_region)
+                        .flatten();
+                    for region in [capture, entry.target_region].into_iter().flatten() {
+                        *bounds = bounds.union(&region);
+                    }
+                }),
+        )
     }
 }
 

@@ -29,7 +29,7 @@ fn assert_matching_nodes(damage: &EffectDamage, query: UnsignedPhysicalRect, exp
     let mut nodes = [0; 4];
     let mut count = 0;
     for entry in damage.tree.locate_in_envelope_intersecting(envelope(query)) {
-        nodes[count] = entry.node_id;
+        nodes[count] = entry.entry.node_id;
         count += 1;
     }
     let nodes = &mut nodes[..count];
@@ -63,19 +63,9 @@ fn capture(bounds: [(f32, f32); 2], viewport: Viewport) -> Option<CaptureRegion>
     )
 }
 
-fn assert_disjoint_regions(regions: &[UnsignedPhysicalRect]) {
-    for (index, region) in regions.iter().enumerate() {
-        assert!(!region.is_empty());
-        for previous in &regions[..index] {
-            assert!(!region.intersects(previous));
-        }
-    }
-}
-
-fn storage_capacities(damage: &EffectDamage) -> [usize; 3] {
+fn storage_capacities(damage: &EffectDamage) -> [usize; 2] {
     [
         damage.entries.capacity(),
-        damage.query_regions.capacity(),
         damage.processed_effects.capacity(),
     ]
 }
@@ -193,6 +183,20 @@ fn damage_in_the_gap_between_capture_and_target_does_not_expand() {
 }
 
 #[test]
+fn spatial_queries_skip_capture_target_gaps_and_content_outputs() {
+    let mut content = entry(2, rect((0, 0), (16, 16)), rect((128, 0), (144, 16)));
+    content.kind = EffectDamageKind::Content;
+    let mut damage = EffectDamage::default();
+    damage.rebuild([
+        entry(1, rect((0, 32), (16, 48)), rect((128, 32), (144, 48))),
+        content,
+    ]);
+    assert_matching_nodes(&damage, rect((64, 0), (65, 48)), &[]);
+    assert_matching_nodes(&damage, content.target_region.unwrap(), &[]);
+    assert_matching_nodes(&damage, content.capture_region.unwrap(), &[2]);
+}
+
+#[test]
 fn unrelated_damage_in_the_same_cell_does_not_expand() {
     let mut damage = EffectDamage::default();
     damage.replace(
@@ -254,7 +258,7 @@ fn growth_reaches_dependencies_inside_the_new_bounding_rectangle_gap() {
 }
 
 #[test]
-fn long_chains_query_disjoint_regions_and_reuse_worklist_storage() {
+fn long_chains_reach_all_dependencies_and_reuse_storage() {
     let mut damage = EffectDamage::default();
     damage.rebuild((0..64).rev().map(|node| {
         let bounds = rect((node * 64, 140), (((node + 1) * 64 + 1).min(4096), 180));
@@ -264,19 +268,17 @@ fn long_chains_query_disjoint_regions_and_reuse_worklist_storage() {
     let expected = Some(rect((0, 140), (4096, 180)));
     assert_eq!(damage.expand(Size::new(8192, 512), initial), expected);
     assert_eq!(damage.processed_effects.len(), 64);
-    assert_disjoint_regions(&damage.query_regions);
     let capacities = storage_capacities(&damage);
     for _ in 0..3 {
         assert_eq!(damage.expand(Size::new(8192, 512), None), None);
         assert_eq!(damage.expand(Size::new(8192, 512), initial), expected);
         assert_eq!(storage_capacities(&damage), capacities);
         assert_eq!(damage.processed_effects.len(), 64);
-        assert_disjoint_regions(&damage.query_regions);
     }
 }
 
 #[test]
-fn expansion_in_all_directions_queries_newly_covered_regions_without_overlap() {
+fn expansion_in_all_directions_reaches_all_dependencies() {
     let mut damage = EffectDamage::default();
     damage.rebuild(
         [
@@ -292,7 +294,6 @@ fn expansion_in_all_directions_queries_newly_covered_regions_without_overlap() {
         Some(rect((0, 0), (900, 600)))
     );
     assert_eq!(damage.processed_effects.len(), 4);
-    assert_disjoint_regions(&damage.query_regions);
 }
 
 #[test]
@@ -354,7 +355,6 @@ fn group_and_backdrop_entries_on_the_same_node_expand_in_both_insertion_orders()
             Some(rect((10, 10), (105, 50)))
         );
         assert_eq!(damage.processed_effects.len(), 3);
-        assert_disjoint_regions(&damage.query_regions);
         let capacities = storage_capacities(&damage);
         damage.expand(Size::new(128, 128), Some(rect((26, 26), (28, 28))));
         assert_eq!(storage_capacities(&damage), capacities);
