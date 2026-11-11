@@ -1,7 +1,7 @@
 use super::cache::CoverageKey;
-use super::geometry::{CoverageBuilder, SOLID_COVERAGE, TILE_SIZE};
+use super::geometry::{CoverageBuilder, SOLID_COVERAGE};
 use super::placement::CoveragePlacement;
-use super::tiles::{CoverageDrawRange, CoverageGeometry};
+use super::tiles::{CoverageDrawRange, CoverageGeometry, TILE_SIZE};
 use crate::core::cache::CachedTessellation;
 use crate::core::cache::FrameCache;
 use crate::core::vertex::InstanceTransform;

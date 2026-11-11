@@ -1,15 +1,17 @@
+use super::path_sweep::PathSweep;
 use super::projection::Projection;
 use super::rectangles;
 use super::rounded_rect::RoundedRectSweep;
-use super::scanline::{RowEdge, Scanline};
-use super::tiles::{CoverageDrawMetadata, CoverageDrawRange, CoverageGeometry, CoverageTile};
+use super::scanline::Scanline;
+use super::tiles::{
+    CoverageDrawMetadata, CoverageDrawRange, CoverageGeometry, CoverageTile, TILE_SIZE,
+};
 use crate::core::cache::CachedTessellation;
 use crate::core::shape::boundary::{PathBoundaryBuilder, PathBoundaryEdge};
 use crate::core::vertex::InstanceTransform;
 use crate::core::UnsignedPhysicalRect;
 use std::ops::Range;
 
-pub(super) const TILE_SIZE: u32 = 8;
 pub(super) const SOLID_COVERAGE: u32 = u32::MAX;
 
 enum TileCoverage {
@@ -24,15 +26,18 @@ pub(crate) struct CoverageBuilder {
     boundary_edges: Vec<PathBoundaryEdge>,
     boundary_builder: PathBoundaryBuilder,
     tile_intervals: Vec<Range<u32>>,
-    row_edges: Vec<Vec<RowEdge>>,
+    path_sweep: PathSweep,
     scanlines: [Scanline; TILE_SIZE as usize],
     tile_values: [[f32; TILE_SIZE as usize]; TILE_SIZE as usize],
-    populated_rows: Range<usize>,
     rounded_rect: RoundedRectSweep,
     has_identical_rows: bool,
 }
 
 impl CoverageBuilder {
+    pub(super) fn trim_row_buckets(&mut self, height: u32) {
+        self.path_sweep.trim_row_buckets(height);
+    }
+
     fn collect_boundary(&mut self, tessellation: &CachedTessellation, projection: &Projection) {
         self.boundary_edges.clear();
         if let Some(orientation) = projection.boundary_orientation {
@@ -64,65 +69,6 @@ impl CoverageBuilder {
         ));
     }
 
-    fn collect_rows(&mut self, size: (u32, u32)) -> Option<[u32; 4]> {
-        self.row_edges.resize_with(size.1 as usize, Vec::new);
-        let previous_end = self.populated_rows.end.min(self.row_edges.len());
-        let previous_start = self.populated_rows.start.min(previous_end);
-        for row in &mut self.row_edges[previous_start..previous_end] {
-            row.clear();
-        }
-        self.populated_rows = self.row_edges.len()..0;
-        let mut bounds = [
-            f32::INFINITY,
-            f32::INFINITY,
-            f32::NEG_INFINITY,
-            f32::NEG_INFINITY,
-        ];
-        for edge in &self.boundary_edges {
-            for position in [edge.start, edge.end] {
-                bounds[0] = bounds[0].min(position[0]);
-                bounds[1] = bounds[1].min(position[1]);
-                bounds[2] = bounds[2].max(position[0]);
-                bounds[3] = bounds[3].max(position[1]);
-            }
-            let height = edge.end[1] - edge.start[1];
-            if height == 0.0 {
-                continue;
-            }
-            let first_row = edge.start[1].min(edge.end[1]).floor().max(0.0) as u32;
-            let last_row = edge.start[1]
-                .max(edge.end[1])
-                .ceil()
-                .clamp(0.0, size.1 as f32) as u32;
-            if first_row < last_row {
-                self.populated_rows.start = self.populated_rows.start.min(first_row as usize);
-                self.populated_rows.end = self.populated_rows.end.max(last_row as usize);
-            }
-            for row in first_row..last_row {
-                let low = edge.start[1].min(edge.end[1]).max(row as f32);
-                let high = edge.start[1].max(edge.end[1]).min(row as f32 + 1.0);
-                let slope = (edge.end[0] as f64 - edge.start[0] as f64) / height as f64;
-                let x0 =
-                    (edge.start[0] as f64 + (low as f64 - edge.start[1] as f64) * slope) as f32;
-                let x1 =
-                    (edge.start[0] as f64 + (high as f64 - edge.start[1] as f64) * slope) as f32;
-                self.row_edges[row as usize].push(RowEdge {
-                    x0,
-                    x1,
-                    signed_winding_height: (high as f64 - low as f64).copysign(height as f64)
-                        * edge.winding as f64,
-                });
-            }
-        }
-        let bounds = [
-            bounds[0].floor().clamp(0.0, size.0 as f32) as u32,
-            bounds[1].floor().clamp(0.0, size.1 as f32) as u32,
-            bounds[2].ceil().clamp(0.0, size.0 as f32) as u32,
-            bounds[3].ceil().clamp(0.0, size.1 as f32) as u32,
-        ];
-        (bounds[0] < bounds[2] && bounds[1] < bounds[3]).then_some(bounds)
-    }
-
     fn append_tile(
         &mut self,
         geometry: &mut CoverageGeometry,
@@ -141,39 +87,6 @@ impl CoverageBuilder {
         } else {
             self.boundary_tiles.push(tile);
         }
-    }
-
-    fn collect_tile_intervals(&mut self, bounds: [u32; 4]) {
-        let [left, top, right, bottom] = bounds;
-        self.tile_intervals.clear();
-        for row in &self.row_edges[top as usize..bottom as usize] {
-            for edge in row {
-                let minimum = edge.x0.min(edge.x1);
-                let maximum = edge.x0.max(edge.x1);
-                if maximum <= left as f32 || minimum >= right as f32 {
-                    continue;
-                }
-                let first = (minimum.max(left as f32) as u32 - left) / TILE_SIZE;
-                // The coverage change after the last crossed pixel must be swept too.
-                let last = (maximum.ceil().min(right as f32) as u32 - left) / TILE_SIZE;
-                self.tile_intervals
-                    .push(left + first * TILE_SIZE..(left + (last + 1) * TILE_SIZE).min(right));
-            }
-        }
-        self.tile_intervals
-            .sort_unstable_by_key(|interval| interval.start);
-        let mut count = 0;
-        for index in 0..self.tile_intervals.len() {
-            let interval = self.tile_intervals[index].clone();
-            if count > 0 && self.tile_intervals[count - 1].end >= interval.start {
-                self.tile_intervals[count - 1].end =
-                    self.tile_intervals[count - 1].end.max(interval.end);
-            } else {
-                self.tile_intervals[count] = interval;
-                count += 1;
-            }
-        }
-        self.tile_intervals.truncate(count);
     }
 
     fn classify_constant_rows(&self, height: usize) -> Option<TileCoverage> {
@@ -195,7 +108,6 @@ impl CoverageBuilder {
 
     fn tile_coverage(&mut self, bounds: [u32; 4], has_edges: bool) -> TileCoverage {
         let [left, top, right, bottom] = bounds;
-        self.tile_values.fill([0.0; TILE_SIZE as usize]);
         let width = (right - left) as usize;
         let height = (bottom - top) as usize;
         let row_count = if self.has_identical_rows { 1 } else { height };
@@ -207,11 +119,7 @@ impl CoverageBuilder {
                 values.fill(row.coverage());
             }
         }
-        if self.has_identical_rows {
-            let row = self.tile_values[0];
-            self.tile_values[1..height].fill(row);
-        }
-        let values = self.tile_values[..height]
+        let values = self.tile_values[..row_count]
             .iter()
             .flat_map(|row| &row[..width]);
         if values.clone().all(|&value| value == 1.0) {
@@ -219,6 +127,15 @@ impl CoverageBuilder {
         } else if values.clone().all(|&value| value == 0.0) {
             TileCoverage::Empty
         } else {
+            if width < TILE_SIZE as usize {
+                for row in &mut self.tile_values[..row_count] {
+                    row[width..].fill(0.0);
+                }
+            }
+            if self.has_identical_rows {
+                let row = self.tile_values[0];
+                self.tile_values[1..height].fill(row);
+            }
             TileCoverage::Partial
         }
     }
@@ -272,6 +189,65 @@ impl CoverageBuilder {
         }
     }
 
+    fn append_band(&mut self, bounds: [u32; 4], geometry: &mut CoverageGeometry, repeat_end: u32) {
+        let [left, top, right, bottom] = bounds;
+        let solid_tile_start = geometry.tiles.len();
+        let boundary_tile_start = self.boundary_tiles.len();
+        let mut solid_start = None;
+        let mut cursor = left;
+        for index in 0..self.tile_intervals.len() {
+            let interval = self.tile_intervals[index].clone();
+            // Coverage between boundary intervals is constant across each pixel row.
+            if cursor < interval.start {
+                self.append_strip(
+                    [cursor, top, interval.start, bottom],
+                    false,
+                    geometry,
+                    &mut solid_start,
+                );
+            }
+            self.append_strip(
+                [interval.start, top, interval.end, bottom],
+                true,
+                geometry,
+                &mut solid_start,
+            );
+            cursor = interval.end;
+        }
+        if cursor < right {
+            self.append_strip(
+                [cursor, top, right, bottom],
+                false,
+                geometry,
+                &mut solid_start,
+            );
+        }
+        if let Some(start) = solid_start {
+            self.append_tile(geometry, [start, top, right, bottom], SOLID_COVERAGE);
+        }
+
+        if repeat_end <= bottom {
+            return;
+        }
+        for tile in &mut geometry.tiles[solid_tile_start..] {
+            tile.max[1] = repeat_end;
+        }
+        let boundary_tiles = boundary_tile_start..self.boundary_tiles.len();
+        if boundary_tiles.is_empty() {
+            return;
+        }
+        // Repeated boundary tiles can reference the same rows of samples.
+        for top in (bottom..repeat_end).step_by(TILE_SIZE as usize) {
+            let bottom = top.saturating_add(TILE_SIZE).min(repeat_end);
+            for index in boundary_tiles.clone() {
+                let mut tile = self.boundary_tiles[index];
+                tile.min[1] = top;
+                tile.max[1] = bottom;
+                self.boundary_tiles.push(tile);
+            }
+        }
+    }
+
     pub(crate) fn build(
         &mut self,
         tessellation: &CachedTessellation,
@@ -288,7 +264,6 @@ impl CoverageBuilder {
             bounds: UnsignedPhysicalRect::zero(),
         };
         let local_bounds = tessellation.local_bounds;
-        self.boundary_tiles.clear();
         let Some(projection) = Projection::new(transform, scale, local_bounds) else {
             return coverage_draw;
         };
@@ -297,10 +272,11 @@ impl CoverageBuilder {
                 return rectangle;
             }
         }
+        self.boundary_tiles.clear();
         let rounded_bounds = self.rounded_rect.prepare(tessellation, &projection, size);
         let bounds = rounded_bounds.or_else(|| {
             self.collect_boundary(tessellation, &projection);
-            self.collect_rows(size)
+            self.path_sweep.prepare(&self.boundary_edges, size)
         });
         let Some([left, top, right, bottom]) = bounds else {
             return coverage_draw;
@@ -313,61 +289,28 @@ impl CoverageBuilder {
         geometry
             .projections
             .push(projection.mapping([left, top], local_bounds));
-        for top in (top..bottom).step_by(TILE_SIZE as usize) {
-            let bottom = (top + TILE_SIZE).min(bottom);
-            self.has_identical_rows = false;
-            if rounded_bounds.is_some() {
-                self.has_identical_rows = self.rounded_rect.prepare_band(
-                    [left, top, right, bottom],
-                    &mut self.tile_intervals,
-                    &mut self.scanlines[..(bottom - top) as usize],
-                );
+        let mut band_top = top;
+        while band_top < bottom {
+            let band_bottom = band_top.saturating_add(TILE_SIZE).min(bottom);
+            let band = [left, band_top, right, band_bottom];
+            let scanlines = &mut self.scanlines[..(band_bottom - band_top) as usize];
+            let repeat_end = if rounded_bounds.is_some() {
+                self.has_identical_rows =
+                    self.rounded_rect
+                        .prepare_band(band, &mut self.tile_intervals, scanlines);
+                band_bottom
             } else {
-                self.collect_tile_intervals([left, top, right, bottom]);
-                for (index, row) in self.scanlines[..(bottom - top) as usize]
-                    .iter_mut()
-                    .enumerate()
-                {
-                    row.prepare(
-                        self.row_edges[top as usize + index].iter().copied(),
-                        left,
-                        right,
-                        &self.tile_intervals,
-                    );
-                }
-            }
-            let mut solid_start = None;
-            let mut cursor = left;
-            for index in 0..self.tile_intervals.len() {
-                let interval = self.tile_intervals[index].clone();
-                // Coverage between boundary intervals is constant across each pixel row.
-                if cursor < interval.start {
-                    self.append_strip(
-                        [cursor, top, interval.start, bottom],
-                        false,
-                        geometry,
-                        &mut solid_start,
-                    );
-                }
-                self.append_strip(
-                    [interval.start, top, interval.end, bottom],
-                    true,
-                    geometry,
-                    &mut solid_start,
-                );
-                cursor = interval.end;
-            }
-            if cursor < right {
-                self.append_strip(
-                    [cursor, top, right, bottom],
-                    false,
-                    geometry,
-                    &mut solid_start,
-                );
-            }
-            if let Some(start) = solid_start {
-                self.append_tile(geometry, [start, top, right, bottom], SOLID_COVERAGE);
-            }
+                let repeat_end =
+                    self.path_sweep
+                        .prepare_band(band, bottom, &mut self.tile_intervals, scanlines);
+                self.has_identical_rows = repeat_end.is_some();
+                repeat_end.unwrap_or(band_bottom)
+            };
+            self.append_band(band, geometry, repeat_end);
+            band_top = repeat_end;
+        }
+        if rounded_bounds.is_none() {
+            self.path_sweep.finish([left, top, right, bottom]);
         }
         coverage_draw.range.solid_tile_count =
             geometry.tiles.len() as u32 - coverage_draw.range.tile_start;

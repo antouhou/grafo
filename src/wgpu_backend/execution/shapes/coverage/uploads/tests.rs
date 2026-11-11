@@ -4,18 +4,20 @@ use crate::scene_state::{SceneState, SceneStateContext};
 use crate::wgpu_backend::execution::shapes::coverage::{CoverageBuilder, CoverageGeometry};
 use std::sync::Arc;
 
-fn striped_path_with_solid_span(stripe_count: u32, height: f32) -> Shape {
+fn sloped_stripes_with_solid_span(stripe_count: u32, height: f32) -> Shape {
     let mut shape = Shape::builder();
+    // Sloped stripes keep generating distinct samples across the upload.
+    let offset = height * 0.125;
     for stripe in 0..stripe_count {
         let left = stripe as f32 * 8.0 + 0.25;
         shape = shape
             .begin((left, 0.25))
             .line_to((left + 0.5, 0.25))
-            .line_to((left + 0.5, height))
-            .line_to((left, height))
+            .line_to((left + 0.5 + offset, height))
+            .line_to((left + offset, height))
             .close();
     }
-    let left = stripe_count as f32 * 8.0 + 8.25;
+    let left = stripe_count as f32 * 8.0 + 8.25 + offset;
     shape
         .begin((left, 0.25))
         .line_to((left + 24.0, 0.25))
@@ -39,7 +41,7 @@ fn retained_small_path_does_not_keep_oversized_upload_alive() {
         )
         .unwrap();
     let large = scene
-        .tessellate(&striped_path_with_solid_span(64, 2047.75), None)
+        .tessellate(&sloped_stripes_with_solid_span(64, 2047.75), None)
         .unwrap();
     let mut builder = CoverageBuilder::default();
     for transform in [None, Some(TransformInstance::translation(4096.0, 0.0))] {
@@ -73,7 +75,7 @@ fn incoming_path_size_limits_groups_and_preserves_coverage_offsets() {
         )
         .unwrap();
     let medium = scene
-        .tessellate(&striped_path_with_solid_span(32, 127.75), None)
+        .tessellate(&sloped_stripes_with_solid_span(32, 127.75), None)
         .unwrap();
     let mut builder = CoverageBuilder::default();
     let mut expected = CoverageGeometry::default();

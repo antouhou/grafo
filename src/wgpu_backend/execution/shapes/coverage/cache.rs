@@ -98,10 +98,11 @@ impl CoverageCache {
         self.entries.insert(coverage.key, coverage.allocation);
     }
 
-    pub(in crate::wgpu_backend) fn clear(&mut self) {
+    pub(in crate::wgpu_backend) fn reset_for_viewport(&mut self, viewport: Viewport) {
         self.entries.clear();
         self.uploads.clear();
         self.buffers.clear();
+        self.builder.trim_row_buckets(viewport.physical_size.1);
     }
 
     pub(in crate::wgpu_backend) fn upload(

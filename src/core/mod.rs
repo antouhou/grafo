@@ -29,6 +29,7 @@ pub(crate) mod effect;
 pub(crate) mod geometry;
 pub mod gradient;
 mod group;
+pub(crate) mod math;
 pub(crate) mod shape;
 pub(crate) mod slot_pool;
 mod text;
