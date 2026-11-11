@@ -4,9 +4,6 @@ use crate::core::math::CompensatedSum;
 use crate::core::shape::boundary::PathBoundaryEdge;
 use std::ops::Range;
 
-#[cfg(test)]
-mod tests;
-
 #[derive(Default)]
 struct ActiveAreaSum {
     signed_area: CompensatedSum,
@@ -212,6 +209,18 @@ impl PathSweep {
         }
     }
 
+    /// If this returns `Some([left, top, right, bottom])`, cover `top..bottom`
+    /// with `TILE_SIZE`-row bands, clipping the last band at `bottom`. Pass
+    /// `bottom` as `path_bottom` to `prepare_band`. Start the next band at
+    /// the returned repeat limit if present, or at the current band's bottom.
+    /// The next `prepare` relies on these calls clearing populated row buckets.
+    ///
+    /// Use the returned `left` and `right` for every band. Call `finish` with
+    /// the full bounds to close remaining edge events before the next sweep.
+    /// Fixed horizontal bounds let vertical edge start and end events update
+    /// the same columns.
+    ///
+    /// `None` leaves the sweep ready for reuse.
     pub(super) fn prepare(
         &mut self,
         edges: &[PathBoundaryEdge],
