@@ -137,10 +137,10 @@ impl ScanlineSlopeChanges {
     }
 
     #[inline(never)]
-    fn fill_tile(
+    fn fill_tile_row(
         &mut self,
         offset: usize,
-        changes: &[f64],
+        area_deltas: &[f64],
         values: &mut [f32],
         mut area: f64,
     ) -> f64 {
@@ -150,10 +150,10 @@ impl ScanlineSlopeChanges {
         let mut position = 0.0;
         if event_mask == 0 {
             if slope == 0.0 {
-                return fill_coverage_from_column_deltas(changes, values, area);
+                return fill_coverage_from_column_deltas(area_deltas, values, area);
             }
-            for (&change, value) in changes.iter().zip(values) {
-                area += change;
+            for (&area_delta, value) in area_deltas.iter().zip(values) {
+                area += area_delta;
                 position += 1.0;
                 *value = clamp_coverage(area + position * slope);
             }
@@ -161,7 +161,7 @@ impl ScanlineSlopeChanges {
         }
         let mut slope_start_column = 0.0;
         // Anchor the linear term at the tile and at each change in slope.
-        for (column, (&change, value)) in changes.iter().zip(values).enumerate() {
+        for (column, (&area_delta, value)) in area_deltas.iter().zip(values).enumerate() {
             position += 1.0;
             if event_mask & (1 << column) != 0 {
                 area += (position - slope_start_column) * slope;
@@ -169,7 +169,7 @@ impl ScanlineSlopeChanges {
                 self.slope.add_sum(self.slope_changes[offset + column]);
                 slope = self.slope.total();
             }
-            area += change;
+            area += area_delta;
             *value = clamp_coverage(area + (position - slope_start_column) * slope);
         }
         area + (position - slope_start_column) * slope
@@ -178,7 +178,7 @@ impl ScanlineSlopeChanges {
 
 #[derive(Default)]
 pub(super) struct Scanline {
-    changes: Vec<f64>,
+    area_deltas: Vec<f64>,
     left: u32,
     area: f64,
     slope_changes: ScanlineSlopeChanges,
@@ -196,9 +196,9 @@ impl Scanline {
         let first = (columns.start - self.left) as usize;
         let end = (columns.end - self.left) as usize;
         let mut pixel = columns.start as f64;
-        for change in &mut self.changes[first..end] {
+        for area_delta in &mut self.area_deltas[first..end] {
             let next = edge.coverage(pixel, inverse_width);
-            *change += next - previous;
+            *area_delta += next - previous;
             previous = next;
             pixel += 1.0;
         }
@@ -234,14 +234,14 @@ impl Scanline {
             self.slope_changes.add_event(last, -slope);
         } else {
             // Small runs fit in the point buffer without slope events.
-            for change in &mut self.changes[first + 1..=last] {
-                *change += slope;
+            for area_delta in &mut self.area_deltas[first + 1..=last] {
+                *area_delta += slope;
             }
         }
 
         let trailing = edge.coverage(last_full_column as f64, inverse_width);
         // Close the range at the analytic endpoint to keep rounding local.
-        self.changes[last] += (trailing - leading) - (last - first) as f64 * slope;
+        self.area_deltas[last] += (trailing - leading) - (last - first) as f64 * slope;
         self.add_boundary_changes(
             edge,
             inverse_width,
@@ -257,12 +257,12 @@ impl Scanline {
         right: u32,
         intervals: &[Range<u32>],
     ) {
-        if self.changes.len() < (right - left) as usize {
-            self.changes.resize((right - left) as usize, 0.0);
+        if self.area_deltas.len() < (right - left) as usize {
+            self.area_deltas.resize((right - left) as usize, 0.0);
         }
         self.left = left;
         for interval in intervals {
-            self.changes[(interval.start - left) as usize..(interval.end - left) as usize]
+            self.area_deltas[(interval.start - left) as usize..(interval.end - left) as usize]
                 .fill(0.0);
         }
         self.area = 0.0;
@@ -282,9 +282,9 @@ impl Scanline {
                 let offset = (column - left) as usize;
                 let partial_area = (minimum_x as f64 - column as f64) * edge.signed_winding_height;
                 self.area += edge.signed_winding_height;
-                self.changes[offset] += partial_area - edge.signed_winding_height;
+                self.area_deltas[offset] += partial_area - edge.signed_winding_height;
                 if column + 1 < right && partial_area != 0.0 {
-                    self.changes[offset + 1] -= partial_area;
+                    self.area_deltas[offset + 1] -= partial_area;
                 }
                 continue;
             }
@@ -311,7 +311,7 @@ impl Scanline {
                 self.add_boundary_changes(edge, inverse_width, first..end, previous)
             };
             if end < right {
-                self.changes[(end - left) as usize] -= previous;
+                self.area_deltas[(end - left) as usize] -= previous;
             }
         }
     }
@@ -319,23 +319,23 @@ impl Scanline {
     pub(super) fn add_vertical_changes(
         &mut self,
         area: f64,
-        changes: impl Iterator<Item = (usize, f64)>,
+        area_deltas: impl Iterator<Item = (usize, f64)>,
     ) {
         self.area += area;
-        for (offset, change) in changes {
-            self.changes[offset] += change;
+        for (offset, area_delta) in area_deltas {
+            self.area_deltas[offset] += area_delta;
         }
     }
 
     #[inline]
     pub(super) fn fill_coverage(&mut self, left: u32, values: &mut [f32]) {
         let offset = (left - self.left) as usize;
-        let changes = &self.changes[offset..offset + values.len()];
+        let area_deltas = &self.area_deltas[offset..offset + values.len()];
         self.area = if self.slope_changes.has_slope_events {
             self.slope_changes
-                .fill_tile(offset, changes, values, self.area)
+                .fill_tile_row(offset, area_deltas, values, self.area)
         } else {
-            fill_coverage_from_column_deltas(changes, values, self.area)
+            fill_coverage_from_column_deltas(area_deltas, values, self.area)
         };
     }
 
