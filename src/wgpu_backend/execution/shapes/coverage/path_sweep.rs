@@ -339,7 +339,7 @@ impl PathSweep {
         None
     }
 
-    fn collect_intervals(&self, bounds: [u32; 4], intervals: &mut Vec<Range<u32>>) {
+    fn collect_tile_intervals(&self, bounds: [u32; 4], intervals: &mut Vec<Range<u32>>) {
         let [left, top, right, bottom] = bounds;
         intervals.clear();
         if right - left <= TILE_SIZE {
@@ -438,7 +438,7 @@ impl PathSweep {
         } else {
             scanlines.len()
         };
-        self.collect_intervals(bounds, intervals);
+        self.collect_tile_intervals(bounds, intervals);
         for (index, scanline) in scanlines[..row_count].iter_mut().enumerate() {
             let row = top + index as u32;
             if row >= next_event_row {
