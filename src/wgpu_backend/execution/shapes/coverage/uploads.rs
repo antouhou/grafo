@@ -1,6 +1,6 @@
 use super::geometry::SOLID_COVERAGE;
 use super::tiles::{CoverageDrawRange, CoverageGeometry};
-use super::{take_reusable_buffers, CoverageBuffers, CoverageBuilder};
+use super::{CoverageBuffers, CoverageBuilder};
 use crate::core::cache::CachedTessellation;
 use crate::core::vertex::InstanceTransform;
 use crate::core::{UnsignedPhysicalRect, Viewport};
@@ -156,7 +156,7 @@ impl CoverageUploads {
                 geometry: &pending.geometry,
                 solid_tile_count: 0,
             };
-            let buffers = match take_reusable_buffers(reusable, mesh) {
+            let buffers = match reusable.pop() {
                 Some(mut buffers) => {
                     buffers.update(device, queue, mesh, pipelines, &mut self.indices);
                     buffers
