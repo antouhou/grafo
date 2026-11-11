@@ -4,6 +4,9 @@ use crate::core::math::CompensatedSum;
 use crate::core::shape::boundary::PathBoundaryEdge;
 use std::ops::Range;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Default)]
 struct ActiveAreaSum {
     signed_area: CompensatedSum,
@@ -177,6 +180,10 @@ pub(super) struct PathSweep {
 }
 
 impl PathSweep {
+    pub(super) fn trim_row_buckets(&mut self, height: u32) {
+        self.row_edge_buckets.rows.truncate(height as usize);
+    }
+
     fn add_vertical_spans(&mut self, edge: &ScanEdge, x: f32, rows: Range<u32>) {
         let first_full_row = (edge.top.ceil() as u32).clamp(rows.start, rows.end);
         let end_full_row = (edge.bottom.floor() as u32).clamp(first_full_row, rows.end);

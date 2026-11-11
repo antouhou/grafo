@@ -34,6 +34,10 @@ pub(crate) struct CoverageBuilder {
 }
 
 impl CoverageBuilder {
+    pub(super) fn trim_row_buckets(&mut self, height: u32) {
+        self.path_sweep.trim_row_buckets(height);
+    }
+
     fn collect_boundary(&mut self, tessellation: &CachedTessellation, projection: &Projection) {
         self.boundary_edges.clear();
         if let Some(orientation) = projection.boundary_orientation {
