@@ -183,7 +183,7 @@ impl DrawPlanner {
             self.current.decrements_stencil = false;
         }
         let draw = match node {
-            DrawTreeNode::CachedShape(description) if description.has_fill_geometry() => {
+            DrawTreeNode::CachedShape(description) if description.has_geometry() => {
                 let mut material = shape_material(&description.instance);
                 // If there's a backdrop filter attached to this shape, plan it first
                 // and set filter output texture as this shape underfill

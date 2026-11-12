@@ -1,7 +1,7 @@
 use super::coverage::supports_projection;
 use super::{ShapeBufferLocation, ShapeDrawResources, ShapeExecutionResources};
 use crate::commands::ShapeDrawId;
-use crate::core::shape::ShapeInstance;
+use crate::core::shape::{DrawMode, ShapeInstance};
 use crate::core::vertex::{CustomVertex, InstanceTransform, TextureUvTransform};
 use crate::core::Viewport;
 use crate::wgpu_backend::resources::ShapePipelines;
@@ -53,23 +53,27 @@ pub(crate) fn append_aggregated_geometry_for_shape(
     cached_shape_data: &ShapeInstance,
     temp_vertices: &mut Vec<CustomVertex>,
     temp_indices: &mut Vec<u32>,
-    geometry_dedup_map: &mut HashMap<u64, GeometryBufferRange>,
+    geometry_dedup_map: &mut HashMap<(u64, DrawMode), GeometryBufferRange>,
 ) -> Result<Option<GeometryBufferRange>, GeometryBufferError> {
-    let geometry_id = cached_shape_data.cached_shape.geometry_id;
+    let Some(vertex_buffers) = cached_shape_data.vertex_buffers() else {
+        return Ok(None);
+    };
+    let geometry_key = cached_shape_data
+        .cached_shape
+        .geometry_id
+        .map(|id| (id, cached_shape_data.draw_mode));
     // Reuse geometry already referenced by another queued draw.
-    if let Some(&existing_range) = geometry_id.and_then(|id| geometry_dedup_map.get(&id)) {
+    if let Some(&existing_range) = geometry_key.and_then(|key| geometry_dedup_map.get(&key)) {
         Ok(Some(existing_range))
     } else {
-        let cached_shape = &cached_shape_data.cached_shape;
-        let vertex_buffers = cached_shape.fill_vertex_buffers();
         let range = append_aggregated_geometry(
             temp_vertices,
             temp_indices,
             &vertex_buffers.vertices,
             &vertex_buffers.indices,
         )?;
-        if let (Some(id), Some(range)) = (geometry_id, range) {
-            geometry_dedup_map.insert(id, range);
+        if let (Some(key), Some(range)) = (geometry_key, range) {
+            geometry_dedup_map.insert(key, range);
         }
         Ok(range)
     }
@@ -192,7 +196,7 @@ impl ShapeExecutionResources {
             return;
         };
         let [background, foreground] = compute_texture_uv_transforms(
-            shape.cached_shape.fill_texture_mapping_size(),
+            shape.texture_mapping_size(),
             shape,
             texture_manager,
             scale_factor,
@@ -213,15 +217,12 @@ impl ShapeExecutionResources {
         physical_size: (u32, u32),
     ) -> Result<ShapeDrawResources, GeometryBufferError> {
         let mut resources = ShapeDrawResources::default();
-        if supports_projection(
-            cached_shape_data.transform,
-            cached_shape_data
-                .cached_shape
-                .fill_tessellation
-                .local_bounds,
-        ) {
+        let Some(tessellation) = cached_shape_data.tessellation() else {
+            return Ok(resources);
+        };
+        if supports_projection(cached_shape_data.transform, tessellation.local_bounds) {
             resources.path_coverage = Some(self.coverage_cache.prepare(
-                &cached_shape_data.cached_shape.fill_tessellation,
+                tessellation,
                 cached_shape_data.transform,
                 Viewport {
                     physical_size,
@@ -238,12 +239,8 @@ impl ShapeExecutionResources {
             &pipelines.linear_clamp_sampler,
         );
         let geometry_range = if resources.path_coverage.is_some() {
-            (!cached_shape_data
-                .cached_shape
-                .fill_vertex_buffers()
-                .indices
-                .is_empty())
-            .then_some(GeometryBufferRange::default())
+            (!tessellation.vertex_buffers.indices.is_empty())
+                .then_some(GeometryBufferRange::default())
         } else {
             append_aggregated_geometry_for_shape(
                 cached_shape_data,
@@ -254,7 +251,7 @@ impl ShapeExecutionResources {
         };
         if let Some(geometry_range) = geometry_range {
             let texture_uv_transforms = compute_texture_uv_transforms(
-                cached_shape_data.cached_shape.fill_texture_mapping_size(),
+                cached_shape_data.texture_mapping_size(),
                 cached_shape_data,
                 &pipelines.texture_manager,
                 scale_factor,

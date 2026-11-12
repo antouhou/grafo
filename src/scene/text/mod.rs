@@ -155,7 +155,21 @@ impl<B: RenderBackend> Scene<B> {
         scratch
             .child_ids_to_remove
             .extend_from_slice(self.state.draw_tree.children(group_id));
+        let previous_stroke = self
+            .state
+            .draw_tree
+            .get(group_id)
+            .is_some_and(DrawTreeNode::is_stroke_draw)
+            .then(|| {
+                self.state
+                    .draw_tree
+                    .replace(group_id, DrawTreeNode::Group(GroupDrawData::default()))
+                    .expect("text replacement target was validated")
+            });
         let result = self.queue_glyphs(group_id, &mut source, options, glyph_effects, &mut scratch);
+        if let Some(previous) = previous_stroke {
+            self.state.draw_tree.replace(group_id, previous);
+        }
         if result.is_ok() {
             self.remove_subtrees(scratch.child_ids_to_remove.iter().copied(), |_| {});
             if matches!(target, NodeTarget::Replace { .. }) {

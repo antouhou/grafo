@@ -45,7 +45,7 @@ pub(super) fn append_shape_mask_effect<'scene>(
     let Some(DrawTreeNode::CachedShape(shape)) = tree.get(node_id) else {
         return;
     };
-    if !shape.has_fill_geometry() {
+    if !shape.has_geometry() {
         return;
     }
     let bounds = effect.bounds;

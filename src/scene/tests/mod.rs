@@ -1,8 +1,8 @@
 use super::{DrawCommandError, RenderBackend, Scene};
 use crate::commands::{RenderCommand, RenderOperation, ShapeDrawId, Target};
 use crate::core::{
-    CachedShapeHandle, Color, ContentEffectConfig, Shape, ShapeDrawOptions, ShapeInstance,
-    ShapeMaskEffectConfig, UnsignedPhysicalRect, Viewport,
+    Color, ContentEffectConfig, Shape, ShapeDrawOptions, ShapeInstance, ShapeMaskEffectConfig,
+    UnsignedPhysicalRect, Viewport,
 };
 use crate::render_backend::render_target::{
     PixelFormat, PixelLayout, Pixmap, PixmapMut, RenderTarget, RenderTargetError, Surface,
@@ -19,6 +19,7 @@ mod damage;
 mod groups;
 mod removal;
 mod replacement;
+mod strokes;
 mod text;
 
 #[derive(Default)]
@@ -113,8 +114,9 @@ impl RenderBackend for TestBackend {
         if self.should_fail || self.registration_failure == Some(id.0) {
             return Err(TestBackendError);
         }
-        let geometry = shape.cached_shape.fill_vertex_buffers();
-        assert_eq!(geometry.vertices.is_empty(), geometry.indices.is_empty());
+        if let Some(geometry) = shape.vertex_buffers() {
+            assert_eq!(geometry.vertices.is_empty(), geometry.indices.is_empty());
+        }
         if !self.registered_shapes.contains(&id.0) {
             self.registered_shapes.push(id.0);
         }
@@ -173,7 +175,7 @@ impl RenderBackend for TestBackend {
 
     fn unload_effect(&mut self, _: u64) {}
     fn invalidate_effect(&mut self, _: u64) {}
-    fn set_shape_mask_effect_geometry(&mut self, id: ShapeDrawId, _: &CachedShapeHandle) {
+    fn set_shape_mask_effect_geometry(&mut self, id: ShapeDrawId, _: &ShapeInstance) {
         assert!(self.registered_shapes.contains(&id.0));
     }
 

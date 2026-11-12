@@ -1,6 +1,6 @@
 use super::effects::{EffectAttachmentKind, EffectAttachments};
 use super::paint::GroupFill;
-use crate::core::shape::{CachedShapeHandle, ShapeDrawOptions, ShapeInstance};
+use crate::core::shape::{CachedShapeHandle, DrawMode, ShapeDrawOptions, ShapeInstance};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{geometry, MathRect};
 
@@ -42,7 +42,7 @@ impl CachedShapeDrawData {
         let clips_children = options.clips_children;
         let inherits_fill = options.fill.is_none();
         let instance = ShapeInstance::new(cached_shape, options);
-        let bounds = instance.cached_shape.fill_local_bounds();
+        let bounds = instance.local_bounds();
         let logical_screen_bounds = geometry::transformed_bounds_to_logical_screen_rect(
             MathRect::new(bounds[0].into(), bounds[1].into()),
             instance.transform,
@@ -56,9 +56,10 @@ impl CachedShapeDrawData {
         }
     }
 
-    pub(crate) fn has_fill_geometry(&self) -> bool {
-        let geometry = self.instance.cached_shape.fill_vertex_buffers();
-        !geometry.vertices.is_empty() && !geometry.indices.is_empty()
+    pub(crate) fn has_geometry(&self) -> bool {
+        self.instance
+            .vertex_buffers()
+            .is_some_and(|geometry| !geometry.vertices.is_empty() && !geometry.indices.is_empty())
     }
 }
 
@@ -102,6 +103,10 @@ impl ClipRectDrawData {
 }
 
 impl DrawTreeNode {
+    pub(crate) fn is_stroke_draw(&self) -> bool {
+        matches!(self, Self::CachedShape(shape) if shape.instance.draw_mode == DrawMode::Stroke)
+    }
+
     pub(crate) fn group_effects(&self) -> EffectAttachments {
         match self {
             Self::Group(group) => group.effects,
@@ -136,7 +141,9 @@ impl DrawTreeNode {
     pub(crate) fn clips_children(&self) -> bool {
         match self {
             DrawTreeNode::Group(_) => false,
-            DrawTreeNode::CachedShape(cached_shape) => cached_shape.clips_children,
+            DrawTreeNode::CachedShape(cached_shape) => {
+                !self.is_stroke_draw() && cached_shape.clips_children
+            }
             DrawTreeNode::ClipRect(clip_rect) => clip_rect.clips_children,
         }
     }
@@ -145,7 +152,10 @@ impl DrawTreeNode {
         match self {
             DrawTreeNode::Group(_) => false,
             DrawTreeNode::CachedShape(cached_shape) => {
-                cached_shape.instance.cached_shape.fill_tessellation.is_rect
+                cached_shape
+                    .instance
+                    .tessellation()
+                    .is_some_and(|geometry| geometry.is_rect)
                     && geometry::is_axis_aligned_rect_transform(cached_shape.instance.transform)
             }
             DrawTreeNode::ClipRect(_) => true,
@@ -156,9 +166,7 @@ impl DrawTreeNode {
         self.clips_children()
             && match self {
                 Self::Group(_) => false,
-                Self::CachedShape(shape) => {
-                    shape.has_fill_geometry() || self.is_axis_aligned_rect()
-                }
+                Self::CachedShape(shape) => shape.has_geometry() || self.is_axis_aligned_rect(),
                 Self::ClipRect(_) => true,
             }
     }

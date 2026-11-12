@@ -10,6 +10,8 @@ pub enum SceneError {
     InvalidStrokeGeometry(#[from] StrokeGeometryError),
     #[error("Invalid shape ID: {0}")]
     InvalidShapeId(usize),
+    #[error("Stroke draw {0} can't have any nodes attached to it")]
+    StrokeDrawMustBeLeaf(usize),
     #[error("Shape {0} is not loaded")]
     ShapeNotLoaded(u64),
     #[error("Clip rect node only supports axis-aligned transforms")]
