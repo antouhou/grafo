@@ -1,5 +1,6 @@
 // I know I'm against very large files, but this particular one is fine. Easier to track all
 //  visual regression tiles that way
+use crate::caption_font;
 use crate::expectations::PixelExpectation;
 use crate::shaders::{
     BlurParams, DropShadowParams, HORIZONTAL_BLUR_WGSL, LEFT_CAPTURE_MARGIN_WGSL,
@@ -7414,60 +7415,16 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
     .collect()
 }
 
-fn stroke_caption_rows(character: u8) -> [u8; 7] {
-    match character {
-        b'A' => [14, 17, 17, 31, 17, 17, 17],
-        b'B' => [30, 17, 17, 30, 17, 17, 30],
-        b'C' => [14, 17, 16, 16, 16, 17, 14],
-        b'D' => [30, 17, 17, 17, 17, 17, 30],
-        b'E' => [31, 16, 16, 30, 16, 16, 31],
-        b'F' => [31, 16, 16, 30, 16, 16, 16],
-        b'G' => [14, 17, 16, 23, 17, 17, 15],
-        b'H' => [17, 17, 17, 31, 17, 17, 17],
-        b'I' => [31, 4, 4, 4, 4, 4, 31],
-        b'K' => [17, 18, 20, 24, 20, 18, 17],
-        b'L' => [16, 16, 16, 16, 16, 16, 31],
-        b'N' => [17, 25, 25, 21, 19, 19, 17],
-        b'O' => [14, 17, 17, 17, 17, 17, 14],
-        b'P' => [30, 17, 17, 30, 16, 16, 16],
-        b'Q' => [14, 17, 17, 17, 21, 18, 13],
-        b'R' => [30, 17, 17, 30, 20, 18, 17],
-        b'S' => [15, 16, 16, 14, 1, 1, 30],
-        b'T' => [31, 4, 4, 4, 4, 4, 4],
-        b'U' => [17, 17, 17, 17, 17, 17, 14],
-        b'W' => [17, 17, 17, 21, 21, 21, 10],
-        b'X' => [17, 17, 10, 4, 10, 17, 17],
-        b'+' => [0, 4, 4, 31, 4, 4, 0],
-        _ => [0; 7],
-    }
-}
-
 fn add_stroke_tile_caption(scene: &mut Scene, caption: &str, position: (f32, f32)) {
-    let left = (position.0 - (caption.len() as f32 * 6.0 - 1.0) * 0.5).floor();
-    let mut path = Shape::builder();
-    for (column, character) in caption.bytes().enumerate() {
-        for (row, bits) in stroke_caption_rows(character).into_iter().enumerate() {
-            for pixel in 0..5 {
-                if bits & (1 << (4 - pixel)) == 0 {
-                    continue;
-                }
-                let x = left + (column * 6 + pixel) as f32;
-                let y = position.1 + row as f32;
-                path = path
-                    .begin((x, y))
-                    .line_to((x + 1.0, y))
-                    .line_to((x + 1.0, y + 1.0))
-                    .line_to((x, y + 1.0))
-                    .close();
-            }
-        }
-    }
+    let left = (position.0 - caption_font::width(caption) * 0.5).floor();
     scene
         .add_shape(
-            path.build(),
+            caption_font::shape(caption),
             None,
             None,
-            ShapeDrawOptions::new().color(Color::rgb(40, 50, 65)),
+            ShapeDrawOptions::new()
+                .color(Color::rgb(40, 50, 65))
+                .transform(TransformInstance::translation(left, position.1)),
         )
         .unwrap();
 }
