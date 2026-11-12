@@ -3,7 +3,7 @@ use super::groups::PendingMemberEffectAttachment;
 use super::{DrawCommandError, Scene};
 use crate::commands::ShapeDrawId;
 use crate::core::effect::ShapeMaskEffectBounds;
-use crate::core::shape::{Shape, ShapeDrawCommandOptions};
+use crate::core::shape::{Shape, ShapeDrawOptions};
 use crate::core::vertex::InstanceTransform;
 use crate::render_backend::RenderBackend;
 use crate::scene_state::effects::{EffectAttachments, EffectConfig};
@@ -15,11 +15,11 @@ pub(super) enum DrawCommand<'shape> {
     Shape {
         shape: &'shape Shape,
         geometry_id: Option<u64>,
-        options: ShapeDrawCommandOptions,
+        options: ShapeDrawOptions,
     },
     CachedShape {
         cache_key: u64,
-        options: ShapeDrawCommandOptions,
+        options: ShapeDrawOptions,
     },
     ClippingRect {
         rect_bounds: [(f32, f32); 2],

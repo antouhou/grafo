@@ -3,7 +3,7 @@ use crate::commands::RenderOperation;
 use crate::core::UnsignedPhysicalRect;
 use crate::core::{
     BackdropEffectConfig, Color, ContentEffectConfig, GlyphContent, MathRect, PositionedGlyph,
-    Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig, TextSource, TransformInstance,
+    Shape, ShapeDrawOptions, ShapeMaskEffectConfig, TextSource, TransformInstance,
 };
 use crate::scene::draw_commands::{DrawCommand, NodeTarget};
 use crate::scene_state::effects::EffectConfig;
@@ -75,8 +75,8 @@ impl TextSource for Glyphs {
     }
 }
 
-fn options() -> ShapeDrawCommandOptions {
-    ShapeDrawCommandOptions::new().color(Color::BLACK)
+fn options() -> ShapeDrawOptions {
+    ShapeDrawOptions::new().color(Color::BLACK)
 }
 
 fn glyph_ids(scene: &Scene<TestBackend>, group: usize) -> Vec<usize> {

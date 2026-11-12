@@ -14,7 +14,7 @@ use crate::scene_state::effects::parameters::EffectParameterStorage;
 use crate::scene_state::effects::{BackdropEffectInstance, ContentEffectInstance, EffectInstance};
 use crate::scene_state::types::CachedShapeDrawData;
 use crate::scene_state::types::{ClipRectDrawData, DrawTreeNode};
-use crate::{BorderRadii, Color, Shape, ShapeDrawCommandOptions, Size, UnsignedPhysicalRect};
+use crate::{BorderRadii, Color, Shape, ShapeDrawOptions, Size, UnsignedPhysicalRect};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
 use std::mem;
@@ -57,7 +57,7 @@ fn shape_description(shape: Shape, clips_children: bool) -> CachedShapeDrawData 
     let handle = CachedShapeHandle::new(&shape, &mut ShapeResources::new(), None).unwrap();
     CachedShapeDrawData::new(
         handle,
-        ShapeDrawCommandOptions::new()
+        ShapeDrawOptions::new()
             .color(Color::WHITE)
             .clips_children(clips_children),
     )

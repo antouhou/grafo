@@ -1,7 +1,7 @@
 use super::super::{Scene, TestBackend, TestSurface};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
-    BackdropCaptureArea, BackdropEffectConfig, ContentEffectConfig, Shape, ShapeDrawCommandOptions,
+    BackdropCaptureArea, BackdropEffectConfig, ContentEffectConfig, Shape, ShapeDrawOptions,
     ShapeMaskEffectConfig, UnsignedPhysicalRect,
 };
 use crate::render_backend::render_target::Surface;
@@ -34,7 +34,7 @@ fn shape(scene: &mut Scene<TestBackend>, parent: usize, bounds: [(f32, f32); 2])
             Shape::rect(bounds),
             Some(parent),
             None,
-            ShapeDrawCommandOptions::new().clips_children(false),
+            ShapeDrawOptions::new().clips_children(false),
         )
         .unwrap()
 }
@@ -205,7 +205,7 @@ fn replacing_a_group_marks_old_new_and_removed_group_outputs() {
             node,
             Shape::rect([(60.0, 60.0), (80.0, 80.0)]),
             None,
-            ShapeDrawCommandOptions::new().clips_children(false),
+            ShapeDrawOptions::new().clips_children(false),
         )
         .unwrap();
     scene.render(&mut surface).unwrap();
@@ -332,7 +332,7 @@ fn changing_ancestor_clipping_damages_descendant_group_outputs() {
             parent,
             Shape::rect([(20.0, 20.0), (40.0, 40.0)]),
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     scene.render(&mut surface).unwrap();

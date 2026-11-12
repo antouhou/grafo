@@ -3,7 +3,7 @@ use crate::core::effect::backdrops;
 use crate::core::effect::ContentEffectBounds;
 use crate::core::{
     BackdropCaptureArea, BackdropEffectConfig, CaptureRegion, ContentEffectConfig, MathRect, Shape,
-    ShapeDrawCommandOptions, Size, UnsignedPhysicalRect, Viewport,
+    ShapeDrawOptions, Size, UnsignedPhysicalRect, Viewport,
 };
 use crate::scene_state::types::{CachedShapeDrawData, DrawTreeNode};
 use crate::scene_state::{SceneState, SceneStateContext};
@@ -49,7 +49,7 @@ fn shape_node(bounds: [(f32, f32); 2]) -> DrawTreeNode {
     .unwrap();
     DrawTreeNode::CachedShape(CachedShapeDrawData::new(
         shape,
-        ShapeDrawCommandOptions::new(),
+        ShapeDrawOptions::new(),
     ))
 }
 

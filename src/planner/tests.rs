@@ -3,7 +3,7 @@ use crate::commands::{
     DrawClip, IntermediateTextureId, RenderCommand, RenderOperation, ShapeDrawId,
 };
 use crate::core::{
-    BackdropEffectConfig, Color, ContentEffectConfig, Shape, ShapeDrawCommandOptions,
+    BackdropEffectConfig, Color, ContentEffectConfig, Shape, ShapeDrawOptions,
     ShapeMaskEffectConfig, UnsignedPhysicalRect, Viewport,
 };
 use crate::scene_state::types::{CachedShapeDrawData, DrawTreeNode};
@@ -63,7 +63,7 @@ fn add_shape(scene: &mut SceneState, parent: Option<usize>) -> usize {
     scene.insert_node(
         DrawTreeNode::CachedShape(CachedShapeDrawData::new(
             shape,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )),
         parent,
     )
@@ -96,7 +96,7 @@ fn add_rectangle(
     scene.insert_node(
         DrawTreeNode::CachedShape(CachedShapeDrawData::new(
             shape,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::WHITE)
                 .clips_children(clips_children),
         )),

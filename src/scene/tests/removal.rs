@@ -1,7 +1,7 @@
 use super::{queue_shape, scene, surface, TestBackend};
 use crate::core::vertex::InstanceTransform;
 use crate::core::{
-    BackdropEffectConfig, Color, ContentEffectConfig, Shape, ShapeDrawCommandOptions,
+    BackdropEffectConfig, Color, ContentEffectConfig, Shape, ShapeDrawOptions,
     ShapeMaskEffectConfig,
 };
 use crate::scene::{DrawCommandError, Scene};
@@ -29,7 +29,7 @@ fn overlapping_subtree_removals_keep_sibling_effects() {
         .add_cached_shape(
             1,
             Some(removed),
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     attach_effects(&mut scene, descendant);
@@ -37,7 +37,7 @@ fn overlapping_subtree_removals_keep_sibling_effects() {
         .add_cached_shape(
             1,
             Some(removed),
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     attach_effects(&mut scene, second_descendant);
@@ -53,7 +53,7 @@ fn overlapping_subtree_removals_keep_sibling_effects() {
         .add_cached_shape(
             1,
             Some(removed_clip),
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     attach_effects(&mut scene, clipped_descendant);
@@ -90,7 +90,7 @@ fn overlapping_subtree_removals_keep_sibling_effects() {
     }
     assert_eq!(scene.state.draw_tree.children(root), [survivor]);
     assert!(matches!(
-        scene.add_cached_shape(1, Some(removed), ShapeDrawCommandOptions::new()),
+        scene.add_cached_shape(1, Some(removed), ShapeDrawOptions::new()),
         Err(DrawCommandError::Scene(SceneError::InvalidShapeId(id))) if id == removed
     ));
     scene.remove_subtrees([removed], |_| panic!("removed ID triggered a callback"));
@@ -101,7 +101,7 @@ fn overlapping_subtree_removals_keep_sibling_effects() {
 
     scene.backend.should_fail = true;
     assert!(matches!(
-        scene.add_cached_shape(1, None, ShapeDrawCommandOptions::new()),
+        scene.add_cached_shape(1, None, ShapeDrawOptions::new()),
         Err(DrawCommandError::Backend(_))
     ));
     assert_eq!(scene.backend.registered_shapes, [root, survivor]);
@@ -149,7 +149,7 @@ fn removing_clip_subtrees_and_the_root_preserves_loaded_shapes() {
         .add_cached_shape(
             1,
             Some(clip),
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     let mut removed_ids = Vec::new();
@@ -160,7 +160,7 @@ fn removing_clip_subtrees_and_the_root_preserves_loaded_shapes() {
         .add_cached_shape(
             1,
             Some(clip),
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     removed_ids.clear();
@@ -184,7 +184,7 @@ fn removing_clip_subtrees_and_the_root_preserves_loaded_shapes() {
     scene.remove_subtrees([root], |_| panic!("empty queue triggered a callback"));
     assert_eq!(
         scene
-            .add_cached_shape(1, None, ShapeDrawCommandOptions::new().color(Color::WHITE))
+            .add_cached_shape(1, None, ShapeDrawOptions::new().color(Color::WHITE))
             .unwrap(),
         0
     );
@@ -209,9 +209,9 @@ fn removed_parents_are_rejected_before_resource_and_clip_preparation() {
             Shape::rect(bounds),
             Some(removed),
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         ),
-        scene.add_cached_shape(999, Some(removed), ShapeDrawCommandOptions::new()),
+        scene.add_cached_shape(999, Some(removed), ShapeDrawOptions::new()),
         scene.add_clipping_rect(bounds, Some(removed), Some(transform), true),
     ] {
         assert!(matches!(
@@ -225,12 +225,12 @@ fn removed_parents_are_rejected_before_resource_and_clip_preparation() {
             Shape::rect(bounds),
             Some(root),
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         ),
         Err(DrawCommandError::Backend(_))
     ));
     assert!(matches!(
-        scene.add_cached_shape(999, Some(root), ShapeDrawCommandOptions::new()),
+        scene.add_cached_shape(999, Some(root), ShapeDrawOptions::new()),
         Err(DrawCommandError::Scene(SceneError::ShapeNotLoaded(999)))
     ));
     assert!(matches!(

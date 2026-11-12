@@ -13,7 +13,7 @@ use grafo::{
     ColorInterpolation, ConicGradientDesc, ContentEffectConfig, Fill, GlyphContent, Gradient,
     GradientColor, GradientCommonDesc, GradientStop, GradientStopOffset, GradientStopPositions,
     GradientUnits, LinearGradientDesc, LinearGradientLine, PositionedGlyph, RadialGradientDesc,
-    RadialGradientSize, Scene, Shape, ShapeDrawCommandOptions, ShapeMaskEffectConfig,
+    RadialGradientSize, Scene, Shape, ShapeDrawOptions, ShapeMaskEffectConfig,
     ShapeTextureFitMode, ShapeTextureOptions, SpreadMode, TextSource, TextureManager,
     TransformInstance,
 };
@@ -94,7 +94,7 @@ fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
             Shape::rect([(6.0, 6.0), (65.0, 35.0)]),
             Some(parent),
             None,
-            ShapeDrawCommandOptions::new().transform(transform),
+            ShapeDrawOptions::new().transform(transform),
         )
         .unwrap();
     scene
@@ -102,7 +102,7 @@ fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
             Shape::rect([(48.0, 8.0), (54.0, 14.0)]),
             Some(text),
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::rgb(255, 0, 0))
                 .transform(transform),
         )
@@ -136,7 +136,7 @@ fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
                 events: &events,
                 positions: first_positions.iter(),
             },
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::rgb(255, 0, 0))
                 .transform(transform),
         )
@@ -146,7 +146,7 @@ fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
             Shape::rect([(6.0, 42.0), (65.0, 71.0)]),
             Some(parent),
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::rgb(255, 0, 0))
                 .transform(transform),
         )
@@ -166,7 +166,7 @@ fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
             Shape::rect([(6.0, 42.0), (65.0, 71.0)]),
             Some(group),
             None,
-            ShapeDrawCommandOptions::new().transform(transform),
+            ShapeDrawOptions::new().transform(transform),
         )
         .unwrap();
     scene
@@ -177,7 +177,7 @@ fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
                 positions: second_positions.iter(),
             },
             Some(container),
-            ShapeDrawCommandOptions::new().transform(transform),
+            ShapeDrawOptions::new().transform(transform),
         )
         .unwrap();
     scene
@@ -223,7 +223,7 @@ fn tile_91_cached_glyphs(scene: &mut Scene) -> Vec<PixelExpectation> {
 /// Captures sample overflowing content before the final crop; nested filters keep canvas gradients.
 fn tile_90_bounded_effect_targets(scene: &mut Scene) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(90);
-    let options = ShapeDrawCommandOptions::new()
+    let options = ShapeDrawOptions::new()
         .transform(TransformInstance::translation(origin_x, origin_y));
     scene
         .load_effect(90_001, &[LEFT_CAPTURE_MARGIN_WGSL])
@@ -378,7 +378,7 @@ fn tile_87_rectangle_pixel_coverage(scene: &mut Scene) -> Vec<PixelExpectation> 
                 Shape::rect(bounds),
                 None,
                 None,
-                ShapeDrawCommandOptions::new()
+                ShapeDrawOptions::new()
                     .color(color)
                     .transform(TransformInstance::translation(origin_x, origin_y)),
             )
@@ -389,7 +389,7 @@ fn tile_87_rectangle_pixel_coverage(scene: &mut Scene) -> Vec<PixelExpectation> 
             Shape::rect([(0.0, 0.0), (0.5, 20.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::BLACK)
                 .transform(TransformInstance::affine_2d(
                     -1.0,
@@ -406,7 +406,7 @@ fn tile_87_rectangle_pixel_coverage(scene: &mut Scene) -> Vec<PixelExpectation> 
             Shape::rect([(999_980.0, 60.0), (1_000_000.0, 68.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::BLACK)
                 .transform(TransformInstance::affine_2d(
                     1.1,
@@ -449,7 +449,7 @@ fn tile_87_rectangle_pixel_coverage(scene: &mut Scene) -> Vec<PixelExpectation> 
 
 fn tile_88_rectangle_coverage_materials(scene: &mut Scene) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(88);
-    let options = ShapeDrawCommandOptions::new()
+    let options = ShapeDrawOptions::new()
         .transform(TransformInstance::translation(origin_x, origin_y));
     for (bounds, material) in [
         (
@@ -524,7 +524,7 @@ fn tile_88_rectangle_coverage_materials(scene: &mut Scene) -> Vec<PixelExpectati
             Shape::rect([(0.0, 0.0), (22.0, 14.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .background_texture_id(CHECKERBOARD_TEXTURE_ID)
                 .transform(transform),
         )
@@ -556,7 +556,7 @@ fn tile_88_rectangle_coverage_materials(scene: &mut Scene) -> Vec<PixelExpectati
 
 fn tile_89_rectangle_coverage_effects(scene: &mut Scene) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(89);
-    let options = ShapeDrawCommandOptions::new()
+    let options = ShapeDrawOptions::new()
         .transform(TransformInstance::translation(origin_x, origin_y));
     let background = scene
         .add_shape(
@@ -678,7 +678,7 @@ fn tile_89_rectangle_coverage_effects(scene: &mut Scene) -> Vec<PixelExpectation
 
 fn tile_84_mixed_command_replacement(scene: &mut Scene) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(84);
-    let options = ShapeDrawCommandOptions::new()
+    let options = ShapeDrawOptions::new()
         .transform(TransformInstance::translation(origin_x, origin_y));
     let initial = Shape::rect([(5.0, 5.0), (30.0, 30.0)]);
     let parent = scene
@@ -750,7 +750,7 @@ fn tile_84_mixed_command_replacement(scene: &mut Scene) -> Vec<PixelExpectation>
 
 fn tile_85_replacement_preserves_effects_and_children(scene: &mut Scene) -> Vec<PixelExpectation> {
     let (origin_x, origin_y) = tile_origin(85);
-    let options = ShapeDrawCommandOptions::new()
+    let options = ShapeDrawOptions::new()
         .transform(TransformInstance::translation(origin_x, origin_y));
     scene
         .add_shape(
@@ -846,7 +846,7 @@ fn tile_86_negative_w_shapes_and_effects(scene: &mut Scene) -> Vec<PixelExpectat
             Shape::rect([(0.0, 10.0), (35.0, 35.0)]),
             Some(parent),
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::rgb(220, 30, 30))
                 .transform(transform),
         )
@@ -856,7 +856,7 @@ fn tile_86_negative_w_shapes_and_effects(scene: &mut Scene) -> Vec<PixelExpectat
             Shape::rect([(45.0, 10.0), (65.0, 30.0)]),
             Some(parent),
             None,
-            ShapeDrawCommandOptions::new().transform(transform),
+            ShapeDrawOptions::new().transform(transform),
         )
         .unwrap();
     scene
@@ -917,7 +917,7 @@ fn tile_74_backdrop_stencil_ordering(scene: &mut Scene) -> Vec<PixelExpectation>
             ),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(185, 185, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(185, 185, 220)),
         )
         .unwrap();
     let clip_id = scene
@@ -946,7 +946,7 @@ fn tile_74_backdrop_stencil_ordering(scene: &mut Scene) -> Vec<PixelExpectation>
                 ),
                 Some(clip_id),
                 None,
-                ShapeDrawCommandOptions::new()
+                ShapeDrawOptions::new()
                     .color(Color::rgb(50, 180, 50))
                     .clips_children(clips_children),
             )
@@ -967,7 +967,7 @@ fn tile_74_backdrop_stencil_ordering(scene: &mut Scene) -> Vec<PixelExpectation>
                 ]),
                 Some(if is_leaf { clip_id } else { panel_id }),
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgb(230, 70, 70)),
+                ShapeDrawOptions::new().color(Color::rgb(230, 70, 70)),
             )
             .unwrap();
         scene
@@ -978,7 +978,7 @@ fn tile_74_backdrop_stencil_ordering(scene: &mut Scene) -> Vec<PixelExpectation>
                 ]),
                 Some(clip_id),
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgb(230, 200, 50)),
+                ShapeDrawOptions::new().color(Color::rgb(230, 200, 50)),
             )
             .unwrap();
 
@@ -1026,7 +1026,7 @@ fn tile_74_backdrop_stencil_ordering(scene: &mut Scene) -> Vec<PixelExpectation>
             ]),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 120, 40)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 120, 40)),
         )
         .unwrap();
     for x in [2, 40] {
@@ -1059,7 +1059,7 @@ fn tile_70_stencil_restoration_across_empty_and_overflow_parents(
             ),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(180, 180, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(180, 180, 220)),
         )
         .unwrap();
 
@@ -1069,7 +1069,7 @@ fn tile_70_stencil_restoration_across_empty_and_overflow_parents(
             Shape::builder().build(),
             Some(outer_id),
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     let nested_clip_id = scene
@@ -1083,7 +1083,7 @@ fn tile_70_stencil_restoration_across_empty_and_overflow_parents(
             ),
             Some(empty_parent_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(245, 215, 120)),
+            ShapeDrawOptions::new().color(Color::rgb(245, 215, 120)),
         )
         .unwrap();
     scene
@@ -1097,7 +1097,7 @@ fn tile_70_stencil_restoration_across_empty_and_overflow_parents(
             ),
             Some(nested_clip_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 60, 60)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 60, 60)),
         )
         .unwrap();
 
@@ -1112,7 +1112,7 @@ fn tile_70_stencil_restoration_across_empty_and_overflow_parents(
             ),
             Some(outer_id),
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::rgb(100, 200, 120))
                 .clips_children(false),
         )
@@ -1128,7 +1128,7 @@ fn tile_70_stencil_restoration_across_empty_and_overflow_parents(
                 .build(),
             Some(overflow_parent_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(70, 80, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(70, 80, 220)),
         )
         .unwrap();
     scene
@@ -1142,7 +1142,7 @@ fn tile_70_stencil_restoration_across_empty_and_overflow_parents(
             ),
             Some(outer_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(230, 140, 40)),
+            ShapeDrawOptions::new().color(Color::rgb(230, 140, 40)),
         )
         .unwrap();
     // This sibling crosses the outer clip, which must have been decremented.
@@ -1157,7 +1157,7 @@ fn tile_70_stencil_restoration_across_empty_and_overflow_parents(
             ),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(70, 70, 70)),
+            ShapeDrawOptions::new().color(Color::rgb(70, 70, 70)),
         )
         .unwrap();
 
@@ -1239,7 +1239,7 @@ fn tile_68_gradient_transition_hints(scene: &mut Scene) -> Vec<PixelExpectation>
                 ]),
                 None,
                 None,
-                ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+                ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
             )
             .unwrap();
     }
@@ -1297,7 +1297,7 @@ fn tile_69_gradient_automatic_stop_after_decreasing_stop(
             ]),
             None,
             None,
-            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+            ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
         )
         .unwrap();
 
@@ -1426,7 +1426,7 @@ fn tile_01_rect_solid(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 50, 50)),
         )
         .unwrap();
 
@@ -1454,7 +1454,7 @@ fn tile_02_rounded_rect_solid(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 180, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 180, 50)),
         )
         .unwrap();
 
@@ -1485,7 +1485,7 @@ fn tile_03_path_triangle(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 50, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 50, 220)),
         )
         .unwrap();
 
@@ -1523,7 +1523,7 @@ fn tile_04_path_bezier(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 200, 50)),
         )
         .unwrap();
 
@@ -1550,7 +1550,7 @@ fn tile_05_rect_parent_child_inside(scene: &mut Scene) -> Vec<PixelExpectation> 
             parent,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(180, 180, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(180, 180, 220)),
         )
         .unwrap();
 
@@ -1560,7 +1560,7 @@ fn tile_05_rect_parent_child_inside(scene: &mut Scene) -> Vec<PixelExpectation> 
             child,
             Some(parent_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 100, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 100, 50)),
         )
         .unwrap();
 
@@ -1592,7 +1592,7 @@ fn tile_06_rect_parent_child_overflow(scene: &mut Scene) -> Vec<PixelExpectation
             parent,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(150, 200, 150)),
+            ShapeDrawOptions::new().color(Color::rgb(150, 200, 150)),
         )
         .unwrap();
 
@@ -1603,7 +1603,7 @@ fn tile_06_rect_parent_child_overflow(scene: &mut Scene) -> Vec<PixelExpectation
             child,
             Some(parent_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 50, 200)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 50, 200)),
         )
         .unwrap();
 
@@ -1645,7 +1645,7 @@ fn tile_07_rect_parent_multi_children(scene: &mut Scene) -> Vec<PixelExpectation
             parent,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(200, 200, 200)),
+            ShapeDrawOptions::new().color(Color::rgb(200, 200, 200)),
         )
         .unwrap();
 
@@ -1663,7 +1663,7 @@ fn tile_07_rect_parent_multi_children(scene: &mut Scene) -> Vec<PixelExpectation
                 child,
                 Some(parent_id),
                 None,
-                ShapeDrawCommandOptions::new().color(child_colors[idx]),
+                ShapeDrawOptions::new().color(child_colors[idx]),
             )
             .unwrap();
     }
@@ -1697,7 +1697,7 @@ fn tile_08_rect_nested_3_levels(scene: &mut Scene) -> Vec<PixelExpectation> {
             level0,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(200, 180, 180)),
+            ShapeDrawOptions::new().color(Color::rgb(200, 180, 180)),
         )
         .unwrap();
 
@@ -1707,7 +1707,7 @@ fn tile_08_rect_nested_3_levels(scene: &mut Scene) -> Vec<PixelExpectation> {
             level1,
             Some(id0),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(180, 200, 180)),
+            ShapeDrawOptions::new().color(Color::rgb(180, 200, 180)),
         )
         .unwrap();
 
@@ -1717,7 +1717,7 @@ fn tile_08_rect_nested_3_levels(scene: &mut Scene) -> Vec<PixelExpectation> {
             level2,
             Some(id1),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(100, 100, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(100, 100, 220)),
         )
         .unwrap();
 
@@ -1743,7 +1743,7 @@ fn tile_09_rect_siblings_overlap(scene: &mut Scene) -> Vec<PixelExpectation> {
             parent,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(200, 200, 200)),
+            ShapeDrawOptions::new().color(Color::rgb(200, 200, 200)),
         )
         .unwrap();
 
@@ -1754,7 +1754,7 @@ fn tile_09_rect_siblings_overlap(scene: &mut Scene) -> Vec<PixelExpectation> {
             child1,
             Some(parent_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 50, 50)),
         )
         .unwrap();
 
@@ -1765,7 +1765,7 @@ fn tile_09_rect_siblings_overlap(scene: &mut Scene) -> Vec<PixelExpectation> {
             child2,
             Some(parent_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 50, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 50, 220)),
         )
         .unwrap();
 
@@ -1806,7 +1806,7 @@ fn tile_10_rounded_rect_clip(scene: &mut Scene) -> Vec<PixelExpectation> {
             parent,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(200, 200, 230)),
+            ShapeDrawOptions::new().color(Color::rgb(200, 200, 230)),
         )
         .unwrap();
 
@@ -1817,7 +1817,7 @@ fn tile_10_rounded_rect_clip(scene: &mut Scene) -> Vec<PixelExpectation> {
             child,
             Some(parent_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 100, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 100, 50)),
         )
         .unwrap();
 
@@ -1859,7 +1859,7 @@ fn tile_11_path_parent_clip(scene: &mut Scene) -> Vec<PixelExpectation> {
             parent,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(180, 180, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(180, 180, 220)),
         )
         .unwrap();
 
@@ -1870,7 +1870,7 @@ fn tile_11_path_parent_clip(scene: &mut Scene) -> Vec<PixelExpectation> {
             child,
             Some(parent_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 150, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 150, 50)),
         )
         .unwrap();
 
@@ -1918,7 +1918,7 @@ fn tile_12_stencil_nested_3_levels(scene: &mut Scene) -> Vec<PixelExpectation> {
             level0,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(200, 180, 200)),
+            ShapeDrawOptions::new().color(Color::rgb(200, 180, 200)),
         )
         .unwrap(); // lavender
 
@@ -1933,7 +1933,7 @@ fn tile_12_stencil_nested_3_levels(scene: &mut Scene) -> Vec<PixelExpectation> {
             level1,
             Some(id0),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(100, 200, 100)),
+            ShapeDrawOptions::new().color(Color::rgb(100, 200, 100)),
         )
         .unwrap(); // green
 
@@ -1948,7 +1948,7 @@ fn tile_12_stencil_nested_3_levels(scene: &mut Scene) -> Vec<PixelExpectation> {
             level2,
             Some(id1),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(100, 100, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(100, 100, 220)),
         )
         .unwrap(); // blue
 
@@ -2014,7 +2014,7 @@ fn tile_13_rotated_rect_clip(scene: &mut Scene) -> Vec<PixelExpectation> {
             parent,
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::rgb(200, 200, 180))
                 .transform(rotation.multiply(&translation)),
         )
@@ -2027,7 +2027,7 @@ fn tile_13_rotated_rect_clip(scene: &mut Scene) -> Vec<PixelExpectation> {
             child,
             Some(parent_id),
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::rgb(220, 80, 80))
                 .transform(rotation.multiply(&translation)),
         )
@@ -2077,7 +2077,7 @@ fn tile_14_scissor_then_stencil(scene: &mut Scene) -> Vec<PixelExpectation> {
             level0,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(200, 200, 200)),
+            ShapeDrawOptions::new().color(Color::rgb(200, 200, 200)),
         )
         .unwrap(); // gray
 
@@ -2092,7 +2092,7 @@ fn tile_14_scissor_then_stencil(scene: &mut Scene) -> Vec<PixelExpectation> {
             level1,
             Some(id0),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(180, 220, 180)),
+            ShapeDrawOptions::new().color(Color::rgb(180, 220, 180)),
         )
         .unwrap(); // green
 
@@ -2104,7 +2104,7 @@ fn tile_14_scissor_then_stencil(scene: &mut Scene) -> Vec<PixelExpectation> {
             leaf,
             Some(id1),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 50, 200)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 50, 200)),
         )
         .unwrap(); // blue
 
@@ -2172,7 +2172,7 @@ fn tile_15_stencil_then_scissor(scene: &mut Scene) -> Vec<PixelExpectation> {
             level0,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 200)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 200, 200)),
         )
         .unwrap(); // pink
 
@@ -2184,7 +2184,7 @@ fn tile_15_stencil_then_scissor(scene: &mut Scene) -> Vec<PixelExpectation> {
             level1,
             Some(id0),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(200, 220, 200)),
+            ShapeDrawOptions::new().color(Color::rgb(200, 220, 200)),
         )
         .unwrap(); // green
 
@@ -2196,7 +2196,7 @@ fn tile_15_stencil_then_scissor(scene: &mut Scene) -> Vec<PixelExpectation> {
             leaf,
             Some(id1),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 200, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 200, 50)),
         )
         .unwrap(); // bright green
 
@@ -2262,7 +2262,7 @@ fn tile_16_deep_mixed_5_levels(scene: &mut Scene) -> Vec<PixelExpectation> {
             l0,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 220, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 220, 220)),
         )
         .unwrap(); // light gray
 
@@ -2274,7 +2274,7 @@ fn tile_16_deep_mixed_5_levels(scene: &mut Scene) -> Vec<PixelExpectation> {
             l1,
             Some(id0),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(200, 200, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(200, 200, 220)),
         )
         .unwrap(); // blue-gray
 
@@ -2289,7 +2289,7 @@ fn tile_16_deep_mixed_5_levels(scene: &mut Scene) -> Vec<PixelExpectation> {
             l2,
             Some(id1),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(180, 220, 180)),
+            ShapeDrawOptions::new().color(Color::rgb(180, 220, 180)),
         )
         .unwrap(); // green
 
@@ -2301,7 +2301,7 @@ fn tile_16_deep_mixed_5_levels(scene: &mut Scene) -> Vec<PixelExpectation> {
             l3,
             Some(id2),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(200, 180, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(200, 180, 220)),
         )
         .unwrap(); // purple
 
@@ -2313,7 +2313,7 @@ fn tile_16_deep_mixed_5_levels(scene: &mut Scene) -> Vec<PixelExpectation> {
             l4,
             Some(id3),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 50, 200)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 50, 200)),
         )
         .unwrap(); // blue
 
@@ -2379,7 +2379,7 @@ fn tile_17_translated_rect(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::rgb(220, 150, 50))
                 .transform(TransformInstance::translation(ox + 30.0, oy + 45.0)),
         )
@@ -2429,7 +2429,7 @@ fn tile_18_scaled_rect(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::rgb(150, 50, 200))
                 .transform(to_origin.multiply(&scale.multiply(&back))),
         )
@@ -2478,7 +2478,7 @@ fn tile_19_rotated_rect_leaf(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::rgb(220, 100, 100))
                 .transform(rotation.multiply(&translation)),
         )
@@ -2506,7 +2506,7 @@ fn tile_20_transform_parent_child(scene: &mut Scene) -> Vec<PixelExpectation> {
             parent,
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::rgb(180, 180, 220))
                 .transform(TransformInstance::translation(ox + 15.0, oy + 15.0)),
         )
@@ -2519,7 +2519,7 @@ fn tile_20_transform_parent_child(scene: &mut Scene) -> Vec<PixelExpectation> {
             child,
             Some(parent_id),
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::rgb(50, 200, 50))
                 .transform(TransformInstance::translation(ox + 15.0, oy + 15.0)),
         )
@@ -2542,7 +2542,7 @@ fn tile_21_alpha_overlap(scene: &mut Scene) -> Vec<PixelExpectation> {
             bg,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 50, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 50, 220)),
         )
         .unwrap();
 
@@ -2553,7 +2553,7 @@ fn tile_21_alpha_overlap(scene: &mut Scene) -> Vec<PixelExpectation> {
             fg,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgba(220, 50, 50, 128)),
+            ShapeDrawOptions::new().color(Color::rgba(220, 50, 50, 128)),
         )
         .unwrap();
 
@@ -2592,14 +2592,14 @@ fn tile_22_no_color_default(scene: &mut Scene) -> Vec<PixelExpectation> {
             bg,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(100, 100, 200)),
+            ShapeDrawOptions::new().color(Color::rgb(100, 100, 200)),
         )
         .unwrap();
 
     let shape = Shape::rect([(ox + 20.0, oy + 20.0), (ox + 60.0, oy + 60.0)]);
     // An unset fill is transparent.
     scene
-        .add_shape(shape, None, None, ShapeDrawCommandOptions::new())
+        .add_shape(shape, None, None, ShapeDrawOptions::new())
         .unwrap();
 
     vec![
@@ -2632,7 +2632,7 @@ fn tile_23_fully_transparent(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::TRANSPARENT),
+            ShapeDrawOptions::new().color(Color::TRANSPARENT),
         )
         .unwrap();
 
@@ -2657,7 +2657,7 @@ fn tile_24_textured_rect(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .background_texture_id(CHECKERBOARD_TEXTURE_ID)
                 .color(Color::WHITE),
         )
@@ -2694,7 +2694,7 @@ fn tile_25_textured_with_color(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .background_texture_id(TRANSLUCENT_CHECKERBOARD_TEXTURE_ID)
                 .color(Color::rgb(255, 100, 100)),
         )
@@ -2739,7 +2739,7 @@ fn tile_26_textured_parent_child(scene: &mut Scene) -> Vec<PixelExpectation> {
             parent,
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .background_texture_id(CHECKERBOARD_TEXTURE_ID)
                 .color(Color::WHITE),
         )
@@ -2751,7 +2751,7 @@ fn tile_26_textured_parent_child(scene: &mut Scene) -> Vec<PixelExpectation> {
             child,
             Some(parent_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 50, 50)),
         )
         .unwrap();
 
@@ -2797,7 +2797,7 @@ fn tile_27_group_blur_leaf(scene: &mut Scene) -> Vec<PixelExpectation> {
             bg_stripe,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 180, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 180, 50)),
         )
         .unwrap(); // green stripe
 
@@ -2808,7 +2808,7 @@ fn tile_27_group_blur_leaf(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgba(220, 50, 50, 200)),
+            ShapeDrawOptions::new().color(Color::rgba(220, 50, 50, 200)),
         )
         .unwrap(); // semi-transparent red
 
@@ -2857,7 +2857,7 @@ fn tile_28_group_blur_with_children(scene: &mut Scene) -> Vec<PixelExpectation> 
             bg_stripe,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 180, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 180, 50)),
         )
         .unwrap(); // yellow stripe
 
@@ -2868,7 +2868,7 @@ fn tile_28_group_blur_with_children(scene: &mut Scene) -> Vec<PixelExpectation> 
             parent,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgba(200, 200, 200, 200)),
+            ShapeDrawOptions::new().color(Color::rgba(200, 200, 200, 200)),
         )
         .unwrap(); // semi-transparent gray
 
@@ -2878,7 +2878,7 @@ fn tile_28_group_blur_with_children(scene: &mut Scene) -> Vec<PixelExpectation> 
             child,
             Some(parent_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 50, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 50, 220)),
         )
         .unwrap();
 
@@ -2941,7 +2941,7 @@ fn tile_29_backdrop_blur_leaf(scene: &mut Scene) -> Vec<PixelExpectation> {
             bg,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 50, 50)),
         )
         .unwrap();
 
@@ -2953,7 +2953,7 @@ fn tile_29_backdrop_blur_leaf(scene: &mut Scene) -> Vec<PixelExpectation> {
             stripe,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 50, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 50, 220)),
         )
         .unwrap(); // blue stripe
 
@@ -2964,7 +2964,7 @@ fn tile_29_backdrop_blur_leaf(scene: &mut Scene) -> Vec<PixelExpectation> {
             panel,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgba(255, 255, 255, 80)),
+            ShapeDrawOptions::new().color(Color::rgba(255, 255, 255, 80)),
         )
         .unwrap();
 
@@ -3013,7 +3013,7 @@ fn tile_30_backdrop_blur_nonleaf(scene: &mut Scene) -> Vec<PixelExpectation> {
             bg,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 180, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 180, 50)),
         )
         .unwrap();
 
@@ -3024,7 +3024,7 @@ fn tile_30_backdrop_blur_nonleaf(scene: &mut Scene) -> Vec<PixelExpectation> {
             stripe,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 50, 50)),
         )
         .unwrap(); // red stripe
 
@@ -3035,7 +3035,7 @@ fn tile_30_backdrop_blur_nonleaf(scene: &mut Scene) -> Vec<PixelExpectation> {
             panel,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgba(255, 255, 255, 80)),
+            ShapeDrawOptions::new().color(Color::rgba(255, 255, 255, 80)),
         )
         .unwrap();
 
@@ -3045,7 +3045,7 @@ fn tile_30_backdrop_blur_nonleaf(scene: &mut Scene) -> Vec<PixelExpectation> {
             child,
             Some(panel_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 50, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 50, 220)),
         )
         .unwrap();
 
@@ -3112,7 +3112,7 @@ fn tile_31_backdrop_under_scissor(scene: &mut Scene) -> Vec<PixelExpectation> {
             bg,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 180, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 180, 50)),
         )
         .unwrap();
 
@@ -3123,7 +3123,7 @@ fn tile_31_backdrop_under_scissor(scene: &mut Scene) -> Vec<PixelExpectation> {
             stripe,
             Some(bg_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 50, 200)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 50, 200)),
         )
         .unwrap(); // blue stripe
 
@@ -3134,7 +3134,7 @@ fn tile_31_backdrop_under_scissor(scene: &mut Scene) -> Vec<PixelExpectation> {
             clip_parent,
             Some(bg_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgba(0, 0, 0, 0)),
+            ShapeDrawOptions::new().color(Color::rgba(0, 0, 0, 0)),
         )
         .unwrap(); // Transparent fill leaves only the clip.
 
@@ -3145,7 +3145,7 @@ fn tile_31_backdrop_under_scissor(scene: &mut Scene) -> Vec<PixelExpectation> {
             panel,
             Some(clip_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgba(255, 255, 255, 80)),
+            ShapeDrawOptions::new().color(Color::rgba(255, 255, 255, 80)),
         )
         .unwrap();
 
@@ -3202,7 +3202,7 @@ fn tile_32_tiny_1px_shape(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 255)),
+            ShapeDrawOptions::new().color(Color::rgb(255, 0, 255)),
         )
         .unwrap();
 
@@ -3247,7 +3247,7 @@ fn tile_33_shape_at_canvas_edge(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(180, 50, 180)),
+            ShapeDrawOptions::new().color(Color::rgb(180, 50, 180)),
         )
         .unwrap();
 
@@ -3305,7 +3305,7 @@ fn tile_34_cached_shape(scene: &mut Scene) -> Vec<PixelExpectation> {
         .add_cached_shape(
             cache_key,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 180, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 180, 220)),
         )
         .unwrap();
 
@@ -3339,7 +3339,7 @@ fn tile_35_trivial_transform_transparent_leaf(scene: &mut Scene) -> Vec<PixelExp
             bg,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(40, 90, 200)),
+            ShapeDrawOptions::new().color(Color::rgb(40, 90, 200)),
         )
         .unwrap();
 
@@ -3349,7 +3349,7 @@ fn tile_35_trivial_transform_transparent_leaf(scene: &mut Scene) -> Vec<PixelExp
             leaf,
             None,
             None,
-            ShapeDrawCommandOptions::new().transform(TransformInstance::affine_2d(
+            ShapeDrawOptions::new().transform(TransformInstance::affine_2d(
                 2.0,
                 0.0,
                 0.0,
@@ -3379,7 +3379,7 @@ fn tile_36_trivial_transform_transparent_parent(scene: &mut Scene) -> Vec<PixelE
             parent,
             None,
             None,
-            ShapeDrawCommandOptions::new().transform(TransformInstance::affine_2d(
+            ShapeDrawOptions::new().transform(TransformInstance::affine_2d(
                 2.0,
                 0.0,
                 0.0,
@@ -3396,7 +3396,7 @@ fn tile_36_trivial_transform_transparent_parent(scene: &mut Scene) -> Vec<PixelE
             child,
             Some(parent_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(30, 110, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(30, 110, 220)),
         )
         .unwrap();
 
@@ -3429,7 +3429,7 @@ fn tile_37_textured_transparent_rects(scene: &mut Scene) -> Vec<PixelExpectation
             explicit_alpha_zero,
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::rgba(255, 0, 0, 0))
                 .background_texture_id(SOLID_GREEN_TEXTURE_ID),
         )
@@ -3441,7 +3441,7 @@ fn tile_37_textured_transparent_rects(scene: &mut Scene) -> Vec<PixelExpectation
             none_color,
             None,
             None,
-            ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
+            ShapeDrawOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
         )
         .unwrap();
 
@@ -3474,7 +3474,7 @@ fn tile_38_sheared_transparent_parent(scene: &mut Scene) -> Vec<PixelExpectation
             parent,
             None,
             None,
-            ShapeDrawCommandOptions::new().transform(TransformInstance::affine_2d(
+            ShapeDrawOptions::new().transform(TransformInstance::affine_2d(
                 1.0,
                 0.0,
                 0.5,
@@ -3491,7 +3491,7 @@ fn tile_38_sheared_transparent_parent(scene: &mut Scene) -> Vec<PixelExpectation
             child,
             Some(parent_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(20, 120, 230)),
+            ShapeDrawOptions::new().color(Color::rgb(20, 120, 230)),
         )
         .unwrap();
 
@@ -3567,7 +3567,7 @@ fn tile_39_linear_gradient(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .transform(TransformInstance::translation(ox + 10.0, oy + 10.0))
                 .fill(Fill::Gradient(gradient)),
         )
@@ -3613,7 +3613,7 @@ fn tile_40_radial_gradient(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+            ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
         )
         .unwrap();
 
@@ -3708,7 +3708,7 @@ fn tile_41_conic_gradient(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+            ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
         )
         .unwrap();
 
@@ -3781,7 +3781,7 @@ fn tile_42_repeating_linear_gradient(scene: &mut Scene) -> Vec<PixelExpectation>
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+            ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
         )
         .unwrap();
 
@@ -3873,7 +3873,7 @@ fn tile_43_gradient_hard_stops(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+            ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
         )
         .unwrap();
 
@@ -3922,14 +3922,14 @@ fn tile_44_gradient_clipped(scene: &mut Scene) -> Vec<PixelExpectation> {
     .expect("valid gradient");
 
     let parent_id = scene
-        .add_shape(parent, None, None, ShapeDrawCommandOptions::new())
+        .add_shape(parent, None, None, ShapeDrawOptions::new())
         .unwrap();
     scene
         .add_shape(
             child,
             Some(parent_id),
             None,
-            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+            ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
         )
         .unwrap();
 
@@ -3985,7 +3985,7 @@ fn tile_45_gradient_group_blur(scene: &mut Scene) -> Vec<PixelExpectation> {
             bg_stripe,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 180, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 180, 50)),
         )
         .unwrap(); // green stripe
 
@@ -4005,7 +4005,7 @@ fn tile_45_gradient_group_blur(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+            ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
         )
         .unwrap();
 
@@ -4067,7 +4067,7 @@ fn tile_46_gradient_backdrop_blur(scene: &mut Scene) -> Vec<PixelExpectation> {
             bg,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 50, 50)),
         )
         .unwrap();
 
@@ -4088,7 +4088,7 @@ fn tile_46_gradient_backdrop_blur(scene: &mut Scene) -> Vec<PixelExpectation> {
             stripe,
             None,
             None,
-            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+            ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
         )
         .unwrap();
 
@@ -4099,7 +4099,7 @@ fn tile_46_gradient_backdrop_blur(scene: &mut Scene) -> Vec<PixelExpectation> {
             panel,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgba(255, 255, 255, 80)),
+            ShapeDrawOptions::new().color(Color::rgba(255, 255, 255, 80)),
         )
         .unwrap();
 
@@ -4165,7 +4165,7 @@ fn tile_47_gradient_nonleaf_stencil(scene: &mut Scene) -> Vec<PixelExpectation> 
             parent,
             None,
             None,
-            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+            ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
         )
         .unwrap();
 
@@ -4176,7 +4176,7 @@ fn tile_47_gradient_nonleaf_stencil(scene: &mut Scene) -> Vec<PixelExpectation> 
             child,
             Some(parent_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(255, 255, 0)),
+            ShapeDrawOptions::new().color(Color::rgb(255, 255, 0)),
         )
         .unwrap(); // yellow
 
@@ -4233,7 +4233,7 @@ fn tile_48_gradient_state_leak(scene: &mut Scene) -> Vec<PixelExpectation> {
             grad_shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+            ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
         )
         .unwrap();
 
@@ -4244,7 +4244,7 @@ fn tile_48_gradient_state_leak(scene: &mut Scene) -> Vec<PixelExpectation> {
             solid_shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(0, 220, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(0, 220, 220)),
         )
         .unwrap(); // cyan
 
@@ -4371,7 +4371,7 @@ fn tile_49_conic_quadrant_colors(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+            ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
         )
         .unwrap();
 
@@ -4422,7 +4422,7 @@ fn tile_50_overflow_visible_delegates_to_ancestor(scene: &mut Scene) -> Vec<Pixe
             outer,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(180, 180, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(180, 180, 220)),
         )
         .unwrap();
 
@@ -4435,7 +4435,7 @@ fn tile_50_overflow_visible_delegates_to_ancestor(scene: &mut Scene) -> Vec<Pixe
             middle,
             Some(outer_id),
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::rgb(100, 200, 120))
                 .clips_children(false),
         )
@@ -4447,7 +4447,7 @@ fn tile_50_overflow_visible_delegates_to_ancestor(scene: &mut Scene) -> Vec<Pixe
             child,
             Some(middle_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 60, 60)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 60, 60)),
         )
         .unwrap();
 
@@ -4492,7 +4492,7 @@ fn tile_51_clip_rect_overflow_visible_container(scene: &mut Scene) -> Vec<PixelE
             outer,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(180, 180, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(180, 180, 220)),
         )
         .unwrap();
 
@@ -4511,7 +4511,7 @@ fn tile_51_clip_rect_overflow_visible_container(scene: &mut Scene) -> Vec<PixelE
             child,
             Some(container_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(70, 80, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(70, 80, 220)),
         )
         .unwrap();
 
@@ -4556,7 +4556,7 @@ fn tile_52_backdrop_overflow_visible_children(scene: &mut Scene) -> Vec<PixelExp
             outer,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(185, 185, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(185, 185, 220)),
         )
         .unwrap();
 
@@ -4569,7 +4569,7 @@ fn tile_52_backdrop_overflow_visible_children(scene: &mut Scene) -> Vec<PixelExp
             backdrop_panel,
             Some(outer_id),
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::rgba(255, 255, 255, 80))
                 .clips_children(false),
         )
@@ -4591,7 +4591,7 @@ fn tile_52_backdrop_overflow_visible_children(scene: &mut Scene) -> Vec<PixelExp
             child,
             Some(panel_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(230, 70, 70)),
+            ShapeDrawOptions::new().color(Color::rgb(230, 70, 70)),
         )
         .unwrap();
 
@@ -4648,7 +4648,7 @@ fn tile_53_texture_original_size(scene: &mut Scene) -> Vec<PixelExpectation> {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .background_texture(ShapeTextureOptions::new(SOLID_RED_TEXTURE_ID))
                 .foreground_texture(
                     ShapeTextureOptions::new(SOLID_GREEN_20X20_TEXTURE_ID)
@@ -4686,7 +4686,7 @@ fn tile_54_texture_original_size_scaled(scene: &mut Scene) -> Vec<PixelExpectati
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .background_texture(
                     ShapeTextureOptions::new(SOLID_GREEN_20X20_TEXTURE_ID)
                         .fit_mode(ShapeTextureFitMode::OriginalSize),
@@ -4740,7 +4740,7 @@ fn tile_55_backdrop_capture_screen_rect(scene: &mut Scene) -> Vec<PixelExpectati
             red_source,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 50, 50)),
         )
         .unwrap();
 
@@ -4750,13 +4750,13 @@ fn tile_55_backdrop_capture_screen_rect(scene: &mut Scene) -> Vec<PixelExpectati
             blue_behind_panel,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 50, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 50, 220)),
         )
         .unwrap();
 
     let panel = Shape::rect([(ox + 45.0, oy + 20.0), (ox + 75.0, oy + 50.0)]);
     let panel_id = scene
-        .add_shape(panel, None, None, ShapeDrawCommandOptions::new())
+        .add_shape(panel, None, None, ShapeDrawOptions::new())
         .unwrap();
 
     scene
@@ -4810,7 +4810,7 @@ fn tile_56_backdrop_capture_downsampled(scene: &mut Scene) -> Vec<PixelExpectati
             green_source,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 180, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 180, 50)),
         )
         .unwrap();
 
@@ -4820,13 +4820,13 @@ fn tile_56_backdrop_capture_downsampled(scene: &mut Scene) -> Vec<PixelExpectati
             red_behind_panel,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 50, 50)),
         )
         .unwrap();
 
     let panel = Shape::rect([(ox + 50.0, oy + 15.0), (ox + 75.0, oy + 55.0)]);
     let panel_id = scene
-        .add_shape(panel, None, None, ShapeDrawCommandOptions::new())
+        .add_shape(panel, None, None, ShapeDrawOptions::new())
         .unwrap();
 
     scene
@@ -4891,7 +4891,7 @@ fn tile_57_gradient_backdrop_oversized_capture_falls_back(
             panel,
             None,
             None,
-            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+            ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
         )
         .unwrap();
 
@@ -4946,7 +4946,7 @@ fn tile_58_backdrop_budgeted_capture_falls_back(scene: &mut Scene) -> Vec<PixelE
             red_source,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 50, 50)),
         )
         .unwrap();
 
@@ -4956,13 +4956,13 @@ fn tile_58_backdrop_budgeted_capture_falls_back(scene: &mut Scene) -> Vec<PixelE
             blue_behind_panel,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 50, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 50, 220)),
         )
         .unwrap();
 
     let panel = Shape::rect([(ox + 45.0, oy + 20.0), (ox + 75.0, oy + 50.0)]);
     let panel_id = scene
-        .add_shape(panel, None, None, ShapeDrawCommandOptions::new())
+        .add_shape(panel, None, None, ShapeDrawOptions::new())
         .unwrap();
 
     scene
@@ -5016,7 +5016,7 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
             red_band,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 50, 50)),
         )
         .unwrap();
 
@@ -5026,7 +5026,7 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
             green_band,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 180, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 180, 50)),
         )
         .unwrap();
 
@@ -5036,7 +5036,7 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
             blue_offscreen_band,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 50, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 50, 220)),
         )
         .unwrap();
 
@@ -5046,13 +5046,13 @@ fn tile_59_backdrop_node_bounds_offscreen_preserves_size(
             yellow_offscreen_band,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 200, 50)),
         )
         .unwrap();
 
     let panel = Shape::rect([(ox + 60.0, oy + 15.0), (ox + 190.0, oy + 55.0)]);
     let panel_id = scene
-        .add_shape(panel, None, None, ShapeDrawCommandOptions::new())
+        .add_shape(panel, None, None, ShapeDrawOptions::new())
         .unwrap();
 
     scene
@@ -5112,7 +5112,7 @@ fn tile_60_cached_shape_mask_effect_rect(scene: &mut Scene) -> Vec<PixelExpectat
             shape,
             None,
             Some(60_060),
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 50, 50)),
         )
         .unwrap();
     let transparent_child = Shape::rect([
@@ -5124,7 +5124,7 @@ fn tile_60_cached_shape_mask_effect_rect(scene: &mut Scene) -> Vec<PixelExpectat
             transparent_child,
             Some(shape_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::TRANSPARENT),
+            ShapeDrawOptions::new().color(Color::TRANSPARENT),
         )
         .unwrap();
     scene
@@ -5174,7 +5174,7 @@ fn tile_61_cached_shape_mask_effect_path_clipped(scene: &mut Scene) -> Vec<Pixel
         BorderRadii::new(8.0),
     );
     let clip_parent_id = scene
-        .add_shape(clip_parent, None, None, ShapeDrawCommandOptions::new())
+        .add_shape(clip_parent, None, None, ShapeDrawOptions::new())
         .unwrap();
 
     let path = Shape::builder()
@@ -5188,7 +5188,7 @@ fn tile_61_cached_shape_mask_effect_path_clipped(scene: &mut Scene) -> Vec<Pixel
             path,
             Some(clip_parent_id),
             Some(61_061),
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 180, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 180, 50)),
         )
         .unwrap();
     scene
@@ -5242,7 +5242,7 @@ fn tile_62_cached_shape_mask_effect_inside_content_effect(
             shape,
             None,
             Some(62_062),
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 50, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 50, 50)),
         )
         .unwrap();
     scene
@@ -5294,7 +5294,7 @@ fn tile_63_cached_shape_mask_effect_with_backdrop(scene: &mut Scene) -> Vec<Pixe
             backdrop_source,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 200, 50)),
         )
         .unwrap();
 
@@ -5303,7 +5303,7 @@ fn tile_63_cached_shape_mask_effect_with_backdrop(scene: &mut Scene) -> Vec<Pixe
         (origin_x + 50.0, origin_y + 50.0),
     ]);
     let panel_id = scene
-        .add_shape(panel, None, Some(63_063), ShapeDrawCommandOptions::new())
+        .add_shape(panel, None, Some(63_063), ShapeDrawOptions::new())
         .unwrap();
     scene
         .set_shape_mask_effect(
@@ -5353,7 +5353,7 @@ fn tile_64_drop_shadow_with_backdrop_blur(scene: &mut Scene) -> Vec<PixelExpecta
             backing_shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(245, 190, 70)),
+            ShapeDrawOptions::new().color(Color::rgb(245, 190, 70)),
         )
         .unwrap();
 
@@ -5369,7 +5369,7 @@ fn tile_64_drop_shadow_with_backdrop_blur(scene: &mut Scene) -> Vec<PixelExpecta
             card,
             None,
             Some(64_064),
-            ShapeDrawCommandOptions::new().color(Color::rgba(75, 125, 235, 150)),
+            ShapeDrawOptions::new().color(Color::rgba(75, 125, 235, 150)),
         )
         .unwrap();
     let shadow_params = DropShadowParams {
@@ -5489,7 +5489,7 @@ fn tile_65_grouped_shape_mask_effect_in_backdrop(scene: &mut Scene) -> Vec<Pixel
             backing_shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 200, 50)),
         )
         .unwrap();
 
@@ -5498,7 +5498,7 @@ fn tile_65_grouped_shape_mask_effect_in_backdrop(scene: &mut Scene) -> Vec<Pixel
         (origin_x + 72.0, origin_y + 65.0),
     ]);
     let group_root_id = scene
-        .add_shape(group_root, None, None, ShapeDrawCommandOptions::new())
+        .add_shape(group_root, None, None, ShapeDrawOptions::new())
         .unwrap();
 
     let panel = Shape::rect([
@@ -5510,7 +5510,7 @@ fn tile_65_grouped_shape_mask_effect_in_backdrop(scene: &mut Scene) -> Vec<Pixel
             panel,
             Some(group_root_id),
             Some(65_065),
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     scene
@@ -5580,7 +5580,7 @@ fn tile_66_same_node_shape_backdrop_and_content_effects(
             backing_shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(50, 180, 80)),
+            ShapeDrawOptions::new().color(Color::rgb(50, 180, 80)),
         )
         .unwrap();
 
@@ -5589,7 +5589,7 @@ fn tile_66_same_node_shape_backdrop_and_content_effects(
         (origin_x + 50.0, origin_y + 50.0),
     ]);
     let panel_id = scene
-        .add_shape(panel, None, Some(66_066), ShapeDrawCommandOptions::new())
+        .add_shape(panel, None, Some(66_066), ShapeDrawOptions::new())
         .unwrap();
     scene
         .set_shape_mask_effect(
@@ -5657,7 +5657,7 @@ fn tile_67_downsampled_drop_shadow_with_backdrop_blur(scene: &mut Scene) -> Vec<
             backing_shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(245, 190, 70)),
+            ShapeDrawOptions::new().color(Color::rgb(245, 190, 70)),
         )
         .unwrap();
 
@@ -5673,7 +5673,7 @@ fn tile_67_downsampled_drop_shadow_with_backdrop_blur(scene: &mut Scene) -> Vec<
             card,
             None,
             Some(67_067),
-            ShapeDrawCommandOptions::new().color(Color::rgba(75, 125, 235, 150)),
+            ShapeDrawOptions::new().color(Color::rgba(75, 125, 235, 150)),
         )
         .unwrap();
     let shadow_params = DropShadowParams {
@@ -5804,15 +5804,15 @@ fn tile_71_shared_geometry_material_batches(scene: &mut Scene) -> Vec<PixelExpec
     })
     .expect("valid material batch gradient");
     let options = [
-        ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
-        ShapeDrawCommandOptions::new().color(Color::rgb(0, 0, 255)),
-        ShapeDrawCommandOptions::new().color(Color::rgb(255, 255, 0)),
-        ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
-        ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
-        ShapeDrawCommandOptions::new().foreground_texture_id(SOLID_GREEN_TEXTURE_ID),
-        ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
-        ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 255)),
-        ShapeDrawCommandOptions::new().color(Color::rgb(0, 255, 255)),
+        ShapeDrawOptions::new().color(Color::rgb(255, 0, 0)),
+        ShapeDrawOptions::new().color(Color::rgb(0, 0, 255)),
+        ShapeDrawOptions::new().color(Color::rgb(255, 255, 0)),
+        ShapeDrawOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
+        ShapeDrawOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
+        ShapeDrawOptions::new().foreground_texture_id(SOLID_GREEN_TEXTURE_ID),
+        ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
+        ShapeDrawOptions::new().color(Color::rgb(255, 0, 255)),
+        ShapeDrawOptions::new().color(Color::rgb(0, 255, 255)),
     ];
     for (index, options) in options.into_iter().enumerate() {
         let x = origin_x + 8.0 + (index % 3) as f32 * 23.0;
@@ -5873,7 +5873,7 @@ fn tile_72_nested_group_textures(scene: &mut Scene) -> Vec<PixelExpectation> {
             ]),
             None,
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     let nested = scene
@@ -5884,7 +5884,7 @@ fn tile_72_nested_group_textures(scene: &mut Scene) -> Vec<PixelExpectation> {
             ]),
             Some(outer),
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     let shape = scene
@@ -5895,7 +5895,7 @@ fn tile_72_nested_group_textures(scene: &mut Scene) -> Vec<PixelExpectation> {
             ]),
             Some(nested),
             Some(72_003),
-            ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
+            ShapeDrawOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
         )
         .unwrap();
     scene
@@ -5984,7 +5984,7 @@ fn tile_73_padded_layered_backdrops(scene: &mut Scene) -> Vec<PixelExpectation> 
             Shape::rect(group_bounds),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+            ShapeDrawOptions::new().color(Color::rgb(255, 0, 0)),
         )
         .unwrap();
     let group = scene
@@ -5992,7 +5992,7 @@ fn tile_73_padded_layered_backdrops(scene: &mut Scene) -> Vec<PixelExpectation> 
             Shape::rect(group_bounds),
             None,
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     scene
@@ -6011,7 +6011,7 @@ fn tile_73_padded_layered_backdrops(scene: &mut Scene) -> Vec<PixelExpectation> 
             ]),
             Some(group),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgba(0, 255, 0, 128)),
+            ShapeDrawOptions::new().color(Color::rgba(0, 255, 0, 128)),
         )
         .unwrap();
 
@@ -6033,10 +6033,10 @@ fn tile_73_padded_layered_backdrops(scene: &mut Scene) -> Vec<PixelExpectation> 
     })
     .unwrap();
     for (top, options) in [
-        (10.0, ShapeDrawCommandOptions::new()),
+        (10.0, ShapeDrawOptions::new()),
         (
             50.0,
-            ShapeDrawCommandOptions::new().fill(Fill::Gradient(gradient)),
+            ShapeDrawOptions::new().fill(Fill::Gradient(gradient)),
         ),
     ] {
         let panel = scene
@@ -6096,7 +6096,7 @@ fn tile_75_under_fill_with_user_textures(scene: &mut Scene) -> Vec<PixelExpectat
             ]),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(0, 255, 0)),
+            ShapeDrawOptions::new().color(Color::rgb(0, 255, 0)),
         )
         .unwrap();
     let mut expectations = Vec::new();
@@ -6143,7 +6143,7 @@ fn tile_75_under_fill_with_user_textures(scene: &mut Scene) -> Vec<PixelExpectat
                     ),
                     None,
                     None,
-                    ShapeDrawCommandOptions::new()
+                    ShapeDrawOptions::new()
                         .fill(fill)
                         .background_texture_id(TRANSLUCENT_RED_TEXTURE_ID)
                         .foreground_texture_id(HALF_GREEN_TEXTURE_ID),
@@ -6199,7 +6199,7 @@ fn tile_76_rotated_under_fill_sampling(scene: &mut Scene) -> Vec<PixelExpectatio
             Shape::rect(bounds),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+            ShapeDrawOptions::new().color(Color::rgb(255, 0, 0)),
         )
         .unwrap();
     scene
@@ -6207,7 +6207,7 @@ fn tile_76_rotated_under_fill_sampling(scene: &mut Scene) -> Vec<PixelExpectatio
             Shape::rect([(origin_x + 40.0, origin_y + 5.0), bounds[1]]),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(0, 0, 255)),
+            ShapeDrawOptions::new().color(Color::rgb(0, 0, 255)),
         )
         .unwrap();
     let group = scene
@@ -6215,7 +6215,7 @@ fn tile_76_rotated_under_fill_sampling(scene: &mut Scene) -> Vec<PixelExpectatio
             Shape::rect(bounds),
             None,
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     scene
@@ -6233,7 +6233,7 @@ fn tile_76_rotated_under_fill_sampling(scene: &mut Scene) -> Vec<PixelExpectatio
             Shape::rect([(-20.0, -20.0), (20.0, 20.0)]),
             Some(group),
             None,
-            ShapeDrawCommandOptions::new().transform(rotation.multiply(&translation)),
+            ShapeDrawOptions::new().transform(rotation.multiply(&translation)),
         )
         .unwrap();
     scene
@@ -6283,7 +6283,7 @@ fn add_backdrop_checkerboard(scene: &mut Scene, origin: (f32, f32)) {
                     Shape::rect([(left, top), (left + 10.0, top + 10.0)]),
                     None,
                     None,
-                    ShapeDrawCommandOptions::new().color(color),
+                    ShapeDrawOptions::new().color(color),
                 )
                 .unwrap();
         }
@@ -6303,7 +6303,7 @@ fn tile_consecutive_captures_under_inherited_clips(
             Shape::rect([(origin_x, origin_y), (origin_x + 80.0, origin_y + 80.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     if has_content_effect {
@@ -6327,7 +6327,7 @@ fn tile_consecutive_captures_under_inherited_clips(
             ),
             Some(container),
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     let outer_scissor = scene
@@ -6360,7 +6360,7 @@ fn tile_consecutive_captures_under_inherited_clips(
                 Shape::rect([(0.0, 0.0), (8.0, 8.0)]),
                 Some(inner_scissor),
                 Some(7_701),
-                ShapeDrawCommandOptions::new()
+                ShapeDrawOptions::new()
                     .color(Color::rgb(20, 35, 55))
                     .transform(TransformInstance::translation(
                         origin_x + left,
@@ -6397,7 +6397,7 @@ fn tile_consecutive_captures_under_inherited_clips(
                 ),
                 Some(inner_scissor),
                 None,
-                ShapeDrawCommandOptions::new().color(tint),
+                ShapeDrawOptions::new().color(tint),
             )
             .unwrap();
         let parameters = if effect_id == BLUR_EFFECT_ID {
@@ -6428,7 +6428,7 @@ fn tile_consecutive_captures_under_inherited_clips(
                 ]),
                 Some(parent),
                 None,
-                ShapeDrawCommandOptions::new().color(color),
+                ShapeDrawOptions::new().color(color),
             )
             .unwrap();
     }
@@ -6570,7 +6570,7 @@ fn tile_79_capture_before_first_group_draw(scene: &mut Scene) -> Vec<PixelExpect
             ]),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgba(255, 255, 255, 40)),
+            ShapeDrawOptions::new().color(Color::rgba(255, 255, 255, 40)),
         )
         .unwrap();
     scene
@@ -6597,7 +6597,7 @@ fn tile_79_capture_before_first_group_draw(scene: &mut Scene) -> Vec<PixelExpect
             ]),
             Some(group),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgba(255, 80, 90, 85)),
+            ShapeDrawOptions::new().color(Color::rgba(255, 80, 90, 85)),
         )
         .unwrap();
     scene
@@ -6676,7 +6676,7 @@ fn tile_80_group_composite_under_mixed_clips(scene: &mut Scene) -> Vec<PixelExpe
             Shape::rounded_rect(bounds(4.0, 4.0, 76.0, 70.0), BorderRadii::new(8.0)),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(180, 180, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(180, 180, 220)),
         )
         .unwrap();
     let scissor = scene
@@ -6692,7 +6692,7 @@ fn tile_80_group_composite_under_mixed_clips(scene: &mut Scene) -> Vec<PixelExpe
             Shape::rect(bounds(6.0, 8.0, 72.0, 64.0)),
             Some(scissor),
             None,
-            ShapeDrawCommandOptions::new().clips_children(false),
+            ShapeDrawOptions::new().clips_children(false),
         )
         .unwrap();
     let overflow = scene
@@ -6700,7 +6700,7 @@ fn tile_80_group_composite_under_mixed_clips(scene: &mut Scene) -> Vec<PixelExpe
             Shape::rect(bounds(20.0, 15.0, 38.0, 35.0)),
             Some(group),
             Some(80_001),
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .color(Color::rgb(0, 200, 0))
                 .clips_children(false),
         )
@@ -6718,7 +6718,7 @@ fn tile_80_group_composite_under_mixed_clips(scene: &mut Scene) -> Vec<PixelExpe
             Shape::rect(bounds(6.0, 20.0, 72.0, 42.0)),
             Some(overflow),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 0, 0)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 0, 0)),
         )
         .unwrap();
     scene
@@ -6734,7 +6734,7 @@ fn tile_80_group_composite_under_mixed_clips(scene: &mut Scene) -> Vec<PixelExpe
             Shape::builder().build(),
             Some(scissor),
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     scene
@@ -6750,7 +6750,7 @@ fn tile_80_group_composite_under_mixed_clips(scene: &mut Scene) -> Vec<PixelExpe
             Shape::rect(bounds(55.0, 44.0, 74.0, 58.0)),
             Some(empty_backdrop),
             None,
-            ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
+            ShapeDrawOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
         )
         .unwrap();
     scene
@@ -6758,7 +6758,7 @@ fn tile_80_group_composite_under_mixed_clips(scene: &mut Scene) -> Vec<PixelExpe
             Shape::rect(bounds(8.0, 58.0, 72.0, 68.0)),
             Some(outer),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(230, 200, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(230, 200, 50)),
         )
         .unwrap();
     scene
@@ -6766,7 +6766,7 @@ fn tile_80_group_composite_under_mixed_clips(scene: &mut Scene) -> Vec<PixelExpe
             Shape::rect(bounds(5.0, 70.0, 75.0, 78.0)),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(70, 70, 70)),
+            ShapeDrawOptions::new().color(Color::rgb(70, 70, 70)),
         )
         .unwrap();
 
@@ -6825,7 +6825,7 @@ fn tile_81_shared_shape_mask_effect_composites(scene: &mut Scene) -> Vec<PixelEx
             ),
             None,
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     let clip = scene
@@ -6847,7 +6847,7 @@ fn tile_81_shared_shape_mask_effect_composites(scene: &mut Scene) -> Vec<PixelEx
             ]),
             Some(clip),
             None,
-            ShapeDrawCommandOptions::new().clips_children(false),
+            ShapeDrawOptions::new().clips_children(false),
         )
         .unwrap();
     let shadow_parameters = DropShadowParams {
@@ -6871,7 +6871,7 @@ fn tile_81_shared_shape_mask_effect_composites(scene: &mut Scene) -> Vec<PixelEx
             .add_cached_shape(
                 81_001,
                 Some(group),
-                ShapeDrawCommandOptions::new()
+                ShapeDrawOptions::new()
                     .color(tint)
                     .transform(TransformInstance::translation(origin_x + x, origin_y + y))
                     .clips_children(false),
@@ -6915,7 +6915,7 @@ fn tile_81_shared_shape_mask_effect_composites(scene: &mut Scene) -> Vec<PixelEx
             ]),
             Some(outer),
             None,
-            ShapeDrawCommandOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
+            ShapeDrawOptions::new().background_texture_id(SOLID_GREEN_TEXTURE_ID),
         )
         .unwrap();
     [
@@ -6990,7 +6990,7 @@ fn tile_82_group_dependencies_in_layered_backdrops(scene: &mut Scene) -> Vec<Pix
             Shape::rect(bounds(4.0, 4.0, 76.0, 76.0)),
             None,
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
 
@@ -7000,7 +7000,7 @@ fn tile_82_group_dependencies_in_layered_backdrops(scene: &mut Scene) -> Vec<Pix
             Shape::rounded_rect(bounds(10.0, 10.0, 56.0, 58.0), BorderRadii::new(5.0)),
             Some(outer_group),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(200, 240, 230)),
+            ShapeDrawOptions::new().color(Color::rgb(200, 240, 230)),
         )
         .unwrap();
     for left in [16.0, 28.0, 40.0, 52.0] {
@@ -7009,7 +7009,7 @@ fn tile_82_group_dependencies_in_layered_backdrops(scene: &mut Scene) -> Vec<Pix
                 Shape::rect(bounds(left, 10.0, left + 5.0, 58.0)),
                 Some(wavy_card),
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgb(25, 65, 100)),
+                ShapeDrawOptions::new().color(Color::rgb(25, 65, 100)),
             )
             .unwrap();
     }
@@ -7027,7 +7027,7 @@ fn tile_82_group_dependencies_in_layered_backdrops(scene: &mut Scene) -> Vec<Pix
             Shape::rect(bounds(24.0, 24.0, 76.0, 76.0)),
             Some(outer_group),
             None,
-            ShapeDrawCommandOptions::new().clips_children(false),
+            ShapeDrawOptions::new().clips_children(false),
         )
         .unwrap();
     // This stripe must enter the layered capture before the panel covers it.
@@ -7036,7 +7036,7 @@ fn tile_82_group_dependencies_in_layered_backdrops(scene: &mut Scene) -> Vec<Pix
             Shape::rect(bounds(30.0, 48.0, 70.0, 52.0)),
             Some(frosted_group),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 35, 80)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 35, 80)),
         )
         .unwrap();
     let frosted_panel = scene
@@ -7044,7 +7044,7 @@ fn tile_82_group_dependencies_in_layered_backdrops(scene: &mut Scene) -> Vec<Pix
             Shape::rounded_rect(bounds(28.0, 28.0, 72.0, 72.0), BorderRadii::new(6.0)),
             Some(frosted_group),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgba(255, 120, 150, 75)),
+            ShapeDrawOptions::new().color(Color::rgba(255, 120, 150, 75)),
         )
         .unwrap();
     scene
@@ -7139,7 +7139,7 @@ pub fn build_nested_targets_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
             Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     scene
@@ -7161,7 +7161,7 @@ pub fn build_bounded_targets_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
             Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     load_shared_resources(scene);
@@ -7183,7 +7183,7 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
             Shape::rounded_rect(bounds(5.0, 5.0, 75.0, 63.0), BorderRadii::new(10.0)),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(25, 65, 100)),
+            ShapeDrawOptions::new().color(Color::rgb(25, 65, 100)),
         )
         .unwrap();
     let scissor = scene
@@ -7199,7 +7199,7 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
             Shape::rounded_rect(bounds(0.0, 0.0, 80.0, 63.0), BorderRadii::new(8.0)),
             Some(scissor),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(200, 240, 230)),
+            ShapeDrawOptions::new().color(Color::rgb(200, 240, 230)),
         )
         .unwrap();
     for left in [12.0, 24.0, 36.0, 48.0, 60.0] {
@@ -7208,7 +7208,7 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
                 Shape::rect(bounds(left, 0.0, left + 4.0, 63.0)),
                 Some(outer),
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgb(100, 175, 165)),
+                ShapeDrawOptions::new().color(Color::rgb(100, 175, 165)),
             )
             .unwrap();
     }
@@ -7217,7 +7217,7 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
             Shape::rounded_rect(bounds(18.0, 12.0, 64.0, 48.0), BorderRadii::new(6.0)),
             Some(outer),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(240, 135, 95)),
+            ShapeDrawOptions::new().color(Color::rgb(240, 135, 95)),
         )
         .unwrap();
     for left in [22.0, 32.0, 42.0, 52.0, 62.0] {
@@ -7226,7 +7226,7 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
                 Shape::rect(bounds(left, 12.0, left + 4.0, 48.0)),
                 Some(middle),
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgb(90, 40, 80)),
+                ShapeDrawOptions::new().color(Color::rgb(90, 40, 80)),
             )
             .unwrap();
     }
@@ -7235,7 +7235,7 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
             Shape::rounded_rect(bounds(28.0, 18.0, 54.0, 34.0), BorderRadii::new(5.0)),
             Some(middle),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(250, 220, 150)),
+            ShapeDrawOptions::new().color(Color::rgb(250, 220, 150)),
         )
         .unwrap();
     for left in [32.0, 40.0, 48.0] {
@@ -7244,7 +7244,7 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
                 Shape::rect(bounds(left, 18.0, left + 4.0, 34.0)),
                 Some(inner),
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgb(35, 95, 150)),
+                ShapeDrawOptions::new().color(Color::rgb(35, 95, 150)),
             )
             .unwrap();
     }
@@ -7253,7 +7253,7 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
             Shape::rect(bounds(0.0, 39.0, 80.0, 43.0)),
             Some(middle),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(200, 240, 230)),
+            ShapeDrawOptions::new().color(Color::rgb(200, 240, 230)),
         )
         .unwrap();
     let empty = scene
@@ -7261,7 +7261,7 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
             Shape::rect(bounds(0.0, 0.0, 1.0, 1.0)),
             Some(outer),
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     scene
@@ -7269,7 +7269,7 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
             Shape::rect(bounds(0.0, 52.0, 80.0, 58.0)),
             Some(outer),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 190, 30)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 190, 30)),
         )
         .unwrap();
     for left in [8.0, 20.0, 32.0, 44.0, 56.0, 68.0] {
@@ -7278,7 +7278,7 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
                 Shape::rect(bounds(left, 52.0, left + 6.0, 58.0)),
                 Some(outer),
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgb(240, 135, 95)),
+                ShapeDrawOptions::new().color(Color::rgb(240, 135, 95)),
             )
             .unwrap();
     }
@@ -7314,7 +7314,7 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
             Shape::rect(bounds(0.0, 59.0, 80.0, 61.0)),
             Some(parent),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(25, 65, 100)),
+            ShapeDrawOptions::new().color(Color::rgb(25, 65, 100)),
         )
         .unwrap();
     scene
@@ -7322,7 +7322,7 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
             Shape::rect(bounds(2.0, 69.0, 78.0, 75.0)),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(40, 90, 170)),
+            ShapeDrawOptions::new().color(Color::rgb(40, 90, 170)),
         )
         .unwrap();
     for left in [8.0, 24.0, 40.0, 56.0, 72.0] {
@@ -7331,7 +7331,7 @@ fn tile_83_nested_target_restoration(scene: &mut Scene) -> Vec<PixelExpectation>
                 Shape::rect(bounds(left, 69.0, left + 4.0, 75.0)),
                 None,
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgb(245, 190, 70)),
+                ShapeDrawOptions::new().color(Color::rgb(245, 190, 70)),
             )
             .unwrap();
     }
@@ -7434,7 +7434,7 @@ pub fn build_main_scene(scene: &mut Scene) -> Vec<PixelExpectation> {
             canvas_root,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
 

@@ -7,7 +7,7 @@ use grafo::{
     ContentEffectConfig, DrawCommandError, EffectError, EffectResourceError, Fill, Gradient,
     GradientStop, GradientStopOffset, LinearGradientDesc, LinearGradientLine, PixelFormat,
     PixelLayout, Pixmap, PixmapMut, Scene, SceneCreationError, SceneError, Shape,
-    ShapeDrawCommandOptions, ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
+    ShapeDrawOptions, ShapeMaskEffectConfig, ShapeTextureFitMode, ShapeTextureOptions,
     TextureManager, TransformInstance, WgpuBackendError,
 };
 use grafo_test_scenes::shaders::{PASSTHROUGH_WGSL, SHAPE_DROP_WGSL};
@@ -77,7 +77,7 @@ fn root_replacement_and_partial_updates_preserve_retained_pixels() {
                 Shape::rounded_rect([(0.0, 0.0), (64.0, 64.0)], BorderRadii::new(8.0)),
                 None,
                 None,
-                ShapeDrawCommandOptions::new().color(Color::WHITE),
+                ShapeDrawOptions::new().color(Color::WHITE),
             )
             .unwrap();
         render_bgra(&mut scene, &mut pixels).unwrap();
@@ -86,7 +86,7 @@ fn root_replacement_and_partial_updates_preserve_retained_pixels() {
                 Shape::rect([(4.0, 4.0), (12.0, 12.0)]),
                 Some(root),
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+                ShapeDrawOptions::new().color(Color::rgb(255, 0, 0)),
             )
             .unwrap();
         render_bgra(&mut scene, &mut pixels).unwrap();
@@ -103,7 +103,7 @@ fn root_replacement_and_partial_updates_preserve_retained_pixels() {
                     .close()
                     .build(),
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgb(0, 255, 0)),
+                ShapeDrawOptions::new().color(Color::rgb(0, 255, 0)),
             )
             .unwrap();
         scene
@@ -111,7 +111,7 @@ fn root_replacement_and_partial_updates_preserve_retained_pixels() {
                 child,
                 Shape::rect([(4.0, 4.0), (12.0, 12.0)]),
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgb(0, 0, 255)),
+                ShapeDrawOptions::new().color(Color::rgb(0, 0, 255)),
             )
             .unwrap();
         render_bgra(&mut scene, &mut pixels).unwrap();
@@ -124,7 +124,7 @@ fn root_replacement_and_partial_updates_preserve_retained_pixels() {
                 child,
                 Shape::rect([(16.0, 16.0), (24.0, 24.0)]),
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+                ShapeDrawOptions::new().color(Color::rgb(255, 0, 0)),
             )
             .unwrap();
         render_bgra(&mut scene, &mut pixels).unwrap();
@@ -183,7 +183,7 @@ fn projected_rect_addition_and_removal_update_retained_pixels() {
                     Shape::rect(bounds),
                     None,
                     None,
-                    ShapeDrawCommandOptions::new()
+                    ShapeDrawOptions::new()
                         .color(Color::rgb(255, 0, 0))
                         .transform(transform),
                 )
@@ -245,7 +245,7 @@ fn rejected_rasterization_changes_preserve_shape_mask_effect_pixels() {
             Shape::rect([(1_500_000_000.0, 0.0), (1_500_000_128.0, 64.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .transform(TransformInstance::translation(-1_500_000_000.0, 0.0)),
         )
         .unwrap();
@@ -297,7 +297,7 @@ fn shape_mask_effect_is_resolved_before_backdrop_capture_with_msaa() {
             Shape::rect([(0.0, 0.0), (64.0, 64.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 200, 50)),
         )
         .unwrap();
     let panel_id = scene
@@ -305,7 +305,7 @@ fn shape_mask_effect_is_resolved_before_backdrop_capture_with_msaa() {
             Shape::rect([(16.0, 16.0), (48.0, 48.0)]),
             None,
             Some(9_103),
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     scene
@@ -372,7 +372,7 @@ fn invalid_effect_can_be_replaced_with_a_valid_shader() {
             Shape::rect([(8.0, 8.0), (24.0, 24.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+            ShapeDrawOptions::new().color(Color::rgb(255, 0, 0)),
         )
         .unwrap();
     scene
@@ -434,7 +434,7 @@ fn shape_mask_effects_follow_geometry_and_placement_across_queue_rebuilds() {
                 Shape::rect([(0.0, 0.0), (96.0, 48.0)]),
                 None,
                 None,
-                ShapeDrawCommandOptions::new().color(Color::WHITE),
+                ShapeDrawOptions::new().color(Color::WHITE),
             )
             .unwrap();
         for (shape_key, left) in placements {
@@ -442,7 +442,7 @@ fn shape_mask_effects_follow_geometry_and_placement_across_queue_rebuilds() {
                 .add_cached_shape(
                     shape_key,
                     Some(root_id),
-                    ShapeDrawCommandOptions::new()
+                    ShapeDrawOptions::new()
                         .transform(TransformInstance::translation(left as f32, 12.0)),
                 )
                 .unwrap();
@@ -484,7 +484,7 @@ fn cached_shape_mask_effects_composite_with_solid_shapes() {
             Shape::rect([(0.0, 0.0), (96.0, 48.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new().clips_children(false),
+            ShapeDrawOptions::new().clips_children(false),
         )
         .unwrap();
 
@@ -496,7 +496,7 @@ fn cached_shape_mask_effects_composite_with_solid_shapes() {
             .add_cached_shape(
                 8_152,
                 Some(root_id),
-                ShapeDrawCommandOptions::new()
+                ShapeDrawOptions::new()
                     .color(color)
                     .transform(TransformInstance::translation(translation_x, 12.0)),
             )
@@ -521,7 +521,7 @@ fn cached_shape_mask_effects_composite_with_solid_shapes() {
             Shape::rect([(0.0, 0.0), (96.0, 48.0)]),
             Some(root_id),
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     render_bgra(&mut scene, &mut pixels).unwrap();
@@ -546,7 +546,7 @@ fn cached_shape_mask_effect_is_invalidated_by_normal_pipeline_recreation() {
             Shape::rect([(16.0, 16.0), (48.0, 48.0)]),
             None,
             Some(8_162),
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 200, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 200, 50)),
         )
         .unwrap();
     scene
@@ -587,7 +587,7 @@ fn assert_scene_restored_after_overlay_removal(
             Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]),
             Some(overlay),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 255)),
+            ShapeDrawOptions::new().color(Color::rgb(255, 0, 255)),
         )
         .unwrap();
     render_bgra(scene, pixel_buffer).unwrap();
@@ -670,7 +670,7 @@ fn rebuild_texture_material_scene(
             Shape::rect([(0.0, 0.0), (64.0, 32.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
     for left in [14.0, 46.0] {
@@ -679,7 +679,7 @@ fn rebuild_texture_material_scene(
                 Shape::rect([(left, 0.0), (left + 4.0, 32.0)]),
                 None,
                 None,
-                ShapeDrawCommandOptions::new().color(Color::BLACK),
+                ShapeDrawOptions::new().color(Color::BLACK),
             )
             .unwrap();
     }
@@ -713,7 +713,7 @@ fn rebuild_texture_material_scene(
                 Shape::rect([(left, 4.0), (left + 24.0, 28.0)]),
                 None,
                 None,
-                ShapeDrawCommandOptions::new().fill(fill),
+                ShapeDrawOptions::new().fill(fill),
             )
             .unwrap();
         scene
@@ -792,7 +792,7 @@ fn dirty_subtree_addition_and_removal_preserve_retained_pixels() {
                 Shape::rect([(2.0, 2.0), (48.0, 48.0)]),
                 Some(root),
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgba(255, 0, 0, 128)),
+                ShapeDrawOptions::new().color(Color::rgba(255, 0, 0, 128)),
             )
             .unwrap();
         render_bgra(&mut scene, &mut pixels).unwrap();
@@ -810,7 +810,7 @@ fn dirty_subtree_addition_and_removal_preserve_retained_pixels() {
                 Shape::rect([(10.25, 10.25), (20.75, 20.75)]),
                 Some(branch),
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgba(0, 0, 255, 128)),
+                ShapeDrawOptions::new().color(Color::rgba(0, 0, 255, 128)),
             )
             .unwrap();
         scene
@@ -818,7 +818,7 @@ fn dirty_subtree_addition_and_removal_preserve_retained_pixels() {
                 Shape::rect([(50.25, 50.25), (56.75, 56.75)]),
                 Some(branch),
                 None,
-                ShapeDrawCommandOptions::new().color(Color::WHITE),
+                ShapeDrawOptions::new().color(Color::WHITE),
             )
             .unwrap();
         render_bgra(&mut scene, &mut pixels).unwrap();
@@ -954,11 +954,11 @@ fn retained_texture_fits_follow_allocation_dimensions() {
                         Shape::rect([(90.0, 90.0), (94.0, 94.0)]),
                         Some(root),
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::WHITE),
+                        ShapeDrawOptions::new().color(Color::WHITE),
                     )
                     .unwrap();
                 let texture = ShapeTextureOptions::new(texture_id).fit_mode(fit_mode);
-                let options = ShapeDrawCommandOptions::new().color(Color::WHITE);
+                let options = ShapeDrawOptions::new().color(Color::WHITE);
                 let options = if is_foreground {
                     options.foreground_texture(texture)
                 } else {
@@ -1020,25 +1020,25 @@ fn texture_mutations_redraw_retained_layers_and_backdrop_captures() {
                 Shape::rect([(0.0, 0.0), (96.0, 64.0)]),
                 None,
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgb(30, 40, 50)),
+                ShapeDrawOptions::new().color(Color::rgb(30, 40, 50)),
             )
             .unwrap();
         for (bounds, options) in [
             (
                 [(8.0, 8.0), (24.0, 24.0)],
-                ShapeDrawCommandOptions::new()
+                ShapeDrawOptions::new()
                     .color(Color::WHITE)
                     .background_texture_id(texture_id),
             ),
             (
                 [(8.0, 36.0), (24.0, 52.0)],
-                ShapeDrawCommandOptions::new()
+                ShapeDrawOptions::new()
                     .color(Color::WHITE)
                     .foreground_texture_id(texture_id),
             ),
             (
                 [(80.0, 36.0), (88.0, 44.0)],
-                ShapeDrawCommandOptions::new().color(Color::rgb(0, 0, 255)),
+                ShapeDrawOptions::new().color(Color::rgb(0, 0, 255)),
             ),
         ] {
             scene
@@ -1050,7 +1050,7 @@ fn texture_mutations_redraw_retained_layers_and_backdrop_captures() {
                 Shape::rect([(48.0, 8.0), (64.0, 24.0)]),
                 Some(root),
                 None,
-                ShapeDrawCommandOptions::new().color(Color::TRANSPARENT),
+                ShapeDrawOptions::new().color(Color::TRANSPARENT),
             )
             .unwrap();
         scene
@@ -1137,7 +1137,7 @@ fn command_replacements_update_retained_geometry_effects_and_child_clips() {
                 Shape::rect([(0.0, 0.0), (96.0, 96.0)]),
                 None,
                 None,
-                ShapeDrawCommandOptions::new().color(Color::rgb(190, 50, 20)),
+                ShapeDrawOptions::new().color(Color::rgb(190, 50, 20)),
             )
             .unwrap();
         let parent = scene
@@ -1145,7 +1145,7 @@ fn command_replacements_update_retained_geometry_effects_and_child_clips() {
                 Shape::rect([(10.25, 10.25), (30.75, 30.75)]),
                 Some(root),
                 None,
-                ShapeDrawCommandOptions::new().clips_children(false),
+                ShapeDrawOptions::new().clips_children(false),
             )
             .unwrap();
         scene
@@ -1161,7 +1161,7 @@ fn command_replacements_update_retained_geometry_effects_and_child_clips() {
                 Shape::rect([(78.25, 12.25), (88.75, 22.75)]),
                 Some(parent),
                 None,
-                ShapeDrawCommandOptions::new().color(Color::WHITE),
+                ShapeDrawOptions::new().color(Color::WHITE),
             )
             .unwrap();
         render_bgra(&mut scene, &mut pixels).unwrap();
@@ -1174,7 +1174,7 @@ fn command_replacements_update_retained_geometry_effects_and_child_clips() {
                 parent,
                 Shape::rect([(40.25, 10.25), (60.75, 30.75)]),
                 None,
-                ShapeDrawCommandOptions::new().clips_children(false),
+                ShapeDrawOptions::new().clips_children(false),
             )
             .unwrap();
         render_bgra(&mut scene, &mut pixels).unwrap();
@@ -1189,7 +1189,7 @@ fn command_replacements_update_retained_geometry_effects_and_child_clips() {
             .replace_with_cached_shape(
                 parent,
                 9_402,
-                ShapeDrawCommandOptions::new().clips_children(false),
+                ShapeDrawOptions::new().clips_children(false),
             )
             .unwrap();
         render_bgra(&mut scene, &mut pixels).unwrap();
@@ -1222,7 +1222,7 @@ fn command_replacements_update_retained_geometry_effects_and_child_clips() {
                 parent,
                 Shape::rect([(40.25, 42.25), (60.75, 62.75)]),
                 None,
-                ShapeDrawCommandOptions::new()
+                ShapeDrawOptions::new()
                     .color(Color::rgb(0, 255, 0))
                     .clips_children(false),
             )
@@ -1256,7 +1256,7 @@ fn empty_draw_queue() {
                 Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]),
                 None,
                 None,
-                ShapeDrawCommandOptions::new().color(Color::WHITE),
+                ShapeDrawOptions::new().color(Color::WHITE),
             )
             .unwrap();
         render_bgra(&mut scene, &mut pixel_buffer).unwrap();
@@ -1286,7 +1286,7 @@ fn single_root_no_children() {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(200, 50, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(200, 50, 50)),
         )
         .unwrap();
 
@@ -1334,7 +1334,7 @@ fn original_size_texture_fit_uses_physical_pixels_on_hidpi() {
             shape,
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .background_texture(
                     ShapeTextureOptions::new(green_texture_id)
                         .fit_mode(ShapeTextureFitMode::OriginalSize),
@@ -1398,7 +1398,7 @@ fn cover_and_contain_texture_fit_preserve_aspect_ratio() {
             Shape::rect([(8.0, 8.0), (56.0, 56.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .clips_children(false)
                 .background_texture(
                     ShapeTextureOptions::new(texture_id).fit_mode(ShapeTextureFitMode::Cover),
@@ -1411,7 +1411,7 @@ fn cover_and_contain_texture_fit_preserve_aspect_ratio() {
             Shape::rect([(88.0, 8.0), (136.0, 56.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .background_texture(
                     ShapeTextureOptions::new(texture_id).fit_mode(ShapeTextureFitMode::Contain),
                 )
@@ -1474,7 +1474,7 @@ fn clipping_rect_clips_child_without_visible_surface() {
             child,
             Some(clip_rect_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(200, 50, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(200, 50, 50)),
         )
         .unwrap();
 
@@ -1525,7 +1525,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
             seeded_blue_panel.clone(),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(40, 40, 220)),
+            ShapeDrawOptions::new().color(Color::rgb(40, 40, 220)),
         )
         .unwrap();
     let seeded_blue_panel_id = scene
@@ -1533,7 +1533,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
             seeded_blue_panel,
             None,
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     scene
@@ -1559,7 +1559,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
             visible_red_source,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(220, 40, 40)),
+            ShapeDrawOptions::new().color(Color::rgb(220, 40, 40)),
         )
         .unwrap();
 
@@ -1569,7 +1569,7 @@ fn effect_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
             partially_offscreen_panel,
             None,
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     scene
@@ -1659,7 +1659,7 @@ fn clipping_rect_rejects_non_axis_aligned_transform() {
             child,
             Some(clip_rect_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(200, 50, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(200, 50, 50)),
         )
         .unwrap();
 
@@ -1686,7 +1686,7 @@ fn gradient_fill_basic() {
             root,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
 
@@ -1716,7 +1716,7 @@ fn gradient_fill_basic() {
             Shape::rect([(10.0, 10.0), (90.0, 90.0)]),
             Some(root_id),
             None,
-            ShapeDrawCommandOptions::new().fill(Fill::from(gradient)),
+            ShapeDrawOptions::new().fill(Fill::from(gradient)),
         )
         .unwrap();
 
@@ -1764,7 +1764,7 @@ fn gradient_survives_pipeline_recreation() {
             Shape::rect([(10.0, 10.0), (90.0, 90.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new().fill(Fill::from(gradient)),
+            ShapeDrawOptions::new().fill(Fill::from(gradient)),
         )
         .unwrap();
 
@@ -1800,7 +1800,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
             Shape::rect([(0.0, 0.0), (CANVAS_WIDTH as f32, CANVAS_HEIGHT as f32)]),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgba(0, 0, 0, 0)),
+            ShapeDrawOptions::new().color(Color::rgba(0, 0, 0, 0)),
         )
         .unwrap();
 
@@ -1832,7 +1832,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
             Shape::rounded_rect([(10.0, 10.0), (140.0, 90.0)], radii),
             Some(root),
             None,
-            ShapeDrawCommandOptions::new().fill(Fill::from(gradient)),
+            ShapeDrawOptions::new().fill(Fill::from(gradient)),
         )
         .unwrap();
 
@@ -1841,7 +1841,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
             Shape::rect([(20.0, 20.0), (130.0, 80.0)]),
             Some(gradient_parent),
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
 
@@ -1850,7 +1850,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
             Shape::rounded_rect([(160.0, 10.0), (290.0, 90.0)], radii),
             Some(root),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(0, 200, 0)),
+            ShapeDrawOptions::new().color(Color::rgb(0, 200, 0)),
         )
         .unwrap();
 
@@ -1859,7 +1859,7 @@ fn stencil_increment_gradient_does_not_leak_to_solid_parent() {
             Shape::rect([(170.0, 20.0), (280.0, 80.0)]),
             Some(solid_parent),
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
 
@@ -1888,7 +1888,7 @@ fn multi_subpath_fill_has_no_internal_seam() {
             canvas_root,
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::WHITE),
+            ShapeDrawOptions::new().color(Color::WHITE),
         )
         .unwrap();
 
@@ -1907,7 +1907,7 @@ fn multi_subpath_fill_has_no_internal_seam() {
             shape,
             Some(canvas_root_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(200, 50, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(200, 50, 50)),
         )
         .unwrap();
 
@@ -1917,7 +1917,7 @@ fn multi_subpath_fill_has_no_internal_seam() {
             rect,
             Some(canvas_root_id),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(200, 50, 50)),
+            ShapeDrawOptions::new().color(Color::rgb(200, 50, 50)),
         )
         .unwrap();
 
@@ -1961,7 +1961,7 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
             Shape::rect([(0.0, 0.0), (64.0, 64.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(255, 0, 0)),
+            ShapeDrawOptions::new().color(Color::rgb(255, 0, 0)),
         )
         .unwrap();
     let group = scene
@@ -1969,7 +1969,7 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
             Shape::rect([(4.0, 4.0), (60.0, 60.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     scene
@@ -1980,7 +1980,7 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
             Shape::rect([(32.0, 4.0), (60.0, 60.0)]),
             Some(group),
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(0, 255, 0)),
+            ShapeDrawOptions::new().color(Color::rgb(0, 255, 0)),
         )
         .unwrap();
     let panel = scene
@@ -1988,7 +1988,7 @@ fn layered_backdrop_survives_capture_and_resource_changes() {
             Shape::rect([(16.0, 16.0), (48.0, 48.0)]),
             Some(group),
             None,
-            ShapeDrawCommandOptions::new(),
+            ShapeDrawOptions::new(),
         )
         .unwrap();
     scene
@@ -2076,7 +2076,7 @@ fn readback_targets_survive_alternating_formats_and_resize() {
             Shape::rect([(0.0, 0.0), (130.0, 10.0)]),
             None,
             None,
-            ShapeDrawCommandOptions::new().color(Color::rgb(51, 102, 153)),
+            ShapeDrawOptions::new().color(Color::rgb(51, 102, 153)),
         )
         .unwrap();
     let mut pixels = Vec::new();

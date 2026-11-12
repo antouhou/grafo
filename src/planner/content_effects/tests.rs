@@ -13,7 +13,7 @@ use crate::scene_state::effects::parameters::EffectParameterStorage;
 use crate::scene_state::effects::{BackdropEffectInstance, ContentEffectInstance, EffectInstance};
 use crate::scene_state::types::CachedShapeDrawData;
 use crate::scene_state::types::{ClipRectDrawData, DrawTreeNode};
-use crate::{Shape, ShapeDrawCommandOptions, Size};
+use crate::{Shape, ShapeDrawOptions, Size};
 use ahash::{HashMap, HashMapExt};
 use easy_tree::Tree;
 use std::mem;
@@ -186,7 +186,7 @@ impl Scene {
             parent,
             DrawTreeNode::CachedShape(CachedShapeDrawData::new(
                 shape,
-                ShapeDrawCommandOptions::new(),
+                ShapeDrawOptions::new(),
             )),
         );
         self.backdrops.insert(

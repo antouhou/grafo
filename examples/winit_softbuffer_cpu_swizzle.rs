@@ -1,7 +1,7 @@
 use futures::executor::block_on;
 use grafo::PixmapMut;
 use grafo::Shape;
-use grafo::{Color, Scene, ShapeDrawCommandOptions};
+use grafo::{Color, Scene, ShapeDrawOptions};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -100,7 +100,7 @@ impl ApplicationHandler for App {
                         background,
                         None,
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(255, 255, 200)),
+                        ShapeDrawOptions::new().color(Color::rgb(255, 255, 200)),
                     )
                     .unwrap();
 
@@ -109,7 +109,7 @@ impl ApplicationHandler for App {
                         Shape::rect([(0.0, 0.0), (200.0, 200.0)]),
                         None,
                         None,
-                        ShapeDrawCommandOptions::new()
+                        ShapeDrawOptions::new()
                             .color(Color::rgb(255, 0, 0))
                             .transform(grafo::TransformInstance::identity()),
                     )
@@ -120,7 +120,7 @@ impl ApplicationHandler for App {
                         Shape::rect([(0.0, 0.0), (200.0, 200.0)]),
                         None,
                         None,
-                        ShapeDrawCommandOptions::new()
+                        ShapeDrawOptions::new()
                             .color(Color::rgb(0, 0, 255))
                             .transform(grafo::TransformInstance::translation(220.0, 0.0)),
                     )

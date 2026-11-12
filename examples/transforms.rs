@@ -1,7 +1,7 @@
 use euclid::{default::Transform3D, Angle};
 use futures::executor::block_on;
 use grafo::{
-    premultiply_rgba8_srgb_inplace, Color, Scene, Shape, ShapeDrawCommandOptions, TextureManager,
+    premultiply_rgba8_srgb_inplace, Color, Scene, Shape, ShapeDrawOptions, TextureManager,
     TransformInstance,
 };
 use grafo::{SceneContext, Surface};
@@ -374,7 +374,7 @@ impl ApplicationHandler for App {
                         background,
                         None,
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::BLACK),
+                        ShapeDrawOptions::new().color(Color::BLACK),
                     )
                     .unwrap();
 
@@ -484,7 +484,7 @@ impl ApplicationHandler for App {
                     .add_cached_shape(
                         RED_SHAPE_CACHE_KEY,
                         None,
-                        ShapeDrawCommandOptions::new()
+                        ShapeDrawOptions::new()
                             .color(if red_hover {
                                 self.red_color.1
                             } else {
@@ -497,7 +497,7 @@ impl ApplicationHandler for App {
                     .add_cached_shape(
                         GREEN_SHAPE_CACHE_KEY,
                         None,
-                        ShapeDrawCommandOptions::new()
+                        ShapeDrawOptions::new()
                             .color(if green_hover {
                                 self.green_color.1
                             } else {
@@ -510,7 +510,7 @@ impl ApplicationHandler for App {
                     .add_cached_shape(
                         BLUE_SHAPE_CACHE_KEY,
                         None,
-                        ShapeDrawCommandOptions::new()
+                        ShapeDrawOptions::new()
                             .color(if blue_hover {
                                 self.blue_color.1
                             } else {
@@ -524,7 +524,7 @@ impl ApplicationHandler for App {
                     .add_cached_shape(
                         JELLY_SHAPE_CACHE_KEY,
                         None,
-                        ShapeDrawCommandOptions::new()
+                        ShapeDrawOptions::new()
                             .color(if jelly_hover {
                                 self.jelly_color.1
                             } else {
@@ -537,7 +537,7 @@ impl ApplicationHandler for App {
                     .add_cached_shape(
                         HEART_SHAPE_CACHE_KEY,
                         None,
-                        ShapeDrawCommandOptions::new()
+                        ShapeDrawOptions::new()
                             .color(if heart_hover {
                                 self.heart_color.1
                             } else {
@@ -550,7 +550,7 @@ impl ApplicationHandler for App {
                     .add_cached_shape(
                         PERSPECTIVE_SHAPE_CACHE_KEY,
                         None,
-                        ShapeDrawCommandOptions::new()
+                        ShapeDrawOptions::new()
                             .color(if perspective_hover {
                                 self.perspective_color.1
                             } else {

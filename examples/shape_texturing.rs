@@ -1,6 +1,6 @@
 use futures::executor::block_on;
 use grafo::{BorderRadii, Scene, Shape, TextureManager};
-use grafo::{Color, ShapeDrawCommandOptions};
+use grafo::{Color, ShapeDrawOptions};
 use grafo::{SceneContext, Surface};
 use image::ImageReader;
 use std::sync::Arc;
@@ -111,7 +111,7 @@ impl ApplicationHandler for App {
                         background,
                         None,
                         None,
-                        ShapeDrawCommandOptions::new().color(Color::rgb(30, 30, 30)),
+                        ShapeDrawOptions::new().color(Color::rgb(30, 30, 30)),
                     )
                     .unwrap();
 
@@ -123,7 +123,7 @@ impl ApplicationHandler for App {
                         textured_rect,
                         Some(background_id),
                         None,
-                        ShapeDrawCommandOptions::new()
+                        ShapeDrawOptions::new()
                             .color(Color::rgb(255, 255, 255))
                             .background_texture_id(RUST_LOGO_TEXTURE_ID)
                             .transform(grafo::TransformInstance::translation(100.0, 100.0)),

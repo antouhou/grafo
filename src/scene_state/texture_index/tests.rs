@@ -1,5 +1,5 @@
 use super::TextureIndex;
-use crate::core::{MathRect, Shape, ShapeDrawCommandOptions, Viewport};
+use crate::core::{MathRect, Shape, ShapeDrawOptions, Viewport};
 use crate::render_backend::texture_manager::TextureUpdatePublisher;
 use crate::scene_state::types::{CachedShapeDrawData, DrawTreeNode};
 use crate::scene_state::{SceneState, SceneStateContext};
@@ -22,7 +22,7 @@ fn scene() -> SceneState {
     )
 }
 
-fn shape(scene: &mut SceneState, options: ShapeDrawCommandOptions) -> DrawTreeNode {
+fn shape(scene: &mut SceneState, options: ShapeDrawOptions) -> DrawTreeNode {
     let cached_shape = scene
         .tessellate(&Shape::rect([(0.0, 0.0), (16.0, 16.0)]), Some(1))
         .unwrap();
@@ -41,7 +41,7 @@ fn textured_scene(context: SceneStateContext, bounds: [(f32, f32); 2]) -> SceneS
     scene.insert_node(
         DrawTreeNode::CachedShape(CachedShapeDrawData::new(
             shape,
-            ShapeDrawCommandOptions::new()
+            ShapeDrawOptions::new()
                 .background_texture_id(11)
                 .foreground_texture_id(11),
         )),
@@ -73,24 +73,24 @@ fn insertion_indexes_shared_textures_and_deduplicates_layers_per_instance() {
     let mut scene = scene();
     let node = shape(
         &mut scene,
-        ShapeDrawCommandOptions::new()
+        ShapeDrawOptions::new()
             .background_texture_id(0)
             .foreground_texture_id(2),
     );
     let first = scene.insert_node(node, None);
     let node = shape(
         &mut scene,
-        ShapeDrawCommandOptions::new()
+        ShapeDrawOptions::new()
             .background_texture_id(2)
             .foreground_texture_id(2),
     );
     let second = scene.insert_node(node, Some(first));
     let node = shape(
         &mut scene,
-        ShapeDrawCommandOptions::new().foreground_texture_id(u64::MAX),
+        ShapeDrawOptions::new().foreground_texture_id(u64::MAX),
     );
     let foreground_only = scene.insert_node(node, Some(first));
-    let node = shape(&mut scene, ShapeDrawCommandOptions::new());
+    let node = shape(&mut scene, ShapeDrawOptions::new());
     let untextured = scene.insert_node(node, Some(first));
     let clip = SceneState::prepare_clipping_rect([(0.0, 0.0), (16.0, 16.0)], None, true).unwrap();
     let clip = scene.insert_node(clip, Some(first));
@@ -115,24 +115,24 @@ fn replacements_update_only_the_shapes_texture_associations() {
     let mut scene = scene();
     let node = shape(
         &mut scene,
-        ShapeDrawCommandOptions::new()
+        ShapeDrawOptions::new()
             .background_texture_id(1)
             .foreground_texture_id(2),
     );
     let parent = scene.insert_node(node, None);
     let node = shape(
         &mut scene,
-        ShapeDrawCommandOptions::new().background_texture_id(1),
+        ShapeDrawOptions::new().background_texture_id(1),
     );
     let child = scene.insert_node(node, Some(parent));
     for options in [
-        ShapeDrawCommandOptions::new()
+        ShapeDrawOptions::new()
             .background_texture_id(2)
             .foreground_texture_id(3),
-        ShapeDrawCommandOptions::new()
+        ShapeDrawOptions::new()
             .background_texture_id(3)
             .foreground_texture_id(2),
-        ShapeDrawCommandOptions::new()
+        ShapeDrawOptions::new()
             .background_texture_id(3)
             .foreground_texture_id(2),
     ] {
@@ -154,12 +154,12 @@ fn replacements_update_only_the_shapes_texture_associations() {
 
     let node = shape(
         &mut scene,
-        ShapeDrawCommandOptions::new().background_texture_id(4),
+        ShapeDrawOptions::new().background_texture_id(4),
     );
     scene.replace_node(parent, node, None, 4096);
     assert_eq!(scene.texture_index.textures_used_by(parent), &[4]);
     assert_texture_shapes(&scene, 4, &[parent]);
-    let node = shape(&mut scene, ShapeDrawCommandOptions::new());
+    let node = shape(&mut scene, ShapeDrawOptions::new());
     scene.replace_node(parent, node, None, 4096);
     assert!(scene.texture_index.textures_used_by(parent).is_empty());
     assert_texture_shapes(&scene, 4, &[]);
@@ -176,19 +176,19 @@ fn subtree_removal_clears_descendants_and_keeps_reused_ids_free_of_old_textures(
     let branch = scene.insert_node(branch, Some(root));
     let node = shape(
         &mut scene,
-        ShapeDrawCommandOptions::new()
+        ShapeDrawOptions::new()
             .background_texture_id(1)
             .foreground_texture_id(2),
     );
     let child = scene.insert_node(node, Some(branch));
     let node = shape(
         &mut scene,
-        ShapeDrawCommandOptions::new().background_texture_id(2),
+        ShapeDrawOptions::new().background_texture_id(2),
     );
     let descendant = scene.insert_node(node, Some(child));
     let node = shape(
         &mut scene,
-        ShapeDrawCommandOptions::new().background_texture_id(1),
+        ShapeDrawOptions::new().background_texture_id(1),
     );
     let sibling = scene.insert_node(node, Some(root));
     scene.remove_subtrees_with([child, branch, child, usize::MAX], |_, _, _, _| {});
@@ -201,7 +201,7 @@ fn subtree_removal_clears_descendants_and_keeps_reused_ids_free_of_old_textures(
 
     let node = shape(
         &mut scene,
-        ShapeDrawCommandOptions::new().foreground_texture_id(3),
+        ShapeDrawOptions::new().foreground_texture_id(3),
     );
     let reused = scene.insert_node(node, Some(root));
     assert!([branch, child, descendant].contains(&reused));
@@ -212,7 +212,7 @@ fn subtree_removal_clears_descendants_and_keeps_reused_ids_free_of_old_textures(
     assert!(scene.texture_index.shapes_by_texture.is_empty());
     assert!(scene.texture_index.textures_by_shape.is_empty());
 
-    let node = shape(&mut scene, ShapeDrawCommandOptions::new());
+    let node = shape(&mut scene, ShapeDrawOptions::new());
     let rebuilt = scene.insert_node(node, None);
     assert_eq!(rebuilt, 0);
     assert!(scene.texture_index.textures_used_by(rebuilt).is_empty());
