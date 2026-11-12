@@ -7,7 +7,7 @@ use crate::wgpu_backend::resources::ShapePipelines;
 pub(in crate::wgpu_backend) use cache::CoverageCache;
 use cache::CoverageKey;
 pub(crate) use geometry::CoverageBuilder;
-use std::{mem, ops::Range, sync::Arc};
+use std::{ops::Range, sync::Arc};
 use tiles::CoverageDrawRange;
 pub(crate) use tiles::CoverageGeometry;
 pub(in crate::wgpu_backend) use uploads::{CoverageAllocation, CoverageUpload};
@@ -148,38 +148,6 @@ fn prepare_indices(
         bytemuck::cast_slice(&index_storage[..count as usize * 6]),
         BufferUsages::INDEX | BufferUsages::COPY_DST,
     );
-}
-
-fn take_reusable_buffers(
-    pool: &mut Vec<CoverageBuffers>,
-    mesh: CoverageUpload<'_>,
-) -> Option<CoverageBuffers> {
-    let required = [
-        mem::size_of_val(mesh.geometry.tiles.as_slice()),
-        mem::size_of_val(mesh.geometry.projections.as_slice()),
-        mem::size_of_val(mesh.geometry.coverage.as_slice()),
-    ]
-    .map(|size| if size == 0 { 64 } else { size as u64 });
-    let index = pool
-        .iter()
-        .enumerate()
-        .min_by_key(|(_, buffers)| {
-            let capacities =
-                [&buffers.tiles, &buffers.projections, &buffers.coverage].map(|buffer| {
-                    buffer
-                        .as_ref()
-                        .expect("coverage buffers were uploaded")
-                        .size()
-                });
-            let fits = capacities
-                .into_iter()
-                .zip(required)
-                .all(|(capacity, required)| capacity >= required);
-            let total: u64 = capacities.iter().sum();
-            (!fits, if fits { total } else { u64::MAX - total })
-        })
-        .map(|(index, _)| index)?;
-    Some(pool.swap_remove(index))
 }
 
 impl CoverageBuffers {
