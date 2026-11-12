@@ -25,6 +25,7 @@ use std::mem;
 use std::time::Instant;
 use text::TextScratch;
 use thiserror::Error;
+use crate::DrawMode;
 
 mod damage;
 mod draw_commands;
@@ -262,7 +263,7 @@ impl<B: RenderBackend> Scene<B> {
     /// Replaces one command with a shape and returns its unchanged ID.
     /// Equal geometry IDs must identify identical fill and stroke geometry.
     /// Parent, children and attached effects are preserved.
-    /// Stroke mode requires a leaf node.
+    /// Children can't be added to a node that has draw mode set to [`DrawMode::Stroke`].
     /// Replacing a group moves its effects onto the shape. Descendants keep their own
     /// effects and those supplied by nested groups.
     pub fn replace_with_shape(
@@ -299,7 +300,7 @@ impl<B: RenderBackend> Scene<B> {
 
     /// Replaces one command with a loaded shape and returns its unchanged ID.
     /// Children and attached effects are retained.
-    /// Stroke mode requires a leaf node.
+    /// Children can't be added to a node that has draw mode set to [`DrawMode::Stroke`].
     /// Group effects follow the same rules as [`Scene::replace_with_shape`].
     pub fn replace_with_cached_shape(
         &mut self,
